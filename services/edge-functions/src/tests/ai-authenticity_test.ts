@@ -13,9 +13,85 @@ const {
   deriveCounterfeitRisk,
   normalizeAuthenticityAssessment,
   selectAuthenticityImages,
+  hasMacroEvidence,
   AUTHENTICITY_LIMITATIONS,
+  AUTHENTICITY_NO_MACRO_LIMITATION,
+  AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP,
   AUTHENTICITY_PROMPT_VERSION,
 } = await import("../lib/ai-authenticity.ts");
+
+// ── US-2134: macro evidence gates how confident the verdict may be ──────────
+
+Deno.test("hasMacroEvidence: only serial/marking count", () => {
+  assert(hasMacroEvidence(["front", "serial"]));
+  assert(hasMacroEvidence(["marking"]));
+  assertEquals(hasMacroEvidence(["front", "back", "label"]), false);
+  // `detail` is a generic close-up that may show nothing authenticating — it
+  // must NOT license a confident verdict.
+  assertEquals(hasMacroEvidence(["detail", "detail_2"]), false);
+  assertEquals(hasMacroEvidence([]), false);
+});
+
+Deno.test("applyVerdictCap: no macro evidence caps confidence", () => {
+  assertEquals(applyVerdictCap(0.95, 0, 0, true), 0.9, "ceiling still applies");
+  assertEquals(applyVerdictCap(0.95, 0, 0, false), AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP);
+  // Composition is min-of-caps: a contradiction still dominates the weaker cap.
+  assertEquals(applyVerdictCap(0.95, 1, 0, false), 0.5);
+  // Never RAISES a confidence that was already below the cap.
+  assertEquals(applyVerdictCap(0.3, 0, 0, false), 0.3);
+});
+
+Deno.test("applyVerdictCap: the macro flag defaults true (existing callers unchanged)", () => {
+  assertEquals(applyVerdictCap(0.95, 0, 0), applyVerdictCap(0.95, 0, 0, true));
+});
+
+Deno.test("normalizeAuthenticityAssessment: thin image set caps confidence and widens the disclosure", () => {
+  const raw = {
+    is_brand_recognizable: true,
+    brand_assessed: "Coach",
+    authenticity_confidence: 0.95,
+    red_flags: [],
+    summary: "Looks consistent.",
+  };
+
+  const thin = normalizeAuthenticityAssessment(raw, "m", AUTHENTICITY_PROMPT_VERSION, [
+    "front",
+    "back",
+  ]);
+  assertEquals(thin.verdict_confidence, AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP);
+  assert(
+    thin.limitations.includes(AUTHENTICITY_NO_MACRO_LIMITATION.trim()),
+    "the stated limitation should match the evidence that actually backed it",
+  );
+
+  const withMacro = normalizeAuthenticityAssessment(raw, "m", AUTHENTICITY_PROMPT_VERSION, [
+    "front",
+    "serial",
+  ]);
+  assertEquals(withMacro.verdict_confidence, 0.9);
+  assertEquals(withMacro.limitations, AUTHENTICITY_LIMITATIONS);
+});
+
+Deno.test("normalizeAuthenticityAssessment: an UNKNOWN image set does not trigger the cap", () => {
+  // Missing metadata is not evidence of thin evidence — the cap is for the case
+  // we positively know is thin.
+  const a = normalizeAuthenticityAssessment(
+    { is_brand_recognizable: true, brand_assessed: "Coach", authenticity_confidence: 0.95 },
+    "m",
+  );
+  assertEquals(a.verdict_confidence, 0.9);
+  assertEquals(a.limitations, AUTHENTICITY_LIMITATIONS);
+});
+
+Deno.test("selectAuthenticityImages: macro frames outrank generic garment shots", () => {
+  const picked = selectAuthenticityImages([
+    { imageType: "front" },
+    { imageType: "back" },
+    { imageType: "marking" },
+    { imageType: "serial" },
+  ]).map((p) => p.imageType);
+  assertEquals(picked.slice(0, 2), ["serial", "marking"]);
+});
 
 Deno.test("deriveCounterfeitRisk: no recognizable brand → indeterminate", () => {
   assertEquals(deriveCounterfeitRisk(0.9, 0, false), "indeterminate");

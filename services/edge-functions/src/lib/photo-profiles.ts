@@ -125,6 +125,31 @@ const CLOTHING: PhotoProfile = {
     role("detail_3", "Detail 3", "Another close-up", false, "search"),
     role("detail_4", "Detail 4", "Another close-up", false, "search"),
     role("interior", "Interior / Lining", "Inside-out: lining, seams, interior tags", false, "layers"),
+    // US-2134: authenticity macro evidence. The authenticity pass asks the model
+    // about date codes, stamps and hardware engraving, but until now a CLOTHING
+    // seller was never offered a slot to photograph any of it — `serial` and
+    // `marking` existed (migration 00230) and were surfaced only for non-clothing
+    // profiles. So the prompt requested evidence the capture flow never collected.
+    //
+    // Deliberately OPTIONAL: a condition grade must never fail because an
+    // authenticity slot was skipped, and most sellers are not running the add-on.
+    // The hints are written for macro capture specifically — fill the frame and
+    // brace the phone — because these tells are only legible at close range and
+    // an unusably distant shot is worse than no shot (it looks like evidence).
+    role(
+      "serial",
+      "Serial / Date code",
+      "Fill the frame with the code — get close, hold steady, avoid glare",
+      false,
+      "hash",
+    ),
+    role(
+      "marking",
+      "Brand stamp / Hardware",
+      "Close-up of an embossed logo, engraved zipper pull, rivet or button",
+      false,
+      "stamp",
+    ),
     role("flatlay", "Flat lay", "Styled flat lay for the listing gallery", false, "layout-grid"),
     role("on_model", "On model", "Worn on a model or mannequin", false, "user"),
   ],

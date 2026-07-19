@@ -63,6 +63,22 @@ export interface TellFinding {
 export const AUTHENTICITY_VERDICT_CONFIDENCE_CEILING = 0.9;
 export const AUTHENTICITY_CONTRADICTION_CONFIDENCE_CAP = 0.5;
 
+// US-2134: without a macro frame (a date code, an embossed stamp, an engraved
+// pull) the pass is reading whole-garment photos that physically cannot resolve
+// the tells the prompt asks about — delivered label pixels are ~500px, nowhere
+// near stitch density or engraving fidelity. A high-confidence verdict off that
+// evidence is unearned, so cap it.
+//
+// The VALUE is chosen deliberately at exactly the two thresholds it sits on:
+//   • deriveVerdict needs >= 0.7 for "likely_authentic"
+//   • authenticityNeedsReview forces review BELOW 0.7 for a branded assessment
+// So 0.7 removes the ability to claim HIGH confidence without macro evidence,
+// while neither flipping every existing no-macro verdict to "inconclusive" nor
+// flooding the human-review queue. Both of those would be defensible stricter
+// choices, but they are PRODUCT decisions (they change the headline verdict on
+// past assessments), not a refactor's to make. Recorded in US-2134.
+export const AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP = 0.7;
+
 // US-1770 (AC2): a red-flag verdict, or a recognizable-brand verdict we're not
 // confident about, routes the grade to human review before it's finalized —
 // we don't publish an uncertain or contradicted authenticity read unchecked.
@@ -123,6 +139,14 @@ export const AUTHENTICITY_LIMITATIONS =
 const MAX_AUTHENTICITY_IMAGES = 6;
 // Image types most informative for authenticity, in priority order.
 const AUTHENTICITY_IMAGE_PRIORITY = [
+  // US-2134: serial/marking rank ABOVE label. They are the only slots captured
+  // specifically as authenticity evidence (a date code, an embossed stamp, an
+  // engraved pull), so when a seller took the trouble, those frames must not be
+  // crowded out of the MAX_AUTHENTICITY_IMAGES budget by a generic front shot.
+  // They were absent from this list entirely, which meant the new clothing slots
+  // would have been captured and then never reached the model.
+  "serial",
+  "marking",
   "label",
   "label_2",
   "detail",
@@ -133,6 +157,13 @@ const AUTHENTICITY_IMAGE_PRIORITY = [
   "back",
   "defect",
 ];
+
+// US-2134: image types that constitute genuine macro authenticity evidence, as
+// opposed to whole-garment frames. `detail` is deliberately EXCLUDED — it is a
+// generic close-up slot ("texture, weave, or a distinctive feature") that may or
+// may not show an authentication tell, and treating a maybe as evidence is how
+// an unearned confident verdict happens.
+const MACRO_EVIDENCE_TYPES = new Set(["serial", "marking"]);
 
 const SYSTEM_PROMPT =
   `You are a brand-authentication specialist for GradeThread, assessing whether a ` +
@@ -269,13 +300,37 @@ export function applyVerdictCap(
   confidence: number,
   redFlagCount: number,
   inconsistentTellCount: number,
+  // US-2134. Defaults TRUE so every existing caller keeps its exact behavior —
+  // this cap only ever engages where the image set is actually known.
+  hasMacroEvidence: boolean = true,
 ): number {
   let c = Math.min(confidence, AUTHENTICITY_VERDICT_CONFIDENCE_CEILING);
   if (redFlagCount > 0 || inconsistentTellCount > 0) {
     c = Math.min(c, AUTHENTICITY_CONTRADICTION_CONFIDENCE_CAP);
   }
+  if (!hasMacroEvidence) {
+    c = Math.min(c, AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP);
+  }
   return Number(Math.max(0, c).toFixed(2));
 }
+
+/**
+ * Did the seller supply at least one macro authenticity frame? Pure + exported.
+ *
+ * Absence is not neutral: it means the tells the prompt asks about were never
+ * photographed, so the verdict rests on frames that cannot show them.
+ */
+export function hasMacroEvidence(imageTypes: readonly string[]): boolean {
+  return imageTypes.some((t) => MACRO_EVIDENCE_TYPES.has(t));
+}
+
+// US-2134: appended to the standard disclosure when no macro frame was supplied,
+// so the stated limitation matches the evidence that actually backed the verdict.
+// Like AUTHENTICITY_LIMITATIONS this is a fixed constant the model cannot author.
+export const AUTHENTICITY_NO_MACRO_LIMITATION =
+  " No close-up of a serial/date code or brand stamp was provided, so this estimate " +
+  "rests on whole-garment photos only and is capped accordingly — the fine details " +
+  "that distinguish a good counterfeit could not be examined.";
 
 /**
  * Derive the buyer-facing verdict deterministically. Any concrete contradiction
@@ -372,6 +427,10 @@ export function normalizeAuthenticityAssessment(
   raw: unknown,
   model: string,
   promptVersion: string = AUTHENTICITY_PROMPT_VERSION,
+  // US-2134: the image types that actually backed this assessment. Optional and
+  // defaulting to "assume macro evidence" so existing callers/tests are byte-
+  // identical; the real pass always passes them.
+  imageTypes?: readonly string[],
 ): AuthenticityAssessment {
   const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
 
@@ -395,7 +454,16 @@ export function normalizeAuthenticityAssessment(
   // exactly like a red flag.
   const tellFindings = normalizeTellFindings(a.tell_findings);
   const inconsistentTells = tellFindings.filter((t) => t.status === "inconsistent").length;
-  const verdictConfidence = applyVerdictCap(confidence, redFlags.length, inconsistentTells);
+  // US-2134: an unknown image set is treated as HAVING macro evidence so the cap
+  // never fires on a caller that simply didn't say. The cap is for the case we
+  // positively know is thin, not for missing metadata.
+  const macroPresent = imageTypes === undefined ? true : hasMacroEvidence(imageTypes);
+  const verdictConfidence = applyVerdictCap(
+    confidence,
+    redFlags.length,
+    inconsistentTells,
+    macroPresent,
+  );
   const verdict = deriveVerdict(
     verdictConfidence,
     redFlags.length,
@@ -424,7 +492,9 @@ export function normalizeAuthenticityAssessment(
     red_flags: redFlags,
     supporting_signals: supportingSignals,
     summary,
-    limitations: AUTHENTICITY_LIMITATIONS,
+    limitations: macroPresent
+      ? AUTHENTICITY_LIMITATIONS
+      : AUTHENTICITY_LIMITATIONS + AUTHENTICITY_NO_MACRO_LIMITATION,
     model,
     prompt_version: promptVersion,
   };
@@ -524,7 +594,15 @@ export async function assessAuthenticity(
     throw new Error("AI returned invalid JSON for authenticity assessment");
   }
 
-  const assessment = normalizeAuthenticityAssessment(parsed, model, promptVersion);
+  // US-2134: pass the types actually SENT (post-selection), not everything the
+  // submission holds — a macro frame dropped by the MAX_AUTHENTICITY_IMAGES cap
+  // did not inform the verdict and must not license confidence in it.
+  const assessment = normalizeAuthenticityAssessment(
+    parsed,
+    model,
+    promptVersion,
+    selected.map((s) => s.imageType),
+  );
   assessment.usage = toAiTokenUsage(model, response.usage);
   return assessment;
 }
