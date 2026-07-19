@@ -3990,3 +3990,33 @@ required (no new table/column/RPC), but harmless.
 it means the duplicate this story theorises about has actually occurred in prod.
 The story was filed on the strength of the code path, not an observed incident,
 so that count is the first real evidence either way. Record it here.
+
+---
+
+## 00484_sales_currency.sql — PENDING (US-2031, currency half)
+
+**Risk: LOW.** One additive nullable column. No backfill, no default, nothing
+destructive.
+
+**What it does**
+- `sales.currency text` (nullable) — records what the marketplace reported.
+
+**THIS IS NOT A MULTI-CURRENCY MIGRATION.** The story's AC explicitly warns that
+a half-migrated currency model is worse than an explicit single-currency one.
+This column exists so the consignor payout can DETECT a non-USD sale and refuse
+it. No amount is converted anywhere and no other money path learns about
+currencies.
+
+**Nullable with no backfill, deliberately.** NULL means "not reported" — every
+sale written before this, plus any ingest path that doesn't supply one. Those
+are treated as USD, exactly as they always have been. Defaulting to `'USD'`
+would fabricate a fact we don't have and make a genuinely-unknown currency
+indistinguishable from a confirmed-USD one.
+
+**Apply order:** after 00483, then `NOTIFY pgrst, 'reload schema';` (new column
+read and written through PostgREST).
+
+**Behaviour change:** a non-USD sale now REFUSES its consignor payout and raises
+a critical ops event, where it previously would have transferred the number as
+dollars. Only reachable once someone connects a non-US marketplace account —
+today nothing in prod should hit it.

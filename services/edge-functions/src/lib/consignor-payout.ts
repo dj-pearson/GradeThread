@@ -25,6 +25,7 @@ import {
   type AutoPayoutMode,
   computeConsignorShare,
   type ExistingAutoPayout,
+  isPayableCurrency,
   parseAutoPayoutMode,
   planAutoPayout,
 } from "./consignor-payout-math.ts";
@@ -87,6 +88,8 @@ interface SaleRow {
   // already received the item.
   sold_at: string | null;
   sale_date: string | null;
+  /** US-2031: NULL = the marketplace never reported one; treated as USD. */
+  currency: string | null;
   inventory_items: {
     user_id: string;
     consignor_id: string | null;
@@ -95,7 +98,7 @@ interface SaleRow {
 }
 
 const SALE_SELECT =
-  "id, status, sale_price, platform_fees, payment_processing_fees, inventory_item_id, sold_at, sale_date, " +
+  "id, status, sale_price, platform_fees, payment_processing_fees, inventory_item_id, sold_at, sale_date, currency, " +
   "inventory_items!inner(user_id, consignor_id, consignment_split_pct)";
 
 // Process the consignor payout for a single sale. Idempotent and safe to call
@@ -118,11 +121,32 @@ export async function processSaleConsignorPayout(
   // Only genuine completed sales pay out; cancelled/refunded/pending never do.
   if (sale.status !== "completed") return skip("sale_not_completed");
 
+
   const item = sale.inventory_items;
   if (!item.consignor_id) return skip("not_consigned");
   const ownerId = item.user_id;
   if (opts.expectedOwnerId && opts.expectedOwnerId !== ownerId) {
     return skip("owner_mismatch");
+  }
+
+  // US-2031: GradeThread is explicitly single-currency. fireTransfer hardcodes
+  // "usd", so paying out a GBP or EUR sale would transfer the NUMBER as dollars
+  // — silently wrong, and wrong in the direction of overpaying the consignor.
+  // Refuse rather than guess. Loud, because a seller with a non-US marketplace
+  // account would otherwise just never see their consignor paid and would have
+  // no way to find out why. Checked after ownership so the ops event can name
+  // the tenant it belongs to.
+  if (!isPayableCurrency(sale.currency)) {
+    console.error(
+      `[consignor-payout] REFUSING payout for sale ${saleId}: currency ${sale.currency} is not USD`,
+    );
+    await emitOpsEvent("consignor.payout_currency_refused", "critical", {
+      title: `Consignor payout refused — sale is in ${sale.currency}, not USD`,
+      source: "consignor-payout.currency",
+      actorUserId: ownerId,
+      data: { sale_id: saleId, currency: sale.currency },
+    }).catch(() => { /* never let the ops feed break the guard */ });
+    return skip("currency_not_supported");
   }
 
   // Load the consignor (tenant-scoped to the item owner).

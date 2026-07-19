@@ -122,3 +122,32 @@ Deno.test("isHeld is true only while the stamp is in the future", () => {
   // A malformed stamp must not hold a payout hostage forever.
   assertEquals(isHeld("not-a-date", now), false);
 });
+
+// ── US-2031: explicit single-currency enforcement ───────────────────
+//
+// fireTransfer hardcodes "usd". Before this, `sales` carried no currency at
+// all, so a GBP 120 sale would have transferred as USD 120 with no error —
+// wrong amounts, silently, in the direction of overpaying the consignor.
+
+const { isPayableCurrency, PAYOUT_CURRENCY } = await import("../lib/consignor-payout-math.ts");
+
+Deno.test("USD is payable, in any casing or spacing the API might send", () => {
+  for (const c of ["usd", "USD", " Usd ", "uSd"]) {
+    assertEquals(isPayableCurrency(c), true, `${c} should be payable`);
+  }
+  assertEquals(PAYOUT_CURRENCY, "usd");
+});
+
+// NULL/blank = "the marketplace never told us" — every pre-existing sale row.
+// These must keep behaving exactly as before, NOT start being refused.
+Deno.test("an unreported currency is treated as USD, so legacy sales still pay", () => {
+  for (const c of [null, undefined, "", "   "]) {
+    assertEquals(isPayableCurrency(c), true, `${JSON.stringify(c)} should be payable`);
+  }
+});
+
+Deno.test("any other currency is REFUSED rather than paid as dollars", () => {
+  for (const c of ["gbp", "GBP", "eur", "cad", "aud", "jpy"]) {
+    assertEquals(isPayableCurrency(c), false, `${c} must be refused`);
+  }
+});

@@ -108,3 +108,35 @@ export function planAutoPayout(args: {
 
   return { action: "create", settle: onboarded ? "transfer" : "queue" };
 }
+
+// ── US-2031: explicit single-currency enforcement ───────────────────
+//
+// fireTransfer hardcodes currency: "usd" with Math.round(amount * 100). That is
+// self-consistent TODAY because the sales table had no currency at all — but it
+// is the classic slow burn: the moment a seller connects a UK or EU eBay
+// account, a £120 sale is transferred as $120 with no error anywhere. Wrong
+// amounts, silently, in the direction of overpaying a consignor.
+//
+// The AC offered two routes: support multi-currency, or REJECT non-USD rather
+// than treat it as dollars. This is the reject route, and it is deliberately
+// NOT a partial multi-currency model — the AC warns that a half-migrated
+// currency model is worse than an explicit single-currency one, and it is
+// right. We now RECORD what the marketplace told us and REFUSE to pay when it
+// is not USD. Nothing else in the money path learns about currencies.
+//
+// NULL means "the marketplace never told us" — every sale written before this
+// shipped, plus any ingest path that does not report one. Those are treated as
+// USD, which is what they have always been treated as; this changes nothing for
+// them and avoids a fabricated backfill.
+
+export const PAYOUT_CURRENCY = "usd";
+
+/**
+ * Whether a sale in `currency` may be paid out. NULL/blank → true (legacy or
+ * unreported; unchanged behaviour). Anything else must match USD exactly.
+ */
+export function isPayableCurrency(currency: string | null | undefined): boolean {
+  const c = (currency ?? "").trim().toLowerCase();
+  if (c === "") return true;
+  return c === PAYOUT_CURRENCY;
+}

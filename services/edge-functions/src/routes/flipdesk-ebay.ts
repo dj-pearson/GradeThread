@@ -3088,6 +3088,11 @@ async function doListingsPull(
             tax,
             status: saleStatus,
             cancelled_at: cancelledAt,
+            // US-2031: record what eBay actually told us instead of discarding
+            // it. The orphan-sales path already kept this (:1958); the main
+            // sales row dropped it, which is why the USD assumption was
+            // invisible. NULL when unreported — treated as USD downstream.
+            currency: li.itemCost?.currency ?? null,
           };
 
           if (existing) {
