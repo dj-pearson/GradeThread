@@ -21,27 +21,20 @@
 //       .eq("status", "running").lt("updated_at", stale);
 // `.or()` on a SELECT is fine and is not flagged.
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { relative, sep } from "node:path";
+import { sourceTexts, SCAN_TIMEOUT_MS } from "./_source-scan";
 
 const ROOT = process.cwd();
 const SCAN_DIRS = ["src", "functions", "services/edge-functions/src"];
 const MUTATIONS = ["update", "delete", "upsert"];
 
-function walk(dir: string, out: string[] = []): string[] {
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return out;
-  }
-  for (const entry of entries) {
-    if (entry === "node_modules" || entry === "dist" || entry.startsWith(".")) continue;
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.(ts|tsx)$/.test(entry)) out.push(full);
-  }
-  return out;
+// US-2129: the walk + read now live in _source-scan.ts and are memoized, so the
+// two heavy tests below share ONE pass over the tree. Previously each re-read
+// all 2,235 files independently (21.6 MB twice), which is what pushed this file
+// past vitest's default 5000ms timeout under parallel load and made it fail at
+// random.
+function sourceEntries(): Array<{ file: string; text: string }> {
+  return sourceTexts(SCAN_DIRS, ROOT).filter((e) => /\.(ts|tsx)$/.test(e.file));
 }
 
 interface Hit {
@@ -50,10 +43,9 @@ interface Hit {
   snippet: string;
 }
 
-function findHits(files: string[]): Hit[] {
+function findHits(entries: Array<{ file: string; text: string }>): Hit[] {
   const hits: Hit[] = [];
-  for (const file of files) {
-    const text = readFileSync(file, "utf8");
+  for (const { file, text } of entries) {
     const rel = relative(ROOT, file).split(sep).join("/");
     if (rel === "src/lib/__tests__/no-or-on-mutations.test.ts") continue;
 
@@ -78,28 +70,28 @@ function findHits(files: string[]): Hit[] {
 }
 
 describe("US-1552: no .or() on a supabase mutation", () => {
-  const files = SCAN_DIRS.flatMap((d) => walk(resolve(ROOT, d)));
+  // Read ONCE for all three tests (US-2129).
+  const entries = sourceEntries();
 
   it("scans a plausible number of files", () => {
     // If the walk breaks, the guard below passes while checking nothing.
-    expect(files.length, "source scan found almost nothing — the walk broke").toBeGreaterThan(500);
+    expect(entries.length, "source scan found almost nothing — the walk broke").toBeGreaterThan(500);
   });
 
   it("finds mutation chains at all", () => {
     // And if the mutation regex stops matching, likewise. Proves the detector
     // is still looking at real code rather than silently matching zero things.
     let mutations = 0;
-    for (const f of files) {
-      const t = readFileSync(f, "utf8");
-      mutations += [...t.matchAll(new RegExp(`\\.(${MUTATIONS.join("|")})\\s*\\(`, "g"))].length;
+    for (const { text } of entries) {
+      mutations += [...text.matchAll(new RegExp(`\\.(${MUTATIONS.join("|")})\\s*\\(`, "g"))].length;
     }
     expect(mutations, "no .update()/.delete()/.upsert() calls found — detector broke").toBeGreaterThan(
       100,
     );
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it("no mutation chain uses .or()", () => {
-    const hits = findHits(files);
+    const hits = findHits(entries);
     expect(
       hits,
       "These apply .or() to a mutation. Prod PostgREST rejects this with a 42703 " +
@@ -108,5 +100,5 @@ describe("US-1552: no .or() on a supabase mutation", () => {
         "(US-1552, CLAUDE.md):\n  " +
         hits.map((h) => `${h.file}:${h.line}  ${h.snippet}`).join("\n  "),
     ).toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 });

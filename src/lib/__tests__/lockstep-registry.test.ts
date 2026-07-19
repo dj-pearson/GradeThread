@@ -22,8 +22,9 @@
 //
 // See vault/70-agent/guards-that-cannot-fail.md.
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import { sourceTexts, SCAN_TIMEOUT_MS } from "./_source-scan";
 
 const ROOT = process.cwd();
 const SCAN_DIRS = ["src", "services/edge-functions/src"];
@@ -93,30 +94,18 @@ const EXEMPT: Record<string, string> = {
     "import/unit test can cover it — no cross-project fixture needed.",
 };
 
-function walk(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry === "dist" || entry.startsWith(".")) continue;
-    const full = join(dir, entry);
-    const st = statSync(full);
-    if (st.isDirectory()) walk(full, out);
-    else if (/\.(ts|tsx)$/.test(entry)) out.push(full);
-  }
-  return out;
-}
+// US-2129: shared + memoized scan. This guard reads the whole tree (2,235
+// files, 21.6 MB) and was timing out at vitest's default 5000ms under parallel
+// worker load, failing at random.
 
 describe("US-2019: declared lockstep mirrors are classified", () => {
   it("every file asserting a mirror is either PINNED or EXEMPT", () => {
-    const files: string[] = [];
-    for (const d of SCAN_DIRS) files.push(...walk(resolve(ROOT, d)));
+    const entries = sourceTexts(SCAN_DIRS, ROOT).filter((e) =>
+      /\.(ts|tsx)$/.test(e.file),
+    );
 
     const declared: string[] = [];
-    for (const f of files) {
-      let text: string;
-      try {
-        text = readFileSync(f, "utf8");
-      } catch {
-        continue; // unreadable/binary — nothing to classify
-      }
+    for (const { file: f, text } of entries) {
       const rel = relative(ROOT, f).split("\\").join("/");
       // This file documents the marker phrases in order to search for them, so
       // it always matches itself. Excluding it is not a loophole — the registry
@@ -146,7 +135,7 @@ describe("US-2019: declared lockstep mirrors are classified", () => {
         "five mirrors checked so far had already drifted in production. Add a " +
         "shared fixture, or classify it as EXEMPT and say why.",
     ).toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it("the registry has no stale entries", () => {
     // A registry naming files that no longer declare a mirror rots into noise,
