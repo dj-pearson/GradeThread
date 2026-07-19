@@ -23,6 +23,12 @@ interface MarketingLayoutProps {
    * pages (US-303) pass a 3-level trail back to the /condition-grading pillar.
    */
   breadcrumbs?: Array<{ name: string; url: string }>;
+  /**
+   * US-2098: a data-report page noindexes itself while its dataset is below the
+   * publishable threshold, so an empty report is never offered to crawlers or
+   * answer engines as a finding.
+   */
+  noindex?: boolean;
   children: React.ReactNode;
 }
 
@@ -38,6 +44,7 @@ export function MarketingLayout({
   canonicalPath,
   jsonLd = [],
   breadcrumbs,
+  noindex = false,
   children,
 }: MarketingLayoutProps) {
   const trail = breadcrumbs ?? [
@@ -56,6 +63,7 @@ export function MarketingLayout({
         ogImage={og.url}
         ogImageAlt={og.alt}
         jsonLd={[organizationLd(), breadcrumbLd(trail), ...jsonLd]}
+        noindex={noindex}
       />
 
       {/* Header — matches the landing page */}

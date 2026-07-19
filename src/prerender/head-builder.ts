@@ -99,6 +99,11 @@ import {
   verifiedJsonLd,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
+import { resolvePrerenderSeed } from "@/lib/seo/prerender-seed";
+import {
+  MIN_DURABILITY_COHORTS,
+  isPublishableReport,
+} from "@/lib/report-thresholds";
 import {
   getResellerTermByPath,
   isResellerGlossaryHubPath,
@@ -416,6 +421,28 @@ export function jsonLdForRoute(path: string): JsonLd[] {
 }
 
 /** Full <head> inner HTML (meta + canonical + OG/Twitter + JSON-LD) for a route. */
+/**
+ * US-2098: is this a report page whose dataset is too thin to publish?
+ *
+ * Reads the SAME build-time seed the page body renders from (scripts/prerender.mjs
+ * fetches it into setPrerenderSeed before rendering), so the crawler-facing
+ * <head> and the crawler-facing <body> cannot disagree about whether a finding
+ * exists.
+ *
+ * Fails CLOSED: if the seed is absent we cannot show a report either, so
+ * noindex is the correct answer rather than indexing an unknown.
+ */
+function reportIsUnpublishable(path: string): boolean {
+  if (path !== "/state-of-durability") return false;
+  const seed = resolvePrerenderSeed<{
+    sample?: { sufficient_cohorts?: number };
+  }>("durability-report");
+  return !isPublishableReport(
+    seed?.sample?.sufficient_cohorts,
+    MIN_DURABILITY_COHORTS,
+  );
+}
+
 export function buildHeadTags(route: PublicRoute): string {
   const canonical = absoluteUrl(route.path);
   const fullTitle =
@@ -457,7 +484,15 @@ export function buildHeadTags(route: PublicRoute): string {
     // unlimited text snippets, and full video previews. Lets Google show the
     // richest SERP card and gives AI answer-engines permission to extract longer
     // passages (GEO). Applies to every prerendered (public, indexable) route.
-    `<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">`,
+    //
+    // US-2098: EXCEPT a data-report page whose dataset is below the publishable
+    // threshold. This has to happen HERE, not only in the page's <SEO>:
+    // react-helmet-async v3 renders no server-side head, so a noindex set in the
+    // SPA reaches humans and never reaches a crawler — which is precisely
+    // backwards for a page we are trying to keep OUT of the index.
+    reportIsUnpublishable(route.path)
+      ? `<meta name="robots" content="noindex, follow">`
+      : `<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">`,
     `<link rel="canonical" href="${escapeAttr(canonical)}">`,
     `<meta property="og:type" content="website">`,
     `<meta property="og:title" content="${title}">`,

@@ -14,6 +14,11 @@ import {
 } from "@/components/marketing/marketing-layout";
 import { edgeApiUrl } from "@/lib/edge-api";
 import {
+  MIN_QUALITY_REVIEWS,
+  PENDING_LABEL,
+  hasSufficientSample,
+} from "@/lib/report-thresholds";
+import {
   TRANSPARENCY_FAQS,
   transparencyJsonLd,
 } from "@/pages/marketing/marketing-jsonld";
@@ -67,7 +72,25 @@ interface TransparencyReport {
   } | null;
 }
 
-const PENDING = "Not enough data yet";
+// US-2098: thresholds + the pending label live in one place now.
+const PENDING = PENDING_LABEL;
+
+/**
+ * US-2098 AC2/AC3: a derived statistic is only rendered when its SAMPLE
+ * supports it.
+ *
+ * The live page showed an MAE of "0.00" computed from 17 reviews, which reads
+ * as fabricated-perfect rather than low-sample — and 0.00 is precisely the
+ * value an answer engine would quote back. Below MIN_QUALITY_REVIEWS the figure
+ * is withheld rather than rendered with a caveat, because a number on the page
+ * gets cited regardless of the caveat beside it.
+ */
+function gated(
+  reviews: number | undefined,
+  render: () => string,
+): string {
+  return hasSufficientSample(reviews, MIN_QUALITY_REVIEWS) ? render() : PENDING;
+}
 
 function pct(rate: number | null, digits = 1): string {
   return rate === null || rate === undefined
@@ -147,6 +170,10 @@ function MetricCard({
 export function TransparencyPage() {
   const { data, isLoading, isError } = useTransparencyReport();
   const q = data?.quality;
+  // US-2098 AC2: the sample every derived quality statistic rests on. Rendered
+  // next to them so a reader (or an answer engine) never sees a rate without
+  // knowing what it is a rate OF.
+  const n = data?.volume.human_reviews;
 
   return (
     <>
@@ -203,6 +230,29 @@ export function TransparencyPage() {
             AI's. These figures cover every reviewed grade across the platform.
           </p>
 
+          {/* US-2098 AC2: never a derived statistic without its sample size. A
+              rate with no n is uncheckable, and the page's whole purpose is to
+              be checkable. */}
+          {!isLoading && !isError && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              {hasSufficientSample(n, MIN_QUALITY_REVIEWS) ? (
+                <>
+                  Based on <strong>n&nbsp;=&nbsp;{n?.toLocaleString()}</strong>{" "}
+                  expert reviews.
+                </>
+              ) : (
+                <>
+                  <strong>Findings pending.</strong> These accuracy figures are
+                  withheld until at least {MIN_QUALITY_REVIEWS} expert reviews
+                  have accumulated
+                  {typeof n === "number" ? ` (currently ${n})` : ""} — below that
+                  a single review moves the headline by several points, so the
+                  number would be noise wearing the authority of a measurement.
+                </>
+              )}
+            </p>
+          )}
+
           {isError ? (
             <p className="mt-8 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
               Live figures are temporarily unavailable. The methodology below
@@ -212,12 +262,12 @@ export function TransparencyPage() {
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <MetricCard
                 label="AI-vs-human agreement"
-                value={isLoading ? "…" : pct(q?.human_agreement_rate ?? null)}
+                value={isLoading ? "…" : gated(n, () => pct(q?.human_agreement_rate ?? null))}
                 sub="Grades within half a point of the human reviewer"
               />
               <MetricCard
                 label="Mean error vs. reviewers"
-                value={isLoading ? "…" : num(q?.mean_absolute_error ?? null)}
+                value={isLoading ? "…" : gated(n, () => num(q?.mean_absolute_error ?? null))}
                 sub="Average points of difference (lower is better)"
               />
               <MetricCard
@@ -232,7 +282,7 @@ export function TransparencyPage() {
               />
               <MetricCard
                 label="Intentional-design misread rate"
-                value={isLoading ? "…" : pct(q?.intentional_misread_rate ?? null)}
+                value={isLoading ? "…" : gated(n, () => pct(q?.intentional_misread_rate ?? null))}
                 sub="Design (e.g. distressing) mistaken for damage — lower is better"
               />
               <MetricCard

@@ -3,6 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { BarChart3, Database, Quote, ShieldCheck, TrendingDown, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MarketingLayout, MarketingCTA } from "@/components/marketing/marketing-layout";
+import {
+  MIN_DURABILITY_COHORTS,
+  isPublishableReport,
+} from "@/lib/report-thresholds";
 import { SITE_URL } from "@/lib/seo/site";
 import { edgeApiUrl } from "@/lib/edge-api";
 import {
@@ -198,8 +202,23 @@ function DurabilityReportBody() {
 }
 
 export function StateOfDurabilityPage() {
+  // US-2098 AC1: the live dataset is currently EMPTY (brands 0,
+  // sufficient_cohorts 0, regrades 0, most_durable []), yet the page rendered a
+  // "cite this report ... CC BY 4.0" block over it. Inviting citation of a
+  // finding we do not have is worse than having no report page: an answer
+  // engine that ingests it will repeat it, and we cannot retract that.
+  //
+  // Read from the SAME prerender seed the body uses, so the decision the
+  // crawler sees in the prerendered HTML matches the one the SPA makes.
+  const seed = resolvePrerenderSeed<DurabilityReport>(SEED_KEY);
+  const publishable = isPublishableReport(
+    seed?.sample.sufficient_cohorts,
+    MIN_DURABILITY_COHORTS,
+  );
+
   return (
     <MarketingLayout
+      noindex={!publishable}
       title="The State of Secondhand Durability — which clothing brands last · GradeThread"
       description="GradeThread's original data on which pre-owned clothing brands hold their condition grade best, and which condition factors decay fastest, across regraded garments."
       canonicalPath="/state-of-durability"
@@ -240,11 +259,29 @@ export function StateOfDurabilityPage() {
           <div className="mt-6 flex items-start gap-3 rounded-xl border bg-card p-5">
             <Quote className="mt-1 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-foreground" />
             <div>
-              <p className="text-sm font-medium">Cite this report</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                GradeThread, <em>The State of Secondhand Durability</em>. Published{" "}
-                {DURABILITY_REPORT_PUBLISHED}. {CANONICAL}. CC&nbsp;BY&nbsp;4.0.
-              </p>
+              {publishable ? (
+                <>
+                  <p className="text-sm font-medium">Cite this report</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    GradeThread, <em>The State of Secondhand Durability</em>. Published{" "}
+                    {DURABILITY_REPORT_PUBLISHED}. {CANONICAL}. CC&nbsp;BY&nbsp;4.0.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">Findings pending</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    This report is not yet citable. Brand durability rankings are
+                    published once at least {MIN_DURABILITY_COHORTS} brand cohorts
+                    have enough regrades to compare
+                    {typeof seed?.sample.sufficient_cohorts === "number"
+                      ? ` (currently ${seed.sample.sufficient_cohorts})`
+                      : ""}
+                    . The methodology below describes exactly what will be
+                    measured.
+                  </p>
+                </>
+              )}
             </div>
           </div>
           <p className="mt-6">
