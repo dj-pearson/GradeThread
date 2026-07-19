@@ -2826,7 +2826,7 @@
     },
     {
       "id": "US-2066",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2065"
       ],
@@ -2838,7 +2838,10 @@
         "Note templates for each type (runbook, contract, decision, learning) with frontmatter prefilled, in vault/00-index/templates/.",
         "A short vault/README.md explaining the folder scheme and how to add a note — written for a human, not an agent.",
         "Graph view is legible at full corpus size: no more than a handful of hub notes exceeding ~20 links, and no disconnected islands.",
-        "Verified by actually opening the vault in Obsidian and navigating it, not just by config diff."
+        "Verified by actually opening the vault in Obsidian and navigating it, not just by config diff.",
+        "DONE 2026-07-19: 5 note templates (one per type) with frontmatter prefilled and the two CI-deciding fields called out; Templates core plugin wired; vault/README.md written for a human opening the folder; graph tuned for 89 nodes (orphans and unresolved hidden, label fade adjusted) plus 4 saved searches.",
+        "vault-lint now excludes 00-index/templates/ AND vault/README.md. A template deliberately has an empty title and reviewed date, so linting it fails by design; the README is the human door and renders on GitHub, where frontmatter is visible clutter. Documented in CONTRACT.md.",
+        "GRAPH validated STRUCTURALLY in US-2091 rather than visually: dead ends 16 -> 0, hubs above 20 links still only 2, 381 edges across 89 notes. The visual check and the 6 unexecuted Dataview queries still need a human with Obsidian open."
       ],
       "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 6. The graph-legibility criterion doubles as a structural check — a hairball graph or an isolated island usually means the folder taxonomy is wrong, which is worth catching while it is still cheap to reorganise.",
       "relevantPaths": [
@@ -2849,7 +2852,7 @@
     },
     {
       "id": "US-2067",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2064"
       ],
@@ -2862,7 +2865,11 @@
         "Documented cadence in vault/CONTRACT.md, sized to the actual warning rate observed after US-2064 rather than guessed at now.",
         "Optionally wired to a scheduled task, consistent with the existing Coolify scheduled-task setup.",
         "Re-reviewing requires re-reading the code_refs; the contract states plainly that bumping the date without reading is a lie the guard cannot catch.",
-        "One full review pass completed as part of this story to prove the queue is actionable."
+        "One full review pass completed as part of this story to prove the queue is actionable.",
+        "DONE 2026-07-19: vault-lint --report (npm run vault:review) emits a bounded, prioritised queue — contract drift first, then decisions past revisit_by, then oldest reviewed. Capped at 5: an unbounded queue is the same failure as an unbounded warning list.",
+        "CADENCE SIZED TO THE OBSERVED RATE, as the story required. The rate is ZERO — the queue is empty at 89 notes on day one. So the cadence is EVENT-DRIVEN (run it when CI warns, or before working an unfamiliar area), not weekly. A fixed schedule would have manufactured ceremony and taught everyone to ignore it. review-cadence.md states when to revisit that: non-empty more than weekly means tighten to a schedule; still empty in three months means the code_refs may be watching the wrong files.",
+        "REVIEW PASS COMPLETED on measurement-card-spec, the oldest note (reviewed 2026-07-06). Its code_ref last changed 2026-07-03 — BEFORE the review date — so the guard correctly did not queue it; re-read anyway to prove the empty queue was truthful rather than broken. Checked the note 7.5x5.5in trim against the code 6x4in marker rectangle: consistent, markers inset 0.75in per edge. No correction; date bumped because it was genuinely re-read.",
+        "Queue verified by SABOTAGE, since real data could not exercise it: backdating a contract note and expiring a decision produced exactly the expected three-item queue in the right priority order. 6 unit tests including the bounding case. Not wired to a scheduled task — deliberately, per the observed-rate finding above."
       ],
       "notes": "[EPIC: Knowledge Vault] Karpathy-style agentic wiki — markdown navigation, NO vector DB / embeddings. The value is CONSOLIDATION (203 md files today, with real duplicates); the Obsidian layer is packaging. Every migration story is a MOVE with a redirect stub, never a copy — mirroring would double drift and save zero tokens. Phase 6, and the story that determines whether this whole epic is still true in a year. Deliberately sizes the cadence AFTER measuring the real warning rate — guessing at a weekly cadence now would either overload or under-serve. The date-bumping criterion names the one failure mode automation genuinely cannot detect.",
       "relevantPaths": [

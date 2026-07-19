@@ -5,10 +5,20 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/measure-card.ts
-reviewed: 2026-07-06
+reviewed: 2026-07-19
 tags: [measurement, print, contract]
 summary: "The printed reference card: dimensions, tolerances and why the print scale must not drift."
 ---
+
+> [!info] Re-reviewed 2026-07-19 (US-2067), the first pass off the review queue
+> `measure-card.ts` last changed 2026-07-03; this note was reviewed 2026-07-06,
+> so the drift guard correctly did NOT queue it. Re-read anyway, to prove the
+> empty queue was truthful rather than broken.
+>
+> Checked the two numbers that could disagree: the note's **7.5 × 5.5 in trim**
+> against the code's **6 × 4 in marker rectangle**. Consistent — the markers sit
+> inset 0.75 in from the trim on every edge (7.5−6 = 1.5, 5.5−4 = 1.5, split
+> evenly). No correction needed; date bumped because it was genuinely re-read.
 
 > **Migrated, not re-verified (US-2052).** This note moved into the vault
 > unchanged. Its `reviewed` date is when the document was last EDITED, not

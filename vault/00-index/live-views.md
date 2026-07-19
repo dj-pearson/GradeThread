@@ -43,7 +43,7 @@ SORT reviewed ASC
 
 ## Review queue — oldest first
 
-The same ordering the review cadence works through (US-2067 turns this into a note). Oldest at the top is the
+The same ordering [[review-cadence]] works through. Oldest at the top is the
 point: a note nobody has re-read in months is the one most likely to be wrong.
 
 ```dataview

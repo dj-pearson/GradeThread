@@ -1,0 +1,20 @@
+{
+  "recentSearches": [
+    {
+      "query": "path:vault type:contract",
+      "label": "Contracts (strictest CI)"
+    },
+    {
+      "query": "path:60-decisions",
+      "label": "Decisions"
+    },
+    {
+      "query": "path:90-archive",
+      "label": "Archive (history only)"
+    },
+    {
+      "query": "source_of_truth:code",
+      "label": "Drift-guarded notes"
+    }
+  ]
+}

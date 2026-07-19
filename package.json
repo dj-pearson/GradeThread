@@ -34,7 +34,8 @@
     "smoke:staging": "node scripts/smoke-staging.mjs",
     "setup:stripe": "node scripts/setup-stripe-pricing.mjs",
     "ralph": "node scripts/ralph/run.mjs --tool claude",
-    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
+    "vault:review": "node scripts/vault-lint.mjs --report"
   },
   "repository": {
     "type": "git",

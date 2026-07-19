@@ -438,9 +438,23 @@ export function fixNote(raw, { today }) {
 
 // ── Loading ─────────────────────────────────────────────────────────────────
 
+// Two things under vault/ are NOT notes and are excluded from the schema.
+//
+// `00-index/templates/` — scaffolding. A template's `title` and `reviewed` are
+// deliberately empty (that is what a fill-in-the-blank IS) and nothing links to
+// one, because you copy it rather than navigate to it.
+//
+// `vault/README.md` — the HUMAN door. It renders on GitHub and in Obsidian's
+// file explorer as plain markdown, so frontmatter would be visible clutter at
+// exactly the moment someone is deciding whether this vault is worth reading.
+// INDEX.md is the agent door and carries the schema.
+export const NOTE_EXCLUDE = /^vault\/(00-index\/templates\/|README\.md$)/;
+
 export function loadNotes(root, { glob = globSync, read = readFileSync } = {}) {
   const notes = new Map();
-  const files = glob("vault/**/*.md", { cwd: root }).map((f) => String(f).replace(/\\/g, "/"));
+  const files = glob("vault/**/*.md", { cwd: root })
+    .map((f) => String(f).replace(/\\/g, "/"))
+    .filter((f) => !NOTE_EXCLUDE.test(f));
   for (const rel of files.sort()) {
     const raw = read(resolve(root, rel), "utf8");
     const { fm, body } = parseFrontmatter(raw);
@@ -450,6 +464,54 @@ export function loadNotes(root, { glob = globSync, read = readFileSync } = {}) {
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
+
+// ── Review queue (US-2067) ──────────────────────────────────────────────────
+//
+// A drift guard that only accumulates warnings becomes wallpaper. This turns
+// its output into a BOUNDED, PRIORITISED list — the point is that a review
+// session ENDS.
+//
+// Order is by consequence, not by age alone:
+//   1. contract notes with drift  — a stale contract is read as authoritative
+//                                   and then implemented
+//   2. decisions past revisit_by  — expired without anyone re-arguing them
+//   3. everything else by oldest reviewed date
+//
+// Capped at REVIEW_BATCH. An unbounded queue is the same failure as an
+// unbounded warning list, wearing a different hat.
+
+export const REVIEW_BATCH = 5;
+
+export function buildReviewQueue(notes, { commitTime, today, limit = REVIEW_BATCH } = {}) {
+  const items = [];
+  for (const [name, n] of notes) {
+    if (!n.fm || n.fm.status === "archived" || n.fm.status === "superseded") continue;
+
+    if (n.fm.source_of_truth === "code") {
+      const reviewed = String(n.fm.reviewed ?? "");
+      for (const ref of Array.isArray(n.fm.code_refs) ? n.fm.code_refs : []) {
+        const iso = commitTime(ref);
+        if (!iso) continue;
+        const day = iso.slice(0, 10);
+        if (day > reviewed) {
+          items.push({
+            name, path: n.path, reviewed,
+            priority: n.fm.type === "contract" ? 1 : 3,
+            reason: `${ref} changed ${day}`,
+          });
+          break; // one entry per note, not one per ref
+        }
+      }
+    }
+
+    const by = n.fm.revisit_by;
+    if (by && /^\d{4}-\d{2}-\d{2}$/.test(String(by)) && String(by) < today) {
+      items.push({ name, path: n.path, reviewed: String(n.fm.reviewed ?? ""), priority: 2, reason: `revisit_by ${by} passed` });
+    }
+  }
+  items.sort((a, b) => a.priority - b.priority || String(a.reviewed).localeCompare(String(b.reviewed)));
+  return { total: items.length, batch: items.slice(0, limit) };
+}
 
 export function main(argv = process.argv.slice(2)) {
   const flags = new Set(argv);
@@ -472,6 +534,30 @@ export function main(argv = process.argv.slice(2)) {
       }
     }
     return main(argv.filter((a) => a !== "--fix"));
+  }
+
+  if (flags.has("--report")) {
+    if (isShallowRepo(root)) {
+      process.stdout.write("  ! review queue unavailable — shallow clone has no per-file history\n");
+      return 0;
+    }
+    const { total, batch } = buildReviewQueue(notes, { commitTime: gitCommitTime(root), today });
+    if (!total) {
+      process.stdout.write(`  ✓ review queue empty — all ${notes.size} notes current\n`);
+      return 0;
+    }
+    process.stdout.write(`\nREVIEW QUEUE — ${total} note(s) need a look, showing ${batch.length}\n\n`);
+    for (const it of batch) {
+      const tag = it.priority === 1 ? "CONTRACT" : it.priority === 2 ? "DECISION" : "note";
+      process.stdout.write(`  [${tag}] ${it.name}\n      ${it.path}\n      ${it.reason} · last reviewed ${it.reviewed || "never"}\n`);
+    }
+    process.stdout.write(
+      `\nRe-reviewing means RE-READING the code_refs and confirming the note is still\n` +
+      `true, then bumping 'reviewed'. Bumping the date without reading is the one\n` +
+      `failure no automation here can catch.\n`,
+    );
+    if (total > batch.length) process.stdout.write(`\n${total - batch.length} more after these — the cap is deliberate, a session should END.\n`);
+    return 0;
   }
 
   const idx = notes.get(ROOT_NOTE);

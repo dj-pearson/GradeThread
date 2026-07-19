@@ -111,6 +111,11 @@ New here? Read [[CONTRACT]] before adding a note.
   the list below instead. Both come from the same frontmatter
   ([[adr-0003-dual-consumer-vault]]).
 
+## Maintenance
+
+- [[review-cadence]] — run `npm run vault:lint -- --report` when CI warns.
+  Event-driven, not scheduled: the observed drift rate is zero at 89 notes.
+
 ## Evidence
 
 - [[benchmark-2026-07-19]] — navigating this vault costs 89% less than the old

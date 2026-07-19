@@ -131,6 +131,13 @@ Two exemptions:
   `fetch-depth: 0`; the linter detects the shallow case and skips rather than
   producing confident nonsense.
 
+## The review queue
+
+`npm run vault:review` prints a bounded, prioritised list of notes needing a
+look — contract drift first, then expired decisions, then oldest-reviewed.
+Cadence and the worked example are in [[review-cadence]]; it is **event-driven,
+not scheduled**, because the measured drift rate at 89 notes was zero.
+
 ## Re-reviewing a note
 
 Bumping `reviewed` means you **re-read the `code_refs` and confirmed the note is
@@ -158,6 +165,22 @@ exactly this reason: the whole value of the field is that a human asserted it.
 
 Numbered prefixes sort identically in Obsidian's explorer and in `ls`, and give
 wikilinks a stable prefix.
+
+## Templates
+
+`00-index/templates/` holds one prefilled starting point per `type`. Obsidian's
+Templates core plugin is pointed at that folder (`.obsidian/templates.json`), so
+a new note starts schema-valid rather than being retro-fitted into compliance.
+
+They are **excluded from linting**, as is `vault/README.md`. A template's
+`title` and `reviewed` are deliberately empty, which is the point; and the
+README is the HUMAN door — it renders on GitHub and in the file explorer, so
+frontmatter would be visible clutter at the moment someone is deciding whether
+this vault is worth reading. `INDEX.md` is the agent door and carries the
+schema.
+
+A new note still needs an **inbound link** from something already in the vault.
+The template cannot supply that, and an orphan fails CI.
 
 ## Editing rules
 

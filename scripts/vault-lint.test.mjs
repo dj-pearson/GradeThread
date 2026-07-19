@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkDrift,
+  buildReviewQueue,
   checkMigrationNotes,
   isKnowledgeBearing,
   leadingCommentLines,
@@ -359,5 +360,53 @@ describe("leadingCommentLines / isKnowledgeBearing", () => {
   });
   it("returns null for an ordinary migration", () => {
     expect(isKnowledgeBearing("00500_add_index.sql", "-- one line\nSELECT 1;")).toBeNull();
+  });
+});
+
+describe("review queue (US-2067)", () => {
+  const at = (day) => () => `${day}T12:00:00+00:00`;
+  const v = (spec) => {
+    const m = new Map();
+    for (const [name, over] of Object.entries(spec)) {
+      m.set(name, { path: `vault/${name}.md`, fm: fm(over), body: "", links: [], raw: "" });
+    }
+    return m;
+  };
+
+  it("is empty when nothing has drifted", () => {
+    const q = buildReviewQueue(v({ a: { source_of_truth: "code", code_refs: ["x.ts"] } }),
+      { commitTime: at("2026-01-01"), today: TODAY });
+    expect(q.total).toBe(0);
+  });
+  it("ranks a drifted CONTRACT above a drifted reference", () => {
+    const q = buildReviewQueue(v({
+      ref: { type: "reference", source_of_truth: "code", code_refs: ["x.ts"], reviewed: "2026-01-01" },
+      con: { type: "contract", source_of_truth: "code", code_refs: ["x.ts"], reviewed: "2026-06-01" },
+    }), { commitTime: at("2026-07-10"), today: TODAY });
+    expect(q.batch[0].name).toBe("con");
+  });
+  it("includes a decision past revisit_by", () => {
+    const q = buildReviewQueue(v({ d: { type: "decision", revisit_by: "2026-01-01" } }),
+      { commitTime: () => null, today: TODAY });
+    expect(q.batch[0].reason).toMatch(/revisit_by/);
+  });
+  it("does not nag about an archived or superseded note", () => {
+    const q = buildReviewQueue(v({
+      a: { status: "archived", source_of_truth: "code", code_refs: ["x.ts"], reviewed: "2020-01-01" },
+      s: { status: "superseded", type: "decision", revisit_by: "2020-01-01" },
+    }), { commitTime: at("2026-07-10"), today: TODAY });
+    expect(q.total).toBe(0);
+  });
+  it("emits ONE entry per note even when several refs drifted", () => {
+    const q = buildReviewQueue(v({ a: { source_of_truth: "code", code_refs: ["x.ts", "y.ts", "z.ts"], reviewed: "2026-01-01" } }),
+      { commitTime: at("2026-07-10"), today: TODAY });
+    expect(q.total).toBe(1);
+  });
+  it("BOUNDS the batch — a session must be able to end", () => {
+    const many = {};
+    for (let i = 0; i < 20; i++) many[`n${i}`] = { source_of_truth: "code", code_refs: ["x.ts"], reviewed: "2026-01-01" };
+    const q = buildReviewQueue(v(many), { commitTime: at("2026-07-10"), today: TODAY, limit: 5 });
+    expect(q.total).toBe(20);
+    expect(q.batch).toHaveLength(5);
   });
 });
