@@ -28,18 +28,18 @@ summary: Nine-domain deep-dive review; all six executive-summary criticals since
 # GradeThread — Deep-Dive Code Review & Action Plan
 
 > [!info] Triage status (US-2089, updated 2026-07-19)
-> **31 of 93 boxes are ticked**: 8 of the 9 Criticals, all 8 **Web P1s**, 13
-> **Web P2s**, and the 2 edge/DB P2s US-2089 names explicitly. **Every single
-> one was already fixed.** The boxes were never ticked when the work shipped,
-> which is why they carried no signal either way.
+> **38 of 93 boxes are ticked**: 8 of the 9 Criticals, all 8 **Web P1s**, 13
+> **Web P2s**, all 7 **Grading-engine** findings, and the 2 edge/DB P2s US-2089
+> names explicitly. **Every single one was already fixed.** The boxes were
+> never ticked when the work shipped, which is why they carried no signal.
 >
 > An unchecked box means **NOT YET TRIAGED**, not **still open**. Do not read
-> the 62 remaining as a backlog of live defects; read them as unverified. That
+> the 55 remaining as a backlog of live defects; read them as unverified. That
 > distinction is the whole reason US-2089 exists.
 >
-> **31-for-31 already-fixed is a settled pattern.** The July review was
+> **38-for-38 already-fixed is a settled pattern.** The July review was
 > evidently actioned in bulk and nobody ticked the document. That is a REASON TO
-> FINISH THE TRIAGE CHEAPLY — not a licence to assume: each of the 31 was
+> FINISH THE TRIAGE CHEAPLY — not a licence to assume: each of the 38 was
 > confirmed against the cited code, and that reading is the only thing that
 > turns an unchecked box into information.
 >
@@ -216,15 +216,15 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 (The P1 is **C9** above.)
 
 ### P2
-- [ ] **Provenance boosts break min-of-caps composition (applied after caps, can exceed them)** — `grading-pipeline.ts:1632/1744/1851`. A peer-norm-capped 0.70 confidence gets boosted to 0.90 in the stored value, polluting the US-1557 calibration loop; `evaluateVerifiedCapture` also ignores `manipulation_suspected`. **Fix:** `min(conf + boost, capFloor)`.
-- [ ] **Escalation re-grade silently drops optional images without the partial-image cap** — `grading-pipeline.ts:302-308`. A transient failure of the `defect` image on the escalated model ships a grade from an incomplete set with no cap and no forced review. **Fix:** OR `failedOptional` into `partialSuccess`.
-- [ ] **Seller `brand` reaches the trusted prompt channel via baseline generation (indirect injection around the US-346 fence)** — `garment-baselines.ts:79-96`. `normalizeBaselineBrand` doesn't sanitize/fence; a crafted brand steers the generated brief, which is *cached* and injected as trusted into every future grade sharing that brand key. (Gated by `GRADING_BASELINES`, default off.) **Fix:** `sanitizeSellerText` before generation; validate/moderate the brief before caching.
+- [x] **Provenance boosts break min-of-caps composition (applied after caps, can exceed them)** — `grading-pipeline.ts:1632/1744/1851`. A peer-norm-capped 0.70 confidence gets boosted to 0.90 in the stored value, polluting the US-1557 calibration loop; `evaluateVerifiedCapture` also ignores `manipulation_suspected`. **Fix:** `min(conf + boost, capFloor)`. — ✅ **CLOSED** by US-1622 (same defect as C9): `grading-pipeline.ts` carries a running confidence ceiling that every post-composite boost clamps to, enforced at 8 sites — the peer-norm cap, the partial-image shave and the manipulation-evidence floor are all floors a later provenance boost cannot cross. Verified against source 2026-07-19 (US-2089).
+- [x] **Escalation re-grade silently drops optional images without the partial-image cap** — `grading-pipeline.ts:302-308`. A transient failure of the `defect` image on the escalated model ships a grade from an incomplete set with no cap and no forced review. **Fix:** OR `failedOptional` into `partialSuccess`. — ✅ **CLOSED** by US-1642: the escalation path now surfaces `partialSuccess` when it drops an optional image, and the caller ORs it in so the partial-image confidence cap still applies. Verified against source 2026-07-19 (US-2089).
+- [x] **Seller `brand` reaches the trusted prompt channel via baseline generation (indirect injection around the US-346 fence)** — `garment-baselines.ts:79-96`. `normalizeBaselineBrand` doesn't sanitize/fence; a crafted brand steers the generated brief, which is *cached* and injected as trusted into every future grade sharing that brand key. (Gated by `GRADING_BASELINES`, default off.) **Fix:** `sanitizeSellerText` before generation; validate/moderate the brief before caching. — ✅ **CLOSED** by US-1642: `garment-baselines.ts` imports `sanitizeSellerText` and the generation is sanitized + fenced; the cache key was bumped v1→v2 so pre-hardening briefs are not reused. Verified against source 2026-07-19 (US-2089).
 
 ### P3
-- [ ] Pipeline failure handler refunds a submission whose grade report was already inserted → "refunded + graded" state nothing reconciles — `grading-pipeline.ts:2216-2241`.
-- [ ] `finalizeGradeReview` ignores the finalize UPDATE's `{error}` and proceeds to go-live — `grading-pipeline.ts:774-786`.
-- [ ] Peer-norm cohort includes non-finalized preliminary grades — `peer-norm.ts:230-238` (add `.not("finalized_at","is",null)`).
-- [ ] Eval/dry-run composite legs silently include the live exemplar block, confounding measurements — `ai-grading.ts:1774-1780`, `grading-eval.ts:230-515`.
+- [x] Pipeline failure handler refunds a submission whose grade report was already inserted → "refunded + graded" state nothing reconciles — `grading-pipeline.ts:2216-2241`. — ✅ **CLOSED**: the failure handler now returns EARLY when the grade report was already inserted — it logs "grade stands; NOT marking failed, reversing charge, or notifying failure" and rethrows, so the refund path is never reached for a graded submission. Verified against source 2026-07-19 (US-2089).
+- [x] `finalizeGradeReview` ignores the finalize UPDATE's `{error}` and proceeds to go-live — `grading-pipeline.ts:774-786`. — ✅ **CLOSED** by US-1643: go-live is now gated on the finalize UPDATE actually succeeding. Verified against source 2026-07-19 (US-2089).
+- [x] Peer-norm cohort includes non-finalized preliminary grades — `peer-norm.ts:230-238` (add `.not("finalized_at","is",null)`). — ✅ **CLOSED**: `peer-norm.ts` now carries `.not("finalized_at", "is", null)` — the exact fix the finding recommended. Verified against source 2026-07-19 (US-2089).
+- [x] Eval/dry-run composite legs silently include the live exemplar block, confounding measurements — `ai-grading.ts:1774-1780`, `grading-eval.ts:230-515`. — ✅ **CLOSED** by US-1643: eval and dry-run legs set a flag that suppresses the live exemplar block, so the measurement is of the prompt rather than the prompt-plus-active-exemplars. Verified against source 2026-07-19 (US-2089).
 
 **Verified clean:** the four-site rounding lockstep holds (all `Math.round(total*10)/10`, weights 0.30/0.25/0.20/0.15/0.10); the frontend never recomputes shipped grades; AI-response parsing is well-clamped; threshold semantics are consistent; exemplar privacy is respected; prompt-version lifecycle (shadow→eval-gate→canary) is enforced.
 
