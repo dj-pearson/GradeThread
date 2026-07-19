@@ -46,18 +46,30 @@ Deno.test("an unrecognised event is NOT treated as known-ignored", () => {
   }
 });
 
-// The events that have their OWN stories must not be silently absorbed into
-// "ignored" — they are ignored HERE, deliberately, because another surface owns
-// them. Keeping them listed is what records that distinction.
-Deno.test("story-owned events are on the list, not merely absent", () => {
-  for (const t of ["invoice.upcoming", "customer.subscription.trial_will_end"]) {
-    assertEquals(
-      isIntentionallyIgnored(t),
-      true,
-      `${t} is owned by its own story — it must be an explicit decision here, ` +
-        `not an unexamined gap`,
-    );
-  }
+// An event deferred to another story must be an explicit DECISION on the list,
+// not an unexamined gap — and when that story lands, it must GRADUATE off the
+// list into a real handler.
+//
+// invoice.upcoming and customer.subscription.trial_will_end were both listed
+// here pending US-2119; they are now handled, and the assertions covering them
+// live in the US-2119 block below (which checks the opposite: that they are NOT
+// ignored). This test caught that transition rather than letting the list keep
+// claiming they were dropped — which is exactly what it is for.
+Deno.test("deferred events are an explicit decision, not an unexamined gap", () => {
+  // Everything on the list must carry a reason in the source beside it.
+  const src = Deno.readTextFileSync(new URL("../routes/webhooks.ts", import.meta.url));
+  const block = src.slice(
+    src.indexOf("const INTENTIONALLY_IGNORED_EVENTS"),
+    src.indexOf("export function isIntentionallyIgnored"),
+  );
+  // Counts LINE-START comments (group headers). Inline trailing comments on
+  // individual entries are additional annotation and are not counted here.
+  const commentLines = (block.match(/^\s*\/\//gm) ?? []).length;
+  assert(
+    commentLines >= 2,
+    "the ignored list must stay annotated — an unexplained entry is the same " +
+      "unexamined gap the list replaced",
+  );
 });
 
 // A handled event must never ALSO be on the ignored list: that combination is
@@ -132,4 +144,75 @@ Deno.test("US-2011: those emits are fire-and-forget, never awaited", () => {
         `delay the 200 and trigger the Stripe retries the alert is warning about`,
     );
   }
+});
+
+// ── US-2119: the advance renewal notice ─────────────────────────────
+//
+// The first contact a subscriber received about a renewal was the RECEIPT,
+// sent after the money moved. Yearly price IDs exist for every paid tier and
+// flow through the identical path — interval only changes a display string — so
+// an annual subscriber was charged a full year's fee with no prior contact.
+
+const { TRANSACTIONAL_CATEGORIES, resolveIsMarketing } = await import(
+  "../lib/email-transport.ts"
+);
+
+Deno.test("US-2119: invoice.upcoming is HANDLED, not ignored", () => {
+  assertEquals(
+    isIntentionallyIgnored("invoice.upcoming"),
+    false,
+    "it was on the known-ignored list pending this story; now it has a handler " +
+      "and must not be BOTH — that combination makes the list untrue",
+  );
+  assert(
+    /case "invoice\.upcoming":/.test(WEBHOOKS_SRC),
+    "invoice.upcoming must have a case in the switch",
+  );
+});
+
+Deno.test("US-2119 AC4: trial_will_end is HANDLED, not ignored", () => {
+  assertEquals(isIntentionallyIgnored("customer.subscription.trial_will_end"), false);
+  assert(/case "customer\.subscription\.trial_will_end":/.test(WEBHOOKS_SRC));
+});
+
+// AC3. If this category is ever classified marketing, an opt-out silently drops
+// the only advance warning of a charge — the exact defect, restored.
+Deno.test("US-2119 AC3: the renewal reminder is TRANSACTIONAL and cannot be marketing", () => {
+  assert(TRANSACTIONAL_CATEGORIES.has("subscription_renewal_reminder"));
+  assertEquals(
+    resolveIsMarketing({ category: "subscription_renewal_reminder", marketing: true }),
+    false,
+    "a known-transactional category must be force-classified transactional even " +
+      "when marketing is explicitly requested",
+  );
+});
+
+// A notice that cannot say WHEN is not a notice. Declining beats sending
+// something uselessly vague.
+Deno.test("US-2119: no billing date means no reminder is sent", () => {
+  const handler = WEBHOOKS_SRC.slice(
+    WEBHOOKS_SRC.indexOf("async function handleInvoiceUpcoming"),
+    WEBHOOKS_SRC.indexOf("async function handleTrialWillEnd"),
+  );
+  assert(
+    /typeof renewsAtSec !== "number"[\s\S]{0,40}return;/.test(handler),
+    "the handler must return when it has no date to state",
+  );
+  assert(
+    /amount_due/.test(handler) && /renewsAt/.test(handler),
+    "the notice must carry BOTH the amount and the date — AC1 requires stating " +
+      "what will be charged and when",
+  );
+});
+
+// The two trial paths must stay disjoint or a Stripe-trial user gets two emails.
+Deno.test("US-2119/US-2120: the two trial notices cannot both fire for one user", async () => {
+  const cron = await Deno.readTextFile(
+    new URL("../routes/jobs-trial-expiry.ts", import.meta.url),
+  );
+  assert(
+    /\.is\("flipdesk_subscription_id", null\)/.test(cron),
+    "the cron must exclude Stripe-managed subscriptions — trial_will_end covers " +
+      "those, and without this filter both would fire for the same user",
+  );
 });

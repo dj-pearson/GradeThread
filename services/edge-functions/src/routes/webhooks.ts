@@ -13,6 +13,8 @@ import {
   sendCreditPackPurchasedEmail,
   sendPaymentActionRequiredEmail,
   sendPaymentFailedEmail,
+  sendRenewalReminderEmail,
+  sendTrialExpiringEmail,
   sendSubscriptionCanceledEmail,
   sendSubscriptionPausedEmail,
   sendSubscriptionResumedEmail,
@@ -275,6 +277,23 @@ export async function dispatchStripeEvent(event: Stripe.Event): Promise<void> {
     // meant the user saw an unexplained loss of service with no idea why or
     // what to do. That is the same end state as a failed payment, which we DO
     // notify on, reached by a path we were silent about.
+    // US-2119: the ADVANCE renewal notice. Stripe fires invoice.upcoming ahead
+    // of a renewal; before this it fell through to the default log-and-drop, so
+    // the first contact about a charge was the receipt AFTER it.
+    case "invoice.upcoming":
+      await handleInvoiceUpcoming(event);
+      break;
+
+    // US-2119 AC4. NOTE these are DISJOINT populations, which is why both can
+    // exist without double-sending: our signup trial has NO Stripe subscription
+    // (handle_new_user grants it directly) and is covered by the trial-expiry
+    // cron (US-2120), which filters flipdesk_subscription_id IS NULL. This event
+    // only fires for a STRIPE-managed trial, i.e. someone who started a paid
+    // subscription with a trial period — a user the cron deliberately skips.
+    case "customer.subscription.trial_will_end":
+      await handleTrialWillEnd(event);
+      break;
+
     case "invoice.payment_action_required":
       await handleInvoicePaymentActionRequired(event);
       break;
@@ -2034,9 +2053,6 @@ async function handleInvoicePaymentActionRequired(event: Stripe.Event) {
 // Anything on this list is a decision. Anything NOT on it now warns and records
 // a metric, so it surfaces.
 const INTENTIONALLY_IGNORED_EVENTS = new Set<string>([
-  // Covered by their own stories / other handlers.
-  "invoice.upcoming", // renewal-reminder story owns this
-  "customer.subscription.trial_will_end", // trial-ending notice story owns this
   // Informational duplicates of state we already derive from the subscription
   // or invoice objects we DO handle.
   "invoice.created",
@@ -2063,3 +2079,117 @@ export function isIntentionallyIgnored(eventType: string): boolean {
 export const INTENTIONALLY_IGNORED_EVENT_LIST: readonly string[] = [
   ...INTENTIONALLY_IGNORED_EVENTS,
 ];
+
+// ── US-2119: advance renewal notice + Stripe-managed trial ending ────
+
+/**
+ * `invoice.upcoming` — Stripe's advance warning that it is about to bill.
+ *
+ * Sends the ONLY contact a subscriber gets before their card is charged. An
+ * annual subscriber was previously charged a full year's fee with no prior
+ * notice at all: the first message was the receipt, after the money moved.
+ *
+ * Buyer invoices are skipped for the same reason as the payment-failed handler
+ * (US-1799) — their lifecycle is carried by subscription.updated, and a
+ * seller-shaped renewal email would be wrong for them.
+ */
+async function handleInvoiceUpcoming(event: Stripe.Event) {
+  const invoice = event.data.object as Stripe.Invoice;
+  const customerId = typeof invoice.customer === "string"
+    ? invoice.customer
+    : (invoice.customer as Stripe.Customer | null)?.id;
+  if (!customerId) return;
+  if (invoiceIsBuyer(invoice)) return;
+
+  const user = await loadUserByCustomerId(customerId);
+  if (!user) return;
+
+  // Stripe puts the billing date on next_payment_attempt for an upcoming
+  // invoice. Without a date the notice cannot say WHEN — and "you will be
+  // charged at some point" is not a notice, so decline rather than send
+  // something uselessly vague.
+  const renewsAtSec = invoice.next_payment_attempt ?? invoice.period_end;
+  if (typeof renewsAtSec !== "number") return;
+
+  const interval =
+    invoice.lines?.data?.[0]?.price?.recurring?.interval === "year"
+      ? "yearly"
+      : "monthly";
+
+  await recordEvent(
+    user.id,
+    event.type,
+    event.id,
+    user.flipdesk_plan,
+    user.flipdesk_plan,
+    {
+      invoice_id: invoice.id,
+      amount_due: invoice.amount_due,
+      renews_at: new Date(renewsAtSec * 1000).toISOString(),
+    },
+    interval,
+  );
+
+  if (user.email) {
+    const planLabel = user.flipdesk_plan.charAt(0).toUpperCase() +
+      user.flipdesk_plan.slice(1);
+    safeSendEmail(
+      sendRenewalReminderEmail(user.email, {
+        userName: userDisplayName(user.email, user.full_name),
+        plan: planLabel,
+        amountCents: invoice.amount_due ?? 0,
+        renewsAt: new Date(renewsAtSec * 1000).toISOString(),
+        interval,
+      }),
+      "subscription_renewal_reminder",
+    );
+  }
+}
+
+/**
+ * `customer.subscription.trial_will_end` — a STRIPE-managed trial is ending.
+ *
+ * Disjoint from the trial-expiry cron (US-2120): our signup trial has no Stripe
+ * subscription at all, and that cron filters `flipdesk_subscription_id IS NULL`.
+ * This fires only for someone who started a PAID subscription with a trial
+ * period — exactly the user that cron skips. Neither path can double-send.
+ *
+ * Reuses sendTrialExpiringEmail, which is transactional, rather than minting a
+ * second trial template: two near-identical trial emails would drift.
+ */
+async function handleTrialWillEnd(event: Stripe.Event) {
+  const sub = event.data.object as Stripe.Subscription;
+  const customerId = typeof sub.customer === "string"
+    ? sub.customer
+    : (sub.customer as Stripe.Customer | null)?.id;
+  if (!customerId || typeof sub.trial_end !== "number") return;
+
+  const user = await loadUserByCustomerId(customerId);
+  if (!user?.email) return;
+
+  const trialEndsAt = new Date(sub.trial_end * 1000).toISOString();
+  const daysLeft = Math.max(
+    1,
+    Math.ceil((sub.trial_end * 1000 - Date.now()) / 86_400_000),
+  );
+
+  await recordEvent(
+    user.id,
+    event.type,
+    event.id,
+    user.flipdesk_plan,
+    user.flipdesk_plan,
+    { subscription_id: sub.id, trial_ends_at: trialEndsAt },
+  );
+
+  safeSendEmail(
+    sendTrialExpiringEmail(user.email, {
+      userName: userDisplayName(user.email, user.full_name),
+      daysLeft,
+      trialEndsAt,
+      // No userId — see US-2120: that adds a marketing unsubscribe link to a
+      // notice whose opt-out we do not honour.
+    }),
+    "trial_expiring",
+  );
+}

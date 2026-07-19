@@ -43,6 +43,10 @@ export const TRANSACTIONAL_CATEGORIES: ReadonlySet<string> = new Set([
   "welcome",
   "subscription_started",
   "subscription_renewal_receipt",
+  // US-2119: the ADVANCE notice. Transactional for the same reason as the
+  // receipt — a marketing opt-out must not suppress the only warning that a
+  // card is about to be charged.
+  "subscription_renewal_reminder",
   "subscription_canceled",
   "plan_downgraded",
   "subscription_paused",

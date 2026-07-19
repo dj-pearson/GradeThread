@@ -2853,3 +2853,59 @@ export async function sendPaymentActionRequiredEmail(
     category: "payment_action_required",
   });
 }
+
+// ── US-2119: ADVANCE renewal notice ─────────────────────────────────
+//
+// The first contact a subscriber received about a renewal was
+// sendSubscriptionRenewalReceiptEmail — sent AFTER the money was taken. Yearly
+// price IDs exist for every paid tier and flow through the identical path
+// (interval only changes a display string), so an annual subscriber was charged
+// a full year's fee with no prior contact whatsoever.
+//
+// This is the notice that arrives BEFORE. It is deliberately a separate template
+// from the receipt: a receipt confirms something that happened, this warns about
+// something that has not, and the only action that matters here — cancel before
+// the date — is meaningless on a receipt.
+
+interface RenewalReminderData {
+  userName: string;
+  plan: string;
+  amountCents: number;
+  /** ISO date the card will actually be charged. */
+  renewsAt: string;
+  interval: "monthly" | "yearly";
+}
+
+export async function sendRenewalReminderEmail(
+  to: string,
+  data: RenewalReminderData,
+): Promise<boolean> {
+  const when = formatDate(data.renewsAt);
+  const cadence = data.interval === "yearly" ? "annual" : "monthly";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Your ${escapeHtml(cadence)} plan renews on ${escapeHtml(when)}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, this is a heads-up that your
+      <strong>FlipDesk ${escapeHtml(data.plan)}</strong> subscription renews on
+      <strong>${escapeHtml(when)}</strong> and your card will be charged
+      <strong>${dollars(data.amountCents)}</strong>.
+    </p>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      No action is needed if you want to continue. If you'd rather not renew, you
+      can cancel any time before that date and keep your plan through the end of
+      the current period — there's no cancellation fee and no need to contact us.
+    </p>
+    ${ctaButton("Manage subscription", `${SITE_URL}/dashboard/billing`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `Your FlipDesk ${data.plan} plan renews ${when} (${dollars(data.amountCents)})`,
+    html: emailLayout(content),
+    // TRANSACTIONAL (US-2119 AC3). This must never route through the drip /
+    // marketing engine, where an opt-out, a suppression entry or a frequency cap
+    // could silently drop the only advance warning of a charge.
+    category: "subscription_renewal_reminder",
+  });
+}
