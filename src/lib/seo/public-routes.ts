@@ -213,7 +213,13 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
       "GradeThread pricing: a free plan with 3 grades/month, pay-per-grade tiers from $2.99, credit packs, and FlipDesk reseller subscriptions.",
     changefreq: "weekly",
     priority: 0.9,
-    jsonLdType: "FAQPage",
+    // US-2105 AC4: the page now emits Product/Offer as well as FAQPage. A route
+    // declares ONE primary type, and Product is the commercially meaningful one
+    // here — it is what a search engine renders a price from. FAQPage did not
+    // lose its prerender guarantee: pricing-offer-jsonld.test.ts asserts BOTH
+    // types survive the jsonLdForRoute() prerender path, which is the property
+    // the parity guard provides.
+    jsonLdType: "Product",
   },
   {
     path: "/for-resellers",

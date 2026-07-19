@@ -153,8 +153,62 @@ export const PRICING_FAQS = [
   },
 ];
 
+/**
+ * US-2105 AC4: Product + Offer on the actual commercial page.
+ *
+ * Product markup existed only on cert/passport/value SSR — i.e. everywhere
+ * EXCEPT the page where someone decides to buy. /pricing shipped FAQPage alone,
+ * so a search engine had no structured statement of what is sold or what it
+ * costs.
+ *
+ * Every figure is derived from FLIPDESK_PLANS, the single source of truth the
+ * page itself renders from. Hardcoding prices here would create a second place
+ * for them to live and a silent way for search results to advertise a price we
+ * no longer charge — the US-2123 defect (advertised ≠ granted) in a surface we
+ * do not control the cache of.
+ *
+ * The free plan is deliberately excluded: an Offer at price 0 competes with the
+ * paid tiers in rich results for no commercial gain.
+ */
+export function pricingOfferLd(): JsonLd {
+  const paid = (Object.keys(FLIPDESK_PLANS) as Array<keyof typeof FLIPDESK_PLANS>)
+    .map((k) => FLIPDESK_PLANS[k])
+    .filter((p) => p.priceMonthlyCents > 0);
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: "GradeThread",
+    description:
+      "AI-powered condition grading for pre-owned clothing: an objective " +
+      "1.0–10.0 grade, a condition report, and a shareable verification " +
+      "certificate — plus FlipDesk, the full eBay reseller workflow.",
+    brand: { "@type": "Brand", name: "GradeThread" },
+    // Required by the US-1681 schema lint (Google's Product requirements). A
+    // subscription is always sold new; there is no used-license market.
+    itemCondition: "https://schema.org/NewCondition",
+    offers: paid.map((p) => ({
+      "@type": "Offer",
+      name: `${p.name} (monthly)`,
+      price: (p.priceMonthlyCents / 100).toFixed(2),
+      priceCurrency: "USD",
+      availability: "https://schema.org/InStock",
+      url: `${SITE_URL}/pricing`,
+      // Recurring subscription, so the unit has to be stated or the price reads
+      // as one-off.
+      priceSpecification: {
+        "@type": "UnitPriceSpecification",
+        price: (p.priceMonthlyCents / 100).toFixed(2),
+        priceCurrency: "USD",
+        billingIncrement: 1,
+        unitCode: "MON",
+      },
+    })),
+  } as JsonLd;
+}
+
 export function pricingJsonLd(): JsonLd[] {
-  return [faqPageLd(PRICING_FAQS)];
+  return [pricingOfferLd(), faqPageLd(PRICING_FAQS)];
 }
 
 // ── /faq ───────────────────────────────────────────────────────────
