@@ -8,7 +8,7 @@
 //
 //   deno test --allow-env src/tests/agreed-terms_test.ts
 
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -139,4 +139,65 @@ Deno.test("a non-trial subscription records null trial terms", () => {
   const t = extractAgreedTerms(sub(), "pro");
   assertEquals(t?.trialDays, null);
   assertEquals(t?.trialEndsAt, null);
+});
+
+// ── US-2116 AC6: which PLATFORM captured the consent ─────────────────
+//
+// Apple and Google collect the affirmative agreement natively. Duplicating it
+// would be dishonest — we did not take that consent and cannot attest to its
+// wording. What was missing is any server-side record that it happened AT ALL,
+// which left "what did this user agree to?" answerable for Stripe subscribers
+// and unanswerable for IAP/Play ones.
+
+const AGREED_SRC = await Deno.readTextFile(
+  new URL("../lib/agreed-terms.ts", import.meta.url),
+);
+
+Deno.test("US-2116: the platform recorder does NOT invent a price", () => {
+  const fn = AGREED_SRC.slice(AGREED_SRC.indexOf("export async function recordPlatformAgreement"));
+  assert(
+    /amount_cents: 0/.test(fn),
+    "the platform owns and localises the price — inventing a figure here is the " +
+      "same error US-2117 refuses on the Stripe path",
+  );
+  assert(
+    /NOT a real price/.test(fn),
+    "the zero must be explained in place, or a later reader will treat it as a " +
+      "real amount the user agreed to",
+  );
+});
+
+// A platform transaction id must not be able to collide with a Stripe
+// subscription id in the uniqueness index.
+Deno.test("US-2116: the external id is namespaced by platform", () => {
+  const fn = AGREED_SRC.slice(AGREED_SRC.indexOf("export async function recordPlatformAgreement"));
+  assert(
+    /\$\{args\.source\}:\$\{args\.externalId\}/.test(fn),
+    "stripe_subscription_id must be namespaced as <source>:<id> so an Apple " +
+      "transaction id cannot collide with a Stripe subscription id",
+  );
+});
+
+Deno.test("US-2116: a duplicate platform agreement is not an error", () => {
+  const fn = AGREED_SRC.slice(AGREED_SRC.indexOf("export async function recordPlatformAgreement"));
+  assert(
+    /23505/.test(fn),
+    "a replayed IAP verify or a repeated RTDN must not report a failure — the " +
+      "uniqueness index firing IS the idempotency working",
+  );
+});
+
+// Both platform paths must actually call it, or the gap this closes reopens on
+// one side while looking closed on the other.
+Deno.test("US-2116: both platform purchase paths record an agreement", async () => {
+  const appstore = await Deno.readTextFile(
+    new URL("../routes/appstore.ts", import.meta.url),
+  );
+  const play = await Deno.readTextFile(
+    new URL("../routes/google-play-rtdn.ts", import.meta.url),
+  );
+  assert(/recordPlatformAgreement\(/.test(appstore), "appstore verify must record");
+  assert(/recordPlatformAgreement\(/.test(play), "play RTDN reverify must record");
+  assert(/source: "appstore"/.test(appstore));
+  assert(/source: "google_play"/.test(play));
 });

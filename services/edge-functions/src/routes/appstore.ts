@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { recordPlatformAgreement } from "../lib/agreed-terms.ts";
 import {
   claimWebhookEvent,
   failIfDbError,
@@ -265,6 +266,19 @@ appstoreVerifyRoutes.post("/verify", async (c) => {
     await applySubscription(userId, update);
     await recordAppstoreEvent(userId, "verify", txn.transactionId, user.flipdesk_plan, update.flipdesk_plan, {
       product_id: txn.productId,
+    });
+    // US-2116 AC6: record WHICH PLATFORM captured consent, rather than
+    // duplicating the consent itself. Apple collects and stores the affirmative
+    // agreement natively; what we were missing was any server-side record that
+    // it happened at all, so an IAP subscriber had no agreed-terms row while a
+    // Stripe subscriber did. source='appstore' marks the distinction honestly —
+    // we are recording that Apple took the consent, not claiming we did.
+    await recordPlatformAgreement({
+      userId,
+      plan: update.flipdesk_plan,
+      interval: update.flipdesk_interval,
+      source: "appstore",
+      externalId: txn.transactionId,
     });
     return c.json({
       plan: update.flipdesk_plan,

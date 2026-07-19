@@ -179,3 +179,50 @@ export async function recordAgreedTerms(
     captureException(err, { route: "agreed-terms", extra: { userId, plan } });
   }
 }
+
+/**
+ * Record that a PLATFORM captured the consent (US-2116 AC6).
+ *
+ * Apple and Google collect and store the affirmative agreement natively, so
+ * duplicating it here would be both redundant and dishonest — we did not take
+ * that consent and cannot attest to its wording. What was missing is any
+ * server-side record that it happened AT ALL: an IAP subscriber had no
+ * agreed-terms row while a Stripe subscriber did, so "what did this user agree
+ * to?" was answerable for one population and not the other.
+ *
+ * `source` is the honest marker: it says WHICH platform took the consent. The
+ * amount is deliberately omitted (0) rather than guessed — the platform sets and
+ * may localise the price, and inventing a figure here would be the same error
+ * US-2117 refuses on the Stripe path, where a partial record reads as fact.
+ */
+export async function recordPlatformAgreement(args: {
+  userId: string;
+  plan: string;
+  interval: string | null | undefined;
+  source: "appstore" | "google_play";
+  externalId: string;
+}): Promise<void> {
+  try {
+    const interval = args.interval === "yearly" ? "yearly" : "monthly";
+    const { error } = await supabaseAdmin.from("subscription_agreements").insert({
+      user_id: args.userId,
+      plan: args.plan,
+      billing_interval: interval,
+      // NOT a real price. The platform owns and localises it; see the note above.
+      amount_cents: 0,
+      currency: "usd",
+      // Namespaced so a platform transaction id cannot collide with a Stripe
+      // subscription id in the uniqueness index.
+      stripe_subscription_id: `${args.source}:${args.externalId}`,
+      source: args.source,
+    });
+    if (error && (error as { code?: string }).code !== "23505") {
+      captureException(error, {
+        route: "agreed-terms.platform",
+        extra: { userId: args.userId, source: args.source },
+      });
+    }
+  } catch (err) {
+    captureException(err, { route: "agreed-terms.platform", extra: { source: args.source } });
+  }
+}

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { recordPlatformAgreement } from "../lib/agreed-terms.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   classifyRtdn,
@@ -160,6 +161,21 @@ export async function reconcileRtdn(
       user.userId, eventId, "googleplay.rtdn.reverify", user.fromPlan, update.flipdesk_plan,
       { subscription_id: action.subscriptionId },
     );
+    // US-2116 AC6: record WHICH PLATFORM captured the consent. Google collects
+    // and stores the affirmative agreement natively, so duplicating it would be
+    // dishonest — we did not take it. What was missing is any server-side record
+    // that it happened, which left "what did this user agree to?" answerable for
+    // Stripe subscribers and not for Play ones. Idempotent on the namespaced
+    // purchase token, so a repeated RTDN cannot mint a second agreement.
+    if (update.flipdesk_plan && update.flipdesk_plan !== "free") {
+      await recordPlatformAgreement({
+        userId: user.userId,
+        plan: update.flipdesk_plan,
+        interval: update.flipdesk_interval,
+        source: "google_play",
+        externalId: action.purchaseToken,
+      });
+    }
     return { outcome: "reverified" };
   }
 
