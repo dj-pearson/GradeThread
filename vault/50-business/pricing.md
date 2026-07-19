@@ -304,3 +304,74 @@ value proposition: standardized condition grading at software margins.
 | Credit packs | `CREDIT_PACKS` | Products `credits_*`, one-time Prices |
 | Upgrade thresholds | `FLIPDESK_UPGRADE_TRIGGERS` | — |
 | Price IDs (env-injected) | `STRIPE_PRICE_IDS` | output of `scripts/setup-stripe-pricing.mjs` |
+
+---
+
+## The three-way mirror (US-2055)
+
+Pricing is defined in three places that must move together:
+
+1. **This note** — the canonical model (US-200).
+2. **`src/lib/constants.ts`** — the machine-readable mirror: `FLIPDESK_PLANS`,
+   `BUYER_PLANS`, `GRADETHREAD_TIERS`, `CREDIT_PACKS`, `FLIPDESK_UPGRADE_TRIGGERS`
+   (re-exported as `PLAN_MATRIX`).
+3. **The Stripe catalog** — generated from the same numbers by
+   `scripts/setup-stripe-pricing.mjs` (US-203).
+
+**Any change to the constants must update this note in the same commit, and
+vice-versa.** That rule is why this note is `source_of_truth: code` with
+`code_refs` on both: the drift guard watches them.
+
+### Verified against code 2026-07-19
+
+Every published figure was checked against `constants.ts`, and **they all match**:
+
+| Family | Doc | Code (cents) |
+|---|---|---|
+| FlipDesk | $0 / $29 / $59 / $99 (annual ×10) | 0, 2900/29000, 5900/59000, 9900/99000 |
+| Buyer | Guard $8/$80, Connoisseur $19/$190 | 800/8000, 1900/19000 |
+| Grades | Standard $2.99, Premium $7.99, Express $12.99 | 299, 799, 1299 |
+| Credit packs | 10/$24.99, 25/$59.99, 50/$109.99, 100/$199.99 | 2499, 5999, 10999, 19999 |
+
+Worth stating plainly because most of this epic has found the opposite: the
+same-PR mirror rule was actually honoured here. This is the one document set that
+had not drifted.
+
+### Two things that read wrong if you skim
+
+- **`-1` means unlimited/all, not "unset".** `activeListingCap: -1` and
+  `marketplacesCap: -1` are sentinels. Treating them as missing data silently
+  downgrades Business-tier accounts.
+- **The "marketplaces" cap counts API connections**, not channels a seller can
+  reach. Browser-extension marketplaces (Poshmark, Mercari, Grailed) consume no
+  connection. `MARKETPLACE_TIER` (US-718) is the source of truth for that split.
+
+## ⚠️ Unresolved: the per-grade AI cost is stated three ways
+
+Flagged 2026-07-19, **not** harmonised — the acceptance criterion for US-2055 is
+explicit that disagreeing figures are a finding, not a formatting problem, and
+resolving this needs someone who knows the deployed model mix and token volume.
+
+| Source | "Realistic" AI cost per Standard grade |
+|---|--:|
+| [[subscription-unit-economics]] — cost table | **~$0.03** |
+| [[subscription-unit-economics]] — prose, same doc | **~$0.05** |
+| [[ai-profitability]] — per-surface table | **~$0.02** |
+
+Both documents are dated 2026-07-02, and the first disagrees with *itself*
+between its table and its prose.
+
+**Impact: none on any decision so far.** The Standard grade sells for $2.99, so
+the margin conclusion (>90%, ">99%" in the AI report) holds at all three figures.
+The numbers matter for the AI-action cap sizing, where the blended action cost
+does the work — and that is stated consistently at ~$0.02.
+
+**To resolve:** pick one figure, say which model mix and photo count it assumes,
+and make the other two link here rather than restate it.
+
+## Related
+
+- [[subscription-unit-economics]] — margin per tier at these prices
+- [[ai-profitability]] — the cost side, per AI surface
+- [[passport-forecast]] — volume assumptions that ride on these prices
+- [[INDEX]]

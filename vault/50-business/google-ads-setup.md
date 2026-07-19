@@ -429,3 +429,9 @@ AG3 (reseller tools) carries volume. Keep copy honest about what's actually live
 - FASHIONPHILE — condition ratings: https://blog.fashionphile.com/fashionphile-condition-ratings/
 - Bank & Vogue — used clothing grading: https://www.bankvogue.com/graded-goods-explained/
 - ResaleOS — reseller authentication guide: https://www.resaleos.co/blog/mastering-luxury-item-authentication-a-resellers-guide
+
+## Related
+
+- [[seo-distribution-and-measurement]] — the organic counterpart
+- [[pricing]] — the LTV these bids are justified against
+- [[INDEX]]

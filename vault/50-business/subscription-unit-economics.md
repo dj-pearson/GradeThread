@@ -159,3 +159,9 @@ makes any cap safe in practice.
 without any price change. The only residual exposure (a maxed user whose every
 action is vision-heavy) is bounded by `ai_budgets` and closed by the pending
 Haiku routing.
+
+## Related
+
+- [[pricing]] — the prices these margins are computed against; do not restate them here
+- [[ai-profitability]] — the per-surface cost side (note the unresolved per-grade figure)
+- [[INDEX]]

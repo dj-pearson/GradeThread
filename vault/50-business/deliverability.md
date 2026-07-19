@@ -190,3 +190,9 @@ Clear every line before enabling autonomous weekly sends.
 
 See also `vault/10-ops/env-reference.md`, `vault/10-ops/launch-checklist.md`, and the CAN-SPAM/consent path
 in `services/edge-functions/src/lib/marketing-coordinator.ts`.
+
+## Related
+
+- [[newsletter-tuning]] — the sending side
+- [[env-reference]] — the SES/SMTP variables, including ones documented nowhere else
+- [[INDEX]]

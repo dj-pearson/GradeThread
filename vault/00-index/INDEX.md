@@ -68,7 +68,13 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 50-business — pricing and economics
 
-- [[pricing-source-of-truth]] — reference — Pricing has a doc and a code mirror that must change together; this note records the contract until docs/PRICING.md moves here in US-2055.
+- [[ai-profitability]] — reference — Per-surface model choice, unit cost and margin, with the keep/downgrade call for each.
+- [[deliverability]] — runbook — SES/SMTP configuration, warmup, DMARC alignment and what to check when mail stops landing.
+- [[google-ads-setup]] — runbook — Account structure, conversion wiring and the gclid path for the Ads Command Center.
+- [[newsletter-tuning]] — runbook — Cadence, segmentation and the levers that move open and click rates.
+- [[passport-forecast]] — reference — Volume and revenue projection for the passport surface.
+- [[pricing]] — contract — The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
+- [[subscription-unit-economics]] — reference — Cost per tier at realistic and worst-case utilization, and why the AI-action caps sit where they do.
 
 ## 60-decisions — ADRs
 

@@ -156,3 +156,9 @@ AI cost is structurally a rounding error against subscription revenue.
   Settings Registry — projections update with no deploy.
 - **Re-price:** edit `ai_model_prices`; both AI Spend and AI Profitability
   re-price historical tokens from the current table.
+
+## Related
+
+- [[pricing]] — the fees these margins are measured against
+- [[subscription-unit-economics]] — the tier-level view (its per-grade cost disagrees with this note's)
+- [[INDEX]]

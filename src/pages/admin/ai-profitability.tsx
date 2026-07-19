@@ -510,7 +510,7 @@ export function AdminAiProfitabilityPage() {
           <code>ai_usage_scenarios</code>) — edit them in the Settings Registry,
           no deploy. Scenario lines marked <code>*</code> use a modeled
           per-action cost because the ledger has no data for that feature yet.
-          Full write-up in <code>docs/AI_PROFITABILITY_REPORT.md</code>.
+          Full write-up in <code>vault/50-business/ai-profitability.md</code>.
         </p>
       </div>
     </div>

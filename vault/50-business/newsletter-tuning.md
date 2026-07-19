@@ -78,3 +78,9 @@ card: current topic weights, per-dimension open/click/unsub rates, the winner,
 paused topics, the best send hour, and a *Recompute now* button
 (`GET /api/admin/newsletter/tuning`). Operators override any weight directly from
 the system settings registry editor (`/admin/ops/settings`).
+
+## Related
+
+- [[deliverability]] — tuning is pointless if the mail does not land
+- [[content-scheduler]] — what queues the sends
+- [[INDEX]]

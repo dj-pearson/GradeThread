@@ -82,3 +82,9 @@ facet (brand / garment_type / category), case-insensitive.
 - **Plan tier:** the `compPulls` FlipDesk capability (pro+), the same gate as
   Scout/comps.
 - **Kill-switch:** the `passport_forecast` feature flag (fail-open / default on).
+
+## Related
+
+- [[pricing]] — the price assumptions behind this forecast
+- [[garment-passport-privacy]] — what a passport may expose
+- [[INDEX]]
