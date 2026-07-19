@@ -1,67 +1,40 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-> ## 🔴 READ FIRST (2026-07-19) — **64 migrations are pending, not 3**
+> ## ✅ ALL CLEAR (2026-07-19) — nothing pending
 >
-> The three authenticity migrations at the top of this file (`00487`, `00488`,
-> `00489`) are the newest, **not the only** ones outstanding. The full pending
-> range is:
+> The 64-migration backlog (`00412 … 00489`) was applied to prod on 2026-07-19,
+> confirmed by the user. Every entry below is retained as a log; none is
+> outstanding.
 >
-> ```
-> 00412 … 00436, 00441 … 00474, 00477, 00478, 00487, 00488, 00489
-> ```
->
-> **Do NOT apply just the authenticity three.** The edge boot guard compares the
-> **MAX** recorded version. Applying only `00487–00489` would push the max to
-> `00489`, which equals `EXPECTED_SCHEMA_VERSION`, so the guard would report
-> **`match`** while ~61 migrations are still missing from the schema. That is
-> precisely the failure the guard exists to catch, and it is the same shape as
-> the unexplained `00479` row documented below.
->
-> `checkSchemaCompleteness` (US-2009) compares the whole SET rather than the
-> watermark and would flag the gap — but it is deliberately **non-fatal**, so it
-> logs and the service carries on.
->
-> ### Apply the whole tail, in order
->
-> ```bash
-> # 1. Back up prod first — migrations are forward-only (vault/10-ops/backups.md)
-> # 2. Apply everything pending, in numeric order. Idempotent + self-recording.
-> SUPABASE_DB_URL="postgres://…@host:5432/postgres" ./scripts/apply-prod-migrations.sh
-> # 3. Reload PostgREST — several add tables/columns/enum values
-> #    psql "$SUPABASE_DB_URL" -c "NOTIFY pgrst, 'reload schema';"
-> # 4. Redeploy the edge on Coolify (its guard now expects 00489; ~40s grace)
-> # 5. Only then push — Cloudflare Pages auto-deploys the frontend on push
-> ```
->
-> ### Verify before pushing
+> **Confirm before/after the next edge deploy:**
 >
 > ```
 > GET https://functions.gradethread.com/health/ready
 >   → schema.expected == schema.applied == "00489", status "match"
 > ```
 >
-> ### Ordering caveat inside the authenticity three
+> If `applied` reads **higher** than `00489`, that is the unexplained `00479`-style
+> row again — see the note further down; do not reuse a burned number.
 >
-> `00488` must land **before** the edge rolls: `grading-pipeline` writes the new
-> `authenticity_assessed` enum value at finalize. The write is best-effort and
-> caught, so no paid grade is ever lost — but every assessment finalized in the
-> gap silently misses its passport entry. `00487` and `00489` are safe either way
-> (nothing client-side reads them yet).
+> ### Still owed on this deploy
 >
-> ### Separate precondition — certificate integrity
+> 1. **Redeploy the edge on Coolify.** Its boot guard expects `00489`; until the
+>    new image ships, prod is running code that predates these tables.
+> 2. **`NOTIFY pgrst, 'reload schema';`** if it was not run — several of these
+>    add tables, columns and an enum value, and PostgREST caches the schema.
+> 3. **Certificate-integrity precondition (US-2132).** Before that code serves
+>    traffic:
+>    ```sql
+>    SELECT count(*) FROM grade_reports
+>    WHERE content_hash IS NOT NULL AND content_signature IS NULL;
+>    ```
+>    If **> 0**, re-run the cert-integrity backfill — those certificates will
+>    otherwise show “Integrity could not be confirmed” to buyers, because an
+>    unsigned certificate no longer verifies while a signing key is configured.
 >
-> `US-2132` made an unsigned certificate fail verification while a signing key is
-> configured. **Before that reaches prod**, check:
->
-> ```sql
-> SELECT count(*) FROM grade_reports
-> WHERE content_hash IS NOT NULL AND content_signature IS NULL;
-> ```
->
-> If that is **> 0**, re-run the cert-integrity backfill first — those
-> certificates will otherwise start showing “Integrity could not be confirmed”
-> to buyers. The backfill does sign (`cert-integrity-backfill.ts:107`), and the
-> `certificates.integrity_share` metric already tracks `hash_only` as an anomaly.
+> **When adding the next migration**, restore the ⏳ PENDING marker for it and
+> put the held-migration note back at the top — this all-clear is a snapshot of
+> 2026-07-19, not a standing state.
 
 
 > ## 🔴 UNEXPLAINED 2026-07-19 — prod records a **00479 that does not exist in this repo**
@@ -185,7 +158,7 @@
 > previously the applied version was visible only in container logs, which is how
 > this file drifted 59 sections out of date without anyone noticing.)
 
-## ⏳ PENDING: 00489_dispute_kind_authenticity.sql (US-2145 seller appeal path, 2026-07-19)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00489_dispute_kind_authenticity.sql (US-2145 seller appeal path, 2026-07-19)
 
 **Apply AFTER 00488.** Adds a `kind` column to `disputes` (`'grade'` |
 `'authenticity'`, defaulting to `'grade'`) plus a partial index for the open
@@ -211,7 +184,7 @@ that commit inherits the ordering requirement. The boot guard expects `00489`.
 
 ---
 
-## ⏳ PENDING: 00488_garment_event_authenticity.sql (US-2142 passport authenticity event, 2026-07-19)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00488_garment_event_authenticity.sql (US-2142 passport authenticity event, 2026-07-19)
 
 **Apply AFTER 00487.** Adds `'authenticity_assessed'` to the
 `garment_event_type` enum so the brand-authenticity verdict can join the
@@ -241,7 +214,7 @@ grace window, US-778).
 
 ---
 
-## ⏳ PENDING: 00487_authenticity_review_outcomes.sql (US-2140 authenticity review outcomes, 2026-07-19)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00487_authenticity_review_outcomes.sql (US-2140 authenticity review outcomes, 2026-07-19)
 
 **Apply AFTER 00486.** Adds `authenticity_review_outcomes` — a place for a human
 reviewer to record what they concluded about an authenticity assessment, plus a
@@ -270,7 +243,7 @@ no webhook path that silently drops data during the gap.
 
 ---
 
-## ⏳ PENDING: 00478_grade_reports_active_unique.sql (US-2007 enforce one active report, 2026-07-18)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00478_grade_reports_active_unique.sql (US-2007 enforce one active report, 2026-07-18)
 
 **Apply AFTER 00477.** Makes `idx_grade_reports_active` UNIQUE, enforcing the
 "exactly one active (`superseded_at IS NULL`) grade_report per submission"
@@ -319,7 +292,7 @@ active report for the same submission must now fail with a unique violation.
 The edge change that ships with it (grading-pipeline.ts no longer swallows the
 read error) is safe in either order — it only makes a failure loud.
 
-## ⏳ PENDING: 00477_listings_inventory_sku.sql (US-1999 pin the published eBay SKU, 2026-07-18)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00477_listings_inventory_sku.sql (US-1999 pin the published eBay SKU, 2026-07-18)
 
 Adds `public.listings.inventory_sku TEXT` (nullable) + a partial index
 `idx_listings_user_inventory_sku (user_id, inventory_sku) WHERE inventory_sku IS
@@ -436,7 +409,7 @@ plain DDL — one `CREATE TABLE IF NOT EXISTS`, one `CREATE INDEX IF NOT EXISTS`
 footer — with no seed tuples to arity-check, but **run `npm run verify:db` before
 applying to prod.**
 
-## ⏳ PENDING: 00474_push_subscriptions.sql (US-1901 web push notifications, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00474_push_subscriptions.sql (US-1901 web push notifications, 2026-07-17)
 
 Creates `public.push_subscriptions` — one row per browser PushManager subscription
 (`user_id`, `endpoint` UNIQUE, `p256dh`, `auth`, `user_agent`, `failure_count`, …)
@@ -454,7 +427,7 @@ fallback channels, so there is no user-facing regression if this lags.
 the VAPID keypair (`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`, and the
 frontend `VITE_VAPID_PUBLIC_KEY`) before enabling push — see `vault/10-ops/env-reference.md`.
 
-## ⏳ PENDING: 00473_kids_baby_brand_knowledge.sql (US-1993 kids & baby brand KB, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00473_kids_baby_brand_knowledge.sql (US-1993 kids & baby brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the kids/baby tier: **Carter's,
 Hanna Andersson, Mini Boden, Janie and Jack, The Children's Place, Gymboree.** The
@@ -505,7 +478,7 @@ Bumps `EXPECTED_SCHEMA_VERSION` → **00473**. Risk: LOW — data-only, no schem
 DDL, no frontend reads the new rows (the edge resolver falls back to the in-code tables when
 a pack is absent).
 
-## ⏳ PENDING: 00472_outdoor_technical_tier2_brand_knowledge.sql (US-1992 outdoor & technical tier 2 brand KB, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00472_outdoor_technical_tier2_brand_knowledge.sql (US-1992 outdoor & technical tier 2 brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the tier-2 outdoor/technical
 tier: **Fjällräven, Salomon, Cotopaxi, Kühl, Helly Hansen, Mammut, Rab, Outdoor
@@ -555,7 +528,7 @@ Apply **after 00471** via `scripts/apply-prod-migrations.sh`, then
 schema change, no DDL, no frontend reads the new rows (the edge resolver falls back
 to the in-code tables when a pack is absent).
 
-## ⏳ PENDING: 00471_intimates_loungewear_shapewear_brand_knowledge.sql (US-1991 intimates/loungewear/shapewear brand KB, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00471_intimates_loungewear_shapewear_brand_knowledge.sql (US-1991 intimates/loungewear/shapewear brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the intimates / loungewear /
 shapewear tier: **SKIMS, Spanx, Victoria's Secret, PINK, Aerie, Savage X Fenty,
@@ -611,7 +584,7 @@ Apply **after 00470** via `scripts/apply-prod-migrations.sh`, then
 schema change, no DDL, no frontend reads the new rows (the edge resolver falls back
 to the in-code tables when a pack is absent).
 
-## ⏳ PENDING: 00470_footwear_tier2_brand_knowledge.sql (US-1990 footwear tier 2 brand KB, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00470_footwear_tier2_brand_knowledge.sql (US-1990 footwear tier 2 brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the tier-2 footwear tier:
 **Clarks, Merrell, KEEN, Sorel, Brooks, Saucony, Steve Madden, Sam Edelman,
@@ -674,7 +647,7 @@ bodies scanned for the `''`-inside-`$j$` trap and JSON validity — clean, with 
 scanner self-tested against three planted bugs (all caught). **Still run
 `npm run verify:db` before applying to prod.**
 
-## ⏳ PENDING: 00469_heritage_workwear_brand_knowledge.sql (US-1989 heritage & workwear brand KB, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00469_heritage_workwear_brand_knowledge.sql (US-1989 heritage & workwear brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the heritage / workwear tier:
 **Dickies, Filson, Red Wing, Timberland, Duluth Trading Co., Pendleton, Barbour,
@@ -715,7 +688,7 @@ US-1715 admin verify queue. **Docker was unavailable on the authoring host, so
 `scripts/ralph/validate-seed-sql.py` (pglast parse + tuple arity + `''`-in-`$j$`
 + JSON validity). Still run `verify:db` before applying to prod.**
 
-## ⏳ PENDING: 00468_handbags_accessories_brand_knowledge.sql (US-1988 handbags & accessories brand KB, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00468_handbags_accessories_brand_knowledge.sql (US-1988 handbags & accessories brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the handbags / accessories
 tier: **Longchamp, Marc Jacobs, Rebecca Minkoff, Fossil, Vera Bradley, Dooney &
@@ -789,7 +762,7 @@ applying to prod.**
 
 ---
 
-## ⏳ PENDING: 00467_preppy_contemporary_mens_brand_knowledge.sql (US-1987 preppy & contemporary men's brand KB, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00467_preppy_contemporary_mens_brand_knowledge.sql (US-1987 preppy & contemporary men's brand KB, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the preppy / contemporary
 menswear tier: **Vineyard Vines, Brooks Brothers, Bonobos, Faherty, Peter Millar,
@@ -859,7 +832,7 @@ against three planted bugs (a planted `''`, planted malformed JSON, and a plante
 dropped column) and caught all three. **Still run `npm run verify:db` before
 applying to prod.**
 
-## ⏳ PENDING: 00466_fast_fashion_mall_brand_knowledge.sql (US-1986 fast-fashion & mall brand KB tier 2, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00466_fast_fashion_mall_brand_knowledge.sql (US-1986 fast-fashion & mall brand KB tier 2, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the high-VOLUME staples tier:
 **Zara, H&M, Urban Outfitters, Express, LOFT, Ann Taylor, Talbots, Lucky Brand,
@@ -912,7 +885,7 @@ JSON validity — clean. The scanner was self-tested against three planted bugs
 (a planted `''`, planted malformed JSON, and a planted dropped column) and caught
 all three. **Still run `npm run verify:db` before applying to prod.**
 
-## ⏳ PENDING: 00465_activewear_brand_knowledge.sql (US-1985 activewear brand KB tier 2, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00465_activewear_brand_knowledge.sql (US-1985 activewear brand KB tier 2, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the high-volume athletic /
 athleisure tier: **Champion, Fila, PUMA, Reebok, ASICS, On Running, HOKA, Outdoor
@@ -964,7 +937,7 @@ the comp filter read.
 > the documented `new RegExp("\\$j\\$")` trap). Still run `npm run verify:db`
 > before the prod apply if Docker is available.
 
-## ⏳ PENDING: 00464_premium_denim_brand_knowledge.sql (US-1984 premium denim brand KB tier 2, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00464_premium_denim_brand_knowledge.sql (US-1984 premium denim brand KB tier 2, 2026-07-17)
 
 Data-only seed of the `brand_knowledge*` tables for the premium-denim tier beside
 00454 (Wrangler/Lee/7FAM/True Religion/AG/Citizens, which is NOT re-touched):
@@ -1011,7 +984,7 @@ eBay aspect and the comp filter read.
 > word `Slim`, and the bare digit run `3301`). Still run `npm run verify:db`
 > before the prod apply if Docker is available.
 
-## ⏳ PENDING: 00463_social_video.sql (video distribution for social posts, 2026-07-17)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00463_social_video.sql (video distribution for social posts, 2026-07-17)
 
 Adds video posting to the content module so clips fan out to TikTok / Instagram
 Reels / Facebook video through the existing Make.com social webhook.
@@ -1038,7 +1011,7 @@ deploy MUST land first, or the editor's video panel and the new endpoint 500.
 On this feature branch there's no prod deploy, so the branch push is safe; hold
 the prod apply-then-merge order per this file's rule.
 
-## ⏳ PENDING: 00462_hype_streetwear_brand_knowledge.sql (US-1983 new-gen streetwear & hype brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00462_hype_streetwear_brand_knowledge.sql (US-1983 new-gen streetwear & hype brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the current-generation hype
 tier (after 00456 took the established canon — Supreme/Stüssy/BAPE/Palace/Kith/
@@ -1136,7 +1109,7 @@ ITALIAN-numbered tailoring). And the FIT INTENT SPLITS across the tier — Hells
 Gallery Dept. are oversized by design while Sp5der/Chrome Hearts/ASSC run small — so
 the two poles name each other, as the FR/IT charts do in 00461.
 
-## ⏳ PENDING: 00461_luxury_rtw_leather_brand_knowledge.sql (US-1982 luxury RTW & leather brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00461_luxury_rtw_leather_brand_knowledge.sql (US-1982 luxury RTW & leather brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the luxury RTW & leather tier
 (tier 2, after 00455 took Chanel/Prada/Burberry/MK/Kate Spade/Tory Burch):
@@ -1221,7 +1194,7 @@ against mainline. They _do_ deliberately share the Versace size chart (same Ital
 system, different price), and the chart note says the size never tells you the
 ladder.
 
-## ⏳ PENDING: 00460_luxury_outerwear_brand_knowledge.sql (US-1981 luxury outerwear brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00460_luxury_outerwear_brand_knowledge.sql (US-1981 luxury outerwear brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the luxury outerwear & down
 tier: **Moncler, Canada Goose, Mackage, Herno, Woolrich, Bogner**. ALL SIX were
@@ -1283,7 +1256,7 @@ src/main.ts`, `tsc --noEmit`, `build:locked`, web vitest 2091 passed, and
 `verify:db` (all migrations apply on a fresh schema). Facts stay `verified=false`
 for the US-1715 admin queue, per the group convention.
 
-## ⏳ PENDING: 00459_footwear_brand_knowledge.sql (US-1740 footwear brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00459_footwear_brand_knowledge.sql (US-1740 footwear brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the footwear (apparel-adjacent)
 tier: **New Balance, Dr. Martens, UGG, Birkenstock, Converse, Vans, Cole Haan**.
@@ -1375,7 +1348,7 @@ missing). **Still needs `verify:db` before push.**
 
 Facts stay `verified=false` for the US-1715 admin queue, per the group convention.
 
-## ⏳ PENDING: 00458_basics_mall_brand_knowledge.sql (US-1739 basics/mall brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00458_basics_mall_brand_knowledge.sql (US-1739 basics/mall brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the basics, mall &
 fast-fashion tier: **Uniqlo, Gap, Banana Republic, Old Navy, American Eagle,
@@ -1472,7 +1445,7 @@ equal `brandKey(canonical_brand)`. The shipped decoder pattern was compiled and
 exercised against its match/no-match sets (incl. the "Ultra Light Down" exclusion).
 **Still needs `verify:db` before push.**
 
-## ⏳ PENDING: 00457_contemporary_womens_brand_knowledge.sql (US-1738 contemporary women's brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00457_contemporary_womens_brand_knowledge.sql (US-1738 contemporary women's brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the contemporary women's tier:
 **Anthropologie, Sézane, Aritzia, Reformation, Vince, Theory, Eileen Fisher**. All
@@ -1563,7 +1536,7 @@ key (which `do nothing` would silently drop), and **all 7 `brand_key`s equal
 actually reachable. **Prove it APPLIES with a Docker-up `npm run verify:db` before
 pushing.**
 
-## ⏳ PENDING: 00456_streetwear_brand_knowledge.sql (US-1737 streetwear brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00456_streetwear_brand_knowledge.sql (US-1737 streetwear brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the streetwear & hype tier:
 **Supreme, Stüssy, BAPE, Kith, Palace, Fear of God / Essentials**. `brand_knowledge`
@@ -1625,7 +1598,7 @@ targets match real unique indexes (`brand_knowledge.brand_key`,
 and no two rows collide on a conflict key (which `do nothing` would silently
 drop). **Prove it APPLIES with a Docker-up `npm run verify:db` before pushing.**
 
-## ⏳ PENDING: 00455_luxury_brand_knowledge.sql (US-1736 luxury brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00455_luxury_brand_knowledge.sql (US-1736 luxury brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the luxury & designer tier
 beside the three flagships already seeded (Coach 00398, Louis Vuitton 00399, Gucci
@@ -1667,7 +1640,7 @@ golden case.
 `sizing-charts.ts` in-code fallback this commit also extends), so the Cloudflare
 auto-deploy on push cannot break on it.
 
-## ⏳ PENDING: 00454_denim_brand_knowledge.sql (US-1735 denim brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00454_denim_brand_knowledge.sql (US-1735 denim brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the premium & vintage denim
 tier beside Levi's (00393, not re-touched): **Wrangler, Lee, 7 For All Mankind,
@@ -1698,7 +1671,7 @@ is only selected when no brand chart matched. Asserted in `denim-content_test.ts
 `sizing-charts.ts` in-code fallback this commit also extends), so the Cloudflare
 auto-deploy on push cannot break on it.
 
-## ⏳ PENDING: 00453_outdoor_brand_knowledge.sql (US-1734 outdoor brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00453_outdoor_brand_knowledge.sql (US-1734 outdoor brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the outdoor/technical tier
 beside the two flagships already seeded (Patagonia 00395 / The North Face 00396):
@@ -1744,7 +1717,7 @@ additionally fixtured VERBATIM in `brand-knowledge-golden_test.ts` (3/3 recovery
 including the cut-tag case), so the shipped spec is proven to decode. Prove the
 file APPLIES with a Docker-up `npm run verify:db` before pushing.
 
-## ⏳ PENDING: 00452_athleisure_brand_knowledge.sql (US-1733 athleisure brand KB, 2026-07-16)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00452_athleisure_brand_knowledge.sql (US-1733 athleisure brand KB, 2026-07-16)
 
 Data-only seed of the `brand_knowledge*` tables for the athleisure/activewear
 tier below the flagships: **Under Armour, Vuori, Gymshark, Fabletics, Beyond
@@ -1779,7 +1752,7 @@ column exists, all five `on conflict` targets match real unique indexes
 sits in the `numeric(3,2) CHECK (0..1)` range. Prove it applies with a Docker-up
 `npm run verify:db` (or on the prod apply, which is idempotent) before pushing.
 
-## ⏳ PENDING: 00451_rls_initplan_perf.sql (US-1927 RLS initplan perf, 2026-07-15)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00451_rls_initplan_perf.sql (US-1927 RLS initplan perf, 2026-07-15)
 
 Pure PLANNER optimization of the high-traffic per-user RLS policies — **no
 schema change, no semantic change, no tenant-isolation change (US-268)**.
@@ -1814,7 +1787,7 @@ AC3 (EXPLAIN confirming the initplan `InitPlan … $0 = auth.uid()` form on a
 representative large per-user SELECT) must be confirmed either in a Docker-up
 `npm run verify:db` run or against prod after apply.
 
-## ⏳ PENDING: 00450_madewell_jcrew_brand_knowledge.sql (US-1730 Madewell & J.Crew brand KB, 2026-07-15)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00450_madewell_jcrew_brand_knowledge.sql (US-1730 Madewell & J.Crew brand KB, 2026-07-15)
 
 Data-only seed of the `brand_knowledge*` tables for the two J.Crew-Group banners
 in one pack: `brand_knowledge` for Madewell (new) + J.Crew (enriches the bare
@@ -1832,7 +1805,7 @@ edge (boot guard now expects **00450**). Bumps `EXPECTED_SCHEMA_VERSION` → **0
 **No CLIENT read** — edge resolver only (`brand-knowledge.ts` + `sizing-charts.ts`
 in-code fallback this commit also adds).
 
-## ⏳ PENDING: 00449_free_people_brand_knowledge.sql (US-1729 Free People brand KB, 2026-07-15)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00449_free_people_brand_knowledge.sql (US-1729 Free People brand KB, 2026-07-15)
 
 Data-only seed of the `brand_knowledge*` tables for Free People (URBN): one
 `brand_knowledge` row (sub-line-on-the-tag identity, imported/URBN country note —
@@ -1850,7 +1823,7 @@ Idempotent. Apply after 00448 via `scripts/apply-prod-migrations.sh`,
 `sizing-charts.ts` in-code fallback this commit also adds, so it works before the
 SQL lands).
 
-## ⏳ PENDING: 00448_athleta_brand_knowledge.sql (US-1732 Athleta brand KB, 2026-07-15)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00448_athleta_brand_knowledge.sql (US-1732 Athleta brand KB, 2026-07-15)
 
 Data-only seed/refine of the `brand_knowledge*` tables for Athleta: one
 `brand_knowledge` row (Gap Inc brand, fabric-line auth tells, alpha+numeric size
@@ -1869,7 +1842,7 @@ upsert only REFINES existing rows (adds hip + numeric note). **No CLIENT read** 
 read only by the edge resolver (`brand-knowledge.ts`, with the `sizing-charts.ts`
 in-code fallback this commit also refines, so it works before the SQL lands).
 
-## ⏳ PENDING: 00447_alo_yoga_brand_knowledge.sql (US-1731 Alo Yoga brand KB, 2026-07-15)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00447_alo_yoga_brand_knowledge.sql (US-1731 Alo Yoga brand KB, 2026-07-15)
 
 Data-only seed into the five `brand_knowledge*` reference tables (00389): one
 `brand_knowledge` row for Alo Yoga (aliases, RN 87370 / Color Image Apparel,
@@ -1890,7 +1863,7 @@ fallback that this commit ALSO extends, so the resolver already works before the
 SQL lands — the DB seed just upgrades confidence/coverage). Frontend auto-deploy
 on push is unaffected.
 
-## ⏳ PENDING: 00446_listing_gen_v2_prompt.sql (US-1900 listing-gen prompt v-next, 2026-07-14)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00446_listing_gen_v2_prompt.sql (US-1900 listing-gen prompt v-next, 2026-07-14)
 
 Registers the `listing_gen_v2` prompt version in `public.ai_prompt_versions` as a
 single INACTIVE row (empty `prompt_text`; stage `listing_gen`; `is_active=false`).
@@ -1918,7 +1891,7 @@ operator runs the listing-gen eval against the seeded `listing_eval_cases` for
 to start the US-547 acceptance A/B, then `activatePromptVersion` promotes it once
 its keep-rate beats v1. Until then v1 is unchanged.
 
-## ⏳ PENDING: 00445_autolister_job_ai_reserved.sql (US-1931 idempotent AI reservation, 2026-07-14)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00445_autolister_job_ai_reserved.sql (US-1931 idempotent AI reservation, 2026-07-14)
 
 Adds `ai_reserved boolean not null default false` to `public.listing_generation_jobs`
 (existing tenant table — no new table, no new RLS). Makes the AutoLister per-item
@@ -1935,7 +1908,7 @@ add-column catalog update). **No CLIENT read** — only the edge worker
 so the Cloudflare Pages auto-deploy on push is safe even before the SQL is applied
 (the edge boot guard, not the frontend, is what gates on 00445).
 
-## ⏳ PENDING: 00444_user_badges.sql (US-1850 achievements, 2026-07-13)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00444_user_badges.sql (US-1850 achievements, 2026-07-13)
 
 New tenant table `public.user_badges` (user_id, badge_key, earned_at, context)
 with `UNIQUE(user_id, badge_key)` for idempotent awards + RLS read-own. The badge
@@ -1946,7 +1919,7 @@ the edge (boot guard now expects **00444**). Bumps `EXPECTED_SCHEMA_VERSION` →
 **Risk: LOW** — additive table, no rewrite. No CLIENT read yet (the award engine
 writes it; the profile/card surfacing — US-1850 AC3 — is not built).
 
-## ⏳ PENDING: 00443_rewards_xp_engine.sql (US-1849 rewards XP engine, 2026-07-13)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00443_rewards_xp_engine.sql (US-1849 rewards XP engine, 2026-07-13)
 
 REUSES the reputation_events ledger (00417) for the XP track (no parallel
 ledger, per US-1849). Two changes: (1) extends the `reputation_events` event_type
@@ -1962,7 +1935,7 @@ only ADDS allowed values). Reward events are ignored by the trust scorer, so the
 buyer Trust Score is unaffected. **No CLIENT read** of the new table in this
 branch (the edge writes it; nothing on the frontend reads it yet).
 
-## ⏳ PENDING: 00442_inventory_equity_snapshots.sql (US-1870 equity trend, 2026-07-12)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00442_inventory_equity_snapshots.sql (US-1870 equity trend, 2026-07-12)
 
 New tenant table `public.inventory_equity_snapshots` (user_id, snapshot_date,
 total/low/high cents, valued/unvalued counts) with `UNIQUE(user_id, snapshot_date)`
@@ -1994,7 +1967,7 @@ already applied on prod; the change only makes re-running the directory
 (`apply-prod-migrations.sh`) a safe no-op instead of erroring on the first
 duplicate `CREATE TYPE`/`POLICY`. Semantically identical to the original schema.
 
-## ⏳ PENDING: 00436–00440 — code-review sweep DB fixes (US-1918/1926/1939/1940/1942, 2026-07-12)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00436–00440 — code-review sweep DB fixes (US-1918/1926/1939/1940/1942, 2026-07-12)
 
 Five small, low-risk migrations from the 2026-07-11 code-review sweep. Apply in
 NNNNN order via `scripts/apply-prod-migrations.sh` (all idempotent), then
@@ -2027,7 +2000,7 @@ FROM anon, authenticated` + `ENABLE ROW LEVEL SECURITY` (deny-all, zero
   one. **Risk: LOW** — a genuine collision means a duplicate issuance, not two
   valid keys; the delete keeps the earliest row per hash.
 
-## ⏳ PENDING: 00441_submission_video.sql (US-1763 walk-around video grading, 2026-07-12)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00441_submission_video.sql (US-1763 walk-around video grading, 2026-07-12)
 
 Adds three **nullable** columns to `public.submissions` —
 `video_storage_path text`, `video_content_type text`,
@@ -2045,7 +2018,7 @@ frontend reads them yet), so the Cloudflare Pages auto-deploy is unaffected — 
 the EDGE write path (`grade.ts`) sets them, so the edge redeploy must follow the
 migration (standard boot-guard order).
 
-## ⏳ PENDING: 00435_sync_state_flipdesk_id_text.sql (bring-your-own-sheet snapshot save, 2026-07-12)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00435_sync_state_flipdesk_id_text.sql (bring-your-own-sheet snapshot save, 2026-07-12)
 
 **What:** Widens `public.google_sheet_sync_state.flipdesk_id` from **uuid → text**
 (guarded; no-op if already text). The mapped "bring your own sheet" sync (00433)
@@ -2061,7 +2034,7 @@ a string key, so no code change is needed. **No CLIENT read** of this column.
 **⚠️ Apply order:** after 00434; `scripts/apply-prod-migrations.sh`, then
 `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00435).
 
-## ⏳ PENDING: 00434_thumbnail_backfill_failed_marker.sql (thumbnail-backfill orphan retry loop, 2026-07-12)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00434_thumbnail_backfill_failed_marker.sql (thumbnail-backfill orphan retry loop, 2026-07-12)
 
 **What:** One additive nullable column `public.item_photos.thumbnail_backfill_failed_at
 timestamptz`. Gives the thumbnail-backfill cron (`routes/jobs-thumbnail-backfill.ts`)
@@ -2087,7 +2060,7 @@ out-of-band (Peter Millar Quarter-Zip, Acegolfs Golf Pants, Magashoni Cardigan);
 the first two are below the front+back required set and need re-shooting. This
 migration only stops the retry loop — it does not delete those broken rows.
 
-## ⏳ PENDING: 00433_sheet_map.sql ("bring your own sheet" column map, 2026-07-11)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00433_sheet_map.sql ("bring your own sheet" column map, 2026-07-11)
 
 **What:** One additive nullable column `public.google_connections.sheet_map jsonb`
 — a PER-USER column map so the Google Sheets sync can drive the seller's own
@@ -2106,7 +2079,7 @@ edge to 00433 — apply BEFORE the push. **⚠️ Apply order:** after 00432;
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
 redeploy the edge (boot guard now expects 00433).
 
-## ⏳ PENDING: 00432_promote_listings_default.sql (FlipDesk promoted-listings default → off/opt-in, 2026-07-11)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00432_promote_listings_default.sql (FlipDesk promoted-listings default → off/opt-in, 2026-07-11)
 
 **What:** Flips eBay Promoted Listings from promote-everything to **off by
 default, opt-in per seller**. Adds three columns on `public.users`
@@ -2138,7 +2111,7 @@ publish path + `GET/POST/DELETE /listings/:id/promotion` boot-expect 00432.
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
 redeploy the edge (boot guard now expects 00432).
 
-## ⏳ PENDING: 00431_buyer_wants.sql (US-1830 demand-board want model + matches, 2026-07-10)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00431_buyer_wants.sql (US-1830 demand-board want model + matches, 2026-07-10)
 
 **What:** Two new owner-read / service-write tables — `public.buyer_wants` (a
 buyer's active demand criteria + visibility/status/expiry) and
@@ -2152,7 +2125,7 @@ auto-deploy** (US-1831 UI), and the edge wants route boot-expects 00431 — appl
 BEFORE the push. **⚠️ Apply order:** after 00430; `scripts/apply-prod-migrations.sh`,
 then `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00431).
 
-## ⏳ PENDING: 00430_closet_promotion.sql (US-1828 closet→FlipDesk list-this link, 2026-07-10)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00430_closet_promotion.sql (US-1828 closet→FlipDesk list-this link, 2026-07-10)
 
 **What:** One additive column on `public.closet_items` — `promoted_item_id` (uuid
 FK → inventory_items, ON DELETE SET NULL) — the idempotency link + "Listed" state
@@ -2165,7 +2138,7 @@ for the one-click list-this bridge. No writes to existing rows. Bumps
 BEFORE the push. **⚠️ Apply order:** after 00429; `scripts/apply-prod-migrations.sh`,
 then `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00430).
 
-## ⏳ PENDING: 00429_portfolio_alerts.sql (US-1827 portfolio value alerts, 2026-07-10)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00429_portfolio_alerts.sql (US-1827 portfolio value alerts, 2026-07-10)
 
 **What:** Additive columns on `public.closet_item_valuations` —
 `peak_estimate_cents`, `last_alert_estimate_cents`, `last_alerted_at`,
@@ -2182,7 +2155,7 @@ COOLIFY.md/CRON_SETUP.md). **⚠️ Apply order:** after 00428;
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy
 the edge (boot guard now expects 00429).
 
-## ⏳ PENDING: 00428_closet_item_valuations.sql (US-1826 portfolio valuation cache, 2026-07-10)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00428_closet_item_valuations.sql (US-1826 portfolio valuation cache, 2026-07-10)
 
 **What:** New `public.closet_item_valuations` — a per-closet-item valuation cache
 (estimate/low/high cents, confidence, basis jsonb, cost_basis, trend, computed_at;
@@ -2196,7 +2169,7 @@ table** (the portfolio page reads valuations through the edge
 **⚠️ Apply order:** after 00427; `scripts/apply-prod-migrations.sh`, then `NOTIFY
 pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00428).
 
-## ⏳ PENDING: 00427_buyer_public_profile.sql (US-1818 opt-in public buyer profile, 2026-07-10)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00427_buyer_public_profile.sql (US-1818 opt-in public buyer profile, 2026-07-10)
 
 **What:** Three additive columns on `public.users` — `buyer_profile_handle`
 (text, unique `lower()` partial index), `buyer_profile_enabled` (boolean, default
@@ -2212,7 +2185,7 @@ the push. The public page `/trust/:handle` is NOINDEX + absent from the sitemap.
 **⚠️ Apply order:** after 00426; `scripts/apply-prod-migrations.sh`, then `NOTIFY
 pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00427).
 
-## ⏳ PENDING: 00426_guarantee_fraud.sql (US-1823 guarantee anti-fraud controls, 2026-07-10)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00426_guarantee_fraud.sql (US-1823 guarantee anti-fraud controls, 2026-07-10)
 
 **What:** Additive columns — `buyer_guarantee_claims` gains `fraud_flags` (jsonb),
 `fraud_score`, `resolved_by`/`resolved_at`/`resolution_note`; `users` gains
@@ -2228,7 +2201,7 @@ and the edge (fraud gate in the payout path + admin resolve route) boot-expects
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy
 the edge (boot guard now expects 00426).
 
-## ⏳ PENDING: 00425_guarantee_pool.sql (US-1822 guarantee claims-pool accounting, 2026-07-10)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00425_guarantee_pool.sql (US-1822 guarantee claims-pool accounting, 2026-07-10)
 
 **What:** New `public.guarantee_pool_ledger` — an append-only accrual/drawdown
 ledger (admin-read only, service-write; `UNIQUE(entry_type, reference_id)`
@@ -2247,7 +2220,7 @@ already in the regenerated COOLIFY.md/CRON_SETUP.md tables). **⚠️ Apply orde
 after 00424; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload
 schema';`, redeploy the edge (boot guard now expects 00425).
 
-## ⏳ PENDING: 00424_buyer_guarantee_claims.sql (US-1821 buyer guarantee claim intake + remedy, 2026-07-10)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00424_buyer_guarantee_claims.sql (US-1821 buyer guarantee claim intake + remedy, 2026-07-10)
 
 **What:** New `public.buyer_guarantee_claims` (owner/admin read, service-write;
 UNIQUE(purchase_id) idempotency; status enum, remedy_cents/remedy_credits, audit
@@ -2266,7 +2239,7 @@ apply BEFORE the push. Order matters: 00424 re-defines the 00422 RPC, so apply
 **after 00422**. **⚠️ Apply order:** after 00423; `scripts/apply-prod-migrations.sh`,
 then `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00424).
 
-## ⏳ PENDING: 00423_buyer_rewards_leaderboard.sql (US-1814 buyer rewards leaderboard opt-in, 2026-07-10)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00423_buyer_rewards_leaderboard.sql (US-1814 buyer rewards leaderboard opt-in, 2026-07-10)
 
 **What:** Two additive columns on `public.users` — `rewards_leaderboard_enabled`
 (boolean, default false) and `rewards_display_name` (text) — mirroring the
@@ -2281,7 +2254,7 @@ boot-expects 00423 — apply BEFORE the push. **⚠️ Apply order:** after 0042
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy
 the edge (boot guard now expects 00423).
 
-## ⏳ PENDING: 00422_buyer_reward_ledger.sql (US-1813 buyer reward ledger + redemption, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00422_buyer_reward_ledger.sql (US-1813 buyer reward ledger + redemption, 2026-07-09)
 
 **What:** Two service-write / owner-read tables — `public.buyer_reward_ledger`
 (append-only earn/redeem/reversal history; `UNIQUE(user_id,entry_type,
@@ -2302,7 +2275,7 @@ until a buyer has a balance (existing metered flows unchanged). **⚠️ Apply o
 after 00421; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload
 schema';`, redeploy the edge (boot guard now expects 00422).
 
-## ⏳ PENDING: 00421_buyer_grade_confirmations.sql (US-1812 buyer confirm/dispute engine, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00421_buyer_grade_confirmations.sql (US-1812 buyer confirm/dispute engine, 2026-07-09)
 
 **What:** (a) EXTENDS the existing `public.grade_outcomes` (00036) with buyer
 confirm/dispute columns — `buyer_user_id`, `buyer_purchase_id`, `seller_user_id`
@@ -2327,7 +2300,7 @@ boot-expects 00421 — apply BEFORE the push. **⚠️ Apply order:** after 0042
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
 redeploy the edge (boot guard now expects 00421).
 
-## ⏳ PENDING: 00420_closet_items.sql (US-1825 wardrobe portfolio closet model, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00420_closet_items.sql (US-1825 wardrobe portfolio closet model, 2026-07-09)
 
 **What:** One OWNER-READ / SERVICE-WRITE table `public.closet_items` — an owner's
 closet (source certificate/passport/manual; certificate_id / garment_id link,
@@ -2345,7 +2318,7 @@ BEFORE the push. Valuation/dashboard are US-1826/1827 (not built). **⚠️ Appl
 order:** after 00419; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst,
 'reload schema';`, redeploy the edge (boot guard now expects 00420).
 
-## ⏳ PENDING: 00419_purchase_coverage.sql (US-1820 insured purchase-guarantee coverage model, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00419_purchase_coverage.sql (US-1820 insured purchase-guarantee coverage model, 2026-07-09)
 
 **What:** One OWNER-READ / SERVICE-WRITE table `public.purchase_coverage` — a
 SNAPSHOT (one per buyer_purchase, UNIQUE(purchase_id)) of whether a linked
@@ -2365,7 +2338,7 @@ Claim intake/payout is US-1821 (not built). **⚠️ Apply order:** after 00418;
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`, redeploy
 the edge (boot guard now expects 00419).
 
-## ⏳ PENDING: 00418_buyer_purchases.sql (US-1811 buyer purchase-link + arrival capture, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00418_buyer_purchases.sql (US-1811 buyer purchase-link + arrival capture, 2026-07-09)
 
 **What:** Two OWNER-READ / SERVICE-WRITE tables — `public.buyer_purchases` (a
 buyer links a purchase to a PUBLIC grade: grade_report_id FK + certificate_id +
@@ -2384,7 +2357,7 @@ the new edge `/api/buyer/*` route boot-expects 00418 — so apply BEFORE the pus
 **⚠️ Apply order:** after 00417; `scripts/apply-prod-migrations.sh`, then
 `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00418).
 
-## ⏳ PENDING: 00417_buyer_trust_score.sql (US-1816 buyer Trust Score model + engine, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00417_buyer_trust_score.sql (US-1816 buyer Trust Score model + engine, 2026-07-09)
 
 **What:** Two new OWNER-READ / SERVICE-WRITE tables (RLS `FOR SELECT USING
 (auth.uid() = user_id)` only — a buyer sees their reputation but can never
@@ -2404,7 +2377,7 @@ the frontend auto-deploy — but the edge boot guard expects 00417 on next deplo
 **⚠️ Apply order:** after 00416; `scripts/apply-prod-migrations.sh`, then
 `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00417).
 
-## ⏳ PENDING: 00416_alerts_watchlist.sql (US-1806 alerts watchlist + saved-search model, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00416_alerts_watchlist.sql (US-1806 alerts watchlist + saved-search model, 2026-07-09)
 
 **What:** Two new TENANT-SCOPED, owner-managed tables (RLS `auth.uid() = user_id`,
 like `buyer_preferences`) that seed the condition-alerts epic (US-1805):
@@ -2425,7 +2398,7 @@ missing tables. The matching engine (US-1807) that READS these from the edge is 
 built yet. **⚠️ Apply order:** after 00415; `scripts/apply-prod-migrations.sh`, then
 `NOTIFY pgrst, 'reload schema';`, redeploy the edge (boot guard now expects 00416).
 
-## ⏳ PENDING: 00415_api_overage_credits.sql (US-1792 B2B API overage credits, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00415_api_overage_credits.sql (US-1792 B2B API overage credits, 2026-07-09)
 
 **What:** Two new TENANT-SCOPED tables — `public.api_credit_wallet` (user_id PK,
 balance, service-role writes only, owner-read RLS) + `public.api_credit_transactions`
@@ -2442,7 +2415,7 @@ setup-stripe-pricing.mjs) + a key carries a monthly_quota. **⚠️ Apply order:
 after 00414; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload
 schema';`, redeploy the edge (boot guard now expects 00415).
 
-## ⏳ PENDING: 00414_buyer_iap.sql (US-1804 buyer mobile IAP, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00414_buyer_iap.sql (US-1804 buyer mobile IAP, 2026-07-09)
 
 **What:** Five ADDITIVE nullable columns on `public.users` for the buyer
 subscription IAP processor tag + store identifiers: `buyer_billing_source`
@@ -2459,7 +2432,7 @@ existing columns. The Stripe buyer webhook now stamps `buyer_billing_source =
 after 00413; `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload
 schema';`, redeploy the edge (boot guard now expects 00414).
 
-## ⏳ PENDING: 00413_buyer_metering.sql (US-1800 buyer metered actions, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00413_buyer_metering.sql (US-1800 buyer metered actions, 2026-07-09)
 
 **What:** New TENANT-SCOPED table `public.buyer_meter_usage` (user_id PK, usage
 jsonb, reset_at) + owner-SELECT RLS (writes ONLY via the SECURITY DEFINER RPCs,
@@ -2476,7 +2449,7 @@ exercises it until then. **⚠️ Apply order:** after 00412;
 `scripts/apply-prod-migrations.sh`, then `NOTIFY pgrst, 'reload schema';`,
 redeploy the edge (boot guard now expects 00413).
 
-## ⏳ PENDING: 00412_buyer_notifications.sql (US-1803 buyer notification layer, 2026-07-09)
+## ✅ APPLIED (2026-07-19, confirmed by user): 00412_buyer_notifications.sql (US-1803 buyer notification layer, 2026-07-09)
 
 **What:** (1) Four values on the `notification_type` enum
 (`buyer_condition_alert/reward/guarantee/portfolio`) via `ADD VALUE IF NOT
