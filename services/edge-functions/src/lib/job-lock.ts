@@ -15,6 +15,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException, logEvent } from "./observability.ts";
+import { canClaimNewWork } from "./lifecycle.ts";
 
 export type JobLockRpc = (
   name: "try_acquire_job_lock" | "release_job_lock",
@@ -28,7 +29,9 @@ export interface AcquiredLock {
   /** True if the caller now holds the lock. */
   acquired: boolean;
   /** Why it wasn't acquired (when acquired === false). */
-  reason?: "locked" | "lock_error";
+  // US-2010: "shutting_down" — the process is draining and deliberately refused
+  // to claim new work. A normal skip, not a failure.
+  reason?: "locked" | "lock_error" | "shutting_down";
   /** Release the lock. No-op / best-effort when not acquired. */
   release: () => Promise<void>;
 }
@@ -44,6 +47,22 @@ export async function acquireJobLock(
   rpc: JobLockRpc = defaultRpc,
 ): Promise<AcquiredLock> {
   const noop = () => Promise.resolve();
+
+  // US-2010: refuse to claim NEW work while draining for shutdown.
+  //
+  // This is the single chokepoint every cron passes through, so one guard here
+  // covers the whole fleet — and the claim is precisely the thing that starts
+  // the stale clock. A job claimed two seconds before the container exits holds
+  // its lease for the full JOB_STALE_MS/BATCH_STALE_MS window (6–15 min) before
+  // a reclaim sweep picks it up, whereas a job never claimed is simply run by
+  // the next tick. Not claiming is worth more than draining quickly.
+  //
+  // Reported as a normal skip so callers need no new branch: every cron already
+  // handles !acquired by returning { skipped: true, reason }.
+  if (!canClaimNewWork()) {
+    return { acquired: false, reason: "shutting_down", release: noop };
+  }
+
   let acquired = false;
   try {
     const { data, error } = await rpc("try_acquire_job_lock", {
@@ -82,7 +101,7 @@ export async function acquireJobLock(
 export interface JobLockResult<T> {
   ran: boolean;
   result?: T;
-  skipped?: "locked" | "lock_error";
+  skipped?: "locked" | "lock_error" | "shutting_down";
 }
 
 export async function withJobLock<T>(

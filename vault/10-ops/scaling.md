@@ -39,6 +39,29 @@ Until replicas are configured, the accepted risk is: a deploy or crash causes a
 ≤ ~30s outage; the healthcheck + restart policy recovers a crash automatically;
 the stuck-submission reaper (US-495) recovers any grade interrupted mid-flight.
 
+> **⚠️ The "≤ ~30s" figure is the OUTAGE, not the user-visible stall (US-2010).**
+> A cron job claimed just before the container died held its lease for
+> `JOB_STALE_MS` (6 min) or `BATCH_STALE_MS` (15 min) before a `*/5` reclaim
+> sweep picked it up — so a seller mid-batch saw *minutes* of apparent stall
+> while the UI said "running". Nothing was lost (the accounting reuses
+> `ai_reserved`, so a crash-interrupted job is never double-charged); it just
+> looked broken.
+>
+> **Now mitigated for the ORDERLY case.** `lib/lifecycle.ts` installs
+> SIGTERM/SIGINT handlers that (a) immediately stop claiming NEW work — the
+> guard lives in `acquireJobLock`, the one chokepoint the whole cron fleet
+> passes through — and (b) drain in-flight requests before exit, bounded by
+> `SHUTDOWN_DRAIN_MS` (default 8s, deliberately inside Docker's 10s
+> SIGTERM→SIGKILL grace).
+>
+> Not claiming matters more than draining fast: an unclaimed job runs on the
+> next tick, whereas a job claimed two seconds before exit is stuck for its
+> whole lease.
+>
+> **The reclaim sweeps remain the correctness backstop** — SIGKILL, OOM and host
+> loss all bypass this. Graceful shutdown is a latency optimisation for routine
+> deploys, not a replacement for the sweeps.
+
 ## Graceful degradation per dependency
 
 | Dependency down | Behavior | Mechanism |

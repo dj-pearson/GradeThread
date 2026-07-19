@@ -22,6 +22,7 @@ import { flipdeskShopifyRoutes } from "./routes/flipdesk-shopify.ts";
 import { flipdeskDepopRoutes } from "./routes/flipdesk-depop.ts";
 import { flipdeskEtsyRoutes } from "./routes/flipdesk-etsy.ts";
 import { flipdeskWhatnotRoutes } from "./routes/flipdesk-whatnot.ts";
+import { installShutdownHandlers, trackInFlight } from "./lib/lifecycle.ts";
 import {
   flipdeskWebhookRoutes,
   handleEbayPendingWebhooksCron,
@@ -1690,4 +1691,16 @@ logEvent("info", "edge.boot", {
   errorTracking: !!Deno.env.get("SENTRY_DSN")?.trim(),
 });
 
-Deno.serve({ port }, app.fetch);
+// US-2010: graceful shutdown. Without this a deploy SIGKILLs in-flight
+// requests, and any job claimed just before the kill sits "running" for
+// JOB_STALE_MS/BATCH_STALE_MS (6–15 min) until a reclaim sweep finds it — so a
+// seller mid-batch sees minutes of apparent stall, not the ~30s SCALING.md
+// documents. installShutdownHandlers stops NEW claims immediately (via the
+// guard in acquireJobLock, which every cron passes through) and drains what is
+// already running before exiting.
+//
+// The sweeps remain the correctness backstop for SIGKILL/OOM/host loss; this
+// only improves the ORDERLY case, which is every routine deploy.
+installShutdownHandlers();
+
+Deno.serve({ port }, (req, info) => trackInFlight(async () => await app.fetch(req, info)));
