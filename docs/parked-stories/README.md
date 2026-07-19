@@ -15,7 +15,7 @@ programmatic pages indexed (~79% of 213 static URLs are templated), adding
 thousands more thin templated pages is the wrong move — it invites site-wide
 quality suppression and "Discovered / Crawled – currently not indexed."
 
-See `docs/SEO_INDEXABILITY_ACTION_PLAN.md` for the full rationale. Revisit only
+See `vault/40-growth/seo-indexability.md` for the full rationale. Revisit only
 after domain authority grows and GSC shows the existing grading-pSEO segment
 indexing at a healthy rate.
 

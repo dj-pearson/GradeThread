@@ -38,7 +38,7 @@ shows on `/health/ready` → `features`. Authoritative lists with per-var commen
 | `STRIPE_SECRET_KEY` | Coolify (Stripe → Developers) | `stripe trigger checkout.session.completed` lands in logs | ☐ |
 | `STRIPE_WEBHOOK_SECRET` | Coolify (Stripe → Webhooks → signing secret) | webhook returns 200, not 400 sig-fail | ☐ |
 | `FLIPDESK_INTERNAL_JOB_SECRET` | Coolify | a cron **Run Now** returns `{ok:true}` (§3) | ☐ |
-| `CONTENT_INTERNAL_JOB_SECRET` | Coolify (own secret, ≠ FlipDesk) | `content-scheduler-tick` **Run Now** returns JSON (§3); `docs/CONTENT_SCHEDULER.md` | ☐ |
+| `CONTENT_INTERNAL_JOB_SECRET` | Coolify (own secret, ≠ FlipDesk) | `content-scheduler-tick` **Run Now** returns JSON (§3); `vault/40-growth/content-scheduler.md` | ☐ |
 | `EDGE_ENCRYPTION_KEY` | Coolify (`openssl rand -base64 32`) | connect an eBay account → token stored | ☐ |
 | `CERT_SIGNING_KEY` | Coolify (`openssl rand -hex 32`) | `/api/content/public/certificates/<id>/verify` → `signed:true` | ☐ |
 | `API_KEY_PEPPER` | Coolify (set BEFORE issuing prod API keys) | issue + use an API key | ☐ |
@@ -120,7 +120,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 
 > Secrets vary per task — the **Secret env** column below is authoritative
 > (drip/content/newsletter ticks use their own env vars). Content-tick idle
-> runs return `{"skipped":true}`; see `docs/CONTENT_SCHEDULER.md` for the
+> runs return `{"skipped":true}`; see `vault/40-growth/content-scheduler.md` for the
 > safe low-cadence rollout.
 
 > **`curl` must be in the edge image.** Every task below is a `curl` POST, and the
