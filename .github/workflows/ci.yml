@@ -71,6 +71,9 @@ jobs:
       - name: Vendor skill mirrors in sync
         if: ${{ !cancelled() }}
         run: node scripts/skills-sync.mjs
+      - name: Shipped runbook copies vs vault
+        if: ${{ !cancelled() }}
+        run: node scripts/runbook-sync.mjs
       - name: Lint
         if: ${{ !cancelled() }}
         run: npm run lint

@@ -1,5 +1,5 @@
 ---
-title: Ops runbooks exist in three places, not two
+title: Ops runbooks exist in four places, not two
 type: reference
 status: current
 source_of_truth: code
@@ -14,20 +14,19 @@ summary: Ops procedures are duplicated across repo root, docs/, and a shipped in
 <!-- Records where documents USED to live. Rewriting those paths would make the
      finding describe a state that never existed. -->
 
-# Ops runbooks exist in three places, not two
+# Ops runbooks exist in four places, not two
 
 Found 2026-07-18 while dry-running `vault-move.mjs` against `ROLLBACK.md` for
 US-2047. The reference scan reported a mention in `src/lib/admin/runbooks.ts`,
 which turned out not to be a stray comment.
 
-## The three copies
+## The four copies
 
 | # | Where | What it is |
 |---|---|---|
 | 1 | Repo root — DEPLOY.md, ROLLBACK.md, INCIDENT_RESPONSE.md, BACKUPS.md, LAUNCH_CHECKLIST.md | The documents everyone assumes are canonical. *(The three doubled ones were merged into the vault by US-2049; DEPLOY/BACKUPS/LAUNCH_CHECKLIST move in US-2051.)* |
 | 2 | `docs/` | Second copies of INCIDENT_RESPONSE, KEY_ROTATION, DATA_RETENTION, at different lengths — **resolved 2026-07-19 by US-2049** |
 | 3 | **`src/lib/admin/runbooks.ts`** | A 378-line `RUNBOOKS` array (US-910), **shipped in the frontend bundle** |
-
 | 4 | **`services/edge-functions/src/lib/integrations-watchdog.ts`** | `KEY_ROTATION_REGISTRY` — the rotation **schedule** encoded as structured data (found 2026-07-19, US-2049) |
 
 Copy 3 is not a link to the markdown. It is operational prose hand-distilled into
@@ -72,16 +71,23 @@ shipped copy silently diverges further.
 
 ## Consequences for the migration
 
-**US-2051 must treat this as a three-way reconciliation, not a two-way merge.**
-Moving the markdown into `vault/10-ops/` without reconciling `runbooks.ts` would
-declare the ops docs "consolidated" while the copy operators actually use sat
-unexamined.
+US-2051 could not treat this as a two-way merge: moving the markdown without
+reconciling `runbooks.ts` would have declared the ops docs "consolidated" while
+the copy operators actually use sat unexamined. That reconciliation became
+US-2076.
 
-Whether the right end state is *generate the in-app runbooks from vault notes at
-build time* or *keep them hand-written and add a drift guard* is a real design
-question with a cost either way — generation constrains what the in-app copy can
-say and how it links to controls; a guard is cheaper but still relies on someone
-acting on it. That decision belongs in US-2051, recorded as an ADR.
+**Resolved 2026-07-19 by [[adr-0002-shipped-runbook-copies]] (US-2076): guard,
+do not generate.** Both shipped copies now declare the vault note they were
+distilled from and when the two were last confirmed to agree;
+`scripts/runbook-sync.mjs` fails when the note moves afterwards.
+
+The deciding facts: 2 of the 7 in-app runbooks have no vault counterpart at all,
+so generation would be partial by construction, and the in-app copy is
+deliberately shorter and control-linked — generating it needs an "excerpt" field
+per note, which relocates the duplication rather than removing it.
+
+Also verified then: neither of the two WRONG EDGE_ENCRYPTION_KEY procedures found
+in US-2049 had been transcribed into either shipped copy.
 
 **Do not "fix" this by deleting the in-app copy.** It is a deliberate feature
 with a good rationale.
@@ -89,5 +95,7 @@ with a good rationale.
 ## Related
 
 - [[dns-and-routing]] — the other ops contract already in the vault
+- [[adr-0002-shipped-runbook-copies]] — the decision this finding produced
+- [[key-rotation]] — copy 4's source note
 - [[adr-0001-knowledge-vault]] — the consolidation this complicates
 - [[INDEX]]

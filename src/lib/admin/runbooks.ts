@@ -35,11 +35,32 @@ export interface Runbook {
   controls: RunbookControl[];
   /** Markdown body, rendered by MarkdownPreview. */
   body: string;
+  /**
+   * US-2076: the vault note this runbook was distilled from, if any.
+   *
+   * This copy is DELIBERATELY not the vault note — it is shorter, ordered for
+   * reading under pressure, and deep-linked to the controls it governs. That is
+   * the point of US-910. But a distilled copy drifts silently, and this is the
+   * copy an operator reads during an incident, so each one declares its source
+   * and when someone last checked the two still agree.
+   *
+   * `scripts/runbook-sync.mjs` fails when the source note has a commit newer
+   * than `reviewed`. Same heuristic as the vault's own drift guard: it detects
+   * that the source MOVED, not that this text is wrong. Bumping `reviewed`
+   * asserts a human re-read both.
+   *
+   * Omit both for runbooks with no vault counterpart (cron-jobs, kill-switches).
+   */
+  sourceNote?: string;
+  /** ISO date the distillation was last checked against `sourceNote`. */
+  reviewed?: string;
 }
 
 export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
+    sourceNote: "vault/10-ops/deploy.md",
+    reviewed: "2026-07-19",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -83,6 +104,8 @@ export const RUNBOOKS: Runbook[] = [
   },
   {
     slug: "rollback",
+    sourceNote: "vault/10-ops/rollback.md",
+    reviewed: "2026-07-19",
     title: "Roll back a bad deploy",
     category: "Deploy",
     summary:
@@ -125,6 +148,8 @@ export const RUNBOOKS: Runbook[] = [
   },
   {
     slug: "restore-drill",
+    sourceNote: "vault/10-ops/backups.md",
+    reviewed: "2026-07-19",
     title: "Backup & restore drill",
     category: "Resilience",
     summary:
@@ -247,6 +272,8 @@ export const RUNBOOKS: Runbook[] = [
   },
   {
     slug: "incident-response",
+    sourceNote: "vault/10-ops/incident-response.md",
+    reviewed: "2026-07-19",
     title: "Incident response",
     category: "Resilience",
     summary:
@@ -299,6 +326,8 @@ export const RUNBOOKS: Runbook[] = [
   },
   {
     slug: "launch-readiness",
+    sourceNote: "vault/10-ops/launch-checklist.md",
+    reviewed: "2026-07-19",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

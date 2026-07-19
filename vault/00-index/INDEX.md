@@ -79,6 +79,7 @@ New here? Read [[CONTRACT]] before adding a note.
 ## 60-decisions — ADRs
 
 - [[adr-0001-knowledge-vault]] — decision — Consolidate 203 scattered markdown files into one navigable wiki; retrieve by link traversal rather than embeddings.
+- [[adr-0002-shipped-runbook-copies]] — decision — The in-app runbooks and rotation registry stay hand-written with a staleness guard, because generating them would either flood the UI or require an excerpt field that is a second copy anyway.
 - [[adr-comps-pseo]] — decision — Whether to build programmatic comp pages, and why the answer turned on indexation risk.
 - [[adr-depop-partner-application]] — decision — The Depop API partnership application, what it requires and what it unlocks.
 - [[adr-graphify-pilot]] — decision — The Graphify pilot, its scope and the criteria for continuing or stopping.

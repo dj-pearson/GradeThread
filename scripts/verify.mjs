@@ -96,6 +96,10 @@ if (on("vault")) {
   // updating one and forgetting the other leaves two versions of the same
   // instructions with nothing to say which is current.
   run("vault: vendor skill mirrors in sync", "node scripts/skills-sync.mjs");
+  // US-2076: the SHIPPED copies of ops knowledge (in-app runbooks, rotation
+  // registry) against the vault notes they were distilled from. This is the
+  // copy on-call reads during an incident, and it had no guard at all.
+  run("vault: shipped runbook copies vs vault", "node scripts/runbook-sync.mjs");
 }
 
 // ── Edge (Deno) — mirrors security.yml "deno-check" job ───────────────────────

@@ -9,6 +9,21 @@
 
 // ── Key-rotation registry (vault/10-ops/key-rotation.md encoded as data) ──────────────────
 //
+// US-2076: this is a SHIPPED copy of ops knowledge — the rotation cadences from
+// the vault note, restructured as data so the watchdog can compute a due/overdue
+// calendar. It is guarded, not generated: the note is prose with a procedure,
+// this is a typed schedule, and neither derives cleanly from the other.
+//
+// @sourceNote vault/10-ops/key-rotation.md
+// @reviewed 2026-07-19
+//
+// scripts/runbook-sync.mjs fails when that note has a commit newer than the date
+// above. Bumping it asserts a human re-read both — cadences here, procedure
+// there. Verified 2026-07-19: no entry repeats either of the two WRONG
+// EDGE_ENCRYPTION_KEY procedures US-2049 found in the markdown (this registry
+// only records that rotation needs dual-key re-encryption, which is true, and
+// defers the steps to the note).
+//
 // The rotation SCHEDULE from vault/10-ops/key-rotation.md, checked in as structured data so
 // the agent can compute a due/overdue calendar. `cadence_days: null` = an
 // event-driven secret (rotate on leak / on policy / on endpoint change) — it has
