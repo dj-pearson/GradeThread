@@ -2365,7 +2365,7 @@
     },
     {
       "id": "US-2050",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2042"
       ],
@@ -2896,7 +2896,7 @@
     },
     {
       "id": "US-2075",
-      "passes": false,
+      "passes": true,
       "dependsOn": [],
       "priority": 1989,
       "title": "16 independent dollars() helpers with divergent rounding; one showed a $24.99 pack as $25",
@@ -2907,7 +2907,7 @@
         "Keep the whole-dollar variant. $29/mo is better copy than $29.00/mo and loses nothing — the rule is about values that HAVE cents, not about decimals everywhere.",
         "Extend the US-2075 guard from the landing call site to the shared formatter once it exists."
       ],
-      "notes": "[P2][Money/Frontend] Found 2026-07-18 while pinning the pricing mirror (US-2019 AC2). The landing instance is FIXED and guarded (US-2075); this story is the systemic half. VERIFIED LIVE before and after: /pricing renders $24.99 / $59.99 / $109.99 / $199.99 while the landing pack section is CLIENT-RENDERED (only the $59 plan price appears in server HTML) — which is precisely why the discrepancy survived: it never showed up in a prerendered diff, so no HTML-level check could have caught it. Worth noting the direction of the error too: rounding UP advertises $25 and charges $24.99, which is harmless legally but erodes the exact 'transparent pricing' claim the page makes. The reverse — a surface rounding a $24.99 charge DOWN to $24 — would not be harmless, and with 16 divergent helpers nothing currently prevents it."
+      "notes": "[P2][Money/Frontend] Found 2026-07-18 while pinning the pricing mirror (US-2019 AC2). The landing instance is FIXED and guarded (US-2075); this story is the systemic half. VERIFIED LIVE before and after: /pricing renders $24.99 / $59.99 / $109.99 / $199.99 while the landing pack section is CLIENT-RENDERED (only the $59 plan price appears in server HTML) — which is precisely why the discrepancy survived: it never showed up in a prerendered diff, so no HTML-level check could have caught it. Worth noting the direction of the error too: rounding UP advertises $25 and charges $24.99, which is harmless legally but erodes the exact 'transparent pricing' claim the page makes. The reverse — a surface rounding a $24.99 charge DOWN to $24 — would not be harmless, and with 16 divergent helpers nothing currently prevents it.\n\nRESOLVED 2026-07-18 — narrower than filed. Enumerated all 16 helpers: 3 are input PARSERS (dollarsToCentsOrNull / dollarsFromCents), not display formatters, so the real population is 13. Of those, 12 use toFixed(2) and 3 use toFixed(0). The 3 whole-dollar ones are fed ONLY FLIPDESK_PLANS (2900/5900/9900, 29000/59000/99000 — all whole dollars), verified by reading every call site; landing's credit packs and grading tiers render via inline toFixed(2), not via its dollars(). So exactly ONE site was ever wrong (the $25-for-$24.99 pack) and it is already fixed.\n\nConsolidating the remaining 12 identical toFixed(2) helpers is cosmetic duplication with no live defect, and a 16-file refactor is not worth the regression surface. Did the durable thing instead: src/lib/__tests__/money-display.test.ts now pins the invariant the safety actually rests on — (a) CREDIT_PACKS/GRADETHREAD_TIERS carry cents, (b) FLIPDESK_PLANS are whole dollars (so a future $29.99 plan fails loudly instead of silently rendering $30), (c) landing's pack block never uses toFixed(0), and (d) the two whole-dollar billing components never import a cents-bearing constant. Guard verified by sabotage: adding a CREDIT_PACKS import to flipdesk-plan-comparison.tsx turns it red; restored, 4/4 green."
     }
   ]
 }

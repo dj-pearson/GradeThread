@@ -28,9 +28,22 @@ overlap is the problem this folder exists to fix.
 
 `.agents/skills/` is not a fifth surface. It holds **only the two vendor skills**
 (`supabase`, `supabase-postgres-best-practices`) — 40 files, byte-identical to
-their `.claude/skills/` copies. The four first-party skills are *not* there, so
-this is a vendor-install artifact rather than a mirror of the skills tree.
-Verified 2026-07-18; resolved in US-2050.
+their `.claude/skills/` copies. The four first-party skills are *not* there.
+
+**Resolved 2026-07-19 (US-2050): kept, not deleted.** Both trees were written by
+the same vendor installer in one commit (`a8657af9`), and nothing in this repo
+reads `.agents/`. But that directory is the cross-framework "agent skills"
+convention, so an agent tool *outside* this repo may read it. Deleting 40
+duplicated vendor files to risk silently breaking such a tool is a bad trade —
+the downside is invisible breakage, the upside is trivial.
+
+Instead `scripts/skills-sync.mjs` asserts the trees stay byte-identical, in the
+vault verify lane and in CI. Neither copy is *authored* here, so the risk was
+never editing-drift; it was updating one and forgetting the other, leaving two
+versions of the same instructions with nothing to say which is current.
+
+**First-party skills are deliberately NOT mirrored** — one home is the correct
+number, and the guard fails if an unknown skill appears in `.agents/skills/`.
 
 ## The intended division
 

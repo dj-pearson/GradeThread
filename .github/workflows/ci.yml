@@ -68,6 +68,9 @@ jobs:
       - name: Vault index up to date
         if: ${{ !cancelled() }}
         run: node scripts/vault-index.mjs --check
+      - name: Vendor skill mirrors in sync
+        if: ${{ !cancelled() }}
+        run: node scripts/skills-sync.mjs
       - name: Lint
         if: ${{ !cancelled() }}
         run: npm run lint

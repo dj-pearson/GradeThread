@@ -90,6 +90,12 @@ if (on("vault")) {
   // exist that nothing points at, which the orphan rule then reports as a
   // separate confusing failure. Catch the cause, not the symptom.
   run("vault: index up to date", "node scripts/vault-index.mjs --check");
+  // US-2050: the two VENDOR skills exist under both .claude/skills and
+  // .agents/skills. Nothing here reads the latter, but an agent tool outside
+  // this repo may, so both are kept and CI asserts they stay identical —
+  // updating one and forgetting the other leaves two versions of the same
+  // instructions with nothing to say which is current.
+  run("vault: vendor skill mirrors in sync", "node scripts/skills-sync.mjs");
 }
 
 // ── Edge (Deno) — mirrors security.yml "deno-check" job ───────────────────────
