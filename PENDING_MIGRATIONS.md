@@ -3897,3 +3897,42 @@ re-run against the live model, and the grading monitor will raise a critical
 no existing pass can be attributed to a model — but they will look like an
 incident if nobody is expecting them. Re-run the eval on the active composite
 version right after applying to clear both.
+
+---
+
+## 00481_consignor_payout_reversal.sql — PENDING (US-2022)
+
+**Risk: LOW-MEDIUM.** Four additive nullable columns, one index, and **two enum
+values**. No backfill, no destructive statement, safe to re-run.
+
+**What it does**
+- `consignor_payout_status` gains `'reversed'` and `'clawback_pending'`.
+- `consignor_payouts` gains `stripe_reversal_id`, `reversed_at`,
+  `reversal_error`, `hold_until`.
+- Adds `idx_consignor_payouts_sale_id` (the reversal lookup is by sale).
+
+**⚠ ENUM ORDERING — this one genuinely matters.** A new enum value cannot be
+USED in the same transaction that adds it. This migration therefore only ADDS
+the values; nothing in the file writes them. But the **edge writes them as soon
+as it boots**, so:
+
+> **Apply 00481 BEFORE rolling the edge.** If the edge rolls first, every
+> reversal attempt fails on an invalid enum value — and it fails on the path
+> that recovers money, which is the worst place to take an outage.
+
+The boot guard (`EXPECTED_SCHEMA_VERSION = 00481`) enforces this, so the failure
+mode is a refused boot rather than silent corruption. Then
+`NOTIFY pgrst, 'reload schema';`.
+
+**⚠ FRONTEND READS THE NEW STATUSES.** `src/types/database.ts` and
+`src/lib/constants.ts` both carry `reversed` / `clawback_pending`, and
+`consignment.tsx` renders a destructive badge for the latter. Cloudflare Pages
+auto-deploys on push, so if the frontend ships before the migration the new
+labels simply never appear (no row can hold those statuses yet) — degraded, not
+broken. Still: apply the SQL before pushing.
+
+**Behaviour change to expect:** none by default. The return-window hold
+(`consignor_payout_config.hold_days`) ships at **0 = off**, preserving today's
+pay-immediately behaviour. Reversal, by contrast, is active immediately: a
+returned/refunded sale now cancels or claws back the consignor payout where it
+previously did nothing.

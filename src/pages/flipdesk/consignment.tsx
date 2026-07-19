@@ -831,8 +831,17 @@ function PayoutHistoryDialog({
                     {money(p.amount)}
                   </TableCell>
                   <TableCell>
+                    {/* US-2022: a clawback-pending row is real money the seller
+                        is out until someone recovers it, so it reads as
+                        destructive rather than as just another status. */}
                     <Badge
-                      variant={p.status === "paid" ? "default" : "outline"}
+                      variant={
+                        p.status === "clawback_pending"
+                          ? "destructive"
+                          : p.status === "paid"
+                            ? "default"
+                            : "outline"
+                      }
                     >
                       {CONSIGNOR_PAYOUT_STATUS_LABELS[p.status]}
                     </Badge>

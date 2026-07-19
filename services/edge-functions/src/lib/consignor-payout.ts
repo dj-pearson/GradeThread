@@ -28,6 +28,14 @@ import {
   parseAutoPayoutMode,
   planAutoPayout,
 } from "./consignor-payout-math.ts";
+import {
+  CONSIGNOR_PAYOUT_CONFIG_KEY,
+  holdUntilFor,
+  isHeld,
+  normalizeConsignorPayoutConfig,
+  planReversal,
+} from "./consignor-reversal-math.ts";
+import { emitOpsEvent } from "./ops-events.ts";
 
 export const AUTO_PAYOUT_MODE_KEY = "consignor_auto_payout_mode";
 
@@ -73,6 +81,12 @@ interface SaleRow {
   platform_fees: number | null;
   payment_processing_fees: number | null;
   inventory_item_id: string | null;
+  // US-2022: the optional return-window hold is measured from the SALE, not
+  // from when the payout row happens to be created — otherwise a sale the
+  // sweep picks up late would get a hold window starting weeks after the buyer
+  // already received the item.
+  sold_at: string | null;
+  sale_date: string | null;
   inventory_items: {
     user_id: string;
     consignor_id: string | null;
@@ -81,7 +95,7 @@ interface SaleRow {
 }
 
 const SALE_SELECT =
-  "id, status, sale_price, platform_fees, payment_processing_fees, inventory_item_id, " +
+  "id, status, sale_price, platform_fees, payment_processing_fees, inventory_item_id, sold_at, sale_date, " +
   "inventory_items!inner(user_id, consignor_id, consignment_split_pct)";
 
 // Process the consignor payout for a single sale. Idempotent and safe to call
@@ -169,6 +183,57 @@ export async function processSaleConsignorPayout(
   );
 
   const plan = planAutoPayout({ existing, share, onboarded });
+
+  // US-2022 AC3: the return-window hold. No transfer means nothing to claw
+  // back, so holding until the return window closes removes most of this
+  // exposure at its source rather than recovering from it after the fact.
+  //
+  // OFF BY DEFAULT (hold_days: 0 = today's behaviour). Turning it on delays
+  // when real people get paid and may contradict terms a seller already agreed
+  // with their consignors, so it is the seller's policy call, not a default.
+  const holdConfig = normalizeConsignorPayoutConfig(
+    await getSetting<unknown>(CONSIGNOR_PAYOUT_CONFIG_KEY, null),
+  );
+  const saleAtMs = Date.parse(sale.sold_at ?? sale.sale_date ?? "");
+  const holdBaseMs = Number.isFinite(saleAtMs) ? saleAtMs : Date.now();
+  const holdUntil = holdUntilFor(holdConfig, holdBaseMs);
+  const heldNow = isHeld(holdUntil, Date.now());
+
+  // A held payout still gets its ledger row (the consignor can see what they
+  // are owed and when) — it just does not transfer yet. The existing sweep
+  // retries it, and once the hold lapses the normal transfer path fires.
+  if (heldNow && (plan.action === "transfer" || plan.action === "create")) {
+    if (plan.action === "transfer") {
+      await supabaseAdmin
+        .from("consignor_payouts")
+        .update({ amount: share, hold_until: holdUntil })
+        .eq("id", plan.payoutId)
+        .eq("user_id", ownerId)
+        .in("status", ["pending", "failed"]);
+      return { outcome: "queued", saleId, payoutId: plan.payoutId, amount: share };
+    }
+    const { data: heldRow } = await supabaseAdmin
+      .from("consignor_payouts")
+      .insert({
+        user_id: ownerId,
+        consignor_id: consignor.id,
+        sale_id: saleId,
+        inventory_item_id: sale.inventory_item_id,
+        amount: share,
+        status: "pending",
+        source: "auto",
+        hold_until: holdUntil,
+        note: `auto: held until ${holdUntil} (return window)`,
+      })
+      .select("id")
+      .maybeSingle();
+    return {
+      outcome: "queued",
+      saleId,
+      payoutId: (heldRow as { id: string } | null)?.id,
+      amount: share,
+    };
+  }
 
   switch (plan.action) {
     case "skip":
@@ -487,4 +552,191 @@ export async function maybeFireImmediateConsignorPayout(
       err instanceof Error ? err.message : String(err),
     );
   }
+}
+
+// ── US-2022: reversal when a sale comes apart ────────────────────────
+//
+// processSaleConsignorPayout only ever pays FORWARD: it gates new payouts on
+// sale.status === 'completed' and SETTLED_STATUSES makes every later evaluation
+// of a paid row skip('already_settled'). So once money moved, a subsequent
+// return or refund left the payout row reading 'paid' forever with no recovery
+// and no signal. This is the missing edge.
+//
+// Call this from EVERY writer that transitions a sale to returned/refunded/
+// cancelled. It is idempotent: a second call sees status reversed/canceled and
+// skips, so wiring it into overlapping paths (a webhook AND the order sweep)
+// cannot double-reverse.
+
+export interface ReversalSummary {
+  scanned: number;
+  canceled: number;
+  reversed: number;
+  reversedAmount: number;
+  flagged: number;
+  errors: string[];
+}
+
+/**
+ * Reverse or cancel every consignor payout attached to the given sales.
+ *
+ * Tenant-scoped by ownerId (US-268: the service-role client bypasses RLS and
+ * these sale ids arrive from sync payloads and request bodies).
+ */
+export async function reverseConsignorPayoutsForSales(
+  saleIds: string[],
+  ownerId: string,
+  opts: { stripe?: Stripe | null; reason?: string } = {},
+): Promise<ReversalSummary> {
+  const summary: ReversalSummary = {
+    scanned: 0,
+    canceled: 0,
+    reversed: 0,
+    reversedAmount: 0,
+    flagged: 0,
+    errors: [],
+  };
+  const ids = [...new Set(saleIds.filter((s): s is string => !!s))];
+  if (ids.length === 0 || !ownerId) return summary;
+
+  const { data: rows, error } = await supabaseAdmin
+    .from("consignor_payouts")
+    .select("id, status, amount, stripe_transfer_id, sale_id, consignor_id")
+    .in("sale_id", ids)
+    .eq("user_id", ownerId);
+  if (error) {
+    summary.errors.push(`payout lookup failed: ${error.message}`);
+    return summary;
+  }
+
+  const payouts = (rows ?? []) as Array<{
+    id: string;
+    status: string;
+    amount: number;
+    stripe_transfer_id: string | null;
+    sale_id: string | null;
+    consignor_id: string;
+  }>;
+  summary.scanned = payouts.length;
+  if (payouts.length === 0) return summary;
+
+  const stripe = opts.stripe !== undefined ? opts.stripe : getStripe();
+  const note = opts.reason ? `sale reversed: ${opts.reason}` : "sale reversed";
+
+  for (const row of payouts) {
+    const plan = planReversal(row);
+
+    if (plan.action === "skip") continue;
+
+    if (plan.action === "cancel") {
+      const { error: cancelErr } = await supabaseAdmin
+        .from("consignor_payouts")
+        .update({ status: "canceled", note })
+        .eq("id", plan.payoutId)
+        .eq("user_id", ownerId);
+      if (cancelErr) summary.errors.push(`cancel ${plan.payoutId}: ${cancelErr.message}`);
+      else summary.canceled += 1;
+      continue;
+    }
+
+    if (plan.action === "flag") {
+      await flagClawback(plan.payoutId, ownerId, row.consignor_id, Number(row.amount), note,
+        "paid with no stripe_transfer_id — cannot reverse automatically");
+      summary.flagged += 1;
+      continue;
+    }
+
+    // plan.action === "reverse"
+    if (!stripe) {
+      await flagClawback(plan.payoutId, ownerId, row.consignor_id, plan.amount, note,
+        "Stripe is not configured on this deploy — reversal could not be attempted");
+      summary.flagged += 1;
+      continue;
+    }
+
+    try {
+      const reversal = await stripe.transfers.createReversal(
+        plan.transferId,
+        { amount: Math.round(plan.amount * 100) },
+        // Matches the existing consignor_payout_<id> convention. Keyed on the
+        // payout, so a retry of the same reversal is a no-op at Stripe rather
+        // than a second clawback.
+        { idempotencyKey: `consignor_reversal_${plan.payoutId}` },
+      );
+      const { error: updErr } = await supabaseAdmin
+        .from("consignor_payouts")
+        .update({
+          status: "reversed",
+          stripe_reversal_id: reversal.id,
+          reversed_at: new Date().toISOString(),
+          reversal_error: null,
+          note,
+        })
+        .eq("id", plan.payoutId)
+        .eq("user_id", ownerId);
+      if (updErr) {
+        // The money IS back but the ledger did not record it. That is worse
+        // than a failed reversal, because a later sweep would try again — so
+        // it is surfaced rather than swallowed.
+        summary.errors.push(`reversal recorded at Stripe but DB update failed for ${plan.payoutId}: ${updErr.message}`);
+      } else {
+        summary.reversed += 1;
+        summary.reversedAmount = Math.round((summary.reversedAmount + plan.amount) * 100) / 100;
+      }
+    } catch (err) {
+      // The common real failure: the connected account already paid the funds
+      // out to its bank, so there is no balance to reverse. The money is gone
+      // and only a human can recover it — say so instead of leaving 'paid'.
+      const message = err instanceof Error ? err.message : String(err);
+      await flagClawback(plan.payoutId, ownerId, row.consignor_id, plan.amount, note, message);
+      summary.flagged += 1;
+    }
+  }
+
+  if (summary.reversed > 0 || summary.flagged > 0) {
+    await emitOpsEvent(
+      "consignor.payout_reversal",
+      summary.flagged > 0 ? "critical" : "info",
+      {
+        title: summary.flagged > 0
+          ? `${summary.flagged} consignor payout(s) could NOT be clawed back after a sale reversed`
+          : `Reversed ${summary.reversed} consignor payout(s) after a sale reversed`,
+        source: "consignor-payout.reverse",
+        actorUserId: ownerId,
+        data: {
+          sale_ids: ids,
+          scanned: summary.scanned,
+          canceled: summary.canceled,
+          reversed: summary.reversed,
+          reversed_amount: summary.reversedAmount,
+          flagged: summary.flagged,
+          reason: opts.reason ?? null,
+        },
+      },
+    ).catch(() => { /* the ops feed must never break the reversal */ });
+  }
+
+  return summary;
+}
+
+/**
+ * Mark a payout as needing human recovery. The row deliberately does NOT stay
+ * 'paid': 'paid' means the consignor was correctly paid for a sale that stood,
+ * and leaving it there is exactly the silent loss this story exists to end.
+ */
+async function flagClawback(
+  payoutId: string,
+  ownerId: string,
+  consignorId: string,
+  amount: number,
+  note: string,
+  reason: string,
+): Promise<void> {
+  await supabaseAdmin
+    .from("consignor_payouts")
+    .update({ status: "clawback_pending", reversal_error: reason, note })
+    .eq("id", payoutId)
+    .eq("user_id", ownerId);
+  console.error(
+    `[consignor-payout] CLAWBACK PENDING payout=${payoutId} consignor=${consignorId} amount=${amount}: ${reason}`,
+  );
 }

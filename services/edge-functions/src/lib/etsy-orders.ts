@@ -20,6 +20,7 @@
 // resolved owner — never by an id taken from the receipt payload.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { reverseConsignorPayoutsForSales } from "./consignor-payout.ts";
 import {
   type EtsyReceipt,
   etsyRefundStatus,
@@ -255,6 +256,17 @@ export async function applyEtsyReceiptStatus(
     result.errors.push(`status update: ${error.message}`);
   } else {
     result.statusUpdated = (updated ?? []).length;
+    // US-2022: a refunded/cancelled order means any consignor payout for these
+    // sales is money paid out for a sale that no longer stands. Reverse it —
+    // otherwise the payout row reads 'paid' forever and the seller silently
+    // eats the consignor's cut. Best-effort and idempotent.
+    const reversedSaleIds = ((updated ?? []) as Array<{ id: string }>).map((r) => r.id);
+    if (reversedSaleIds.length > 0) {
+      const rev = await reverseConsignorPayoutsForSales(reversedSaleIds, userId, {
+        reason: `etsy order ${target}`,
+      });
+      for (const e of rev.errors) result.errors.push(`consignor reversal: ${e}`);
+    }
   }
   return result;
 }

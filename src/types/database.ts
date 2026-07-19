@@ -169,7 +169,12 @@ export type ConsignorPayoutStatus =
   | "processing"
   | "paid"
   | "failed"
-  | "canceled";
+  | "canceled"
+  // US-2022: the sale reversed after the payout settled. "reversed" = clawed
+  // back successfully; "clawback_pending" = the reversal FAILED and the seller
+  // is out of pocket until a human recovers it.
+  | "reversed"
+  | "clawback_pending";
 export type ItemCategory =
   | "clothing"
   | "shoes"

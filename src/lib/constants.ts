@@ -950,6 +950,14 @@ export const CONSIGNOR_PAYOUT_STATUSES = [
   "paid",
   "failed",
   "canceled",
+  // US-2022: the sale came apart after the consignor was paid.
+  // "reversed"        — we clawed the transfer back; nothing is owed.
+  // "clawback_pending" — the transfer could NOT be reversed (the consignor had
+  //   already withdrawn the funds), so the seller is genuinely out of pocket
+  //   until a human recovers it. This status exists so that loss is VISIBLE;
+  //   leaving the row on "paid" is the silent failure the story was about.
+  "reversed",
+  "clawback_pending",
 ] as const;
 
 export const CONSIGNOR_PAYOUT_STATUS_LABELS: Record<
@@ -961,6 +969,8 @@ export const CONSIGNOR_PAYOUT_STATUS_LABELS: Record<
   paid: "Paid",
   failed: "Failed",
   canceled: "Canceled",
+  reversed: "Reversed",
+  clawback_pending: "Clawback needed",
 };
 
 export const ITEM_CATEGORIES = [

@@ -8,7 +8,10 @@ import {
   filterListablePhotos,
   SENSITIVE_ITEM_PHOTO_TYPES,
 } from "../lib/item-photo-storage.ts";
-import { maybeFireImmediateConsignorPayout } from "../lib/consignor-payout.ts";
+import {
+  maybeFireImmediateConsignorPayout,
+  reverseConsignorPayoutsForSales,
+} from "../lib/consignor-payout.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import {
   applyColumnAspects,
@@ -3088,11 +3091,25 @@ async function doListingsPull(
           };
 
           if (existing) {
+            const existingSaleId = (existing as { id: string }).id;
             await supabaseAdmin
               .from("sales")
               .update(salePayload)
-              .eq("id", (existing as { id: string }).id);
+              .eq("id", existingSaleId);
             salesUpdated += 1;
+            // US-2022: this sweep is the OTHER way a sale reverses — an order
+            // previously synced as completed comes back CANCELED or
+            // FULLY_REFUNDED. Without this, only the Post-Order route reversed
+            // payouts and a refund discovered by the sweep silently kept the
+            // consignor's cut paid out. Idempotent, so overlapping with the
+            // Post-Order path cannot double-reverse.
+            if (saleStatus !== "completed") {
+              void reverseConsignorPayoutsForSales([existingSaleId], userId, {
+                reason: `ebay order sync: ${saleStatus}`,
+              }).catch((err) => {
+                console.error("[ebay.sync] consignor payout reversal failed:", err);
+              });
+            }
           } else {
             const { data: insertedSale } = await supabaseAdmin
               .from("sales")
@@ -3627,7 +3644,7 @@ async function applyOutcomeToSale(
     .update({ status, cancelled_at: new Date().toISOString() })
     .eq("user_id", ownerId)
     .eq("platform_order_id", orderId)
-    .select("inventory_item_id, listing_id");
+    .select("id, inventory_item_id, listing_id");
   if (error) {
     console.error("[ebay.postorder] local sale update failed:", error.message);
     return;
@@ -3641,9 +3658,22 @@ async function applyOutcomeToSale(
   // returned above), so both outcomes restore. Ids come from the tenant-scoped
   // sale rows we just updated, so the item/listing writes are provably owned.
   const rows = (updatedSales ?? []) as Array<{
+    id: string;
     inventory_item_id: string | null;
     listing_id: string | null;
   }>;
+
+  // US-2022: the item coming back means the consignor was paid for a sale that
+  // no longer exists. Reverse (or cancel) their payout — without this the row
+  // stays 'paid' forever and the seller silently eats the consignor's cut.
+  // Best-effort and idempotent, like the item/listing restores below.
+  await reverseConsignorPayoutsForSales(
+    rows.map((r) => r.id),
+    ownerId,
+    { reason: `ebay ${outcome}` },
+  ).catch((err) => {
+    console.error("[ebay.postorder] consignor payout reversal failed:", err);
+  });
   const itemIds = [...new Set(rows.map((r) => r.inventory_item_id).filter(Boolean))] as string[];
   const listingIds = [...new Set(rows.map((r) => r.listing_id).filter(Boolean))] as string[];
 
