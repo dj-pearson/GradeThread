@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2145",
+  "nextId": "US-2149",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3818,12 +3818,14 @@
       "priority": 1992,
       "passes": false,
       "title": "Per-brand tell depth is 3 brands and 7 tells, all unverified",
-      "description": "CANONICAL_TELLS covers exactly three brands (louisvuitton, coach, gucci) with 7 tells total across categories date_code/stamp/hardware/serial/font — every one marked 'seed:brand-authentication-tells (unverified — review in admin)' at confidence 0.5-0.65, against a taxonomy of 11 categories that includes stitching, construction and material. The separate seeded brand_knowledge.authentication_tells rows are legacy {tell, detail} shape, coerced on read to category 'other' with NO redFlag field (brand-authenticity.ts:88-92), so they contribute almost nothing to the contradiction logic that drives the verdict. admin-brand-knowledge.ts is a working curation surface with validateTellsForWrite and is the right place to do this.",
+      "description": "CANONICAL_TELLS covers exactly three brands (louisvuitton, coach, gucci) with 7 tells total across categories date_code/stamp/hardware/serial/font — every one marked 'seed:brand-authentication-tells (unverified — review in admin)' at confidence 0.5-0.65, against a taxonomy of 11 categories that includes stitching, construction and material. The separate seeded brand_knowledge.authentication_tells rows are legacy {tell, detail} shape, coerced on read to category 'other' with NO redFlag field (brand-authenticity.ts:88-92), so they contribute almost nothing to the contradiction logic that drives the verdict. admin-brand-knowledge.ts is a working curation surface with validateTellsForWrite and is the right place to do this. EXTENDED 2026-07-19: the KB is also ONE-SIDED. Every field models what a GENUINE example looks like — authentication_tells, tag_eras, country_patterns, registered_numbers — and there is no counterfeit-pattern modelling at all: no known fake markers, no superfake characteristics, no record of a specific counterfeit production tell. authentication_tells is a single column marked 'informational' doing double duty for both directions. Combined with seeded content that says 'NEVER auto-authenticate', the KB currently argues against the product it feeds.",
       "acceptanceCriteria": [
         "Migrate legacy {tell, detail} rows into the structured shape so they can carry a category and a redFlag and actually affect the verdict.",
         "Expand verified tells to the brands with real submission volume; mark provenance and confidence per tell.",
         "Establish a review workflow so a tell moves from unverified to verified deliberately, with a named source.",
-        "Gate: a brand with no verified tells should widen limitations and lower confidence rather than producing a confident verdict from generic reasoning."
+        "Gate: a brand with no verified tells should widen limitations and lower confidence rather than producing a confident verdict from generic reasoning.",
+        "Model counterfeit-side knowledge distinctly from genuine-side tells — a known fake marker is a different kind of fact from 'what a real one looks like', and collapsing them into one informational column is why neither drives the verdict.",
+        "Reconcile the seeded 'NEVER auto-authenticate' guidance with the shipped product posture (see US-2133) rather than leaving the KB and the product in contradiction."
       ],
       "notes": "[P2][Authenticity/Signal][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Expert-dependent. Note the brand KB currently carries authentication_tells, registered_numbers, tag_eras and country_patterns columns across ~150-200 seeded brands — the columns exist, the depth does not."
     },
@@ -3896,6 +3898,67 @@
         "Do not implement an authenticity guarantee until those thresholds are met."
       ],
       "notes": "[P3][Authenticity/Risk][EPIC: Visual Authenticity] Found 2026-07-19 by the authenticity deep-dive audit. STRATEGY CONTEXT: Certilogo was the starting reference, but its model does not transfer — it verifies a brand-issued CLG code / QR on a security label sewn in at manufacture (its AI image recognition authenticates the TAG and detects cloned codes, not the garment's construction). GradeThread inspects garments it never manufactured, with no token. The transferable play is visual authentication of the garment itself, anchored on evidence we can actually capture. Note the scaffolding is ~80% built (ai-authenticity.ts is live in production) while the evidence base is ~5% — this epic closes that gap in order: contain what is already live, then raise evidence quality, then productize the claim. Filed as PARKED deliberately so the decision is recorded rather than re-litigated in six months. The two pool flaws are real today and should be fixed even if authenticity never rides on them. Load the vault skill before adding the decision note. PARTIAL 2026-07-19: AC1 DONE — vault/60-decisions/adr-authenticity-guarantee.md records the parking with the four revisit criteria (gate passes on real per-brand coverage incl. counterfeits; a MEASURED false-positive rate, since that is the error a guarantee pays out on; claim-severity modelling against ITEM value with a pool sized for a correlated batch not an average month; and the two pool flaws fixed). revisit_by 2027-01-31 as a backstop, with the note stating explicitly that the criteria are the trigger and the date is not. Both flaws VERIFIED in code before asserting them in the note: the gate reads getPoolPeriodState at buyer-guarantee-claim.ts:319, the upsert follows, and recordPoolDrawdown only runs at :356 — so concurrent claims genuinely do both pass against the same pre-drawdown state; and the grant failure at :366 left the row already reading auto_approved with remedy_credits set and the pool already drawn. AC2 PARTIAL: the swallowed grant failure now emits captureException + a guarantee.remedy_grant_failed metric so it is alertable instead of a bare console.error. DELIBERATELY NOT CHANGED: whether the claim flips to manual_review and whether the drawdown reverses — that is a money-semantics decision needing an owner, and silently undoing a payout would be worse than silently succeeding. The transactional reserve (replacing the read-then-write gate) also remains open and likely needs a DB function. 4372 edge tests pass."
+    },
+    {
+      "id": "US-2145",
+      "priority": 1990,
+      "passes": false,
+      "title": "A seller whose GENUINE item is flagged has no way to contest it",
+      "description": "Every control in the authenticity module protects the buyer. There is nothing for a seller whose genuine item receives a red_flags verdict: the dispute system is grade/condition-shaped and carries no authenticity path (verified — zero authenticity references in the dispute routes/lib), there is no appeal, no re-assessment, and no way to have a wrong verdict withdrawn.\n\nThis got WORSE on 2026-07-19, by our own hand. US-2141 sealed the verdict into certificate integrity v4, and US-2142 wrote it to the garment passport — an append-only ledger with no update or delete policy. So a wrong verdict is now durable, tamper-evident, and by design cannot be erased. We made the record permanent before building the correction path.\n\nThree things compound it: the pass has never cleared an accuracy gate (US-2130/2131), so we cannot state an error rate; confidence is capped but not zero when no macro evidence exists (US-2134), so thin-evidence verdicts still publish; and this is the error direction a financial guarantee would NOT cover (Entrupy-style guarantees pay out on fakes sold as real, not on genuine items called fake), so the seller bears it entirely.",
+      "acceptanceCriteria": [
+        "A seller can contest an authenticity verdict from the surfaces where they see it, with a defined SLA and a human decision — not a form that goes nowhere.",
+        "Define what the certificate and passport show WHILE an appeal is open. The passport is append-only, so a withdrawal is a superseding event, never a deletion — decide and document what the public view renders for a superseded verdict.",
+        "Wire the outcome through the existing authenticity review path (US-2140) so an upheld appeal produces a reviewer verdict, and a wrongly-flagged genuine item becomes an 'authentic' golden-set case — the most valuable label we can get.",
+        "Reseal the certificate on withdrawal (integrity v4 covers the verdict, so a change without a reseal breaks verification).",
+        "Notify the seller when a red_flags verdict is published, not only when they happen to look. They cannot contest what they never saw.",
+        "Counsel sign-off on the notice and appeal wording — fold into US-2133 rather than running a separate review."
+      ],
+      "notes": "[P0][Authenticity/Fairness][EPIC: Visual Authenticity] Found 2026-07-19 reviewing the authenticity module for gaps after the epic's backend landed. Publicly attaching 'red flags' to a real person's item, from a model with no measured error rate, has a defamation-adjacent shape that belongs in the counsel review. Sharpest open exposure in the module. Sequence with US-2133; do not let an agent draft the notice language."
+    },
+    {
+      "id": "US-2146",
+      "priority": 1996,
+      "passes": false,
+      "title": "No accuracy tracking for authenticity — zero drift detection",
+      "description": "accuracy-tracking.ts contains ZERO references to authenticity (verified). Grading has per-era accuracy attribution keyed on prompt_version; authenticity has none. The eval gate (US-2130) is a point-in-time certification — it says a prompt version cleared a bar on a given day. Nothing tells us it is still true a month later, after a model change, a brand-mix shift, or a prompt-version suffix change.\n\nThe inputs now exist and are going unused: US-2140 records reviewer verdicts against model verdicts with overrode_model and dangerous_override already derived, and US-2142 stamps every passport event with prompt_version and gate state.",
+      "acceptanceCriteria": [
+        "Track authenticity outcomes over time, attributed by prompt_version (mirroring how grading attributes accuracy eras).",
+        "Surface verdict distribution, override rate, and DANGEROUS-override rate specifically — the last is the metric that matters, since it is the error the gate fails outright on.",
+        "Alert on drift rather than requiring someone to look: a rising dangerous-override rate is the signal that a passing gate has gone stale.",
+        "Slice per brand, so a regression confined to one brand is visible (per-brand regression is what blocks activation).",
+        "Feed from the review outcomes recorded in US-2140 rather than standing up a parallel data path."
+      ],
+      "notes": "[P2][Authenticity/Monitoring][EPIC: Visual Authenticity] Found 2026-07-19 reviewing the authenticity module for gaps after the epic's backend landed. Only becomes meaningful once the gate can pass (US-2131), but the data is already accumulating — build it before there is a year of unattributed history to backfill."
+    },
+    {
+      "id": "US-2147",
+      "priority": 1996,
+      "passes": false,
+      "title": "Reviewer tells never flow back into brand knowledge — the loop is half-built",
+      "description": "US-2140 captures tells_relied_on: exactly which tells a human expert used to reach a verdict on a real item. That is the highest-value authenticity data the system can generate, and nothing aggregates it. It flows into the golden set as a single eval case and stops there — it never reaches brand_knowledge.authentication_tells or CANONICAL_TELLS, which are what ground future assessments.\n\nSo today a reviewer can identify the same decisive tell fifty times and the model still will not know it. Closing this converts every human review into permanent, reusable brand knowledge instead of one test case.",
+      "acceptanceCriteria": [
+        "Aggregate tells_relied_on per brand and surface candidates in the admin brand-knowledge curation surface (admin-brand-knowledge.ts already exists with validateTellsForWrite).",
+        "PROPOSE, never auto-promote: a tell entering the KB changes future verdicts, so it needs the same deliberate review a seeded tell gets. Frequency is evidence, not authority.",
+        "Carry provenance — which reviews supported the tell, and how often it was decisive vs merely noted.",
+        "Respect the vault's brand rules before writing anything: read vault/20-domain/brands/ (the decoder bar, the alias refusals, the negative findings) — several absences there are deliberate.",
+        "Migrate the legacy {tell, detail} rows into the structured shape as part of this, or aggregated tells will land in a field that contributes nothing to the verdict (brand-authenticity.ts:88-92 coerces them to category 'other' with no redFlag)."
+      ],
+      "notes": "[P2][Authenticity/Knowledge][EPIC: Visual Authenticity] Found 2026-07-19 reviewing the authenticity module for gaps after the epic's backend landed. Cheap and compounding — it wires two systems that already exist. Overlaps US-2139 (tell depth); do them together, since this is the mechanism that makes US-2139 self-sustaining rather than a one-off curation push."
+    },
+    {
+      "id": "US-2148",
+      "priority": 1997,
+      "passes": false,
+      "title": "A confirmed counterfeit emits no reputation signal and nothing aggregates per seller",
+      "description": "reputation_events + computeTrustScore + resolveReputationPerks are built (US-1816/1817), and a CONFIRMED counterfeit is the strongest reputation signal the platform could have. Nothing emits it — verified: no emitReputationEvent call anywhere in ai-authenticity.ts or the grading pipeline.\n\nThere is also no seller-level aggregation of authenticity outcomes at all. Three red_flags verdicts across one seller's items is invisible, and that is precisely the correlated-batch pattern vault/60-decisions/adr-authenticity-guarantee.md identifies as the shape our claims budget handles worst.",
+      "acceptanceCriteria": [
+        "Emit a reputation event on a HUMAN-CONFIRMED counterfeit (US-2140 outcome), never on a raw model verdict — the model has no measured error rate, and an automated reputation penalty off an ungated verdict is the seller-fairness problem in US-2145 with money attached.",
+        "Aggregate authenticity outcomes per seller so a pattern is visible to operators.",
+        "Define the positive direction too: a confirmed-authentic outcome on a contested item should count for the seller, not just against.",
+        "Feed the seller-level signal into the guarantee's correlated-batch risk, per the ADR.",
+        "Emit via emitReputationEvent + recomputeTrustScore, per the established pattern — do not invent a second scoring path."
+      ],
+      "notes": "[P2][Authenticity/Reputation][EPIC: Visual Authenticity] Found 2026-07-19 reviewing the authenticity module for gaps after the epic's backend landed. Gated on US-2140's review path being in use, since the trigger must be a confirmed outcome rather than a model verdict. Note the asymmetry deliberately encoded in AC1: we penalise only what a human confirmed, but we may credit on either."
     }
   ]
 }
