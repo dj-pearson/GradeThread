@@ -30,9 +30,17 @@ export interface WithdrawnAssessment {
   /** The verdict is cleared, not rewritten to a different verdict. */
   verdict: null;
   verdict_confidence: null;
+  /** Cleared because the PUBLIC VIEW derives its confidence band from this. */
+  authenticity_confidence: null;
+  /** Cleared because the public view surfaces it as a risk label. */
+  counterfeit_risk: null;
+  /** Cleared because the public view renders it verbatim to buyers. */
+  summary: null;
   withdrawn: true;
   withdrawn_at: string;
   withdrawn_reason: string;
+  /** The original assessment, kept operator-side for the record. */
+  withdrawn_original: Record<string, unknown>;
 }
 
 /**
@@ -43,8 +51,21 @@ export interface WithdrawnAssessment {
  * mean we now positively vouch for the item, and asserting that would be the
  * same overreach in the opposite direction.
  *
- * The rest of the assessment (summary, tells, limitations) is preserved so the
- * record of what was originally said survives; only the operative verdict goes.
+ * ⚠ WHICH FIELDS MUST BE CLEARED IS NOT OBVIOUS, and getting it wrong is silent.
+ * The public certificate view (00172, carried forward through 00307) does NOT
+ * read `verdict`. It derives what a buyer sees from:
+ *
+ *     authenticity_confidence  → authenticity_confidence_band
+ *     counterfeit_risk         → authenticity_counterfeit_risk
+ *     summary                  → authenticity_summary
+ *
+ * So clearing only the verdict would leave a seller who WON their appeal with a
+ * certificate still publicly showing an elevated counterfeit risk and the
+ * original red-flag summary. Every field the view reads has to go.
+ *
+ * The original is preserved under `withdrawn_original` — operator-side, since no
+ * view projects it — so the record of what was said, and that an appeal was
+ * necessary, survives the correction.
  */
 export function withdrawAssessment(
   assessment: Record<string, unknown> | null,
@@ -56,11 +77,27 @@ export function withdrawAssessment(
     ...assessment,
     verdict: null,
     verdict_confidence: null,
+    authenticity_confidence: null,
+    counterfeit_risk: null,
+    summary: null,
     withdrawn: true,
     withdrawn_at: nowIso,
     withdrawn_reason: reason.slice(0, 500),
+    withdrawn_original: { ...assessment },
   };
 }
+
+/**
+ * Fields the PUBLIC certificate view reads out of `authenticity_assessment`.
+ * Exported so a test can assert the withdrawal clears every one of them — if
+ * the view ever learns a new field, that test fails rather than a seller
+ * silently staying flagged after winning an appeal.
+ */
+export const PUBLICLY_PROJECTED_ASSESSMENT_FIELDS = [
+  "authenticity_confidence",
+  "counterfeit_risk",
+  "summary",
+] as const;
 
 /**
  * The certificate fields to reseal with after a withdrawal. Pure + exported.

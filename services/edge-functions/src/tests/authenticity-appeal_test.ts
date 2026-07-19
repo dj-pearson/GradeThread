@@ -3,6 +3,7 @@
 
 import { assert, assertEquals } from "@std/assert";
 import {
+  PUBLICLY_PROJECTED_ASSESSMENT_FIELDS,
   resealFieldsAfterWithdrawal,
   resolveAppeal,
   validateAppeal,
@@ -28,15 +29,44 @@ Deno.test("withdrawal CLEARS the verdict rather than flipping it to authentic", 
   assertEquals(w.withdrawn_at, NOW);
 });
 
-Deno.test("withdrawal preserves what was originally said", () => {
-  // The record of the original assessment survives; only the operative verdict
-  // goes. Erasing it would destroy the evidence an appeal was even necessary.
+Deno.test("withdrawal clears EVERY field the public view projects", () => {
+  // The bug this pins: the public certificate view does not read `verdict`. It
+  // derives the buyer-visible band, risk label and summary from
+  // authenticity_confidence / counterfeit_risk / summary. Clearing only the
+  // verdict would leave a seller who WON their appeal still publicly showing an
+  // elevated counterfeit risk and the original red-flag text.
   const w = withdrawAssessment(
-    { verdict: "red_flags", summary: "Stitching irregular.", limitations: "Photo-only." },
-    "receipt",
+    {
+      verdict: "red_flags",
+      verdict_confidence: 0.5,
+      authenticity_confidence: 0.31,
+      counterfeit_risk: "elevated",
+      summary: "Stitching irregular; stamp font inconsistent.",
+      limitations: "Photo-only.",
+    },
+    "Seller supplied the retail receipt.",
     NOW,
   );
-  assertEquals(w?.summary, "Stitching irregular.");
+  assert(w);
+  for (const field of PUBLICLY_PROJECTED_ASSESSMENT_FIELDS) {
+    assertEquals(w[field], null, `${field} is publicly projected and must be cleared`);
+  }
+});
+
+Deno.test("withdrawal preserves the original operator-side", () => {
+  // The record of what was said — and that an appeal was necessary — survives.
+  // It moves under withdrawn_original, which no view projects, rather than
+  // staying at the top level where the public view would still read it.
+  const original = {
+    verdict: "red_flags",
+    counterfeit_risk: "elevated",
+    summary: "Stitching irregular.",
+    limitations: "Photo-only.",
+  };
+  const w = withdrawAssessment(original, "receipt", NOW);
+  assertEquals(w?.withdrawn_original.summary, "Stitching irregular.");
+  assertEquals(w?.withdrawn_original.counterfeit_risk, "elevated");
+  // Non-projected fields can stay in place; they are not buyer-visible.
   assertEquals(w?.limitations, "Photo-only.");
 });
 
