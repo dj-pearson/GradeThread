@@ -25,6 +25,12 @@ declare global {
       capture?: (e: string, p?: Record<string, unknown>) => void;
       opt_in_capturing?: () => void;
       opt_out_capturing?: () => void;
+      // US-2109: client-side experiments. These exist only once analytics
+      // consent has initialized posthog-js, which is exactly the consent gate —
+      // there is no code path that can evaluate a flag earlier, because there is
+      // no posthog to ask.
+      getFeatureFlag?: (key: string) => string | boolean | undefined;
+      onFeatureFlags?: (cb: () => void) => (() => void) | void;
     };
   }
 }

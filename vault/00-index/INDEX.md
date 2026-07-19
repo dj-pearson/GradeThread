@@ -54,6 +54,7 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[content-publishing]] — contract — The webhook fan-out contract for publishing a post to every downstream channel.
 - [[content-scheduler]] — runbook — How scheduled posts are queued, fired and recovered when a run is missed.
 - [[copy-style-guide]] — reference — Voice, tone and the claims copy is not allowed to make.
+- [[experimentation]] — contract — Three flag/experiment systems exist for three different jobs; pointing two at the same decision is the failure mode this contract prevents.
 - [[seo-distribution-and-measurement]] — runbook — How attention is earned off-page and on Reddit, and how to tell whether any of it worked.
 - [[seo-geo-strategy]] — reference — Keyword universes, site architecture and the phased roadmap for making GradeThread the citable condition standard.
 - [[seo-indexability]] — reference — Why registered pages are not getting indexed, and the open work to fix it — including the argument against more pSEO.
