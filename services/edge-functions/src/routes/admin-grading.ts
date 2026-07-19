@@ -68,11 +68,13 @@ import {
   type SellerAuthenticityRecord,
 } from "../lib/authenticity-seller-signal.ts";
 import {
+  checkAuthenticityDrift,
   computeAuthenticityAccuracy,
   detectAuthenticityDrift,
   splitByCutoff,
   type AuthenticityObservation,
 } from "../lib/authenticity-accuracy.ts";
+import { recordMetric } from "../lib/observability.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
 import {
@@ -543,8 +545,10 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
 // agreement rate stays flat while a version stops missing fakes and starts
 // flagging genuine items.
 
-// GET /authenticity/accuracy?since=ISO — accuracy by version and brand, + drift.
-adminGradingRoutes.get("/authenticity/accuracy", async (c) => {
+// Shared loader: the accuracy route and the post-review drift check must read
+// the same shape, or the number an operator sees and the number that alerts
+// could disagree.
+async function loadAuthenticityObservations(): Promise<AuthenticityObservation[]> {
   const { data, error } = await supabaseAdmin
     .from("authenticity_review_outcomes")
     .select(
@@ -552,9 +556,7 @@ adminGradingRoutes.get("/authenticity/accuracy", async (c) => {
         "grade_reports!inner(submissions!inner(brand))",
     )
     .limit(5000);
-  if (error) {
-    return failSafe(c, 400, "Couldn't load review outcomes.", error, "admin.grading.authenticity.accuracy");
-  }
+  if (error) throw new Error(error.message);
 
   type Row = {
     model_verdict: string | null;
@@ -563,7 +565,7 @@ adminGradingRoutes.get("/authenticity/accuracy", async (c) => {
     reviewed_at: string;
     grade_reports?: { submissions?: { brand?: string | null } | null } | null;
   };
-  const observations: AuthenticityObservation[] = ((data ?? []) as unknown as Row[]).map((r) => {
+  return ((data ?? []) as unknown as Row[]).map((r) => {
     const brand = r.grade_reports?.submissions?.brand?.trim();
     return {
       prompt_version: r.model_prompt_version,
@@ -573,6 +575,22 @@ adminGradingRoutes.get("/authenticity/accuracy", async (c) => {
       reviewed_at: r.reviewed_at,
     };
   });
+}
+
+// GET /authenticity/accuracy?since=ISO — accuracy by version and brand, + drift.
+adminGradingRoutes.get("/authenticity/accuracy", async (c) => {
+  let observations: AuthenticityObservation[];
+  try {
+    observations = await loadAuthenticityObservations();
+  } catch (err) {
+    return failSafe(
+      c,
+      400,
+      "Couldn't load review outcomes.",
+      err,
+      "admin.grading.authenticity.accuracy",
+    );
+  }
 
   const report = computeAuthenticityAccuracy(observations);
   // Caller-supplied cutoff so an operator can ask "since we changed the model",
@@ -757,8 +775,22 @@ adminGradingRoutes.post("/authenticity/reviews", async (c) => {
     overrode_model: overrodeModel(modelVerdict, reviewerVerdict),
     // Called out explicitly in the audit trail: this is the error class the eval
     // gate fails outright on, and the one where a buyer was actively misled.
+    // (drift check fires below — a new review is exactly when drift can change)
     dangerous_override: isDangerousOverride(modelVerdict, reviewerVerdict),
   });
+
+  // US-2146: a new review is the only thing that can move the error rates, so
+  // this is exactly when drift can change. Fired here rather than from a cron —
+  // the cron fleet is a manual per-environment install, and a check nobody
+  // remembers to enable protects nothing. Best-effort; never fails the write.
+  void checkAuthenticityDrift(
+    () => loadAuthenticityObservations(),
+    // 30-day recent window against everything before it.
+    new Date(Date.now() - 30 * 86_400_000).toISOString(),
+    (name, value, tags) => recordMetric(name, value, tags),
+    (message) => console.warn(message),
+  );
+
   return c.json({ id: (data as { id: string }).id }, 201);
 });
 

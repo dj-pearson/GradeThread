@@ -2,6 +2,7 @@
 
 import { assert, assertEquals } from "@std/assert";
 import {
+  checkAuthenticityDrift,
   computeAuthenticityAccuracy,
   detectAuthenticityDrift,
   MIN_DRIFT_SAMPLE,
@@ -126,6 +127,68 @@ Deno.test("drift refuses to fire on a thin sample", () => {
 Deno.test("stable error rates do not drift", () => {
   const same = many(MIN_DRIFT_SAMPLE, o("likely_authentic", "authentic"));
   assertEquals(detectAuthenticityDrift(same, same).drifting, false);
+});
+
+// ── the alert path ──────────────────────────────────────────────────────────
+
+Deno.test("drift check emits rates, and an alert only when actually drifting", async () => {
+  const metrics: string[] = [];
+  const warnings: string[] = [];
+  const baseline = many(MIN_DRIFT_SAMPLE, o("likely_authentic", "authentic", {
+    reviewed_at: "2026-01-01T00:00:00Z",
+  }));
+  const recent = [
+    ...many(MIN_DRIFT_SAMPLE - 4, o("likely_authentic", "authentic", {
+      reviewed_at: "2026-07-10T00:00:00Z",
+    })),
+    ...many(4, o("likely_authentic", "counterfeit", { reviewed_at: "2026-07-10T00:00:00Z" })),
+  ];
+
+  const v = await checkAuthenticityDrift(
+    () => Promise.resolve([...baseline, ...recent]),
+    "2026-07-01T00:00:00Z",
+    (name) => metrics.push(name),
+    (m) => warnings.push(m),
+  );
+
+  assert(v?.drifting);
+  // Rates are always emitted, so a dashboard has a series even when healthy.
+  assert(metrics.includes("authenticity.false_negative_rate"));
+  assert(metrics.includes("authenticity.false_positive_rate"));
+  assert(metrics.includes("authenticity.drift_detected"));
+  assertEquals(warnings.length, 1);
+});
+
+Deno.test("a healthy window emits rates but raises no alert", async () => {
+  const metrics: string[] = [];
+  const warnings: string[] = [];
+  const same = (at: string) => many(MIN_DRIFT_SAMPLE, o("likely_authentic", "authentic", {
+    reviewed_at: at,
+  }));
+
+  await checkAuthenticityDrift(
+    () => Promise.resolve([...same("2026-01-01T00:00:00Z"), ...same("2026-07-10T00:00:00Z")]),
+    "2026-07-01T00:00:00Z",
+    (name) => metrics.push(name),
+    (m) => warnings.push(m),
+  );
+
+  assert(metrics.includes("authenticity.false_negative_rate"));
+  assertEquals(metrics.includes("authenticity.drift_detected"), false);
+  assertEquals(warnings.length, 0);
+});
+
+Deno.test("a monitoring failure never breaks the write it observes", async () => {
+  // The check runs off the back of recording a review. If loading blows up, the
+  // review must still stand — monitoring is not allowed to fail the thing it
+  // monitors.
+  const v = await checkAuthenticityDrift(
+    () => Promise.reject(new Error("db down")),
+    "2026-07-01T00:00:00Z",
+    () => {},
+    () => {},
+  );
+  assertEquals(v, null);
 });
 
 Deno.test("splitByCutoff partitions on the timestamp", () => {

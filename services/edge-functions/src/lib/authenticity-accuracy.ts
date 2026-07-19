@@ -170,6 +170,47 @@ export function detectAuthenticityDrift(
   return { recent: r, baseline: b, drifting: reasons.length > 0, reasons };
 }
 
+/**
+ * Check for drift and emit an alert if the error profile has worsened.
+ *
+ * Called after a review outcome is RECORDED rather than from a cron. Two
+ * reasons: reviews are the only thing that can move these numbers, so a write is
+ * exactly when the answer can change (a schedule would mostly recompute an
+ * unchanged result); and the cron fleet is a manual per-environment install, so
+ * a scheduled check is one an operator has to remember to turn on before it ever
+ * protects anything.
+ *
+ * Best-effort and never throwing — a monitoring check must not fail the write it
+ * observes. Reviews are human-gated and low-volume, so recomputing per write is
+ * affordable in a way it would not be on a hot path.
+ */
+export async function checkAuthenticityDrift(
+  loadObservations: () => Promise<AuthenticityObservation[]>,
+  cutoffIso: string,
+  emit: (name: string, value: number, tags: Record<string, string>) => void,
+  warn: (message: string) => void,
+): Promise<DriftVerdict | null> {
+  try {
+    const observations = await loadObservations();
+    const { recent, baseline } = splitByCutoff(observations, cutoffIso);
+    const verdict = detectAuthenticityDrift(recent, baseline);
+
+    emit("authenticity.false_negative_rate", verdict.recent.false_negative_rate, {
+      window: "recent",
+    });
+    emit("authenticity.false_positive_rate", verdict.recent.false_positive_rate, {
+      window: "recent",
+    });
+    if (verdict.drifting) {
+      emit("authenticity.drift_detected", 1, {});
+      warn(`[authenticity-drift] ${verdict.reasons.join("; ")}`);
+    }
+    return verdict;
+  } catch {
+    return null;
+  }
+}
+
 /** Split observations into recent vs baseline at a cutoff. Pure + exported. */
 export function splitByCutoff(
   observations: readonly AuthenticityObservation[],
