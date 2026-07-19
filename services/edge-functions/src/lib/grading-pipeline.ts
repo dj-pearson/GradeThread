@@ -51,6 +51,8 @@ import {
   createSingleHopPassport,
   storeGarmentFingerprint,
 } from "./passport-write.ts";
+import { appendAuthenticityEvent } from "./passport-authenticity.ts";
+import { authenticityGateStatus } from "./authenticity-eval.ts";
 import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
 import {
   evaluateLiveCapture,
@@ -2187,6 +2189,18 @@ export async function processSubmission(submissionId: string) {
     // First grade, or a re-grade whose target wasn't owned/resolvable → fresh seed.
     if (!passportGarmentId) {
       passportGarmentId = await createSingleHopPassport(seedInput);
+    }
+
+    // US-2142: append the coarse authenticity verdict to the passport ledger so
+    // provenance carries it alongside condition. Best-effort and no-ops when the
+    // add-on didn't run or no brand was recognizable. The event records the
+    // prompt version and whether the eval gate was satisfied, so entries written
+    // by an as-yet-ungated pass (US-2130) stay identifiable rather than blending
+    // into the record.
+    if (passportGarmentId && authenticityAssessment) {
+      const gate = await authenticityGateStatus(authenticityAssessment.prompt_version)
+        .catch(() => ({ gated: false }));
+      await appendAuthenticityEvent(passportGarmentId, authenticityAssessment, gate.gated);
     }
 
     // US-1097: store the garment's visual fingerprint (perceptual hashes of the

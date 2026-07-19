@@ -121,6 +121,36 @@
 > previously the applied version was visible only in container logs, which is how
 > this file drifted 59 sections out of date without anyone noticing.)
 
+## ⏳ PENDING: 00488_garment_event_authenticity.sql (US-2142 passport authenticity event, 2026-07-19)
+
+**Apply AFTER 00487.** Adds `'authenticity_assessed'` to the
+`garment_event_type` enum so the brand-authenticity verdict can join the
+append-only passport ledger alongside `graded` / `listed` / `sold`.
+
+**Why it matters:** the passport is the chain-of-custody record, and an
+authenticity finding is exactly the kind of thing it exists to carry — something
+determined about the garment at a point in time, which a later assessment should
+supersede without erasing. Only the coarse verdict is written; red flags and
+per-tell findings stay operator-side, matching what the public certificate view
+projects (the passport is buyer-visible).
+
+**Risk: LOW,** but note the enum caveat. `ALTER TYPE ... ADD VALUE` is fine on
+prod Postgres, and the new value is never used in a `.eq`/`.neq` filter — the
+edge only INSERTs it.
+
+**⚠ Deploy-order note — apply this BEFORE the edge rolls.** Unlike 00487, the
+edge code in the same commit does write the new enum value: `grading-pipeline`
+calls `appendAuthenticityEvent` at finalize. If the edge rolls first, that insert
+fails on an unknown enum value. It is wrapped best-effort and caught, so a paid
+grade is never lost — but every authenticity assessment finalized in the gap
+would be missing from its passport with only a log line to show for it. The
+schema boot guard now expects `00488`, which is what enforces the ordering (~40s
+grace window, US-778).
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` (enum change).
+
+---
+
 ## ⏳ PENDING: 00487_authenticity_review_outcomes.sql (US-2140 authenticity review outcomes, 2026-07-19)
 
 **Apply AFTER 00486.** Adds `authenticity_review_outcomes` — a place for a human
