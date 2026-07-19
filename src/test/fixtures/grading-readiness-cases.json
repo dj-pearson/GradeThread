@@ -1,0 +1,255 @@
+{
+  "_comment": "US-2019 SHARED FIXTURE. Grading-readiness rules exist in two projects that cannot import each other: services/edge-functions/src/routes/flipdesk-grading.ts (gradingReadinessBlockers — the AUTHORITY, used by /validate and /submit) and src/lib/grading-readiness.ts (previewGradingReadiness — the web mirror driving the live Submit card). Both suites assert THIS table. Divergence is silent in both directions: a client saying ready when the server disagrees sends a seller into a submit-time rejection; a client saying not-ready when the server would accept blocks them from paying. Blocker strings are user-facing copy AND regex-matched by the web card (onlyGarmentBlocks), so changing one is a cross-project change.",
+  "cases": [
+    {
+      "name": "fully ready",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "Levi 501",
+        "photoTypes": [
+          "front",
+          "back",
+          "detail"
+        ]
+      },
+      "expected": {
+        "blockers": [],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "ready via detail_3",
+      "input": {
+        "garment_type": "tee",
+        "garment_category": "knit",
+        "title": "Tee",
+        "photoTypes": [
+          "front",
+          "back",
+          "detail_3"
+        ]
+      },
+      "expected": {
+        "blockers": [],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "no photos at all",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "X",
+        "photoTypes": []
+      },
+      "expected": {
+        "blockers": [
+          "Missing required photos: front, back",
+          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+        ],
+        "missingPhotos": [
+          "front",
+          "back"
+        ]
+      }
+    },
+    {
+      "name": "missing back only",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "X",
+        "photoTypes": [
+          "front",
+          "detail"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Missing required photos: back"
+        ],
+        "missingPhotos": [
+          "back"
+        ]
+      }
+    },
+    {
+      "name": "missing front only",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "X",
+        "photoTypes": [
+          "back",
+          "detail_2"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Missing required photos: front"
+        ],
+        "missingPhotos": [
+          "front"
+        ]
+      }
+    },
+    {
+      "name": "has required but NO fabric closeup",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "X",
+        "photoTypes": [
+          "front",
+          "back"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+        ],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "defect shot does not satisfy fabric",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "X",
+        "photoTypes": [
+          "front",
+          "back",
+          "defect"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+        ],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "whitespace title is missing",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "   ",
+        "photoTypes": [
+          "front",
+          "back",
+          "detail"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Missing title"
+        ],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "empty title",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "",
+        "photoTypes": [
+          "front",
+          "back",
+          "detail"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Missing title"
+        ],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "null garment_type",
+      "input": {
+        "garment_type": null,
+        "garment_category": "denim",
+        "title": "X",
+        "photoTypes": [
+          "front",
+          "back",
+          "detail"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Missing garment_type"
+        ],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "null garment_category",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": null,
+        "title": "X",
+        "photoTypes": [
+          "front",
+          "back",
+          "detail"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Missing garment_category"
+        ],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "everything missing",
+      "input": {
+        "garment_type": null,
+        "garment_category": null,
+        "title": null,
+        "photoTypes": []
+      },
+      "expected": {
+        "blockers": [
+          "Missing garment_type",
+          "Missing garment_category",
+          "Missing title",
+          "Missing required photos: front, back",
+          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+        ],
+        "missingPhotos": [
+          "front",
+          "back"
+        ]
+      }
+    },
+    {
+      "name": "tag photo does not satisfy anything",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "X",
+        "photoTypes": [
+          "tag",
+          "tag_2"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Missing required photos: front, back",
+          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+        ],
+        "missingPhotos": [
+          "front",
+          "back"
+        ]
+      }
+    }
+  ]
+}

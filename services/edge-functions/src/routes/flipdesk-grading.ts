@@ -99,6 +99,61 @@ const FABRIC_CLOSEUP_PHOTO_TYPES = [
 // Pulls the user record + all items + photo coverage in one round-trip set,
 // then computes per-item readiness. Used by both /validate (just returns the
 // result) and /submit (in G2; refuses to proceed if can_submit is false).
+/**
+ * US-2019 — the grading-readiness rules, as a PURE function.
+ *
+ * These rules exist in two projects that cannot import each other: here (the
+ * authority, used by /validate and /submit) and src/lib/grading-readiness.ts
+ * (the web mirror, so the "Submit for grading" card can reflect readiness LIVE
+ * off the edit form instead of round-tripping).
+ *
+ * The mirror is legitimate and unavoidable. What was NOT acceptable is that it
+ * was held together by a comment ("The blocker STRINGS below are verbatim
+ * copies of the server's"). Divergence is silent in BOTH directions and both
+ * are bad: a client that says "ready" when the server disagrees sends a seller
+ * into a rejection at submit time, and a client that says "not ready" when the
+ * server would accept blocks them from paying us.
+ *
+ * Extracting it here lets both suites assert the SAME behavioural fixture
+ * (src/test/fixtures/grading-readiness-cases.json) instead of trusting that two
+ * hand-maintained copies stayed identical.
+ *
+ * The blocker strings are user-facing copy; the web card also regex-matches
+ * them (`onlyGarmentBlocks`), so changing one is a cross-project change.
+ */
+export function gradingReadinessBlockers(input: {
+  garment_type: string | null | undefined;
+  garment_category: string | null | undefined;
+  title: string | null | undefined;
+  photoTypes: Set<string> | readonly string[];
+}): { blockers: string[]; missingPhotos: string[] } {
+  const have = input.photoTypes instanceof Set
+    ? input.photoTypes
+    : new Set(input.photoTypes);
+  const blockers: string[] = [];
+  const missingPhotos: string[] = [];
+
+  if (!input.garment_type) blockers.push("Missing garment_type");
+  if (!input.garment_category) blockers.push("Missing garment_category");
+  if (!input.title || !input.title.trim()) blockers.push("Missing title");
+
+  for (const t of REQUIRED_GRADING_PHOTO_TYPES) {
+    if (!have.has(t)) missingPhotos.push(t);
+  }
+  if (missingPhotos.length > 0) {
+    blockers.push(`Missing required photos: ${missingPhotos.join(", ")}`);
+  }
+  // Mirror the grading gate's fabric close-up requirement up front so a
+  // "ready" item doesn't abstain after submission (see FABRIC_CLOSEUP note).
+  if (!FABRIC_CLOSEUP_PHOTO_TYPES.some((t) => have.has(t))) {
+    blockers.push(
+      "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot.",
+    );
+  }
+
+  return { blockers, missingPhotos };
+}
+
 async function buildValidation(
   ownerId: string,
   inputs: SubmitItemInput[],
@@ -220,24 +275,19 @@ async function buildValidation(
     } else if (item.user_id !== ownerId) {
       blockers.push("Item not found");
     } else {
-      if (!item.garment_type) blockers.push("Missing garment_type");
-      if (!item.garment_category) blockers.push("Missing garment_category");
-      if (!item.title || !item.title.trim()) blockers.push("Missing title");
-
+      // US-2019: the readiness rules are computed by a PURE, EXPORTED helper so
+      // the web mirror (src/lib/grading-readiness.ts) can assert the identical
+      // behaviour against a shared fixture. Previously both sides implemented
+      // the rules independently and were kept aligned by a comment.
       const have = photoTypesByItem.get(input.inventory_item_id) ?? new Set();
-      for (const t of REQUIRED_GRADING_PHOTO_TYPES) {
-        if (!have.has(t)) missingPhotos.push(t);
-      }
-      if (missingPhotos.length > 0) {
-        blockers.push(`Missing required photos: ${missingPhotos.join(", ")}`);
-      }
-      // Mirror the grading gate's fabric close-up requirement up front so a
-      // "ready" item doesn't abstain after submission (see FABRIC_CLOSEUP note).
-      if (!FABRIC_CLOSEUP_PHOTO_TYPES.some((t) => have.has(t))) {
-        blockers.push(
-          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot.",
-        );
-      }
+      const computed = gradingReadinessBlockers({
+        garment_type: item.garment_type,
+        garment_category: item.garment_category,
+        title: item.title,
+        photoTypes: have,
+      });
+      blockers.push(...computed.blockers);
+      missingPhotos.push(...computed.missingPhotos);
     }
 
     return {
