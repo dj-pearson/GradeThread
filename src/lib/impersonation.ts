@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { queryClient } from "@/lib/query-client";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useImpersonationStore } from "@/stores/impersonation-store";
 
@@ -79,6 +80,22 @@ export async function startImpersonation(targetUserId: string): Promise<StartRes
     startedAt: new Date().toISOString(),
   });
 
+  // US-2089 (C4): DROP THE CACHED SERVER DATA BEFORE THE SESSION SWAP.
+  //
+  // Impersonation is the THIRD way the tenant scope changes, and the only one
+  // that was not clearing the TanStack cache. Sign-out clears it (use-auth.ts)
+  // and a workspace switch clears it (use-workspace.ts) — but verifyOtp() swaps
+  // sessions by firing SIGNED_IN with a DIFFERENT user, which takes the
+  // `if (newSession?.user)` branch in onAuthStateChange and never reaches the
+  // SIGNED_OUT clear.
+  //
+  // Dozens of workspace/user-scoped query keys deliberately omit the owner id
+  // (see the US-1624 comment in use-workspace.ts), so the cache clear IS the
+  // isolation mechanism for them. Without it the admin's cached data is served
+  // while acting as the target, and — worse on the way back out — the TARGET's
+  // cached data is served to the admin for up to staleTime after exit.
+  queryClient.clear();
+
   // Redeem the one-time token → swaps the browser into the target's session.
   const { error } = await supabase.auth.verifyOtp({
     token_hash: body.token_hash,
@@ -96,6 +113,12 @@ export async function startImpersonation(targetUserId: string): Promise<StartRes
 export async function stopImpersonation(): Promise<void> {
   const record = useImpersonationStore.getState().record;
   if (!record) return;
+
+  // US-2089 (C4): clear on the way OUT too, and this direction matters more.
+  // Anything cached while acting as the target would otherwise be served to the
+  // ADMIN's own session after the swap back — a support admin would see a
+  // customer's data attributed to their own session for up to staleTime.
+  queryClient.clear();
 
   // Restore the admin's session by redeeming the one-time resume token. This
   // swaps the browser out of the target's session and back into the admin's
