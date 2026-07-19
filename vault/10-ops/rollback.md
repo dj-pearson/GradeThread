@@ -39,10 +39,21 @@ redeployed deterministically.
 3. Verify: `curl https://functions.gradethread.com/health` shows the expected
    `release` SHA and `errorTracking: "enabled"`; `/health/ready` returns 200.
 
-> [!todo] **MANUAL:** in Coolify, set the build arg `GIT_SHA=$SOURCE_COMMIT` (Coolify
-> exposes the commit as an env/arg) so each image is stamped, and enable image
-> retention (keep ≥ 5 prior tags) so a prior image can be redeployed without a
-> rebuild.
+> [!todo] **MANUAL:** in Coolify, enable image retention (keep ≥ 5 prior tags) so a
+> prior image can be redeployed without a rebuild.
+>
+> The `GIT_SHA` build arg is **no longer a manual step** (US-2001):
+> `services/edge-functions/docker-compose.coolify.yml` declares
+> `build.args.GIT_SHA: ${SOURCE_COMMIT:-dev}`, so the platform stamps each image
+> rather than an operator remembering to. That change exists precisely because
+> the Dockerfile had carried a comment asking for it since it was written and
+> prod still served `release:"dev"`.
+>
+> ⚠️ If you deploy from `docker-compose.yml` rather than the `.coolify.yml`
+> variant, the arg is NOT declared there — set it in Coolify's Build Args field.
+> `/health/ready` reports `features.observability` as degraded whenever the
+> release is a placeholder, so a miss is visible without anyone remembering to
+> check.
 
 ## Database
 

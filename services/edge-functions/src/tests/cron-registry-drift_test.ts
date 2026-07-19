@@ -144,3 +144,52 @@ Deno.test("vault/10-ops/deploy.md cron count matches CRON_REGISTRY", async () =>
     );
   }
 });
+
+// US-2012: the launch checklist must not RE-HARDCODE a migration version.
+//
+// The row for "All migrations applied" once read `latest = 00132` while prod
+// was at 00476. That is the worst possible failure direction for a runbook: an
+// operator verifying against it mid-incident would have CONFIRMED a
+// catastrophically stale DB — 345 versions behind — and moved on satisfied.
+//
+// It now says to ask /health/ready instead, with a "Do not hardcode a version
+// here" warning. But that warning is PROSE, and prose is not enforcement: the
+// next person updating this table can helpfully "fix" the row by filling in
+// today's number, and nothing would object. This makes it object.
+//
+// Asking the system beats generating the line, too: a generated value would be
+// the REPO's max migration, which is not the same as what PROD has applied —
+// a distinction this repo learned the hard way when /health/ready reported an
+// applied version with no corresponding file (see PENDING_MIGRATIONS.md).
+Deno.test("US-2012: launch-checklist does not hardcode a migration version", async () => {
+  const md = await Deno.readTextFile(
+    new URL("../../../../vault/10-ops/launch-checklist.md", import.meta.url),
+  );
+
+  // Only look at the migrations row — other rows may legitimately cite a
+  // version when describing history.
+  const row = md.split("\n").find((l) => /All migrations applied/.test(l));
+  if (!row) {
+    throw new Error(
+      "vault/10-ops/launch-checklist.md no longer has an 'All migrations applied' row. " +
+        "If it was renamed, update this guard; if it was deleted, say so in US-2012 " +
+        "rather than letting the check quietly cover nothing.",
+    );
+  }
+
+  // An assertion of the form `latest = 00123` / `latest is 00123` is the shape
+  // that burned us. Referring to a version while EXPLAINING the past ("this row
+  // previously read `latest = 00132`") is fine and is why the pattern requires
+  // the assertion form rather than banning digits outright.
+  const hardcoded = row.match(/latest\s*(?:=|is)\s*`?0\d{4}`?/gi) ?? [];
+  const explanatory = row.match(/previously read/i);
+
+  if (hardcoded.length > 0 && !explanatory) {
+    throw new Error(
+      `vault/10-ops/launch-checklist.md hardcodes a migration version (${hardcoded.join(", ")}). ` +
+        `Ask the system instead: curl /health/ready | jq .schema. A hardcoded ` +
+        `version fails in the CONFIRMING direction — it tells a stressed operator ` +
+        `that a stale DB is correct.`,
+    );
+  }
+});
