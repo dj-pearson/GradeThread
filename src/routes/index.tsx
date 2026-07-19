@@ -2,40 +2,10 @@
 // rule treats as a component declaration, but they're consumed only by the
 // router config below. Fast-refresh constraints don't apply here.
 /* eslint-disable react-refresh/only-export-components */
-import { lazy as reactLazy, Suspense, type ComponentType } from "react";
+import { lazy, SuspenseWrapper } from "./lazy";
 import { createBrowserRouter, Navigate, useLocation } from "react-router-dom";
 import { RootLayout } from "@/layouts/root-layout";
 import { RouteErrorFallback } from "@/components/error-boundary";
-
-// Wrap React.lazy so a failed dynamic import doesn't hard-crash the route.
-// A rejected import() almost always means a new deploy replaced the hashed
-// chunk this (older) page references, so the asset now 404s and Cloudflare's
-// SPA fallback serves index.html — yielding the "expected a JS module but got
-// text/html" MIME error. Reloading once fetches the fresh index + chunk map.
-// A sessionStorage flag prevents an infinite reload loop if the chunk is
-// genuinely missing (a broken deploy); the flag is cleared on any success.
-const CHUNK_RELOAD_KEY = "chunk-reload-once";
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- mirror React.lazy's own ComponentType<any> so components with props stay assignable
-function lazy<T extends ComponentType<any>>(
-  factory: () => Promise<{ default: T }>,
-) {
-  return reactLazy(() =>
-    factory()
-      .then((mod) => {
-        sessionStorage.removeItem(CHUNK_RELOAD_KEY);
-        return mod;
-      })
-      .catch((err: unknown) => {
-        if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
-          sessionStorage.setItem(CHUNK_RELOAD_KEY, "1");
-          window.location.reload();
-          // Never resolve — keep the Suspense fallback up during the reload.
-          return new Promise<{ default: T }>(() => {});
-        }
-        throw err;
-      }),
-  );
-}
 
 // RootLayout stays eager (it renders on the first paint of every route). The
 // authenticated layouts + auth guards are lazy: they pull Supabase, react-query
@@ -45,6 +15,7 @@ function lazy<T extends ComponentType<any>>(
 const AuthLayout = lazy(() => import("@/layouts/auth-layout").then(m => ({ default: m.AuthLayout })));
 const DashboardLayout = lazy(() => import("@/layouts/dashboard-layout").then(m => ({ default: m.DashboardLayout })));
 const AdminLayout = lazy(() => import("@/layouts/admin-layout").then(m => ({ default: m.AdminLayout })));
+const AdminRoutes = lazy(() => import("./admin-routes").then(m => ({ default: m.AdminRoutes })));
 const ProtectedRoute = lazy(() => import("@/components/auth/protected-route").then(m => ({ default: m.ProtectedRoute })));
 const AdminRoute = lazy(() => import("@/components/auth/admin-route").then(m => ({ default: m.AdminRoute })));
 // Buyer platform (US-1802): buyer app shell + role guard.
@@ -202,117 +173,14 @@ const FlipdeskAutolisterQueuePage = lazy(() => import("@/pages/flipdesk/autolist
 const FlipdeskAutolisterBulkEditPage = lazy(() => import("@/pages/flipdesk/autolister-bulk-edit").then(m => ({ default: m.FlipdeskAutolisterBulkEditPage })));
 const FlipdeskAutolisterDraftsPage = lazy(() => import("@/pages/flipdesk/autolister-drafts").then(m => ({ default: m.FlipdeskAutolisterDraftsPage })));
 const FlipdeskScheduledDropsPage = lazy(() => import("@/pages/flipdesk/scheduled-drops").then(m => ({ default: m.FlipdeskScheduledDropsPage })));
-const BlogListPage = lazy(() => import("@/pages/content/blog-list").then(m => ({ default: m.BlogListPage })));
-const BlogEditorPage = lazy(() => import("@/pages/content/blog-editor").then(m => ({ default: m.BlogEditorPage })));
-const AuthorsPage = lazy(() => import("@/pages/content/authors").then(m => ({ default: m.AuthorsPage })));
-const SocialListPage = lazy(() => import("@/pages/content/social-list").then(m => ({ default: m.SocialListPage })));
-const SocialEditorPage = lazy(() => import("@/pages/content/social-editor").then(m => ({ default: m.SocialEditorPage })));
-const TopicBankPage = lazy(() => import("@/pages/content/topic-bank").then(m => ({ default: m.TopicBankPage })));
-const KnowledgePage = lazy(() => import("@/pages/content/knowledge").then(m => ({ default: m.KnowledgePage })));
-const ContentSettingsPage = lazy(() => import("@/pages/content/content-settings").then(m => ({ default: m.ContentSettingsPage })));
-const ContentAnalyticsPage = lazy(() => import("@/pages/content/analytics").then(m => ({ default: m.ContentAnalyticsPage })));
-const ChangelogPage = lazy(() => import("@/pages/admin/changelog").then(m => ({ default: m.ChangelogPage })));
 const NotFoundPage = lazy(() => import("@/pages/not-found").then(m => ({ default: m.NotFoundPage })));
 // US-443: in-shell 404 that keeps the dashboard/admin chrome (sidebar + header).
 const InShellNotFound = lazy(() => import("@/pages/not-found").then(m => ({ default: m.InShellNotFound })));
-const AdminDashboardPage = lazy(() => import("@/pages/admin/dashboard").then(m => ({ default: m.AdminDashboardPage })));
-const AdminUsersPage = lazy(() => import("@/pages/admin/users").then(m => ({ default: m.AdminUsersPage })));
-const AdminBulkPage = lazy(() => import("@/pages/admin/bulk").then(m => ({ default: m.AdminBulkPage })));
-const AdminCategoryMapPage = lazy(() => import("@/pages/admin/category-map").then(m => ({ default: m.AdminCategoryMapPage })));
-const AdminBrandKnowledgePage = lazy(() => import("@/pages/admin/brand-knowledge").then(m => ({ default: m.AdminBrandKnowledgePage })));
-const AdminSubmissionsPage = lazy(() => import("@/pages/admin/submissions").then(m => ({ default: m.AdminSubmissionsPage })));
-const AdminReviewsPage = lazy(() => import("@/pages/admin/reviews").then(m => ({ default: m.AdminReviewsPage })));
-const AdminGradingQueuePage = lazy(() => import("@/pages/admin/grading").then(m => ({ default: m.AdminGradingQueuePage })));
-const AdminAuthenticityPage = lazy(() => import("@/pages/admin/authenticity").then(m => ({ default: m.AdminAuthenticityPage })));
-const AdminAiModelsPage = lazy(() => import("@/pages/admin/ai-models").then(m => ({ default: m.AdminAiModelsPage })));
-const AdminAiSpendPage = lazy(() => import("@/pages/admin/ai-spend").then(m => ({ default: m.AdminAiSpendPage })));
-const AdminAiProfitabilityPage = lazy(() => import("@/pages/admin/ai-profitability").then(m => ({ default: m.AdminAiProfitabilityPage })));
-const AdminReliabilityPage = lazy(() => import("@/pages/admin/reliability").then(m => ({ default: m.AdminReliabilityPage })));
-const AdminMarketplaceConnectionsPage = lazy(() => import("@/pages/admin/marketplace-connections").then(m => ({ default: m.AdminMarketplaceConnectionsPage })));
-const AdminMarketplaceOpsPage = lazy(() => import("@/pages/admin/marketplace-ops").then(m => ({ default: m.AdminMarketplaceOpsPage })));
-const AdminSeoPage = lazy(() => import("@/pages/admin/seo").then(m => ({ default: m.AdminSeoPage })));
-const AdminAdsPage = lazy(() => import("@/pages/admin/ads").then(m => ({ default: m.AdminAdsPage })));
-const AdminKeywordResearchPage = lazy(() => import("@/pages/admin/keyword-research").then(m => ({ default: m.AdminKeywordResearchPage })));
-const AdminConditionIndexPage = lazy(() => import("@/pages/admin/condition-index").then(m => ({ default: m.AdminConditionIndexPage })));
-const AdminUserDetailPage = lazy(() => import("@/pages/admin/user-detail").then(m => ({ default: m.AdminUserDetailPage })));
-const AdminDisputesPage = lazy(() => import("@/pages/admin/disputes").then(m => ({ default: m.AdminDisputesPage })));
-const AdminClaimsPage = lazy(() => import("@/pages/admin/claims").then(m => ({ default: m.AdminClaimsPage })));
-const AdminGuaranteePoolPage = lazy(() => import("@/pages/admin/guarantee-pool").then(m => ({ default: m.AdminGuaranteePoolPage })));
-const AdminMeasureCardsPage = lazy(() => import("@/pages/admin/measure-cards").then(m => ({ default: m.AdminMeasureCardsPage })));
-const AdminSupportPage = lazy(() => import("@/pages/admin/support").then(m => ({ default: m.AdminSupportPage })));
-const AdminSupportTicketsPage = lazy(() => import("@/pages/admin/support-tickets").then(m => ({ default: m.AdminSupportTicketsPage })));
-const AdminCompliancePage = lazy(() => import("@/pages/admin/compliance").then(m => ({ default: m.AdminCompliancePage })));
-const AdminLegalPage = lazy(() => import("@/pages/admin/legal").then(m => ({ default: m.AdminLegalPage })));
-const AdminKnowledgeBasePage = lazy(() => import("@/pages/admin/knowledge-base").then(m => ({ default: m.AdminKnowledgeBasePage })));
-const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring").then(m => ({ default: m.AdminMonitoringPage })));
-const AdminSystemPage = lazy(() => import("@/pages/admin/system").then(m => ({ default: m.AdminSystemPage })));
-const AdminNotificationsPage = lazy(() => import("@/pages/admin/notifications").then(m => ({ default: m.AdminNotificationsPage })));
-const AdminJobsPage = lazy(() => import("@/pages/admin/jobs").then(m => ({ default: m.AdminJobsPage })));
-const AdminOpsHealthPage = lazy(() => import("@/pages/admin/ops-health").then(m => ({ default: m.AdminOpsHealthPage })));
-const AdminOpsJobsPage = lazy(() => import("@/pages/admin/ops-jobs").then(m => ({ default: m.AdminOpsJobsPage })));
-const AdminAgentsPage = lazy(() => import("@/pages/admin/agents").then(m => ({ default: m.AdminAgentsPage })));
-const AdminOpsDeadLettersPage = lazy(() => import("@/pages/admin/ops-dead-letters").then(m => ({ default: m.AdminOpsDeadLettersPage })));
-const AdminOpsActivityPage = lazy(() => import("@/pages/admin/ops-activity").then(m => ({ default: m.AdminOpsActivityPage })));
-const AdminOpsRunbooksPage = lazy(() => import("@/pages/admin/ops-runbooks").then(m => ({ default: m.AdminOpsRunbooksPage })));
-const AdminSettingsRegistryPage = lazy(() => import("@/pages/admin/settings-registry").then(m => ({ default: m.AdminSettingsRegistryPage })));
-const AdminConfigPricingPage = lazy(() => import("@/pages/admin/config-pricing").then(m => ({ default: m.AdminConfigPricingPage })));
-const AdminRolesPage = lazy(() => import("@/pages/admin/roles").then(m => ({ default: m.AdminRolesPage })));
-const AdminMaintenancePage = lazy(() => import("@/pages/admin/maintenance").then(m => ({ default: m.AdminMaintenancePage })));
-const AdminFeatureFlagsPage = lazy(() => import("@/pages/admin/feature-flags").then(m => ({ default: m.AdminFeatureFlagsPage })));
-const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log").then(m => ({ default: m.AdminAuditLogPage })));
-const AdminModerationPage = lazy(() => import("@/pages/admin/moderation").then(m => ({ default: m.AdminModerationPage })));
-const AdminFraudPage = lazy(() => import("@/pages/admin/fraud").then(m => ({ default: m.AdminFraudPage })));
-const AdminSafetySignalsPage = lazy(() => import("@/pages/admin/safety-signals").then(m => ({ default: m.AdminSafetySignalsPage })));
-const AdminRateLimitsPage = lazy(() => import("@/pages/admin/rate-limits").then(m => ({ default: m.AdminRateLimitsPage })));
-const AdminPassportIntegrityPage = lazy(() => import("@/pages/admin/passport-integrity").then(m => ({ default: m.AdminPassportIntegrityPage })));
-const AdminRevenuePage = lazy(() => import("@/pages/admin/revenue").then(m => ({ default: m.AdminRevenuePage })));
-const AdminAnalyticsPage = lazy(() => import("@/pages/admin/analytics").then(m => ({ default: m.AdminAnalyticsPage })));
-const AdminDripAnalyticsPage = lazy(() => import("@/pages/admin/drip-analytics").then(m => ({ default: m.AdminDripAnalyticsPage })));
-const AdminDripBuilderPage = lazy(() => import("@/pages/admin/drip").then(m => ({ default: m.AdminDripBuilderPage })));
-const AdminNewsletterAnalyticsPage = lazy(() => import("@/pages/admin/newsletter-analytics").then(m => ({ default: m.AdminNewsletterAnalyticsPage })));
-const AdminNewsletterConsolePage = lazy(() => import("@/pages/admin/newsletter").then(m => ({ default: m.AdminNewsletterConsolePage })));
-const AdminNewsletterSubscribersPage = lazy(() => import("@/pages/admin/newsletter-subscribers").then(m => ({ default: m.AdminNewsletterSubscribersPage })));
-const AdminSuppressionsPage = lazy(() => import("@/pages/admin/suppressions").then(m => ({ default: m.AdminSuppressionsPage })));
-const AdminJourneysPage = lazy(() => import("@/pages/admin/journeys").then(m => ({ default: m.AdminJourneysPage })));
-const AdminReconciliationPage = lazy(() => import("@/pages/admin/reconciliation").then(m => ({ default: m.AdminReconciliationPage })));
-const AdminCouponsPage = lazy(() => import("@/pages/admin/coupons").then(m => ({ default: m.AdminCouponsPage })));
-const AdminPricingPage = lazy(() => import("@/pages/admin/pricing").then(m => ({ default: m.AdminPricingPage })));
-const AdminIncentivesPage = lazy(() => import("@/pages/admin/incentives").then(m => ({ default: m.AdminIncentivesPage })));
-const AdminWaitlistPage = lazy(() => import("@/pages/admin/waitlist").then(m => ({ default: m.AdminWaitlistPage })));
-const AdminTasksPage = lazy(() => import("@/pages/admin/tasks").then(m => ({ default: m.AdminTasksPage })));
-const AdminTaskBoardPage = lazy(() => import("@/pages/admin/task-board").then(m => ({ default: m.AdminTaskBoardPage })));
-const GrowthDashboardPage = lazy(() => import("@/pages/admin/growth/dashboard").then(m => ({ default: m.GrowthDashboardPage })));
-const GrowthSegmentsPage = lazy(() => import("@/pages/admin/growth/segments").then(m => ({ default: m.GrowthSegmentsPage })));
-const GrowthCampaignsPage = lazy(() => import("@/pages/admin/growth/campaigns").then(m => ({ default: m.GrowthCampaignsPage })));
-const GrowthAnnouncementsPage = lazy(() => import("@/pages/admin/growth/announcements").then(m => ({ default: m.GrowthAnnouncementsPage })));
-const GrowthReferralsPage = lazy(() => import("@/pages/admin/growth/referrals").then(m => ({ default: m.GrowthReferralsPage })));
 const ReferralsPage = lazy(() => import("@/pages/referrals").then(m => ({ default: m.ReferralsPage })));
 // US-864: public, opt-in top-referrers leaderboard. Dynamic (loads the public
 // feed client-side), NOT registered in PUBLIC_ROUTES — like /status.
 const ReferralLeaderboardPage = lazy(() => import("@/pages/referral-leaderboard").then(m => ({ default: m.ReferralLeaderboardPage })));
 
-function PageLoader() {
-  // Live region (US-452): the bare spinner is decorative, so announce the load
-  // politely with an sr-only label rather than leaving SR users in silence.
-  return (
-    <div
-      className="flex h-64 items-center justify-center"
-      role="status"
-      aria-live="polite"
-      aria-busy="true"
-    >
-      <span className="sr-only">Loading page…</span>
-      <div
-        className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"
-        aria-hidden="true"
-      />
-    </div>
-  );
-}
-
-function SuspenseWrapper({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
-}
 
 // The content module moved from /dashboard/content/* into the admin dashboard
 // (/admin/content/*). This redirect keeps old bookmarks/links working by
@@ -656,107 +524,11 @@ export const router = createBrowserRouter([
           {
             element: <SuspenseWrapper><AdminLayout /></SuspenseWrapper>,
             children: [
-              { path: "/admin", element: <SuspenseWrapper><AdminDashboardPage /></SuspenseWrapper> },
-              { path: "/admin/users", element: <SuspenseWrapper><AdminUsersPage /></SuspenseWrapper> },
-              { path: "/admin/bulk", element: <SuspenseWrapper><AdminBulkPage /></SuspenseWrapper> },
-              { path: "/admin/category-map", element: <SuspenseWrapper><AdminCategoryMapPage /></SuspenseWrapper> },
-              { path: "/admin/brand-knowledge", element: <SuspenseWrapper><AdminBrandKnowledgePage /></SuspenseWrapper> },
-              { path: "/admin/users/:id", element: <SuspenseWrapper><AdminUserDetailPage /></SuspenseWrapper> },
-              { path: "/admin/submissions", element: <SuspenseWrapper><AdminSubmissionsPage /></SuspenseWrapper> },
-              { path: "/admin/reviews", element: <SuspenseWrapper><AdminReviewsPage /></SuspenseWrapper> },
-              { path: "/admin/disputes", element: <SuspenseWrapper><AdminDisputesPage /></SuspenseWrapper> },
-              { path: "/admin/claims", element: <SuspenseWrapper><AdminClaimsPage /></SuspenseWrapper> },
-              { path: "/admin/guarantee-pool", element: <SuspenseWrapper><AdminGuaranteePoolPage /></SuspenseWrapper> },
-              { path: "/admin/measure-cards", element: <SuspenseWrapper><AdminMeasureCardsPage /></SuspenseWrapper> },
-              { path: "/admin/support", element: <SuspenseWrapper><AdminSupportPage /></SuspenseWrapper> },
-              { path: "/admin/support/:id", element: <SuspenseWrapper><AdminSupportPage /></SuspenseWrapper> },
-              { path: "/admin/support-tickets", element: <SuspenseWrapper><AdminSupportTicketsPage /></SuspenseWrapper> },
-              { path: "/admin/support-tickets/:id", element: <SuspenseWrapper><AdminSupportTicketsPage /></SuspenseWrapper> },
-              // US-903 GDPR/CCPA data-subject request queue (admin + super_admin;
-              // processing a deletion is additionally super_admin + step-up gated
-              // server-side).
-              { path: "/admin/compliance", element: <SuspenseWrapper><AdminCompliancePage /></SuspenseWrapper> },
-              { path: "/admin/compliance/:id", element: <SuspenseWrapper><AdminCompliancePage /></SuspenseWrapper> },
-              // US-904 legal/ToS version manager (publish + force re-acceptance;
-              // publishing is super_admin + step-up gated server-side).
-              { path: "/admin/legal", element: <SuspenseWrapper><AdminLegalPage /></SuspenseWrapper> },
-              { path: "/admin/support/monitoring", element: <SuspenseWrapper><AdminMonitoringPage /></SuspenseWrapper> },
-              { path: "/admin/support/kb", element: <SuspenseWrapper><AdminKnowledgeBasePage /></SuspenseWrapper> },
-              { path: "/admin/grading", element: <SuspenseWrapper><AdminGradingQueuePage /></SuspenseWrapper> },
-              { path: "/admin/authenticity", element: <SuspenseWrapper><AdminAuthenticityPage /></SuspenseWrapper> },
-              { path: "/admin/ai-models", element: <SuspenseWrapper><AdminAiModelsPage /></SuspenseWrapper> },
-              { path: "/admin/ai-spend", element: <SuspenseWrapper><AdminAiSpendPage /></SuspenseWrapper> },
-              { path: "/admin/ai-profitability", element: <SuspenseWrapper><AdminAiProfitabilityPage /></SuspenseWrapper> },
-              { path: "/admin/reliability", element: <SuspenseWrapper><AdminReliabilityPage /></SuspenseWrapper> },
-              { path: "/admin/marketplace-connections", element: <SuspenseWrapper><AdminMarketplaceConnectionsPage /></SuspenseWrapper> },
-              { path: "/admin/marketplace-ops", element: <SuspenseWrapper><AdminMarketplaceOpsPage /></SuspenseWrapper> },
-              { path: "/admin/seo", element: <SuspenseWrapper><AdminSeoPage /></SuspenseWrapper> },
-              { path: "/admin/ads", element: <SuspenseWrapper><AdminAdsPage /></SuspenseWrapper> },
-              { path: "/admin/keyword-research", element: <SuspenseWrapper><AdminKeywordResearchPage /></SuspenseWrapper> },
-              { path: "/admin/condition-index", element: <SuspenseWrapper><AdminConditionIndexPage /></SuspenseWrapper> },
-              { path: "/admin/revenue", element: <SuspenseWrapper><AdminRevenuePage /></SuspenseWrapper> },
-              { path: "/admin/analytics", element: <SuspenseWrapper><AdminAnalyticsPage /></SuspenseWrapper> },
-              { path: "/admin/growth/drip", element: <SuspenseWrapper><AdminDripAnalyticsPage /></SuspenseWrapper> },
-              { path: "/admin/growth/drip/builder", element: <SuspenseWrapper><AdminDripBuilderPage /></SuspenseWrapper> },
-              { path: "/admin/growth/newsletter", element: <SuspenseWrapper><AdminNewsletterAnalyticsPage /></SuspenseWrapper> },
-              { path: "/admin/growth/newsletter-console", element: <SuspenseWrapper><AdminNewsletterConsolePage /></SuspenseWrapper> },
-              { path: "/admin/growth/subscribers", element: <SuspenseWrapper><AdminNewsletterSubscribersPage /></SuspenseWrapper> },
-              { path: "/admin/growth/suppressions", element: <SuspenseWrapper><AdminSuppressionsPage /></SuspenseWrapper> },
-              { path: "/admin/growth/journeys", element: <SuspenseWrapper><AdminJourneysPage /></SuspenseWrapper> },
-              { path: "/admin/billing/reconciliation", element: <SuspenseWrapper><AdminReconciliationPage /></SuspenseWrapper> },
-              { path: "/admin/system", element: <SuspenseWrapper><AdminSystemPage /></SuspenseWrapper> },
-              { path: "/admin/jobs", element: <SuspenseWrapper><AdminJobsPage /></SuspenseWrapper> },
-              { path: "/admin/ops/activity", element: <SuspenseWrapper><AdminOpsActivityPage /></SuspenseWrapper> },
-              { path: "/admin/ops/health", element: <SuspenseWrapper><AdminOpsHealthPage /></SuspenseWrapper> },
-              { path: "/admin/ops/jobs", element: <SuspenseWrapper><AdminOpsJobsPage /></SuspenseWrapper> },
-              { path: "/admin/agents", element: <SuspenseWrapper><AdminAgentsPage /></SuspenseWrapper> },
-              { path: "/admin/ops/dead-letters", element: <SuspenseWrapper><AdminOpsDeadLettersPage /></SuspenseWrapper> },
-              { path: "/admin/ops/settings", element: <SuspenseWrapper><AdminSettingsRegistryPage /></SuspenseWrapper> },
-              // US-908 granular RBAC scope management (admin read; super_admin + step-up to edit).
-              { path: "/admin/ops/roles", element: <SuspenseWrapper><AdminRolesPage /></SuspenseWrapper> },
-              // US-1058 notification event catalog (admin + super_admin; read-only).
-              { path: "/admin/ops/notifications", element: <SuspenseWrapper><AdminNotificationsPage /></SuspenseWrapper> },
-              { path: "/admin/ops/pricing", element: <SuspenseWrapper><AdminConfigPricingPage /></SuspenseWrapper> },
-              { path: "/admin/ops/feature-flags", element: <SuspenseWrapper><AdminFeatureFlagsPage /></SuspenseWrapper> },
-              { path: "/admin/ops/maintenance", element: <SuspenseWrapper><AdminMaintenancePage /></SuspenseWrapper> },
-              // US-910 operational runbooks (admin + super_admin; read-only). Index + per-slug detail.
-              { path: "/admin/ops/runbooks", element: <SuspenseWrapper><AdminOpsRunbooksPage /></SuspenseWrapper> },
-              { path: "/admin/ops/runbooks/:slug", element: <SuspenseWrapper><AdminOpsRunbooksPage /></SuspenseWrapper> },
-              { path: "/admin/audit-log", element: <SuspenseWrapper><AdminAuditLogPage /></SuspenseWrapper> },
-              { path: "/admin/coupons", element: <SuspenseWrapper><AdminCouponsPage /></SuspenseWrapper> },
-              { path: "/admin/pricing", element: <SuspenseWrapper><AdminPricingPage /></SuspenseWrapper> },
-              { path: "/admin/incentives", element: <SuspenseWrapper><AdminIncentivesPage /></SuspenseWrapper> },
-              { path: "/admin/waitlist", element: <SuspenseWrapper><AdminWaitlistPage /></SuspenseWrapper> },
-              { path: "/admin/moderation", element: <SuspenseWrapper><AdminModerationPage /></SuspenseWrapper> },
-              { path: "/admin/fraud", element: <SuspenseWrapper><AdminFraudPage /></SuspenseWrapper> },
-              { path: "/admin/safety/signals", element: <SuspenseWrapper><AdminSafetySignalsPage /></SuspenseWrapper> },
-              { path: "/admin/safety/rate-limits", element: <SuspenseWrapper><AdminRateLimitsPage /></SuspenseWrapper> },
-              { path: "/admin/safety/passport-integrity", element: <SuspenseWrapper><AdminPassportIntegrityPage /></SuspenseWrapper> },
-              { path: "/admin/tasks", element: <SuspenseWrapper><AdminTasksPage /></SuspenseWrapper> },
-              { path: "/admin/tasks/:id", element: <SuspenseWrapper><AdminTaskBoardPage /></SuspenseWrapper> },
-              // Growth / Promote suite (US-632) — admin + super_admin; the
-              // broadcast/send action is additionally super_admin-gated server-side.
-              { path: "/admin/growth", element: <SuspenseWrapper><GrowthDashboardPage /></SuspenseWrapper> },
-              { path: "/admin/growth/segments", element: <SuspenseWrapper><GrowthSegmentsPage /></SuspenseWrapper> },
-              { path: "/admin/growth/campaigns", element: <SuspenseWrapper><GrowthCampaignsPage /></SuspenseWrapper> },
-              { path: "/admin/growth/announcements", element: <SuspenseWrapper><GrowthAnnouncementsPage /></SuspenseWrapper> },
-              { path: "/admin/growth/referrals", element: <SuspenseWrapper><GrowthReferralsPage /></SuspenseWrapper> },
-              // Content module — blog, social, topic bank, knowledge base,
-              // analytics + settings. Lives in the admin dashboard (admin +
-              // super_admin), behind the AdminMfaGate like every other admin
-              // surface. Moved here from /dashboard/content/* (US: content move).
-              { path: "/admin/content/blog", element: <SuspenseWrapper><BlogListPage /></SuspenseWrapper> },
-              { path: "/admin/content/blog/editor/:id", element: <SuspenseWrapper><BlogEditorPage /></SuspenseWrapper> },
-              { path: "/admin/content/authors", element: <SuspenseWrapper><AuthorsPage /></SuspenseWrapper> },
-              { path: "/admin/content/social", element: <SuspenseWrapper><SocialListPage /></SuspenseWrapper> },
-              { path: "/admin/content/social/editor/:id", element: <SuspenseWrapper><SocialEditorPage /></SuspenseWrapper> },
-              { path: "/admin/content/topics", element: <SuspenseWrapper><TopicBankPage /></SuspenseWrapper> },
-              { path: "/admin/content/knowledge", element: <SuspenseWrapper><KnowledgePage /></SuspenseWrapper> },
-              { path: "/admin/content/analytics", element: <SuspenseWrapper><ContentAnalyticsPage /></SuspenseWrapper> },
-              { path: "/admin/content/changelog", element: <SuspenseWrapper><ChangelogPage /></SuspenseWrapper> },
-              { path: "/admin/content/settings", element: <SuspenseWrapper><ContentSettingsPage /></SuspenseWrapper> },
-              // In-shell 404: an unknown /admin/* path keeps the admin chrome.
-              { path: "/admin/*", element: <SuspenseWrapper><InShellNotFound homeTo="/admin" homeLabel="Back to admin" /></SuspenseWrapper> },
+              // US-2112: the admin subtree moved to ./admin-routes as DESCENDANT
+              // routes, so its 81 lazy declarations and 86 route objects load only
+              // when someone actually reaches /admin/* — they were shipping in the
+              // entry chunk to every marketing visitor.
+              { path: "/admin/*", element: <SuspenseWrapper><AdminRoutes /></SuspenseWrapper> },
             ],
           },
         ],
