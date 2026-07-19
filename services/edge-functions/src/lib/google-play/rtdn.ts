@@ -11,6 +11,9 @@
 //   6 IN_GRACE_PERIOD · 7 RESTARTED · 8 PRICE_CHANGE_CONFIRMED · 9 DEFERRED ·
 //   10 PAUSED · 11 PAUSE_SCHEDULE_CHANGED · 12 REVOKED · 13 EXPIRED.
 
+/** Play notificationType 8 — the user CONFIRMED a price change (US-2124). */
+const SUB_PRICE_CHANGE_CONFIRMED = 8;
+
 export interface SubscriptionNotification {
   version?: string;
   notificationType?: number;
@@ -60,6 +63,17 @@ export type RtdnAction =
   | { kind: "sub_reverify"; purchaseToken: string; subscriptionId: string }
   | { kind: "sub_lapse"; purchaseToken: string; subscriptionId: string }
   | { kind: "void"; purchaseToken: string; productType: number }
+  // US-2124: a platform-side change we RECORD without moving entitlement.
+  // PRICE_CHANGE_CONFIRMED is the sharpest case — it means the user ACCEPTED a
+  // new price, i.e. it is a consent artifact, and dropping it lost the only
+  // server-side evidence that the acceptance happened. Mirrors the Apple
+  // router's `record_only`, which had the identical gap.
+  | {
+    kind: "record_only";
+    purchaseToken: string;
+    subscriptionId: string;
+    notificationType: number;
+  }
   | { kind: "test" }
   | { kind: "ignore"; reason: string };
 
@@ -104,9 +118,23 @@ export function classifyRtdn(n: DeveloperNotification): RtdnAction {
     if (SUB_REVERIFY_TYPES.has(s.notificationType)) {
       return { kind: "sub_reverify", purchaseToken: s.purchaseToken, subscriptionId: subId };
     }
-    // Deferred / paused / price-change / pause-schedule — no entitlement change
-    // we need to reconcile server-side; the next renewal RTDN or a client
-    // re-verify settles it.
+    // US-2124: PRICE_CHANGE_CONFIRMED (8) is RECORDED, not ignored. It carries
+    // no entitlement change — the next renewal RTDN settles the amount — but it
+    // is the user CONSENTING to a new price, which is precisely the artifact
+    // subscription_agreements (US-2117) exists to hold. Dropping it meant the
+    // only server-side evidence of that consent was the eventual renewal amount,
+    // which is an inference rather than a record.
+    if (s.notificationType === SUB_PRICE_CHANGE_CONFIRMED) {
+      return {
+        kind: "record_only",
+        purchaseToken: s.purchaseToken,
+        subscriptionId: subId,
+        notificationType: s.notificationType,
+      };
+    }
+    // Deferred / paused / pause-schedule — no entitlement change we need to
+    // reconcile server-side; the next renewal RTDN or a client re-verify
+    // settles it.
     return { kind: "ignore", reason: `sub_type_${s.notificationType}` };
   }
 

@@ -70,7 +70,11 @@ export interface RtdnReconcileDeps {
 }
 
 export interface RtdnReconcileResult {
-  outcome: "reverified" | "lapsed" | "clawed_back" | "ignored";
+  // US-2124: "recorded" is deliberately distinct from "ignored". Both leave
+  // entitlement untouched, but one wrote an audit row and the other did not —
+  // collapsing them would make the RTDN log unable to answer "did we ever learn
+  // the user accepted a price change?", which is the whole point of the branch.
+  outcome: "reverified" | "lapsed" | "clawed_back" | "recorded" | "ignored";
   reason?: string;
 }
 
@@ -89,6 +93,30 @@ export async function reconcileRtdn(
 
   if (action.kind === "test" || action.kind === "ignore") {
     return { outcome: "ignored", reason: action.kind === "ignore" ? action.reason : "test" };
+  }
+
+  // US-2124: record a platform-side change without touching entitlement.
+  // PRICE_CHANGE_CONFIRMED means the user ACCEPTED a new price — a consent
+  // event. Google owns the consent UI, so acting here would be wrong; the next
+  // renewal RTDN settles the amount. What was missing was any server-side
+  // record that the acceptance ever happened. Reuses the existing recordEvent
+  // dep, which is idempotent on the event id.
+  if (action.kind === "record_only") {
+    const user = await deps.resolveSubscriptionUser(action.purchaseToken);
+    if (!user) return { outcome: "ignored", reason: "no_bound_user" };
+    await deps.recordEvent(
+      user.userId,
+      eventId,
+      "googleplay.rtdn.price_change_confirmed",
+      user.fromPlan,
+      user.fromPlan,
+      {
+        subscription_id: action.subscriptionId,
+        notification_type: action.notificationType,
+        platform: "google_play",
+      },
+    );
+    return { outcome: "recorded", reason: "price_change_confirmed" };
   }
 
   if (action.kind === "sub_lapse") {

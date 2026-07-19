@@ -51,10 +51,40 @@ Deno.test("RENEWED/RECOVERED/CANCELED/PURCHASED → sub_reverify (cancel keeps a
   }
 });
 
-Deno.test("deferred/paused/etc → ignore", () => {
-  for (const t of [8, 9, 10, 11]) {
+Deno.test("deferred/paused/pause-schedule → ignore", () => {
+  // 8 (PRICE_CHANGE_CONFIRMED) was in this list until US-2124 — see below. The
+  // rest genuinely need no server action: the next renewal RTDN or a client
+  // re-verify settles them.
+  for (const t of [9, 10, 11]) {
     assertEquals(classifyRtdn({ subscriptionNotification: { notificationType: t, purchaseToken: "tok" } }).kind, "ignore");
   }
+});
+
+// US-2124: PRICE_CHANGE_CONFIRMED is the one type in that group that is NOT
+// merely "nothing to reconcile" — it means the user ACCEPTED a new price, which
+// is a consent artifact. It still moves no entitlement (the next renewal RTDN
+// settles the amount), but it must leave a server-side record that the
+// acceptance happened; otherwise the only evidence is the eventual renewal
+// amount, which is an inference rather than a record.
+Deno.test("US-2124: PRICE_CHANGE_CONFIRMED is RECORDED, not ignored", () => {
+  const a = classifyRtdn({
+    subscriptionNotification: { notificationType: 8, purchaseToken: "tok", subscriptionId: "s" },
+  });
+  assertEquals(a.kind, "record_only");
+  if (a.kind === "record_only") {
+    assertEquals(a.purchaseToken, "tok");
+    assertEquals(a.subscriptionId, "s");
+    assertEquals(a.notificationType, 8);
+  }
+});
+
+Deno.test("US-2124: record_only is not an entitlement action", () => {
+  const a = classifyRtdn({
+    subscriptionNotification: { notificationType: 8, purchaseToken: "tok", subscriptionId: "s" },
+  });
+  // Acting here would pre-empt Google, which owns the consent UI.
+  assertEquals(a.kind === "sub_lapse", false);
+  assertEquals(a.kind === "sub_reverify", false);
 });
 
 Deno.test("voidedPurchaseNotification → void with productType", () => {
