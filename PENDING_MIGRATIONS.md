@@ -1,6 +1,40 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-> ## ✅ MEASURED 2026-07-18 (supersedes the reconciliation below) — prod is at 00476; ONLY 00477 IS PENDING
+> ## 🔴 UNEXPLAINED 2026-07-19 — prod records a **00479 that does not exist in this repo**
+>
+> `GET https://functions.gradethread.com/health/ready`, live on 2026-07-19:
+>
+> ```json
+> "schema": { "expected": "00478", "applied": "00479", "status": "ahead" }
+> ```
+>
+> There is **no `00479_*.sql` anywhere in this repository** — not in
+> `supabase/migrations/`, not in `git log --all --diff-filter=A`, not on any
+> branch, not stashed. Prod's `applied_migrations` has a row for a version this
+> codebase has never authored.
+>
+> **What this means and why it is not cosmetic:** the boot guard compares the
+> MAX recorded version. A new migration numbered `00479` would satisfy the guard
+> off this pre-existing row **even if its SQL never ran** — which is precisely
+> the deploy failure the guard exists to catch. So `00479` is now a **burned
+> number**: never use it.
+>
+> **`00480_grading_governance.sql` is numbered around it deliberately.**
+>
+> **Still owed — someone has to answer this, it should not be left as folklore:**
+> 1. What is the 00479 row? Likely candidates: a hand-applied migration that was
+>    never committed, or a stray `insert into applied_migrations` from a manual
+>    session. Query it: `select * from applied_migrations order by version desc limit 5;`
+>    — the row's `applied_at` should pin down when and narrow the how.
+> 2. If it corresponds to real schema changes, they exist in prod and in NO
+>    migration file, so a fresh environment (including the `verify:db` lane) will
+>    never reproduce prod. That is a silent drift and it needs a catch-up
+>    migration written from the actual prod schema.
+> 3. If it is a bare row with no schema behind it, delete the row and say so here.
+>
+> ---
+>
+> ## ✅ MEASURED 2026-07-18 (superseded above for the schema-version question) — prod is at 00476; ONLY 00477 IS PENDING
 >
 > `GET https://functions.gradethread.com/health/ready` returns, live:
 >
@@ -3827,3 +3861,39 @@ pure prod-RLS fix (no code depends on it, but keep the schema-version in lockste
 needed, is `00332`.
 
 _This file is updated as the loop progresses — check it at every check-in._
+
+---
+
+## 00480_grading_governance.sql — PENDING (US-2036 + US-2037)
+
+**Risk: LOW.** Two additive nullable columns and one index swap. No backfill, no
+data rewrite, no destructive statement. Safe to re-run.
+
+**What it does**
+- `ai_prompt_versions.qualified_model text` — records WHICH grading model a
+  passing eval run used. `activatePromptVersion` now refuses to activate when it
+  differs from the live model (US-2036).
+- `grading_eval_cases.deleted_at timestamptz` — golden eval cases are now
+  soft-deleted; every read path filters `deleted_at IS NULL` (US-2037).
+- Rebuilds `idx_grading_eval_cases_active` to include `deleted_at IS NULL`.
+
+**Apply order:** after 00477 and 00478. Then `NOTIFY pgrst, 'reload schema';`
+(both new columns are read and written through PostgREST).
+
+**⚠ Frontend reads nothing new** — `src/components/admin/grading-eval-candidates-panel.tsx`
+changes only to handle a `STEP_UP_REQUIRED` 403 that the edge now returns. So a
+Cloudflare Pages auto-deploy ahead of the edge is harmless; the worst case is the
+old edge never sends that 403 and the new dialog never opens.
+
+**Deploy-order note that DOES matter:** until the migration applies, the edge's
+`qualified_model` select fails and `activatePromptVersion` cannot activate any
+prompt version. That is fail-closed and intentional, but it means **apply the SQL
+before rolling the edge**, or prompt activation is briefly unavailable.
+
+**Behaviour change to expect on first run after deploy:** every existing prompt
+version has `qualified_model = NULL`, so activation is BLOCKED until an eval is
+re-run against the live model, and the grading monitor will raise a critical
+`model_not_qualified` alert for the currently-active version. Both are correct —
+no existing pass can be attributed to a model — but they will look like an
+incident if nobody is expecting them. Re-run the eval on the active composite
+version right after applying to clear both.

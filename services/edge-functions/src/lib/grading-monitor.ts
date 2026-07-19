@@ -2,6 +2,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { computeAccuracySummary, computeOutcomeFeedback } from "./accuracy-tracking.ts";
 import { evalThresholds, runEval } from "./grading-eval.ts";
+import { getGradingCompositeModel } from "./ai-config.ts";
 import { sendGradingRegressionAlertEmail } from "./email.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { fetchWithTimeout } from "./circuit-breaker.ts";
@@ -103,6 +104,15 @@ export interface AlertInputs {
   // production window (i.e. the active model changed) — graders must alert on
   // this since a model swap can silently shift accuracy/reproducibility.
   model_changed?: boolean;
+  // US-2036: the live grading model vs. the model the ACTIVE prompt version was
+  // qualified on. activatePromptVersion blocks this mismatch at activation time,
+  // but the model is env config and can change UNDER an already-active version —
+  // so it also has to be caught at runtime. null = nothing active to compare.
+  model_qualification?: { live: string; qualified: string | null } | null;
+  // US-2037: size of the ACTIVE golden set vs. the size the last eval run saw.
+  // A shrinking golden set is the exact signal the grading-engine skill asks
+  // reviewers to watch for, and a human watching a table is not a mechanism.
+  golden_set?: { active: number; baseline: number | null } | null;
 }
 
 /**
@@ -126,6 +136,41 @@ export function evaluateAlerts(
       threshold: 0,
       message:
         "The active grading model changed (more than one model in the recent grade window). Confirm the new model is allowlisted and clears the eval gate.",
+    });
+  }
+
+  // US-2036: live grading model ≠ the model the active prompt version was
+  // qualified on. Critical, not warn: every grade served in this state comes
+  // from a model that never cleared the gate, and the prompt row still says
+  // eval_passed:true, so nothing else downstream will notice.
+  const mq = inputs.model_qualification;
+  if (mq && mq.qualified !== mq.live) {
+    alerts.push({
+      code: "model_not_qualified",
+      severity: "critical",
+      metric: "grading_model_qualified",
+      value: 0,
+      threshold: 1,
+      message: mq.qualified
+        ? `Live grading model "${mq.live}" is NOT the model the active prompt version was qualified on ("${mq.qualified}"). Grades are being served by a model that never cleared the eval gate — re-run the eval or revert the model.`
+        : `The active prompt version has no qualifying model recorded, so we cannot prove live model "${mq.live}" ever cleared the eval gate. Re-run the eval.`,
+    });
+  }
+
+  // US-2037: the active golden set shrank since the last eval run. That is how
+  // a stubborn prompt version gets nudged past the gate — delete the cases it
+  // fails, then activate — and it also silently breaks cross-run comparisons,
+  // because the denominator moved underneath them.
+  const gs = inputs.golden_set;
+  if (gs && gs.baseline !== null && gs.active < gs.baseline) {
+    alerts.push({
+      code: "golden_set_shrank",
+      severity: "critical",
+      metric: "golden_set_active_cases",
+      value: gs.active,
+      threshold: gs.baseline,
+      message:
+        `The active golden set shrank from ${gs.baseline} to ${gs.active} cases since the last eval run. Cases must not be removed to make an eval pass, and accuracy figures across that boundary are no longer comparable.`,
     });
   }
 
@@ -244,7 +289,8 @@ async function runScheduledEval(t: MonitorThresholds): Promise<MonitorEvalResult
   const { count: caseCount } = await supabaseAdmin
     .from("grading_eval_cases")
     .select("id", { count: "exact", head: true })
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .is("deleted_at", null); // US-2037
   if (!caseCount || caseCount === 0) {
     return { ...base, skipped_reason: "no active eval cases" };
   }
@@ -349,12 +395,66 @@ export async function runGradingRegressionScan(
     console.error("[grading-monitor] model-change check failed:", err);
   }
 
+  // US-2036: compare the live grading model against the model the ACTIVE
+  // composite prompt version was qualified on. The activation gate can only
+  // check this at activation time; the model is env config and can change under
+  // an already-active version, which is precisely the bypass this catches.
+  let modelQualification: { live: string; qualified: string | null } | null = null;
+  try {
+    const live = await resolveLiveCompositeVersion();
+    if (live) {
+      const { data: row } = await supabaseAdmin
+        .from("ai_prompt_versions")
+        .select("qualified_model")
+        .eq("id", live.id)
+        .maybeSingle();
+      modelQualification = {
+        live: getGradingCompositeModel(),
+        qualified: (row as { qualified_model: string | null } | null)?.qualified_model ?? null,
+      };
+    }
+  } catch (err) {
+    console.error("[grading-monitor] model-qualification check failed:", err);
+  }
+
+  // US-2037: active golden-set size vs. its recent HIGH-WATER MARK
+  // (grading_eval_runs.cases_total records the size at each run — no extra
+  // bookkeeping needed). Deliberately the max over a window rather than the
+  // single previous run: this cycle's own eval has already inserted a row whose
+  // cases_total equals the current count, so a last-run comparison would always
+  // compare the set against itself and never fire. The window also lets the
+  // alert age out on its own once a legitimate deactivation becomes the norm.
+  let goldenSet: { active: number; baseline: number | null } | null = null;
+  try {
+    const { count: activeCases } = await supabaseAdmin
+      .from("grading_eval_cases")
+      .select("id", { count: "exact", head: true })
+      .eq("is_active", true)
+      .is("deleted_at", null);
+    const { data: recentRuns } = await supabaseAdmin
+      .from("grading_eval_runs")
+      .select("cases_total")
+      .order("created_at", { ascending: false })
+      .limit(10);
+    const totals = ((recentRuns ?? []) as Array<{ cases_total: number | null }>)
+      .map((r) => Number(r.cases_total))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    goldenSet = {
+      active: activeCases ?? 0,
+      baseline: totals.length > 0 ? Math.max(...totals) : null,
+    };
+  } catch (err) {
+    console.error("[grading-monitor] golden-set size check failed:", err);
+  }
+
   const alerts = evaluateAlerts(
     {
       eval_passed: evalResult.ran ? evalResult.passed ?? null : null,
       eval_regression: evalResult.regression_vs_baseline,
       production,
       model_changed: modelChanged,
+      model_qualification: modelQualification,
+      golden_set: goldenSet,
     },
     t,
   );

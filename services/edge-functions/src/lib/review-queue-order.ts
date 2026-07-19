@@ -179,7 +179,7 @@ export async function buildReviewInfoContext(): Promise<ReviewInfoContext> {
   try {
     const [{ data: goldenRows }, { data: exemplarRows }, { data: recentReports }] = await Promise.all([
       supabaseAdmin.from("grading_eval_cases").select("garment_category")
-        .eq("is_active", true).limit(2000),
+        .eq("is_active", true).is("deleted_at", null).limit(2000),
       supabaseAdmin.from("grading_exemplar_sets").select("exemplars")
         .eq("is_active", true).limit(10),
       supabaseAdmin.from("grade_reports").select("defects_found")

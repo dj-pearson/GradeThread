@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, Check, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 
 // US-329: review queue for auto-promoted candidate golden eval cases. Reuses the
 // existing admin eval-case endpoints (candidates are simply is_active=false).
@@ -52,6 +53,11 @@ export function GradingEvalCandidatesPanel() {
   const queryClient = useQueryClient();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [growing, setGrowing] = useState(false);
+  // US-2037: approving or rejecting a golden case now requires an MFA step-up,
+  // matching prompt activation/canary. Hold the action so it can be replayed
+  // once the dialog verifies, instead of making the operator click twice.
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const pendingAction = useRef<(() => Promise<void>) | null>(null);
 
   async function growFromCorrections() {
     setGrowing(true);
@@ -106,8 +112,7 @@ export function GradingEvalCandidatesPanel() {
   const candidates = (data ?? []).filter((c) => !c.is_active);
 
   async function act(caseId: string, action: "approve" | "reject") {
-    setBusyId(caseId);
-    try {
+    const run = async () => {
       const headers = await authHeaders();
       const res =
         action === "approve"
@@ -120,6 +125,15 @@ export function GradingEvalCandidatesPanel() {
               method: "DELETE",
               headers,
             });
+      if (res.status === 403) {
+        const b = await res.json().catch(() => ({}));
+        if (b?.code === "STEP_UP_REQUIRED") {
+          pendingAction.current = run;
+          setStepUpOpen(true);
+          return;
+        }
+        throw new Error(b?.error || "Forbidden");
+      }
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         throw new Error(b?.error || `Failed (${res.status})`);
@@ -128,9 +142,14 @@ export function GradingEvalCandidatesPanel() {
         description:
           action === "approve"
             ? "It now counts toward the eval gate."
-            : "The candidate case was removed.",
+            : "The candidate case was retired — it stays on record for audit.",
       });
       queryClient.invalidateQueries({ queryKey: ["admin-eval-candidates"] });
+    };
+
+    setBusyId(caseId);
+    try {
+      await run();
     } catch (err) {
       toast.error("Action failed", {
         description: err instanceof Error ? err.message : "Unknown error",
@@ -232,6 +251,25 @@ export function GradingEvalCandidatesPanel() {
           </ul>
         )}
       </CardContent>
+
+      {/* US-2037: step-up re-auth before mutating the golden set, then replay
+          the action. Editing what the eval gate measures is as consequential as
+          activating a prompt, and is now gated the same way. */}
+      <MfaStepUpDialog
+        open={stepUpOpen}
+        onOpenChange={setStepUpOpen}
+        onVerified={() => {
+          const action = pendingAction.current;
+          pendingAction.current = null;
+          if (action) {
+            void action().catch((err: unknown) => {
+              toast.error("Action failed", {
+                description: err instanceof Error ? err.message : "Unknown error",
+              });
+            });
+          }
+        }}
+      />
     </Card>
   );
 }

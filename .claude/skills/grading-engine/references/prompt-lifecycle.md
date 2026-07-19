@@ -42,3 +42,37 @@ the live path only (never in eval/dry-run/shadow overrides — those measure the
 prompt itself). Exemplar sets pass the SAME eval gate before activation;
 assembly runs weekly via `jobs-exemplar-assembly.ts` with auto-activation only
 behind `grading_exemplar_auto_activate`.
+
+## The gate pins the MODEL too (US-2036)
+
+`eval_passed` used to be a naked boolean, so a passing run said the prompt
+cleared MAE/agreement but not what it cleared them WITH. The grading model is
+env config (`DEFAULT_AI_MODEL`), so pointing it at another allowlisted model
+inherited a pass it never earned — no deploy, no eval, no audit entry.
+
+`runEval` now stamps `ai_prompt_versions.qualified_model` with the model that
+produced the result (and NULLs it on a failing run). `activatePromptVersion`
+refuses when it differs from `getGradingCompositeModel()`, and refuses when it
+is missing — an unattributable pass is not a pass.
+
+Activation-time checking is necessary but NOT sufficient: the model can change
+under an already-active version. `grading-monitor` therefore raises a CRITICAL
+`model_not_qualified` alert whenever the live model is not the qualified one.
+
+**Practical consequence:** changing the grading model means re-running the eval
+on the active prompt version. There is no way to move the model without it.
+
+## Golden-set governance (US-2037)
+
+"Never delete cases to make an eval pass" is now enforced, not advised:
+
+- `DELETE /eval/cases/:id` is a SOFT delete (`deleted_at` tombstone). Every read
+  path filters `deleted_at IS NULL` — except the US-2034 contamination
+  exclusion in `few-shot-exemplars.ts`, which deliberately still sees deleted
+  rows because a restored case must not silently become an exemplar.
+- Both PATCH and DELETE require step-up, matching prompt activation/canary.
+- `expected_score` / `expected_tier` are IMMUTABLE (409) once the case has
+  appeared in a passing run — editing ground truth retroactively invalidates
+  every historical comparison. Retire the case and add a corrected one instead.
+- A shrinking ACTIVE golden set raises a CRITICAL `golden_set_shrank` alert,
+  measured against its high-water mark over the last 10 runs.

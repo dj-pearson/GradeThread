@@ -135,3 +135,123 @@ Deno.test("dispatchAlert returns false when no channel is configured", async () 
   );
   assertEquals(delivered, false);
 });
+
+// ─── US-2036: the live model must be the model the gate qualified ────
+//
+// The eval gate stamped a naked eval_passed boolean with no model attribution,
+// so pointing DEFAULT_AI_MODEL at a different allowlisted model via an env
+// change inherited a pass it never earned. activatePromptVersion blocks that at
+// activation time; these cover the runtime half, where the model changes UNDER
+// an already-active version and nothing else downstream would notice.
+
+Deno.test("matching qualified model raises no model_not_qualified alert", () => {
+  const alerts = evaluateAlerts(
+    {
+      eval_passed: true,
+      eval_regression: false,
+      production: HEALTHY,
+      model_qualification: { live: "claude-sonnet-5", qualified: "claude-sonnet-5" },
+    },
+    THRESHOLDS,
+  );
+  assertEquals(alerts.filter((a) => a.code === "model_not_qualified").length, 0);
+});
+
+Deno.test("live model differing from the qualified model is CRITICAL", () => {
+  const alerts = evaluateAlerts(
+    {
+      eval_passed: true,
+      eval_regression: false,
+      production: HEALTHY,
+      model_qualification: { live: "claude-opus-4", qualified: "claude-sonnet-5" },
+    },
+    THRESHOLDS,
+  );
+  const a = alerts.find((x) => x.code === "model_not_qualified");
+  assert(a, "expected a model_not_qualified alert");
+  assertEquals(a.severity, "critical");
+  // Both model names must appear — an operator reading the page needs to know
+  // what to revert TO, not just that something is wrong.
+  assert(a.message.includes("claude-opus-4"));
+  assert(a.message.includes("claude-sonnet-5"));
+  assertEquals(worstSeverity(alerts), "critical");
+});
+
+Deno.test("a missing qualification stamp is CRITICAL, not silently OK", () => {
+  const alerts = evaluateAlerts(
+    {
+      eval_passed: true,
+      eval_regression: false,
+      production: HEALTHY,
+      model_qualification: { live: "claude-sonnet-5", qualified: null },
+    },
+    THRESHOLDS,
+  );
+  const a = alerts.find((x) => x.code === "model_not_qualified");
+  assert(a, "an unattributable pass must alert — fail closed, not open");
+  assertEquals(a.severity, "critical");
+});
+
+Deno.test("no active version to compare against raises nothing", () => {
+  const alerts = evaluateAlerts(
+    { eval_passed: true, eval_regression: false, production: HEALTHY, model_qualification: null },
+    THRESHOLDS,
+  );
+  assertEquals(alerts.filter((a) => a.code === "model_not_qualified").length, 0);
+});
+
+// ─── US-2037: a shrinking golden set is the red flag ─────────────────
+//
+// The grading-engine skill says "never delete cases to make an eval pass" and
+// nothing enforced it. This is the mechanism behind that sentence: deleting the
+// cases a stubborn prompt version fails is how it gets nudged past the gate.
+
+Deno.test("a growing or steady golden set raises no alert", () => {
+  for (const [active, baseline] of [[12, 12], [15, 12]]) {
+    const alerts = evaluateAlerts(
+      {
+        eval_passed: true,
+        eval_regression: false,
+        production: HEALTHY,
+        golden_set: { active, baseline },
+      },
+      THRESHOLDS,
+    );
+    assertEquals(
+      alerts.filter((a) => a.code === "golden_set_shrank").length,
+      0,
+      `active=${active} baseline=${baseline} should not alert`,
+    );
+  }
+});
+
+Deno.test("a shrinking golden set is CRITICAL and names both sizes", () => {
+  const alerts = evaluateAlerts(
+    {
+      eval_passed: true,
+      eval_regression: false,
+      production: HEALTHY,
+      golden_set: { active: 9, baseline: 12 },
+    },
+    THRESHOLDS,
+  );
+  const a = alerts.find((x) => x.code === "golden_set_shrank");
+  assert(a, "expected a golden_set_shrank alert");
+  assertEquals(a.severity, "critical");
+  assertEquals(a.value, 9);
+  assertEquals(a.threshold, 12);
+  assertEquals(worstSeverity(alerts), "critical");
+});
+
+Deno.test("no prior run means no shrink baseline, so no alert", () => {
+  const alerts = evaluateAlerts(
+    {
+      eval_passed: true,
+      eval_regression: false,
+      production: HEALTHY,
+      golden_set: { active: 0, baseline: null },
+    },
+    THRESHOLDS,
+  );
+  assertEquals(alerts.filter((a) => a.code === "golden_set_shrank").length, 0);
+});

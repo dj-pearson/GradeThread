@@ -185,7 +185,8 @@ export async function runEval(
     .select(
       "id, label, garment_type, garment_category, brand, description, style_attributes, images, expected_score, expected_tier, tags",
     )
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .is("deleted_at", null); // US-2037: retired cases never re-enter the gate.
   if (v.garment_scope) {
     casesQuery = casesQuery.eq("garment_category", v.garment_scope);
   }
@@ -336,10 +337,16 @@ export async function runEval(
   }
 
   // Record the latest eval outcome on the prompt version for the activation gate.
+  //
+  // US-2036: stamp WHICH model produced the pass. eval_passed alone is a naked
+  // boolean — it says the prompt cleared the thresholds but not what it cleared
+  // them WITH, so a later env change to the grading model inherited a pass it
+  // never earned. qualified_model is cleared on a failing run so a stale pass
+  // from an earlier model can't linger on the row.
   const runId = runRow ? (runRow as { id: string }).id : null;
   await supabaseAdmin
     .from("ai_prompt_versions")
-    .update({ eval_passed: passed, eval_run_id: runId })
+    .update({ eval_passed: passed, eval_run_id: runId, qualified_model: passed ? model : null })
     .eq("id", v.id);
 
   return {
@@ -565,7 +572,7 @@ export async function activatePromptVersion(
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const { data: version, error } = await supabaseAdmin
     .from("ai_prompt_versions")
-    .select("id, stage, garment_scope, eval_passed")
+    .select("id, stage, garment_scope, eval_passed, qualified_model")
     .eq("id", promptVersionId)
     .single();
   if (error || !version) return { ok: false, reason: "Prompt version not found" };
@@ -575,6 +582,7 @@ export async function activatePromptVersion(
     stage: string;
     garment_scope: string | null;
     eval_passed: boolean | null;
+    qualified_model: string | null;
   };
 
   if (v.eval_passed !== true) {
@@ -582,6 +590,29 @@ export async function activatePromptVersion(
       ok: false,
       reason:
         "Prompt version has not passed the eval gate. Run the eval and clear the MAE/agreement thresholds before activating.",
+    };
+  }
+
+  // US-2036: the pass must belong to the model that will actually serve traffic.
+  // Without this, an operator could qualify a prompt on model A, change
+  // DEFAULT_AI_MODEL to model B via env (no deploy, no eval, no audit entry),
+  // and activate — every subsequent paid grade then comes from a model that
+  // never cleared the MAE/agreement thresholds, while eval_passed still reads
+  // true. Fails CLOSED on a missing stamp: a pass we cannot attribute to a
+  // model is not a pass we can honour.
+  const liveModel = getGradingCompositeModel();
+  if (!v.qualified_model) {
+    return {
+      ok: false,
+      reason:
+        `This version's eval pass predates model attribution (US-2036), so we can't prove it was qualified on the live grading model (${liveModel}). Re-run the eval before activating.`,
+    };
+  }
+  if (v.qualified_model !== liveModel) {
+    return {
+      ok: false,
+      reason:
+        `Model mismatch: this version passed the eval on "${v.qualified_model}" but live grading runs "${liveModel}". Re-run the eval against the live model before activating.`,
     };
   }
 

@@ -339,7 +339,9 @@ export async function assembleExemplarSet(
   //
   // Exclude ALL golden sources, not just active cases: an inactive case may be
   // reactivated, and a set that was contaminated at assembly time cannot be
-  // decontaminated later.
+  // decontaminated later. For the same reason this deliberately does NOT filter
+  // deleted_at (US-2037) — a soft-deleted case can be restored, and this is the
+  // one read path where over-excluding is the safe direction.
   const { data: goldenSources, error: goldenError } = await supabaseAdmin
     .from("grading_eval_cases")
     .select("source_grade_report_id")
@@ -603,7 +605,8 @@ export async function evalExemplarSet(
     .select(
       "id, label, garment_type, garment_category, brand, description, style_attributes, images, expected_score, expected_tier, tags",
     )
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .is("deleted_at", null); // US-2037: retired cases never re-enter the gate.
   if (set.garment_category) {
     casesQuery = casesQuery.eq("garment_category", set.garment_category);
   }

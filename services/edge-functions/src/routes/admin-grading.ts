@@ -971,6 +971,7 @@ adminGradingRoutes.get("/eval/cases", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("grading_eval_cases")
     .select("*")
+    .is("deleted_at", null) // US-2037: retired cases are auditable, not listed.
     .order("created_at", { ascending: false });
   if (error) return failSafe(c, 500, "Couldn't load eval cases.", error, "admin.grading.eval.cases.list");
   return c.json({ cases: data ?? [] });
@@ -1093,7 +1094,13 @@ adminGradingRoutes.post("/eval/cases/promote-batch", async (c) => {
 });
 
 // PATCH /eval/cases/:id — edit an eval case (whitelist of mutable fields).
+//
+// US-2037: step-up gated, matching /prompts/:id/activate, /prompts/:id/canary
+// and /review/:id/adjust. Editing the golden set changes what "passing the eval
+// gate" MEANS, which is at least as consequential as activating a prompt.
 adminGradingRoutes.patch("/eval/cases/:id", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
   const id = c.req.param("id");
   let body: Record<string, unknown>;
   try {
@@ -1115,10 +1122,50 @@ adminGradingRoutes.patch("/eval/cases/:id", async (c) => {
     return c.json({ error: "No mutable fields supplied" }, 400);
   }
 
+  // US-2037: the ground truth is immutable once it has been used to judge a
+  // prompt version. Re-scoring a case retroactively invalidates every run that
+  // already graded against the old expectation — the historical MAE/agreement
+  // numbers stay in the table but silently stop meaning what they say. If the
+  // expectation was genuinely wrong, retire the case and add a corrected one;
+  // that leaves both versions visible instead of rewriting the past.
+  const groundTruthEdits = ["expected_score", "expected_tier"].filter((k) => k in update);
+  if (groundTruthEdits.length > 0) {
+    const { data: usedIn, error: usedErr } = await supabaseAdmin
+      .from("grading_eval_runs")
+      .select("id")
+      .eq("passed", true)
+      .contains("per_case", [{ case_id: id }])
+      .limit(1);
+    // Fail CLOSED: if we can't prove the case is unused, don't let the ground
+    // truth move. An unverifiable edit to the benchmark is the exact thing this
+    // guard exists to prevent.
+    if (usedErr) {
+      return failSafe(
+        c,
+        503,
+        "Couldn't verify whether this case has been used in a passing eval run, so its expected score can't be edited right now.",
+        usedErr,
+        "admin.grading.eval.cases.immutability",
+      );
+    }
+    if (usedIn && usedIn.length > 0) {
+      return c.json(
+        {
+          error:
+            `This case has already been used in a passing eval run, so ${groundTruthEdits.join(" and ")} ` +
+            `is immutable (US-2037). Retire this case (DELETE) and add a corrected one instead — ` +
+            `editing it in place would silently invalidate every historical accuracy comparison.`,
+        },
+        409,
+      );
+    }
+  }
+
   const { data, error } = await supabaseAdmin
     .from("grading_eval_cases")
     .update(update)
     .eq("id", id)
+    .is("deleted_at", null)
     .select("*")
     .single();
   if (error) return failSafe(c, 400, "Couldn't update the eval case.", error, "admin.grading.eval.cases.update");
@@ -1127,12 +1174,30 @@ adminGradingRoutes.patch("/eval/cases/:id", async (c) => {
   return c.json({ case: data });
 });
 
-// DELETE /eval/cases/:id
+// DELETE /eval/cases/:id — SOFT delete (US-2037).
+//
+// Was a hard delete, which let an operator quietly shrink the golden set until a
+// stubborn prompt version passed, with no way to see afterwards what the
+// benchmark used to contain. The row now survives with a deleted_at tombstone:
+// every read path filters it out, the audit trail keeps a subject to point at,
+// and the monitor's golden_set_shrank alert fires on the size change.
 adminGradingRoutes.delete("/eval/cases/:id", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
   const id = c.req.param("id");
-  const { error } = await supabaseAdmin.from("grading_eval_cases").delete().eq("id", id);
+  const { data, error } = await supabaseAdmin
+    .from("grading_eval_cases")
+    .update({ deleted_at: new Date().toISOString(), is_active: false })
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select("id, label")
+    .maybeSingle();
   if (error) return failSafe(c, 400, "Couldn't delete the eval case.", error, "admin.grading.eval.cases.delete");
-  await auditLog(c, "delete_eval_case", "grading_eval_case", id, {});
+  if (!data) return c.json({ error: "Eval case not found (or already deleted)" }, 404);
+  await auditLog(c, "delete_eval_case", "grading_eval_case", id, {
+    soft: true,
+    label: (data as { label: string }).label,
+  });
   return c.json({ ok: true });
 });
 
