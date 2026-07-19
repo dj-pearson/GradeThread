@@ -15,6 +15,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # US-2001: pass the commit into the image so RELEASE_SHA is a real SHA and
+      # every edge error/metric is attributable to a deploy. Prod was measured
+      # serving release:"dev" — the Dockerfile's `ARG GIT_SHA=dev` default
+      # survived into the image because nothing supplied the arg.
+      #
+      # DECLARED HERE, not in the Coolify UI, deliberately: the Dockerfile has
+      # carried a comment telling the builder to set this since it was written,
+      # and that comment did not survive contact with the actual deploy. A
+      # build arg in the compose file is applied by the platform rather than
+      # remembered by a person.
+      #
+      # Coolify exposes the commit as SOURCE_COMMIT. The `:-dev` fallback keeps
+      # a plain `docker compose build` working locally; a dev/unknown value now
+      # shows up as a DEGRADED observability line on /health/ready rather than
+      # passing silently (see env-validation.ts isRealReleaseSha).
+      args:
+        GIT_SHA: ${SOURCE_COMMIT:-dev}
     restart: unless-stopped
     expose:
       - "8787"

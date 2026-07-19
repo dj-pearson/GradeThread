@@ -121,7 +121,33 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         has(get, "GOOGLE_SHEETS_CLIENT_SECRET")) ||
       hasGoogleShared(get),
   },
-  { name: "observability", vars: ["SENTRY_DSN"] },
+  // US-2001: SENTRY_DSN alone is not enough to call observability "ok". Prod
+  // measured release:"dev" while this line reported ok, because the Dockerfile's
+  // ARG GIT_SHA=dev default survived into the image — so every edge error was
+  // unattributable to a commit while the health endpoint said observability was
+  // fine. A DSN with no release answers "is it erroring?" but not "did the fix
+  // ship?", which is the question you actually have at 3am.
+  {
+    name: "observability",
+    vars: ["SENTRY_DSN", "RELEASE_SHA"],
+    satisfiedWhen: (get) => has(get, "SENTRY_DSN") && isRealReleaseSha(get),
+  },
+  // US-2003: an alert channel that is unset degrades to SILENCE. Every other
+  // alerting improvement in the backlog is worthless without one, so a
+  // production deploy with no channel is a degraded deploy and should say so
+  // rather than reporting a healthy monitoring posture it does not have.
+  // Non-production is exempt: a dev box has no business paging anyone.
+  {
+    name: "alerting",
+    vars: ["MONITOR_ALERT_WEBHOOK", "MONITOR_ALERT_EMAIL", "SMTP_ADMIN_EMAIL"],
+    enabledWhen: () => edgeEnv() === "production",
+    // ANY channel counts — email or webhook. The failure this catches is
+    // "none of them", not "not the one I expected".
+    satisfiedWhen: (get) =>
+      has(get, "MONITOR_ALERT_WEBHOOK") ||
+      has(get, "MONITOR_ALERT_EMAIL") ||
+      has(get, "SMTP_ADMIN_EMAIL"),
+  },
   // US-788: StoreKit / App Store Server Notifications V2. Missing → IAP receipt
   // verification + the appstore webhook can't validate Apple's JWS. Surfaced on
   // /health/ready so a deploy with IAP "on" but these unset is visible (the
@@ -209,4 +235,18 @@ export function warnDeliverability(get: EnvGetter = realEnv): void {
   for (const w of deliverabilityWarnings(get)) {
     console.warn(`[BOOT] deliverability: ${w.message}`);
   }
+}
+
+// US-2001: is RELEASE_SHA a real commit, or the Dockerfile's ARG GIT_SHA=dev
+// default that reached production? Treated as a placeholder rather than a
+// version so /health/ready degrades instead of claiming observability is fine.
+// Kept permissive on FORM (any non-placeholder string counts) — the failure
+// seen in prod was the literal default surviving the build, not a malformed
+// SHA, and rejecting anything that is not 40 hex chars would break short-SHA
+// and tag-based deploys for no benefit.
+const RELEASE_PLACEHOLDERS = new Set(["", "dev", "unknown", "local", "none", "latest"]);
+
+export function isRealReleaseSha(get: EnvGetter = realEnv): boolean {
+  const raw = (get("RELEASE_SHA") ?? "").trim().toLowerCase();
+  return !RELEASE_PLACEHOLDERS.has(raw);
 }

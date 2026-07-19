@@ -24,6 +24,40 @@ If you prefer to keep extra Traefik-specific labels (e.g. for self-managed
 Traefik without Coolify), use `docker-compose.coolify.yml` instead — it has
 both the `coolify.*` labels and explicit `traefik.*` fallbacks.
 
+## Build args: the release SHA (US-2001)
+
+**The image must be built with `GIT_SHA` set to the deployed commit**, or
+`RELEASE_SHA` falls back to the Dockerfile's `dev` default and every edge error,
+metric and `/health` response becomes unattributable to a build. Prod was
+measured serving `release:"dev"` for exactly this reason — you cannot answer
+"did the fix ship?" without it.
+
+`docker-compose.coolify.yml` now declares it, so nothing needs remembering:
+
+```yaml
+build:
+  args:
+    GIT_SHA: ${SOURCE_COMMIT:-dev}
+```
+
+⚠️ **If you deploy from `docker-compose.yml` instead** (the default the one-time
+setup above picks), add the same `args` block there, or set
+`GIT_SHA=$SOURCE_COMMIT` in Coolify's **Build Args** field. The Dockerfile has
+carried a comment asking for this since it was written, and that comment did not
+survive contact with the actual deploy — which is why it is declared in compose
+now rather than documented as a step.
+
+**Verify by measuring, not by reading config:**
+
+```bash
+curl -s https://functions.gradethread.com/health | jq .release
+# must be the deployed commit SHA, never "dev"
+```
+
+`/health/ready` also reports `features.observability` as degraded while the
+release is a placeholder, so a regression surfaces without anyone remembering to
+run the curl above.
+
 ## Local development
 
 For hot-reload during local development:

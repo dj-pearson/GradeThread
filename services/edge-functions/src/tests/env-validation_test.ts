@@ -4,6 +4,7 @@ import {
   assertRequiredEnv,
   computeFeatureReadiness,
   isIapEnabled,
+  isRealReleaseSha,
   missingRequiredEnv,
   warnMissingFeatureGroups,
 } from "../lib/env-validation.ts";
@@ -173,4 +174,45 @@ Deno.test("US-788: warnMissingFeatureGroups WARNS about appstore once IAP is ena
     console.warn = orig;
   }
   assert(warnings.some((w) => w.includes("appstore")), "should warn about appstore when IAP enabled but unset");
+});
+
+// ── US-2001 / US-2003: observability and alerting must not report "ok"
+//    while they are, respectively, unattributable and silent ────────────
+
+Deno.test("US-2001: a placeholder RELEASE_SHA is not a real release", () => {
+  for (const raw of ["", "dev", "DEV", " unknown ", "local", "none", "latest"]) {
+    assertEquals(
+      isRealReleaseSha(() => raw),
+      false,
+      `${JSON.stringify(raw)} must not count as a release`,
+    );
+  }
+});
+
+Deno.test("US-2001: a real SHA counts, and so does a short SHA or tag", () => {
+  // Deliberately permissive on FORM. The failure measured in prod was the
+  // literal ARG default surviving the build, not a malformed SHA — requiring
+  // 40 hex chars would break short-SHA and tag deploys for no benefit.
+  for (const raw of ["c9631342084bfd9e96883321a07a390d3be1e814", "c963134", "v1.4.2"]) {
+    assertEquals(isRealReleaseSha(() => raw), true, `${raw} should count`);
+  }
+});
+
+Deno.test("US-2001: observability is DEGRADED when the DSN is set but release is 'dev'", () => {
+  // This is the exact prod state that was measured: errorTracking enabled,
+  // release "dev", and the readiness line saying observability was fine.
+  const env: Record<string, string> = {
+    SENTRY_DSN: "https://example.ingest.sentry.io/1",
+    RELEASE_SHA: "dev",
+  };
+  const readiness = computeFeatureReadiness((k) => env[k]);
+  assertEquals(readiness.observability !== "ok", true, "observability must not be ok");
+});
+
+Deno.test("US-2001: observability is ok once a real SHA is present", () => {
+  const env: Record<string, string> = {
+    SENTRY_DSN: "https://example.ingest.sentry.io/1",
+    RELEASE_SHA: "c9631342084bfd9e96883321a07a390d3be1e814",
+  };
+  assertEquals(computeFeatureReadiness((k) => env[k]).observability, "ok");
 });
