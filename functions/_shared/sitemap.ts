@@ -10,7 +10,14 @@
 // INDEX pointing at sitemap-static.xml / sitemap-blog.xml / sitemap-certs.xml,
 // each of which stays under the 50k/50MB per-file limit.
 
-import { escape, edgeApi, siteUrl, type PagesEnv } from "./blog-render";
+import {
+  escape,
+  edgeApi,
+  siteUrl,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
+  type PagesEnv,
+} from "./blog-render";
 
 // Threshold from the AC. The real spec limit is 50,000 URLs / 50 MB per file;
 // 5,000 keeps each file small and fast to generate at the edge.
@@ -75,17 +82,46 @@ async function fetchManifest(env: PagesEnv): Promise<SeoManifest | null> {
   }
 }
 
+/**
+ * US-2097: THROW on an unreachable upstream instead of returning null.
+ *
+ * Returning null made a transient edge failure indistinguishable from "this
+ * section is legitimately empty": each *Urls() generator fell back to [], and
+ * the result was a structurally valid sitemap missing entire URL classes —
+ * served 200 and cached for an hour, telling crawlers those pages do not exist.
+ *
+ * Worse, a dropped section could push the total back under SITEMAP_MAX_URLS and
+ * flip /sitemap.xml from a sitemapindex to a truncated single urlset, changing
+ * the document's SHAPE based on a network blip.
+ *
+ * rss.xml.ts was hardened against exactly this in US-2044 (UpstreamUnavailable
+ * + a 503). The sitemap never got the same treatment; this is that port.
+ */
 async function fetchEdgeJson<T>(env: PagesEnv, path: string): Promise<T | null> {
+  let res: Response;
   try {
-    const res = await fetch(`${edgeApi(env)}${path}`, {
+    res = await fetch(`${edgeApi(env)}${path}`, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(8_000),
       cf: { cacheTtl: 300, cacheEverything: true },
     } as RequestInit);
-    if (!res.ok) return null;
+  } catch (e) {
+    // Network error / timeout — we do NOT know what is there.
+    console.error(`[sitemap] upstream unreachable for ${path}:`, e);
+    throw new UpstreamUnavailable(e instanceof Error ? e.name : "unknown");
+  }
+  if (!res.ok) {
+    // A 404 is a real answer ("no such collection") and stays null; anything
+    // else means we could not determine the contents.
+    if (res.status === 404) return null;
+    console.error(`[sitemap] upstream ${res.status} for ${path}`);
+    throw new UpstreamUnavailable(`status ${res.status}`);
+  }
+  try {
     return (await res.json()) as T;
-  } catch {
-    return null;
+  } catch (e) {
+    console.error(`[sitemap] malformed JSON from ${path}:`, e);
+    throw new UpstreamUnavailable("malformed-json");
   }
 }
 
@@ -509,4 +545,33 @@ export function imageSitemapXml(entries: ImageSitemapEntry[]): string {
     body +
     `\n</urlset>\n`
   );
+}
+
+/**
+ * US-2097: wrap a sub-sitemap's build so an unreachable upstream serves 503
+ * rather than a silently-incomplete 200 (or, once fetchEdgeJson throws, a bare
+ * 500).
+ *
+ * Exists as ONE helper rather than eleven try/catches because there are eleven
+ * sub-sitemap routes with an identical shape — and the failure this guards
+ * against is precisely the kind that gets fixed in one file and left in ten.
+ */
+export async function sitemapResponse(
+  route: string,
+  build: () => Promise<SitemapUrl[]>,
+): Promise<Response> {
+  let urls: SitemapUrl[];
+  try {
+    urls = await build();
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) {
+      console.error(`[${route}] upstream unavailable — serving 503:`, e.message);
+      return upstreamUnavailableResponse();
+    }
+    throw e;
+  }
+  return new Response(urlsetXml(urls), {
+    status: 200,
+    headers: { ...SITEMAP_HEADERS },
+  });
 }

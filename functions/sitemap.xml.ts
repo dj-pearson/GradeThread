@@ -6,7 +6,12 @@
 // sitemaps (sitemap-static.xml / sitemap-blog.xml / sitemap-certs.xml), each
 // served by its own Pages Function.
 
-import { type PagesEnv } from "./_shared/blog-render";
+import {
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
+  type PagesEnv,
+} from "./_shared/blog-render";
+import type { SitemapUrl } from "./_shared/sitemap";
 import {
   staticUrls,
   blogUrls,
@@ -23,16 +28,39 @@ import {
 } from "./_shared/sitemap";
 
 export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
-  const [statics, blog, certs, sellers, condition, value, durability, authors] = await Promise.all([
-    staticUrls(env),
-    blogUrls(env),
-    certUrls(env),
-    sellerUrls(env),
-    conditionIndexUrls(env),
-    valueIndexUrls(env),
-    durabilityUrls(env),
-    authorUrls(env),
-  ]);
+  // US-2097: a transient upstream failure must NOT produce a structurally valid
+  // sitemap that silently omits whole URL classes — served 200 and cached for an
+  // hour, which tells crawlers those pages do not exist. Worse, a dropped
+  // section can push the total back under SITEMAP_MAX_URLS and flip this
+  // document from a sitemapindex to a truncated single urlset, changing its
+  // SHAPE because of a network blip. Serve 503 + Retry-After instead, exactly as
+  // rss.xml.ts has since US-2044.
+  let statics: SitemapUrl[],
+    blog: SitemapUrl[],
+    certs: SitemapUrl[],
+    sellers: SitemapUrl[],
+    condition: SitemapUrl[],
+    value: SitemapUrl[],
+    durability: SitemapUrl[],
+    authors: SitemapUrl[];
+  try {
+    [statics, blog, certs, sellers, condition, value, durability, authors] = await Promise.all([
+      staticUrls(env),
+      blogUrls(env),
+      certUrls(env),
+      sellerUrls(env),
+      conditionIndexUrls(env),
+      valueIndexUrls(env),
+      durabilityUrls(env),
+      authorUrls(env),
+    ]);
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) {
+      console.error("[sitemap.xml] upstream unavailable — serving 503:", e.message);
+      return upstreamUnavailableResponse();
+    }
+    throw e;
+  }
 
   const total =
     statics.length +

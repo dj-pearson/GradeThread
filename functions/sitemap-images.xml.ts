@@ -3,11 +3,29 @@
 // can discover and index them. Linked from the /sitemap.xml index and
 // advertised in robots.txt; harmless to fetch directly anytime.
 
-import { type PagesEnv } from "./_shared/blog-render";
+import {
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
+  type PagesEnv,
+} from "./_shared/blog-render";
 import { imageUrls, imageSitemapXml, SITEMAP_HEADERS } from "./_shared/sitemap";
 
 export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
-  const entries = await imageUrls(env);
+  // US-2097: 503 rather than a silently-incomplete 200. This route does NOT use
+  // the shared sitemapResponse helper because it serialises a different entry
+  // shape (imageSitemapXml, not urlsetXml) — so it carries its own guard. Worth
+  // noting explicitly: it is the one sub-sitemap the bulk rewrite could not
+  // match, which is exactly the file that would otherwise have been missed.
+  let entries: Awaited<ReturnType<typeof imageUrls>>;
+  try {
+    entries = await imageUrls(env);
+  } catch (e) {
+    if (e instanceof UpstreamUnavailable) {
+      console.error("[sitemap-images.xml] upstream unavailable — serving 503:", e.message);
+      return upstreamUnavailableResponse();
+    }
+    throw e;
+  }
   return new Response(imageSitemapXml(entries), {
     status: 200,
     headers: { ...SITEMAP_HEADERS },
