@@ -63,6 +63,10 @@ import {
   rankTellCandidates,
   type ReviewTellObservation,
 } from "../lib/tell-candidates.ts";
+import {
+  summarizeSellerAuthenticity,
+  type SellerAuthenticityRecord,
+} from "../lib/authenticity-seller-signal.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
 import {
@@ -525,6 +529,58 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
 // authenticity-eval.ts became dead code in the first place (see the reasoning in
 // authenticity-gate-guard_test.ts). When that lifecycle is genuinely needed, it
 // must call assertAuthenticityPromptActivatable, which refuses by default.
+
+// ── US-2148: per-seller authenticity signal ─────────────────────────────────
+//
+// Operator visibility only. It does NOT write to reputation_events — that log is
+// the buyer Trust Score (00417) and seller conduct is a different subject; see
+// the correction recorded on US-2148.
+
+// GET /authenticity/sellers — sellers ranked by confirmed findings + clustering.
+adminGradingRoutes.get("/authenticity/sellers", async (c) => {
+  // Assessments joined to their submission's owner. authenticity_assessment is
+  // the BRAND add-on column (00172), not image_authenticity (photo-edit, 00061).
+  const { data, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select(
+      "created_at, authenticity_assessment, submissions!inner(user_id), " +
+        "authenticity_review_outcomes(reviewer_verdict)",
+    )
+    .not("authenticity_assessment", "is", null)
+    .limit(5000);
+  if (error) {
+    return failSafe(c, 400, "Couldn't load authenticity outcomes.", error, "admin.grading.authenticity.sellers");
+  }
+
+  type Row = {
+    created_at: string;
+    authenticity_assessment: { verdict?: string | null } | null;
+    submissions?: { user_id?: string | null } | null;
+    authenticity_review_outcomes?: { reviewer_verdict: string }[] | null;
+  };
+  // `as unknown as` — the typed client resolves an embedded-relation select to
+  // GenericStringError[], the same shape mismatch content-public works around.
+  const records: SellerAuthenticityRecord[] = ((data ?? []) as unknown as Row[])
+    .map((r) => {
+      const sellerId = r.submissions?.user_id;
+      if (!sellerId) return null;
+      return {
+        seller_id: sellerId,
+        occurred_at: r.created_at,
+        model_verdict: r.authenticity_assessment?.verdict ?? null,
+        // One outcome per report (unique index), so [0] is the resolution.
+        reviewer_verdict: r.authenticity_review_outcomes?.[0]?.reviewer_verdict ?? null,
+      };
+    })
+    .filter((r): r is SellerAuthenticityRecord => r !== null);
+
+  const signals = summarizeSellerAuthenticity(records);
+  return c.json({
+    sellers: signals,
+    clustered: signals.filter((s) => s.clustered).length,
+    considered: records.length,
+  });
+});
 
 // ── US-2147: reviewer tells → brand-knowledge candidates ────────────────────
 //
