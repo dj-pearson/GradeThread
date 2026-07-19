@@ -45,7 +45,13 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 30-platform — marketplace integration
 
+- [[cross-listing]] — reference — Direct marketplace APIs versus aggregators, and which channels are reachable how.
 - [[ebay-aspect-value-limit]] — contract — eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
+- [[ebay-condition-and-policies]] — contract — Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
+- [[ebay-ranking-playbook]] — reference — What actually moves Best Match placement, and what is folklore.
+- [[ebay-trading-api-watch]] — reference — Deprecation exposure on the legacy Trading API and what would force a migration.
+- [[flipdesk-dogfood]] — reference — What broke when the pipeline was run end to end on real inventory.
+- [[flipdesk-reseller-gaps]] — reference — Where the reseller workflow still falls short of what a working seller needs.
 
 ## 40-growth — SEO, content, distribution
 
@@ -69,6 +75,11 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[archive-semantics]] — reference — What belongs in 90-archive, how CI treats it, and the rule that stops archiving from burying live work.
 
 <!-- vault-index:end -->
+
+## Also registered here
+
+- [[external-docs]] — docs that deliberately stay next to the code they configure
+  (edge deploy/setup, iOS release, extension). Findable, not moved.
 
 ## Migration status
 

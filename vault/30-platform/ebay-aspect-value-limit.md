@@ -19,17 +19,31 @@ Enforced in `ebay-client.ts` via `EBAY_ASPECT_VALUE_MAX_LEN = 65` and
 ## Why this is worth a note rather than a comment
 
 **The rejection is deferred.** The `inventory_item` PUT accepts the over-long
-value without complaint. The failure only appears later, at **publish** — so the
-error surfaces far from its cause, in a different call, on a different day if the
+value without complaint. The failure only appears at **publish** — so the error
+surfaces far from its cause, in a different call, on a different day if the
 listing sat as a draft.
 
-Worse, the symptom is usually misleading. A failed publish leaves the offer in a
-state where the retry reports **`25002` — "already has active offer"**. That error
-sends you hunting for a duplicate-offer bug that does not exist, when the actual
-cause is a 66-character Style value.
+**And `25002` means two different things.** Verified in `ebay-client.ts`
+2026-07-19:
 
-**Diagnostic:** read the **last** `publish failed:` line in the edge-function log.
-The 25002 is downstream noise; the real reason is in the earlier failure.
+1. The over-long aspect value itself fails publish with **errorId 25002**
+   ("…value of '…' is too long. Enter a value of no more than 65 characters.").
+2. That failed publish leaves a **stuck unpublished offer**, so every subsequent
+   retry also fails with **errorId 25002** — this time meaning "offer already
+   exists".
+
+So the id alone cannot tell you which you are looking at, and the second reading
+is the one you hit while debugging. It sends you hunting for a duplicate-offer
+bug that does not exist, when the real cause was a 66-character "Garment Care"
+value on the first attempt.
+
+**Disambiguate by message, not by id.** `ebayFetch` parses eBay's structured
+error array into `err.ebayErrorIds` *and* `err.ebayErrorMessages`, keeping eBay's
+own human text precisely because overloaded ids like 25002 cannot be resolved
+from the number (US-528). Read the **last** `publish failed:` line in the
+edge-function log and look at the message, not the code.
+
+A single free-text aspect can permanently block a listing this way.
 
 ## How it is handled
 

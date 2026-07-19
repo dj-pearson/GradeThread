@@ -284,7 +284,7 @@ offsite dump on a scratch host. Record the result here so the drill has a home.
 - ☐ Pre-launch banner / `VITE_LAUNCH_DATE` set to self-expire (US-785)
 - ☐ Reseller feature scope confirmed — Best Offer responses and returns/
   cancellations are **out of scope** for launch (handled in eBay Seller Hub);
-  see `FLIPDESK_RESELLER_GAPS.md` (US-469)
+  see `vault/30-platform/flipdesk-reseller-gaps.md` (US-469)
 - ☐ All blockers in `prd.json` (US-772…US-785) marked `passes:true`
 
 **Launch approved by:** ________________  **Date:** ____________
