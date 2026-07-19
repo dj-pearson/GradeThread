@@ -3960,3 +3960,33 @@ auto-deploys on push, so if the frontend ships before the migration applies, the
 brand dropdown errors and Inventory loses its brand filter. **Apply before
 pushing.** Then `NOTIFY pgrst, 'reload schema';` — required here, since
 PostgREST will not expose a new RPC until it reloads.
+
+---
+
+## 00483_inventory_items_submission_unique.sql — PENDING (US-2007 AC3)
+
+**Risk: LOW.** One de-dupe UPDATE (nulls a stale link; destroys no data) and one
+partial unique index. Safe to re-run.
+
+**What it does**
+- Nulls `inventory_items.submission_id` on the older row of any duplicate pair.
+- `idx_inventory_items_submission_unique` — partial UNIQUE on
+  `submission_id WHERE submission_id IS NOT NULL`.
+
+**The AC asked to confirm before constraining, and the confirmation is the
+finding:** exactly ONE writer in the codebase sets this column
+(`flipdesk-grading.ts`'s bulk-submit loop), and it assigns a submission INSERTed
+in that same iteration. The web app never writes it. Two items sharing a
+submission is therefore not a legitimate state — it is corruption.
+
+**De-dupe nulls rather than deletes**, unlike 00478: the thing being de-duped is
+a LINK, not paid output. The submission, its grade report, and the item's own
+`grade_value` / `grade_label` / `grade_report_id` are all untouched.
+
+**Apply order:** after 00482. `NOTIFY pgrst, 'reload schema';` not strictly
+required (no new table/column/RPC), but harmless.
+
+**If the de-dupe UPDATE reports a non-zero row count, that is worth knowing** —
+it means the duplicate this story theorises about has actually occurred in prod.
+The story was filed on the strength of the code path, not an observed incident,
+so that count is the first real evidence either way. Record it here.

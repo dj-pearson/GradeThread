@@ -637,11 +637,23 @@ async function applyTerminalCompletion(
   // Sync a linked inventory item, if any.
   let linkedItemId: string | null = null;
   try {
-    const { data: linkedItem } = await supabaseAdmin
+    const { data: linkedItem, error: linkedErr } = await supabaseAdmin
       .from("inventory_items")
       .select("id, status, user_id")
       .eq("submission_id", submissionId)
       .maybeSingle();
+    // US-2007 AC3: the same swallowed-PGRST116 shape as finalizeIfAlreadyGraded.
+    // Two items sharing a submission makes maybeSingle() error, and discarding
+    // it here would silently skip the item write-back — the grade would be
+    // stored but the item would never show its grade_value/grade_label. 00483
+    // makes the duplicate impossible; this makes any residual read failure
+    // visible instead of looking identical to "no linked item".
+    if (linkedErr) {
+      captureException(linkedErr, {
+        route: "grading-pipeline.syncLinkedItem",
+        extra: { submission_id: submissionId, code: linkedErr.code },
+      });
+    }
     if (linkedItem) {
       linkedItemId = (linkedItem as { id: string }).id;
       const itemUpdate: Record<string, unknown> = {
