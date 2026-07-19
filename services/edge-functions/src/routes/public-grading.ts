@@ -42,7 +42,11 @@ export function extensionFraudFlagsEnabled(): boolean {
 }
 import { validateImageUpload, IMAGE_CONTENT_TYPE } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
-import { assessAuthenticity } from "../lib/ai-authenticity.ts";
+import {
+  assessAuthenticity,
+  AUTHENTICITY_PROMPT_VERSION_GROUNDED,
+} from "../lib/ai-authenticity.ts";
+import { authenticityGateStatus } from "../lib/authenticity-eval.ts";
 import { getEffectiveTellsForBrand } from "../lib/brand-authenticity.ts";
 import { recordAiUsage } from "../lib/ai-usage.ts";
 import { clientIp } from "../middleware/rate-limit.ts";
@@ -1045,6 +1049,34 @@ publicGradingRoutes.post("/authenticity-check", async (c) => {
     // Fail-closed until legal-reviewed + operator-enabled. 404 so a disabled
     // surface isn't advertised.
     if (!publicAuthenticityCheckEnabled()) return c.json({ error: "Not found" }, 404);
+
+    // US-2145/US-2133: the env flag is the LEGAL gate — it says a human reviewed
+    // the limitations copy. It says nothing about whether the model is any good.
+    // This is the ACCURACY gate, and it is deliberately separate: enabling the
+    // endpoint after a legal review should not be sufficient to publish verdicts
+    // from a prompt version that has never cleared the golden set.
+    //
+    // Unauthenticated + public + no measured error rate is the combination worth
+    // refusing. Authenticated surfaces (the paid add-on, the buyer check) still
+    // run ungated — they carry the limitations disclaimer and a named account,
+    // which is a different risk posture from an anonymous public claim.
+    //
+    // 503 + Retry-After rather than 404: the surface exists and is expected back,
+    // so a crawler should not deindex the tool page behind it.
+    const gate = await authenticityGateStatus(AUTHENTICITY_PROMPT_VERSION_GROUNDED)
+      .catch(() => ({ gated: false, reason: "gate check failed" }));
+    if (!gate.gated) {
+      console.warn(`[public-authenticity] refused — ungated prompt: ${gate.reason ?? "unknown"}`);
+      c.header("Retry-After", "3600");
+      return c.json(
+        {
+          error:
+            "The authenticity check is temporarily unavailable while we re-validate " +
+            "our accuracy. Please try again later.",
+        },
+        503,
+      );
+    }
 
     const ip = clientIpFor(c);
     if (windowLimited(authCheckHits, ip, Date.now(), AUTH_CHECK_PER_IP_PER_HOUR, AUTH_CHECK_WINDOW_MS)) {
