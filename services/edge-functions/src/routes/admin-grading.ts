@@ -546,6 +546,25 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
 // agreement rate stays flat while a version stops missing fakes and starts
 // flagging genuine items.
 
+// How many review outcomes any one authenticity aggregate reads.
+//
+// A cap with no ORDER BY is not a cap, it is an arbitrary sample: Postgres may
+// return any 5000 rows, so "recent vs baseline" would be computed over a set
+// that changes between calls. Every query below therefore orders before
+// limiting, and says so when the cap actually bites — a silently truncated
+// aggregate reads as complete, which is how the certificate sitemap quietly
+// stopped at its first page.
+const AUTHENTICITY_AGGREGATE_CAP = 5000;
+
+function warnIfCapped(rows: number, what: string): void {
+  if (rows >= AUTHENTICITY_AGGREGATE_CAP) {
+    console.warn(
+      `[authenticity] ${what} hit the ${AUTHENTICITY_AGGREGATE_CAP}-row cap — ` +
+        `older outcomes are excluded and this aggregate is partial.`,
+    );
+  }
+}
+
 // Shared loader: the accuracy route and the post-review drift check must read
 // the same shape, or the number an operator sees and the number that alerts
 // could disagree.
@@ -556,8 +575,12 @@ async function loadAuthenticityObservations(): Promise<AuthenticityObservation[]
       "model_verdict, model_prompt_version, reviewer_verdict, reviewed_at, " +
         "grade_reports!inner(submissions!inner(brand))",
     )
-    .limit(5000);
+    // Newest first: if the cap bites, the RECENT window — the one drift is
+    // judged on — must be the part we keep intact.
+    .order("reviewed_at", { ascending: false })
+    .limit(AUTHENTICITY_AGGREGATE_CAP);
   if (error) throw new Error(error.message);
+  warnIfCapped((data ?? []).length, "accuracy/drift");
 
   type Row = {
     model_verdict: string | null;
@@ -623,7 +646,10 @@ adminGradingRoutes.get("/authenticity/sellers", async (c) => {
         "authenticity_review_outcomes(reviewer_verdict)",
     )
     .not("authenticity_assessment", "is", null)
-    .limit(5000);
+    // Newest first so a capped read keeps the recent activity a clustering
+    // check is actually about.
+    .order("created_at", { ascending: false })
+    .limit(AUTHENTICITY_AGGREGATE_CAP);
   if (error) {
     return failSafe(c, 400, "Couldn't load authenticity outcomes.", error, "admin.grading.authenticity.sellers");
   }
@@ -636,6 +662,7 @@ adminGradingRoutes.get("/authenticity/sellers", async (c) => {
   };
   // `as unknown as` — the typed client resolves an embedded-relation select to
   // GenericStringError[], the same shape mismatch content-public works around.
+  warnIfCapped((data ?? []).length, "seller signal");
   const records: SellerAuthenticityRecord[] = ((data ?? []) as unknown as Row[])
     .map((r) => {
       const sellerId = r.submissions?.user_id;
@@ -673,11 +700,13 @@ adminGradingRoutes.get("/authenticity/tell-candidates", async (c) => {
   // Join the outcome's tells to the brand behind its grade report. brand_key is
   // derived the same way the golden-set promotion derives it, so a candidate and
   // a promoted case agree on which brand they belong to.
-  let q = supabaseAdmin
+  // Previously this limited ONLY when a brand filter was supplied — backwards,
+  // since the unfiltered read is the larger one. Always ordered, always capped.
+  const { data, error } = await supabaseAdmin
     .from("authenticity_review_outcomes")
-    .select("reviewer_verdict, tells_relied_on, grade_reports!inner(submissions!inner(brand))");
-  if (brandKey) q = q.limit(2000);
-  const { data, error } = await q;
+    .select("reviewer_verdict, tells_relied_on, grade_reports!inner(submissions!inner(brand))")
+    .order("reviewed_at", { ascending: false })
+    .limit(AUTHENTICITY_AGGREGATE_CAP);
   if (error) {
     return failSafe(c, 400, "Couldn't load review outcomes.", error, "admin.grading.authenticity.tell_candidates");
   }
@@ -687,6 +716,7 @@ adminGradingRoutes.get("/authenticity/tell-candidates", async (c) => {
     tells_relied_on: string[] | null;
     grade_reports?: { submissions?: { brand?: string | null } | null } | null;
   };
+  warnIfCapped((data ?? []).length, "tell candidates");
   const observations: ReviewTellObservation[] = ((data ?? []) as Row[])
     .map((r) => {
       const brand = r.grade_reports?.submissions?.brand?.trim();
