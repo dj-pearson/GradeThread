@@ -1,0 +1,201 @@
+{
+  "_comment": "US-2019 SHARED FIXTURE. The Best Offer threshold clamp exists in two projects that cannot import each other: services/edge-functions/src/lib/best-offer.ts (resolveBestOfferThresholds — AUTHORITATIVE at publish) and src/lib/best-offer-thresholds.ts (the composer mirror, which prefills from the comp band and clamps the seller's edits BEFORE they are persisted to the best_offer_* columns). Both suites assert this table. The constraints are EBAY'S, not ours: autoAcceptPrice must be strictly below the listing price, and autoDeclinePrice strictly below autoAcceptPrice when both are set. eBay REJECTS a publish that violates them — so a drift between these copies means the composer saves thresholds that fail at publish time, after the seller believes they are finished. All five input fields are supplied explicitly because the edge type declares them required-but-nullable.",
+  "cases": [
+    {
+      "name": "comp-derived, both below list",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 5000,
+        "p75Cents": 8000,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": 8000,
+        "autoDeclineCents": 5000
+      }
+    },
+    {
+      "name": "seller overrides win over comps",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 5000,
+        "p75Cents": 8000,
+        "acceptOverrideCents": 9000,
+        "declineOverrideCents": 6000
+      },
+      "expected": {
+        "autoAcceptCents": 9000,
+        "autoDeclineCents": 6000
+      }
+    },
+    {
+      "name": "accept AT list is nudged to one cent under",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 5000,
+        "p75Cents": 10000,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": 9999,
+        "autoDeclineCents": 5000
+      }
+    },
+    {
+      "name": "accept ABOVE list is nudged to one cent under",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 5000,
+        "p75Cents": 12000,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": 9999,
+        "autoDeclineCents": 5000
+      }
+    },
+    {
+      "name": "list of 1 cent leaves no room for accept",
+      "input": {
+        "priceCents": 1,
+        "p25Cents": 100,
+        "p75Cents": 5000,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": null,
+        "autoDeclineCents": null
+      }
+    },
+    {
+      "name": "decline EQUAL to accept is dropped, not rewritten",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 8000,
+        "p75Cents": 8000,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": 8000,
+        "autoDeclineCents": null
+      }
+    },
+    {
+      "name": "decline ABOVE accept is dropped, not rewritten",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 9000,
+        "p75Cents": 7000,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": 7000,
+        "autoDeclineCents": null
+      }
+    },
+    {
+      "name": "no accept: decline at/above list is dropped",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 10000,
+        "p75Cents": null,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": null,
+        "autoDeclineCents": null
+      }
+    },
+    {
+      "name": "no accept: decline below list survives",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 4000,
+        "p75Cents": null,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": null,
+        "autoDeclineCents": 4000
+      }
+    },
+    {
+      "name": "zero/absent comps yield nothing",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": null,
+        "p75Cents": null,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": null,
+        "autoDeclineCents": null
+      }
+    },
+    {
+      "name": "zero override falls through to the comp value",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 5000,
+        "p75Cents": 8000,
+        "acceptOverrideCents": 0,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": 8000,
+        "autoDeclineCents": 5000
+      }
+    },
+    {
+      "name": "negative values are ignored",
+      "input": {
+        "priceCents": 10000,
+        "p25Cents": 5000,
+        "p75Cents": 8000,
+        "acceptOverrideCents": -500,
+        "declineOverrideCents": -100
+      },
+      "expected": {
+        "autoAcceptCents": 8000,
+        "autoDeclineCents": 5000
+      }
+    },
+    {
+      "name": "missing price still clamps accept-vs-decline",
+      "input": {
+        "priceCents": 0,
+        "p25Cents": 9000,
+        "p75Cents": 8000,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": 8000,
+        "autoDeclineCents": null
+      }
+    },
+    {
+      "name": "fractional cents are rounded",
+      "input": {
+        "priceCents": 10000.4,
+        "p25Cents": 4999.5,
+        "p75Cents": 7999.6,
+        "acceptOverrideCents": null,
+        "declineOverrideCents": null
+      },
+      "expected": {
+        "autoAcceptCents": 8000,
+        "autoDeclineCents": 5000
+      }
+    }
+  ]
+}
