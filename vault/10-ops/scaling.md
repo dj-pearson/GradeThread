@@ -21,7 +21,7 @@ outage and a crash takes the API down until restart.
 **Recommended:** run **≥ 2 replicas** behind Traefik so deploys are rolling
 (zero-downtime) and one crashed replica doesn't drop traffic.
 
-> **MANUAL:** in Coolify, scale the edge-functions resource to 2+ instances (or
+> [!todo] **MANUAL:** in Coolify, scale the edge-functions resource to 2+ instances (or
 > add a second container) behind the existing Traefik labels, and enable rolling
 > deploys. The service is stateless except for in-memory caches (rate-limit
 > counters are Postgres-backed; circuit breakers + feature-flag cache are
@@ -59,7 +59,7 @@ Self-hosted Supabase is single-node today. Plan:
 - A documented restore-to-new-host procedure (RTO ≤ 2h).
 - Connection pooler (US-570, **done** — `vault/10-ops/connection-pooling.md`) before adding edge replicas.
 
-> **MANUAL:** document the host's resource limits + the scale-up path (vertical
+> [!todo] **MANUAL:** document the host's resource limits + the scale-up path (vertical
 > first, then read replicas) here once capacity testing is done.
 
 ## Edge container capacity / memory scale-out (US-573)
@@ -71,3 +71,10 @@ buffering), the right-sized limits (2G), the load test
 [`vault/10-ops/capacity.md`](vault/10-ops/capacity.md). In short: scale out a replica when sustained RSS
 crosses 70% of the limit (`/health/metrics` `pressure: "elevated"`) or CPU
 crosses 70%.
+
+## Related
+
+- [[capacity]] — the measurements that trigger scaling
+- [[connection-pooling]] — scaling out multiplies pool demand
+- [[edge-runtime-invariants]] — what more replicas break
+- [[moc-ops]]

@@ -160,6 +160,20 @@ without any price change. The only residual exposure (a maxed user whose every
 action is vision-heavy) is bounded by `ai_budgets` and closed by the pending
 Haiku routing.
 
+## The prices these margins are computed against
+
+Transcluded from [[pricing]] rather than copied, so this note cannot drift from
+the canonical table:
+
+![[pricing#3. Credit packs]]
+
+> [!info] Why only this one is embedded
+> An embed renders in Obsidian but is **inert to `Grep`** — an agent searching
+> this note for `$24.99` finds the link text, not the number. That is an
+> acceptable trade exactly here, because the surrounding prose still says what
+> the section is and links to the note that owns it. It would NOT be acceptable
+> for a fact an agent must find by search. See [[adr-0003-dual-consumer-vault]].
+
 ## Related
 
 - [[pricing]] — the prices these margins are computed against; do not restate them here

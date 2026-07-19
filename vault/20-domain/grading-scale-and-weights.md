@@ -1,5 +1,6 @@
 ---
 title: Grading scale, factor weights and rounding
+aliases: [grading scale, factor weights, GRADE_FACTORS]
 type: contract
 status: current
 source_of_truth: code

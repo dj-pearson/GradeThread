@@ -1,5 +1,6 @@
 ---
 title: The weighted-overall lockstep — two implementations, not four
+aliases: [rounding sites, rounding lockstep, roundToTenth]
 type: contract
 status: current
 source_of_truth: code

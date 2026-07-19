@@ -1,5 +1,6 @@
 ---
 title: Cross-listing across marketplaces
+aliases: [Cross_Listing, marketplaces]
 type: reference
 status: current
 source_of_truth: vault

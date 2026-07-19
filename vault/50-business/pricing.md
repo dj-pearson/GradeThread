@@ -1,5 +1,6 @@
 ---
 title: Pricing — canonical model
+aliases: [PRICING, plans, price list]
 type: contract
 status: current
 source_of_truth: code

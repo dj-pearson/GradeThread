@@ -58,7 +58,7 @@ escalation ladder and the end-to-end alert drill.
 
 ## Remaining setup (launch checklist)
 
-> **MANUAL:** in GitHub repo settings → Secrets and variables → Actions, set
+> [!todo] **MANUAL:** in GitHub repo settings → Secrets and variables → Actions, set
 > `UPTIME_ALERT_WEBHOOK` (Slack incoming webhook for the on-call channel) and
 > `SUPABASE_ANON_KEY` (lets the auth check assert a real 200 from GoTrue).
 > Everyone on call must watch the repo with issue notifications on. Then run
@@ -73,3 +73,9 @@ four URLs with the same expectations, alerting into the same channel, and
 optionally a vendor-hosted status page (independent of Cloudflare Pages).
 Record the vendor + status page URL here once live. The in-repo monitor stays
 on as the zero-cost backstop.
+
+## Related
+
+- [[incident-response]] — where an alert escalates to
+- [[launch-checklist]] — these checks must be live before launch
+- [[moc-ops]]

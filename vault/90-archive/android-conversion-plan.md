@@ -142,3 +142,8 @@ ordering, reconciliation protection) gets a dedicated unit suite; a small
 Compose-UI / critical-flow E2E lane (sign-in, paywall, capture→grade→draft)
 runs on an emulator in CI. Billing is exercised with Play Billing's test SKUs
 and a fake `BillingClient` in unit tests.
+
+## Related
+
+- [[archive-semantics]] — why this is archived
+- [[INDEX]]

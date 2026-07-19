@@ -48,3 +48,9 @@ decide whether to comp the difference or pursue recovery. The ledger note on the
 - On **won**: clear the `payment_disputed` flag; entitlement is unchanged.
 - On **lost**: treat like a refund — withhold the certificate (clear
   `certificate_id`) and set `refunded_at` if not already set.
+
+## Related
+
+- [[pricing]] — the amounts a refund reverses
+- [[incident-response]] — a billing incident starts here
+- [[moc-ops]]

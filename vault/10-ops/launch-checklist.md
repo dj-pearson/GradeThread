@@ -1,5 +1,6 @@
 ---
 title: Launch checklist
+aliases: [LAUNCH_CHECKLIST, launch gate]
 type: runbook
 status: current
 source_of_truth: vault
@@ -288,3 +289,10 @@ offsite dump on a scratch host. Record the result here so the drill has a home.
 - ☐ All blockers in `prd.json` (US-772…US-785) marked `passes:true`
 
 **Launch approved by:** ________________  **Date:** ____________
+
+## Related
+
+- [[deploy]] — the order this gate assumes
+- [[backups]] — the restore drill this requires
+- [[uptime-monitoring]] — the checks that must be live at launch
+- [[moc-ops]]

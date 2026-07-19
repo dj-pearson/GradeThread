@@ -1,5 +1,6 @@
 ---
 title: Production deploy order
+aliases: [DEPLOY, deploy order, release]
 type: runbook
 status: current
 source_of_truth: vault

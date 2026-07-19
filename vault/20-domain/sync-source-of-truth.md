@@ -1,5 +1,6 @@
 ---
 title: Sync source-of-truth contract
+aliases: [SYNC_SOURCE_OF_TRUTH, provenance]
 type: contract
 status: current
 source_of_truth: code

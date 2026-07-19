@@ -125,3 +125,9 @@ E2E_BASE_URL=https://staging.gradethread.com npx playwright test e2e/smoke.spec.
 (During the pre-production sprint the team works directly on `main`; restore
 the branch-and-promote flow before launch — see the CLAUDE.md workflow
 override. The smoke workflow's `workflow_dispatch` trigger works either way.)
+
+## Related
+
+- [[deploy]] — staging mirrors the prod deploy order
+- [[launch-checklist]] — the gate staging exists to rehearse
+- [[moc-ops]]

@@ -1,5 +1,6 @@
 ---
 title: Key and secret rotation
+aliases: [KEY_ROTATION, secret rotation, rotate secrets]
 type: runbook
 status: current
 source_of_truth: vault
@@ -51,7 +52,7 @@ rotate: support a primary + previous key, decrypt-with-old / re-encrypt-with-new
 on next token use (the refresh path already rewrites the ciphertext), then drop
 the old key after all active connections have refreshed (≤ token TTL).
 
-> **MANUAL:** implement the dual-key read path in `crypto-aes.ts` before the
+> [!todo] **MANUAL:** implement the dual-key read path in `crypto-aes.ts` before the
 > first EDGE_ENCRYPTION_KEY rotation, or schedule rotation during a maintenance
 > window and force-reconnect eBay accounts.
 
@@ -75,7 +76,7 @@ in staging first.
 - Branch protection (once re-enabled post-sprint) must require the secret-scan +
   security jobs as status checks.
 
-> **MANUAL:** review the repo's GitHub → Settings → Secrets list against this
+> [!todo] **MANUAL:** review the repo's GitHub → Settings → Secrets list against this
 > table quarterly; remove any unused secret.
 
 ## Ads Command Center — Google Ads & Apple Search Ads (US-1709)

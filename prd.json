@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2095",
+  "nextId": "US-2114",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2792,7 +2792,7 @@
     },
     {
       "id": "US-2091",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2057"
       ],
@@ -2808,7 +2808,12 @@
         "Convert the 47 hand-written Related sections to a generated or Dataview-backed backlinks view, OR keep them and add a lint rule that they are complete — nothing verifies one today, so they will rot silently.",
         "Validate the graph by ACTUALLY OPENING Obsidian: per-folder colour groups work, no disconnected islands, no more than a handful of hubs above ~20 links. It was configured blind in US-2042 and never checked.",
         "Record the dual-consumer decision as an ADR in vault/60-decisions, so nobody deletes vault-index.mjs as redundant once Bases exists.",
-        "vault-lint still passes, and verify:vault still catches a dangling link, an orphan, a stale index and contract drift after conversion."
+        "vault-lint still passes, and verify:vault still catches a dangling link, an orphan, a stale index and contract drift after conversion.",
+        "DONE 2026-07-19 — PURE WINS: 15 hand-rolled emphasis blocks converted to semantic callouts (todo/danger/important/info/warning), 25 total; aliases added to 22 notes (frontmatter only, invisible to agents); heading links used where a section is meant.",
+        "DONE — LIVE VIEWS: vault/00-index/live-views.md with 6 Dataview queries (contract notes, review queue, expired decisions, missing code_refs, by-area counts, archive), plugin declared in .obsidian/community-plugins.json.",
+        "DONE — DUAL-CONSUMER RULE HELD: live views ADDED, generator KEPT, recorded as vault/60-decisions/adr-0003-dual-consumer-vault.md so nobody deletes vault-index.mjs as redundant once Dataview exists. Exactly ONE transclusion added (the credit-pack table), with the grep caveat stated in-place.",
+        "GRAPH: validated STRUCTURALLY, not visually. Dead-end notes 16 -> 0 (16 notes had zero outbound links, so \"follow 2 hops\" terminated immediately); hubs above 20 links remain just 2 (INDEX, moc-ops), matching the \"a handful at most\" bar; 12 notes remain reachable only from INDEX, which is acceptable for archives and genuinely standalone notes.",
+        "NOT DONE, and it needs a human: the AC says validate by ACTUALLY OPENING Obsidian. I cannot — I run in a terminal. The 6 Dataview queries have NEVER BEEN EXECUTED and a wrong field name fails silently as an inline error, invisible to CI. A warning callout in live-views.md says so and asks the first person to open the vault to check each one. Reporting them as working would be a claim with no basis."
       ],
       "notes": "[P2][EPIC: Knowledge Vault][Obsidian] Raised by the user 2026-07-19: is this using Obsidian principles or just markdown in a folder? Audit says the latter. USER CHOSE FULL NATIVE over the recommended middle path. Disagreement recorded rather than buried: Dataview/Bases and embeds are inert to agent retrieval, and cheaper agent retrieval was this epic premise, so the direction trades against the original goal. Mitigated by the dual-consumer rule above (live views ADDED, generator KEPT) rather than by refusing. Sequenced after Phase 3 so 60+ notes convert once against a complete set. | ID COLLISION 2026-07-19: filed as US-2087, but a concurrent agent independently claimed US-2087 for a shipped newsletter-cron fix (commit 4e181962). Renumbered THIS story to US-2091 rather than theirs, because theirs is referenced by a commit for code that actually shipped and mine was unstarted. The earlier docs commit 546c6723 therefore names US-2087 while this story is US-2091.",
       "relevantPaths": [
@@ -3168,6 +3173,274 @@
         "ebay-flips-prd.md",
         "LOOP_HANDOFF.md"
       ]
+    },
+    {
+      "id": "US-2095",
+      "priority": 1993,
+      "passes": false,
+      "title": "GSC/Bing verification + Page-indexing diagnosis — the gate for all content work",
+      "description": "Nothing about which pages to add, trim or consolidate can be decided until we can see what Google is actually indexing. VITE_GOOGLE_SITE_VERIFICATION, VITE_BING_SITE_VERIFICATION and INDEXNOW_KEY are all unset, so we have no Search Console data at all. ~79% of 213 registered URLs are templated, on a domain with little authority — the classic 'Discovered/Crawled - currently not indexed' profile. This story is the prerequisite for US-2096 and US-2113.",
+      "acceptanceCriteria": [
+        "Set VITE_GOOGLE_SITE_VERIFICATION and VITE_BING_SITE_VERIFICATION; verify both properties.",
+        "Read the GSC Page-indexing report and record, per URL cluster (marketing / grading pSEO / glossary / flaws / garment-guides / certs / blog), how many URLs are Indexed vs Discovered-not-indexed vs Crawled-not-indexed vs Duplicate.",
+        "Confirm the www -> non-www redirect exists and that Cloudflare Bot Fight Mode is not challenging Googlebot.",
+        "Write the findings into vault/40-growth/seo-indexability.md, replacing its hypotheses with measured numbers, and state a keep/trim/consolidate decision per cluster.",
+        "Set INDEXNOW_KEY so future publishes can ping Bing/Yandex."
+      ],
+      "notes": "[P1][SEO/Diagnosis] USER ACTION REQUIRED (console access + DNS). This is the single highest-leverage item in the audit: seo-geo-strategy.md (grow pSEO) and seo-indexability.md (trim it) deliberately contradict each other, and that argument cannot be settled without this data. Everything templated stays parked until it lands."
+    },
+    {
+      "id": "US-2096",
+      "priority": 1993,
+      "passes": false,
+      "title": "Certificate sitemap silently caps at ~1,000 — certUrls() never follows next_cursor",
+      "description": "functions/_shared/sitemap.ts:52 declares next_cursor: string | null on CertSitemap, and certUrls() (:185-198) never reads it. The upstream /api/content/public/certificates.json defaults to limit=1000 (content-public.ts:1202), so only the most recent ~1,000 certificates (fewer after withheld filtering) ever reach /sitemap.xml or /sitemap-certs.xml. Certificates are the designated growth flywheel and the highest-volume indexable asset class we own — it stops scaling at 1k with no error and no log line.",
+      "acceptanceCriteria": [
+        "certUrls() paginates via next_cursor until exhausted or a sane hard cap is hit.",
+        "If a hard cap is hit, split across numbered sub-sitemaps rather than truncating (SITEMAP_MAX_URLS is 5000, well under the 50k spec limit).",
+        "A test asserts that a mocked multi-page cursor response yields URLs from every page.",
+        "Confirm no other *Urls() generator in sitemap.ts has the same unread-cursor bug."
+      ],
+      "notes": "[P1][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Verified directly: the field is declared at :52 and referenced nowhere. Blocked-by-nothing, contained fix. Note US-1945 (public /cert/:id 404s in production) must also be resolved or the sitemap will simply advertise 404s at scale."
+    },
+    {
+      "id": "US-2097",
+      "priority": 1993,
+      "passes": false,
+      "title": "Sitemap serves 200 OK with whole sections silently dropped on upstream failure",
+      "description": "fetchEdgeJson (functions/_shared/sitemap.ts:78-90) returns null on any error and each *Urls() generator then returns [], so a transient edge failure produces a structurally valid sitemap that is missing entire URL classes — served 200 and cached for an hour. Worse, a dropped section can push the total back under SITEMAP_MAX_URLS (sitemap.xml.ts:44-46), flipping /sitemap.xml from a sitemapindex to a truncated single urlset. functions/rss.xml.ts:24-33 was already hardened against exactly this failure mode (UpstreamUnavailable, US-2044); the sitemap never received the same treatment.",
+      "acceptanceCriteria": [
+        "Port the rss.xml.ts UpstreamUnavailable pattern: on upstream failure serve 503 + Retry-After rather than a silently-incomplete 200.",
+        "Never let an upstream failure change the sitemapindex/urlset shape decision.",
+        "Emit a log line naming the section that failed.",
+        "Test: a failing generator produces 503, not a 200 missing that section."
+      ],
+      "notes": "[P1][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Telling a crawler a URL class no longer exists is worse than a 503 — it invites deindexing."
+    },
+    {
+      "id": "US-2098",
+      "priority": 1994,
+      "passes": false,
+      "title": "Empty data reports are presented as citable findings — /state-of-durability and /transparency",
+      "description": "/state-of-durability renders a 'GradeThread, The State of Secondhand Durability... CC BY 4.0' citation block over a dataset that is empty: live /api/grading/public/durability-report returns brands 0, sufficient_cohorts 0, regrades 0, most_durable []. /transparency shows human_agreement_rate: null and an MAE of '0.00' derived from 17 reviews, which reads as fabricated-perfect rather than low-sample. The build-time seeding machinery (scripts/prerender.mjs:220-268) is excellent — there is simply nothing to seed yet. This is the only finding in the audit that can actively damage credibility rather than merely underperform.",
+      "acceptanceCriteria": [
+        "Any report page whose dataset is below a publishable threshold either noindexes itself or replaces the citation block with an explicit 'findings pending' state.",
+        "Never render a derived statistic (MAE, agreement rate) without an adjacent n= sample size.",
+        "Suppress rather than render 0.00/null headline metrics.",
+        "Define the minimum-n threshold per report in one place, mirroring the MIN_INDEX_TOTAL_SAMPLE=8 precedent already used by the condition index."
+      ],
+      "notes": "[P1][GEO/Trust] Found 2026-07-18 by the SEO/marketing deep-dive audit. The condition index already does this correctly (suppresses below n=8, never fabricates) — this story extends that discipline to the three report pages. Related: US-1691 (State of Secondhand Condition report) is the story that eventually fills these with real data."
+    },
+    {
+      "id": "US-2099",
+      "priority": 1994,
+      "passes": false,
+      "title": "/blog hub is hard-capped at 20 posts with no pagination — older posts orphaned",
+      "description": "functions/blog/[[path]].ts:141 fetches /api/content/public/posts?limit=20 and renders them wholesale. Post 21 and older have no crawl path from the hub — they are reachable only from a tag page or the sitemap. Tag pages (:505-524) are likewise unpaginated. This caps the blog's crawlable surface permanently, regardless of how much content the engine produces.",
+      "acceptanceCriteria": [
+        "Paginate /blog with crawlable <a href> links (not JS-only), e.g. /blog/page/2.",
+        "Paginate tag pages the same way.",
+        "Paginated pages self-canonical (do not canonical every page to /blog) and stay indexable.",
+        "Add paginated URLs to the sitemap.",
+        "Fix the tag-page metadata while in here: no lastmod (sitemap.ts:174-180), an off-convention em-dash title separator (:539) instead of ' | GradeThread', and a square logo_icon_512.png as ogImage on a summary_large_image card (:542), which crops badly in unfurls."
+      ],
+      "notes": "[P1][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Worth doing before the content engine is switched on (US-2104), otherwise volume accumulates into an uncrawlable tail."
+    },
+    {
+      "id": "US-2100",
+      "priority": 1996,
+      "passes": false,
+      "title": "lastmod is today() on every dynamic hub URL and every sitemap-index entry",
+      "description": "ROUTE_LAST_MODIFIED (public-routes.ts:90+) enforces an explicit 'NEVER the build timestamp' contract for static routes (US-429). Dynamic generators ignore that discipline: /blog (sitemap.ts:163), /verified (:204), /authors (:225), /condition-index (:250), /value (:276) and /durability (:299) all emit today(), as does every entry in sitemapIndexXml (:334). So every sub-sitemap claims it changed today, every day — which trains crawlers to distrust lastmod site-wide and undoes the benefit US-429 bought.",
+      "acceptanceCriteria": [
+        "Derive each hub's lastmod from the newest child item's updated_at.",
+        "Derive each sitemap-index entry's lastmod from the newest URL inside that sub-sitemap.",
+        "Blog tag URLs get a real lastmod (currently none).",
+        "A test asserts no generator emits today() unconditionally."
+      ],
+      "notes": "[P2][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Cheap, and it protects a signal we already invested in for static routes."
+    },
+    {
+      "id": "US-2101",
+      "priority": 1995,
+      "passes": false,
+      "title": "No UTM capture — organic, email, social and content are unattributable",
+      "description": "src/lib/ad-attribution.ts captures gclid/gbraid/wbraid and persists them (migration 00382), and ?ref= is captured at src/layouts/root-layout.tsx:16 — but utm_source/utm_medium/utm_campaign are never read on landing or persisted. We only ever WRITE them into outbound links: our own drip emails tag links utm_source=drip&utm_campaign=trial_conversion (00271_drip_activation_sequence.sql:71) and that data is discarded the moment the user arrives. Net effect: paid Google clicks and referrals are attributable; every other channel — including the SEO and content investment this audit is about — is not.",
+      "acceptanceCriteria": [
+        "Extend ad-attribution.ts to capture utm_source/medium/campaign/term/content alongside the existing click IDs.",
+        "Persist first-touch (and ideally last-touch) UTMs to the user row at signup, same path as gclid.",
+        "Survive the OAuth/PKCE round trip and cross-page navigation before signup.",
+        "Respect the existing consent gating — do not persist before consent, consistent with analytics.ts:143-178.",
+        "Surface channel attribution somewhere in admin so the data is actually usable."
+      ],
+      "notes": "[P1][Growth/Attribution] Found 2026-07-18 by the SEO/marketing deep-dive audit. Small patch, disproportionate payoff: without it there is no way to measure whether any of the other stories in this batch worked."
+    },
+    {
+      "id": "US-2102",
+      "priority": 1995,
+      "passes": false,
+      "title": "Dead email-preference anchor and no in-app marketing opt-out",
+      "description": "lib/unsubscribe.ts:74 links users to /dashboard/account#email-preferences — that anchor does not exist anywhere in the frontend (zero matches across src/**/*.tsx). Users who click 'manage preferences' from the one-click unsubscribe confirmation land on a page with no such section. Separately, the 'marketing' master umbrella consent key (lib/email-consent.ts:18) is not exposed in the settings UI: src/lib/notification-preferences.ts surfaces only weekly_newsletter and product_updates, so a user cannot opt out of marketing in-app at all — only via an emailed link.",
+      "acceptanceCriteria": [
+        "Build the #email-preferences section on /dashboard/account (or repoint the link at the real preference center).",
+        "Expose the 'marketing' umbrella toggle in the settings UI.",
+        "A test asserts every anchor emitted by unsubscribe/preference emails resolves to a real element."
+      ],
+      "notes": "[P1][Growth/Compliance] Found 2026-07-18 by the SEO/marketing deep-dive audit. Real compliance exposure, and it becomes material the moment lifecycle email is switched on. The underlying consent infrastructure (RFC 8058 one-click, HMAC-gated no-login preference center, SES SNS auto-suppression) is already excellent — this is purely the missing UI surface."
+    },
+    {
+      "id": "US-2103",
+      "priority": 1996,
+      "passes": false,
+      "title": "Organization.sameAs is effectively empty — no brand profiles to resolve against",
+      "description": "src/lib/seo/social.ts:46 hardcodes exactly one live sameAs URL: https://github.com/dj-pearson/GradeThread — a code repo, not a brand profile. VITE_SOCIAL_X / LINKEDIN / INSTAGRAM / CRUNCHBASE / YOUTUBE / WIKIDATA are all blank in .env.example and absent from .env.production, and twitter:site is empty. For entity resolution — and for an AI answer engine deciding whether GradeThread is a real, citable organization — this is the weakest signal on the site. The code is correct (it emits nothing rather than placeholders, per Google policy); the profiles simply do not exist.",
+      "acceptanceCriteria": [
+        "Create the brand profiles that are actually going to be maintained (do not create dormant ones).",
+        "Set the corresponding VITE_SOCIAL_* vars in .env.production; confirm they appear in Organization.sameAs.",
+        "Set twitter:site.",
+        "Fix marketing-jsonld.ts, which emits Organization/WebSite as inline literal objects rather than @id refs to ORG_ID, so those nodes do not merge into the entity graph.",
+        "Link certificate Product nodes back to the Organization @id (currently orphans relative to the brand graph)."
+      ],
+      "notes": "[P2][GEO/Entity] Found 2026-07-18 by the SEO/marketing deep-dive audit. Mostly a business action; the code work is small. Highest-value GEO item after the empty-report fix."
+    },
+    {
+      "id": "US-2104",
+      "priority": 1996,
+      "passes": false,
+      "title": "Content engine is built and cold — 4 finished drafts unpublished, flags off, webhooks unset",
+      "description": "The content pipeline is complete and deliberately switched off. content_settings defaults auto_publish_blog=false and auto_publish_social=false (00041_content_module.sql:241-242); all four make_webhook_* URLs are NULL, so social fan-out cannot fire; CONTENT_INTERNAL_JOB_SECRET is unset; no Coolify cron is registered. Meanwhile 00378_seed_reseller_blog_and_topics.sql seeds four complete ~1,500-word articles sitting at status='draft' with no published_at, an 84-topic bank, and social_posts has never had a row. Note lib/content-social-publish.ts:222-236 POSTs to an unset webhook while routes/content-social.ts:139 marks the post 'published' regardless — the engine can report success while publishing nothing.",
+      "acceptanceCriteria": [
+        "Publish the four finished drafts (zero marginal authoring work).",
+        "Follow the documented rollout in vault/40-growth/content-scheduler.md (Safe rollout section) rather than flipping flags directly.",
+        "Fix the false-success path: do not mark a social post 'published' when the webhook is unset or the POST failed.",
+        "Set CONTENT_INTERNAL_JOB_SECRET and register the content cron.",
+        "Do not enable auto_publish_blog until the pacing decision from US-2094 is made."
+      ],
+      "notes": "[P2][Content] Found 2026-07-18 by the SEO/marketing deep-dive audit. GATED: the domain is new and pSEO volume is already an indexability risk (vault/40-growth/seo-indexability.md) — do not start until the GSC Page-indexing diagnosis (US-2095) is read. Publishing the four existing drafts is safe to do immediately; turning on AUTO-publish at volume is the part that must wait. Prereqs overlap US-1566 (crons/SES) — coordinate."
+    },
+    {
+      "id": "US-2105",
+      "priority": 1996,
+      "passes": false,
+      "title": "20 routes declare no jsonLdType and sit outside the US-2044 parity guard",
+      "description": "The US-2044 parity test (jsonld-parity.test.tsx:180-218) walks the registry and asserts each route's declared jsonLdType is actually prerendered — but it can only check routes that DECLARE one. 20 of 213 declare nothing and are therefore entirely unguarded: /for-resellers, /flipdesk, /sell-used-clothes-ebay, /condition-grading, /verified, /developers, /status, /leaderboard, /sitemap, /for-brands and the 10 legal pages. Several are commercially important and ship only Organization + a 2-level BreadcrumbList. /for-brands is explicit about it (src/lib/seo/for-brands.ts:31: 'No jsonLdType: the page passes no jsonLd'). The residual risk: adding <SEO jsonLd={...}> to any of these without also adding a jsonLdType ships SPA-only markup with CI green — the exact regression US-2044 was written to prevent, narrowed rather than eliminated.",
+      "acceptanceCriteria": [
+        "Add real page-level schema to the commercially important ones: /for-brands (Service/Offer/FAQPage), /for-resellers, /developers (APIReference/TechArticle), /verified (ItemList/CollectionPage).",
+        "Declare jsonLdType once the markup exists, so the parity test picks them up automatically.",
+        "Close the guard hole: fail CI if a route passes jsonLd in the page but declares no jsonLdType in the registry.",
+        "Add Product/Offer to /pricing — Product currently exists only on cert/passport/value SSR, not on the actual commercial page."
+      ],
+      "notes": "[P2][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Extends US-2072, which covers the same class of gap on /compare and /grading/platform-standards. Consider doing them together."
+    },
+    {
+      "id": "US-2106",
+      "priority": 1997,
+      "passes": false,
+      "title": "Ship llms-full.txt — full grading scale + glossary in one fetch",
+      "description": "functions/llms.txt.ts is high quality and registry-driven, but vault/40-growth/seo-geo-strategy.md section 6.4 also calls for an llms-full.txt carrying the full text of the scale and glossary in a single fetch, so an answer engine can ingest the whole standard without crawling 40+ pages. It was never built. The data already exists as structured constants in src/lib/seo/grading-scale.ts, glossary.ts, reseller-glossary.ts and flaw-library.ts.",
+      "acceptanceCriteria": [
+        "Serve /llms-full.txt as a Pages Function generated from the existing constants (not hand-maintained).",
+        "Include: the 1.0-10.0 scale with criteria and marketplace equivalents, the factor weights, all glossary terms, and the flaw library.",
+        "Reference it from llms.txt and robots.txt.",
+        "CI guard mirroring src/test/llms-txt.test.ts."
+      ],
+      "notes": "[P2][GEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Cheapest remaining GEO win — pure derivation from data we already own, and it adds no indexable page surface, so it is not affected by the pSEO/indexability constraint."
+    },
+    {
+      "id": "US-2107",
+      "priority": 1997,
+      "passes": false,
+      "title": "The grading standard has qualitative criteria but no measurable tolerances",
+      "description": "PSA is citable because its standard is measurable: '55/45 front, 75/25 reverse'. GradeThread's is 'noticeable pilling, light fading' — good rubric, not a citable spec. Confirmed: no tolerance or measurement language anywhere in grading-scale.ts or grade-standard.ts. Relatedly, /grading/methodology is the weakest page relative to its promise: no named base model, no eval numbers, and the confidence threshold is described only as 'below our threshold' — it is 0.75 and it is documented in CLAUDE.md.",
+      "acceptanceCriteria": [
+        "Add measurable tolerances where the factor genuinely admits them (pilling density, fade delta-E, hole/tear dimensions in mm, seam separation length, stain area).",
+        "State the 0.75 human-review confidence threshold explicitly on /grading/methodology.",
+        "State what can be said about the model and evaluation without leaking prompt IP.",
+        "Render tier data and flaw->factor->impact as real <table> elements — /condition-grading currently uses div cards, and tables are the structure most often lifted verbatim into LLM answers.",
+        "Coordinate with the grading-engine skill contract before changing any published criterion."
+      ],
+      "notes": "[P2][GEO/Authority] Found 2026-07-18 by the SEO/marketing deep-dive audit. This is the explicit PSA-playbook gap in the strategy doc's own mapping table, and it is the difference between 'a rubric' and 'the standard'. Adds no new URLs."
+    },
+    {
+      "id": "US-2108",
+      "priority": 1997,
+      "passes": false,
+      "title": "Viral-loop attribution leaks and a blank certificate OG fallback",
+      "description": "The certificate share loop is the designated organic acquisition flywheel, and it leaks at three points: buyer-to-buyer re-shares carry no ref= because the code gates on !!user (src/components/.../cert-share-actions.tsx:54), so the highest-reach shares are unattributed; the SSR cert CTA drops attribution entirely (functions/cert/[id].ts:249); and the cert OG image falls back to a transparent 1x1 PNG on edge failure (functions/og/cert/[id].ts:24), cached 300s — a blank link preview, which is worse for CTR than a branded fallback.",
+      "acceptanceCriteria": [
+        "Attach a referral/attribution parameter to every cert share path, including anonymous re-shares.",
+        "Preserve attribution through the SSR CTA.",
+        "Replace the 1x1 transparent fallback with a branded static OG image.",
+        "Mount the PWA install prompt somewhere with real install intent — it is currently only on flipdesk/intake.tsx:489 and snap.tsx:80, not the dashboard or landing."
+      ],
+      "notes": "[P2][Growth] Found 2026-07-18 by the SEO/marketing deep-dive audit. Depends on US-1945 (cert pages 404 in prod) being fixed first — the loop is dead until then."
+    },
+    {
+      "id": "US-2109",
+      "priority": 1998,
+      "passes": false,
+      "title": "No product/pricing/UI A/B testing — PostHog flags are never read client-side",
+      "description": "There is a sophisticated server-side flag engine with deterministic FNV-1a bucketing, rollout percentages and plan targeting (lib/feature-flags.ts:114-166), plus four experiment engines (lib/experiments-governor.ts:19) — but they cover email subject lines, drip timing and AI prompts only. PostHog is initialized yet only capture() is ever called (src/lib/analytics.ts:237-239); feature flags are never read, there is no client useFeatureFlag hook and no exposure event. So paywall copy, pricing presentation and onboarding cannot currently be tested. All the primitives exist — this is a connector, not a framework build.",
+      "acceptanceCriteria": [
+        "Add a client useFeatureFlag hook backed by PostHog, with an exposure event so results are analyzable.",
+        "Respect the existing consent gating — no flag evaluation before consent.",
+        "Prove it with one real experiment on a conversion surface (paywall copy or pricing layout).",
+        "Document how server-side flags and client-side experiments relate, so the two systems do not drift."
+      ],
+      "notes": "[P2][Growth/Experimentation] Found 2026-07-18 by the SEO/marketing deep-dive audit. Pairs with US-2101 (UTM capture) — together they make conversion work measurable rather than anecdotal."
+    },
+    {
+      "id": "US-2110",
+      "priority": 1999,
+      "passes": false,
+      "title": "/passport/:slug is SSR'd with full JSON-LD but has no sitemap generator",
+      "description": "functions/passport/[slug].ts SSRs passport pages with complete Product JSON-LD (json-ld.ts:699), and src/pages/passport.tsx passes jsonLd — but there is no passportUrls() in functions/_shared/sitemap.ts, unlike certs, sellers, authors, value and durability which all have one. The pages are discoverable only via inbound links. Note these sit outside the static-route CI guard, which skips any path containing ':' (public-routes.test.ts:42), so nothing flags the omission.",
+      "acceptanceCriteria": [
+        "Add passportUrls() following the certUrls pattern (with cursor pagination done correctly per US-2096).",
+        "Wire it into the sitemap index.",
+        "Confirm the pages should be indexed at all — if they are user-owned surfaces like /trust/:handle, noindex them deliberately instead and document why."
+      ],
+      "notes": "[P3][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Decide indexability first; do not add URLs by default given the indexability constraint."
+    },
+    {
+      "id": "US-2111",
+      "priority": 1999,
+      "passes": false,
+      "title": "Image sitemap covers 8 of 213 routes via a hand-synced list; CF Transformations still off",
+      "description": "functions/_shared/sitemap.ts:379-441 hardcodes 8 marketing images with a 'KEEP IN SYNC with ROUTE_OG_IMAGES' comment (:378) and no CI guard — Pages Functions cannot import from src/, and unlike llms.txt (which solved the identical cross-boundary problem by consuming the build-emitted dist/seo-manifest.json) this one was left manual. Separately, VITE_CF_IMAGE_RESIZING=false in .env.production (verified, :39) gates the entire srcset in responsive-image.tsx:32-33, so production ships full-size originals with no srcset/sizes on every public image.",
+      "acceptanceCriteria": [
+        "Generate MARKETING_IMAGES from dist/seo-manifest.json, mirroring the llms.txt approach, or add a CI guard on the sync.",
+        "Enable Cloudflare Transformations on the zone, then flip VITE_CF_IMAGE_RESIZING — in that order.",
+        "Do not flip the flag first: responsive-image.tsx:27-31 documents that a failed srcset candidate does not fall back to src, so enabling it before the zone feature renders every image broken."
+      ],
+      "notes": "[P3][SEO/Perf] Found 2026-07-18 by the SEO/marketing deep-dive audit. width/height are already emitted so CLS is protected; the unrealized win is bytes/LCP. Blocked on a Cloudflare dashboard toggle, not code."
+    },
+    {
+      "id": "US-2112",
+      "priority": 1999,
+      "passes": false,
+      "title": "Entry bundle at 61.91/64 KB gz with structural upward pressure from the route table",
+      "description": "scripts/check-bundle-budget.mjs:51-52 enforces entry <=64 KB gz and eager graph <=215 KB gz. The header comments document steady growth — 48.2 -> 54.6 -> 57.0 -> 61.91 KB over roughly three weeks — attributed each time to route-table growth in src/routes/index.tsx. With ~2 KB of headroom and a ~250-route eager route table as the cause, this budget will be breached shortly, and the usual fix (raise the ceiling) trades away LCP on the marketing pages this whole audit is about.",
+      "acceptanceCriteria": [
+        "Lazy-load or code-split the route table so adding a route does not grow the entry chunk linearly.",
+        "Re-measure and record the new baseline.",
+        "Do not simply raise the budget ceiling without a stated reason."
+      ],
+      "notes": "[P3][Perf/CWV] Found 2026-07-18 by the SEO/marketing deep-dive audit. Filed now because the cause is structural rather than incidental — it will fail on an unrelated PR and get raised reflexively under time pressure."
+    },
+    {
+      "id": "US-2113",
+      "priority": 1998,
+      "passes": false,
+      "title": "Comparison cluster: one page built against the highest-volume keywords we have",
+      "description": "src/lib/seo/comparison-guides.ts is 372 lines of template serving exactly one page (mercari-vs-ebay), while the strategy doc's own keyword research shows 'depop vs poshmark' at 3,600/mo and 'poshmark vs mercari' at 1,600/mo — the highest-volume, best-fit terms in the entire corpus. Phase 2 of the roadmap flagged 'remaining comparisons' and it never landed. Distinct from templated pSEO: this is a small number of genuinely-researched editorial pages against real demand, not a page farm.",
+      "acceptanceCriteria": [
+        "Build 3-5 comparison pages against the researched high-volume terms, hand-quality — real fee tables, real audience differences, a real recommendation.",
+        "Each must earn its URL independently; if the content would be template-filled, do not ship it.",
+        "Wire into the interlink rules (interlink-rules.ts) so they are not orphaned, and add to APPROVED_ANCHORS.",
+        "Emit real CollectionPage/ItemList on the /compare hub (overlaps US-2072)."
+      ],
+      "notes": "[P2][SEO/Content] Found 2026-07-18 by the SEO/marketing deep-dive audit. GATED: the domain is new and pSEO volume is already an indexability risk (vault/40-growth/seo-indexability.md) — do not start until the GSC Page-indexing diagnosis (US-2095) is read. Sequenced deliberately AFTER the diagnosis: it is the strongest keyword opportunity in the corpus, but adding pages to a new domain with an unresolved indexing problem may simply dilute further. If the diagnosis says the domain is crawl-constrained, consolidate before expanding."
     }
   ]
 }

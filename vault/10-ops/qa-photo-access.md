@@ -70,3 +70,9 @@ photo's.
 **Reviewer obligations.** Reviewers are staff/contractors bound by
 confidentiality. No screenshots, downloads, or sharing of customer photos;
 grade what you see, record a score, move on.
+
+## Related
+
+- [[data-retention]] — submission images are retained data
+- [[garment-passport-privacy]] — what may be exposed publicly
+- [[moc-ops]]

@@ -133,3 +133,9 @@ actionable message instead of GoTrue's raw string. Used by every MFA verify site
 This makes the transient case self-heal and degrades gracefully, but the
 **proxy-side /64 normalization above is the guaranteed fix** — a client whose
 network alternates IPs on every connection can still exhaust the retries.
+
+## Related
+
+- [[mfa]] — the admin MFA runbook this is a failure mode of
+- [[dns-and-routing]] — the Kong layer where XFF is normalised
+- [[moc-ops]]

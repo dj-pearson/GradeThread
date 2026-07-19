@@ -1,5 +1,6 @@
 ---
 title: Operator tables and the rls-guard discovery rule
+aliases: [SERVICE_ROLE_ONLY, rls-guard, operator tables]
 type: contract
 status: current
 source_of_truth: code

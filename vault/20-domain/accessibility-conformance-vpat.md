@@ -1,5 +1,6 @@
 ---
 title: Accessibility conformance report (VPAT 2.5)
+aliases: [VPAT, WCAG, Section 508]
 type: contract
 status: current
 source_of_truth: code
@@ -275,3 +276,9 @@ Tables 1 and 2 document conformance with WCAG 2.1 Level A and Level AA. The Sect
 ## Legal Disclaimer
 
 This document is provided for information purposes only and the contents are subject to change without notice. Pearson Media LLC makes no representations or warranties with respect to the accuracy or completeness of the contents and assumes no responsibility for errors or omissions. Conformance claims reflect good-faith evaluation as of the report date and are maintained alongside the product's ongoing accessibility program (see `/accessibility`, `docs/ACCESSIBILITY_CONTRAST.md`, and the automated test suites referenced above).
+
+## Related
+
+- [[seo-public-route-registry]] — the routes this conformance covers
+- [[archive-semantics]] — why this is NOT archived despite its age
+- [[INDEX]]

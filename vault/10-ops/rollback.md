@@ -1,5 +1,6 @@
 ---
 title: Production rollback
+aliases: [ROLLBACK]
 type: runbook
 status: current
 source_of_truth: vault
@@ -38,7 +39,7 @@ redeployed deterministically.
 3. Verify: `curl https://functions.gradethread.com/health` shows the expected
    `release` SHA and `errorTracking: "enabled"`; `/health/ready` returns 200.
 
-> **MANUAL:** in Coolify, set the build arg `GIT_SHA=$SOURCE_COMMIT` (Coolify
+> [!todo] **MANUAL:** in Coolify, set the build arg `GIT_SHA=$SOURCE_COMMIT` (Coolify
 > exposes the commit as an env/arg) so each image is stamped, and enable image
 > retention (keep ≥ 5 prior tags) so a prior image can be redeployed without a
 > rebuild.
@@ -60,7 +61,7 @@ prefer PITR to a timestamp just before the bad change.
 
 ## Validation
 
-> **MANUAL / LAUNCH-BLOCKER:** validate the edge rollback once in staging
+> [!todo] **MANUAL / LAUNCH-BLOCKER:** validate the edge rollback once in staging
 > (deploy A, deploy B, roll back to A, confirm `/health` shows A's SHA).
 
 ## Related

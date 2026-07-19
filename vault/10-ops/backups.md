@@ -1,5 +1,6 @@
 ---
 title: Backups and restore drills
+aliases: [BACKUPS, restore drill]
 type: runbook
 status: current
 source_of_truth: vault
@@ -74,7 +75,7 @@ endpoint).
 This is the "backup rotation policy" referenced by `vault/10-ops/data-retention.md`:
 data deleted under GDPR/CCPA ages out of all backups within **30 days**.
 
-> **MANUAL (one-time):** create the two R2 lifecycle rules (30-day expiry on
+> [!todo] **MANUAL (one-time):** create the two R2 lifecycle rules (30-day expiry on
 > `pg/` and `storage-deleted/`) when creating the bucket, and tick the
 > "backups confirmed running" box in `vault/10-ops/launch-checklist.md` §5 after the first
 > cron-produced dump lands offsite.
@@ -97,7 +98,7 @@ host, shipping to the same R2 bucket:
    `restore_command = 'wal-g wal-fetch %f %p'` — this is the "undo a bad
    migration" path; the nightly dump is the "volume is gone" path.
 
-> **MANUAL:** wal-g setup happens on the prod host; record the chosen
+> [!todo] **MANUAL:** wal-g setup happens on the prod host; record the chosen
 > `WALG_S3_PREFIX` and the base-backup cron line here once configured. Until
 > then the stated RPO is the 24h nightly-dump figure.
 
@@ -139,6 +140,13 @@ bash scripts/ops/restore-drill.sh        # PASS/FAIL + timings
 | 2026-06-12 | Full pg dump (schema at migration 00151 + seeded auth user/submission/grade_report/inventory_item/storage.object rows) → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container via `restore-drill.sh` | PASS — latest migration, all row counts, and all 270 RLS policies matched source | dump 1s, restore 11s | Ralph (US-494) |
 | _before launch_ | A real **prod** offsite dump → scratch host (LAUNCH_CHECKLIST §5) | | | |
 
-> **LAUNCH GATE:** the local drill proves the *procedure*; §5 of
+> [!danger] **LAUNCH GATE:** the local drill proves the *procedure*; §5 of
 > `vault/10-ops/launch-checklist.md` still requires one drill against a real prod offsite
 > dump before launch. A backup that has never been restored is not a backup.
+
+## Related
+
+- [[deploy]] — take a backup before any forward-only migration
+- [[rollback]] — migrations are forward-only, so DB rollback means restore
+- [[data-retention]] — what a backup may legally still contain
+- [[moc-ops]]

@@ -1,5 +1,6 @@
 ---
 title: The decoder bar — three tests, all required
+aliases: [decoder bar, decoder]
 type: contract
 status: current
 source_of_truth: vault

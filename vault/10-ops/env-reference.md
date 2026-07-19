@@ -1,5 +1,6 @@
 ---
 title: Environment variable reference (master index)
+aliases: [ENVIRONMENT, ENV_REFERENCE, environment variables, env vars]
 type: contract
 status: current
 source_of_truth: code

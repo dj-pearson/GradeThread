@@ -110,3 +110,8 @@ above live above the unit layer. Recommended, in priority order:
 - [x] iOS UITest launch smoke + non-required CI job (`ios-smoke.yml`).
 - [ ] Auth'd seam-flow UITests — needs a seeded test account or mock network layer.
 - [ ] Inline per-field editing of existing saved comps (currently delete + re-add).
+
+## Related
+
+- [[archive-semantics]] — why this is archived, and what was extracted first
+- [[INDEX]]

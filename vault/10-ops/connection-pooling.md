@@ -1,5 +1,6 @@
 ---
 title: Connection pooling (Supavisor)
+aliases: [CONNECTION_POOLING, Supavisor, pgbouncer]
 type: runbook
 status: current
 source_of_truth: vault
@@ -10,7 +11,7 @@ summary: Pool modes, limits, and which clients must use which port.
 ---
 # Connection Pooling — Supavisor in front of self-hosted Postgres (US-570)
 
-> **Why:** the edge service and the self-hosted Supabase internal services each
+> [!info] **Why:** the edge service and the self-hosted Supabase internal services each
 > hold Postgres connections. As we add edge replicas (US-501) and direct-PG
 > consumers (backups, migrations, scheduled jobs), uncontrolled connection growth
 > can exhaust Postgres `max_connections` and take the whole platform down. A
@@ -218,3 +219,10 @@ check that the pooled consumers point at `6543`, not `5432`.
 
 See also: `vault/10-ops/scaling.md` (replicas, US-501), `vault/10-ops/backups.md` (direct-PG backups),
 `vault/10-ops/deploy.md` (migration deploy path).
+
+## Related
+
+- [[capacity]] — connections are a capacity ceiling
+- [[edge-runtime-invariants]] — N replicas multiply pool demand
+- [[env-reference]] — the Supavisor variables
+- [[moc-ops]]

@@ -275,3 +275,9 @@ These are the P1s whose blast radius is money, fraud, PII exposure, or permanent
 
 - Every finding cites `file:line` with quoted evidence; the Critical items and all P1s were independently re-verified against source. Items marked *medium/low confidence* (the iOS `signOut()` ordering, the `TagTextRecognizer` double-resume) depend on third-party SDK/framework behavior and are flagged with the specific check to run.
 - Several findings note the codebase's *own* correct pattern to copy from (e.g. `use-consignors.ts` for user-keyed query keys, the Stripe route's dead-letter policy for the App Store webhook, `PhotoCompressor.compressBatch` for the Share Extension) — fixes should mirror those rather than invent new machinery.
+
+## Related
+
+- [[archive-semantics]] — the extract-open-findings rule this tested
+- [[guards-that-cannot-fail]] — the defect class several findings shared
+- [[INDEX]]

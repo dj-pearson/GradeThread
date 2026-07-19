@@ -99,3 +99,9 @@ A workspace **owner** can require 2FA for members at or above a role threshold:
 | Member enforcement | `services/edge-functions/src/middleware/workspace.ts` |
 | Pure gate + threshold roles | `services/edge-functions/src/lib/workspace-roles.ts` |
 | Schema | `supabase/migrations/00141_self_serve_mfa.sql` |
+
+## Related
+
+- [[mfa-ipv6-ip-mismatch]] — the failure this runbook hits under IPv6
+- [[incident-response]] — an operator locked out is an incident
+- [[moc-ops]]

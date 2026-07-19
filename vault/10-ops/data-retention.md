@@ -1,5 +1,6 @@
 ---
 title: Data retention, purge and GDPR rights
+aliases: [DATA_RETENTION, GDPR, right to erasure]
 type: runbook
 status: current
 source_of_truth: vault

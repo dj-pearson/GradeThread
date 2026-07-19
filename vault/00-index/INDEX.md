@@ -76,6 +76,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 - [[adr-0001-knowledge-vault]] — decision — Consolidate 203 scattered markdown files into one navigable wiki; retrieve by link traversal rather than embeddings.
 - [[adr-0002-shipped-runbook-copies]] — decision — The in-app runbooks and rotation registry stay hand-written with a staleness guard, because generating them would either flood the UI or require an excerpt field that is a second copy anyway.
+- [[adr-0003-dual-consumer-vault]] — decision — Live Dataview queries serve humans, the generated INDEX serves agents; both are kept because each is inert to the other's reader.
 - [[adr-comps-pseo]] — decision — Whether to build programmatic comp pages, and why the answer turned on indexation risk.
 - [[adr-depop-partner-application]] — decision — The Depop API partnership application, what it requires and what it unlocks.
 - [[adr-graphify-pilot]] — decision — The Graphify pilot, its scope and the criteria for continuing or stopping.
@@ -102,6 +103,13 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[security-audit-2026-06]] — reference — Self-reports all findings and follow-ups addressed, no open items.
 
 <!-- vault-index:end -->
+
+## For humans in Obsidian
+
+- [[live-views]] — Dataview queries that compute themselves: contract notes,
+  the review queue, expired decisions. **Agents cannot run these** — they read
+  the list below instead. Both come from the same frontmatter
+  ([[adr-0003-dual-consumer-vault]]).
 
 ## Evidence
 

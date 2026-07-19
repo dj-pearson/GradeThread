@@ -172,3 +172,9 @@ would break embedding). Unit-tested in `src/test/ssr-csp.test.ts`.
 ## Status
 
 All audit findings and follow-ups are now addressed. No open items.
+
+## Related
+
+- [[archive-semantics]] — why this archived clean
+- [[key-rotation]] — the rotation posture it reviewed
+- [[INDEX]]

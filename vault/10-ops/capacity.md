@@ -1,5 +1,6 @@
 ---
 title: Capacity and edge memory profile
+aliases: [CAPACITY, scale-out]
 type: runbook
 status: current
 source_of_truth: vault
@@ -105,7 +106,7 @@ node scripts/ops/loadtest-grading.mjs \
 Sample-only mode (point real/replayed traffic at the host separately and just
 watch memory): omit `TARGET_URL`.
 
-> **MANUAL (pre-launch gate):** run this against staging at the launch-target
+> [!todo] **MANUAL (pre-launch gate):** run this against staging at the launch-target
 > concurrency for both the grade and autolister paths and record the peak RSS %
 > here. The PASS (peak < 80%, no OOM) is the AC-4 sign-off.
 
@@ -125,3 +126,10 @@ single-container limit, because replicas also remove the single point of failure
 (US-501). The pooler (US-570) already absorbs the extra Postgres connections
 replicas bring. `GRADING_MAX_CONCURRENT_PIPELINES` is the per-replica memory
 lever; the replica count is the throughput lever.
+
+## Related
+
+- [[scaling]] — what to turn up when this says you are out of headroom
+- [[edge-runtime-invariants]] — why replica count constrains caching
+- [[connection-pooling]] — the other resource that runs out first
+- [[moc-ops]]

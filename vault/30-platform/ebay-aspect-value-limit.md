@@ -1,5 +1,6 @@
 ---
 title: eBay 65-character aspect-value limit
+aliases: [25002, aspect too long, 65 char]
 type: contract
 status: current
 source_of_truth: code

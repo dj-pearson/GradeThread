@@ -1,5 +1,6 @@
 ---
 title: SEO — the public route registry and its wiring points
+aliases: [PUBLIC_ROUTES, add a public page]
 type: contract
 status: current
 source_of_truth: code

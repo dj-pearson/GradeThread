@@ -1,5 +1,6 @@
 ---
 title: eBay condition mapping and the policy endpoint
+aliases: [25021, condition mapping, LIKE_NEW]
 type: contract
 status: current
 source_of_truth: code
