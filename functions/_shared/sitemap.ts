@@ -259,6 +259,20 @@ export async function blogUrls(env: PagesEnv): Promise<SitemapUrl[]> {
         priority: 0.8,
       });
     }
+    // US-2099 AC4: the paginated hub pages. Without these, /blog/page/2+ exists
+    // and is crawlable from the hub but is not advertised — and the whole point
+    // of the pagination is that older posts become discoverable.
+    const BLOG_PAGE_SIZE = 20;
+    const pages = Math.ceil((data.posts?.length ?? 0) / BLOG_PAGE_SIZE);
+    for (let n = 2; n <= pages; n++) {
+      urls.push({
+        loc: `${base}/blog/page/${n}`,
+        lastmod: newestLastmod(urls.slice(1)),
+        changefreq: "weekly",
+        priority: 0.5,
+      });
+    }
+
     // US-2100 AC3: tag URLs carried NO lastmod at all. The payload gives tags
     // as a flat string[] with no post mapping, so a per-tag date is not
     // derivable here — the newest published post is the honest upper bound: a

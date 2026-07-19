@@ -3241,7 +3241,7 @@
     {
       "id": "US-2099",
       "priority": 1994,
-      "passes": false,
+      "passes": true,
       "title": "/blog hub is hard-capped at 20 posts with no pagination — older posts orphaned",
       "description": "functions/blog/[[path]].ts:141 fetches /api/content/public/posts?limit=20 and renders them wholesale. Post 21 and older have no crawl path from the hub — they are reachable only from a tag page or the sitemap. Tag pages (:505-524) are likewise unpaginated. This caps the blog's crawlable surface permanently, regardless of how much content the engine produces.",
       "acceptanceCriteria": [
@@ -3251,7 +3251,7 @@
         "Add paginated URLs to the sitemap.",
         "Fix the tag-page metadata while in here: no lastmod (sitemap.ts:174-180), an off-convention em-dash title separator (:539) instead of ' | GradeThread', and a square logo_icon_512.png as ogImage on a summary_large_image card (:542), which crops badly in unfurls."
       ],
-      "notes": "[P1][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Worth doing before the content engine is switched on (US-2104), otherwise volume accumulates into an uncrawlable tail."
+      "notes": "[P1][SEO] Found 2026-07-18 by the SEO/marketing deep-dive audit. Worth doing before the content engine is switched on (US-2104), otherwise volume accumulates into an uncrawlable tail. [2026-07-19 DONE — all 5 ACs] Needed a new capability first: /posts was CURSOR-only, and a cursor cannot address a page — /blog/page/3 must resolve without replaying pages 1-2. Added optional offset (via .range) plus a total count, with CURSOR WINNING when both are supplied so existing API consumers are untouched; the count is only computed on the offset path. AC1/AC2: /blog/page/N and /blog/tag/<t>/page/N render with real <a rel=prev/next href> links — JS-only pagination is invisible to the crawlers this exists for. Tag pages slice the full set the tag endpoint already returns, so no extra round trip. AC3: every page self-canonicals; canonicalising page N to /blog would tell engines pages 2+ are duplicates and drop the exact posts the pagination exposes. /blog/page/1 301s to /blog so the two are never duplicate URLs, and a page past the end 404s rather than indexing an empty listing. AC4: paginated hub URLs enter the sitemap. AC5: tag lastmod was ALREADY fixed by my US-2100 work. Title separator corrected from an em-dash to the site-wide | GradeThread. ⚠ MY TEST FOUND TWO INSTANCES THE AC DID NOT NAME: the blog HUB and the post-page hero FALLBACK also used the square logo_icon_512.png as ogImage on summary_large_image cards — same defect as the tag page, fixed together. ⚠ AND THEN THE SAME TEST WAS TOO BROAD: logo_icon_512.png is still CORRECT as Organization.logo in the JSON-LD, where schema.org wants a square mark. A blanket file-level assertion would have pushed me to break valid markup, so it is now scoped to ogImage lines only. Sixth prose-matching guard failure this session — the AC5 assertions initially matched my own comments documenting the OLD values. Comment-stripping is now applied in the test with a note explaining why."
     },
     {
       "id": "US-2100",

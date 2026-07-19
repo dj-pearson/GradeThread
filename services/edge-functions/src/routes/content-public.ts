@@ -391,12 +391,26 @@ contentPublicRoutes.get("/posts", async (c) => {
   const cursor = c.req.query("cursor");
   const productFocus = c.req.query("product_focus");
 
+  // US-2099: OFFSET paging alongside the cursor.
+  //
+  // The cursor is right for API consumers walking the whole list, but it cannot
+  // address a page: /blog/page/3 has to be a stable, crawlable URL that resolves
+  // without replaying pages 1 and 2. The blog hub was therefore hard-capped at
+  // the first 20 posts, and post 21 had NO crawl path from the hub at all.
+  //
+  // Cursor still wins when both are supplied — it is the more precise mechanism
+  // and existing callers must not change behaviour.
+  const rawOffset = Number(c.req.query("offset") ?? 0);
+  const offset =
+    Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+  const useOffset = !cursor && offset > 0;
+
   let q = supabaseAdmin
     .from("blog_posts")
     .select(LIST_COLUMNS)
     .eq("status", "published")
-    .order("published_at", { ascending: false })
-    .limit(limit);
+    .order("published_at", { ascending: false });
+  q = useOffset ? q.range(offset, offset + limit - 1) : q.limit(limit);
   if (cursor) q = q.lt("published_at", cursor);
   if (productFocus) q = q.eq("product_focus", productFocus);
 
@@ -406,7 +420,22 @@ contentPublicRoutes.get("/posts", async (c) => {
   const rows = (data ?? []) as unknown as BlogListRow[];
   const nextCursor =
     rows.length === limit ? rows[rows.length - 1]?.published_at : null;
-  return c.json({ posts: rows, next_cursor: nextCursor });
+
+  // The TOTAL is what lets the hub render a finite, crawlable "page N of M"
+  // trail instead of guessing. Only computed when paging by offset, so the
+  // common cursor path pays nothing for it.
+  let total: number | null = null;
+  if (useOffset || offset === 0) {
+    let cq = supabaseAdmin
+      .from("blog_posts")
+      .select("id", { head: true, count: "exact" })
+      .eq("status", "published");
+    if (productFocus) cq = cq.eq("product_focus", productFocus);
+    const { count } = await cq;
+    total = typeof count === "number" ? count : null;
+  }
+
+  return c.json({ posts: rows, next_cursor: nextCursor, total });
 });
 
 // ── GET /posts/:slug ──────────────────────────────────────

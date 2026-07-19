@@ -52,6 +52,8 @@ import { buildPostMarkdown } from "../_shared/html-to-markdown";
 interface IndexResponse {
   posts: PublicPostListItem[];
   next_cursor: string | null;
+  /** US-2099: total published posts, so the hub can render a finite page trail. */
+  total?: number | null;
 }
 
 interface PostResponse {
@@ -77,10 +79,28 @@ async function routeBlog(context: Ctx): Promise<Response> {
   const segments = path === "/blog" ? [] : path.replace(/^\/blog\//, "").split("/");
 
   if (segments.length === 0) {
-    return renderIndex(env);
+    return renderIndex(env, 1);
+  }
+  // US-2099: crawlable pagination. /blog/page/N and /blog/tag/<t>/page/N are
+  // real URLs with real <a href> links, so post 21 and older finally have a
+  // crawl path from the hub instead of existing only in the sitemap.
+  if (segments.length === 2 && segments[0] === "page") {
+    const n = Number(segments[1]);
+    if (!Number.isInteger(n) || n < 1) return notFoundResponse(env);
+    // Page 1 lives at /blog — redirect so the two are never duplicate URLs.
+    if (n === 1) return Response.redirect(`${siteUrl(env)}/blog`, 301);
+    return renderIndex(env, n);
+  }
+  if (segments.length === 4 && segments[0] === "tag" && segments[2] === "page") {
+    const n = Number(segments[3]);
+    if (!Number.isInteger(n) || n < 1) return notFoundResponse(env);
+    if (n === 1) {
+      return Response.redirect(`${siteUrl(env)}/blog/tag/${segments[1]}`, 301);
+    }
+    return renderTag(env, segments[1] ?? "", n);
   }
   if (segments.length === 2 && segments[0] === "tag") {
-    return renderTag(env, segments[1] ?? "");
+    return renderTag(env, segments[1] ?? "", 1);
   }
   if (segments.length === 2 && segments[0] === "preview") {
     return renderPreview(env, segments[1] ?? "");
@@ -133,12 +153,42 @@ async function renderPostMarkdown(env: PagesEnv, slug: string): Promise<Response
   });
 }
 
-async function renderIndex(env: PagesEnv): Promise<Response> {
+/** US-2099: posts per page on the hub and tag pages. */
+const BLOG_PAGE_SIZE = 20;
+
+/**
+ * US-2099: crawlable prev/next links.
+ *
+ * Plain <a href> on purpose — JS-only pagination is invisible to the crawlers
+ * this exists for. rel="prev"/"next" additionally tells an engine the pages are
+ * one ordered series rather than near-duplicates.
+ */
+function paginationNav(basePath: string, page: number, totalPages: number): string {
+  if (totalPages <= 1) return "";
+  const href = (n: number) => (n === 1 ? basePath : `${basePath}/page/${n}`);
+  const parts: string[] = [];
+  if (page > 1) {
+    parts.push(`<a rel="prev" href="${escape(href(page - 1))}">← Newer posts</a>`);
+  }
+  parts.push(`<span>Page ${page} of ${totalPages}</span>`);
+  if (page < totalPages) {
+    parts.push(`<a rel="next" href="${escape(href(page + 1))}">Older posts →</a>`);
+  }
+  return `<nav class="pagination" style="display:flex;gap:16px;align-items:center;justify-content:center;margin-top:32px">${parts.join(
+    "",
+  )}</nav>`;
+}
+
+async function renderIndex(env: PagesEnv, page = 1): Promise<Response> {
+  const offset = (page - 1) * BLOG_PAGE_SIZE;
   // US-2044: a 404 is a REMOVAL signal. Only serve one when the upstream
   // actually said the record is absent — never because we could not reach it.
   let data: IndexResponse | null;
   try {
-    data = await fetchJson<IndexResponse>(env, "/api/content/public/posts?limit=20");
+    data = await fetchJson<IndexResponse>(
+      env,
+      `/api/content/public/posts?limit=${BLOG_PAGE_SIZE}&offset=${offset}`,
+    );
   } catch (e) {
     if (e instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
     throw e;
@@ -150,8 +200,17 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
     });
   }
 
-  const canonical = `${siteUrl(env)}/blog`;
   const posts = data.posts ?? [];
+  const total = typeof data.total === "number" ? data.total : posts.length;
+  const totalPages = Math.max(1, Math.ceil(total / BLOG_PAGE_SIZE));
+  // US-2099 AC3: page N canonicals to ITSELF. Canonicalising every page to
+  // /blog would tell engines pages 2+ are duplicates of page 1 and drop the
+  // very posts this pagination exists to expose.
+  const canonical =
+    page === 1 ? `${siteUrl(env)}/blog` : `${siteUrl(env)}/blog/page/${page}`;
+  // A page past the end has no content and should not be indexed as an empty
+  // listing.
+  if (page > totalPages && page > 1) return notFoundResponse(env);
   const cards = posts
     .map(
       (p) => `<a class="post-card" href="/blog/${escape(p.slug)}">
@@ -174,6 +233,7 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
   <h1>The GradeThread Blog</h1>
   <p style="color:var(--muted);margin-bottom:32px">Condition grading for resellers, FlipDesk workflows, and how to make pre-owned clothing sell faster.</p>
   ${posts.length === 0 ? "<p>No posts yet.</p>" : cards}
+  ${paginationNav("/blog", page, totalPages)}
 </main>`;
 
   const jsonLd = [
@@ -203,7 +263,10 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
       description:
         "Condition grading vocabulary, reseller workflows, and FlipDesk how-tos for clothing flippers.",
       canonicalUrl: canonical,
-      ogImage: `${siteUrl(env)}/logo_icon_512.png`,
+      // US-2099 AC5: the square logo on a summary_large_image card crops badly.
+      // AC5 named only the tag page, but the hub and the post-page fallback had
+      // the identical defect — same class, fixed together.
+      ogImage: `${siteUrl(env)}/og-image.png`,
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
       jsonLd,
@@ -353,7 +416,7 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       caption: post.hero_image_caption,
       width: post.hero_image_width,
       height: post.hero_image_height,
-    }) ?? `${siteUrl(env)}/logo_icon_512.png`;
+    }) ?? `${siteUrl(env)}/og-image.png`; // US-2099 AC5: wide card asset
 
   // US-878 GEO depth: Speakable marks the answer-first blocks for voice/AI
   // surfaces; `about` binds the post to the canonical grading terms it mentions
@@ -496,7 +559,7 @@ async function renderPreview(env: PagesEnv, token: string): Promise<Response> {
   );
 }
 
-async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
+async function renderTag(env: PagesEnv, tag: string, page = 1): Promise<Response> {
   if (!tag) return notFoundResponse(env);
   // US-2044: a 404 is a REMOVAL signal. Only serve one when the upstream
   // actually said the record is absent — never because we could not reach it.
@@ -511,8 +574,16 @@ async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
     throw e;
   }
   if (!data) return notFoundResponse(env);
-  const posts = data.posts ?? [];
-  const canonical = `${siteUrl(env)}/blog/tag/${encodeURIComponent(tag)}`;
+  const allPosts = data.posts ?? [];
+  // US-2099 AC2: tag pages were unpaginated too. The tag endpoint returns the
+  // full set, so paging here is a slice — no extra round trip.
+  const totalPages = Math.max(1, Math.ceil(allPosts.length / BLOG_PAGE_SIZE));
+  if (page > totalPages && page > 1) return notFoundResponse(env);
+  const posts = allPosts.slice((page - 1) * BLOG_PAGE_SIZE, page * BLOG_PAGE_SIZE);
+
+  const tagBase = `${siteUrl(env)}/blog/tag/${encodeURIComponent(tag)}`;
+  // AC3: self-canonical, exactly as on the hub.
+  const canonical = page === 1 ? tagBase : `${tagBase}/page/${page}`;
 
   const cards = posts
     .map(
@@ -533,14 +604,20 @@ async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
   <main class="container container--wide">
   <h1>Tag: ${escape(tag)}</h1>
   ${posts.length === 0 ? `<p>No posts tagged <code>${escape(tag)}</code>.</p>` : cards}
+  ${paginationNav(`/blog/tag/${encodeURIComponent(tag)}`, page, totalPages)}
 </main>`;
 
   return renderSsrResponse(
     {
-      title: `${tag} — GradeThread Blog`,
+      // US-2099 AC5: was `${tag} — GradeThread Blog`, an em-dash separator that
+      // matched nothing else on the site; every other page uses " | GradeThread".
+      title: `${tag}${page > 1 ? ` — page ${page}` : ""} | GradeThread Blog`,
       description: `Articles tagged ${tag} on the GradeThread blog.`,
       canonicalUrl: canonical,
-      ogImage: `${siteUrl(env)}/logo_icon_512.png`,
+      // US-2099 AC5: was logo_icon_512.png — a SQUARE image on a
+      // summary_large_image card, which unfurls badly cropped. Use the shared
+      // default OG asset, which is sized for the card.
+      ogImage: `${siteUrl(env)}/og-image.png`,
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
       jsonLd: [breadcrumbListLd(breadcrumbItems)],
