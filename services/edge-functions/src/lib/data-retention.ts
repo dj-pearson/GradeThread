@@ -28,6 +28,11 @@ const EMAIL_SENT_RETENTION_DAYS = 90;
 // and on a longer window so a real replay is still possible in practice.
 const EMAIL_DEAD_LETTER_BODY_DAYS = 180;
 
+// US-2021 (follow-up): rows touched per nightly run. Bounds the FIRST sweep over
+// a never-pruned table so it cannot become one enormous transaction. The cron is
+// daily, so a historical backlog drains over consecutive nights.
+const EMAIL_PURGE_BATCH = 5_000;
+
 function retentionDays(): number {
   const raw = Number(Deno.env.get("DATA_RETENTION_DAYS"));
   return Number.isFinite(raw) && raw > 0 ? raw : 730;
@@ -139,6 +144,8 @@ export async function handleDataRetentionCron(c: {
   if (!lock.acquired) {
     return c.json({ ok: true, skipped: true, reason: lock.reason });
   }
+  let emailSentPurged = 0;
+  let emailBodiesStripped = 0;
   try {
     const result = await purgeExpiredGradingPii();
     // US-584: keep the cron-run ledger bounded (30-day window). Best-effort —
@@ -161,29 +168,82 @@ export async function handleDataRetentionCron(c: {
     //     would destroy evidence of undelivered mail, which is the opposite of
     //     what a dead-letter table is for.
     // Best-effort for the same reason as the cron prune above.
+    // US-2021 (follow-up): BOUND the sweep. This table has never been pruned,
+    // so the FIRST run is a delete over the entire historical backlog — an
+    // unbounded DELETE there is a long transaction and a WAL spike on the
+    // largest table in the DB, during a nightly cron, on a single-replica edge.
+    // The story's own notes flagged that first run as large; this makes it
+    // finite instead.
+    //
+    // Bounded by selecting ids first and deleting by id, rather than using a
+    // LIMIT on the DELETE itself: per the US-1552 gotcha, PostgREST behaviour on
+    // mutations differs between the self-hosted prod version and the newer local
+    // stack, so CI cannot catch a regression there. Two plain statements are
+    // version-proof.
+    //
+    // A capped run is not a lost run — the cron is daily, so a backlog drains
+    // over consecutive nights and each night's work stays predictable.
     const sentCutoff = new Date(Date.now() - EMAIL_SENT_RETENTION_DAYS * 86_400_000)
       .toISOString();
-    const { error: sentErr } = await supabaseAdmin
+    const { data: sentBatch, error: sentScanErr } = await supabaseAdmin
       .from("email_deliveries")
-      .delete()
+      .select("id")
       .eq("status", "sent")
-      .lt("created_at", sentCutoff);
-    if (sentErr) {
-      captureException(sentErr, { route: "data-retention.email_sent" });
-    }
-    const deadCutoff = new Date(Date.now() - EMAIL_DEAD_LETTER_BODY_DAYS * 86_400_000)
-      .toISOString();
-    const { error: deadErr } = await supabaseAdmin
-      .from("email_deliveries")
-      .update({ html: "" })
-      .eq("status", "dead_letter")
-      .lt("created_at", deadCutoff)
-      .neq("html", "");
-    if (deadErr) {
-      captureException(deadErr, { route: "data-retention.email_dead_letter" });
+      .lt("created_at", sentCutoff)
+      .limit(EMAIL_PURGE_BATCH);
+    if (sentScanErr) {
+      captureException(sentScanErr, { route: "data-retention.email_sent_scan" });
+    } else {
+      const ids = ((sentBatch ?? []) as Array<{ id: string }>).map((r) => r.id);
+      if (ids.length > 0) {
+        const { error: sentErr } = await supabaseAdmin
+          .from("email_deliveries")
+          .delete()
+          .in("id", ids);
+        if (sentErr) {
+          captureException(sentErr, { route: "data-retention.email_sent" });
+        } else {
+          emailSentPurged = ids.length;
+        }
+      }
     }
 
-    return c.json({ ok: true, ...result });
+    const deadCutoff = new Date(Date.now() - EMAIL_DEAD_LETTER_BODY_DAYS * 86_400_000)
+      .toISOString();
+    const { data: deadBatch, error: deadScanErr } = await supabaseAdmin
+      .from("email_deliveries")
+      .select("id")
+      .eq("status", "dead_letter")
+      .lt("created_at", deadCutoff)
+      .neq("html", "")
+      .limit(EMAIL_PURGE_BATCH);
+    if (deadScanErr) {
+      captureException(deadScanErr, { route: "data-retention.email_dead_letter_scan" });
+    } else {
+      const ids = ((deadBatch ?? []) as Array<{ id: string }>).map((r) => r.id);
+      if (ids.length > 0) {
+        const { error: deadErr } = await supabaseAdmin
+          .from("email_deliveries")
+          .update({ html: "" })
+          .in("id", ids);
+        if (deadErr) {
+          captureException(deadErr, { route: "data-retention.email_dead_letter" });
+        } else {
+          emailBodiesStripped = ids.length;
+        }
+      }
+    }
+
+    return c.json({
+      ok: true,
+      ...result,
+      // US-2021: report what the sweep actually did. A capped run that reports
+      // nothing is indistinguishable from a no-op, and this is the signal that
+      // tells an operator whether the backlog is still draining.
+      email_sent_purged: emailSentPurged,
+      email_bodies_stripped: emailBodiesStripped,
+      email_purge_batch: EMAIL_PURGE_BATCH,
+    });
   } catch (err) {
     captureException(err, { route: "data-retention.cron" });
     return c.json({ error: "Data-retention purge failed" }, 500);

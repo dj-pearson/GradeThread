@@ -16,7 +16,7 @@
 // thing to pin. A behavioural test belongs in the db lane; this one exists so
 // the shape cannot regress silently in the meantime.
 
-import { assert } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 
 const SRC = await Deno.readTextFile(
   new URL("../lib/data-retention.ts", import.meta.url),
@@ -78,37 +78,65 @@ Deno.test("US-2021: delivered email records are purged", () => {
   );
 });
 
-Deno.test("US-2021: the purge is SCOPED to sent rows and to a cutoff", () => {
-  // Both filters are load-bearing. Without status='sent' the delete eats the
+Deno.test("US-2021: the sent purge is SCOPED to sent rows and to a cutoff", () => {
+  // Both filters are load-bearing. Without status='sent' the sweep eats the
   // dead-letter queue; without the cutoff it deletes mail sent seconds ago,
   // which support may still need to read back.
-  const deleteStmt = CRON.slice(
-    CRON.indexOf('from("email_deliveries")'),
-    CRON.indexOf('from("email_deliveries")') + 400,
+  //
+  // The scoping now lives on the SCAN (select ids) rather than on the DELETE,
+  // because the sweep is batched — see the bounded-sweep test below. Asserting
+  // the scan is asserting the same property: the delete only ever receives ids
+  // this query produced.
+  const scan = CRON.slice(
+    CRON.indexOf("const { data: sentBatch"),
+    CRON.indexOf("const { data: sentBatch") + 400,
   );
   assert(
-    /\.eq\("status", "sent"\)/.test(deleteStmt),
-    "the email_deliveries DELETE must be scoped to status='sent' — an unscoped " +
-      "delete would destroy the dead_letter operator replay queue",
+    /\.eq\("status", "sent"\)/.test(scan),
+    "the email_deliveries purge must be scoped to status='sent' — an unscoped " +
+      "sweep would destroy the dead_letter operator replay queue",
   );
   assert(
-    /\.lt\("created_at",/.test(deleteStmt),
-    "the email_deliveries DELETE must be bounded by a created_at cutoff",
+    /\.lt\("created_at",/.test(scan),
+    "the email_deliveries purge must be bounded by a created_at cutoff",
   );
 });
 
 Deno.test("US-2021: dead-lettered mail is BODY-STRIPPED, never deleted", () => {
   // A dead-letter row is a queue item someone may still replay. Keep the row,
   // drop only the heavy PII-bearing body.
+  const scan = CRON.slice(
+    CRON.indexOf("const { data: deadBatch"),
+    CRON.indexOf("const { data: deadBatch") + 500,
+  );
   assert(
-    /\.update\(\{ html: "" \}\)[\s\S]{0,160}?\.eq\("status", "dead_letter"\)/.test(CRON),
+    /\.eq\("status", "dead_letter"\)/.test(scan),
+    "the dead-letter sweep must select only dead_letter rows",
+  );
+  assert(
+    /\.update\(\{ html: "" \}\)/.test(CRON),
     "dead_letter rows must have their html stripped rather than being deleted — " +
       "deleting them destroys the evidence that mail was never delivered, which " +
       "is the entire purpose of a dead-letter table",
   );
+  // The strongest form of the rule: NOWHERE in the cron may a delete be scoped
+  // to dead_letter, in either order.
   assert(
-    !/\.eq\("status", "dead_letter"\)[\s\S]{0,80}?\.delete\(\)/.test(CRON) &&
-      !/\.delete\(\)[\s\S]{0,80}?\.eq\("status", "dead_letter"\)/.test(CRON),
+    !/\.eq\("status", "dead_letter"\)[\s\S]{0,120}?\.delete\(\)/.test(CRON) &&
+      !/\.delete\(\)[\s\S]{0,120}?\.eq\("status", "dead_letter"\)/.test(CRON),
     "dead_letter rows must never be DELETEd by the retention sweep",
+  );
+});
+
+// US-2021 (follow-up): the FIRST run sweeps a table that has never been pruned.
+// An unbounded DELETE there is a long transaction and a WAL spike on the largest
+// table in the DB, during a nightly cron, on a single-replica edge.
+Deno.test("US-2021: both email sweeps are BOUNDED per run", () => {
+  const limits = CRON.match(/\.limit\(EMAIL_PURGE_BATCH\)/g) ?? [];
+  assertEquals(
+    limits.length,
+    2,
+    "both the sent-purge and dead-letter scans must be capped by EMAIL_PURGE_BATCH — " +
+      "an uncapped first sweep over a never-pruned table is one enormous transaction",
   );
 });
