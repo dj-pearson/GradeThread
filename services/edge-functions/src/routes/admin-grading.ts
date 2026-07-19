@@ -79,6 +79,12 @@ import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
 import { brandKeyForRaw } from "../lib/brand-normalize.ts";
 import {
+  coverageWarnings,
+  prepareImport,
+  validateBatchSize,
+  type GoldenSetImportRow,
+} from "../lib/golden-set-import.ts";
+import {
   COMPOSITE_PROMPT_VERSION,
   invalidatePromptCache,
   PER_IMAGE_PROMPT_VERSION,
@@ -994,6 +1000,59 @@ adminGradingRoutes.post("/authenticity/cases", async (c) => {
     has_source: Boolean(body.source_url),
   });
   return c.json({ id }, 201);
+});
+
+// POST /authenticity/cases/import — bulk-add labelled cases.
+//
+// The single-case POST does not scale to the actual job: an expert working
+// through a labelled corpus. Partial success is reported per row rather than
+// failing the batch, because re-uploading 50 rows over one typo is how people
+// start bypassing validation.
+adminGradingRoutes.post("/authenticity/cases/import", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => null) as
+    | { cases?: unknown }
+    | unknown[]
+    | null;
+  const rows = Array.isArray(body) ? body : (body as { cases?: unknown })?.cases;
+
+  const sizeError = validateBatchSize(rows);
+  if (sizeError) return c.json({ error: sizeError }, 400);
+
+  const { prepared, errors } = prepareImport(rows as GoldenSetImportRow[]);
+  const warnings = coverageWarnings(prepared);
+
+  let inserted = 0;
+  if (prepared.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from("authenticity_eval_cases")
+      .insert(prepared.map((p) => ({ ...p, created_by: userId })))
+      .select("id");
+    if (error) {
+      return failSafe(c, 400, "Couldn't import the cases.", error, "admin.grading.authenticity.import");
+    }
+    inserted = ((data ?? []) as { id: string }[]).length;
+  }
+
+  await auditLog(c, "import_authenticity_eval_cases", "authenticity_eval_case", null, {
+    submitted: (rows as unknown[]).length,
+    inserted,
+    rejected: errors.length,
+    brands: [...new Set(prepared.map((p) => p.brand_key))],
+  });
+
+  // 207-ish semantics via the body: the caller must be able to tell a full
+  // success from a partial one WITHOUT parsing counts, so `rejected` is always
+  // present and the failing rows are named.
+  return c.json({
+    submitted: (rows as unknown[]).length,
+    inserted,
+    rejected: errors.length,
+    errors,
+    // Not blocking — a corpus may legitimately arrive in two halves — but an
+    // operator should know before an eval run spends a vision call per case.
+    coverage_warnings: warnings,
+  }, errors.length > 0 ? 207 : 201);
 });
 
 // PATCH /authenticity/cases/:id — correct a case, or retire it. Retiring is the

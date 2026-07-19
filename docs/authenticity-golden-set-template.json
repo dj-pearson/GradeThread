@@ -1,0 +1,70 @@
+{
+  "_readme": [
+    "US-2131 — authenticity golden-set bulk import.",
+    "",
+    "POST this to /api/admin/grading/authenticity/cases/import (admin JWT + MFA).",
+    "Send either this object or a bare array of the `cases` entries.",
+    "",
+    "WHAT THIS CORPUS IS FOR: it is the only thing that lets the authenticity eval",
+    "gate pass. Until it exists the gate reports every prompt version as ungated,",
+    "the prompt cannot be narrowed, and the buyer-facing positioning stays blocked.",
+    "",
+    "THE ONE RULE THAT MATTERS: a brand needs BOTH authentic and counterfeit",
+    "examples. A brand with only genuine cases scores perfectly and proves nothing,",
+    "because the error the gate exists to catch — a known fake called authentic —",
+    "cannot occur. The import warns you about this per brand; it does not reject.",
+    "",
+    "IMAGES: storage paths in the submission-images bucket, not URLs. The eval",
+    "replays them through the real authenticity pass, so they should be the same",
+    "kind of photos a seller would submit — including a macro frame (serial /",
+    "marking) where the tell depends on one.",
+    "",
+    "PROVENANCE: source_url records WHO determined the label and how. A label with",
+    "no stated provenance is the weak kind, and it is audited on write.",
+    "",
+    "PARTIAL SUCCESS: a malformed row is rejected and named by its index; the rest",
+    "still import. The response always carries `rejected` and an `errors` array.",
+    "Batches are capped at 500 rows."
+  ],
+  "cases": [
+    {
+      "label": "Gucci Marmont small — boutique purchase, receipt on file",
+      "brand": "Gucci",
+      "garment_type": "accessories",
+      "expected_label": "authentic",
+      "images": [
+        { "image_type": "front", "storage_path": "<userId>/<submissionId>/front_1.jpg" },
+        { "image_type": "serial", "storage_path": "<userId>/<submissionId>/serial_1.jpg" },
+        { "image_type": "marking", "storage_path": "<userId>/<submissionId>/marking_1.jpg" }
+      ],
+      "tags": ["hardware", "serial"],
+      "notes": "Boutique purchase with original receipt and card.",
+      "source_url": "internal:retail-receipt/2026-03-11"
+    },
+    {
+      "label": "Gucci Marmont small — seized counterfeit, date code impossible",
+      "brand": "Gucci",
+      "garment_type": "accessories",
+      "expected_label": "counterfeit",
+      "images": [
+        { "image_type": "front", "storage_path": "<userId>/<submissionId>/front_1.jpg" },
+        { "image_type": "serial", "storage_path": "<userId>/<submissionId>/serial_1.jpg" }
+      ],
+      "tags": ["date_code", "font"],
+      "notes": "Date code predates the line. Stamp kerning inconsistent with the reference.",
+      "source_url": "internal:authenticator-report/AR-2026-0114"
+    },
+    {
+      "label": "Unbranded tee — no recognizable brand",
+      "brand": null,
+      "garment_type": "tops",
+      "expected_label": "inconclusive",
+      "images": [
+        { "image_type": "front", "storage_path": "<userId>/<submissionId>/front_1.jpg" }
+      ],
+      "tags": [],
+      "notes": "Deliberate control: nothing to authenticate. The pass should decline, not guess.",
+      "source_url": "internal:control-case"
+    }
+  ]
+}
