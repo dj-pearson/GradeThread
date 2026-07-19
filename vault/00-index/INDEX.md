@@ -32,6 +32,7 @@ New here? Read [[CONTRACT]] before adding a note.
 ## 10-ops — operations and runbooks
 
 - [[dns-and-routing]] — contract — Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
+- [[env-reference]] — contract — Every env var the codebase reads and which of the eight deployment surfaces it belongs to.
 - [[runbook-copies]] — reference — Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 
 ## 20-domain — grading, measurement, contracts

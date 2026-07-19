@@ -77,7 +77,7 @@ export async function signInWithGoogle() {
 // signInWithIdToken flow keyed to the bundle id com.gradethread.app — this web
 // redirect flow requires Apple to be configured with a **Services ID** as the
 // OAuth client_id (the App/bundle id is rejected for web), and a client-secret
-// JWT whose `sub` is that Services ID. See ENVIRONMENT.md → OAuth providers.
+// JWT whose `sub` is that Services ID. See vault/10-ops/env-reference.md → OAuth providers.
 export async function signInWithApple() {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "apple",

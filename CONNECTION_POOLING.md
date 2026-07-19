@@ -142,7 +142,7 @@ Everything else (the app's pooled query workload) should prefer the pooler.
 ## 5. Connection strings / env
 
 Two env vars make the direct-vs-pooled split explicit for the direct-PG scripts
-(documented in `ENVIRONMENT.md` and `services/edge-functions/.env.example`):
+(documented in `vault/10-ops/env-reference.md` and `services/edge-functions/.env.example`):
 
 | Var | Port | Use |
 |---|---|---|

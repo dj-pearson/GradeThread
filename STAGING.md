@@ -3,7 +3,7 @@
 Changes must be validated in a pre-prod environment so migrations, webhooks,
 and auth aren't first exercised in production. This doc covers the staging
 stack, PR preview deploys, and the smoke gate that runs before promotion.
-Deploy order/rollback live in `DEPLOY.md`; env specifics in `ENVIRONMENT.md`.
+Deploy order/rollback live in `DEPLOY.md`; env specifics in `vault/10-ops/env-reference.md`.
 
 ## The staging stack
 

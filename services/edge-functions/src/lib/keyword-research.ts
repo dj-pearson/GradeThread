@@ -10,7 +10,7 @@
 // endpoint, then call generateKeywordIdeas with the access token + the account's
 // developer token. Tokens cache in-process for their TTL.
 //
-// Required env (documented in ENVIRONMENT.md §2j):
+// Required env (documented in vault/10-ops/env-reference.md):
 //   GOOGLE_ADS_DEVELOPER_TOKEN   approved developer token
 //   GOOGLE_ADS_CLIENT_ID         OAuth client id
 //   GOOGLE_ADS_CLIENT_SECRET     OAuth client secret

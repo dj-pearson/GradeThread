@@ -32,6 +32,13 @@
 //   --summary <s>      default: first prose sentence
 //   --tags a,b,c
 //   --no-stub          move without a stub (only when nothing can reference it)
+//   --absorb <path>    repeatable. A second document MERGED into this same note:
+//                      it is deleted and stubbed to the note, but not moved. Use
+//                      when two files covered one topic (US-2048's env pair,
+//                      US-2049's three doubled runbooks). Absorbed content must
+//                      be grafted into the note by hand FIRST — the tool cannot
+//                      know which copy is right, and guessing would launder a
+//                      contradiction into a confident answer.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -170,16 +177,29 @@ export function planMove(root, source, dest, opts, { read = readFileSync, glob =
     exclude: (p) => /node_modules|[\\/]dist[\\/]|\.git[\\/]/.test(String(p)),
   }).map((f) => String(f).replace(/\\/g, "/"));
 
+  // Absorbed documents are replaced by a stub pointing at THIS note, so
+  // references to them must be rewritten exactly as references to the source
+  // are. Missing this leaves live links aimed at a stub — technically working,
+  // but it defeats the point of the sweep in US-2065 and hides the real target.
+  const oldPaths = [source, ...opts.absorb];
+
   const rewrites = [];
   const residual = [];
   for (const rel of candidates) {
-    if (rel === source || rel === dest) continue;
+    if (rel === dest || oldPaths.includes(rel)) continue;
     let text;
     try { text = read(resolve(root, rel), "utf8"); } catch { continue; }
-    if (!text.includes(source)) continue;
-    const r = rewriteRefs(text, source, dest);
-    if (r.count > 0) rewrites.push({ path: rel, count: r.count, text: r.text });
-    const left = findResidualMentions(r.text, source, dest);
+    if (!oldPaths.some((p) => text.includes(p))) continue;
+    let count = 0;
+    const left = [];
+    for (const old of oldPaths) {
+      if (!text.includes(old)) continue;
+      const r = rewriteRefs(text, old, dest);
+      text = r.text;
+      count += r.count;
+      left.push(...findResidualMentions(text, old, dest));
+    }
+    if (count > 0) rewrites.push({ path: rel, count, text });
     if (left.length) residual.push({ path: rel, lines: left });
   }
 
@@ -191,7 +211,7 @@ export function planMove(root, source, dest, opts, { read = readFileSync, glob =
 function parseArgs(argv) {
   const positional = [];
   const opts = {
-    type: "reference", status: "current", sot: "vault", codeRefs: [], tags: [],
+    type: "reference", status: "current", sot: "vault", codeRefs: [], tags: [], absorb: [],
     reviewed: new Date().toISOString().slice(0, 10), dryRun: false, stub: true,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -205,6 +225,7 @@ function parseArgs(argv) {
     else if (a === "--title") opts.title = argv[++i];
     else if (a === "--summary") opts.summary = argv[++i];
     else if (a === "--tags") opts.tags = argv[++i].split(",").map((s) => s.trim()).filter(Boolean);
+    else if (a === "--absorb") opts.absorb.push(argv[++i]);
     else positional.push(a);
   }
   return { positional, opts };
@@ -270,6 +291,25 @@ export function main(argv = process.argv.slice(2)) {
       return 1;
     }
     writeFileSync(stubsAbs, md.slice(0, s + "<!-- stubs:start -->".length) + "\n\n" + renderStubRegistry(rows) + "\n\n" + md.slice(e), "utf8");
+  }
+
+  // 3b. absorbed documents: replaced by a stub to the SAME note, not moved.
+  for (const other of opts.absorb) {
+    const otherAbs = resolve(root, other);
+    if (!existsSync(otherAbs)) {
+      process.stdout.write(`  ✗ vault-move: --absorb target does not exist: ${other}\n`);
+      return 1;
+    }
+    const rm = spawnSync("git", ["rm", "-q", "--cached", other], { cwd: root, encoding: "utf8", shell: false });
+    if (rm.status !== 0) process.stdout.write(`  ! could not un-track ${other}: ${rm.stderr.trim()}\n`);
+    writeFileSync(otherAbs, makeStub(plan.noteName, dest, opts.reviewed), "utf8");
+    const stubsAbs = resolve(root, STUBS_PATH);
+    const md = readFileSync(stubsAbs, "utf8");
+    const rows = upsertStubRow(parseStubRegistry(md), { oldPath: other, note: plan.noteName, created: opts.reviewed });
+    const s2 = md.indexOf("<!-- stubs:start -->");
+    const e2 = md.indexOf("<!-- stubs:end -->");
+    writeFileSync(stubsAbs, md.slice(0, s2 + "<!-- stubs:start -->".length) + "\n\n" + renderStubRegistry(rows) + "\n\n" + md.slice(e2), "utf8");
+    process.stdout.write(`  absorbed  : ${other} -> stub pointing at [[${plan.noteName}]]\n`);
   }
 
   // 4. references.

@@ -41,7 +41,7 @@ GOTRUE_EXTERNAL_APPLE_CLIENT_ID=com.gradethread.app   # the BUNDLE ID — GoTrue
 GOTRUE_EXTERNAL_APPLE_SECRET=<ES256 client-secret JWT generated from the Sign in with Apple .p8 key (Team ID + Key ID)>
 ```
 - `CLIENT_ID` must be (or contain, comma-separated) the **bundle ID** `com.gradethread.app`, because iOS uses the native id_token flow — not a Services ID.
-- The `.p8`-derived secret JWT is only exercised by the web code-exchange flow, but the auth image refuses to start the provider without it. See `ENVIRONMENT.md` → "OAuth providers".
+- The `.p8`-derived secret JWT is only exercised by the web code-exchange flow, but the auth image refuses to start the provider without it. See `vault/10-ops/env-reference.md` → "OAuth providers".
 - The id_token grant is **not** captcha-gated, so once the provider is on, Apple sign-in works with no captcha involvement.
 
 ### Bug B — "Create an account" errored

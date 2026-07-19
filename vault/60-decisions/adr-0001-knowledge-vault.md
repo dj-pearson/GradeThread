@@ -18,8 +18,11 @@ summary: Consolidate 203 scattered markdown files into one navigable wiki; retri
 A survey of the repo on 2026-07-18 found **203 markdown files** outside
 `node_modules`, with no index and no ownership rules. Concretely:
 
-- `ENV_REFERENCE.md` (364 lines) and `ENVIRONMENT.md` (363 lines) — a near-duplicate
-  pair on the same topic, with no marker for which is current.
+- `ENV_REFERENCE.md` (364 lines) and `ENVIRONMENT.md` (363 lines) — two files on
+  the same topic with no marker for which was current. *(US-2048 found this was
+  not duplication but silent divergence: an index and a provisioning guide that
+  had drifted, with the guide documenting a service the code never used. Both are
+  now [[env-reference]].)*
 - `INCIDENT_RESPONSE.md`, `KEY_ROTATION.md` and `DATA_RETENTION.md` each exist in
   **both** the repo root and `docs/`, at different lengths.
 - `.agents/skills/` duplicates the two **vendor** skills (`supabase`,

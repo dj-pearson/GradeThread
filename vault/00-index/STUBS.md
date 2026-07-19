@@ -33,11 +33,13 @@ nothing references, and reports the ones that must stay.
 
 | Old path | Note | Created |
 |---|---|---|
+| `ENV_REFERENCE.md` | [[env-reference]] | 2026-07-19 |
+| `ENVIRONMENT.md` | [[env-reference]] | 2026-07-19 |
 
 <!-- stubs:end -->
 
-Empty until the Phase 3 migrations begin (US-2051 → US-2057). US-2048 and
-US-2049 create the first entries.
+First entries created by US-2048 (the env pair). The Phase 3 migrations
+(US-2051 → US-2057) add the rest.
 
 ## Related
 

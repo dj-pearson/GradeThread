@@ -261,7 +261,7 @@ fallback channels, so there is no user-facing regression if this lags.
 **Apply after 00473**, then `NOTIFY pgrst, 'reload schema';` and confirm the edge
 `EXPECTED_SCHEMA_VERSION` is bumped to **00474** (done in this change). Generate + set
 the VAPID keypair (`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`, and the
-frontend `VITE_VAPID_PUBLIC_KEY`) before enabling push — see ENVIRONMENT.md.
+frontend `VITE_VAPID_PUBLIC_KEY`) before enabling push — see `vault/10-ops/env-reference.md`.
 
 ## ⏳ PENDING: 00473_kids_baby_brand_knowledge.sql (US-1993 kids & baby brand KB, 2026-07-17)
 

@@ -342,7 +342,15 @@ function GradeThreadPricingBlock() {
                   </div>
                   <div className="text-xs text-muted-foreground">credits</div>
                   <div className="mt-0.5 text-sm font-semibold">
-                    ${(pack.priceCents / 100).toFixed(0)}
+                    {/* US-2075: toFixed(0) rendered a $24.99 pack as "$25" here
+                        while /pricing showed $24.99 — the SAME pack at two
+                        prices on one site, and the rounded one is the page
+                        headlined "transparent pricing". Every CREDIT_PACKS and
+                        GRADETHREAD_TIERS price carries cents, so rounding a
+                        purchase surface always loses real money. (Plan prices
+                        are all whole dollars, which is why toFixed(0) is
+                        legitimate on the plan cards.) */}
+                    ${(pack.priceCents / 100).toFixed(2)}
                   </div>
                 </div>
               );

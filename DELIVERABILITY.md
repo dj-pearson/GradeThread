@@ -177,5 +177,5 @@ Clear every line before enabling autonomous weekly sends.
 | `SES_DKIM_VERIFIED` / `SES_SPF_ALIGNED` / `SES_DMARC_POLICY` | DNS-auth attestations read by the boot pre-flight |
 | `SMTP_HOST/PORT/USER/PASS/ADMIN_EMAIL/SENDER_NAME/REPLY_TO` | SMTP transport + transactional identity |
 
-See also `ENVIRONMENT.md`, `LAUNCH_CHECKLIST.md`, and the CAN-SPAM/consent path
+See also `vault/10-ops/env-reference.md`, `LAUNCH_CHECKLIST.md`, and the CAN-SPAM/consent path
 in `services/edge-functions/src/lib/marketing-coordinator.ts`.

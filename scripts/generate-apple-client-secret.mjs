@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generates the Sign in with Apple client-secret JWT for GoTrue
 // (GOTRUE_EXTERNAL_APPLE_SECRET on the self-hosted auth container — see
-// ENVIRONMENT.md "OAuth providers").
+// vault/10-ops/env-reference.md "OAuth providers").
 //
 // Apple doesn't issue a static OAuth secret: you sign one yourself with the
 // .p8 private key from developer.apple.com → Keys → (+) → Sign in with Apple.
