@@ -54,9 +54,34 @@ curl -s https://functions.gradethread.com/health | jq .release
 # must be the deployed commit SHA, never "dev"
 ```
 
-`/health/ready` also reports `features.observability` as degraded while the
-release is a placeholder, so a regression surfaces without anyone remembering to
-run the curl above.
+`/health/ready` also reports **`features.release`** while the release is a
+placeholder, so a regression surfaces without anyone remembering to run the curl
+above:
+
+```bash
+curl -s https://functions.gradethread.com/health/ready | jq .features.release
+# "ok"                                     → the build carries a real commit SHA
+# "unattributable: release=\"dev\" — ..."   → the GIT_SHA build arg is not reaching
+#                                            the image; fix the build, not the code
+```
+
+Two things about that entry are deliberate:
+
+- It is **`features.release`, not `features.observability`.** The observability
+  group reports `ok` whenever a Sentry DSN is present — which stays true, and
+  stays misleading, while every event that ships is tagged `dev`. A separate key
+  keeps "the tracker is wired" and "its events can be traced to a commit" as the
+  distinct facts they are.
+- A degraded release **never flips the service to `not_ready`.** Refusing
+  readiness on an untagged build would pull grading, payments and webhooks out
+  of rotation in order to protect observability, which is backwards. It is
+  informational, like every other feature entry, and a test asserts it.
+
+> Historical note, because it is the reason this section exists twice over: this
+> paragraph previously claimed `features.observability` went degraded on a
+> placeholder release. That was never implemented — the doc described a guard
+> that did not exist, which is a plausible reason nobody built one. The guard
+> shipped with US-2001 AC4; this text now describes what the code does.
 
 ## Local development
 

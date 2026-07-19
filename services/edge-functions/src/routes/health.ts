@@ -78,6 +78,38 @@ export function summarizeSchema(expected: string, applied: string | null): Schem
   return { expected, applied, status: compareSchemaVersion(expected, applied) };
 }
 
+// US-2001: releases that carry no build identity. `dev` is the literal default
+// in Dockerfile:12 (`ARG GIT_SHA=dev`); `unknown` is releaseSha()'s fallback
+// when no SHA env var is set at all. Either means every Sentry event, log line
+// and trace from this container is tagged with a value that cannot be traced to
+// a commit — so "did the fix ship?" is unanswerable for the half of the system
+// handling grading, payments, eBay writes and webhooks.
+const UNATTRIBUTABLE_RELEASES = new Set(["dev", "unknown", ""]);
+
+/**
+ * US-2001 AC4. Reports the release as a DEGRADED FEATURE rather than failing
+ * readiness.
+ *
+ * The AC offered either option ("REFUSE to report healthy-and-production ... or
+ * at minimum surface it as a degraded feature"). Degraded is the right one, and
+ * this file already argues why a few lines down: a probe that can fail a
+ * container over a diagnostic is a worse bug than the blind spot it fixes.
+ * Refusing readiness on an untagged build would take the whole edge out of
+ * rotation — including grading and payments — to protect observability. That
+ * trade is backwards.
+ *
+ * Pure so it is unit-testable without env manipulation.
+ */
+export function releaseReadiness(release: string, env: string): string {
+  if (!UNATTRIBUTABLE_RELEASES.has(release.trim().toLowerCase())) return "ok";
+  const detail =
+    `unattributable: release="${release}" — the image was built without a ` +
+    `GIT_SHA build arg, so errors cannot be tied to a commit ` +
+    `(see COOLIFY.md, US-2001)`;
+  // Outside production an untagged local/dev build is expected, not a defect.
+  return env === "production" ? detail : `${detail} [non-production]`;
+}
+
 // Pure decision (unit-tested) so the route's I/O stays trivial. `features` is
 // informational: overall readiness is still just DB + core env so a missing
 // optional integration can't take the container out of rotation.
@@ -189,7 +221,13 @@ healthRoutes.get("/ready", async (c) => {
   const summary = summarizeReadiness(
     dbOk,
     missingEnv,
-    computeFeatureReadiness(),
+    {
+      ...computeFeatureReadiness(),
+      // US-2001: sits alongside the existing `observability` entry, which
+      // reports "ok" purely because the Sentry DSN is present — true, and
+      // misleading, while every event it ships is tagged "dev".
+      release: releaseReadiness(releaseSha(), edgeEnv()),
+    },
     summarizeSchema(EXPECTED_SCHEMA_VERSION, applied),
   );
   return c.json(

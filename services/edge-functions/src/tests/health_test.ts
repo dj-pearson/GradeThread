@@ -12,7 +12,9 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { summarizeReadiness, summarizeSchema } = await import("../routes/health.ts");
+const { summarizeReadiness, summarizeSchema, releaseReadiness } = await import(
+  "../routes/health.ts"
+);
 
 Deno.test("ready when DB is up and no env is missing", () => {
   const s = summarizeReadiness(true, []);
@@ -135,4 +137,54 @@ Deno.test("schema block is omitted entirely when not supplied", () => {
   // Back-compat: existing callers/tests that pass three args get the old shape.
   const body = summarizeReadiness(true, [], {}).body;
   assertEquals("schema" in body, false);
+});
+
+// ── US-2001: release attributability ────────────────────────────────
+// Prod measured {"env":"production","release":"dev"} on 2026-07-18 while the
+// frontend correctly carried a real SHA. Every edge Sentry event, log and trace
+// was tagged with a value that cannot be traced to a commit — and nothing
+// reported that as a problem, because the `observability` feature group looks
+// only at whether a DSN is present.
+
+Deno.test("US-2001: a real SHA is ok", () => {
+  assertEquals(
+    releaseReadiness("c9631342084bfd9e96883321a07a390d3be1e814", "production"),
+    "ok",
+  );
+});
+
+Deno.test("US-2001: the Dockerfile's literal default is degraded in production", () => {
+  const r = releaseReadiness("dev", "production");
+  assert(r.startsWith("unattributable:"), `expected degraded, got "${r}"`);
+  // The operator reading /health/ready needs to know WHAT to fix, not just that
+  // something is wrong.
+  assert(r.includes("GIT_SHA"), "must name the build arg that is missing");
+  assert(!r.includes("[non-production]"));
+});
+
+Deno.test("US-2001: releaseSha()'s no-env fallback is degraded too", () => {
+  // "dev" comes from the Dockerfile ARG; "unknown" comes from releaseSha() when
+  // no SHA env var is set at all. Both are unattributable and both must report.
+  assert(releaseReadiness("unknown", "production").startsWith("unattributable:"));
+  assert(releaseReadiness("", "production").startsWith("unattributable:"));
+  assert(releaseReadiness("   ", "production").startsWith("unattributable:"));
+  assert(releaseReadiness("DEV", "production").startsWith("unattributable:"));
+});
+
+Deno.test("US-2001: an untagged non-production build is flagged, not alarming", () => {
+  const r = releaseReadiness("dev", "development");
+  assert(r.includes("[non-production]"), "local builds are expected to be untagged");
+});
+
+Deno.test("US-2001: a degraded release NEVER flips the service to not_ready", () => {
+  // Deliberate: refusing readiness on an untagged build would pull grading and
+  // payments out of rotation to protect observability. The feature entry is
+  // informational, exactly like every other one.
+  const s = summarizeReadiness(true, [], {
+    release: releaseReadiness("dev", "production"),
+  });
+  assert(s.ready, "observability degradation must not take the container down");
+  assertEquals(s.httpStatus, 200);
+  assertEquals(s.body.status, "ready");
+  assert(String(s.body.features?.release).startsWith("unattributable:"));
 });
