@@ -16,6 +16,19 @@ import SwiftUI
 public final class AuthStore {
     // US-1521: legal-acceptance versions recorded at signup. Keep IN SYNC with the
     // web (src/lib/constants.ts LEGAL_VERSIONS) and the edge mirror (legal.ts).
+    //
+    // US-2017: that "keep in sync" used to be enforced by nothing but this
+    // comment, and the failure is legally material — publishing a new ToS row
+    // leaves both clients recording the OLD version, attesting users to a
+    // document they were never shown. src/test/legal-version-parity.test.ts now
+    // FAILS if these two constants diverge from the web or edge values, so the
+    // instruction above is enforceable rather than aspirational.
+    //
+    // ⚠ STILL OPEN (US-2017 AC2): iOS has no re-acceptance gate. The web has
+    // src/components/auth/legal-gate.tsx; this app never calls /api/legal, so a
+    // NEW version is never re-presented to an existing iOS user. Parity of the
+    // constants does not fix that, and the guard deliberately does not pretend
+    // it does.
     static let legalTosVersion = "2026-04-01"
     static let legalPrivacyVersion = "2026-04-01"
 
