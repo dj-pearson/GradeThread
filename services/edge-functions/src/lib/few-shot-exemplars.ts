@@ -277,6 +277,37 @@ export interface ExemplarSetRow {
 }
 
 /**
+ * US-2034: the train/test separation that keeps the exemplar eval gate honest.
+ *
+ * Golden eval cases and few-shot exemplars are mined from the SAME pool of
+ * corrected human reviews. If one corrected report becomes both, evalExemplarSet
+ * scores a candidate set against cases whose answers are in its own prompt
+ * block — inflated agreement, deflated MAE, and an exemplar set that does not
+ * generalize gets activated to grade real customer garments.
+ *
+ * Pure and exported so the rule is executable rather than merely commented.
+ * Extracted in the same spirit as planReversal / evaluateAlerts: the decision
+ * that matters should not be observable only through a Supabase call.
+ *
+ * Over-exclusion is the SAFE direction here, so a golden source is excluded
+ * regardless of whether its case is active or soft-deleted — an inactive case
+ * can be reactivated, and a set contaminated at assembly time cannot be
+ * decontaminated afterwards.
+ */
+export function separateGoldenSources<T extends { grade_report_id: string }>(
+  candidates: readonly T[],
+  goldenSources: ReadonlyArray<{ source_grade_report_id: string | null }>,
+): { kept: T[]; excludedCount: number } {
+  const goldenReportIds = new Set(
+    goldenSources
+      .map((g) => g.source_grade_report_id)
+      .filter((id): id is string => !!id),
+  );
+  const kept = candidates.filter((r) => !goldenReportIds.has(r.grade_report_id));
+  return { kept, excludedCount: candidates.length - kept.length };
+}
+
+/**
  * Mine recent human-corrected grades into a CANDIDATE exemplar set (inactive,
  * un-evaluated). Joins human_reviews → grade_reports → submissions to assemble
  * PII-free CorrectionSignals, curates them, renders the block, and persists it.
@@ -322,6 +353,10 @@ export async function assembleExemplarSet(
     return true;
   });
 
+  // The train/test separation itself is a PURE decision (separateGoldenSources,
+  // defined below and unit-tested) so the rule that keeps the eval gate honest
+  // cannot only be verified by reading the surrounding IO.
+  //
   // US-2034: EXCLUDE the golden set. TRAIN/TEST CONTAMINATION.
   //
   // Golden eval cases are grown from the same corrected reviews this function
@@ -354,15 +389,10 @@ export async function assembleExemplarSet(
       `Failed to load golden-set sources for exemplar exclusion: ${goldenError.message}`,
     );
   }
-  const goldenReportIds = new Set(
-    ((goldenSources ?? []) as Array<{ source_grade_report_id: string | null }>)
-      .map((g) => g.source_grade_report_id)
-      .filter((id): id is string => !!id),
+  const { kept: uncontaminated, excludedCount } = separateGoldenSources(
+    latestByReport,
+    goldenSources ?? [],
   );
-  const uncontaminated = latestByReport.filter(
-    (r) => !goldenReportIds.has(r.grade_report_id),
-  );
-  const excludedCount = latestByReport.length - uncontaminated.length;
   if (excludedCount > 0) {
     console.log(
       `[few-shot-exemplars] excluded ${excludedCount} golden-set report(s) from ` +
