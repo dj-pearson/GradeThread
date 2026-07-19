@@ -675,6 +675,13 @@ export function FlipdeskAutolisterPage() {
   // in-flight flag while the user picks photos in the Google popup.
   const [gpConfigured, setGpConfigured] = useState(false);
   const [gpImporting, setGpImporting] = useState(false);
+  // Lets the button double as "Cancel" while a pick is in flight — we can no
+  // longer infer cancellation from the popup (see `importFromGooglePhotos`).
+  const gpCancelRef = useRef<(() => void) | null>(null);
+  const gpTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  // The poll now runs to its own timeout rather than stopping when the picker
+  // window closes, so it must be torn down explicitly on unmount.
+  useEffect(() => () => clearInterval(gpTimerRef.current), []);
 
   // One-time check whether Google Photos import is configured server-side, so
   // we only show the button when it'll actually work.
@@ -1116,9 +1123,10 @@ export function FlipdeskAutolisterPage() {
     if (gpImporting || !ownerId) return;
     setGpImporting(true);
     let popup: Window | null = null;
-    let timer: ReturnType<typeof setInterval> | undefined;
     const stop = () => {
-      if (timer) clearInterval(timer);
+      clearInterval(gpTimerRef.current);
+      gpTimerRef.current = undefined;
+      gpCancelRef.current = null;
       setGpImporting(false);
     };
 
@@ -1146,9 +1154,10 @@ export function FlipdeskAutolisterPage() {
         setGpImporting(false);
         return;
       }
-      toast.info("Pick your photos in the Google window — they'll appear here when you're done.", {
-        duration: 8000,
-      });
+      toast.info(
+        "Pick your photos in the Google window, then hit Done — you can close that window and they'll appear here.",
+        { duration: 8000 },
+      );
 
       const startedAt = Date.now();
       const doImport = async () => {
@@ -1188,9 +1197,23 @@ export function FlipdeskAutolisterPage() {
         }
       };
 
-      timer = setInterval(() => {
+      // The picker window is NOT a cancellation signal. Two reasons it used to
+      // look like one and killed the import: (1) our own COOP `same-origin`
+      // header (public/_headers) severs the handle on the Google-hosted popup,
+      // so `popup.closed` reports `true` spuriously and only logs a console
+      // warning; (2) Google's picker tells the user to close that window and
+      // finish "in the other window" — closing it is the NORMAL completion
+      // path, and `mediaItemsSet` often flips a beat later, so stopping on
+      // close raced the very poll that would have returned ready. Poll until
+      // the session is ready or we time out; the button offers an explicit
+      // cancel instead.
+      gpCancelRef.current = () => {
+        stop();
+        toast.info("Google Photos import cancelled.");
+      };
+
+      gpTimerRef.current = setInterval(() => {
         void (async () => {
-          const closed = !!popup && popup.closed;
           const timedOut = Date.now() - startedAt > 4 * 60_000;
           let ready = false;
           try {
@@ -1203,7 +1226,11 @@ export function FlipdeskAutolisterPage() {
           }
           if (ready) {
             stop();
-            popup?.close();
+            try {
+              popup?.close();
+            } catch {
+              /* COOP-severed handle — the user closed it themselves anyway */
+            }
             try {
               await doImport();
             } catch (err) {
@@ -1213,9 +1240,11 @@ export function FlipdeskAutolisterPage() {
             }
             return;
           }
-          if (closed || timedOut) {
+          if (timedOut) {
             stop();
-            if (closed) toast.info("Google Photos import cancelled.");
+            toast.info(
+              "Google Photos import timed out — if you finished picking, try again.",
+            );
           }
         })();
       }, 2500);
@@ -2871,15 +2900,18 @@ export function FlipdeskAutolisterPage() {
               type="button"
               size="sm"
               variant="ghost"
-              onClick={() => void importFromGooglePhotos()}
-              disabled={!entitled || gpImporting}
+              onClick={() => {
+                if (gpImporting) gpCancelRef.current?.();
+                else void importFromGooglePhotos();
+              }}
+              disabled={!entitled}
             >
               {gpImporting ? (
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               ) : (
                 <Images className="mr-1.5 h-4 w-4" />
               )}
-              Import from Google Photos
+              {gpImporting ? "Waiting for your picks — cancel" : "Import from Google Photos"}
             </Button>
           )}
         </div>

@@ -1,7 +1,7 @@
 # GradeThread Android
 
 Native Kotlin/Compose client at iOS parity — the US-1299 conversion backlog.
-Reference: [`ANDROID_CONVERSION_PLAN.md`](../ANDROID_CONVERSION_PLAN.md) (the
+Reference: [`vault/90-archive/android-conversion-plan.md`](../ANDROID_CONVERSION_PLAN.md) (the
 iOS app is the behavioral source of truth).
 
 ## Stack (pinned in `gradle/libs.versions.toml`)

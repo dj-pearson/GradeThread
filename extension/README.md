@@ -5,7 +5,7 @@ A Chrome (Manifest V3) extension that lists your FlipDesk drafts to
 
 None of those three marketplaces has a developer *write* API, and server-side
 automation (driving them from GradeThread's servers with stored cookies) is a
-ban + legal risk (ToS, CFAA/DMCA — see `docs/bizdev/poshmark-rithum-decision.md`
+ban + legal risk (ToS, CFAA/DMCA — see `vault/60-decisions/adr-poshmark-via-extension.md`
 and US-715). The user-side extension is the model Vendoo / List Perfectly use
 and is the only realistic path for these channels.
 
