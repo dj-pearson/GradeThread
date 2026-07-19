@@ -31,7 +31,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 10-ops — operations and runbooks
 
-21 notes — see [[moc-ops]].
+22 notes — see [[moc-ops]].
 
 ## 20-domain — grading, measurement, contracts
 

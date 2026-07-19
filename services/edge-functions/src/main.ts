@@ -857,9 +857,26 @@ app.use(
 // loadGateAndDecide() before any token spend, so metering exists — but every
 // other AI surface carries a limiter too, and defence-in-depth is exactly what
 // you want on the path where a loop costs money per iteration.
-app.use("/api/support/assistant/*", rateLimiter(20, 60_000, "support-assistant"));
+app.use(
+  "/api/support/assistant/*",
+  // US-2013 AC2: fail closed. This is an LLM surface, so it belongs with
+  // /api/grade/* and /api/flipdesk/ai/* rather than with the read routes. It
+  // needs the DB anyway (loadGateAndDecide meters before any token spend), so
+  // during a store outage it cannot serve a correct response either way —
+  // 429ing at the limiter is strictly better than failing deep inside AFTER
+  // tokens have been bought.
+  rateLimiter(20, 60_000, "support-assistant", undefined, { failClosed: true }),
+);
 // US-619: ScoutAI is expensive (grades N candidates per scan) - cap tightly.
-app.use("/api/flipdesk/scout/*", rateLimiter(6, 60_000, "flipdesk-scout"));
+app.use(
+  "/api/flipdesk/scout/*",
+  // US-2013 AC2: fail closed. Scout grades N candidates per scan, which makes it
+  // the most expensive AI request on the platform after grading itself — the
+  // 6/min cap exists precisely because one scan fans out. Leaving the cap
+  // fail-open meant a store outage removed the bound on the highest-fan-out
+  // surface while Anthropic stayed billable.
+  rateLimiter(6, 60_000, "flipdesk-scout", undefined, { failClosed: true }),
+);
 // US-1572: calibration is CPU-bound image decode + CV (no model call) — cap
 // enough for a capture-review loop without letting one client hog the worker.
 app.use("/api/flipdesk/measure/*", rateLimiter(15, 60_000, "flipdesk-measure"));
@@ -883,8 +900,15 @@ app.use(
 );
 app.use(
   "/api/flipdesk/autolister/*",
+  // US-2013 AC2: fail closed on the WRITE cap only. A batch enqueue kicks off
+  // per-item generateListing calls, so this is an AI-spend surface even though
+  // the request itself is cheap. The read-only poll below deliberately stays
+  // fail-open — it buys no tokens, and 429ing a status poll during a blip would
+  // break the queue view for a batch that is already running and already paid
+  // for. That asymmetry is the point: close what spends, not what reads.
   rateLimiter(20, 60_000, "flipdesk-autolister", undefined, {
     methods: ["POST"],
+    failClosed: true,
     bypass: (c) => c.req.path === "/api/flipdesk/autolister/staging/upload",
   }),
 );

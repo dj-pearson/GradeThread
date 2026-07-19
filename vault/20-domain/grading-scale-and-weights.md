@@ -9,7 +9,7 @@ code_refs:
   - src/lib/weighted-grade.ts
   - services/edge-functions/src/lib/ai-grading.ts
   - services/edge-functions/src/lib/human-review.ts
-reviewed: 2026-07-18
+reviewed: 2026-07-19
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, and the rounding rule that has now shipped wrong twice.
 ---
