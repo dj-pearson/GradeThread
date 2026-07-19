@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2089",
+  "nextId": "US-2091",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2563,7 +2563,7 @@
     },
     {
       "id": "US-2057",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2047"
       ],
@@ -3048,6 +3048,46 @@
         "scripts/prd-lint.mjs",
         "scripts/prd-lint.test.mjs",
         "prd.json"
+      ]
+    },
+    {
+      "id": "US-2089",
+      "passes": false,
+      "dependsOn": [],
+      "priority": 1996,
+      "title": "Triage the unverified tail of the 2026-07-04 code review before it is lost to the archive",
+      "description": "As a maintainer, I want the ~87 lower-tier findings from the July code review checked for whether they are still open, so that archiving the document does not quietly retire real work.",
+      "acceptanceCriteria": [
+        "CONTEXT: US-2057 archived CODE_REVIEW_2026-07-04.md after verifying its SIX executive-summary criticals are all closed (US-1614..1623, US-1928, all shipped). The remaining ~87 findings were NOT verified — the document has 93 unchecked boxes and 0 checked, because nobody ticked them as work shipped, so the boxes carry no signal either way.",
+        "Triage the ~9 web P1s (archived note, lines 62-69), the ~20 web P2s, the edge/DB P2s (lines 119-120, 186-187 — notably the public_grade_reports moderation-withhold bypass and the autolister resume double-run), and the P3 tail.",
+        "For each: check the cited file:line against current code, and search prd.json + prd.archive.json for a covering story. Record still-open / closed / superseded.",
+        "Anything still open and uncovered becomes a story. Anything closed gets its box ticked in the archived note so the next reader is not re-deriving this.",
+        "Known sub-gap to close: the C4 fix (per-user query keys) was verified only for the FIVE keys the review named. The review said dozens. Enumerate the rest of the per-user query keys and confirm each carries a user id."
+      ],
+      "notes": "[P1][Security/Quality] Filed by US-2057 on 2026-07-19 rather than archiving over it. The six criticals were verified closed by direct code reading; the lower tier was explicitly NOT, and that is where the residual risk now sits. The archived note carries the same caveat so the two cannot drift apart.",
+      "relevantPaths": [
+        "vault/90-archive/code-review-2026-07-04.md",
+        "src/hooks/use-auth.ts",
+        "services/edge-functions/src/routes/"
+      ]
+    },
+    {
+      "id": "US-2090",
+      "passes": false,
+      "dependsOn": [],
+      "priority": 1930,
+      "title": "Two iOS parity gaps have no covering story",
+      "description": "As an iOS user, I want the last two parity gaps closed, so that the iOS client matches web on comp editing and has real authenticated UI test coverage.",
+      "acceptanceCriteria": [
+        "Auth-d seam-flow UITests — needs a seeded test account or a mock network layer. Currently the only UITest coverage is the launch smoke (ios-smoke.yml), so no authenticated flow is exercised.",
+        "Inline per-field editing of existing saved comps on iOS — today editing a saved comp means delete and re-add.",
+        "CONTEXT: these were the only two unchecked items in IOS_PARITY_AUDIT.md when US-2057 archived it on 2026-07-19. A search of prd.json and prd.archive.json found NO covering story for either, so archiving without filing this would have retired them silently.",
+        "iOS work cannot be built or verified from the Windows checkout; the iOS CI lane on macOS runners is the gate."
+      ],
+      "notes": "[P2][iOS] Filed by US-2057 on 2026-07-19. Extracted from IOS_PARITY_AUDIT.md before archiving it — the audit was otherwise complete (4 of 6 items done).",
+      "relevantPaths": [
+        "ios/",
+        "IOS_PARITY_AUDIT.md"
       ]
     }
   ]

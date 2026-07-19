@@ -35,6 +35,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 20-domain — grading, measurement, contracts
 
+- [[accessibility-conformance-vpat]] — contract — WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a published artifact that must stay true, not a snapshot.
 - [[brand-taxonomy-overview]] — reference — Where brand and garment taxonomy currently lives, why that is a problem, and how it gets extracted in US-2058.
 - [[garment-passport-privacy]] — contract — What a passport may expose publicly, and the salted-hash rule that keeps it de-identified.
 - [[grading-scale-and-weights]] — contract — The 1.0-10.0 scale, the five weighted factors, and the rounding rule that has now shipped wrong twice.
@@ -93,7 +94,11 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 90-archive — historical snapshots
 
+- [[android-conversion-plan]] — reference — Superseded by the 51-story Android epic in the backlog.
 - [[archive-semantics]] — reference — What belongs in 90-archive, how CI treats it, and the rule that stops archiving from burying live work.
+- [[code-review-2026-07-04]] — reference — Nine-domain deep-dive review; all six executive-summary criticals since closed, the lower tier untriaged.
+- [[ios-parity-audit]] — reference — Web/iOS feature parity check; 4 of 6 items closed, the remaining two extracted to US-2090.
+- [[security-audit-2026-06]] — reference — Self-reports all findings and follow-ups addressed, no open items.
 
 <!-- vault-index:end -->
 

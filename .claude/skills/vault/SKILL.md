@@ -39,7 +39,15 @@ Rough test: if `Grep` would answer it exactly, grep. If the answer is a *reason*
 a *procedure*, or a *constraint*, start at the index.
 
 `vault/90-archive/` is excluded from normal navigation. Read it only when
-*history* is the question.
+*history* is the question — "what did the June security audit conclude?", not
+"is this secure?".
+
+Every archived note carries a dated provenance callout saying what was verified
+and what was not. **Read that callout before quoting anything from an archive**:
+an audit's unchecked boxes usually mean "nobody updated the document", not
+"still open", and treating them as open work is how a closed finding gets
+re-litigated. Where a snapshot left real work behind, the callout names the
+story that carries it.
 
 ## The procedure / fact split
 

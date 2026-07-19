@@ -33,8 +33,10 @@ nothing references, and reports the ones that must stay.
 
 | Old path | Note | Created |
 |---|---|---|
+| `ANDROID_CONVERSION_PLAN.md` | [[android-conversion-plan]] | 2026-07-19 |
 | `BACKUPS.md` | [[backups]] | 2026-07-19 |
 | `CAPACITY.md` | [[capacity]] | 2026-07-19 |
+| `CODE_REVIEW_2026-07-04.md` | [[code-review-2026-07-04]] | 2026-07-19 |
 | `CONNECTION_POOLING.md` | [[connection-pooling]] | 2026-07-19 |
 | `Cross_Listing.md` | [[cross-listing]] | 2026-07-19 |
 | `DATA_RETENTION.md` | [[data-retention]] | 2026-07-19 |
@@ -78,6 +80,7 @@ nothing references, and reports the ones that must stay.
 | `FLIPDESK_RESELLER_GAPS.md` | [[flipdesk-reseller-gaps]] | 2026-07-19 |
 | `GARMENT_PASSPORT_PRIVACY.md` | [[garment-passport-privacy]] | 2026-07-19 |
 | `INCIDENT_RESPONSE.md` | [[incident-response]] | 2026-07-19 |
+| `IOS_PARITY_AUDIT.md` | [[ios-parity-audit]] | 2026-07-19 |
 | `KEY_ROTATION.md` | [[key-rotation]] | 2026-07-19 |
 | `LAUNCH_CHECKLIST.md` | [[launch-checklist]] | 2026-07-19 |
 | `MEASUREMENT_ACCURACY.md` | [[measurement-accuracy]] | 2026-07-19 |
@@ -87,11 +90,13 @@ nothing references, and reports the ones that must stay.
 | `REDDIT_DISTRIBUTION_PLAYBOOK.md` | [[seo-distribution-and-measurement]] | 2026-07-19 |
 | `ROLLBACK.md` | [[rollback]] | 2026-07-19 |
 | `SCALING.md` | [[scaling]] | 2026-07-19 |
+| `SECURITY_AUDIT_2026-06.md` | [[security-audit-2026-06]] | 2026-07-19 |
 | `SEO_STRATEGY.md` | [[seo-geo-strategy]] | 2026-07-19 |
 | `STAGING.md` | [[staging]] | 2026-07-19 |
 | `SUPPORT_ASSISTANT.md` | [[support-assistant]] | 2026-07-19 |
 | `SYNC_SOURCE_OF_TRUTH.md` | [[sync-source-of-truth]] | 2026-07-19 |
 | `UPTIME_MONITORING.md` | [[uptime-monitoring]] | 2026-07-19 |
+| `VPAT.md` | [[accessibility-conformance-vpat]] | 2026-07-19 |
 
 <!-- stubs:end -->
 
