@@ -68,12 +68,32 @@ interface FlipdeskPlanPickerDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Pre-scroll to the suggested upgrade tier (US-210). */
   highlightPlan?: FlipdeskPlanKey;
+  /**
+   * US-2125: what to do when the user picks the Free tile — i.e. cancels.
+   *
+   * Selecting Free used to open the STRIPE BILLING PORTAL, a second cancellation
+   * path that bypassed the reviewed flow entirely: no period-end statement, no
+   * acknowledgement checkbox, no reason capture, no undo banner. The reviewed
+   * dialog is the one that was designed and audited; a divergent second route is
+   * how the audited one stops being the one users actually hit.
+   *
+   * Passed as a callback rather than rendering the cancel dialog HERE because
+   * CancelSubscriptionDialog itself opens this picker as its "switch to a
+   * cheaper plan" off-ramp — self-rendering would make those two mutually
+   * recursive. The parent owns the flow; this component only reports intent.
+   *
+   * When omitted (the picker was opened FROM the cancel dialog) the Free tile
+   * simply closes this dialog, returning the user to the cancel flow they are
+   * already in.
+   */
+  onRequestCancel?: () => void;
 }
 
 export function FlipdeskPlanPickerDialog({
   open,
   onOpenChange,
   highlightPlan,
+  onRequestCancel,
 }: FlipdeskPlanPickerDialogProps) {
   const { data: summary } = useBillingSummary();
   const subscribe = useFlipdeskSubscribe();
@@ -309,6 +329,15 @@ export function FlipdeskPlanPickerDialog({
                         to: planKey,
                         interval,
                       });
+                      // US-2125: the Free tile is a CANCELLATION. Route it to the
+                      // reviewed dialog instead of the Stripe portal, which
+                      // skipped the period-end statement, the acknowledgement
+                      // checkbox, the reason capture and the undo banner.
+                      if (isCancelToFree) {
+                        onOpenChange(false);
+                        onRequestCancel?.();
+                        return;
+                      }
                       portal.mutate();
                     },
                   })}

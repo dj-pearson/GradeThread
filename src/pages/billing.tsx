@@ -657,6 +657,12 @@ export function BillingPage() {
         open={planPickerOpen}
         onOpenChange={setPlanPickerOpen}
         highlightPlan={highlightPlan}
+        // US-2125: picking the Free tile IS a cancellation. It used to open the
+        // Stripe billing portal — a second path that skipped the reviewed flow's
+        // period-end statement, acknowledgement checkbox, reason capture and undo
+        // banner. Route it to the same dialog the Cancel button uses so there is
+        // exactly ONE cancellation experience.
+        onRequestCancel={() => setCancelOpen(true)}
       />
       <PauseSubscriptionDialog open={pauseOpen} onOpenChange={setPauseOpen} />
       <CancelSubscriptionDialog
