@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 2075,
+  "nextId": 2076,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2892,6 +2892,21 @@
       "id": "US-2074",
       "passes": true,
       "dependsOn": []
+    },
+    {
+      "id": "US-2075",
+      "passes": false,
+      "dependsOn": [],
+      "priority": 1989,
+      "title": "16 independent dollars() helpers with divergent rounding; one showed a $24.99 pack as $25",
+      "description": "src/ contains SIXTEEN separate `function dollars(cents)` definitions and they disagree: most use toFixed(2), two use toFixed(0), one omits the leading $, one takes a currency, one returns 'Free' for 0, one handles null. The divergence is only SOMETIMES a bug, which is what makes it hard to see. FLIPDESK_PLANS are whole dollars (2900/5900/9900 monthly, 29000/59000/99000 yearly) so toFixed(0) on a plan card loses nothing and reads better. But CREDIT_PACKS (2499/5999/10999/19999) and GRADETHREAD_TIERS (299/799/1299/…) ALL carry cents, so rounding those invents money. The live instance: the landing page rendered a $24.99 pack as '$25' while /pricing rendered '$24.99' — the same pack at two prices on one site, on the page headlined 'transparent pricing'.",
+      "acceptanceCriteria": [
+        "Consolidate to ONE money module with explicitly-named formatters — an exact one (money that carries cents: packs, tiers, payouts, P&L) and a deliberate whole-dollar one (plan cards) — so the choice is visible at the call site rather than implied by which local helper a file happened to define.",
+        "Audit the other 15 call sites for the same class of bug: any toFixed(0) applied to a value that can carry cents is money the display invents.",
+        "Keep the whole-dollar variant. $29/mo is better copy than $29.00/mo and loses nothing — the rule is about values that HAVE cents, not about decimals everywhere.",
+        "Extend the US-2075 guard from the landing call site to the shared formatter once it exists."
+      ],
+      "notes": "[P2][Money/Frontend] Found 2026-07-18 while pinning the pricing mirror (US-2019 AC2). The landing instance is FIXED and guarded (US-2075); this story is the systemic half. VERIFIED LIVE before and after: /pricing renders $24.99 / $59.99 / $109.99 / $199.99 while the landing pack section is CLIENT-RENDERED (only the $59 plan price appears in server HTML) — which is precisely why the discrepancy survived: it never showed up in a prerendered diff, so no HTML-level check could have caught it. Worth noting the direction of the error too: rounding UP advertises $25 and charges $24.99, which is harmless legally but erodes the exact 'transparent pricing' claim the page makes. The reverse — a surface rounding a $24.99 charge DOWN to $24 — would not be harmless, and with 16 divergent helpers nothing currently prevents it."
     }
   ]
 }
