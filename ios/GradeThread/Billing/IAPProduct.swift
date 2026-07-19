@@ -85,12 +85,12 @@ enum IAPCatalog {
         IAPCatalogEntry(
             productId: "com.gradethread.sub.pro.monthly",
             kind: .subscription(plan: "pro", interval: "monthly"),
-            title: "Pro", blurb: "1,000 listings · 1,000 AI actions · 30 grades · AutoLister",
+            title: "Pro", blurb: "1,000 listings · 750 AI actions · 30 grades · AutoLister",
             fallbackPrice: "$59/mo", referenceCents: 5900),
         IAPCatalogEntry(
             productId: "com.gradethread.sub.pro.yearly",
             kind: .subscription(plan: "pro", interval: "yearly"),
-            title: "Pro", blurb: "1,000 listings · 1,000 AI actions · 30 grades · AutoLister",
+            title: "Pro", blurb: "1,000 listings · 750 AI actions · 30 grades · AutoLister",
             fallbackPrice: "$590/yr", referenceCents: 59000),
         IAPCatalogEntry(
             productId: "com.gradethread.sub.business.monthly",
