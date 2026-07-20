@@ -23,6 +23,10 @@ import { createMiddleware } from "hono/factory";
 import { redact } from "../lib/log-redact.ts";
 import { logEvent, newCorrelationId, shouldSampleTrace } from "../lib/observability.ts";
 
+// Default ON: the cost is one small line per request, and it is the only way to
+// attribute a hung event loop to a route. See the note at its use site.
+const LOG_REQUEST_START = (Deno.env.get("EDGE_LOG_REQUEST_START") ?? "1") !== "0";
+
 export const accessLogger = createMiddleware(async (c, next) => {
   const start = Date.now();
   const method = c.req.method;
@@ -43,6 +47,26 @@ export const accessLogger = createMiddleware(async (c, next) => {
   const correlationId = inbound || newCorrelationId();
   c.set("correlationId", correlationId);
   c.header("X-Request-Id", correlationId);
+
+  // US-2151: emit a line BEFORE the handler runs.
+  //
+  // The completion line below is the only access log we had, which meant a
+  // request that never completed left no trace at all. On 2026-07-20 the event
+  // loop entered a synchronous spin and the process hung — alive (so
+  // `restart: unless-stopped` never fired) but serving nothing, so Traefik
+  // dropped it and every route returned "no available server". The logs simply
+  // stopped mid-stream with no error and no indication of which route did it.
+  //
+  // A start line makes the culprit self-identifying: after a hang, the LAST
+  // http.request.start with no matching http.request completion IS the request
+  // that blocked the loop. Correlate on correlationId.
+  //
+  // Deliberately NOT sampled — sampling is what would drop the one line that
+  // matters, and a stall is by definition the rare case. Set
+  // EDGE_LOG_REQUEST_START=0 to disable once the loop is found and fixed.
+  if (LOG_REQUEST_START) {
+    logEvent("info", "http.request.start", { correlationId, method, path: safePath });
+  }
 
   await next();
 
