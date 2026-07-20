@@ -19,6 +19,7 @@ export type FreshnessGroup =
   | "platform-standards"
   | "comparisons"
   | "crosslisting-apps"
+  | "competitor-alternatives"
   | "where-to-sell";
 
 export interface FreshnessEntry {
@@ -45,6 +46,11 @@ export const FRESHNESS_REGISTRY: Record<FreshnessGroup, FreshnessEntry> = {
     lastVerified: "2026-07-06",
     cadenceMonths: 3,
     covers: "Best crosslisting apps listicle (/reselling/best-crosslisting-apps)",
+  },
+  "competitor-alternatives": {
+    lastVerified: "2026-07-20",
+    cadenceMonths: 3,
+    covers: "Competitor alternative pages (/reselling/*-alternative)",
   },
   "where-to-sell": {
     lastVerified: "2026-07-06",

@@ -73,6 +73,10 @@ import {
   CROSSLIST_APPS_PAGE,
   CROSSLIST_APPS_PATH,
 } from "@/lib/seo/crosslisting-apps";
+import {
+  alternativePath,
+  type CompetitorAlternative,
+} from "@/lib/seo/competitor-alternatives";
 import { CONDITION_CHART_META, CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { GRADE_CHECKER_META, GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
 import {
@@ -937,6 +941,55 @@ export function crosslistAppsJsonLd(): JsonLd[] {
     }),
     itemList,
     faqPageLd(CROSSLIST_APPS_PAGE.faqs),
+  ];
+}
+
+// ── Competitor alternative pages ────────────────────────────────────
+const ALTERNATIVES_PUBLISHED = "2026-07-20";
+const ALTERNATIVES_MODIFIED = "2026-07-20";
+
+export function alternativeBreadcrumbItems(
+  alt: CompetitorAlternative,
+): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Reselling", url: `${SITE_URL}${RESELLING_PILLAR_PATH}` },
+    {
+      name: `${alt.competitor} alternatives`,
+      url: `${SITE_URL}${alternativePath(alt.slug)}`,
+    },
+  ];
+}
+
+/**
+ * Article + an ItemList of the options + the FAQ.
+ *
+ * The ItemList deliberately carries every option INCLUDING the competitors, in
+ * the same order as the page. A list that named only our own tool would not
+ * match the visible content, which is both a structured-data mismatch and the
+ * kind of thing that makes an AI engine distrust the page it is quoting.
+ */
+export function alternativeJsonLd(alt: CompetitorAlternative): JsonLd[] {
+  const itemList: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: `${alt.competitor} alternatives for resellers (2026)`,
+    itemListElement: alt.options.map((opt, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: opt.name,
+    })),
+  };
+  return [
+    articleLd({
+      headline: alt.h1,
+      description: alt.description,
+      url: absoluteUrl(alternativePath(alt.slug)),
+      datePublished: ALTERNATIVES_PUBLISHED,
+      dateModified: ALTERNATIVES_MODIFIED,
+    }),
+    itemList,
+    faqPageLd(alt.faqs),
   ];
 }
 

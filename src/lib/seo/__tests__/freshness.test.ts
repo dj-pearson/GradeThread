@@ -53,8 +53,16 @@ describe("freshness registry (US-1694)", () => {
 
   it("overdueGroups returns exactly the groups past cadence as of a date", () => {
     expect(overdueGroups("2026-08-01")).toEqual([]);
+    // competitor-alternatives is quarterly and was verified 2026-07-20, so it
+    // shares the 2026-10 due month with the other quarterly groups (dueMonth is
+    // month-granular — the day of the month does not participate).
     expect(overdueGroups("2026-10-01").sort()).toEqual(
-      ["comparisons", "crosslisting-apps", "platform-standards"].sort(),
+      [
+        "comparisons",
+        "competitor-alternatives",
+        "crosslisting-apps",
+        "platform-standards",
+      ].sort(),
     );
     // A year out, the annual group is due too.
     expect(overdueGroups("2027-08-01").sort()).toEqual([...FRESHNESS_GROUPS].sort());

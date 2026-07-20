@@ -6,6 +6,10 @@ import { lazy, SuspenseWrapper } from "./lazy";
 import { createBrowserRouter, Navigate, useLocation } from "react-router-dom";
 import { RootLayout } from "@/layouts/root-layout";
 import { RouteErrorFallback } from "@/components/error-boundary";
+import {
+  COMPETITOR_ALTERNATIVES,
+  alternativePath,
+} from "@/lib/seo/competitor-alternatives";
 
 // RootLayout stays eager (it renders on the first paint of every route). The
 // authenticated layouts + auth guards are lazy: they pull Supabase, react-query
@@ -91,6 +95,7 @@ const PlatformStandardsHubPage = lazy(() => import("@/pages/marketing/platform-s
 const PlatformStandardPage = lazy(() => import("@/pages/marketing/platform-standards").then(m => ({ default: m.PlatformStandardPage })));
 const WhereToSellPage = lazy(() => import("@/pages/marketing/where-to-sell").then(m => ({ default: m.WhereToSellPage })));
 const CrosslistingAppsPage = lazy(() => import("@/pages/marketing/crosslisting-apps").then(m => ({ default: m.CrosslistingAppsPage })));
+const CompetitorAlternativePage = lazy(() => import("@/pages/marketing/competitor-alternative").then(m => ({ default: m.CompetitorAlternativePage })));
 const ConditionChartPage = lazy(() => import("@/pages/marketing/condition-chart").then(m => ({ default: m.ConditionChartPage })));
 const GradeCheckerPage = lazy(() => import("@/pages/tools/grade-checker").then(m => ({ default: m.GradeCheckerPage })));
 const AuthenticityCheckPage = lazy(() => import("@/pages/tools/authenticity-check").then(m => ({ default: m.AuthenticityCheckPage })));
@@ -276,6 +281,14 @@ export const router = createBrowserRouter([
       { path: "/reselling/best-crosslisting-apps", element: <SuspenseWrapper><CrosslistingAppsPage /></SuspenseWrapper> },
       // US-1693: consumer where-to-sell mega-guide.
       { path: "/where-to-sell-used-clothes", element: <SuspenseWrapper><WhereToSellPage /></SuspenseWrapper> },
+      // Competitor alternative pages. Generated from the same data as the
+      // routes/sitemap so the three lists cannot drift, and registered
+      // EXPLICITLY before /reselling/:slug — that dynamic route would otherwise
+      // swallow them and render the guide page's not-found instead.
+      ...COMPETITOR_ALTERNATIVES.map((alt) => ({
+        path: alternativePath(alt.slug),
+        element: <SuspenseWrapper><CompetitorAlternativePage slug={alt.slug} /></SuspenseWrapper>,
+      })),
       { path: "/reselling/:slug", element: <SuspenseWrapper><ResellingGuidePage /></SuspenseWrapper> },
       // US-1667: marketplace comparison hub + pages.
       { path: "/compare", element: <SuspenseWrapper><CompareHubPage /></SuspenseWrapper> },

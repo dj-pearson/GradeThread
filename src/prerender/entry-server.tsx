@@ -128,6 +128,11 @@ import { WHERE_TO_SELL_PATH } from "@/lib/seo/where-to-sell";
 import { WhereToSellPage } from "@/pages/marketing/where-to-sell";
 import { CROSSLIST_APPS_PATH } from "@/lib/seo/crosslisting-apps";
 import { CrosslistingAppsPage } from "@/pages/marketing/crosslisting-apps";
+import {
+  COMPETITOR_ALTERNATIVES,
+  alternativePath,
+} from "@/lib/seo/competitor-alternatives";
+import { CompetitorAlternativePage } from "@/pages/marketing/competitor-alternative";
 import { CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { ConditionChartPage } from "@/pages/marketing/condition-chart";
 import { GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
@@ -275,6 +280,16 @@ const PAGES: Record<string, React.ReactNode> = {
   [WHERE_TO_SELL_PATH]: <WhereToSellPage />,
   // Best crosslisting apps listicle (US-1686).
   [CROSSLIST_APPS_PATH]: <CrosslistingAppsPage />,
+  // Competitor alternative pages — generated from the same source as the router
+  // and the route registry, so the three lists cannot drift apart (a missing
+  // entry here is a registered route that prerenders to an empty SPA shell,
+  // which the crawl-parity + sync-guard tests exist to catch).
+  ...Object.fromEntries(
+    COMPETITOR_ALTERNATIVES.map((alt) => [
+      alternativePath(alt.slug),
+      <CompetitorAlternativePage slug={alt.slug} />,
+    ]),
+  ),
   // Free printable condition chart (US-1678).
   [CONDITION_CHART_PATH]: <ConditionChartPage />,
   // Free grade-checker tool (US-1687).
@@ -402,6 +417,15 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   ),
   [WHERE_TO_SELL_PATH]: `${M}marketing/where-to-sell`,
   [CROSSLIST_APPS_PATH]: `${M}marketing/crosslisting-apps`,
+  // All three competitor alternative pages share one page module, like the
+  // glossary/guides/comparison sets above. Generated from the same source as
+  // PAGES so the guard below cannot catch them out of sync.
+  ...Object.fromEntries(
+    COMPETITOR_ALTERNATIVES.map((alt) => [
+      alternativePath(alt.slug),
+      `${M}marketing/competitor-alternative`,
+    ]),
+  ),
   [CONDITION_CHART_PATH]: `${M}marketing/condition-chart`,
   [GRADE_CHECKER_PATH]: `${M}tools/grade-checker`,
   [AUTHENTICITY_CHECK_PATH]: `${M}tools/authenticity-check`,

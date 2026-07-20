@@ -78,6 +78,8 @@ import {
   whereToSellBreadcrumbItems,
   crosslistAppsJsonLd,
   crosslistAppsBreadcrumbItems,
+  alternativeJsonLd,
+  alternativeBreadcrumbItems,
   conditionChartJsonLd,
   conditionChartBreadcrumbItems,
   gradeCheckerJsonLd,
@@ -125,6 +127,7 @@ import {
 } from "@/lib/seo/platform-standards";
 import { isWhereToSellPath } from "@/lib/seo/where-to-sell";
 import { isCrosslistAppsPath } from "@/lib/seo/crosslisting-apps";
+import { getAlternativeByPath } from "@/lib/seo/competitor-alternatives";
 import { isConditionChartPath } from "@/lib/seo/condition-chart";
 import { isGradeCheckerPath } from "@/lib/seo/grade-checker";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
@@ -318,6 +321,17 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(crosslistAppsBreadcrumbItems()),
       ...crosslistAppsJsonLd(),
+    ];
+  }
+  // Competitor alternative pages: also under /reselling/, so likewise matched
+  // BEFORE the reselling-guide lookup below or that would claim them.
+  // Organization + 3-level breadcrumb + Article + ItemList + FAQ.
+  const alternative = getAlternativeByPath(path);
+  if (alternative) {
+    return [
+      organizationLd(),
+      breadcrumbLd(alternativeBreadcrumbItems(alternative)),
+      ...alternativeJsonLd(alternative),
     ];
   }
   // Comparison hub (US-1667): Organization + 2-level breadcrumb (no extra LD).

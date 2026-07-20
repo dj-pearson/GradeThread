@@ -30,6 +30,7 @@ import { returnsSpineRoute } from "./returns-spine";
 import { platformStandardsRoutes } from "./platform-standards";
 import { whereToSellRoute } from "./where-to-sell";
 import { crosslistAppsRoute } from "./crosslisting-apps";
+import { competitorAlternativeRoutes } from "./competitor-alternatives";
 import { conditionChartRoute } from "./condition-chart";
 import { gradeCheckerRoute } from "./grade-checker";
 import { authenticityCheckRoute } from "./authenticity-check";
@@ -155,6 +156,9 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/where-to-sell-used-clothes": "2026-07-06",
   // Best crosslisting apps listicle (US-1686).
   "/reselling/best-crosslisting-apps": "2026-07-06",
+  "/reselling/vendoo-alternative": "2026-07-20",
+  "/reselling/list-perfectly-alternative": "2026-07-20",
+  "/reselling/crosslist-alternative": "2026-07-20",
   // Free printable condition chart (US-1678).
   "/grading/condition-chart": "2026-07-06",
   // Free grade-checker tool (US-1687).
@@ -626,6 +630,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   whereToSellRoute(),
   // Best crosslisting apps listicle (US-1686).
   crosslistAppsRoute(),
+  // Bottom-funnel competitor alternative pages: /reselling/{competitor}-alternative.
+  // Brand-modifier queries ("vendoo alternative") are the highest commercial
+  // intent available to us and the roundup above does not rank for them.
+  ...competitorAlternativeRoutes(),
   // Free printable condition chart (US-1678).
   conditionChartRoute(),
   // Free grade-checker tool (US-1687).
