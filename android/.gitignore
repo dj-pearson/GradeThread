@@ -3,3 +3,5 @@ local.properties
 build/
 app/build/
 *.keystore
+# Kotlin compiler session/error scratch dir — build output, not source.
+.kotlin/
