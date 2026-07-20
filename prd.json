@@ -35,7 +35,7 @@
     {
       "id": "US-1330",
       "priority": -98670,
-      "passes": false,
+      "passes": true,
       "title": "Details-first manual intake form + autosave + duplicate-SKU merge",
       "description": "As a seller, I can add an item by typing its details, with my draft autosaved and a guard against duplicate SKUs.",
       "acceptanceCriteria": [

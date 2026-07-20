@@ -171,7 +171,9 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellRoutes.TOOLS) { SectionPlaceholder("Tools") }
         // Capture entry points (the Add sheet's targets).
         composable("capture/photos") { com.gradethread.app.capture.CaptureScreen() }
-        composable("capture/details") { SectionPlaceholder("Details intake") }
+        composable("capture/details") {
+            com.gradethread.app.inventory.DetailsIntakeScreen()
+        }
         composable("capture/autolister") { SectionPlaceholder("AutoLister") }
     }
 }
