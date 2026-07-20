@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2150",
+  "nextId": "US-2151",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -74,7 +74,7 @@
     {
       "id": "US-1333",
       "priority": -98667,
-      "passes": false,
+      "passes": true,
       "title": "On-device OCR size-tag inference (ML Kit) — offline brand/size fallback",
       "description": "As a seller, when the AI extract misses brand/size, an on-device OCR fallback fills them from the tag photo offline.",
       "acceptanceCriteria": [
@@ -3974,6 +3974,19 @@
         "Each is a DECISION-then-build, not a build: confirm the proposal is still wanted before starting. The roadmap dates from before much of the grading moat shipped."
       ],
       "notes": "[P3][EPIC: Knowledge Vault] Filed by US-2094 on 2026-07-19, following the US-2090 precedent (extract uncovered items BEFORE the document stops being read). The roadmap moved to the vault as a current reference rather than to 90-archive, so these are not strictly buried — but a proposal living only in a reference note is not tracked work, and the whole point of the check was to find out which ones nobody had filed."
+    },
+    {
+      "id": "US-2150",
+      "priority": 1900,
+      "passes": false,
+      "title": "Android universal APK ships 4 ABIs — ML Kit native libs cost ~42MB",
+      "description": "As a seller on a metered connection, I download only the native libraries my device can run.",
+      "acceptanceCriteria": [
+        "Release distribution is an App Bundle (or ABI splits) so each device downloads one ABI, not four",
+        "ML Kit OCR + barcode native libs (libmlkit_google_ocr_pipeline.so ~11MB/ABI, libbarhopper_v3.so ~5MB/ABI) contribute their per-device size only",
+        "CI records the per-ABI download size so a future model dependency cannot silently double it"
+      ],
+      "notes": "[P2][Android/Build] Found while implementing US-1333. Adding ML Kit text recognition took the universal debug APK from 45MB to 87MB; ~41MB of that is libmlkit_google_ocr_pipeline.so duplicated across armeabi-v7a/arm64-v8a/x86/x86_64. The Japanese script model itself is only ~1.8MB of assets, so dropping it is NOT the fix — the native pipeline is required by Latin too. There is currently no abiFilters, no splits block, no bundle config and no release job in android-ci.yml."
     }
   ]
 }
