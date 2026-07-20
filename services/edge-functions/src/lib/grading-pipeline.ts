@@ -52,6 +52,7 @@ import {
   storeGarmentFingerprint,
 } from "./passport-write.ts";
 import { appendAuthenticityEvent } from "./passport-authenticity.ts";
+import { notifyAuthenticityFlagged } from "./authenticity-notify.ts";
 import { authenticityGateStatus } from "./authenticity-eval.ts";
 import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
 import {
@@ -2190,6 +2191,19 @@ export async function processSubmission(submissionId: string) {
     if (!passportGarmentId) {
       passportGarmentId = await createSingleHopPassport(seedInput);
     }
+
+    // US-2145 §1a: tell the seller when their item drew a red-flag verdict. A
+    // seller cannot contest what they were never told about, and this verdict is
+    // published on a public certificate, sealed into certificate integrity, and
+    // written to the passport ledger — finding that out by accident is the
+    // failure the appeal path exists to fix. Fires only on red_flags;
+    // best-effort, so a notification problem never breaks a paid grade.
+    void notifyAuthenticityFlagged(
+      submission.user_id,
+      authenticityAssessment?.verdict ?? null,
+      submission.title ?? null,
+      `/dashboard/submissions/${submission.id}`,
+    );
 
     // US-2142: append the coarse authenticity verdict to the passport ledger so
     // provenance carries it alongside condition. Best-effort and no-ops when the
