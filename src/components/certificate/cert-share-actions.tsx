@@ -7,6 +7,7 @@ import { track } from "@/lib/analytics";
 import { SITE_URL } from "@/lib/seo/site";
 import { useAuthStore } from "@/stores/auth-store";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { prefersNativeShare } from "@/lib/share";
 
 // US-767 (implements US-607): turn the certificate into a first-class
 // shareable. Native share sheet (with the slab image where supported) + a
@@ -158,7 +159,13 @@ export function CertShareActions({
         canShare?: (data?: ShareData) => boolean;
       };
 
-      if (typeof nav.share === "function") {
+      // Desktop Chrome/Edge on Windows implement navigator.share, so testing
+      // for its existence sent desktop users into the OS share sheet — a modal
+      // offering Mail and nearby-sharing that cannot post to X and reads as the
+      // button being broken. prefersNativeShare() also requires a coarse
+      // primary pointer, so phones and tablets keep the sheet (it reaches
+      // native apps, and carries the slab image) and desktop copies the link.
+      if (prefersNativeShare()) {
         // Try to attach the graded photo so the share carries the image, not
         // just a link — but only when the platform accepts files.
         let files: File[] | undefined;
@@ -186,7 +193,7 @@ export function CertShareActions({
         return;
       }
 
-      // No Web Share API → copy the link.
+      // Desktop, or no Web Share API → copy the link.
       await navigator.clipboard.writeText(url);
       toast.success("Certificate link copied");
       track("cert_share", {

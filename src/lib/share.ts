@@ -9,6 +9,26 @@ import { toast } from "sonner";
 export type ShareResult = "shared" | "copied" | "dismissed" | "failed";
 
 /**
+ * Whether the native share sheet is worth opening.
+ *
+ * `navigator.share` EXISTING is not the right test. Desktop Chrome on Windows
+ * implements it, so the previous `typeof nav.share === "function"` check routed
+ * desktop users into the OS share sheet — a modal listing Mail, printers and
+ * nearby-sharing, which is strictly worse than copying a link and which several
+ * users read as the button being broken.
+ *
+ * Gate on the PRIMARY pointer being coarse instead: that is true on phones and
+ * tablets, where the sheet is genuinely the best affordance (it reaches native
+ * apps the clipboard cannot), and false on desktop, including touchscreen
+ * laptops driven by a mouse. Desktop then falls through to clipboard copy.
+ */
+export function prefersNativeShare(): boolean {
+  if (typeof navigator === "undefined" || typeof window === "undefined") return false;
+  if (typeof (navigator as Navigator & { share?: unknown }).share !== "function") return false;
+  return window.matchMedia?.("(pointer: coarse)").matches ?? false;
+}
+
+/**
  * Open the native share sheet for `data`, falling back to copying `data.url`
  * to the clipboard. Shows a "copied" toast on the copy path. Returns how the
  * share resolved so callers can fire analytics with the right method.
@@ -26,7 +46,7 @@ export async function shareOrCopy(data: {
       ? (navigator as Navigator & { share?: (d: ShareData) => Promise<void> })
       : undefined;
 
-  if (nav && typeof nav.share === "function") {
+  if (nav && prefersNativeShare()) {
     try {
       await nav.share({ title, text, url });
       return "shared";
