@@ -13,8 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
@@ -22,7 +24,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -42,6 +46,7 @@ import com.gradethread.app.ui.theme.Spacing
  * `remember`, so the filter+sort pass survives recomposition rather than
  * re-running on every unrelated state change.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoryListScreen(viewModel: InventoryListViewModel = hiltViewModel()) {
     val items by viewModel.items.collectAsStateWithLifecycle()
@@ -52,12 +57,15 @@ fun InventoryListScreen(viewModel: InventoryListViewModel = hiltViewModel()) {
     val query by viewModel.query.collectAsStateWithLifecycle()
     val debouncedQuery by viewModel.debouncedQuery.collectAsStateWithLifecycle()
     val photoItemIds by viewModel.photoItemIds.collectAsStateWithLifecycle()
+    val serverSearchIds by viewModel.serverSearchIds.collectAsStateWithLifecycle()
 
     // One cache per screen, NOT per composition — a per-composition instance
     // would defeat the entire point.
     val derivation = remember { InventoryDerivation() }
+    var showingFilters by remember { mutableStateOf(false) }
 
     val counts = derivation.stageCounts(items)
+    val facets = derivation.facets(items)
     val visible = derivation.filtered(
         items = items,
         // The board ignores stages but still honours search and facets.
@@ -66,7 +74,28 @@ fun InventoryListScreen(viewModel: InventoryListViewModel = hiltViewModel()) {
         sort = sort,
         criteria = criteria,
         photoItemIds = photoItemIds,
+        serverSearchIds = serverSearchIds,
     )
+
+    if (showingFilters) {
+        ModalBottomSheet(onDismissRequest = { showingFilters = false }) {
+            InventoryFilterSheet(
+                facets = facets,
+                committed = criteria,
+                allItems = items,
+                stage = stage,
+                photoItemIds = photoItemIds,
+                onApply = {
+                    viewModel.setCriteria(it)
+                    showingFilters = false
+                },
+                onClear = {
+                    viewModel.clearFilters()
+                    showingFilters = false
+                },
+            )
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -86,10 +115,11 @@ fun InventoryListScreen(viewModel: InventoryListViewModel = hiltViewModel()) {
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
             )
-            if (criteria.activeCount > 0) {
-                TextButton(onClick = viewModel::clearFilters) {
-                    Text("Clear ${criteria.activeCount} filters")
-                }
+            TextButton(onClick = { showingFilters = true }) {
+                Text(
+                    if (criteria.activeCount > 0) "Filters (${criteria.activeCount})"
+                    else "Filters",
+                )
             }
             TextButton(onClick = viewModel::toggleViewMode) {
                 Text(if (viewMode == InventoryViewMode.LIST) "Board" else "List")
@@ -115,8 +145,8 @@ fun InventoryListScreen(viewModel: InventoryListViewModel = hiltViewModel()) {
         SortRow(current = sort, onSelect = viewModel::setSort)
 
         when (viewMode) {
-            InventoryViewMode.LIST -> InventoryList(visible)
-            InventoryViewMode.BOARD -> InventoryBoard(visible)
+            InventoryViewMode.LIST -> InventoryList(visible, photoItemIds)
+            InventoryViewMode.BOARD -> InventoryBoard(visible, photoItemIds)
         }
     }
 }
@@ -138,18 +168,20 @@ private fun SortRow(current: SortOption, onSelect: (SortOption) -> Unit) {
 }
 
 @Composable
-private fun InventoryList(items: List<InventoryItemEntity>) {
+private fun InventoryList(items: List<InventoryItemEntity>, photoItemIds: Set<String>) {
     if (items.isEmpty()) {
         EmptyState()
         return
     }
     LazyColumn(Modifier.fillMaxSize()) {
-        items(items, key = { it.id }) { item -> InventoryRow(item) }
+        items(items, key = { it.id }) { item ->
+            InventoryRow(item, hasPhotos = item.id in photoItemIds)
+        }
     }
 }
 
 @Composable
-private fun InventoryBoard(items: List<InventoryItemEntity>) {
+private fun InventoryBoard(items: List<InventoryItemEntity>, photoItemIds: Set<String>) {
     val grouped = remember(items) { PipelineBoard.group(items) { it.status } }
     LazyRow(
         modifier = Modifier.fillMaxSize(),
@@ -170,7 +202,7 @@ private fun InventoryBoard(items: List<InventoryItemEntity>) {
                 )
                 LazyColumn {
                     items(grouped[column.status].orEmpty(), key = { it.id }) { item ->
-                        InventoryRow(item)
+                        InventoryRow(item, hasPhotos = item.id in photoItemIds)
                     }
                 }
             }
@@ -179,7 +211,7 @@ private fun InventoryBoard(items: List<InventoryItemEntity>) {
 }
 
 @Composable
-private fun InventoryRow(item: InventoryItemEntity) {
+private fun InventoryRow(item: InventoryItemEntity, hasPhotos: Boolean = false) {
     Row(
         Modifier.fillMaxWidth().padding(Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
@@ -206,6 +238,19 @@ private fun InventoryRow(item: InventoryItemEntity) {
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+        }
+        // Presence comes from photo ROWS, never primaryPhotoUrl — US-994,
+        // the denormalized cover lags the real set, so a freshly-photographed
+        // item would wrongly read as "no photos".
+        if (!hasPhotos) {
+            Text(
+                text = "No photos",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .padding(end = Spacing.xs)
+                    .semantics { contentDescription = "No photos yet" },
+            )
         }
         item.gradeValue?.let { GradeChip(it, item.gradeLabel) }
     }

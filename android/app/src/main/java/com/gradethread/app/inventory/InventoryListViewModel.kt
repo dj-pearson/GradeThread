@@ -11,8 +11,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
@@ -30,6 +31,7 @@ enum class InventoryViewMode { LIST, BOARD }
 @HiltViewModel
 class InventoryListViewModel @Inject constructor(
     private val db: GradeThreadDb,
+    private val searchService: InventorySearchService,
 ) : ViewModel() {
 
     companion object {
@@ -68,16 +70,34 @@ class InventoryListViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * Photo ids are only collected when the photo facet is active — the query
-     * is cheap but pointless otherwise (US-1520).
+     * Ids that have photo ROWS (US-994 — never `primaryPhotoUrl`, which lags).
+     *
+     * Deliberate divergence from iOS, which fetches this lazily only when the
+     * photo facet is active: AC #3 wants a photo indicator on EVERY row, so
+     * the data is needed unconditionally. US-1520's actual concern was
+     * faulting each item's photo relation per row; this is one id-level query
+     * either way, which is the fix rather than the problem.
      */
-    val photoItemIds: StateFlow<Set<String>?> =
-        combine(db.photos().observeItemIdsWithPhotos(), _criteria) { ids, criteria ->
-            if (criteria.photoState == PhotoState.ANY) null else ids.toSet()
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val photoItemIds: StateFlow<Set<String>> = db.photos().observeItemIdsWithPhotos()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    private val _refreshing = MutableStateFlow(false)
-    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+    /**
+     * Server FTS ids, recomputed off the DEBOUNCED query so the RPC fires at
+     * most once per pause, not per keystroke.
+     */
+    val serverSearchIds: StateFlow<Set<String>?> = debouncedQuery
+        .mapLatest { query -> searchService.search(query) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // NO pull-to-refresh yet, deliberately. The sync primitives exist
+    // (SyncPull.fetchPaged, SyncMerger.apply) but nothing assembles them into
+    // a "pull now" entry point — only RealtimeService applies single-item
+    // batches. Improvising one here would mean re-deriving the watermark and
+    // drop-safe-cursor rules inside a list screen, which is where they least
+    // belong. The list is Room-backed and reactive, so it already updates
+    // itself the moment anything writes; refresh is a manual trigger for
+    // machinery that isn't wired up yet.
 
     fun selectStage(stage: InventoryStage) {
         _stage.value = stage

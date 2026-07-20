@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2151",
+  "nextId": "US-2152",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3987,6 +3987,19 @@
         "CI records the per-ABI download size so a future model dependency cannot silently double it"
       ],
       "notes": "[P2][Android/Build] Found while implementing US-1333. Adding ML Kit text recognition took the universal debug APK from 45MB to 87MB; ~41MB of that is libmlkit_google_ocr_pipeline.so duplicated across armeabi-v7a/arm64-v8a/x86/x86_64. The Japanese script model itself is only ~1.8MB of assets, so dropping it is NOT the fix — the native pipeline is required by Latin too. There is currently no abiFilters, no splits block, no bundle config and no release job in android-ci.yml."
+    },
+    {
+      "id": "US-2151",
+      "priority": -98657,
+      "passes": false,
+      "title": "Android sync engine is never invoked — the pull primitives have no caller",
+      "description": "As a seller, my inventory actually appears on Android after I sign in.",
+      "acceptanceCriteria": [
+        "A sync coordinator assembles SyncPull.fetchPaged + SyncMerger.apply + SyncWatermark into a real pull, per table",
+        "Invoked on sign-in, on app foreground, and by an explicit pull-to-refresh",
+        "Pull-to-refresh on the inventory list (US-1342 AC1) is wired to it, with failures surfaced as a banner rather than emptying the cached list"
+      ],
+      "notes": "[P1][Android/Sync] Found while implementing US-1342. SyncPull.fetchPaged has NO production caller — grep finds it only in SyncPullTest. SyncMerger.apply is called only by RealtimeService, and only for single-row realtime deltas. So US-1317/1318/1319/1320 built and tested every sync primitive correctly, but nothing ever assembles them: Room is never bulk-populated from the server. Every Room-backed screen (US-1342 inventory list, and anything after it) therefore renders empty on a real device regardless of account contents. This is the likely reason the whole Android client reads as dormant."
     }
   ]
 }
