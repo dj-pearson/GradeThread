@@ -3,6 +3,7 @@ package com.gradethread.app.sync
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.gradethread.app.auth.AuthRepository
 import com.gradethread.app.platform.telemetry.Telemetry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,8 +39,36 @@ class SyncTrigger @Inject constructor(private val service: SyncService) {
         )
     }
 
-    /** Sign-in: the first pull that populates an empty database. */
-    fun onSignedIn() = pullInBackground(reason = "sign_in")
+    /** The user whose sign-in we've already pulled for. */
+    private var pulledForUserId: String? = null
+
+    /**
+     * Sign-in: the first pull that populates an empty database.
+     *
+     * Guarded on the user id changing rather than firing on every emission.
+     * [AuthRepository.phase] is a StateFlow, so a fresh collector immediately
+     * receives the CURRENT phase — without this guard, every process start
+     * would fire a sign-in pull on top of the foreground one. Single-flight
+     * would coalesce them, but a switch to a different account must still
+     * pull, and only an id comparison distinguishes the two.
+     */
+    fun observeSignIn(auth: AuthRepository) {
+        scope.launch {
+            auth.phase.collect { phase ->
+                when (phase) {
+                    is AuthRepository.Phase.SignedIn ->
+                        if (pulledForUserId != phase.userId) {
+                            pulledForUserId = phase.userId
+                            pullInBackground(reason = "sign_in")
+                        }
+                    // Clear on sign-out so signing back in as the same user
+                    // still pulls — the local database may have been wiped.
+                    is AuthRepository.Phase.SignedOut -> pulledForUserId = null
+                    AuthRepository.Phase.Loading -> Unit
+                }
+            }
+        }
+    }
 
     /**
      * Explicit refresh. Suspends so the caller can drive a spinner and

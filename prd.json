@@ -3991,7 +3991,7 @@
     {
       "id": "US-2151",
       "priority": -98657,
-      "passes": false,
+      "passes": true,
       "title": "Android sync engine is never invoked — the pull primitives have no caller",
       "description": "As a seller, my inventory actually appears on Android after I sign in.",
       "acceptanceCriteria": [

@@ -5,9 +5,13 @@ import androidx.work.Configuration
 import com.gradethread.app.platform.AppConfig
 import com.gradethread.app.platform.applock.AppLock
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.auth.AuthRepository
 import com.gradethread.app.platform.workspace.WorkspaceScope
 import com.gradethread.app.sync.SyncTrigger
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import javax.inject.Inject
 
 /**
@@ -38,12 +42,23 @@ class GradeThreadApp : Application(), Configuration.Provider {
         WorkspaceScope.initialize(this)
         // US-1315: a cold launch with the lock enabled starts locked.
         AppLock.initialize(this)
-        // US-2151: sync on cold start and on every return from background.
-        // Until this existed the pull primitives had no caller at all, so
-        // Room was never populated and every screen rendered empty.
+        // The session tail AuthRepository documents ("call once from the app
+        // scope") had no caller, so phase never left Loading. Sync's sign-in
+        // trigger depends on it.
+        authRepository.start(appScope)
+        // US-2151: sync on cold start, on every return from background, and on
+        // sign-in. Until this existed the pull primitives had no caller at all,
+        // so Room was never populated and every screen rendered empty.
         syncTrigger.observeForeground()
+        syncTrigger.observeSignIn(authRepository)
     }
+
+    /** Lives as long as the process — these observers never unsubscribe. */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Inject
     lateinit var syncTrigger: SyncTrigger
+
+    @Inject
+    lateinit var authRepository: AuthRepository
 }
