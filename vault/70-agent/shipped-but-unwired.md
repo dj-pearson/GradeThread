@@ -102,6 +102,58 @@ The compositor still exists and still passes its tests. Re-wiring it would
 recreate the policy violation. If you notice this module and think it regressed,
 it did not — this note is the answer.
 
+
+## The 2026-07-19 triage — the remaining three
+
+`scripts/audit-unwired-exports.mjs` reports seven dead modules. Four were already
+explained (above, plus `drip-trigger.ts`, superseded by the inline
+`switch (journey.trigger)` in `jobs-journey-tick.ts`). These are the other three,
+verified by hand — because the tool cannot tell superseded from pending from
+broken, and all three shapes turned up here.
+
+### `content-ai-email.ts` — SUPERSEDED, safe to ignore
+
+US-918's newsletter copywriter. `newsletter-copy.ts` (US-922) carries the same
+header and **is** wired — `newsletter-assembler.ts` imports
+`generateNewsletterCopy` at step 2. The two have different shapes: the old one
+generated *and persisted*; the replacement is pure prompt-building consumed by
+the assembler. 4 exports, **0 tests**, 0 callers. Dead by supersession, like
+`drip-trigger.ts`.
+
+### `rubric.ts` — PENDING, correctly
+
+Self-documents as "FOUNDATION ONLY: this registry is NOT yet wired into the live
+pipeline, so clothing grading is byte-for-byte unchanged." Covered by the open
+**US-1997** (category rubric activation). Nothing to do; the header and the story
+already agree.
+
+### `brand-seed.ts` — the gate that could never have run
+
+The interesting one. Its header states that "the AI-assisted drafting job, the
+admin verify UI, and every brand-content seed run" pass through
+`validateBrandFact` / `partitionSeedFacts` so an unsourced fact is "REJECTED, not
+stored". It has zero callers — **and it never could have had any**:
+
+- Brand facts are seeded by **SQL migrations** (37 files, 178 inserts). SQL
+  cannot call a TypeScript validator.
+- `admin-brand-knowledge.ts` performs no writes at all.
+- The schema does not enforce it either: `00389` declares `source_url text`,
+  **nullable**.
+
+So the stated guarantee rested entirely on author discipline across 37
+hand-written migrations. Measured: **178 of 178** inserts list `source_url` — the
+discipline held perfectly, which is precisely when installing a ratchet is free.
+`services/edge-functions/src/tests/brand-fact-provenance_test.ts` now enforces it.
+
+Why this one is worth the guard rather than just a note: `brand_knowledge`
+grounds authenticity assessments, and an unsourced row does not announce itself
+at read time. It reads like every other fact and makes the model *more*
+confident, not less.
+
+**The generalisable bit:** a module can be unwired because the path it was built
+for does not exist. Before wiring one, check that its declared callers are real —
+`title-sync.ts` above failed the same way.
+
 ## The habit this argues for
 
 Before trusting that a module does its job, **check that something calls it**.
