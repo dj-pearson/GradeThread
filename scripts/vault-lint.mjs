@@ -35,10 +35,45 @@
 // this file is the parser and rule engine it builds on.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { globSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+// `fs.globSync` is Node 22+. CI pins Node 20 (.github/workflows/ci.yml), so
+// importing it there is a hard SyntaxError at module load — the vault lane went
+// red for everyone while passing locally on 22. This shim covers the only two
+// patterns the vault scripts actually use, so the version skew cannot come back
+// through a different Node upgrade path.
+//
+// Supported: a trailing "**/" for recursion, and a "*.ext" leaf. Anything else
+// throws rather than silently matching nothing — a glob that quietly returns []
+// would make vault-lint report a clean vault it never read.
+export function globSync(pattern, { cwd = "." } = {}) {
+  const m = /^(.*?)(\*\*\/)?\*(\.[A-Za-z0-9]+)$/.exec(pattern);
+  if (!m) throw new Error(`glob-lite: unsupported pattern "${pattern}"`);
+  const [, prefix, recursive, ext] = m;
+  const base = resolve(cwd, prefix);
+  const out = [];
+
+  const walk = (dir, rel) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // missing directory → no matches, same as a glob
+    }
+    for (const e of entries) {
+      const childRel = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        if (recursive) walk(resolve(dir, e.name), childRel);
+      } else if (e.name.endsWith(ext)) {
+        out.push(`${prefix}${childRel}`);
+      }
+    }
+  };
+  walk(base, "");
+  return out;
+}
 
 export const NOTE_TYPES = ["runbook", "contract", "reference", "decision", "learning", "moc"];
 export const NOTE_STATUSES = ["current", "accepted", "superseded", "archived"];

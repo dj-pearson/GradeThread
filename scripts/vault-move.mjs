@@ -42,7 +42,9 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { globSync } from "node:fs";
+// Node-20-safe glob shim — see the note on globSync in vault-lint.mjs. Importing
+// fs.globSync directly here would reintroduce the same CI SyntaxError.
+import { globSync } from "./vault-lint.mjs";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
