@@ -4,6 +4,9 @@ import com.gradethread.app.platform.net.EdgeApi
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.vision.SizeTagInference
+import javax.inject.Inject
+import javax.inject.Named
+import javax.inject.Singleton
 
 /**
  * US-1334: the AI extraction call and its offline fallbacks.
@@ -11,7 +14,15 @@ import com.gradethread.app.vision.SizeTagInference
  * Routes to `functions.gradethread.com` via [EdgeApi] — NOT `api.*`, which
  * hosts only Supabase and would 404 every one of these paths.
  */
-class AiExtractService(private val edge: EdgeApi) {
+@Singleton
+class AiExtractService @Inject constructor(
+    /**
+     * The `ai` profile, NOT `shared` — extraction takes ~20-40s and streams
+     * nothing, so it needs the long-idle client. The shared profile's timeout
+     * would abort a perfectly healthy call partway through.
+     */
+    @Named("ai") private val edge: EdgeApi,
+) {
 
     companion object {
         const val EXTRACT_PATH = "/api/flipdesk/ai/extract"
