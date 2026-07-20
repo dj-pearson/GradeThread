@@ -4,7 +4,7 @@ type: moc
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-07-20
 tags: [meta, moc]
 summary: Map of content for 20-domain.
 ---

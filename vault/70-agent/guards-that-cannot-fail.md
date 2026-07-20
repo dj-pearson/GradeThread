@@ -4,9 +4,9 @@ type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-18
+reviewed: 2026-07-19
 tags: [testing, ci, agent, verification]
-summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the seven shapes it took and the one habit that catches all of them.
+summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the eight shapes it took and the two habits that catch them.
 ---
 
 # Guards that cannot fail
@@ -14,14 +14,17 @@ summary: This repo's most common defect is not a broken check but a check that p
 Across a long audit-and-fix session on 2026-07-18, the single most common
 defect class in this repo was **not** broken code and **not** a missing test. It
 was a check that ran, went green, and was measuring something adjacent to the
-thing it claimed to protect.
+thing it claimed to protect. A second session on 2026-07-19 added an eighth
+shape and a second habit — and produced three fresh instances of the very class
+this note describes, written by the agent that had just read it. Recognising the
+pattern is not the same as being immune to it.
 
 Every instance below shipped. Every one looked healthy on a dashboard. Several
 had been green for months while the property they existed to defend was broken.
 
 This note exists so the eighth instance gets recognised instead of rediscovered.
 
-## The seven shapes it took
+## The eight shapes it took
 
 1. **The gate that hid the other gates.** CI ran `lint` first with default step
    semantics, so three style errors meant type-check, tests, coverage, build and
@@ -61,6 +64,26 @@ This note exists so the eighth instance gets recognised instead of rediscovered.
    agreed, but because its fixture never supplied the one field where they
    differed. *(US-2071)*
 
+
+8. **The guard that matched its own context.** A substring search satisfied by
+   text *near* the property instead of the property. Three instances, all on
+   2026-07-19, all in guards written that same day:
+   - a builder sweep that hand-listed five JSON-LD builders — none of which
+     happened to be the ones being fixed, so it passed against a deliberately
+     reintroduced anonymous node *(US-2103)*;
+   - a scheduler check searching for a bare identifier, which the surviving
+     `import` line satisfied after the guard it protected was deleted
+     *(US-2104)*;
+   - an upload check looking back a fixed 3,000 characters for
+     `validateImageUpload`, matched by both the import line and a *different
+     handler* in the same file, so removing the real validation left it green
+     *(US-276)*.
+
+   The fix is the same each time: match a **call** (`name(` with the paren, which
+   an import cannot satisfy) and scope the search to the **enclosing function**,
+   not a character window. Derive the set you check from the source of truth
+   rather than listing it by hand.
+
 ## The habit that catches all of them
 
 **Break it on purpose and watch it fail.**
@@ -80,6 +103,30 @@ where the *fix* was wrong rather than the code:
 A guard you have not watched fail is a guard you do not know works. That is the
 whole of it.
 
+
+## The second habit: check that it RUNS
+
+Watching a guard fail proves it *can* fail. It does not prove anything ever
+asks it to.
+
+On 2026-07-19 the `scripts/` suite (~190 tests) and the extension suite (15
+files) were invoked by **no CI workflow at all** — the first runs under a
+separate vitest config that `test:coverage` does not include, the second is a
+bare node script. Both ran only via the local pre-push hook, so the hook was
+strictly stricter than the pipeline `CLAUDE.md` calls "CI parity". A
+`--no-verify` push skipped them entirely.
+
+The cost was concrete on both counts: `prd-lint.test.mjs` sat red for 15
+commits, and two guards written that same day against defects that had *already
+shipped once* — the legacy⇄unified selector parity check and the Firefox
+version-floor check — could not have failed a build. The author had negative-
+verified both. Neither was wired to anything.
+
+So the full habit is two questions, and the second is cheaper to skip:
+
+1. Does it go red when I break the thing? *(break it and watch)*
+2. Does anything actually run it? *(grep the workflows, not the package scripts)*
+
 ## Corollary: audit findings are hypotheses
 
 Four confidently-argued findings from that session — each with file:line
@@ -96,6 +143,15 @@ citations — did not survive reading the code:
 Roughly a 15% false-positive rate, and one would have introduced a bug. Treat an
 audit finding — including one from an agent — as a lead to verify, never as a
 conclusion to act on.
+
+The 2026-07-19 session held that rate almost exactly. Four more did not survive
+reading the code: a "blank OG fallback" story whose SSR-attribution fix would
+have **poisoned a shared edge cache** with one visitor's referral code; a
+three-extensions story whose central question had already been answered by a
+founder decision six days earlier; two cited GDPR-export sites that were
+load-bearing rather than wasteful. One suspicion was the agent's own — that a
+grading copy path could smuggle HEIC into the private bucket — and it was
+checked before filing rather than after. It was wrong.
 
 ## Related
 
