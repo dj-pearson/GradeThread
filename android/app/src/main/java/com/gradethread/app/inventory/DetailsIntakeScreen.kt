@@ -99,11 +99,9 @@ fun DetailsIntakeScreen(
             )
         }
         item {
-            ValidatedTextField(
+            SkuFieldWithScanner(
                 value = form.sku,
                 onValueChange = { v -> viewModel.update { it.copy(sku = v) } },
-                label = "SKU",
-                modifier = Modifier.fillMaxWidth(),
             )
         }
         item {

@@ -62,7 +62,7 @@
     {
       "id": "US-1332",
       "priority": -98668,
-      "passes": false,
+      "passes": true,
       "title": "Barcode scan-to-SKU (ML Kit)",
       "description": "As a seller, I can scan a barcode to auto-fill the SKU.",
       "acceptanceCriteria": [

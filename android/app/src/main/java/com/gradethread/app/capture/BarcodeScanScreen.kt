@@ -1,0 +1,184 @@
+package com.gradethread.app.capture
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.view.CameraController
+import androidx.camera.view.LifecycleCameraController
+import androidx.camera.view.PreviewView
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import com.gradethread.app.platform.rememberHapticFeedback
+import com.gradethread.app.ui.theme.Spacing
+import java.util.concurrent.Executors
+
+/**
+ * US-1332: full-screen barcode scanner that returns a SKU (iOS
+ * `BarcodeScanView`).
+ *
+ * [onScanned] fires at most once per presentation — the dedup disarms after
+ * the first hit and the caller dismisses — so it is safe to treat as
+ * single-shot.
+ */
+@Composable
+fun BarcodeScanScreen(
+    onScanned: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val haptics = rememberHapticFeedback()
+
+    var granted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    var error by remember { mutableStateOf<BarcodeError?>(null) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { result ->
+        granted = result
+        // Unlike the notes mic, asking on entry is right here: the whole
+        // screen is a camera, so the request is self-evidently in context.
+        if (!result) error = BarcodeError.PermissionDenied
+    }
+    LaunchedEffect(Unit) {
+        if (!granted) permissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+
+    if (!granted) {
+        ScannerMessage(
+            message = (error ?: BarcodeError.PermissionDenied).message,
+            settingsRecoverable = (error ?: BarcodeError.PermissionDenied).isSettingsRecoverable,
+            onDismiss = onDismiss,
+        )
+        return
+    }
+
+    val currentError = error
+    if (currentError != null) {
+        ScannerMessage(
+            message = currentError.message,
+            settingsRecoverable = currentError.isSettingsRecoverable,
+            onDismiss = onDismiss,
+        )
+        return
+    }
+
+    // A dedicated executor keeps ML Kit's decode off the main thread; the
+    // analyzer's callbacks are serialized on it, which is what lets
+    // BarcodeDedup stay lock-free.
+    val executor = remember { Executors.newSingleThreadExecutor() }
+    val controller = remember { LifecycleCameraController(context) }
+
+    DisposableEffect(lifecycleOwner) {
+        // Fresh dedup per presentation, so returning to the scanner can
+        // re-read the SAME barcode rather than mysteriously doing nothing.
+        val analyzer = BarcodeAnalyzer(
+            onDetected = { raw ->
+                val sku = normalizeScannedSku(raw)
+                if (sku.isNotEmpty()) {
+                    haptics.success()
+                    onScanned(sku)
+                    onDismiss()
+                }
+            },
+        )
+        val started = runCatching {
+            controller.setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
+            controller.setImageAnalysisAnalyzer(executor, analyzer)
+            controller.bindToLifecycle(lifecycleOwner)
+        }
+        if (started.isFailure) error = BarcodeError.ConfigurationFailed
+        onDispose {
+            controller.clearImageAnalysisAnalyzer()
+            controller.unbind()
+            analyzer.close()
+            executor.shutdown()
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { ctx -> PreviewView(ctx).apply { this.controller = controller } },
+            modifier = Modifier.fillMaxSize(),
+        )
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(Spacing.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "Point the camera at a barcode",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    }
+}
+
+/** Error / permission fallback — mirrors the iOS denied explainer. */
+@Composable
+private fun ScannerMessage(
+    message: String,
+    settingsRecoverable: Boolean,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.fillMaxSize().padding(Spacing.xl),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+        )
+        // Only permission failures get an Open Settings affordance — sending
+        // someone to Settings for a busy camera is a dead end.
+        if (settingsRecoverable) {
+            Button(
+                onClick = {
+                    val intent = Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null),
+                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                    runCatching { context.startActivity(intent) }
+                },
+                modifier = Modifier.padding(top = Spacing.md),
+            ) { Text("Open Settings") }
+        }
+        TextButton(onClick = onDismiss, modifier = Modifier.padding(top = Spacing.xs)) {
+            Text("Cancel")
+        }
+    }
+}
