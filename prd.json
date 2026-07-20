@@ -49,7 +49,7 @@
     {
       "id": "US-1331",
       "priority": -98669,
-      "passes": false,
+      "passes": true,
       "title": "Voice dictation for the notes field (SpeechRecognizer)",
       "description": "As a seller, I can dictate item notes hands-free.",
       "acceptanceCriteria": [

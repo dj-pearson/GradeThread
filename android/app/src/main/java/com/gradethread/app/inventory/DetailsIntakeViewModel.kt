@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.capture.DetailsDraftStore
 import com.gradethread.app.capture.DetailsIntakeState
+import com.gradethread.app.speech.DictationMerge
 import com.gradethread.app.sync.db.GradeThreadDb
 import com.gradethread.app.sync.db.SourceEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -66,6 +67,50 @@ class DetailsIntakeViewModel @Inject constructor(
         val next = transform(_state.value.form).clampTitle()
         _state.value = _state.value.copy(form = next)
         autosave(next)
+    }
+
+    // ── US-1331: dictation ──────────────────────────────────────────────
+
+    /**
+     * The notes contents at the moment dictation started. Every partial
+     * merges against THIS, so each one replaces the last rather than
+     * concatenating (see DictationMerge).
+     */
+    private var dictationAnchor: String? = null
+
+    fun beginDictation() {
+        dictationAnchor = _state.value.form.notes
+    }
+
+    /**
+     * Fold a transcript into notes.
+     *
+     * Partials deliberately DO NOT autosave: they arrive at recognizer
+     * cadence (several per second) and `notes` is part of the draft
+     * signature, so autosaving each one would hammer Room with a write per
+     * syllable. The draft is written once when the final lands, which is the
+     * only version worth recovering anyway.
+     */
+    fun onDictationTranscript(transcript: String, isFinal: Boolean) {
+        val anchor = dictationAnchor ?: _state.value.form.notes.also { dictationAnchor = it }
+        val merged = DictationMerge.mergeNotes(anchor, transcript)
+        val next = _state.value.form.copy(notes = merged)
+        _state.value = _state.value.copy(form = next)
+        if (isFinal) {
+            autosave(next)
+            dictationAnchor = null
+        }
+    }
+
+    /** Dictation ended without a final result — persist what we have. */
+    fun endDictation() {
+        if (dictationAnchor == null) return
+        dictationAnchor = null
+        autosave(_state.value.form)
+    }
+
+    fun showDictationError(message: String) {
+        _state.value = _state.value.copy(banner = Banner(message, isError = true))
     }
 
     private fun autosave(form: DetailsIntakeState) {

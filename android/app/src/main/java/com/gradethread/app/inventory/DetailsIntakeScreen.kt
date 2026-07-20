@@ -202,12 +202,10 @@ fun DetailsIntakeScreen(
             )
         }
         item {
-            ValidatedTextField(
+            NotesFieldWithDictation(
                 value = form.notes,
                 onValueChange = { v -> viewModel.update { it.copy(notes = v) } },
-                label = "Notes",
-                singleLine = false,
-                modifier = Modifier.fillMaxWidth(),
+                viewModel = viewModel,
             )
         }
 

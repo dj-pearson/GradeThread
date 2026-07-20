@@ -9,6 +9,19 @@
          works (photo import, everything else) on camera-less devices. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- US-1331: hands-free dictation for item notes. Optional hardware -
+         the notes field is fully usable by typing on mic-less devices. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- US-1331: package visibility (API 30+). Without this, the recognition
+         service is invisible to us and isRecognitionAvailable() reports false
+         on a device that can dictate perfectly well. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <application
         android:name=".GradeThreadApp"
