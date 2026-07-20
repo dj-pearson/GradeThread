@@ -343,5 +343,3 @@ update public.brand_size_charts
 
 -- US-1108 self-record footer.
 insert into public.applied_migrations (version) values ('00453') on conflict do nothing;
-</content>
-</invoke>
