@@ -65,6 +65,25 @@ export type PoolGate =
   | { allowAuto: false; reason: "account_cap" | "period_budget" | "loss_ratio" };
 
 /**
+ * ⚠ SUPERSEDED ON THE LIVE PATH — this is no longer what gates a payout.
+ *
+ * US-2144 moved the decision into `reserve_guarantee_pool_drawdown` (migration
+ * 00490), because evaluating the caps in TS and recording the drawdown
+ * afterwards let two concurrent claims pass the same budget. The SQL version
+ * decides AND records under one advisory lock, and `reservePoolDrawdown` below
+ * is what `buyer-guarantee-claim.ts` actually calls.
+ *
+ * Verified 2026-07-19: all three gates and all three reason strings
+ * (`account_cap`, `period_budget`, `loss_ratio`) exist in 00490, including the
+ * "only once the period has accrued" condition — so nothing was dropped in the
+ * move.
+ *
+ * KEPT because it is the readable statement of the policy and its tests pin the
+ * intent. But the two are a LOCKSTEP MIRROR WITH ONLY THE SQL SIDE LIVE, which
+ * is the shape that has bitten this repo repeatedly (see US-1995). If you change
+ * a cap rule here, you have changed nothing in production — change 00490's
+ * successor migration too, or the policy and the behaviour diverge silently.
+ *
  * Decide whether a `remedyCents` auto-payout may proceed against the pool. PURE.
  * Three gates, checked in order — a breach routes the claim to MANUAL REVIEW
  * (never a silent auto-pay past a cap):

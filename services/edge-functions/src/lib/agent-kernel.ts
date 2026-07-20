@@ -29,7 +29,7 @@ import { enterAiFeature } from "./ai-feature-context.ts";
 import { redact, redactError } from "./log-redact.ts";
 import { getSetting } from "./system-settings.ts";
 import { agentToolRegistry } from "./agent-tools.ts";
-import { applyWritePolicy, recordPolicyBreach } from "./agent-policy.ts";
+import { applyWritePolicy, recordPolicyBreach, resolveHalt } from "./agent-policy.ts";
 import { DEFAULT_PROPOSAL_TTL_HOURS, persistProposals } from "./agent-proposals.ts";
 import {
   applyMemoryWrites,
@@ -429,8 +429,14 @@ export async function runAgent(
   } catch {
     globallyPaused = true; // fail-closed: an unreadable switch means "paused".
   }
-  if (globallyPaused || agent.status === "paused") {
-    const reason = globallyPaused ? "globally_paused" : "agent_paused";
+  // US-1996 triage (2026-07-19): this used to reimplement resolveHalt inline —
+  // same precedence, same two reason strings — while the pure, tested
+  // resolveHalt in agent-policy.ts sat with ZERO callers. Its 6 tests were
+  // proving a copy nobody ran. Calling it makes the tested function the live
+  // one; the inline version is gone rather than merely bypassed.
+  const halt = resolveHalt(agent, globallyPaused);
+  if (halt.halted) {
+    const reason = halt.reason!;
     return finalize({
       status: "skipped",
       tokensIn: 0,
