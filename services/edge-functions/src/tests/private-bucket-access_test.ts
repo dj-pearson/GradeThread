@@ -45,7 +45,7 @@ const MAX_TTL_SECONDS = 900;
 const PRIVATE_BUCKET = "submission-images";
 
 async function sourceFiles(dir: URL, acc: URL[] = []): Promise<URL[]> {
-  let entries: Deno.DirEntry[] = [];
+  const entries: Deno.DirEntry[] = [];
   try {
     for await (const e of Deno.readDir(dir)) entries.push(e);
   } catch {

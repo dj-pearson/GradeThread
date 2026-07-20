@@ -37,6 +37,62 @@ function sourceEntries(): Array<{ file: string; text: string }> {
   return sourceTexts(SCAN_DIRS, ROOT).filter((e) => /\.(ts|tsx)$/.test(e.file));
 }
 
+
+/**
+ * The full method chain starting at a `.update(` / `.delete(` / `.upsert(`.
+ *
+ * Tracks parenthesis depth and string/template state, so a `;`, `)` or quote
+ * inside an argument cannot end the walk early. Returns the chain text.
+ */
+export function chainFrom(src: string, mutationIdx: number): string {
+  const open = src.indexOf("(", mutationIdx);
+  if (open === -1) return "";
+  let i = open;
+  let depth = 0;
+  let quote: string | null = null;
+
+  for (; i < src.length; i++) {
+    const c = src[i]!;
+    if (quote) {
+      if (c === quote && src[i - 1] !== "\\") quote = null;
+      continue;
+    }
+    // COMMENTS MUST BE SKIPPED BEFORE STRING HANDLING. An apostrophe in prose —
+    // `// the caller didn't send one` — otherwise opens a single-quote "string"
+    // that never closes, so the walk swallows the rest of the file and reports
+    // the next unrelated `.or()` as a hit. That is exactly what happened on
+    // flipdesk-ebay.ts:6058, a correct `.update().eq()`, when this walker was
+    // first dropped in. A false POSITIVE is how a guard gets disabled.
+    if (c === "/" && src[i + 1] === "/") {
+      const nl = src.indexOf(String.fromCharCode(10), i);
+      if (nl === -1) break;
+      i = nl;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      const close = src.indexOf("*/", i + 2);
+      if (close === -1) break;
+      i = close + 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === "(") { depth++; continue; }
+    if (c === ")") {
+      depth--;
+      if (depth === 0) {
+        // Closed this call's args. Continue only if a `.name(` follows.
+        let j = i + 1;
+        while (j < src.length && /\s/.test(src[j]!)) j++;
+        const next = /^\.([A-Za-z_$][\w$]*)\s*\(/.exec(src.slice(j, j + 60));
+        if (!next) break;
+        i = j + next[0].length - 1;
+        depth = 1;
+      }
+    }
+  }
+  return src.slice(mutationIdx, Math.min(i + 1, src.length));
+}
+
 interface Hit {
   file: string;
   line: number;
@@ -52,11 +108,16 @@ function findHits(entries: Array<{ file: string; text: string }>): Hit[] {
     for (const m of text.matchAll(
       new RegExp(`\\.(${MUTATIONS.join("|")})\\s*\\(`, "g"),
     )) {
-      // A supabase chain is one statement; stop at the terminating semicolon so
-      // an unrelated later `.or()` cannot produce a false positive.
-      const tail = text.slice(m.index!, m.index! + 800);
-      const end = tail.indexOf(";");
-      const chain = end === -1 ? tail : tail.slice(0, end);
+      // A supabase chain is one statement, so the chain has to END somewhere —
+      // but "slice to the first semicolon" ends it in the WRONG place when an
+      // earlier argument contains one inside a string literal
+      // (`.update({ note: "a; b" }).or(...)`). That truncates before the `.or()`
+      // and the guard passes on the exact bug it exists to catch: a false
+      // NEGATIVE, which is the failure mode that matters for a guard.
+      //
+      // So walk the chain properly, tracking paren depth and string state, and
+      // stop when the method chain genuinely ends.
+      const chain = chainFrom(text, m.index!);
       if (!/\.or\s*\(/.test(chain)) continue;
 
       hits.push({
