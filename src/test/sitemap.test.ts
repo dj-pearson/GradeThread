@@ -177,7 +177,12 @@ describe("blogUrls + certUrls", () => {
     const locs = urls.map((u) => u.loc);
     expect(locs).toContain("https://gradethread.com/blog");
     expect(locs).toContain("https://gradethread.com/blog/first-post");
-    expect(locs).toContain("https://gradethread.com/blog/tag/resale");
+    // Tag archives are excluded on purpose: they are served `noindex, follow`
+    // (functions/blog/[[path]].ts renderTag), and listing a noindexed URL here
+    // would tell Google the opposite of what the page itself says. The two must
+    // stay in lockstep — if tags are ever reindexed, restore both.
+    expect(locs).not.toContain("https://gradethread.com/blog/tag/resale");
+    expect(locs.some((l) => l.includes("/blog/tag/"))).toBe(false);
   });
 
   it("certUrls maps public certificates to /cert/:id with lastmod", async () => {

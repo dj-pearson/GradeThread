@@ -294,6 +294,11 @@ interface LayoutInput {
   jsonLd?: unknown[];
   bodyHtml: string;
   noindex?: boolean;
+  // Explicit robots directive, overriding the noindex boolean. Needed for
+  // "noindex, follow" — pages we do not want ranked but whose outbound links
+  // should still pass equity (tag archives → the posts they list). The plain
+  // `noindex` flag implies nofollow, which would strand those posts.
+  robots?: string;
   // US-425: Open Graph type. Defaults to "article" (the blog). The cert SSR
   // passes "product" so og:type stays consistent with the page's primary
   // entity (a Product JSON-LD node) and matches the SPA cert route.
@@ -459,7 +464,7 @@ export function renderLayout(input: LayoutInput): string {
         `<script type="application/ld+json"${nonceAttr}>${jsonSafe(ld)}</script>`,
     )
     .join("");
-  const robots = input.noindex ? "noindex, nofollow" : "index, follow";
+  const robots = input.robots ?? (input.noindex ? "noindex, nofollow" : "index, follow");
   const ogType = input.ogType ?? "article";
   return `<!DOCTYPE html>
 <html lang="en">

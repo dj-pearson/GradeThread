@@ -620,6 +620,13 @@ async function renderTag(env: PagesEnv, tag: string, page = 1): Promise<Response
       ogImage: `${siteUrl(env)}/og-image.png`,
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
+      // Tag archives are noindex,follow. They were 138 of the ~892 URLs in the
+      // sitemap against ~61 published posts, so most tags list one or two
+      // articles — thin, near-duplicate pages whose content exists in full on
+      // the post itself. On a domain with no external authority that is crawl
+      // budget spent proving low value. "follow" is deliberate: the archives
+      // still pass equity through to the posts they link.
+      robots: "noindex, follow",
       jsonLd: [breadcrumbListLd(breadcrumbItems)],
       bodyHtml,
     },

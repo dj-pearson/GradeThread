@@ -56,7 +56,7 @@ describe("US-2100: lastmod is derived, not stamped", () => {
     expect(withHubLastmod(urls)[0]!.lastmod).toBe(TODAY);
   });
 
-  it("the blog hub AND its tag URLs derive from the newest post", async () => {
+  it("the blog hub derives from the newest post; tag URLs are not listed at all", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -73,12 +73,15 @@ describe("US-2100: lastmod is derived, not stamped", () => {
     );
     const urls = await blogUrls(ENV);
     const hub = urls.find((u) => u.loc.endsWith("/blog"))!;
-    const tag = urls.find((u) => u.loc.includes("/blog/tag/"))!;
 
     expect(hub.lastmod, "hub still stamped today()").toBe("2026-05-20");
-    // AC3: tag URLs carried no lastmod at all.
-    expect(tag.lastmod, "tag URL has no lastmod").toBe("2026-05-20");
-    expect(tag.lastmod).not.toBe(TODAY);
+    expect(hub.lastmod).not.toBe(TODAY);
+
+    // US-2100 AC3 originally asserted tag URLs derived an honest lastmod. Tag
+    // archives are no longer emitted at all — they are served `noindex, follow`
+    // and a noindexed URL has no business in the sitemap. The derived-lastmod
+    // guarantee this file exists to protect is now carried by the hub above.
+    expect(urls.find((u) => u.loc.includes("/blog/tag/"))).toBeUndefined();
   });
 
   it("index entries carry their section's date, not today()", () => {

@@ -280,21 +280,20 @@ export async function blogUrls(env: PagesEnv): Promise<SitemapUrl[]> {
       });
     }
 
-    // US-2100 AC3: tag URLs carried NO lastmod at all. The payload gives tags
-    // as a flat string[] with no post mapping, so a per-tag date is not
-    // derivable here — the newest published post is the honest upper bound: a
-    // tag page's content cannot have changed more recently than the most
-    // recent post on the blog. Deliberately not today(), which would be the
-    // same lie this story exists to remove.
-    const newestPost = newestLastmod(urls.slice(1));
-    for (const t of data.tags) {
-      urls.push({
-        loc: `${base}/blog/tag/${encodeURIComponent(t)}`,
-        lastmod: newestPost,
-        changefreq: "weekly",
-        priority: 0.5,
-      });
-    }
+    // Tag archives are deliberately NOT listed.
+    //
+    // They were 138 of the ~892 URLs here against ~61 published posts, so most
+    // tags carry one or two articles whose content exists in full on the post
+    // page — thin, near-duplicate URLs. The sitemap is a statement about which
+    // pages we want ranked, and these are now served `noindex, follow`
+    // (functions/blog/[[path]].ts renderTag). Listing a noindexed URL sends
+    // Google two contradictory signals and spends crawl budget on the losing
+    // one, which a domain with no external authority cannot spare.
+    //
+    // They remain fully crawlable and linked from every post's tag list — this
+    // removes an indexing CLAIM, not the pages or their internal links. Undo by
+    // restoring this loop and dropping the `robots` override in renderTag; the
+    // two must change together.
   }
   // US-2100: hub inherits its newest child's date instead of today().
   return withHubLastmod(urls);

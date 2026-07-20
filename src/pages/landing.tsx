@@ -673,12 +673,26 @@ export function LandingPage() {
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </Link>
-          <a href="#how-it-works">
+          {/* The secondary CTA is the PRODUCT, not an anchor jump.
+              /tools/grade-checker runs a real grade from one photo with no
+              account (public endpoint, rate-limited 5/hr). It was the strongest
+              try-before-you-buy asset on the site and the landing page did not
+              link to it at all — every CTA above the fold pointed at /signup,
+              which is a form plus an email round-trip before any value lands.
+              A visitor who will not create an account can now still see the
+              product work. */}
+          <Link to="/tools/grade-checker">
             <Button size="lg" variant="outline" className="w-full sm:w-auto hover:scale-[1.02] active:scale-[0.98] transition-all glass-card">
-              See How It Works
+              Grade a photo free — no signup
             </Button>
-          </a>
+          </Link>
         </div>
+        {/* "No credit card required" was true but buried in FAQ #3. It is the
+            single strongest objection-killer we have, so it belongs under the
+            CTA where the hesitation actually happens. */}
+        <p className="gt-hero-rise gt-hero-rise-3 mt-4 text-sm text-muted-foreground">
+          Free forever plan · 3 grades every month · no credit card required
+        </p>
         {/* US-1948: a casual-seller on-ramp so first-timers/closet-cleaners don't
             read the "for resellers" framing as "not for me". Routes to the
             no-account /whats-it-worth tool. */}
@@ -690,7 +704,14 @@ export function LandingPage() {
           >
             See what your clothes are worth
           </Link>{" "}
-          — free, no account needed.
+          — free, no account needed. Or{" "}
+          <a
+            href="#how-it-works"
+            className="font-medium text-brand-red-text underline-offset-4 hover:underline"
+          >
+            see how it works
+          </a>
+          .
         </p>
       </section>
 
