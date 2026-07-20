@@ -189,7 +189,7 @@
     {
       "id": "US-1342",
       "priority": -98658,
-      "passes": false,
+      "passes": true,
       "title": "Inventory list: stages, search, filters/facets, sort, kanban",
       "description": "As a seller, I can triage my inventory by stage, search it, filter/sort by many facets, and switch to a board view.",
       "acceptanceCriteria": [

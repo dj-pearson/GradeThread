@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** List or kanban. */
@@ -32,6 +33,7 @@ enum class InventoryViewMode { LIST, BOARD }
 class InventoryListViewModel @Inject constructor(
     private val db: GradeThreadDb,
     private val searchService: InventorySearchService,
+    private val syncTrigger: com.gradethread.app.sync.SyncTrigger,
 ) : ViewModel() {
 
     companion object {
@@ -90,14 +92,40 @@ class InventoryListViewModel @Inject constructor(
         .mapLatest { query -> searchService.search(query) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    // NO pull-to-refresh yet, deliberately. The sync primitives exist
-    // (SyncPull.fetchPaged, SyncMerger.apply) but nothing assembles them into
-    // a "pull now" entry point — only RealtimeService applies single-item
-    // batches. Improvising one here would mean re-deriving the watermark and
-    // drop-safe-cursor rules inside a list screen, which is where they least
-    // belong. The list is Room-backed and reactive, so it already updates
-    // itself the moment anything writes; refresh is a manual trigger for
-    // machinery that isn't wired up yet.
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    private val _refreshError = MutableStateFlow<String?>(null)
+    val refreshError: StateFlow<String?> = _refreshError.asStateFlow()
+
+    /**
+     * US-2151: pull-to-refresh, now that sync has a caller.
+     *
+     * A failure surfaces as a dismissible banner and NEVER clears the list —
+     * the cached rows are still perfectly usable, and emptying them because a
+     * refresh failed would turn a minor network blip into apparent data loss.
+     */
+    fun refresh() {
+        if (_refreshing.value) return
+        _refreshing.value = true
+        _refreshError.value = null
+        viewModelScope.launch {
+            runCatching { syncTrigger.refresh() }
+                .onSuccess { outcome ->
+                    // A partial pull is still a real failure worth naming: the
+                    // seller asked for fresh data and some of it didn't arrive.
+                    if (outcome != null && !outcome.succeeded) {
+                        _refreshError.value = "Some items couldn't be refreshed."
+                    }
+                }
+                .onFailure { _refreshError.value = it.message ?: "Couldn't refresh." }
+            _refreshing.value = false
+        }
+    }
+
+    fun dismissRefreshError() {
+        _refreshError.value = null
+    }
 
     fun selectStage(stage: InventoryStage) {
         _stage.value = stage

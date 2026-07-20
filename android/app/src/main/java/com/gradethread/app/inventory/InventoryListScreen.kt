@@ -18,6 +18,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -58,6 +59,8 @@ fun InventoryListScreen(viewModel: InventoryListViewModel = hiltViewModel()) {
     val debouncedQuery by viewModel.debouncedQuery.collectAsStateWithLifecycle()
     val photoItemIds by viewModel.photoItemIds.collectAsStateWithLifecycle()
     val serverSearchIds by viewModel.serverSearchIds.collectAsStateWithLifecycle()
+    val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+    val refreshError by viewModel.refreshError.collectAsStateWithLifecycle()
 
     // One cache per screen, NOT per composition — a per-composition instance
     // would defeat the entire point.
@@ -144,9 +147,32 @@ fun InventoryListScreen(viewModel: InventoryListViewModel = hiltViewModel()) {
 
         SortRow(current = sort, onSelect = viewModel::setSort)
 
-        when (viewMode) {
-            InventoryViewMode.LIST -> InventoryList(visible, photoItemIds)
-            InventoryViewMode.BOARD -> InventoryBoard(visible, photoItemIds)
+        refreshError?.let { message ->
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = viewModel::dismissRefreshError) { Text("Dismiss") }
+            }
+        }
+
+        // US-2151: the refresh now has real machinery behind it. A failure
+        // shows the banner above and leaves the cached list untouched.
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            when (viewMode) {
+                InventoryViewMode.LIST -> InventoryList(visible, photoItemIds)
+                InventoryViewMode.BOARD -> InventoryBoard(visible, photoItemIds)
+            }
         }
     }
 }

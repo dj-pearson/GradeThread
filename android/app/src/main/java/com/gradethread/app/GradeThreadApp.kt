@@ -6,7 +6,9 @@ import com.gradethread.app.platform.AppConfig
 import com.gradethread.app.platform.applock.AppLock
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.platform.workspace.WorkspaceScope
+import com.gradethread.app.sync.SyncTrigger
 import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 
 /**
  * US-1300: Hilt application root. Feature graph modules install into this
@@ -36,5 +38,12 @@ class GradeThreadApp : Application(), Configuration.Provider {
         WorkspaceScope.initialize(this)
         // US-1315: a cold launch with the lock enabled starts locked.
         AppLock.initialize(this)
+        // US-2151: sync on cold start and on every return from background.
+        // Until this existed the pull primitives had no caller at all, so
+        // Room was never populated and every screen rendered empty.
+        syncTrigger.observeForeground()
     }
+
+    @Inject
+    lateinit var syncTrigger: SyncTrigger
 }
