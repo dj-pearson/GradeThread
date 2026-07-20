@@ -105,6 +105,44 @@ jobs:
       - name: Test (with coverage)
         if: ${{ !cancelled() }}
         run: npm run test:coverage
+      # The scripts/ suite (prd-lint, prd-digest, vault tooling, doc-refs,
+      # submit-indexnow, …) runs under its OWN vitest config: vitest.config.ts
+      # includes only `src/**`, so `npm run test:coverage` never saw these ~190
+      # tests. They ran solely via `npm run verify`, i.e. the local pre-push hook
+      # — which any `--no-verify` push, or any change landing without that hook,
+      # skips entirely.
+      #
+      # NOT hypothetical. scripts/prd-lint.test.mjs went red on 2026-07-18 when
+      # the learnings file moved into the vault and the lint message followed but
+      # the test's assertion did not. It stayed red across 15 subsequent commits
+      # to scripts/ and was found by hand, because nothing in CI ever ran it.
+      # That is the US-2038 defect class — a suite that reads as coverage while
+      # never executing.
+      - name: Test (scripts)
+        if: ${{ !cancelled() }}
+        run: npm run test:scripts
+      # Same gap, same cause: these are `npm run verify` lanes that CI never
+      # ran, so the local pre-push hook was STRICTER than the pipeline it claims
+      # to mirror (CLAUDE.md calls verify "CI parity"). Cheap, and each can fail
+      # on a real regression:
+      #   • extension tests — 15 zero-dep node suites over the three MV3
+      #     extensions. Includes the legacy⇄unified selector-parity guard and the
+      #     Firefox version-floor guard, both of which exist to catch a defect
+      #     that already shipped once. Neither ran in CI until now, which meant
+      #     two guards written against real incidents could not fail the build.
+      #   • prd-lint — bad nextId, duplicate ids, dependency cycles, and stale
+      #     held-migration claims that tell a reader the branch is frozen.
+      #   • doc-refs — a path in CLAUDE.md that has moved. Cheap to check and
+      #     read at the start of every session, so a stale one costs every one.
+      - name: Extension tests
+        if: ${{ !cancelled() }}
+        run: node scripts/test-extensions.mjs
+      - name: PRD lint
+        if: ${{ !cancelled() }}
+        run: node scripts/prd-lint.mjs
+      - name: Doc path refs
+        if: ${{ !cancelled() }}
+        run: node scripts/doc-refs.mjs
       # US-417: guard the eager (landing/cold-load) chunk graph — fail the build
       # if the entry/eager gz size regresses past budget, or if a heavy primitive
       # (radix Dialog/Select/Popover, TipTap) stops being code-split and rides
