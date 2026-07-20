@@ -105,7 +105,9 @@ const hasDist = requireDist(dist("index.html"), "prerender.test.ts");
 describe.skipIf(!hasDist)("prerendered dist output (US-292)", () => {
   it("dist/index.html contains the landing hero as static text (no JS needed)", () => {
     const html = readFileSync(dist("index.html"), "utf8");
-    expect(html).toContain("The Trusted Standard for Clothing");
+    // Hero canary — no apostrophes/em-dashes, which entity-encode in the
+    // byte-stream. Update alongside the hero copy.
+    expect(html).toContain("Photograph it.");
     expect((html.match(/<title>/g) ?? []).length).toBe(1);
     expect(html).toContain("application/ld+json");
     // body actually populated (not the empty SPA shell)

@@ -31,7 +31,11 @@ const fileFor = (routePath: string) =>
 // cornerstone article, the data report, legal). Each `must` string has to appear
 // in the RAW prerendered HTML — proving the content is in the byte-stream.
 const AUDIT: Array<{ path: string; must: string[] }> = [
-  { path: "/", must: ["The Trusted Standard for Clothing"] },
+  // Canary for the landing hero. Deliberately a phrase with no apostrophe or
+  // em-dash: those render as HTML entities in the byte-stream, so a canary
+  // containing them fails for encoding reasons rather than real hydration
+  // drift. Update this whenever the hero H1/subhead copy changes.
+  { path: "/", must: ["Photograph it.", "ready-to-publish eBay"] },
   {
     // The keystone — its grade TABLE is the single most-lifted structure in LLM
     // answers, so it MUST be static, not hydrated.

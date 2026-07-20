@@ -642,26 +642,32 @@ export function LandingPage() {
         />
 
         <Badge variant="secondary" className="gt-hero-rise gt-hero-rise-1 mb-6 text-sm font-medium border-brand-navy/10 dark:border-white/10 glass-card px-4 py-1.5 rounded-full">
-          The condition-grading standard for pre-owned clothing
+          AI listings + verified condition grades for resellers
         </Badge>
+        {/* Leads with the job resellers already have, not the category we are
+            trying to create. "The Trusted Standard for Clothing Condition
+            Grading" asked a visitor to care about a category with no search
+            demand — and the certificate's value is two-sided: it is only worth
+            something once BUYERS recognise the mark, which they do not yet. The
+            listing work is a pain sellers already feel and already pay
+            $19-99/mo to solve (Vendoo, List Perfectly, Crosslist). Grading is
+            the reason we are better at it, so it moves to the subhead as the
+            differentiator rather than the opening claim. */}
         <h1 className="gt-hero-lift max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl font-display">
-          The Trusted Standard for Clothing{" "}
-          <span className="bg-gradient-to-r from-brand-red to-rose-500 bg-clip-text text-transparent drop-shadow-sm">Condition Grading</span>
+          Photograph it.{" "}
+          <span className="bg-gradient-to-r from-brand-red to-rose-500 bg-clip-text text-transparent drop-shadow-sm">We'll write the listing.</span>
         </h1>
         <p className="gt-hero-rise gt-hero-rise-2 mt-6 max-w-xl text-lg text-muted-foreground">
-          {/* US-2043: previously "applied the same way every time, so a grade
-              means the same thing everywhere" — a reproducibility claim we
-              cannot currently substantiate (US-2035: the default model is
-              effort-based, so the temperature=0 determinism guarantee no longer
-              holds, and /transparency still reports "Not enough data yet" for
-              agreement at 22 graded items). "One published standard, not one
-              seller's opinion" is the true and still-differentiating claim. */}
-          GradeThread gives every pre-owned garment an objective 1.0–10.0
-          condition grade and a certificate buyers can verify — scored against
-          one published standard rather than one seller's opinion. Sell faster,
-          cut returns, and build buyer trust —
-          whether you're clearing out a closet or running a full reselling
-          business.
+          {/* US-2043 still binds: no reproducibility claim ("the same grade
+              every time") until /transparency can substantiate it — the default
+              model is effort-based, so the temperature=0 determinism guarantee
+              no longer holds, and agreement still reads "Not enough data yet".
+              "Objective, against one published standard, verifiable by the
+              buyer" is true today; "identical every run" is not. */}
+          AI turns your photos into ready-to-publish eBay, Poshmark and Mercari
+          listings — each with an objective 1.0–10.0 condition grade buyers can
+          verify, so fewer come back. One published standard, not one seller's
+          opinion.
         </p>
         <div className="gt-hero-rise gt-hero-rise-3 mt-10 flex flex-col gap-3 sm:flex-row sm:gap-4">
           <Link to="/signup">
@@ -669,7 +675,7 @@ export function LandingPage() {
               size="lg"
               className="w-full bg-brand-navy text-white hover:bg-brand-navy/90 sm:w-auto font-medium shadow-md shadow-brand-navy/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
-              Start Grading Free
+              Start free
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </Link>
