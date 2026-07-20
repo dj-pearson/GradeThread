@@ -6,7 +6,8 @@ import {
   type DisclosureInput,
   type PerImageAnalysisLike,
 } from "../lib/disclosure.ts";
-import { readImageDimensions } from "../lib/upload-validation.ts";
+import { readImageDimensions, validateImageUpload } from "../lib/upload-validation.ts";
+import { stripImageMetadata } from "../lib/image-metadata.ts";
 
 // Auto-Disclosure Engine endpoints. Everything is scoped through the OWNING
 // inventory_item: we verify the caller owns the item (user_id === owner) before
@@ -253,11 +254,22 @@ flipdeskDisclosureRoutes.post("/item/:itemId/annotated-photo", async (c) => {
     return c.json({ error: "Annotated image is too large." }, 413);
   }
 
+  // US-276: the data-URL prefix above is CLIENT-ASSERTED MIME, which is exactly
+  // what the upload rule says not to trust — `data:image/png;base64,` followed
+  // by any bytes at all satisfies that regex. This path writes to `item-photos`,
+  // the PUBLIC bucket, so whatever lands here is world-readable; an SVG smuggled
+  // behind a png prefix would be served as stored, and SVG is script-bearing
+  // (validateImageUpload rejects it by magic bytes for exactly that reason).
+  // So sniff the real format, then strip metadata before storing.
+  const verdict = validateImageUpload(bytes, { allow: ["png"] });
+  if (!verdict.ok) return c.json({ error: verdict.reason }, 400);
+  const stripped = stripImageMetadata(bytes, verdict.format);
+
   const safeType = (body.image_type ?? "defect").replace(/[^a-z0-9_-]/gi, "");
   const path = `${ownerId}/${item.id}/disclosure_${safeType}_${Date.now()}.png`;
   const { error: upErr } = await supabaseAdmin.storage
     .from("item-photos")
-    .upload(path, bytes, { contentType: "image/png", upsert: false });
+    .upload(path, stripped.bytes, { contentType: verdict.contentType, upsert: false });
   if (upErr) return c.json({ error: "Failed to store annotated photo." }, 500);
 
   const { data: pub } = supabaseAdmin.storage.from("item-photos").getPublicUrl(path);
