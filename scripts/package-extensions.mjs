@@ -362,6 +362,27 @@ for (const ext of EXTENSIONS) {
         ? { name: "manifest.json", data: Buffer.from(JSON.stringify(ffManifest, null, 2) + "\n", "utf8") }
         : { name: toPosix(f), data: readFileSync(f) },
     );
+    // US-1881 follow-up: REFUSE to emit a Firefox zip with no version floor.
+    //
+    // An MV3 add-on without strict_min_version installs on pre-109 Firefox,
+    // where MV3 does not exist — so it lands, does nothing, and looks like our
+    // bug. That exact breakage is one of the three listed in the firefoxManifest
+    // comment above, and it silently recurred: extension-condition declared no
+    // browser_specific_settings at all, so the config fallback supplied an id
+    // and nothing constrained the version. It shipped that way.
+    //
+    // A hard failure rather than a warning: this is the packaging step for a
+    // store upload, the output goes somewhere we cannot recall it from, and a
+    // warning in a build log is exactly what got missed the first time.
+    if (!ffManifest.browser_specific_settings?.gecko?.strict_min_version) {
+      throw new Error(
+        `${ext.name}: Firefox build has no browser_specific_settings.gecko.strict_min_version. ` +
+          `An MV3 add-on without a floor installs on pre-109 Firefox where MV3 does not exist. ` +
+          `Declare it in ${ext.dir}/manifest.json (the manifest is the source of truth; ` +
+          `firefox.* config only fills gaps).`,
+      );
+    }
+
     const ffZip = zip(ffEntries);
     const ffPath = join(outDir, `${ext.name}-v${manifest.version}-firefox.zip`);
     writeFileSync(ffPath, ffZip);
