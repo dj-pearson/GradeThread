@@ -97,7 +97,7 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[ralph-email-marketing-log]] — learning — Email and deliverability gotchas accumulated by the loop; loaded on demand.
 - [[ralph-ios-log]] — learning — iOS-specific gotchas accumulated by the loop; loaded on demand, not every iteration.
 - [[ralph-learnings]] — learning — Recurring gotchas the Ralph loop reads on every iteration; kept short on purpose because its cost is per-iteration.
-- [[shipped-but-unwired]] — learning — Three modules pass their tests while nothing calls them; two are accidents that leave a stated guarantee unenforced, one is a deliberate policy retirement.
+- [[shipped-but-unwired]] — learning — Three modules pass their tests while nothing calls them; one is a real unenforced guarantee, one is uncalled by design, one is a deliberate policy retirement — and telling them apart is the point.
 
 ## 90-archive — historical snapshots
 

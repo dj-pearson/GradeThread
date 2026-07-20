@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/grade-badge.ts
 reviewed: 2026-07-19
 tags: [quality, testing, dead-code, gotcha]
-summary: Three modules pass their tests while nothing calls them; two are accidents that leave a stated guarantee unenforced, one is a deliberate policy retirement.
+summary: Three modules pass their tests while nothing calls them; one is a real unenforced guarantee, one is uncalled by design, one is a deliberate policy retirement — and telling them apart is the point.
 ---
 
 # Shipped but unwired
@@ -46,20 +46,45 @@ otherwise.
 
 Tracked in US-1996.
 
-### `title-sync.ts` (edge) — the mirror that never runs
+## Uncalled by design — the audit already ran
 
-The edge copy's only consumer is `src/tests/title-sync_test.ts`. Its web
-counterpart (`src/lib/title-sync.ts`) *is* wired, into the item canvas.
+Zero callers, and that is the correct state. The distinction from the section
+above is the whole value of this note: one of these is an unenforced guarantee,
+the other is a module doing exactly what it should.
 
-US-1891 required backwards title substitution on **both** the edge item-update
-path and the web canvas. Only the web half landed, so, in the header's words:
+### `title-sync.ts` (edge) — uncalled by DESIGN, not by accident
 
-> "an item field edit that does NOT go through the web item canvas (the edge
-> item-update API, iOS, AutoLister, bulk edit, CSV import) still corrects the
-> brand while leaving the OLD brand in `listing_title` — which is precisely the
-> bug US-1891 exists to fix, on every surface except one."
+> [!warning] This entry was wrong until 2026-07-19 — do not act on the old version
+> It previously said the gap was "the edge item-update path". **There is no such
+> endpoint** — no route in `services/edge-functions` does `.update()` on
+> `inventory_items`. Anyone acting on that would have hunted for something never
+> built. The per-surface audit under US-1995 settled it; neither this note nor
+> the module header was updated at the time, so both kept pointing the wrong way.
 
-A user changing a brand on iOS gets a corrected item and a stale listing title.
+The edge copy has zero production callers and **should keep them**. Every surface
+that writes a syncable title field was checked individually:
+
+| Surface | State |
+|---|---|
+| web item canvas | wired (`buildTitleSyncPatch`) |
+| web bulk edit | wired — this was the real gap, now closed |
+| AutoLister | N/A — regenerates titles wholesale |
+| identification-verify | N/A — writes only `attributes` / `ai_field_sources` |
+| CSV import | N/A — fill-only, so the old value is blank and the substitution is a provable no-op |
+| **iOS** | **the one remaining gap** — and it cannot consume this module; it needs a Swift port |
+
+So the module stays for two reasons: it is the reference the Swift port mirrors,
+and it is one half of the behavioural parity fixture
+(`src/test/fixtures/title-sync-cases.json`) asserted by both the deno and vitest
+suites. Deleting it would remove one side of the only guard keeping the copies
+honest.
+
+`scripts/audit-unwired-exports.mjs` will keep reporting it as unwired. That
+report is correct; this entry is the answer to it.
+
+A user changing a brand on **iOS** still gets a corrected item and a stale
+listing title. That is the whole of what remains of US-1995, and it needs a
+macOS session.
 
 ## Deliberately dead — do not "fix" this one
 

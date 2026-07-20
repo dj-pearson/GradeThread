@@ -1,8 +1,7 @@
 // US-1891: backwards title sync.
 //
-// ↳ REGISTERED AS UNWIRED: vault/70-agent/shipped-but-unwired.md — this edge
-//   copy's only consumer is its own test; the web copy shipped, so every
-//   non-web surface still leaves a stale brand in listing_title.
+// ↳ UNCALLED BY DESIGN, NOT BY ACCIDENT (re-audited 2026-07-18, header corrected
+//   2026-07-19). See vault/70-agent/shipped-but-unwired.md and US-1995.
 //
 // Aspects sync both ways already (US-822/824), but `listing_title` is a
 // free-form column that nothing rebuilds — so correcting an item's Brand (or
@@ -15,25 +14,36 @@
 // unit-testable without any DB/eBay/AI calls. The caller decides WHEN to apply
 // it (GT-origin non-ebay listings only) and applies it to BOTH title variants.
 //
-// ⚠ NOTHING IN THE EDGE SERVICE IMPORTS THIS MODULE (verified 2026-07-18).
+// ⚠ DO NOT "FIX" THE ZERO CALLER COUNT BY WIRING THIS INTO AN EDGE ROUTE.
 //
-// US-1891 AC2 required the substitution on BOTH "the edge item update path AND
-// web item-canvas save". Only the web half shipped: src/lib/title-sync.ts (the
-// frontend copy) is wired into item-canvas.tsx persist(), and this copy — its
-// declared lockstep mirror — has zero callers. Every export here is reachable
-// only from its own tests.
+// An earlier version of this header said the gap was "the edge item update
+// path". THERE IS NO SUCH ENDPOINT — no route in services/edge-functions does
+// .update() on inventory_items, so anyone acting on that sentence would spend
+// the session hunting for something that was never built. The audit that
+// established this is recorded in US-1995.
 //
-// CONSEQUENCE: an item field edit that does NOT go through the web item canvas
-// (the edge item-update API, iOS, AutoLister, bulk edit, CSV import) still
-// corrects the brand while leaving the OLD brand in listing_title — which is
-// precisely the bug US-1891 exists to fix, on every surface except one.
+// Every surface that writes a SYNCABLE_TITLE_FIELD has since been checked
+// individually, and the edge is not among them:
 //
-// The tests here pass because they call these functions directly, so nothing
-// signals the gap. Do not treat this module's coverage as evidence the feature
-// works server-side. Tracked as US-1995; wiring it is a real change (it must
-// not double-apply against the frontend path, and it has to respect the same
-// GT-origin / hand-edited / needs_review rules the canvas applies).
-
+//   web item canvas ....... wired (buildTitleSyncPatch)
+//   web bulk edit ......... wired (buildTitleSyncPatch) — was the real gap
+//   AutoLister ............ N/A: regenerates titles wholesale, so nothing to
+//                           substitute into
+//   identification-verify . N/A: writes only { attributes, ai_field_sources };
+//                           touches no field a title can contain
+//   CSV import ............ N/A: fill-only, so the old value is always blank
+//                           and the substitution is a provable no-op
+//   iOS ................... THE ONE REMAINING GAP, and it cannot consume this
+//                           module — it needs a Swift port
+//
+// SO WHY DOES THIS FILE STILL EXIST? It is the reference implementation the
+// Swift port is meant to mirror, and it is one half of the behavioural parity
+// fixture (src/test/fixtures/title-sync-cases.json) asserted by BOTH the deno
+// and vitest suites. Deleting it would remove one side of the only guard that
+// keeps the copies honest. scripts/audit-unwired-exports.mjs will keep
+// reporting this module as unwired; that report is correct and expected, and
+// this block is the answer to it.
+//
 import { EBAY_TITLE_MAX, trimTitleToLimit } from "./title-trim.ts";
 
 export interface FieldChange {
