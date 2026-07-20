@@ -127,6 +127,22 @@ So the full habit is two questions, and the second is cheaper to skip:
 1. Does it go red when I break the thing? *(break it and watch)*
 2. Does anything actually run it? *(grep the workflows, not the package scripts)*
 
+## Corollary: a scoped search is not evidence of absence
+
+Shape 8 has a research twin, and it cost a duplicated guard on 2026-07-19.
+
+Before adding a `.or()`-on-mutation guard, the agent searched for the rule id in
+`services/edge-functions/src/tests/` and `scripts/` — two directories, neither of
+which was where the existing guard lived (`src/lib/__tests__/`). The empty result
+was read as "no guard exists", a claim that then went into a commit message. A
+repo-wide grep returns it as the second hit.
+
+The guard had been on `main` since the previous day.
+
+**Before building a check, grep the whole repo for the rule id — not the
+directory you expect it in.** An empty result from a scoped search is a fact
+about the search.
+
 ## Corollary: audit findings are hypotheses
 
 Four confidently-argued findings from that session — each with file:line
