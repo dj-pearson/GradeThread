@@ -78,7 +78,13 @@ describe("lintPrd — guards are warnings, not errors", () => {
   });
   it("warns on an oversized LEARNINGS.md", () => {
     const r = lintPrd({ prd: prd([]), learningsLines: 900, opts: { learningsLineWarn: 800 } });
-    expect(r.warnings.some((w) => w.includes("LEARNINGS.md"))).toBe(true);
+    // Asserts the PATH the warning actually names. This read `.includes("LEARNINGS.md")`
+    // and went red when the file moved into the vault as
+    // vault/70-agent/ralph-learnings.md — the lint message was updated, the test
+    // was not, and `.includes` is case-sensitive so "ralph-learnings.md" never
+    // matched. Matching the real path keeps the assertion meaningful; a
+    // case-insensitive regex would have passed on a message naming the wrong file.
+    expect(r.warnings.some((w) => w.includes("ralph-learnings.md"))).toBe(true);
   });
   it("a clean backlog is ok with no errors", () => {
     const r = lintPrd({ prd: prd([story()]) });
