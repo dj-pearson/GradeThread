@@ -19,52 +19,96 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.gradethread.app.ui.theme.CornerRadius
 import com.gradethread.app.ui.theme.GradeThreadTheme
 
 /**
- * US-1303: resolves a Supabase Storage path to a fetchable URL. The private
- * `submission-images` bucket needs short-TTL signed URLs (US-276 — NEVER a
- * public URL), so the real resolver lives with the storage/auth layer
- * (US-1307) and caches signatures like the iOS SignatureCache. Until that
- * story lands, the default treats input as already-fetchable — public-bucket
- * URLs work; private paths render the error glyph rather than leaking.
+ * Everything needed to decide HOW a photo is fetched. The read-time bucket is
+ * derived from [serverPhotoType] + [photoUrl] together — a private-typed row
+ * that carries a URL is a public/legacy row (see `PhotoUpload.readBucketFor`).
  */
-fun interface StoragePathResolver {
-    suspend fun resolve(pathOrUrl: String): String?
-}
-
-val LocalStoragePathResolver = compositionLocalOf<StoragePathResolver> {
-    StoragePathResolver { raw ->
-        if (raw.startsWith("https://")) raw else null
+data class PhotoRef(
+    val storagePath: String? = null,
+    val photoUrl: String = "",
+    val serverPhotoType: String = "",
+    /** Bumped by an in-place rotate; busts URL-keyed caches. */
+    val localCacheToken: Int = 0,
+) {
+    companion object {
+        /** A already-fetchable public URL (the common, non-sensitive case). */
+        fun ofPublicUrl(url: String?): PhotoRef? =
+            url?.takeIf { it.isNotBlank() }?.let { PhotoRef(photoUrl = it) }
     }
 }
 
 /**
- * Cached image thumbnail (iOS CachedThumbnail): Coil memory+disk cache under
- * the hood, skeleton shimmer while loading, a quiet glyph on failure. Pass a
- * public URL or a storage path — the resolver decides.
+ * A fetchable URL plus the caching policy it demands. [isPrivate] marks a
+ * short-TTL signed URL, which must NEVER reach a disk cache; [cacheKey] is
+ * stable across re-signs so a re-mint doesn't miss the memory cache and
+ * re-download bytes we already hold.
+ */
+data class ResolvedImage(
+    val url: String,
+    val isPrivate: Boolean,
+    val cacheKey: String,
+)
+
+/**
+ * US-1329: resolves a photo to a fetchable URL. The private
+ * `submission-images` bucket needs short-TTL signed URLs (US-276 — NEVER a
+ * public URL); the real implementation is `SignedUrlStorageResolver`, bound in
+ * `NetworkModule` over `PhotoSignedUrlProvider`. The default here handles only
+ * already-fetchable public URLs, so a private path renders the error glyph
+ * rather than leaking.
+ */
+fun interface StoragePathResolver {
+    suspend fun resolve(photo: PhotoRef): ResolvedImage?
+}
+
+val LocalStoragePathResolver = compositionLocalOf<StoragePathResolver> {
+    StoragePathResolver { photo ->
+        photo.photoUrl
+            .takeIf { it.startsWith("https://") }
+            ?.let { ResolvedImage(url = it, isPrivate = false, cacheKey = it) }
+    }
+}
+
+/**
+ * Cached image thumbnail (iOS CachedThumbnail): skeleton shimmer while
+ * resolving/loading, a quiet glyph on failure.
+ *
+ * Private-bucket photos are fetched with the DISK cache disabled. Coil's
+ * default loader persists both the bytes and the signed URL (as the disk-cache
+ * key) — that would outlive the <=900s TTL on disk, which is exactly what
+ * US-276 forbids. Memory-only is the Android equivalent of the iOS ephemeral
+ * URLSession.
  */
 @Composable
 fun CachedThumbnail(
-    pathOrUrl: String?,
+    photo: PhotoRef?,
     contentDescription: String?,
     modifier: Modifier = Modifier,
     size: Dp = 56.dp,
     cornerRadius: Dp = CornerRadius.control,
 ) {
     val resolver = LocalStoragePathResolver.current
-    var resolved by remember(pathOrUrl) { mutableStateOf<String?>(null) }
-    var failed by remember(pathOrUrl) { mutableStateOf(false) }
+    val context = LocalContext.current
+    var resolved by remember(photo) { mutableStateOf<ResolvedImage?>(null) }
+    var failed by remember(photo) { mutableStateOf(false) }
 
-    LaunchedEffect(pathOrUrl) {
+    LaunchedEffect(photo) {
         failed = false
-        resolved = pathOrUrl?.let { resolver.resolve(it) }
-        if (pathOrUrl != null && resolved == null) failed = true
+        resolved = photo?.let { resolver.resolve(it) }
+        // A mint failure is TRANSIENT, not sticky: this recomposes and retries
+        // whenever `photo` changes identity, and nothing negative is cached.
+        if (photo != null && resolved == null) failed = true
     }
 
     Box(
@@ -73,15 +117,25 @@ fun CachedThumbnail(
             .clip(RoundedCornerShape(cornerRadius)),
         contentAlignment = Alignment.Center,
     ) {
+        val image = resolved
         when {
-            failed || pathOrUrl == null -> Icon(
+            failed || photo == null -> Icon(
                 imageVector = Icons.Outlined.Warning,
                 contentDescription = contentDescription ?: "Image unavailable",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            resolved == null -> SkeletonBlock(Modifier.fillMaxSize(), cornerRadius)
+            image == null -> SkeletonBlock(Modifier.fillMaxSize(), cornerRadius)
             else -> SubcomposeAsyncImage(
-                model = resolved,
+                model = ImageRequest.Builder(context)
+                    .data(image.url)
+                    // Keyed on the storage path, not the signed URL, so a
+                    // re-sign 30s before expiry is a memory-cache HIT.
+                    .memoryCacheKey(image.cacheKey)
+                    .diskCachePolicy(
+                        if (image.isPrivate) CachePolicy.DISABLED else CachePolicy.ENABLED,
+                    )
+                    .crossfade(true)
+                    .build(),
                 contentDescription = contentDescription,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -97,6 +151,22 @@ fun CachedThumbnail(
         }
     }
 }
+
+/** Convenience overload for a plain public URL. */
+@Composable
+fun CachedThumbnail(
+    pathOrUrl: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    size: Dp = 56.dp,
+    cornerRadius: Dp = CornerRadius.control,
+) = CachedThumbnail(
+    photo = PhotoRef.ofPublicUrl(pathOrUrl),
+    contentDescription = contentDescription,
+    modifier = modifier,
+    size = size,
+    cornerRadius = cornerRadius,
+)
 
 @Preview(showBackground = true)
 @Composable

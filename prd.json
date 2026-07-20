@@ -22,7 +22,7 @@
     {
       "id": "US-1329",
       "priority": -98671,
-      "passes": false,
+      "passes": true,
       "title": "Private-bucket signed read URLs (TTL + refresh skew)",
       "description": "As a seller, my sensitive photos (tags, certificates) display via short-lived signed URLs that never get cached long-term.",
       "acceptanceCriteria": [

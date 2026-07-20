@@ -38,6 +38,19 @@ object PhotoUpload {
     fun bucketFor(serverPhotoType: String): Bucket =
         if (serverPhotoType in PRIVATE_TYPES) Bucket.SUBMISSION_IMAGES else Bucket.ITEM_PHOTOS
 
+    /**
+     * US-1329: the READ-time router (iOS `readBucket(forServerType:photoURL:)`).
+     * [bucketFor] decides where bytes are WRITTEN; reads need one extra rule.
+     *
+     * A non-empty `photo_url` proves the row lives in the PUBLIC bucket —
+     * [publicUrlFor] records "" for private writes, so any private-typed row
+     * carrying a URL is legacy or was reclassified after upload. Routing those
+     * to the private bucket would mint a signed URL for an object that isn't
+     * there and silently render the failure glyph for a photo that loads fine.
+     */
+    fun readBucketFor(serverPhotoType: String, photoUrl: String): Bucket =
+        if (photoUrl.isNotBlank()) Bucket.ITEM_PHOTOS else bucketFor(serverPhotoType)
+
     /** `{userId}/{itemId}/{type}_{ts}.jpg` — per-user-folder RLS shape. */
     fun uploadPath(userId: String, itemId: String, serverPhotoType: String, timestampMs: Long): String =
         "${userId.lowercase()}/${itemId.lowercase()}/${serverPhotoType}_$timestampMs.jpg"

@@ -8,6 +8,9 @@ import com.gradethread.app.platform.supabase.SupabaseShared
 import com.gradethread.app.platform.supabase.edgeTokenProvider
 import com.gradethread.app.platform.supabase.edgeTokenRefresher
 import com.gradethread.app.platform.workspace.WorkspaceScope
+import com.gradethread.app.ui.components.StoragePathResolver
+import com.gradethread.app.upload.PhotoSignedUrlProvider
+import com.gradethread.app.upload.SignedUrlStorageResolver
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -44,6 +47,26 @@ object NetworkModule {
         workspaceOwnerProvider = { WorkspaceScope.activeOwnerId },
         onWorkspaceRevoked = WorkspaceScope::handleAccessRevoked,
     )
+
+    /**
+     * US-1329: one process-wide signed-URL cache. Singleton because the cache
+     * is the point — a per-screen instance would re-mint on every navigation,
+     * and `clearCache()` on sign-out has to reach every cached URL.
+     */
+    @Provides
+    @Singleton
+    fun providePhotoSignedUrlProvider(client: SupabaseClient): PhotoSignedUrlProvider =
+        PhotoSignedUrlProvider(
+            supabaseUrl = AppConfig.supabaseUrl,
+            anonKey = AppConfig.supabaseAnonKey,
+            tokenProvider = client.edgeTokenProvider(),
+        )
+
+    @Provides
+    @Singleton
+    fun provideStoragePathResolver(
+        provider: PhotoSignedUrlProvider,
+    ): StoragePathResolver = SignedUrlStorageResolver(provider)
 
     @Provides
     @Singleton
