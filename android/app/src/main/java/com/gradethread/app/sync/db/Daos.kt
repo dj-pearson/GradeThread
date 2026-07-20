@@ -40,6 +40,14 @@ interface ItemDao {
     @Query("SELECT * FROM inventory_items ORDER BY updatedAt DESC")
     suspend fun allWithPhotos(): List<ItemWithPhotos>
 
+    /**
+     * US-1342: the reactive backing for the inventory list. Room re-emits on
+     * any write to the table, so sync pulls reach the screen without the UI
+     * polling.
+     */
+    @Query("SELECT * FROM inventory_items")
+    fun observeAll(): kotlinx.coroutines.flow.Flow<List<InventoryItemEntity>>
+
     /** US-1320: reconcile support — ids + dirty ids + bulk delete. */
     @Query("SELECT id FROM inventory_items")
     suspend fun allIds(): List<String>
@@ -74,6 +82,16 @@ interface PhotoDao {
 
     @Query("SELECT id FROM item_photos")
     suspend fun allIds(): List<String>
+
+    /**
+     * US-1342/US-1520: item ids that HAVE photo rows.
+     *
+     * One id-level query rather than faulting each item's photo relation —
+     * that per-item walk was a main-thread stall on a large inventory. Only
+     * read when the photo facet is active.
+     */
+    @Query("SELECT DISTINCT inventoryItemId FROM item_photos")
+    fun observeItemIdsWithPhotos(): kotlinx.coroutines.flow.Flow<List<String>>
 
     /** Local captures not yet uploaded — never reconcile-pruned. */
     @Query("SELECT id FROM item_photos WHERE localBytesPath IS NOT NULL")

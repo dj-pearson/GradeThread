@@ -163,7 +163,10 @@ private fun ShellNavHost(navController: NavHostController) {
         // Registered for deep links (US-1314 AddItem); the bar's Add button
         // opens the method sheet instead of navigating here.
         composable(ShellSection.ADD.route) { SectionPlaceholder("Add an item") }
-        composable(ShellSection.INVENTORY.route) { SectionPlaceholder("Inventory") }
+        // US-1342: the real inventory list replaces the placeholder.
+        composable(ShellSection.INVENTORY.route) {
+            com.gradethread.app.inventory.InventoryListScreen()
+        }
         composable(ShellSection.MONEY.route) { SectionPlaceholder("Money") }
         composable(ShellSection.MARKETPLACES.route) { SectionPlaceholder("Marketplaces") }
         composable(ShellRoutes.SETTINGS) { SectionPlaceholder("Settings") }
