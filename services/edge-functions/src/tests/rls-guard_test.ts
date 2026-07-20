@@ -817,3 +817,111 @@ CREATE POLICY "own rows" ON notif_y FOR SELECT USING (user_id = auth.uid());
       "policy must survive it",
   );
 });
+
+// ── US-1927 AC1 regression guard: the RLS initplan form ─────────────────────
+//
+// 00451 rewrote the hot-path per-user policies from bare `auth.uid()` to the
+// scalar-subquery form `(select auth.uid())`. The two are semantically
+// IDENTICAL — auth.uid() is STABLE, so the value cannot differ — but the
+// planner treats them differently: the subquery form is hoisted to a single
+// InitPlan evaluated ONCE per query, while the bare call is re-evaluated PER
+// CANDIDATE ROW. On a large per-user SELECT that is the difference between one
+// call and hundreds of thousands.
+//
+// NOTHING GUARDED THAT, AND IT ALREADY REGRESSED. 00474_push_subscriptions
+// (US-1901) added four policies in the bare form, 23 migrations after 00451
+// fixed the pattern. The fix was a one-time sweep with no way to stay fixed,
+// which is the same shape as the rounding-site drift in US-2041 and the
+// hand-synced image sitemap in US-2111: a correct edit that nothing holds in
+// place.
+//
+// SCOPE — this checks the SOURCE FORM ONLY. It cannot confirm the planner
+// actually hoists anything; that is US-1927 AC3 and needs a live EXPLAIN
+// (Docker for the verify:db lane, or a prod session). A guard that cannot see
+// the plan can still keep the source in the shape the plan needs, and that is
+// all this claims to do.
+const INITPLAN_EXEMPT = new Map<string, string>([
+  [
+    "00474_push_subscriptions.sql",
+    "PRE-EXISTING at guard-authoring time (2026-07-19), not a new exemption. " +
+      "push_subscriptions is one row per user per device, so the per-row " +
+      "re-evaluation this guard exists to prevent is negligible there — the " +
+      "cost is a handful of rows, not the large per-user scans AC1 " +
+      "prioritises. Rewriting it needs a NEW migration (applied migrations are " +
+      "immutable) and RLS DDL cannot be validated from this host with Docker " +
+      "down, so shipping an unverifiable policy rewrite for a negligible gain " +
+      "is the worse trade. Fix it opportunistically alongside the next " +
+      "push_subscriptions migration; do NOT add entries here to silence a hot " +
+      "table.",
+  ],
+]);
+
+Deno.test("US-1927 AC1: RLS policies use the (select auth.uid()) initplan form", async () => {
+  const offenders: string[] = [];
+  const names: string[] = [];
+  for await (const entry of Deno.readDir(MIGRATIONS_DIR)) {
+    if (entry.isFile && entry.name.endsWith(".sql")) names.push(entry.name);
+  }
+  names.sort();
+
+  // Only migrations at/after the sweep. Earlier ones legitimately predate the
+  // form, and flagging ~253 historical files would produce a permanently red
+  // guard that gets switched off — the failure mode these guards keep hitting.
+  const SWEEP = "00451";
+
+  for (const name of names) {
+    if (name.slice(0, 5) <= SWEEP) continue;
+    if (INITPLAN_EXEMPT.has(name)) continue;
+    const sql = await Deno.readTextFile(new URL(name, MIGRATIONS_DIR));
+    for (const m of sql.matchAll(/create\s+policy[\s\S]*?;/gi)) {
+      const stmt = m[0];
+      // Remove the CORRECT form first, then look for what is left. Searching
+      // for bare auth.uid() directly would match inside `(select auth.uid())`
+      // and flag every correctly-written policy.
+      const withoutWrapped = stmt.replace(/\(\s*select\s+auth\.uid\(\)\s*\)/gi, "");
+      if (/\bauth\.uid\(\)/i.test(withoutWrapped)) {
+        const first = stmt.split("\n")[0]!.trim().slice(0, 90);
+        offenders.push(`${name}: ${first}`);
+      }
+    }
+  }
+
+  assertEquals(
+    offenders,
+    [],
+    "These policies call bare auth.uid(), which the planner re-evaluates PER " +
+      "ROW instead of hoisting to a single InitPlan (US-1927 AC1). Use " +
+      "((select auth.uid()) = user_id). The two forms are semantically " +
+      "identical — auth.uid() is STABLE — so this is a pure planner win with " +
+      "no membership change:\n" + offenders.join("\n"),
+  );
+});
+
+Deno.test("US-1927: the initplan guard can actually fail (self-check)", () => {
+  // The guard's whole job is to reject one specific string shape. If the
+  // strip-then-search logic were inverted or over-eager it would pass on
+  // everything, and a guard that cannot fail is worse than none — this session
+  // has shipped that mistake twice (US-2103's builder sweep, US-2104's import
+  // match). So the detector is exercised on both forms directly.
+  const detect = (stmt: string) =>
+    /\bauth\.uid\(\)/i.test(
+      stmt.replace(/\(\s*select\s+auth\.uid\(\)\s*\)/gi, ""),
+    );
+
+  assert(
+    detect(`create policy "x" on t for select using (auth.uid() = user_id);`),
+    "must flag the bare form",
+  );
+  assert(
+    !detect(`create policy "x" on t for select using ((select auth.uid()) = user_id);`),
+    "must NOT flag the correct initplan form",
+  );
+  // Mixed: one clause fixed, another missed — the realistic half-migration.
+  assert(
+    detect(
+      `create policy "x" on t for all using ((select auth.uid()) = user_id) ` +
+        `with check (auth.uid() = user_id);`,
+    ),
+    "must flag a policy that fixed USING but left WITH CHECK bare",
+  );
+});
