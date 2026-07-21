@@ -72,6 +72,9 @@
                 <data android:pathPrefix="/app/support" />
                 <data android:pathPrefix="/app/capture" />
                 <data android:pathPrefix="/app/add" />
+                <!-- US-1350: the eBay consent bounce-back. Claimed via
+                     assetlinks.json so no other app can intercept it. -->
+                <data android:pathPrefix="/app/oauth/ebay" />
             </intent-filter>
         </activity>
         <!-- US-1311: the OAuth return point. The App Link is domain-bound via

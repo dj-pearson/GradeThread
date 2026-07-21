@@ -177,7 +177,10 @@ private fun ShellNavHost(navController: NavHostController) {
             )
         }
         composable(ShellSection.MONEY.route) { SectionPlaceholder("Money") }
-        composable(ShellSection.MARKETPLACES.route) { SectionPlaceholder("Marketplaces") }
+        // US-1350: eBay connections replace the placeholder.
+        composable(ShellSection.MARKETPLACES.route) {
+            com.gradethread.app.marketplaces.MarketplacesScreen()
+        }
         composable(ShellRoutes.SETTINGS) { SectionPlaceholder("Settings") }
         // US-1349: global search replaces the placeholder.
         composable(ShellRoutes.SEARCH) {

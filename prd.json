@@ -290,7 +290,7 @@
     {
       "id": "US-1350",
       "priority": -98650,
-      "passes": false,
+      "passes": true,
       "title": "eBay OAuth connect (Custom Tabs, multi-account, disconnect)",
       "description": "As a seller, I can connect (and manage multiple) eBay accounts and disconnect them.",
       "acceptanceCriteria": [
@@ -298,7 +298,7 @@
         "Primary/secondary connections, label rename, disconnect + token scrub (RLS-scoped)",
         "Error states for cancel/expired-state surfaced"
       ],
-      "notes": "[P1][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | VERIFICATION LIMIT (2026-07-21): the OAuth round trip cannot be exercised from this host — it needs a real eBay developer app, a signed build, and assetlinks.json verification for the new /app/oauth/ebay path. What IS verified by test: the host allowlist, the client-nonce replay gate, the full edge status vocabulary, and the relative-redirect requirement. What is compiled but NOT exercised: the Custom Tab launch, the App Link intent delivery, and the real consent/exchange. FIRST DEVICE TEST should confirm (a) /app/oauth/ebay actually verifies against the live assetlinks.json — it was NOT in the previous prefix list, so the file may need republishing, and (b) the connection row appears within the six-second confirm poll. | AC3 DEVIATION: the AC says confirm via marketplace_connections.last_synced_at, but that column stays NULL until the first listing sync runs — waiting on it would report failure for a connection that worked. The confirm polls for the ROW appearing instead."
     },
     {
       "id": "US-1351",

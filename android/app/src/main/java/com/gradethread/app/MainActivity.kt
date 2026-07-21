@@ -13,6 +13,7 @@ import androidx.fragment.app.FragmentActivity
 import com.gradethread.app.platform.applock.AppLock
 import com.gradethread.app.platform.applock.LockScreen
 import com.gradethread.app.platform.applock.PrivacyCover
+import com.gradethread.app.marketplaces.EbayOAuthCallbacks
 import com.gradethread.app.platform.deeplink.DeepLinkController
 import com.gradethread.app.ui.shell.AppShell
 import com.gradethread.app.ui.theme.GradeThreadTheme
@@ -34,6 +35,9 @@ class MainActivity : FragmentActivity() {
         // the auth-gated shell story wires the real signed-in check; the
         // controller's queue/replay semantics are already in place for it.
         DeepLinkController.shared.offer(intent?.data, isReady = true)
+        // US-1350: the eBay consent bounce-back needs the whole URI, not a
+        // reduced nav destination.
+        EbayOAuthCallbacks.offer(intent?.data)
         setContent {
             GradeThreadTheme {
                 val locked by AppLock.locked.collectAsState()
@@ -65,5 +69,6 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         DeepLinkController.shared.offer(intent.data, isReady = true)
+        EbayOAuthCallbacks.offer(intent.data)
     }
 }
