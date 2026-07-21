@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
         PendingMutationEntity::class,
         CaptureDraftEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class GradeThreadDb : RoomDatabase() {
@@ -99,6 +99,25 @@ object DatabaseProvider {
 
     private fun build(context: Context, dbName: String): GradeThreadDb =
         Room.databaseBuilder(context, GradeThreadDb::class.java, dbName)
-            // v1 has no prior migrations; future versions add explicit ones.
+            .addMigrations(MIGRATION_1_2)
             .build()
+
+    /**
+     * US-1347: the eBay specifics columns.
+     *
+     * An EXPLICIT migration, not destructive fallback. Room refuses to open a
+     * database whose schema hash it can't verify, so a version bump with no
+     * migration is a crash on launch for anyone already holding a v1 file —
+     * and destructive fallback would silently delete their unsynced captures
+     * and queued mutations to avoid it.
+     */
+    internal val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE inventory_items ADD COLUMN ebayCategoryId TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE inventory_items ADD COLUMN ebayAspectsJson TEXT DEFAULT NULL")
+            db.execSQL(
+                "ALTER TABLE inventory_items ADD COLUMN ebayAspectSourcesJson TEXT DEFAULT NULL",
+            )
+        }
+    }
 }

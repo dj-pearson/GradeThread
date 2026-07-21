@@ -1,0 +1,192 @@
+package com.gradethread.app.inventory
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
+
+/**
+ * US-1347: keeping `ebay_aspects` and the item's own fields in step.
+ *
+ * All pure. The provenance model is the interesting part: an aspect can come
+ * from three places, and the whole point of tracking that is so a re-save never
+ * silently discards something a person or the AI put there.
+ */
+object AspectSync {
+
+    /**
+     * Where a value came from. `UNFILLED` is COMPUTED (a required aspect with
+     * no value) and never stored — matching migration 00184's decision.
+     */
+    enum class Provenance(val wire: String, val badge: String) {
+        INVENTORY_DERIVED("inventory_derived", "Auto"),
+        AI_EXTRACTED("ai_extracted", "AI"),
+        MANUAL("manual", "You"),
+        ;
+
+        companion object {
+            fun from(wire: String?): Provenance? = entries.firstOrNull { it.wire == wire }
+        }
+    }
+
+    /**
+     * eBay rejects an item specific longer than this, and the failure surfaces
+     * as an unpublishable offer rather than a field error.
+     *
+     * The edge enforces it at its own chokepoint (`capAspectValuesForEbay`), so
+     * this is NOT a second enforcement point — it exists so the editor can warn
+     * the seller BEFORE they save that their 80-character value will be cut,
+     * instead of silently losing 15 characters somewhere downstream.
+     */
+    const val EBAY_ASPECT_VALUE_MAX_LEN = 65
+
+    fun willBeTruncated(value: String): Boolean =
+        value.trim().length > EBAY_ASPECT_VALUE_MAX_LEN
+
+    /**
+     * Project the structured columns onto their aspects.
+     *
+     * Runs on EVERY item save, mirroring the web `projectColumnAspects`: the
+     * columns OWN their aspects, so brand/size/color/material/style always
+     * agree with what the listing will publish. A cleared column removes its
+     * aspect and its provenance entry rather than leaving a stale value that
+     * the seller can no longer see the source of.
+     *
+     * Aspects NOT backed by a column are untouched — that is what stops a plain
+     * re-save from wiping an AI-extracted or hand-typed specific.
+     */
+    fun projectColumnAspects(
+        draft: ItemDraft,
+        existingAspects: Map<String, List<String>>,
+        existingSources: Map<String, Provenance>,
+    ): Pair<Map<String, List<String>>, Map<String, Provenance>> {
+        val aspects = existingAspects.toMutableMap()
+        val sources = existingSources.toMutableMap()
+
+        for (entry in AspectRegistry.columnEntries) {
+            val name = entry.canonicalAspect
+            val value = when (entry.field) {
+                "brand" -> draft.brand
+                "size" -> draft.size
+                "color" -> draft.color
+                "material" -> draft.material
+                "style" -> draft.style
+                else -> ""
+            }.trim()
+
+            if (value.isNotEmpty()) {
+                aspects[name] = listOf(value)
+                sources[name] = Provenance.INVENTORY_DERIVED
+            } else {
+                aspects.remove(name)
+                sources.remove(name)
+            }
+        }
+        return aspects to sources
+    }
+
+    /**
+     * A manual edit from the aspects editor.
+     *
+     * Marked MANUAL, which outranks both other sources — a value someone typed
+     * deliberately must survive the next derivation pass.
+     */
+    fun setManual(
+        aspects: Map<String, List<String>>,
+        sources: Map<String, Provenance>,
+        name: String,
+        values: List<String>,
+    ): Pair<Map<String, List<String>>, Map<String, Provenance>> {
+        val cleaned = values.map { it.trim() }.filter { it.isNotEmpty() }
+        val nextAspects = aspects.toMutableMap()
+        val nextSources = sources.toMutableMap()
+        if (cleaned.isEmpty()) {
+            nextAspects.remove(name)
+            nextSources.remove(name)
+        } else {
+            nextAspects[name] = cleaned
+            nextSources[name] = Provenance.MANUAL
+        }
+        return nextAspects to nextSources
+    }
+
+    /**
+     * Drop provenance entries whose aspect no longer has a value, so the stored
+     * map never goes stale against the value map (web `pruneSources`).
+     */
+    fun pruneSources(
+        sources: Map<String, Provenance>,
+        aspects: Map<String, List<String>>,
+    ): Map<String, Provenance> =
+        sources.filterKeys { !aspects[it].isNullOrEmpty() }
+
+    /**
+     * Required aspects with no value — the pre-publish checklist, and the same
+     * rule the edge applies at publish time so the two can't disagree.
+     *
+     * @param required the category spec's required aspect names.
+     */
+    fun requiredMissing(
+        required: List<String>,
+        aspects: Map<String, List<String>>,
+    ): List<String> = required
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && aspects[it].isNullOrEmpty() }
+
+    // ── jsonb round trip ─────────────────────────────────────────────────
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    /** Decode `ebay_aspects`: name → values, dropping empties. */
+    fun decodeAspects(raw: String?): Map<String, List<String>> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            (json.parseToJsonElement(raw) as? JsonObject)
+                ?.mapNotNull { (name, element) ->
+                    val values = runCatching {
+                        element.jsonArray.mapNotNull { item ->
+                            item.jsonPrimitive.content.trim().takeIf { it.isNotEmpty() }
+                        }
+                    }.getOrDefault(emptyList())
+                    if (values.isEmpty()) null else name to values
+                }
+                ?.toMap()
+                .orEmpty()
+        }.getOrDefault(emptyMap())
+    }
+
+    fun encodeAspects(aspects: Map<String, List<String>>): String? {
+        val kept = aspects.filterValues { it.isNotEmpty() }
+        if (kept.isEmpty()) return null
+        return JsonObject(
+            kept.mapValues { (_, values) -> JsonArray(values.map { JsonPrimitive(it) }) },
+        ).toString()
+    }
+
+    /**
+     * Decode `ebay_aspect_sources`.
+     *
+     * An UNRECOGNISED provenance is dropped rather than guessed at: the map is
+     * additive and a missing key already means "source unknown", so a value
+     * this client doesn't understand should not be re-badged as something it
+     * isn't.
+     */
+    fun decodeSources(raw: String?): Map<String, Provenance> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            (json.parseToJsonElement(raw) as? JsonObject)
+                ?.mapNotNull { (name, element) ->
+                    Provenance.from(element.jsonPrimitive.content)?.let { name to it }
+                }
+                ?.toMap()
+                .orEmpty()
+        }.getOrDefault(emptyMap())
+    }
+
+    fun encodeSources(sources: Map<String, Provenance>): String? {
+        if (sources.isEmpty()) return null
+        return JsonObject(sources.mapValues { JsonPrimitive(it.value.wire) }).toString()
+    }
+}

@@ -66,6 +66,17 @@ data class InventoryItemEntity(
     val measurementsJson: String?,
     /** Denormalized cover — DISPLAY ONLY; never photo-presence truth. */
     val primaryPhotoUrl: String?,
+    /** US-1347: the resolved eBay leaf category this item's specifics belong to. */
+    @ColumnInfo(defaultValue = "NULL") val ebayCategoryId: String? = null,
+    /** US-1347: `ebay_aspects` jsonb — aspect name → values. Round-tripped raw. */
+    @ColumnInfo(defaultValue = "NULL") val ebayAspectsJson: String? = null,
+    /**
+     * US-1347: `ebay_aspect_sources` jsonb (00184) — the PARALLEL provenance
+     * map. Deliberately parallel rather than folded into the value map: the
+     * value map is read on hot publish/prefill paths that require its
+     * `name -> [values]` shape, and a missing key just means "source unknown".
+     */
+    @ColumnInfo(defaultValue = "NULL") val ebayAspectSourcesJson: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
     @ColumnInfo(defaultValue = "0") val hasLocalChanges: Boolean = false,
