@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.platform.rememberShutterSound
 import com.gradethread.app.platform.rememberHapticFeedback
 import com.gradethread.app.sync.db.DatabaseProvider
@@ -62,7 +63,11 @@ import java.io.File
  * recovers the draft.
  */
 @Composable
-fun CaptureScreen() {
+fun CaptureScreen(
+    /** US-1334: fired once the item exists and extraction has started. */
+    onPublished: (String) -> Unit = {},
+    publishViewModel: CapturePublishViewModel = hiltViewModel(),
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = rememberHapticFeedback()
@@ -103,6 +108,14 @@ fun CaptureScreen() {
                 }
             }
             store?.persist(db)
+        }
+    }
+
+    val publish by publishViewModel.state.collectAsState()
+    LaunchedEffect(publish.publishedItemId) {
+        publish.publishedItemId?.let { itemId ->
+            publishViewModel.onNavigated()
+            onPublished(itemId)
         }
     }
 
@@ -245,11 +258,21 @@ fun CaptureScreen() {
             }
         }
 
+        // US-1334: the handoff. Publishing creates the item, enqueues the
+        // uploads and starts the extraction; the screen only navigates.
+        publish.errorMessage?.let { message ->
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = Spacing.md),
+            )
+        }
         if (intake.allRequiredFilled) {
             BrandPrimaryButton(
-                text = "Continue",
+                text = if (publish.publishing) "Saving…" else "Continue",
                 modifier = Modifier.fillMaxWidth().padding(Spacing.md),
-            ) { /* the intake-handoff story wires the next step */ }
+            ) { if (!publish.publishing) publishViewModel.publish(state) }
         }
     }
 }

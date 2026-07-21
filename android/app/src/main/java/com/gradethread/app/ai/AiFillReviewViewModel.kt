@@ -11,18 +11,24 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * US-1334: ties the review sheet to the write path and the acceptance signal.
+ * US-1334: ties the review sheet to the extraction, the write path and the
+ * acceptance signal.
  *
  * The sheet stays a pure function of its inputs; this owns the IO so the
- * apply sequence has exactly one home.
+ * apply sequence has exactly one home. The RUN itself lives in
+ * [AiExtractionManager] rather than here, so dismissing the screen doesn't
+ * cancel it.
  */
 @HiltViewModel
 class AiFillReviewViewModel @Inject constructor(
     private val writer: AiFieldWriter,
     private val service: AiExtractService,
+    private val manager: AiExtractionManager,
 ) : ViewModel() {
 
     data class State(
+        val itemId: String? = null,
+        val phase: AiExtractPhase? = null,
         val review: AiExtractReview.Review? = null,
         val saving: Boolean = false,
         val applied: Boolean = false,
@@ -34,13 +40,45 @@ class AiFillReviewViewModel @Inject constructor(
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
-    fun present(review: AiExtractReview.Review) {
-        _state.value = State(review = review)
+    /**
+     * Follow one item's extraction.
+     *
+     * Idempotent, because a recomposition re-invokes it: re-collecting would
+     * otherwise stack a new collector per frame.
+     */
+    fun bind(itemId: String) {
+        if (_state.value.itemId == itemId) return
+        _state.value = State(itemId = itemId, phase = manager.phase(itemId))
+        viewModelScope.launch {
+            manager.phases.collect { phases ->
+                if (_state.value.itemId != itemId) return@collect
+                _state.value = _state.value.copy(phase = phases[itemId])
+            }
+        }
+        viewModelScope.launch {
+            manager.reviews.collect { reviews ->
+                if (_state.value.itemId != itemId) return@collect
+                reviews[itemId]?.let { _state.value = _state.value.copy(review = it) }
+            }
+        }
     }
 
-    /** Cancel dismisses WITHOUT consuming the review (US-1182). */
+    fun present(review: AiExtractReview.Review) {
+        _state.value = _state.value.copy(itemId = review.itemId, review = review)
+    }
+
+    /**
+     * Cancel dismisses WITHOUT consuming the review (US-1182) — the seller
+     * gets the same sheet back from the item, rather than losing the run.
+     */
     fun dismissWithoutConsuming() {
         _state.value = _state.value.copy(errorMessage = null)
+    }
+
+    /** Skip: the seller declined this review outright, so it IS consumed. */
+    fun skip() {
+        _state.value.itemId?.let(manager::consumeReview)
+        _state.value = _state.value.copy(review = null, errorMessage = null)
     }
 
     fun apply(
@@ -65,6 +103,7 @@ class AiFillReviewViewModel @Inject constructor(
                     applied = true,
                     rejectedFields = rejected,
                 )
+                manager.consumeReview(review.itemId)
                 val used = AiExtractFlow.usedEvent(
                     review, keptApplied, acceptedLowConfidence, keepMeasurements,
                 )

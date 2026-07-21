@@ -87,7 +87,7 @@
     {
       "id": "US-1334",
       "priority": -98666,
-      "passes": false,
+      "passes": true,
       "title": "AI attribute extraction + review sheet",
       "description": "As a seller, my photos are auto-analyzed into suggested fields I review and confirm before they save.",
       "acceptanceCriteria": [

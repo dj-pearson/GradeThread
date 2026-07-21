@@ -173,11 +173,37 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellRoutes.SEARCH) { SectionPlaceholder("Search") }
         composable(ShellRoutes.TOOLS) { SectionPlaceholder("Tools") }
         // Capture entry points (the Add sheet's targets).
-        composable("capture/photos") { com.gradethread.app.capture.CaptureScreen() }
+        composable("capture/photos") {
+            com.gradethread.app.capture.CaptureScreen(
+                // US-1334: land on the AI step, replacing the camera in the
+                // back stack — a back-press from the review must not drop the
+                // seller into a viewfinder for the item they just published.
+                onPublished = { itemId ->
+                    navController.navigate("ai/extract/$itemId") {
+                        popUpTo("capture/photos") { inclusive = true }
+                    }
+                },
+            )
+        }
         composable("capture/details") {
             com.gradethread.app.inventory.DetailsIntakeScreen()
         }
         composable("capture/autolister") { SectionPlaceholder("AutoLister") }
+        // US-1334: the post-capture AI step.
+        composable("ai/extract/{itemId}") { entry ->
+            val itemId = entry.arguments?.getString("itemId").orEmpty()
+            com.gradethread.app.ai.AiExtractScreen(
+                itemId = itemId,
+                onDone = {
+                    navController.navigate(ShellSection.INVENTORY.route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
     }
 }
 

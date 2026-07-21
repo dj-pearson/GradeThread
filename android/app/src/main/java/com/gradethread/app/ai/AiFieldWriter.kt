@@ -101,6 +101,31 @@ class AiFieldWriter @Inject constructor(private val client: SupabaseClient) {
     }
 
     /**
+     * Replace the intake placeholder title with a seed from the extraction.
+     *
+     * The `title = replacing` filter is the whole point: extraction takes
+     * ~40s, and the seller may have typed a real title in the meantime. A
+     * read-then-write would race them and overwrite their words with a model
+     * guess; a conditional UPDATE simply matches nothing in that case.
+     */
+    suspend fun seedTitle(itemId: String, seed: String, replacing: String): Result<Unit> =
+        runCatching {
+            val owner = ownerId() ?: error("Not signed in")
+            if (seed.isBlank()) return@runCatching
+            client.from(TABLE).update(
+                JsonObject(mapOf("title" to JsonPrimitive(seed))),
+            ) {
+                filter {
+                    eq("id", itemId)
+                    // Tenant scope. Never act on an id from a response alone.
+                    eq("user_id", owner)
+                    eq("title", replacing)
+                }
+            }
+            Unit
+        }
+
+    /**
      * Read the jsonb documents we're about to merge into.
      *
      * Required because a jsonb UPDATE replaces the whole document — writing

@@ -183,6 +183,22 @@ class UploadWorker(
                     .build(),
             )
             .addTag("photo-upload")
+            // US-1334: the AI publish gate has to tell "this item's front shot
+            // failed terminally" from "it's still uploading", and WorkInfo
+            // exposes tags but never input data. Two tags — the item and the
+            // sort order — are the only channel WorkManager offers for that.
+            .addTag(itemTag(itemId))
+            .addTag(ORDER_TAG_PREFIX + sortOrder)
             .build()
+
+        private const val ORDER_TAG_PREFIX = "photo-upload-order:"
+
+        fun itemTag(itemId: String): String = "photo-upload-item:${itemId.lowercase()}"
+
+        /** The sort order carried by [request]'s tags, or null if absent. */
+        fun sortOrderFromTags(tags: Set<String>): Int? = tags
+            .firstOrNull { it.startsWith(ORDER_TAG_PREFIX) }
+            ?.removePrefix(ORDER_TAG_PREFIX)
+            ?.toIntOrNull()
     }
 }
