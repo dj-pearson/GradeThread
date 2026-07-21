@@ -35,6 +35,7 @@ class ItemCanvasViewModel @Inject constructor(
     private val client: SupabaseClient,
     private val queue: OfflineMutationQueue,
     private val sizeAi: SizeAiService,
+    private val compsService: CompsService,
 ) : ViewModel() {
 
     data class State(
@@ -53,6 +54,8 @@ class ItemCanvasViewModel @Inject constructor(
         val sizeEstimate: SizeEstimate? = null,
         val estimatingSize: Boolean = false,
         val sizeErrorMessage: String? = null,
+        /** US-1346: the eBay comps panel. */
+        val comps: CompsState = CompsState.Idle,
     ) {
         val isDirty: Boolean get() = ItemPatch.isDirty(original, draft)
 
@@ -119,6 +122,30 @@ class ItemCanvasViewModel @Inject constructor(
                     )
                 }
         }
+    }
+
+    // ── US-1346: comps ───────────────────────────────────────────────────
+
+    fun fetchComps() {
+        val draft = _state.value.draft
+        if (_state.value.comps is CompsState.Loading) return
+        _state.value = _state.value.copy(comps = CompsState.Loading)
+        viewModelScope.launch {
+            val result = compsService.lookup(draft.title, draft.brand, draft.size)
+            _state.value = _state.value.copy(comps = result)
+        }
+    }
+
+    /** One-tap "use median" — into TARGET price, never the acquired cost. */
+    fun useMedian(median: Double) = edit {
+        it.copy(targetPriceText = CurrencyAmount.formatRaw(Math.round(median * 100)))
+    }
+
+    fun addComp(comp: ItemComp) = edit { it.copy(comps = it.comps + comp) }
+
+    fun removeComp(index: Int) = edit { draft ->
+        if (index !in draft.comps.indices) draft
+        else draft.copy(comps = draft.comps.filterIndexed { i, _ -> i != index })
     }
 
     fun dismissSizeEstimate() {
@@ -239,6 +266,7 @@ class ItemCanvasViewModel @Inject constructor(
         consignmentSplitPct = CurrencyAmount.parseCents(draft.consignmentSplitText)
             ?.let { it / 100.0 },
         measurementsJson = MeasurementCatalog.encode(draft.measurements),
+        compSetJson = CompSet.encode(draft.comps),
         updatedAt = System.currentTimeMillis(),
         hasLocalChanges = true,
     )

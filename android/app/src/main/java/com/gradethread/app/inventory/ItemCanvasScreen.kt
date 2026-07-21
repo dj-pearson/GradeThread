@@ -170,6 +170,15 @@ fun ItemCanvasScreen(
             viewModel.edit { it.copy(consignmentSplitText = v) }
         }
 
+        CompsSection(
+            state = state.comps,
+            savedComps = draft.comps,
+            onFetch = viewModel::fetchComps,
+            onUseMedian = viewModel::useMedian,
+            onAddComp = viewModel::addComp,
+            onRemoveComp = viewModel::removeComp,
+        )
+
         SectionHeader("Notes")
         Field("Description", draft.description, lines = 3) { v ->
             viewModel.edit { it.copy(description = v) }

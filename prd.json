@@ -239,7 +239,7 @@
     {
       "id": "US-1346",
       "priority": -98654,
-      "passes": false,
+      "passes": true,
       "title": "Item canvas: eBay comps (fetch + use-median)",
       "description": "As a seller, I can pull live eBay comps for an item and apply the median to my target price.",
       "acceptanceCriteria": [

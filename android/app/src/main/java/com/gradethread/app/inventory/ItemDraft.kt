@@ -49,6 +49,8 @@ data class ItemDraft(
     val consignmentSplitText: String = "",
     /** US-1345: canonical key → value, decoded from the `measurements` jsonb. */
     val measurements: Map<String, Double> = emptyMap(),
+    /** US-1346: the seller's own saved comparable sales (`comp_set` jsonb). */
+    val comps: List<ItemComp> = emptyList(),
 ) {
 
     /** Garment classification only applies to clothing. */
@@ -82,6 +84,7 @@ data class ItemDraft(
                 ?.let { CurrencyAmount.formatRaw(toCents(it)) }
                 .orEmpty(),
             measurements = MeasurementCatalog.decode(item.measurementsJson),
+            comps = CompSet.decode(item.compSetJson),
         )
 
         /** Strict lookup: an absent or unrecognized value stays null. */
@@ -188,6 +191,15 @@ object ItemPatch {
             // it anyway — sending only the changed keys would silently delete
             // every measurement the seller did not touch this session.
             patch["measurements"] = MeasurementCatalog.encode(edited.measurements)
+                ?.let { kotlinx.serialization.json.Json.parseToJsonElement(it) }
+                ?: JsonNull
+        }
+
+        if (original.comps != edited.comps) {
+            // Whole-document replace, same rule as measurements: a jsonb UPDATE
+            // replaces it anyway, so a partial write would drop the comps the
+            // seller didn't touch.
+            patch["comp_set"] = CompSet.encode(edited.comps)
                 ?.let { kotlinx.serialization.json.Json.parseToJsonElement(it) }
                 ?: JsonNull
         }
