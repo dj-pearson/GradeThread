@@ -114,7 +114,7 @@
     {
       "id": "US-1336",
       "priority": -98664,
-      "passes": false,
+      "passes": true,
       "title": "Certified grading: validate → tier → confirm spend → submit → poll",
       "description": "As a seller, I can request a certified grade for an item: see readiness/cost, pick a tier, confirm any credit spend, and watch it grade live.",
       "acceptanceCriteria": [

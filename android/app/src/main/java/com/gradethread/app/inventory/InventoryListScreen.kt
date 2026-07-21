@@ -49,7 +49,11 @@ import com.gradethread.app.ui.theme.Spacing
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InventoryListScreen(viewModel: InventoryListViewModel = hiltViewModel()) {
+fun InventoryListScreen(
+    /** US-1336: open the certified-grade request for one item. */
+    onGrade: (String) -> Unit = {},
+    viewModel: InventoryListViewModel = hiltViewModel(),
+) {
     val items by viewModel.items.collectAsStateWithLifecycle()
     val stage by viewModel.stage.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
@@ -170,8 +174,8 @@ fun InventoryListScreen(viewModel: InventoryListViewModel = hiltViewModel()) {
             modifier = Modifier.fillMaxSize(),
         ) {
             when (viewMode) {
-                InventoryViewMode.LIST -> InventoryList(visible, photoItemIds)
-                InventoryViewMode.BOARD -> InventoryBoard(visible, photoItemIds)
+                InventoryViewMode.LIST -> InventoryList(visible, photoItemIds, onGrade)
+                InventoryViewMode.BOARD -> InventoryBoard(visible, photoItemIds, onGrade)
             }
         }
     }
@@ -194,20 +198,28 @@ private fun SortRow(current: SortOption, onSelect: (SortOption) -> Unit) {
 }
 
 @Composable
-private fun InventoryList(items: List<InventoryItemEntity>, photoItemIds: Set<String>) {
+private fun InventoryList(
+    items: List<InventoryItemEntity>,
+    photoItemIds: Set<String>,
+    onGrade: (String) -> Unit,
+) {
     if (items.isEmpty()) {
         EmptyState()
         return
     }
     LazyColumn(Modifier.fillMaxSize()) {
         items(items, key = { it.id }) { item ->
-            InventoryRow(item, hasPhotos = item.id in photoItemIds)
+            InventoryRow(item, hasPhotos = item.id in photoItemIds, onGrade = onGrade)
         }
     }
 }
 
 @Composable
-private fun InventoryBoard(items: List<InventoryItemEntity>, photoItemIds: Set<String>) {
+private fun InventoryBoard(
+    items: List<InventoryItemEntity>,
+    photoItemIds: Set<String>,
+    onGrade: (String) -> Unit,
+) {
     val grouped = remember(items) { PipelineBoard.group(items) { it.status } }
     LazyRow(
         modifier = Modifier.fillMaxSize(),
@@ -228,7 +240,7 @@ private fun InventoryBoard(items: List<InventoryItemEntity>, photoItemIds: Set<S
                 )
                 LazyColumn {
                     items(grouped[column.status].orEmpty(), key = { it.id }) { item ->
-                        InventoryRow(item, hasPhotos = item.id in photoItemIds)
+                        InventoryRow(item, hasPhotos = item.id in photoItemIds, onGrade = onGrade)
                     }
                 }
             }
@@ -237,7 +249,11 @@ private fun InventoryBoard(items: List<InventoryItemEntity>, photoItemIds: Set<S
 }
 
 @Composable
-private fun InventoryRow(item: InventoryItemEntity, hasPhotos: Boolean = false) {
+private fun InventoryRow(
+    item: InventoryItemEntity,
+    hasPhotos: Boolean = false,
+    onGrade: (String) -> Unit = {},
+) {
     Row(
         Modifier.fillMaxWidth().padding(Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
@@ -277,6 +293,14 @@ private fun InventoryRow(item: InventoryItemEntity, hasPhotos: Boolean = false) 
                     .padding(end = Spacing.xs)
                     .semantics { contentDescription = "No photos yet" },
             )
+        }
+        // US-1336: the grade entry point. Offered only where it can succeed —
+        // an already-graded item has nothing to request, and grading needs
+        // photos, so an item without them would only reach a blocker list.
+        if (item.gradeValue == null && hasPhotos) {
+            TextButton(onClick = { onGrade(item.id) }) {
+                Text("Grade", style = MaterialTheme.typography.labelMedium)
+            }
         }
         item.gradeValue?.let { GradeChip(it, item.gradeLabel) }
     }

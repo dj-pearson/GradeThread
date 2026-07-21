@@ -165,7 +165,9 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellSection.ADD.route) { SectionPlaceholder("Add an item") }
         // US-1342: the real inventory list replaces the placeholder.
         composable(ShellSection.INVENTORY.route) {
-            com.gradethread.app.inventory.InventoryListScreen()
+            com.gradethread.app.inventory.InventoryListScreen(
+                onGrade = { itemId -> navController.navigate("grade/$itemId") },
+            )
         }
         composable(ShellSection.MONEY.route) { SectionPlaceholder("Money") }
         composable(ShellSection.MARKETPLACES.route) { SectionPlaceholder("Marketplaces") }
@@ -210,6 +212,19 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.inventory.DetailsIntakeScreen()
         }
         composable("capture/autolister") { SectionPlaceholder("AutoLister") }
+        // US-1336: the certified-grade request. A plain destination, not a
+        // dialog: the poll can run for two minutes and the phase copy is worth
+        // full width.
+        composable("grade/{itemId}") { entry ->
+            com.gradethread.app.grading.GradeRequestScreen(
+                itemId = entry.arguments?.getString("itemId").orEmpty(),
+                onClose = { navController.popBackStack() },
+                // US-1338 (Play Billing) replaces this with the in-flow
+                // purchase; until then the honest move is to say where credits
+                // come from rather than open a dead sheet.
+                onTopUpCredits = { navController.navigate(ShellRoutes.SETTINGS) },
+            )
+        }
         // US-1334: the post-capture AI step.
         composable("ai/extract/{itemId}") { entry ->
             val itemId = entry.arguments?.getString("itemId").orEmpty()
