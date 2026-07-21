@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2152",
+  "nextId": "US-2153",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4000,6 +4000,21 @@
         "Pull-to-refresh on the inventory list (US-1342 AC1) is wired to it, with failures surfaced as a banner rather than emptying the cached list"
       ],
       "notes": "[P1][Android/Sync] Found while implementing US-1342. SyncPull.fetchPaged has NO production caller — grep finds it only in SyncPullTest. SyncMerger.apply is called only by RealtimeService, and only for single-row realtime deltas. So US-1317/1318/1319/1320 built and tested every sync primitive correctly, but nothing ever assembles them: Room is never bulk-populated from the server. Every Room-backed screen (US-1342 inventory list, and anything after it) therefore renders empty on a real device regardless of account contents. This is the likely reason the whole Android client reads as dormant."
+    },
+    {
+      "id": "US-2152",
+      "priority": 61,
+      "passes": false,
+      "title": "iOS tells capped sellers to slow down instead of upgrade (EdgeAPIError)",
+      "description": "As an iOS seller who has used my monthly free Snap-to-Value allowance, I am told what actually happened and how to lift it, instead of being told to try again in a moment.",
+      "acceptanceCriteria": [
+        "EdgeAPIError.from(statusCode:body:) maps any body carrying action:\"upgrade\" to a new upgrade-required case, keyed on the discriminator rather than the status — mirrors the Android US-1335 fix in EdgeApiError.kt",
+        "The case is checked AFTER the specific discriminators (workspace_access_revoked, email_unverified, feature_unavailable, offer_not_open) so a revoked workspace still recovers under the personal tenant",
+        "errorDescription surfaces the server sentence verbatim; the Snap and AI-enrichment call sites offer an upgrade route rather than a retry",
+        "The error is NOT retried (today the 429 → .rateLimited mapping retries a cap-reached snap twice, burning the per-IP daily ceiling)",
+        "Unit test covers both live sites: grade.ts snap cap (429, SNAP_LIMIT_REACHED / SNAP_IP_LIMIT_REACHED) and flipdesk-ai.ts enrichment-off (403)"
+      ],
+      "notes": "[P2][iOS/Networking] Found while porting Snap-to-Value for US-1335. Three edge sites emit action:\"upgrade\" (grade.ts:1020, grade.ts:1038, flipdesk-ai.ts:118) and iOS maps all three by status alone: the 429s become .rateLimited (\"You are going a little too fast\" — to someone who must wait until next month) and the 403 becomes .unauthorized (\"Your session expired. Sign in again\" — for a setting that is switched off). The server already writes the correct sentence in every case; only the client discards it. Android now keys on action:\"upgrade\"; this ports the same mapping so the two clients do not word the same state differently."
     }
   ]
 }
