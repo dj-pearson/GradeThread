@@ -34,6 +34,7 @@ class InventoryListViewModel @Inject constructor(
     private val db: GradeThreadDb,
     private val searchService: InventorySearchService,
     private val syncTrigger: com.gradethread.app.sync.SyncTrigger,
+    private val bulkExecutor: BulkActionExecutor,
 ) : ViewModel() {
 
     companion object {
@@ -151,5 +152,49 @@ class InventoryListViewModel @Inject constructor(
         _viewMode.value =
             if (_viewMode.value == InventoryViewMode.LIST) InventoryViewMode.BOARD
             else InventoryViewMode.LIST
+    }
+
+    // ── US-1348: bulk actions ────────────────────────────────────────────
+
+    private val _bulkBusy = MutableStateFlow(false)
+    val bulkBusy: StateFlow<Boolean> = _bulkBusy.asStateFlow()
+
+    private val _bulkResult = MutableStateFlow<BulkActionResult?>(null)
+    val bulkResult: StateFlow<BulkActionResult?> = _bulkResult.asStateFlow()
+
+    private val _bulkUndo = MutableStateFlow<BulkUndo?>(null)
+    val bulkUndo: StateFlow<BulkUndo?> = _bulkUndo.asStateFlow()
+
+    fun runBulk(action: BulkAction, itemIds: List<String>, onDone: () -> Unit) {
+        if (_bulkBusy.value || itemIds.isEmpty()) return
+        _bulkBusy.value = true
+        _bulkResult.value = null
+        viewModelScope.launch {
+            val outcome = bulkExecutor.run(action, itemIds)
+            _bulkResult.value = outcome.result
+            // Offered only when something actually changed — an undo bar for a
+            // batch that failed outright would promise to reverse nothing.
+            _bulkUndo.value = outcome.undo?.takeIf { !it.isEmpty }
+            _bulkBusy.value = false
+            onDone()
+        }
+    }
+
+    fun undoBulk() {
+        val undo = _bulkUndo.value ?: return
+        _bulkUndo.value = null
+        viewModelScope.launch {
+            _bulkBusy.value = true
+            bulkExecutor.revert(undo)
+            _bulkBusy.value = false
+        }
+    }
+
+    fun dismissBulkUndo() {
+        _bulkUndo.value = null
+    }
+
+    fun dismissBulkResult() {
+        _bulkResult.value = null
     }
 }

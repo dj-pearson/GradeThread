@@ -264,7 +264,7 @@
     {
       "id": "US-1348",
       "priority": -98652,
-      "passes": false,
+      "passes": true,
       "title": "Bulk actions (multi-select batch + undo)",
       "description": "As a seller, I can select multiple items and batch-change status/price, delete, or grade, with undo.",
       "acceptanceCriteria": [
@@ -272,7 +272,7 @@
         "Selection mode is reachable from the inventory list; the action bar shows the count and available batch actions",
         "A failed item in a batch doesn’t abort the rest; results summarize successes/failures with undo where reversible"
       ],
-      "notes": "[P2][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | US-1339 landed a MINIMAL multi-select in InventoryListScreen (long-press to enter, tap to toggle, a selection bar with Clear + Grade, and a toggle() helper) because bulk grading needed a way to reach it. Extend that selection rather than rebuilding one: add the remaining batch actions and the undo, and move the selection state out of the composable if it needs to survive navigation."
+      "notes": "[P2][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | US-1339 landed a MINIMAL multi-select in InventoryListScreen (long-press to enter, tap to toggle, a selection bar with Clear + Grade, and a toggle() helper) because bulk grading needed a way to reach it. Extend that selection rather than rebuilding one: add the remaining batch actions and the undo, and move the selection state out of the composable if it needs to survive navigation. | Action set is deliberately narrower than iOS: Publish, End listing and the eBay-backed price drop all go through the publish endpoints, and Android has no listing composer yet, so offering them would be buttons that can only fail. Implemented: status (create-draft / mark-shipped), target-price drop, delete, and grade (intercepted into the US-1339 sheet). The eBay-backed actions belong with whichever story brings the composer."
     },
     {
       "id": "US-1349",

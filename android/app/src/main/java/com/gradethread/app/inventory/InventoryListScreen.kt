@@ -74,6 +74,9 @@ fun InventoryListScreen(
     val serverSearchIds by viewModel.serverSearchIds.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val refreshError by viewModel.refreshError.collectAsStateWithLifecycle()
+    val bulkBusy by viewModel.bulkBusy.collectAsStateWithLifecycle()
+    val bulkResult by viewModel.bulkResult.collectAsStateWithLifecycle()
+    val bulkUndo by viewModel.bulkUndo.collectAsStateWithLifecycle()
 
     // One cache per screen, NOT per composition — a per-composition instance
     // would defeat the entire point.
@@ -187,19 +190,36 @@ fun InventoryListScreen(
             onRefresh = viewModel::refresh,
             modifier = Modifier.fillMaxSize(),
         ) {
+            // US-1348: the real action bar replaces US-1339's minimal one.
             if (selecting) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = Spacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "${selection.size} selected",
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { selection = emptySet() }) { Text("Clear") }
-                    TextButton(onClick = { onBulkGrade(selection.toList()) }) { Text("Grade") }
-                }
+                BulkActionBar(
+                    selectedCount = selection.size,
+                    stage = stage,
+                    busy = bulkBusy,
+                    onClear = { selection = emptySet() },
+                    onAction = { action ->
+                        if (action == BulkAction.Grade) {
+                            // Grading needs a tier, readiness and credits —
+                            // that is the US-1339 sheet's whole job, so it is
+                            // intercepted rather than run by the executor.
+                            onBulkGrade(selection.toList())
+                        } else {
+                            viewModel.runBulk(action, selection.toList()) {
+                                selection = emptySet()
+                            }
+                        }
+                    },
+                )
+            }
+            bulkUndo?.let { undo ->
+                BulkUndoBar(
+                    undo = undo,
+                    onUndo = viewModel::undoBulk,
+                    onDismiss = viewModel::dismissBulkUndo,
+                )
+            }
+            bulkResult?.let { result ->
+                BulkResultBar(result = result, onDismiss = viewModel::dismissBulkResult)
             }
             when (viewMode) {
                 InventoryViewMode.LIST -> InventoryList(
