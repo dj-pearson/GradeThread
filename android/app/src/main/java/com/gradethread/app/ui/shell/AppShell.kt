@@ -179,7 +179,19 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellSection.MONEY.route) { SectionPlaceholder("Money") }
         composable(ShellSection.MARKETPLACES.route) { SectionPlaceholder("Marketplaces") }
         composable(ShellRoutes.SETTINGS) { SectionPlaceholder("Settings") }
-        composable(ShellRoutes.SEARCH) { SectionPlaceholder("Search") }
+        // US-1349: global search replaces the placeholder.
+        composable(ShellRoutes.SEARCH) {
+            com.gradethread.app.inventory.GlobalSearchScreen(
+                onOpen = { route ->
+                    navController.navigate(route) {
+                        // Replaces the search screen: a back-press from the
+                        // result should reach where they were, not the query
+                        // they have already acted on.
+                        popUpTo(ShellRoutes.SEARCH) { inclusive = true }
+                    }
+                },
+            )
+        }
         composable(ShellRoutes.TOOLS) {
             ToolsScreen(
                 onSnap = { navController.navigate(ShellRoutes.SNAP) },

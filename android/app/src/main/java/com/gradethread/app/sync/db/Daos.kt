@@ -158,6 +158,10 @@ interface ListingDao {
     @Query("SELECT * FROM listings WHERE inventoryItemId = :itemId")
     suspend fun forItem(itemId: String): List<ListingEntity>
 
+    /** US-1349: the whole table, for global search. */
+    @Query("SELECT * FROM listings")
+    suspend fun all(): List<ListingEntity>
+
     @Query("SELECT id FROM listings")
     suspend fun allIds(): List<String>
 

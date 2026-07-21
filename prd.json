@@ -277,7 +277,7 @@
     {
       "id": "US-1349",
       "priority": -98651,
-      "passes": false,
+      "passes": true,
       "title": "Global search across inventory/listings/sales/sources",
       "description": "As a seller, I can search everything from a single sheet.",
       "acceptanceCriteria": [
@@ -285,7 +285,7 @@
         "Search is debounced and runs while typing without blocking the UI on large inventories",
         "Empty/zero-result and offline states are handled; opening a result restores the correct section + pushes its detail"
       ],
-      "notes": "[P2][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Source results route to the inventory list, not a source detail screen — none exists on Android yet. When one lands, change GlobalSearch.routeFor(Kind.SOURCE) and its test together."
     },
     {
       "id": "US-1350",
