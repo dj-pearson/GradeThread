@@ -37,6 +37,21 @@ sealed class EdgeApiError : Exception() {
     /** 409 `offer_not_open` — refresh the inbox instead of erroring (US-1510). */
     object OfferNotOpen : EdgeApiError()
 
+    /**
+     * US-1335: any status carrying `action: "upgrade"` — a plan or quota wall,
+     * not a transport failure.
+     *
+     * This exists because the two statuses the edge uses for it are already
+     * spoken for and BOTH said the wrong thing. The monthly free-Snap cap
+     * returns 429, which mapped to [RateLimited] — telling a seller who used
+     * their whole month's allowance to "slow down and try again in a moment",
+     * when no amount of waiting helps. AI enrichment being off returns 403,
+     * which mapped to [Unauthorized] — "your session expired", prompting a
+     * pointless re-sign-in. The server already writes the correct sentence in
+     * both cases; keying on the discriminator lets it through.
+     */
+    data class UpgradeRequired(val detail: String?, val code: String?) : EdgeApiError()
+
     /** User-facing copy, mirroring the iOS errorDescription strings. */
     fun userMessage(): String = when (this) {
         Unauthorized -> "Your session expired. Sign in again to continue."
@@ -55,7 +70,13 @@ sealed class EdgeApiError : Exception() {
         is FeatureUnavailable -> detail ?: "This feature isn't available yet."
         OfferNotOpen ->
             "This offer is no longer available — it may have expired or already been answered."
+        // The server's copy names the actual limit and what lifts it, so it
+        // beats anything generic we could write here.
+        is UpgradeRequired -> detail ?: "You've reached a limit on your plan. Upgrade to keep going."
     }
+
+    /** Whether the UI should offer an upgrade route rather than a retry. */
+    val isUpgradePrompt: Boolean get() = this is UpgradeRequired
 
     companion object {
 
@@ -67,6 +88,8 @@ sealed class EdgeApiError : Exception() {
             val detail: String? = null,
             val error_code: String? = null,
             val code: String? = null,
+            /** US-1335: the edge's "this is a plan wall" marker. */
+            val action: String? = null,
         ) {
             val discriminator: String? get() = error_code ?: code
         }
@@ -92,6 +115,12 @@ sealed class EdgeApiError : Exception() {
                 return FeatureUnavailable(detail)
             }
             if (payload?.discriminator == "offer_not_open") return OfferNotOpen
+            // Checked BEFORE the status switch, which is the whole point: the
+            // statuses the edge uses for a plan wall (429, 403) already map to
+            // errors whose copy actively misleads here.
+            if (payload?.action == "upgrade") {
+                return UpgradeRequired(detail, payload.discriminator)
+            }
 
             return when (statusCode) {
                 401, 403 -> Unauthorized

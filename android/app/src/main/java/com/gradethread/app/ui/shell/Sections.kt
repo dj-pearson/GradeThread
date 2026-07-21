@@ -39,6 +39,9 @@ object ShellRoutes {
     const val SETTINGS = "settings"
     const val SEARCH = "search"
     const val TOOLS = "tools"
+
+    /** US-1335: Snap-to-Value, reached from [TOOLS]. */
+    const val SNAP = "snap"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */

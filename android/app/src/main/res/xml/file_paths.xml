@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  US-1335: the only path the camera is granted. Scoped to the single cache
+  subdirectory Snap writes into, NOT the whole cache — a FileProvider root of
+  "." would hand any app we send an intent to a URI it could point at staged
+  uploads or the OCR stash.
+-->
+<paths>
+    <cache-path name="snap-capture" path="snap-capture/" />
+</paths>

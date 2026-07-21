@@ -101,7 +101,7 @@
     {
       "id": "US-1335",
       "priority": -98665,
-      "passes": false,
+      "passes": true,
       "title": "Snap-to-Value free AI grade",
       "description": "As a visitor, I can snap one photo and get an instant grade + resale value range, nudged toward certified grading or listing.",
       "acceptanceCriteria": [

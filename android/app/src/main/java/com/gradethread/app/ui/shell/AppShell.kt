@@ -171,7 +171,28 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellSection.MARKETPLACES.route) { SectionPlaceholder("Marketplaces") }
         composable(ShellRoutes.SETTINGS) { SectionPlaceholder("Settings") }
         composable(ShellRoutes.SEARCH) { SectionPlaceholder("Search") }
-        composable(ShellRoutes.TOOLS) { SectionPlaceholder("Tools") }
+        composable(ShellRoutes.TOOLS) {
+            ToolsScreen(onSnap = { navController.navigate(ShellRoutes.SNAP) })
+        }
+        // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops
+        // itself first — a back-press from the certified-grade flow must not
+        // land on a stale result card for a photo already handed off.
+        composable(ShellRoutes.SNAP) {
+            com.gradethread.app.snap.SnapScreen(
+                onCertifiedGrade = {
+                    navController.popBackStack()
+                    navController.navigate("capture/photos")
+                },
+                onList = {
+                    navController.popBackStack()
+                    navController.navigate(ShellSection.INVENTORY.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+            )
+        }
         // Capture entry points (the Add sheet's targets).
         composable("capture/photos") {
             com.gradethread.app.capture.CaptureScreen(

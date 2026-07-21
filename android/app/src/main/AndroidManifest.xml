@@ -111,6 +111,19 @@
                 android:name="androidx.work.WorkManagerInitializer"
                 tools:node="remove" />
         </provider>
+        <!-- US-1335: hands the system camera a scoped content:// grant to write
+             into our own cache. Deliberately NOT shared external storage — a
+             garment photo the user has not chosen to publish must not be
+             readable by every other app on the device. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

@@ -1,6 +1,7 @@
 package com.gradethread.app.platform.net
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -66,5 +67,54 @@ class EdgeApiErrorTest {
         assertTrue(EdgeApiError.EmailUnverified.userMessage().contains("confirm your email"))
         assertTrue(EdgeApiError.RateLimited(30).userMessage().contains("30s"))
         assertTrue(EdgeApiError.RateLimited().userMessage().contains("in a moment"))
+    }
+
+    // ── US-1335: `action: "upgrade"` beats the status ────────────────────
+
+    @Test
+    fun upgradeAction_on429_isNotAThrottleMessage() {
+        // The monthly free-Snap cap. As a plain 429 this told a seller who had
+        // used their whole month's allowance to "slow down" — advice that can
+        // never come true.
+        val body = """{"error":"You've used all 5 free Snap-to-Value checks this month.",
+            "code":"SNAP_LIMIT_REACHED","action":"upgrade"}"""
+        val error = EdgeApiError.from(429, body)
+        assertTrue(error is EdgeApiError.UpgradeRequired)
+        assertEquals("SNAP_LIMIT_REACHED", (error as EdgeApiError.UpgradeRequired).code)
+        assertTrue(error.userMessage().contains("all 5 free"))
+        assertTrue(error.isUpgradePrompt)
+    }
+
+    @Test
+    fun upgradeAction_on403_isNotASessionExpiredMessage() {
+        // AI enrichment turned off. As a plain 403 this told the user to sign
+        // in again, which does nothing about a setting.
+        val error = EdgeApiError.from(
+            403,
+            """{"error":"AI enrichment is turned off for your account.","action":"upgrade"}""",
+        )
+        assertTrue(error is EdgeApiError.UpgradeRequired)
+        assertTrue(error.userMessage().contains("turned off"))
+    }
+
+    @Test
+    fun upgradeAction_isNeverRetried() {
+        // A plain 429 IS retried, so without this mapping a cap-reached snap
+        // burned two more requests against the per-IP daily ceiling for
+        // nothing.
+        val capped = EdgeApiError.from(429, """{"error":"capped","action":"upgrade"}""")
+        assertFalse(EdgeApi.shouldRetry(capped, "POST"))
+        assertTrue(EdgeApi.shouldRetry(EdgeApiError.from(429, "{}"), "POST"))
+    }
+
+    @Test
+    fun moreSpecificDiscriminatorsStillWin() {
+        // A revoked workspace must recover under the personal tenant, not show
+        // an upsell, even if the body also carried an upgrade action.
+        val error = EdgeApiError.from(
+            403,
+            """{"code":"workspace_access_revoked","action":"upgrade"}""",
+        )
+        assertTrue(error is EdgeApiError.WorkspaceAccessRevoked)
     }
 }
