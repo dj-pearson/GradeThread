@@ -86,7 +86,10 @@ class ItemDraftTest {
         val draft = ItemDraft.from(entity(itemCategory = null))
         val patch = ItemPatch.diff(draft, draft.copy(brand = "Arc'teryx"))
         assertFalse(patch.containsKey("item_category"))
-        assertEquals(setOf("brand"), patch.keys)
+        // brand + its projected Brand specific (US-1347). NOT the sources map:
+        // only the aspect's VALUE moved, its provenance is still
+        // inventory_derived, so rewriting it would be a no-op write.
+        assertEquals(setOf("brand", "ebay_aspects"), patch.keys)
     }
 
     @Test
@@ -105,11 +108,17 @@ class ItemDraftTest {
         // a grade that landed, a price a sync pulled.
         val draft = ItemDraft.from(entity())
         val patch = ItemPatch.diff(draft, draft.copy(size = "M"))
-        assertEquals(setOf("size"), patch.keys)
+        // US-1347: the Size column OWNS the Size specific, so a size edit
+        // carries its aspect projection with it — that is the projection
+        // working, not leakage. Nothing ELSE is written.
+        assertEquals(setOf("size", "ebay_aspects", "ebay_aspect_sources"), patch.keys)
     }
 
     @Test
     fun `nothing changed means nothing written`() {
+        // Including the aspect projection: an item carrying a brand but no
+        // Brand specific yet must not read as dirty the moment the canvas
+        // opens, or the Save button never goes quiet.
         val draft = ItemDraft.from(entity())
         assertTrue(ItemPatch.diff(draft, draft).isEmpty())
         assertFalse(ItemPatch.isDirty(draft, draft))
@@ -137,7 +146,7 @@ class ItemDraftTest {
         val draft = ItemDraft.from(entity())
         val patch = ItemPatch.diff(draft, draft.copy(title = "", size = "L"))
         assertFalse(patch.containsKey("title"))
-        assertEquals(setOf("size"), patch.keys)
+        assertEquals(setOf("size", "ebay_aspects", "ebay_aspect_sources"), patch.keys)
     }
 
     // ── money ────────────────────────────────────────────────────────────
@@ -184,8 +193,9 @@ class ItemDraftTest {
         val draft = ItemDraft.from(entity(status = "sold"))
         val patch = ItemPatch.diff(draft, draft.copy(status = "cataloged", size = "S"))
         assertFalse(patch.containsKey("status"))
-        // The rest of the edit still lands.
-        assertEquals(setOf("size"), patch.keys)
+        // The rest of the edit still lands, including the Size specific the
+        // size column owns (US-1347).
+        assertEquals(setOf("size", "ebay_aspects", "ebay_aspect_sources"), patch.keys)
     }
 
     // ── dates ────────────────────────────────────────────────────────────

@@ -51,6 +51,12 @@ data class ItemDraft(
     val measurements: Map<String, Double> = emptyMap(),
     /** US-1346: the seller's own saved comparable sales (`comp_set` jsonb). */
     val comps: List<ItemComp> = emptyList(),
+    /** US-1347: the resolved eBay leaf category for this item's specifics. */
+    val ebayCategoryId: String? = null,
+    /** US-1347: `ebay_aspects` — aspect name → values. */
+    val aspects: Map<String, List<String>> = emptyMap(),
+    /** US-1347: the parallel provenance map (00184). */
+    val aspectSources: Map<String, AspectSync.Provenance> = emptyMap(),
 ) {
 
     /** Garment classification only applies to clothing. */
@@ -85,6 +91,9 @@ data class ItemDraft(
                 .orEmpty(),
             measurements = MeasurementCatalog.decode(item.measurementsJson),
             comps = CompSet.decode(item.compSetJson),
+            ebayCategoryId = item.ebayCategoryId,
+            aspects = AspectSync.decodeAspects(item.ebayAspectsJson),
+            aspectSources = AspectSync.decodeSources(item.ebayAspectSourcesJson),
         )
 
         /** Strict lookup: an absent or unrecognized value stays null. */
@@ -202,6 +211,42 @@ object ItemPatch {
             patch["comp_set"] = CompSet.encode(edited.comps)
                 ?.let { kotlinx.serialization.json.Json.parseToJsonElement(it) }
                 ?: JsonNull
+        }
+
+        // US-1347: the columns own their aspects, so the projection runs on
+        // EVERY save — otherwise a brand edit here and the Brand specific that
+        // publishes to eBay drift apart silently.
+        // Compared against the ORIGINAL'S PROJECTION, not against its stored
+        // aspects. An item can carry a brand with no Brand specific yet, and
+        // comparing to the stored map would make that difference show up on
+        // every open — leaving the canvas permanently "dirty" and writing
+        // aspects nobody edited. Comparing projection to projection means the
+        // backfill rides along with a real edit instead.
+        val (originalProjected, originalSources) = AspectSync.projectColumnAspects(
+            original,
+            original.aspects,
+            original.aspectSources,
+        )
+        val (projected, projectedSources) = AspectSync.projectColumnAspects(
+            edited,
+            edited.aspects,
+            edited.aspectSources,
+        )
+        val prunedSources = AspectSync.pruneSources(projectedSources, projected)
+        val originalPruned = AspectSync.pruneSources(originalSources, originalProjected)
+        if (projected != originalProjected) {
+            patch["ebay_aspects"] = AspectSync.encodeAspects(projected)
+                ?.let { kotlinx.serialization.json.Json.parseToJsonElement(it) }
+                ?: JsonNull
+        }
+        if (prunedSources != originalPruned) {
+            patch["ebay_aspect_sources"] = AspectSync.encodeSources(prunedSources)
+                ?.let { kotlinx.serialization.json.Json.parseToJsonElement(it) }
+                ?: JsonNull
+        }
+        if (original.ebayCategoryId != edited.ebayCategoryId) {
+            patch["ebay_category_id"] = edited.ebayCategoryId?.takeIf { it.isNotBlank() }
+                ?.let { JsonPrimitive(it) } ?: JsonNull
         }
 
         if (original.consignorId != edited.consignorId) {

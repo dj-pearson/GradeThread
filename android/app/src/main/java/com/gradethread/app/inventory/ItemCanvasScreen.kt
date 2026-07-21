@@ -179,6 +179,15 @@ fun ItemCanvasScreen(
             onRemoveComp = viewModel::removeComp,
         )
 
+        AspectsSection(
+            spec = state.aspectSpec,
+            values = draft.aspects,
+            sources = draft.aspectSources,
+            missingRequired = state.missingRequiredAspects,
+            onLoad = viewModel::loadAspectSpec,
+            onSet = viewModel::setAspect,
+        )
+
         SectionHeader("Notes")
         Field("Description", draft.description, lines = 3) { v ->
             viewModel.edit { it.copy(description = v) }

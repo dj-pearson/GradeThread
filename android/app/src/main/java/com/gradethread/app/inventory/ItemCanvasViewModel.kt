@@ -36,6 +36,7 @@ class ItemCanvasViewModel @Inject constructor(
     private val queue: OfflineMutationQueue,
     private val sizeAi: SizeAiService,
     private val compsService: CompsService,
+    private val aspectSpecs: AspectSpecService,
 ) : ViewModel() {
 
     data class State(
@@ -56,7 +57,20 @@ class ItemCanvasViewModel @Inject constructor(
         val sizeErrorMessage: String? = null,
         /** US-1346: the eBay comps panel. */
         val comps: CompsState = CompsState.Idle,
+        /** US-1347: the category's aspect spec. */
+        val aspectSpec: AspectSpecState = AspectSpecState.Idle,
     ) {
+        /** Required specifics with no value — the publish blockers. */
+        val missingRequiredAspects: List<String>
+            get() = (aspectSpec as? AspectSpecState.Loaded)?.let { loaded ->
+                AspectSync.requiredMissing(
+                    AspectSpecs.requiredNames(loaded.aspects),
+                    // Against the PROJECTED map, so a Brand typed in the
+                    // identity section already counts as filled.
+                    AspectSync.projectColumnAspects(draft, draft.aspects, draft.aspectSources).first,
+                )
+            }.orEmpty()
+
         val isDirty: Boolean get() = ItemPatch.isDirty(original, draft)
 
         /** A blank title can't be saved: the column is NOT NULL. */
@@ -124,6 +138,26 @@ class ItemCanvasViewModel @Inject constructor(
         }
     }
 
+    // ── US-1347: aspects ─────────────────────────────────────────────────
+
+    fun loadAspectSpec() {
+        if (_state.value.aspectSpec is AspectSpecState.Loading) return
+        _state.value = _state.value.copy(aspectSpec = AspectSpecState.Loading)
+        viewModelScope.launch {
+            _state.value = _state.value.copy(
+                aspectSpec = aspectSpecs.fetch(_state.value.draft.ebayCategoryId),
+            )
+        }
+    }
+
+    /** A manual edit from the specifics editor — outranks derivation. */
+    fun setAspect(name: String, values: List<String>) = edit { draft ->
+        val (aspects, sources) = AspectSync.setManual(
+            draft.aspects, draft.aspectSources, name, values,
+        )
+        draft.copy(aspects = aspects, aspectSources = sources)
+    }
+
     // ── US-1346: comps ───────────────────────────────────────────────────
 
     fun fetchComps() {
@@ -133,6 +167,12 @@ class ItemCanvasViewModel @Inject constructor(
         viewModelScope.launch {
             val result = compsService.lookup(draft.title, draft.brand, draft.size)
             _state.value = _state.value.copy(comps = result)
+            // The comps hop already resolved a leaf category; adopting it here
+            // is what gives the specifics editor something to fetch, instead of
+            // making the seller resolve the same category twice.
+            if (result is CompsState.Loaded && _state.value.draft.ebayCategoryId.isNullOrBlank()) {
+                edit { it.copy(ebayCategoryId = result.lookup.categoryId) }
+            }
         }
     }
 
@@ -267,6 +307,14 @@ class ItemCanvasViewModel @Inject constructor(
             ?.let { it / 100.0 },
         measurementsJson = MeasurementCatalog.encode(draft.measurements),
         compSetJson = CompSet.encode(draft.comps),
+        ebayCategoryId = draft.ebayCategoryId,
+        ebayAspectsJson = AspectSync.projectColumnAspects(draft, draft.aspects, draft.aspectSources)
+            .let { (aspects, _) -> AspectSync.encodeAspects(aspects) },
+        ebayAspectSourcesJson = AspectSync.projectColumnAspects(
+            draft, draft.aspects, draft.aspectSources,
+        ).let { (aspects, sources) ->
+            AspectSync.encodeSources(AspectSync.pruneSources(sources, aspects))
+        },
         updatedAt = System.currentTimeMillis(),
         hasLocalChanges = true,
     )
