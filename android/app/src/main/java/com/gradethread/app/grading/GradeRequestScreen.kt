@@ -46,6 +46,8 @@ fun GradeRequestScreen(
     itemId: String,
     onClose: () -> Unit,
     onTopUpCredits: () -> Unit,
+    /** US-1337: the full report, with factor bars and the certificate share. */
+    onViewReport: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: GradeRequestViewModel = hiltViewModel(),
 ) {
@@ -90,7 +92,7 @@ fun GradeRequestScreen(
                 )
             }
 
-            is GradeRequestMachine.Phase.Completed -> CompletedBody(phase, onClose)
+            is GradeRequestMachine.Phase.Completed -> CompletedBody(phase, onClose, onViewReport)
 
             is GradeRequestMachine.Phase.PendingReview -> Outcome(
                 title = "Submitted for human review",
@@ -279,7 +281,11 @@ private fun SpendConfirmDialog(
 }
 
 @Composable
-private fun CompletedBody(phase: GradeRequestMachine.Phase.Completed, onClose: () -> Unit) {
+private fun CompletedBody(
+    phase: GradeRequestMachine.Phase.Completed,
+    onClose: () -> Unit,
+    onViewReport: () -> Unit,
+) {
     val report = phase.report
     Column(
         Modifier.fillMaxWidth(),
@@ -297,7 +303,10 @@ private fun CompletedBody(phase: GradeRequestMachine.Phase.Completed, onClose: (
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        BrandPrimaryButton(text = "Done", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandPrimaryButton(text = "View full report", modifier = Modifier.fillMaxWidth()) {
+            onViewReport()
+        }
+        BrandSecondaryButton(text = "Done", modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 }
 

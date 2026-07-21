@@ -128,7 +128,7 @@
     {
       "id": "US-1337",
       "priority": -98663,
-      "passes": false,
+      "passes": true,
       "title": "Grade report UI + confidence/human-review gate + certificate share",
       "description": "As a seller, I can read the grade report and share the certificate once it’s certified.",
       "acceptanceCriteria": [
@@ -136,7 +136,7 @@
         "Confidence < certify floor → \"pending human review\", certificate CTA suppressed; ≥ floor → shareable (mirrors US-1209)",
         "Certificate fetched (GET /api/grade/{certificateId}) and shared via the Android share sheet (PDF); client-side integrity check before display"
       ],
-      "notes": "[P1][Android/Grading] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Grading] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | AC3 DEVIATIONS (implemented against reality, verified 2026-07-21): (a) there is no GET /api/grade/{certificateId} — the public certificate endpoints are GET /api/content/public/certificates/:id and /verify, which is what iOS calls and what this uses; (b) there is NO PDF certificate anywhere in the product (no application/pdf in the edge, none on web or iOS) — iOS ShareLink shares the public certificate URL, and Android now shares the same URL via ACTION_SEND. If a PDF certificate is actually wanted it is a new edge feature, not a client story."
     },
     {
       "id": "US-1338",

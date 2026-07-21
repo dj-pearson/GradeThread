@@ -167,6 +167,7 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellSection.INVENTORY.route) {
             com.gradethread.app.inventory.InventoryListScreen(
                 onGrade = { itemId -> navController.navigate("grade/$itemId") },
+                onOpenReport = { itemId -> navController.navigate("report/$itemId") },
             )
         }
         composable(ShellSection.MONEY.route) { SectionPlaceholder("Money") }
@@ -212,6 +213,13 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.inventory.DetailsIntakeScreen()
         }
         composable("capture/autolister") { SectionPlaceholder("AutoLister") }
+        // US-1337: the stored grade report for an already-graded item.
+        composable("report/{itemId}") { entry ->
+            com.gradethread.app.grading.GradeReportScreen(
+                itemId = entry.arguments?.getString("itemId").orEmpty(),
+                onClose = { navController.popBackStack() },
+            )
+        }
         // US-1336: the certified-grade request. A plain destination, not a
         // dialog: the poll can run for two minutes and the phase copy is worth
         // full width.
@@ -223,6 +231,15 @@ private fun ShellNavHost(navController: NavHostController) {
                 // purchase; until then the honest move is to say where credits
                 // come from rather than open a dead sheet.
                 onTopUpCredits = { navController.navigate(ShellRoutes.SETTINGS) },
+                // Replaces the request screen rather than stacking on it — the
+                // request is finished, and a back-press from the report should
+                // not land on a completed spinner.
+                onViewReport = {
+                    val itemId = entry.arguments?.getString("itemId").orEmpty()
+                    navController.navigate("report/$itemId") {
+                        popUpTo("grade/{itemId}") { inclusive = true }
+                    }
+                },
             )
         }
         // US-1334: the post-capture AI step.

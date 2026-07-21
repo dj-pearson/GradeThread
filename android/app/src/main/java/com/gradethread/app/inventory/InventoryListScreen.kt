@@ -1,6 +1,7 @@
 package com.gradethread.app.inventory
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,6 +53,8 @@ import com.gradethread.app.ui.theme.Spacing
 fun InventoryListScreen(
     /** US-1336: open the certified-grade request for one item. */
     onGrade: (String) -> Unit = {},
+    /** US-1337: open the stored grade report for an already-graded item. */
+    onOpenReport: (String) -> Unit = {},
     viewModel: InventoryListViewModel = hiltViewModel(),
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
@@ -174,8 +177,8 @@ fun InventoryListScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             when (viewMode) {
-                InventoryViewMode.LIST -> InventoryList(visible, photoItemIds, onGrade)
-                InventoryViewMode.BOARD -> InventoryBoard(visible, photoItemIds, onGrade)
+                InventoryViewMode.LIST -> InventoryList(visible, photoItemIds, onGrade, onOpenReport)
+                InventoryViewMode.BOARD -> InventoryBoard(visible, photoItemIds, onGrade, onOpenReport)
             }
         }
     }
@@ -202,6 +205,7 @@ private fun InventoryList(
     items: List<InventoryItemEntity>,
     photoItemIds: Set<String>,
     onGrade: (String) -> Unit,
+    onOpenReport: (String) -> Unit,
 ) {
     if (items.isEmpty()) {
         EmptyState()
@@ -209,7 +213,12 @@ private fun InventoryList(
     }
     LazyColumn(Modifier.fillMaxSize()) {
         items(items, key = { it.id }) { item ->
-            InventoryRow(item, hasPhotos = item.id in photoItemIds, onGrade = onGrade)
+            InventoryRow(
+                item,
+                hasPhotos = item.id in photoItemIds,
+                onGrade = onGrade,
+                onOpenReport = onOpenReport,
+            )
         }
     }
 }
@@ -219,6 +228,7 @@ private fun InventoryBoard(
     items: List<InventoryItemEntity>,
     photoItemIds: Set<String>,
     onGrade: (String) -> Unit,
+    onOpenReport: (String) -> Unit,
 ) {
     val grouped = remember(items) { PipelineBoard.group(items) { it.status } }
     LazyRow(
@@ -240,7 +250,12 @@ private fun InventoryBoard(
                 )
                 LazyColumn {
                     items(grouped[column.status].orEmpty(), key = { it.id }) { item ->
-                        InventoryRow(item, hasPhotos = item.id in photoItemIds, onGrade = onGrade)
+                        InventoryRow(
+                item,
+                hasPhotos = item.id in photoItemIds,
+                onGrade = onGrade,
+                onOpenReport = onOpenReport,
+            )
                     }
                 }
             }
@@ -253,6 +268,7 @@ private fun InventoryRow(
     item: InventoryItemEntity,
     hasPhotos: Boolean = false,
     onGrade: (String) -> Unit = {},
+    onOpenReport: (String) -> Unit = {},
 ) {
     Row(
         Modifier.fillMaxWidth().padding(Spacing.sm),
@@ -302,16 +318,18 @@ private fun InventoryRow(
                 Text("Grade", style = MaterialTheme.typography.labelMedium)
             }
         }
-        item.gradeValue?.let { GradeChip(it, item.gradeLabel) }
+        // US-1337: a graded item's chip opens its report.
+        item.gradeValue?.let { GradeChip(it, item.gradeLabel) { onOpenReport(item.id) } }
     }
 }
 
 /** Shown whenever a grade exists — the row does not gate on review state. */
 @Composable
-private fun GradeChip(score: Double, label: String?) {
+private fun GradeChip(score: Double, label: String?, onClick: () -> Unit = {}) {
     val color = gradeColor(score)
     Box(
         Modifier
+            .clickable(onClick = onClick)
             .background(color.copy(alpha = 0.12f), RoundedCornerShape(50))
             .padding(horizontal = Spacing.xs, vertical = Spacing.xxs)
             .semantics {
