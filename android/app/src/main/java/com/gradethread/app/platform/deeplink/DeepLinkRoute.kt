@@ -82,7 +82,10 @@ sealed class DeepLinkRoute {
         MarketplacesTab, ReconnectEbay -> ShellSection.MARKETPLACES.route
         is InventoryItem, InventoryTab -> ShellSection.INVENTORY.route
         is NegotiationInbox -> ShellSection.MARKETPLACES.route
-        GradesList -> ShellSection.HOME.route
+        // US-1341: a real destination at last. Until the grades list existed
+        // this fell back to the Home root, so gradethread.com/app/grades — a
+        // link we send people — dropped them on a placeholder.
+        GradesList -> ShellRoutes.GRADES
         CaptureItem -> "capture/photos"
         AddItem -> ShellSection.ADD.route
         is SupportTickets -> ShellRoutes.SETTINGS

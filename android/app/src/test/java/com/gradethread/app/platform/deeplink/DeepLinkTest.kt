@@ -88,6 +88,8 @@ class DeepLinkTest {
             "home", "inventory", "add", "money", "marketplaces",
             "settings", "search", "tools",
             "capture/photos", "capture/details", "capture/autolister",
+            // US-1335 / US-1341: the Tools hub's real destinations.
+            "snap", "grades",
         )
         for (route in routes) {
             assertTrue(

@@ -177,14 +177,14 @@
     {
       "id": "US-1341",
       "priority": -98659,
-      "passes": false,
+      "passes": true,
       "title": "Grades list / history",
       "description": "As a seller, I can see all my certified grades in one place.",
       "acceptanceCriteria": [
         "List of grades with sort + average; each row opens its report (defects + submitted photos) and dispute affordance",
         "Reachable from a dashboard card and the Tools hub"
       ],
-      "notes": "[P2][Android/Grading] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Grading] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | AC2 PARTIAL: the Tools hub entry is wired, and gradethread.com/app/grades now resolves to the real list (it previously fell back to the Home placeholder). The DASHBOARD CARD belongs to US-1370 (Home dashboard), which is still pending — noted there."
     },
     {
       "id": "US-1342",
@@ -550,7 +550,7 @@
         "Snapshot KPIs + 14-day revenue sparkline (memoized, rebuilt only on data change) + aging-stock nudges; all from local rollups (mirrors DashboardRollup)",
         "Quick actions: Add item, Snap to Value, Scout, Prospect; post-signup activation checklist (mirrors US-647)"
       ],
-      "notes": "[P1][Android/Dashboard] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Dashboard] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | US-1341 built the certified-grades list at ShellRoutes.GRADES with GradesList.summarize() ready for a card (total / pending-review / average, certified-only). Add the dashboard card here — that is the outstanding half of US-1341 AC2."
     },
     {
       "id": "US-1371",

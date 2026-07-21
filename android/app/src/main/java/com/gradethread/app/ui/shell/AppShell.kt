@@ -180,7 +180,10 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellRoutes.SETTINGS) { SectionPlaceholder("Settings") }
         composable(ShellRoutes.SEARCH) { SectionPlaceholder("Search") }
         composable(ShellRoutes.TOOLS) {
-            ToolsScreen(onSnap = { navController.navigate(ShellRoutes.SNAP) })
+            ToolsScreen(
+                onSnap = { navController.navigate(ShellRoutes.SNAP) },
+                onGrades = { navController.navigate(ShellRoutes.GRADES) },
+            )
         }
         // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops
         // itself first — a back-press from the certified-grade flow must not
@@ -227,6 +230,12 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.grading.BulkGradeScreen(
                 itemIds = ids,
                 onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1341: the certified-grades history.
+        composable(ShellRoutes.GRADES) {
+            com.gradethread.app.grading.GradesListScreen(
+                onOpenReport = { itemId -> navController.navigate("report/$itemId") },
             )
         }
         // US-1337: the stored grade report for an already-graded item.

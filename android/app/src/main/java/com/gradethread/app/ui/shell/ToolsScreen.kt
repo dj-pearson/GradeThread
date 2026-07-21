@@ -21,7 +21,11 @@ import com.gradethread.app.ui.theme.Spacing
  * tools append here.
  */
 @Composable
-fun ToolsScreen(onSnap: () -> Unit, modifier: Modifier = Modifier) {
+fun ToolsScreen(
+    onSnap: () -> Unit,
+    onGrades: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier.fillMaxSize().padding(vertical = Spacing.sm),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -30,6 +34,11 @@ fun ToolsScreen(onSnap: () -> Unit, modifier: Modifier = Modifier) {
             title = "What's it worth?",
             subtitle = "Snap one photo for an instant condition grade and resale range",
             onClick = onSnap,
+        )
+        ToolRow(
+            title = "Certified grades",
+            subtitle = "Every graded item, its report and its certificate",
+            onClick = onGrades,
         )
     }
 }

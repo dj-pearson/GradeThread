@@ -42,6 +42,9 @@ object ShellRoutes {
 
     /** US-1335: Snap-to-Value, reached from [TOOLS]. */
     const val SNAP = "snap"
+
+    /** US-1341: the certified-grades history, reached from [TOOLS]. */
+    const val GRADES = "grades"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */
