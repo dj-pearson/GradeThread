@@ -38,14 +38,13 @@ import java.util.Locale
 /**
  * US-1336: the certified-grade request surface (iOS `GradeRequestSheet`).
  *
- * @param onTopUpCredits blocked on credits — US-1338 (Play Billing) owns the
- *   in-flow purchase; this is the seam it plugs into.
+ * US-1338 filled the credit seam: the paywall now renders INSIDE this screen
+ * rather than sending the seller elsewhere to buy and find their way back.
  */
 @Composable
 fun GradeRequestScreen(
     itemId: String,
     onClose: () -> Unit,
-    onTopUpCredits: () -> Unit,
     /** US-1337: the full report, with factor bars and the certificate share. */
     onViewReport: () -> Unit,
     modifier: Modifier = Modifier,
@@ -71,7 +70,7 @@ fun GradeRequestScreen(
         when (val phase = state.phase) {
             GradeRequestMachine.Phase.Loading -> Centered { CircularProgressIndicator() }
 
-            GradeRequestMachine.Phase.Ready -> ReadyBody(state, viewModel, onTopUpCredits)
+            GradeRequestMachine.Phase.Ready -> ReadyBody(state, viewModel)
 
             GradeRequestMachine.Phase.Submitting,
             GradeRequestMachine.Phase.Processing,
@@ -142,7 +141,6 @@ fun GradeRequestScreen(
 private fun ReadyBody(
     state: GradeRequestViewModel.State,
     viewModel: GradeRequestViewModel,
-    onTopUpCredits: () -> Unit,
 ) {
     val item = state.validation?.item
 
@@ -184,25 +182,15 @@ private fun ReadyBody(
     }
 
     if (state.isBlockedOnCredits) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(
-                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                    RoundedCornerShape(12.dp),
-                )
-                .padding(Spacing.sm),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-        ) {
-            Text(
-                "This grade needs ${state.validation?.creditsRequired ?: 0} credits and you " +
-                    "have ${state.creditBalance}.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            BrandPrimaryButton(text = "Add credits", modifier = Modifier.fillMaxWidth()) {
-                onTopUpCredits()
-            }
-        }
+        // US-1338: buy in place, then re-validate — the server decides whether
+        // submit unblocks, not the client's arithmetic on the new balance.
+        com.gradethread.app.billing.CreditPackSheet(
+            itemId = state.itemId.orEmpty(),
+            tier = state.tier,
+            creditsRequired = state.validation?.creditsRequired ?: 0,
+            creditBalance = state.creditBalance,
+            onGranted = { viewModel.revalidate() },
+        )
     } else {
         BrandPrimaryButton(
             text = "Grade this item",

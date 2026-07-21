@@ -227,10 +227,6 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.grading.GradeRequestScreen(
                 itemId = entry.arguments?.getString("itemId").orEmpty(),
                 onClose = { navController.popBackStack() },
-                // US-1338 (Play Billing) replaces this with the in-flow
-                // purchase; until then the honest move is to say where credits
-                // come from rather than open a dead sheet.
-                onTopUpCredits = { navController.navigate(ShellRoutes.SETTINGS) },
                 // Replaces the request screen rather than stacking on it — the
                 // request is finished, and a back-press from the report should
                 // not land on a completed spinner.

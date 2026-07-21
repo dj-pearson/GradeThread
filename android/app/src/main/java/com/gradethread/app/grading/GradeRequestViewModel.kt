@@ -80,6 +80,17 @@ class GradeRequestViewModel @Inject constructor(
     }
 
     /**
+     * US-1338: re-run validation after a credit grant, WITHOUT resetting the
+     * phase to Loading — the seller is looking at the paywall inside the ready
+     * sheet, and blanking it to a spinner would hide the "credits added"
+     * confirmation they just earned.
+     */
+    suspend fun revalidate() {
+        val itemId = _state.value.itemId ?: return
+        runValidation(itemId, _state.value.tier)
+    }
+
+    /**
      * Choose a tier.
      *
      * Re-validates rather than recomputing locally: cost and affordability are

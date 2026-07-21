@@ -115,6 +115,7 @@ dependencies {
     implementation(libs.mlkit.text.recognition.japanese)
     implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.work.runtime)
+    implementation(libs.play.billing)
     implementation(libs.androidx.lifecycle.process)
 
     implementation(libs.hilt.android)

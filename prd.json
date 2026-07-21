@@ -141,14 +141,14 @@
     {
       "id": "US-1338",
       "priority": -98662,
-      "passes": false,
+      "passes": true,
       "title": "In-flow credit top-up during grading (Play Billing)",
       "description": "As a seller blocked on credits, I can buy a credit pack without leaving the grade flow.",
       "acceptanceCriteria": [
         "Credit-pack paywall inside the grade sheet; purchase via Play Billing; on grant, re-validate so canSubmit reflects the new balance (mirrors US-809)",
         "Funnel telemetry (blocked → purchased → granted/timed-out)"
       ],
-      "notes": "[P2][Android/Billing] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Billing] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | SHIPPED 2026-07-21 against the existing edge (POST /api/payments/google/verify + ANDROID_CATALOG credits_10/25/50/100 are complete and registered in main.ts). REMAINING HUMAN STEP before this works on a device: the four consumable products must exist in the Play Console (Monetize > Products) with exactly those ids, and the app needs a Play Console record + a signed build on an internal test track. The edge also 503s unless Google Play billing is configured (isGooglePlayConfigured() — service-account creds). None of that is code."
     },
     {
       "id": "US-1339",
