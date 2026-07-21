@@ -1,7 +1,9 @@
 package com.gradethread.app.inventory
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +57,8 @@ fun InventoryListScreen(
     onGrade: (String) -> Unit = {},
     /** US-1337: open the stored grade report for an already-graded item. */
     onOpenReport: (String) -> Unit = {},
+    /** US-1339: grade the current multi-selection. */
+    onBulkGrade: (List<String>) -> Unit = {},
     viewModel: InventoryListViewModel = hiltViewModel(),
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
@@ -73,6 +77,11 @@ fun InventoryListScreen(
     // would defeat the entire point.
     val derivation = remember { InventoryDerivation() }
     var showingFilters by remember { mutableStateOf(false) }
+    // US-1339: a minimal multi-select — long-press to enter, tap to toggle.
+    // US-1348 extends this with the rest of the bulk actions and undo; grading
+    // needs it now, and a feature with no way to reach it is not shipped.
+    var selection by remember { mutableStateOf(emptySet<String>()) }
+    val selecting = selection.isNotEmpty()
 
     val counts = derivation.stageCounts(items)
     val facets = derivation.facets(items)
@@ -176,9 +185,29 @@ fun InventoryListScreen(
             onRefresh = viewModel::refresh,
             modifier = Modifier.fillMaxSize(),
         ) {
+            if (selecting) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${selection.size} selected",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { selection = emptySet() }) { Text("Clear") }
+                    TextButton(onClick = { onBulkGrade(selection.toList()) }) { Text("Grade") }
+                }
+            }
             when (viewMode) {
-                InventoryViewMode.LIST -> InventoryList(visible, photoItemIds, onGrade, onOpenReport)
-                InventoryViewMode.BOARD -> InventoryBoard(visible, photoItemIds, onGrade, onOpenReport)
+                InventoryViewMode.LIST -> InventoryList(
+                    visible, photoItemIds, onGrade, onOpenReport,
+                    selection, selecting, { id -> selection = toggle(selection, id) },
+                )
+                InventoryViewMode.BOARD -> InventoryBoard(
+                    visible, photoItemIds, onGrade, onOpenReport,
+                    selection, selecting, { id -> selection = toggle(selection, id) },
+                )
             }
         }
     }
@@ -206,6 +235,9 @@ private fun InventoryList(
     photoItemIds: Set<String>,
     onGrade: (String) -> Unit,
     onOpenReport: (String) -> Unit,
+    selection: Set<String>,
+    selecting: Boolean,
+    onToggleSelect: (String) -> Unit,
 ) {
     if (items.isEmpty()) {
         EmptyState()
@@ -218,6 +250,9 @@ private fun InventoryList(
                 hasPhotos = item.id in photoItemIds,
                 onGrade = onGrade,
                 onOpenReport = onOpenReport,
+                selected = item.id in selection,
+                selecting = selecting,
+                onToggleSelect = onToggleSelect,
             )
         }
     }
@@ -229,6 +264,9 @@ private fun InventoryBoard(
     photoItemIds: Set<String>,
     onGrade: (String) -> Unit,
     onOpenReport: (String) -> Unit,
+    selection: Set<String>,
+    selecting: Boolean,
+    onToggleSelect: (String) -> Unit,
 ) {
     val grouped = remember(items) { PipelineBoard.group(items) { it.status } }
     LazyRow(
@@ -255,6 +293,9 @@ private fun InventoryBoard(
                 hasPhotos = item.id in photoItemIds,
                 onGrade = onGrade,
                 onOpenReport = onOpenReport,
+                selected = item.id in selection,
+                selecting = selecting,
+                onToggleSelect = onToggleSelect,
             )
                     }
                 }
@@ -264,14 +305,33 @@ private fun InventoryBoard(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun InventoryRow(
     item: InventoryItemEntity,
     hasPhotos: Boolean = false,
     onGrade: (String) -> Unit = {},
     onOpenReport: (String) -> Unit = {},
+    selected: Boolean = false,
+    selecting: Boolean = false,
+    onToggleSelect: (String) -> Unit = {},
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(Spacing.sm),
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                // Long-press starts a selection; once one is running a plain
+                // tap toggles, so the second pick doesn't need a long press.
+                onClick = { if (selecting) onToggleSelect(item.id) },
+                onLongClick = { onToggleSelect(item.id) },
+            )
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                } else {
+                    androidx.compose.ui.graphics.Color.Transparent
+                },
+            )
+            .padding(Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -368,3 +428,7 @@ private fun EmptyState() {
         )
     }
 }
+
+/** US-1339: add/remove one id from the current selection. */
+private fun toggle(selection: Set<String>, id: String): Set<String> =
+    if (id in selection) selection - id else selection + id

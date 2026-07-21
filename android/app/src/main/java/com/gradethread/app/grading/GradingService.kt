@@ -44,6 +44,30 @@ class GradingService @Inject constructor(
     suspend fun status(submissionRef: String): GradingStatusResponse =
         decode(edge.getRaw(statusPath(submissionRef)), GradingStatusResponse.serializer())
 
+    // ── Batch (US-1339) ──────────────────────────────────────────────────
+
+    suspend fun validateBatch(
+        inventoryItemIds: List<String>,
+        tier: GradeTier,
+    ): GradingValidateResponse = decode(
+        edge.postRaw(VALIDATE_PATH, encodeBatch(inventoryItemIds, tier)),
+        GradingValidateResponse.serializer(),
+    )
+
+    suspend fun submitBatch(
+        inventoryItemIds: List<String>,
+        tier: GradeTier,
+    ): GradingSubmitResponse = decode(
+        edge.postRaw(SUBMIT_PATH, encodeBatch(inventoryItemIds, tier)),
+        GradingSubmitResponse.serializer(),
+    )
+
+    private fun encodeBatch(inventoryItemIds: List<String>, tier: GradeTier): String =
+        gradingJson.encodeToString(
+            GradingRequestBody.serializer(),
+            GradingRequestBody.batch(inventoryItemIds, tier),
+        )
+
     private fun encode(inventoryItemId: String, tier: GradeTier): String =
         gradingJson.encodeToString(
             GradingRequestBody.serializer(),

@@ -168,6 +168,11 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.inventory.InventoryListScreen(
                 onGrade = { itemId -> navController.navigate("grade/$itemId") },
                 onOpenReport = { itemId -> navController.navigate("report/$itemId") },
+                onBulkGrade = { ids ->
+                    // Ids ride the route as a comma-joined argument: they are
+                    // UUIDs, so a comma can never appear inside one.
+                    navController.navigate("grade-bulk/${ids.joinToString(",")}")
+                },
             )
         }
         composable(ShellSection.MONEY.route) { SectionPlaceholder("Money") }
@@ -213,6 +218,17 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.inventory.DetailsIntakeScreen()
         }
         composable("capture/autolister") { SectionPlaceholder("AutoLister") }
+        // US-1339: grade a multi-selection.
+        composable("grade-bulk/{itemIds}") { entry ->
+            val ids = entry.arguments?.getString("itemIds")
+                ?.split(",")
+                ?.filter { it.isNotBlank() }
+                .orEmpty()
+            com.gradethread.app.grading.BulkGradeScreen(
+                itemIds = ids,
+                onClose = { navController.popBackStack() },
+            )
+        }
         // US-1337: the stored grade report for an already-graded item.
         composable("report/{itemId}") { entry ->
             com.gradethread.app.grading.GradeReportScreen(

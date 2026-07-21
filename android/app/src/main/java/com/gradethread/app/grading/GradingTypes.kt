@@ -142,5 +142,17 @@ data class GradingRequestBody(val items: List<GradingRequestItem>) {
     companion object {
         fun single(inventoryItemId: String, tier: GradeTier) =
             GradingRequestBody(listOf(GradingRequestItem(inventoryItemId, tier.wire)))
+
+        /**
+         * US-1339: the batch variant. Capped at [MAX_BATCH] because the edge's
+         * schema rejects a larger array outright — sending 201 items fails all
+         * 201, so the cap is applied here rather than discovered as a 400.
+         */
+        fun batch(inventoryItemIds: List<String>, tier: GradeTier) = GradingRequestBody(
+            inventoryItemIds.take(MAX_BATCH).map { GradingRequestItem(it, tier.wire) },
+        )
+
+        /** `submitBodySchema` in flipdesk-grading.ts: `.max(200)`. */
+        const val MAX_BATCH = 200
     }
 }

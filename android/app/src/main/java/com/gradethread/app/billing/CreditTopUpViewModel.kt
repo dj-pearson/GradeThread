@@ -47,12 +47,19 @@ class CreditTopUpViewModel @Inject constructor(
     private var itemId: String? = null
     private var tier: GradeTier = GradeTier.default
 
-    fun open(itemId: String, tier: GradeTier, creditsRequired: Int) {
+    /**
+     * "single" or "bulk" — the funnel is compared across the two surfaces, so
+     * they must be distinguishable and must use the same event names.
+     */
+    private var surface: String = "single"
+
+    fun open(itemId: String, tier: GradeTier, creditsRequired: Int, surface: String = "single") {
         this.itemId = itemId
         this.tier = tier
+        this.surface = surface
         Telemetry.event(
             "grade.credits_blocked",
-            mapOf("surface" to "single", "credits_required" to creditsRequired),
+            mapOf("surface" to surface, "credits_required" to creditsRequired),
         )
         viewModelScope.launch {
             _state.value = _state.value.copy(offers = billing.creditPackOffers())
@@ -84,7 +91,7 @@ class CreditTopUpViewModel @Inject constructor(
         val baseline = currentBalance()
         Telemetry.event(
             "grade.credits_topup_started",
-            mapOf("surface" to "single", "pack" to pack.productId, "baseline" to baseline),
+            mapOf("surface" to surface, "pack" to pack.productId, "baseline" to baseline),
         )
         _state.value = _state.value.copy(
             phase = CreditTopUpFlow.State.Purchasing,
@@ -152,10 +159,10 @@ class CreditTopUpViewModel @Inject constructor(
         when (terminal) {
             is CreditTopUpFlow.State.Granted -> Telemetry.event(
                 "grade.credits_topup_granted",
-                mapOf("surface" to "single", "balance" to terminal.balance),
+                mapOf("surface" to surface, "balance" to terminal.balance),
             )
             CreditTopUpFlow.State.TimedOut ->
-                Telemetry.event("grade.credits_topup_timeout", mapOf("surface" to "single"))
+                Telemetry.event("grade.credits_topup_timeout", mapOf("surface" to surface))
             else -> Unit
         }
         // Re-validated even on TIMEOUT: the grant may have landed between the

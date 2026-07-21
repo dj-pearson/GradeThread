@@ -47,12 +47,14 @@ fun CreditPackSheet(
     creditBalance: Int,
     onGranted: suspend () -> Unit,
     modifier: Modifier = Modifier,
+    /** "single" or "bulk" — keeps the two funnels distinguishable. */
+    surface: String = "single",
     viewModel: CreditTopUpViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(itemId, tier) { viewModel.open(itemId, tier, creditsRequired) }
+    LaunchedEffect(itemId, tier) { viewModel.open(itemId, tier, creditsRequired, surface) }
     LaunchedEffect(creditBalance) { viewModel.observedBalance(creditBalance) }
 
     Column(
