@@ -45,6 +45,8 @@ import java.util.Locale
 fun GradeReportScreen(
     itemId: String,
     onClose: () -> Unit,
+    /** US-1340: file a dispute against this report. */
+    onDispute: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: GradeReportViewModel = hiltViewModel(),
 ) {
@@ -120,6 +122,22 @@ fun GradeReportScreen(
                             )
                         }
                     }
+                }
+
+                // US-1340: the dispute action, shown only while the window is
+                // open. Hidden rather than disabled once it closes — a greyed
+                // button with no explanation reads as a bug, and the honest
+                // message is simply that the window has passed.
+                if (GradeDisputeWindow.isOpen(loaded.report.createdAt)) {
+                    val left = GradeDisputeWindow.daysRemaining(loaded.report.createdAt)
+                    BrandSecondaryButton(
+                        text = if (left != null) {
+                            "Dispute this grade ($left day${if (left == 1) "" else "s"} left)"
+                        } else {
+                            "Dispute this grade"
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { onDispute(loaded.report.id) }
                 }
 
                 Text(

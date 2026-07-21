@@ -234,6 +234,14 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.grading.GradeReportScreen(
                 itemId = entry.arguments?.getString("itemId").orEmpty(),
                 onClose = { navController.popBackStack() },
+                onDispute = { reportId -> navController.navigate("dispute/$reportId") },
+            )
+        }
+        // US-1340: dispute a certified grade.
+        composable("dispute/{gradeReportId}") { entry ->
+            com.gradethread.app.grading.DisputeSheet(
+                gradeReportId = entry.arguments?.getString("gradeReportId").orEmpty(),
+                onClose = { navController.popBackStack() },
             )
         }
         // US-1336: the certified-grade request. A plain destination, not a

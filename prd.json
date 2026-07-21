@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2153",
+  "nextId": "US-2154",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -165,14 +165,14 @@
     {
       "id": "US-1340",
       "priority": -98660,
-      "passes": false,
+      "passes": true,
       "title": "Grade disputes (14-day window)",
       "description": "As a seller, I can dispute a grade within 14 days, mirroring the web reasons.",
       "acceptanceCriteria": [
         "Reason picker (too low/too high/photo rejected/other, details required for other); inserts a disputes row (RLS-scoped to self)",
         "Optimistic badge update + re-file gate; the grades list shows dispute state (open/under review/resolved) synced locally (mirrors US-819/US-1183)"
       ],
-      "notes": "[P2][Android/Grading] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Grading] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | AC DEVIATION (verified 2026-07-21): the title says a 14-day window; the real rule is SEVEN days and it is enforced ONLY client-side — web src/pages/submission-detail.tsx (sevenDaysAgo) and iOS GradeDisputeWindow.days = 7. Android implements 7 for cross-surface consistency. If 14 is the intended product rule then web and iOS are both wrong and it is a one-constant change in three places; see US-2153 for the server-side gaps."
     },
     {
       "id": "US-1341",
@@ -4015,6 +4015,21 @@
         "Unit test covers both live sites: grade.ts snap cap (429, SNAP_LIMIT_REACHED / SNAP_IP_LIMIT_REACHED) and flipdesk-ai.ts enrichment-off (403)"
       ],
       "notes": "[P2][iOS/Networking] Found while porting Snap-to-Value for US-1335. Three edge sites emit action:\"upgrade\" (grade.ts:1020, grade.ts:1038, flipdesk-ai.ts:118) and iOS maps all three by status alone: the 429s become .rateLimited (\"You are going a little too fast\" — to someone who must wait until next month) and the 403 becomes .unauthorized (\"Your session expired. Sign in again\" — for a setting that is switched off). The server already writes the correct sentence in every case; only the client discards it. Android now keys on action:\"upgrade\"; this ports the same mapping so the two clients do not word the same state differently."
+    },
+    {
+      "id": "US-2153",
+      "priority": 62,
+      "passes": false,
+      "title": "Grade disputes have no server-side window and no duplicate gate",
+      "description": "As the grading team, the dispute rules we advertise are actually enforced, so the review queue reflects one complaint per grade and the filing window means something.",
+      "acceptanceCriteria": [
+        "POST /api/grade/dispute rejects a filing for a grade report older than the window (currently 7 days, enforced only in client UI) with a typed, actionable error",
+        "A second dispute for the same (user_id, grade_report_id) is refused rather than inserted — today every client-side gate is advisory and a double-tap, a race between two devices, or a direct API call all create duplicate rows",
+        "Add the matching UNIQUE (user_id, grade_report_id) constraint to public.disputes (00001 created it without one; the UNIQUE in 00418 is on the unrelated buyer_purchases table)",
+        "Decide and document the canonical window in one place both clients read, so web / iOS / Android cannot drift again",
+        "Existing duplicate dispute rows are identified before the constraint is added, so the migration cannot fail on live data"
+      ],
+      "notes": "[P2][Grading/Edge] Found while porting the dispute flow for US-1340. The 7-day window lives in TWO client files with no server check, and the /dispute route inserts unconditionally: it verifies ownership and evidence but never looks for an existing dispute or at the report age. So the window is advisory and the re-file gate is cosmetic. Low severity today because filing is a UI action, but the duplicate case is reachable by an ordinary double-tap on a slow connection, and duplicates land in a human reviewer queue. The Android client (US-1340) gates on both client-side, matching web and iOS."
     }
   ]
 }
