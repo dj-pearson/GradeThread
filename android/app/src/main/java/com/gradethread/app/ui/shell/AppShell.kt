@@ -168,6 +168,7 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.inventory.InventoryListScreen(
                 onGrade = { itemId -> navController.navigate("grade/$itemId") },
                 onOpenReport = { itemId -> navController.navigate("report/$itemId") },
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
                 onBulkGrade = { ids ->
                     // Ids ride the route as a comma-joined argument: they are
                     // UUIDs, so a comma can never appear inside one.
@@ -230,6 +231,16 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.grading.BulkGradeScreen(
                 itemIds = ids,
                 onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1343: the item canvas.
+        composable("item/{itemId}") { entry ->
+            val itemId = entry.arguments?.getString("itemId").orEmpty()
+            com.gradethread.app.inventory.ItemCanvasScreen(
+                itemId = itemId,
+                onClose = { navController.popBackStack() },
+                onGrade = { navController.navigate("grade/$itemId") },
+                onOpenReport = { navController.navigate("report/$itemId") },
             )
         }
         // US-1341: the certified-grades history.

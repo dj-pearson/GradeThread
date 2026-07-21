@@ -59,6 +59,8 @@ fun InventoryListScreen(
     onOpenReport: (String) -> Unit = {},
     /** US-1339: grade the current multi-selection. */
     onBulkGrade: (List<String>) -> Unit = {},
+    /** US-1343: open one item's canvas. */
+    onOpenItem: (String) -> Unit = {},
     viewModel: InventoryListViewModel = hiltViewModel(),
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
@@ -201,11 +203,11 @@ fun InventoryListScreen(
             }
             when (viewMode) {
                 InventoryViewMode.LIST -> InventoryList(
-                    visible, photoItemIds, onGrade, onOpenReport,
+                    visible, photoItemIds, onGrade, onOpenReport, onOpenItem,
                     selection, selecting, { id -> selection = toggle(selection, id) },
                 )
                 InventoryViewMode.BOARD -> InventoryBoard(
-                    visible, photoItemIds, onGrade, onOpenReport,
+                    visible, photoItemIds, onGrade, onOpenReport, onOpenItem,
                     selection, selecting, { id -> selection = toggle(selection, id) },
                 )
             }
@@ -235,6 +237,7 @@ private fun InventoryList(
     photoItemIds: Set<String>,
     onGrade: (String) -> Unit,
     onOpenReport: (String) -> Unit,
+    onOpenItem: (String) -> Unit,
     selection: Set<String>,
     selecting: Boolean,
     onToggleSelect: (String) -> Unit,
@@ -250,6 +253,7 @@ private fun InventoryList(
                 hasPhotos = item.id in photoItemIds,
                 onGrade = onGrade,
                 onOpenReport = onOpenReport,
+                onOpenItem = onOpenItem,
                 selected = item.id in selection,
                 selecting = selecting,
                 onToggleSelect = onToggleSelect,
@@ -264,6 +268,7 @@ private fun InventoryBoard(
     photoItemIds: Set<String>,
     onGrade: (String) -> Unit,
     onOpenReport: (String) -> Unit,
+    onOpenItem: (String) -> Unit,
     selection: Set<String>,
     selecting: Boolean,
     onToggleSelect: (String) -> Unit,
@@ -293,6 +298,7 @@ private fun InventoryBoard(
                 hasPhotos = item.id in photoItemIds,
                 onGrade = onGrade,
                 onOpenReport = onOpenReport,
+                onOpenItem = onOpenItem,
                 selected = item.id in selection,
                 selecting = selecting,
                 onToggleSelect = onToggleSelect,
@@ -311,6 +317,7 @@ private fun InventoryRow(
     hasPhotos: Boolean = false,
     onGrade: (String) -> Unit = {},
     onOpenReport: (String) -> Unit = {},
+    onOpenItem: (String) -> Unit = {},
     selected: Boolean = false,
     selecting: Boolean = false,
     onToggleSelect: (String) -> Unit = {},
@@ -321,7 +328,9 @@ private fun InventoryRow(
             .combinedClickable(
                 // Long-press starts a selection; once one is running a plain
                 // tap toggles, so the second pick doesn't need a long press.
-                onClick = { if (selecting) onToggleSelect(item.id) },
+                onClick = {
+                    if (selecting) onToggleSelect(item.id) else onOpenItem(item.id)
+                },
                 onLongClick = { onToggleSelect(item.id) },
             )
             .background(

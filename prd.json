@@ -202,7 +202,7 @@
     {
       "id": "US-1343",
       "priority": -98657,
-      "passes": false,
+      "passes": true,
       "title": "Item canvas: inline-editable identity/pricing/notes with optimistic writes",
       "description": "As a seller, I can open an item and edit its core fields inline, with instant local feedback and rollback on failure.",
       "acceptanceCriteria": [
@@ -210,7 +210,7 @@
         "Optimistic write to Room + rollback on failure; offline edits queue (mirrors ItemCanvas + IOS_PARITY_AUDIT Class B fields)",
         "category seeded from item_category and round-tripped (no accidental null)"
       ],
-      "notes": "[P1][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | NOT included (belongs to its own story): measurements (US-1345), comps/compSet (US-1346), the eBay specifics editor (US-1347), and the photos section (US-1344). The canvas renders identity/pricing/notes and links out to Grade + Report. The AI-fill review banner from US-1334 is still unwired — AiExtractionManager.reviews is an in-memory StateFlow, so a review only survives the session that produced it; wiring the banner properly needs the review persisted, which is worth doing when US-1344 touches the canvas again."
     },
     {
       "id": "US-1344",
