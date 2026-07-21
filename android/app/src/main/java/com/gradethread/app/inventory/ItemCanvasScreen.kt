@@ -46,6 +46,8 @@ fun ItemCanvasScreen(
     onClose: () -> Unit,
     onGrade: (String) -> Unit,
     onOpenReport: (String) -> Unit,
+    /** US-1344: a duplicate opens as its own canvas. */
+    onOpenItem: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ItemCanvasViewModel = hiltViewModel(),
 ) {
@@ -179,6 +181,16 @@ fun ItemCanvasScreen(
                 Text("Discard changes")
             }
         }
+
+        // US-1344: photos live here, not on a separate screen — the cover
+        // decides the eBay main image, so it belongs next to the fields that
+        // decide the rest of the listing.
+        ItemPhotosSection(
+            itemId = itemId,
+            onDuplicated = onOpenItem,
+            onDeleted = onClose,
+            onShareCertificate = null,
+        )
 
         SectionHeader("Grading")
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {

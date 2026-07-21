@@ -77,6 +77,13 @@ interface PhotoDao {
     @Query("SELECT * FROM item_photos WHERE inventoryItemId = :itemId ORDER BY sortOrder")
     suspend fun forItem(itemId: String): List<ItemPhotoEntity>
 
+    /** US-1344: reactive backing for the canvas photo strip. */
+    @Query("SELECT * FROM item_photos WHERE inventoryItemId = :itemId ORDER BY sortOrder")
+    fun observeForItem(itemId: String): kotlinx.coroutines.flow.Flow<List<ItemPhotoEntity>>
+
+    @Query("SELECT * FROM item_photos WHERE id = :id")
+    suspend fun forItemPhoto(id: String): ItemPhotoEntity?
+
     @Query("DELETE FROM item_photos WHERE id = :id")
     suspend fun delete(id: String)
 

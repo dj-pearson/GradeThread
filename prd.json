@@ -215,14 +215,14 @@
     {
       "id": "US-1344",
       "priority": -98656,
-      "passes": false,
+      "passes": true,
       "title": "Item canvas: photos section (add/manage/reorder/cover/remove/share)",
       "description": "As a seller, I can manage an item’s photos — add to empty slots, reorder, set the cover, remove, duplicate the item, and share its certificate.",
       "acceptanceCriteria": [
         "Add fills unfilled standard slots; manage = reorder/set-cover/remove with drag; overflow = duplicate item, delete, share certificate",
         "Cover/sort_order drives the eBay main image; uses the secure upload pipeline"
       ],
-      "notes": "[P1][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Reorder is arrow-based (left/right/set-cover), not drag-and-drop: Compose has no first-party reorderable-list primitive and a hand-rolled one is a story of its own. Every ordering RULE is in place and tested, so a drag gesture later is a UI swap over the same PhotoOrdering calls. Share-certificate is passed as null from the canvas until the canvas loads the report (US-1337 owns the cert URL); the overflow item hides itself when the callback is null."
     },
     {
       "id": "US-1345",

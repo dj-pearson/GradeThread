@@ -241,6 +241,13 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
                 onGrade = { navController.navigate("grade/$itemId") },
                 onOpenReport = { navController.navigate("report/$itemId") },
+                onOpenItem = { newId ->
+                    // Replaces this canvas rather than stacking: back from a
+                    // duplicate should reach the list, not the item it copied.
+                    navController.navigate("item/$newId") {
+                        popUpTo("item/{itemId}") { inclusive = true }
+                    }
+                },
             )
         }
         // US-1341: the certified-grades history.
