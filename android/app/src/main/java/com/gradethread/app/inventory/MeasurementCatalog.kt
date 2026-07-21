@@ -1,0 +1,141 @@
+package com.gradethread.app.inventory
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import java.text.NumberFormat
+import java.util.Locale
+
+/**
+ * US-1345: the canonical measurement keys.
+ *
+ * Mirrors `src/lib/measurements.ts` and the iOS `MeasurementCatalog`. Values
+ * live on `inventory_items.measurements` (jsonb) keyed by these strings —
+ * LENGTH is flat inches, shoe sizes are US numeric, watch dimensions are
+ * millimetres. Pure data with no behaviour to drift.
+ */
+object MeasurementCatalog {
+
+    enum class Kind(val unit: String) {
+        LENGTH("in"),
+        SHOE("US"),
+        MM("mm"),
+    }
+
+    data class Spec(val key: String, val label: String, val kind: Kind)
+
+    /** Canonical key → spec, in render order. */
+    val specs: List<Spec> = listOf(
+        Spec("chest", "Chest (pit to pit)", Kind.LENGTH),
+        Spec("bust", "Bust", Kind.LENGTH),
+        Spec("waist", "Waist (flat)", Kind.LENGTH),
+        Spec("hip", "Hip", Kind.LENGTH),
+        Spec("inseam", "Inseam", Kind.LENGTH),
+        Spec("rise", "Front rise", Kind.LENGTH),
+        Spec("leg_opening", "Leg opening", Kind.LENGTH),
+        Spec("sleeve", "Sleeve", Kind.LENGTH),
+        Spec("shoulder", "Shoulder", Kind.LENGTH),
+        Spec("length", "Length", Kind.LENGTH),
+        Spec("width", "Width", Kind.LENGTH),
+        Spec("insole", "Insole length", Kind.LENGTH),
+        Spec("size_us", "US size", Kind.SHOE),
+        Spec("case_diameter", "Case diameter", Kind.MM),
+        Spec("lug_width", "Lug width", Kind.MM),
+        Spec("band_length", "Band length", Kind.MM),
+    )
+
+    private val byKey: Map<String, Spec> = specs.associateBy { it.key }
+
+    /** Human label; a non-canonical key de-underscores rather than vanishing. */
+    fun label(key: String): String = byKey[key]?.label
+        ?: key.split("_").joinToString(" ") { part ->
+            part.replaceFirstChar { it.uppercase() }
+        }
+
+    /** Unknown keys are treated as lengths — overwhelmingly the common case. */
+    fun kind(key: String): Kind = byKey[key]?.kind ?: Kind.LENGTH
+
+    /** The keys worth offering first for a coarse item category. */
+    fun suggestedKeys(category: String?): List<String> =
+        when (category?.lowercase()) {
+            "shoes", "footwear" -> listOf("size_us", "insole")
+            "watches", "watch" -> listOf("case_diameter", "lug_width", "band_length")
+            "accessories", "bags", "other" -> listOf("length", "width")
+            // Clothing and anything uncategorized.
+            else -> listOf("chest", "length", "shoulder", "sleeve", "waist", "inseam", "rise", "hip")
+        }
+
+    /** Canonical keys in catalog order first, then extras alphabetically. */
+    fun ordered(keys: Collection<String>): List<String> {
+        val present = keys.toSet()
+        val canonical = specs.map { it.key }.filter { it in present }
+        return canonical + (present - canonical.toSet()).sorted()
+    }
+
+    // ── Locale-safe text round trip (the iOS US-1491 lesson) ─────────────
+
+    /**
+     * The editing formatter.
+     *
+     * Locale-aware in both directions, and that is not cosmetic: iOS shipped a
+     * raw `Double(text)` parse that returned null for "18,5" in de/fr/es, and a
+     * "."-formatted display that re-parsed as a GROUPING separator — so 18.5
+     * became 185. Grouping is disabled here for exactly that reason.
+     */
+    private fun formatter(locale: Locale): NumberFormat =
+        NumberFormat.getNumberInstance(locale).apply {
+            isGroupingUsed = false
+            maximumFractionDigits = 2
+            minimumFractionDigits = 0
+        }
+
+    /** Display a stored value; empty for unset or non-positive. */
+    fun editableString(value: Double?, locale: Locale = Locale.getDefault()): String {
+        if (value == null || value <= 0.0) return ""
+        return formatter(locale).format(value)
+    }
+
+    /** Parse typed text with the locale's decimal separator. */
+    fun parse(input: String, locale: Locale = Locale.getDefault()): Double? {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return null
+        return runCatching { formatter(locale).parse(trimmed)?.toDouble() }
+            .getOrNull()
+            ?.takeIf { it.isFinite() && it > 0.0 }
+    }
+
+    // ── jsonb round trip ─────────────────────────────────────────────────
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    /**
+     * Decode the stored `measurements` document.
+     *
+     * Non-numeric and non-positive entries are dropped rather than surfaced: a
+     * measurement of 0 or "unknown" is not a measurement, and showing it as one
+     * would put a false number in a buyer-facing listing.
+     */
+    fun decode(raw: String?): Map<String, Double> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            json.parseToJsonElement(raw).let { it as? JsonObject }
+                ?.mapNotNull { (key, value) ->
+                    val number = value.jsonPrimitive.doubleOrNull
+                    if (number != null && number > 0.0) key to number else null
+                }
+                ?.toMap()
+                .orEmpty()
+        }.getOrDefault(emptyMap())
+    }
+
+    /** Encode for the jsonb column; null when there is nothing to store. */
+    fun encode(measurements: Map<String, Double>): String? {
+        val kept = measurements.filterValues { it > 0.0 }
+        if (kept.isEmpty()) return null
+        return JsonObject(
+            ordered(kept.keys).associateWith { JsonPrimitive(kept.getValue(it)) },
+        ).toString()
+    }
+}

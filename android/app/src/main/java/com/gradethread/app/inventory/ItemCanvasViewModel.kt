@@ -34,6 +34,7 @@ class ItemCanvasViewModel @Inject constructor(
     private val db: GradeThreadDb,
     private val client: SupabaseClient,
     private val queue: OfflineMutationQueue,
+    private val sizeAi: SizeAiService,
 ) : ViewModel() {
 
     data class State(
@@ -48,6 +49,10 @@ class ItemCanvasViewModel @Inject constructor(
         /** Set when the edit was kept locally and queued for replay. */
         val queuedOffline: Boolean = false,
         val notFound: Boolean = false,
+        /** US-1345: the AI size suggestion, once asked for. */
+        val sizeEstimate: SizeEstimate? = null,
+        val estimatingSize: Boolean = false,
+        val sizeErrorMessage: String? = null,
     ) {
         val isDirty: Boolean get() = ItemPatch.isDirty(original, draft)
 
@@ -81,6 +86,44 @@ class ItemCanvasViewModel @Inject constructor(
     }
 
     fun setCategory(category: FlipdeskCategory?) = edit { it.copy(category = category) }
+
+    /** US-1345: set or clear one measurement. A null value removes the key. */
+    fun setMeasurement(key: String, value: Double?) = edit { draft ->
+        val next = draft.measurements.toMutableMap()
+        if (value == null || value <= 0.0) next.remove(key) else next[key] = value
+        draft.copy(measurements = next)
+    }
+
+    /** US-1345: accept an AI size estimate into the size field. */
+    fun applyInferredSize(size: String) {
+        edit { it.copy(size = size) }
+        dismissSizeEstimate()
+    }
+
+    fun estimateSize() {
+        val itemId = _state.value.itemId ?: return
+        if (_state.value.estimatingSize) return
+        _state.value = _state.value.copy(estimatingSize = true, sizeErrorMessage = null)
+        viewModelScope.launch {
+            runCatching { sizeAi.estimate(itemId) }
+                .onSuccess { estimate ->
+                    _state.value = _state.value.copy(
+                        estimatingSize = false,
+                        sizeEstimate = estimate,
+                    )
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        estimatingSize = false,
+                        sizeErrorMessage = message(error),
+                    )
+                }
+        }
+    }
+
+    fun dismissSizeEstimate() {
+        _state.value = _state.value.copy(sizeEstimate = null, sizeErrorMessage = null)
+    }
 
     fun save() {
         val current = _state.value
@@ -195,6 +238,7 @@ class ItemCanvasViewModel @Inject constructor(
         consignorId = draft.consignorId?.takeIf { it.isNotBlank() },
         consignmentSplitPct = CurrencyAmount.parseCents(draft.consignmentSplitText)
             ?.let { it / 100.0 },
+        measurementsJson = MeasurementCatalog.encode(draft.measurements),
         updatedAt = System.currentTimeMillis(),
         hasLocalChanges = true,
     )

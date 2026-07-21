@@ -227,14 +227,14 @@
     {
       "id": "US-1345",
       "priority": -98655,
-      "passes": false,
+      "passes": true,
       "title": "Item canvas: measurements + AI size inference",
       "description": "As a seller, I can record garment measurements and infer them from photos.",
       "acceptanceCriteria": [
         "Editable measurements (chest/waist/length/sleeve/inseam) stored as JSON; was read-only on iOS originally — must be editable (US-parity)",
         "POST /api/flipdesk/ai/size infers measurements from photos and fills the fields on confirm"
       ],
-      "notes": "[P2][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Inventory] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | AC2 DEVIATION (verified 2026-07-21): POST /api/flipdesk/ai/size does NOT infer measurements. It returns { size, gender, confidence, rationale, low_confidence } — a best-guess SIZE LABEL (\"M\", \"W30 L32\", \"EU 42\") for garments whose tag is missing or cut off, READING any visible measurements as evidence (see lib/ai-size-estimate.ts). There is no measurement-inference endpoint anywhere on the edge, and iOS SizeAIService calls it the same way. Android wires it to fill the SIZE field on confirm, never auto-applied. If measurement inference is genuinely wanted it is a new edge capability, not a client story."
     },
     {
       "id": "US-1346",

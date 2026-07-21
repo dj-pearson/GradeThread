@@ -47,6 +47,8 @@ data class ItemDraft(
     val consignorId: String? = null,
     /** 0–100 as typed; "" means "use the consignor's default". */
     val consignmentSplitText: String = "",
+    /** US-1345: canonical key → value, decoded from the `measurements` jsonb. */
+    val measurements: Map<String, Double> = emptyMap(),
 ) {
 
     /** Garment classification only applies to clothing. */
@@ -79,6 +81,7 @@ data class ItemDraft(
             consignmentSplitText = item.consignmentSplitPct
                 ?.let { CurrencyAmount.formatRaw(toCents(it)) }
                 .orEmpty(),
+            measurements = MeasurementCatalog.decode(item.measurementsJson),
         )
 
         /** Strict lookup: an absent or unrecognized value stays null. */
@@ -179,6 +182,15 @@ object ItemPatch {
             edited.consignmentSplitText,
             patch,
         )
+
+        if (original.measurements != edited.measurements) {
+            // The whole document is replaced, because a jsonb UPDATE replaces
+            // it anyway — sending only the changed keys would silently delete
+            // every measurement the seller did not touch this session.
+            patch["measurements"] = MeasurementCatalog.encode(edited.measurements)
+                ?.let { kotlinx.serialization.json.Json.parseToJsonElement(it) }
+                ?: JsonNull
+        }
 
         if (original.consignorId != edited.consignorId) {
             patch["consignor_id"] = edited.consignorId?.takeIf { it.isNotBlank() }

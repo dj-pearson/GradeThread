@@ -140,6 +140,20 @@ fun ItemCanvasScreen(
             }
         }
 
+        MeasurementsSection(
+            measurements = draft.measurements,
+            category = draft.category?.wire,
+            onSet = viewModel::setMeasurement,
+        )
+        SizeEstimateCard(
+            estimate = state.sizeEstimate,
+            busy = state.estimatingSize,
+            errorMessage = state.sizeErrorMessage,
+            onEstimate = viewModel::estimateSize,
+            onApply = viewModel::applyInferredSize,
+            onDismiss = viewModel::dismissSizeEstimate,
+        )
+
         SectionHeader("Pricing & sourcing")
         Field("Acquired price", draft.acquiredPriceText, numeric = true) { v ->
             viewModel.edit { it.copy(acquiredPriceText = v) }
