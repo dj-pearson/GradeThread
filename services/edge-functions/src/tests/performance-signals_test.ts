@@ -5,6 +5,8 @@ import {
   engagementSuggestsMarkdown,
   evaluatePerformance,
   type PerformanceMetrics,
+  SELL_SIMILAR_MIN_DAYS,
+  sellSimilarEligible,
 } from "../lib/performance-signals.ts";
 import { computeSuggestion } from "../lib/repricing.ts";
 
@@ -112,4 +114,48 @@ Deno.test("no engagement signal → young in-line listing stays OK", () => {
     views: 40,
   });
   assertEquals(s.reasonCode, "OK");
+});
+
+// ── US-1899: Sell-Similar eligibility (manual last resort, never auto) ────────
+
+Deno.test("US-1899: Sell Similar needs 90+ days of TOTAL zero-engagement", () => {
+  const dead = metrics({
+    listingAgeDays: SELL_SIMILAR_MIN_DAYS,
+    views: 0,
+    watchers: 0,
+    impressions: 0,
+  });
+  assert(sellSimilarEligible(dead));
+});
+
+Deno.test("US-1899: any watcher blocks Sell Similar (there IS live interest)", () => {
+  const watched = metrics({
+    listingAgeDays: 120,
+    views: 0,
+    watchers: 2,
+    impressions: 0,
+  });
+  assert(!sellSimilarEligible(watched));
+});
+
+Deno.test("US-1899: any lifetime view blocks Sell Similar", () => {
+  const viewed = metrics({
+    listingAgeDays: 120,
+    views: 5,
+    watchers: 0,
+    impressions: 0,
+  });
+  assert(!sellSimilarEligible(viewed));
+});
+
+Deno.test("US-1899: a younger dead listing is NOT yet a Sell-Similar candidate", () => {
+  const young = metrics({
+    listingAgeDays: SELL_SIMILAR_MIN_DAYS - 1,
+    views: 0,
+    watchers: 0,
+    impressions: 0,
+  });
+  assert(!sellSimilarEligible(young));
+  // …it's still a revise-in-place signal though (barely any impressions).
+  assertEquals(evaluatePerformance(young).code, "NO_TRAFFIC");
 });

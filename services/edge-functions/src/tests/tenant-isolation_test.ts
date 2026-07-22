@@ -526,47 +526,6 @@ Deno.test({
 });
 
 Deno.test({
-  // US-1899: the stale-listing surface takes no id — it aggregates the CALLER's
-  // own active listings from listings + listing_metrics, both scoped by the
-  // owner (listings via inventory_items.user_id, listing_metrics via user_id).
-  // Like /equity the cheap-but-real property is that it is authenticated at all,
-  // so an anonymous read can never enumerate a tenant's under-performing catalog.
-  name: "stale-listings requires auth (no anonymous read)",
-  ignore: !CONFIGURED,
-  fn: async () => {
-    const res = await fetch(
-      `${BASE}/api/flipdesk/ebay/listings/stale`,
-      { headers: { "Content-Type": "application/json" } },
-    );
-    await res.body?.cancel();
-    assertDenied(res.status, "GET stale-listings unauthenticated");
-  },
-});
-
-Deno.test({
-  // US-1899: containment — when a seeded A-owned listing id is available, B's
-  // stale read must NEVER contain it. The route only ever returns rows whose
-  // listing is owned by the caller (inventory_items.user_id = B), so A's listing
-  // cannot appear in B's response regardless of A's traffic.
-  name: "B's stale-listings read never contains A's listing",
-  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
-  fn: async () => {
-    const aId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
-    const res = await fetch(
-      `${BASE}/api/flipdesk/ebay/listings/stale`,
-      { headers: authHeaders(B_JWT!) },
-    );
-    const body = await res.json().catch(() => ({ stale: [] }));
-    const ids = ((body.stale ?? []) as Array<{ listingId?: string }>).map((s) =>
-      s.listingId
-    );
-    if (ids.includes(aId)) {
-      throw new Error(`B's stale read leaked A's listing ${aId}`);
-    }
-  },
-});
-
-Deno.test({
   // US-960: marking a sale shipped (carrier + tracking → eBay + sales row) is
   // tenant-scoped — the sale is loaded THROUGH inventory_items.user_id, so B
   // pointing at A's sale id hits 0 rows and 404s (never writes A's fulfillment

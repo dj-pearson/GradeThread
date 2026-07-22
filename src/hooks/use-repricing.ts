@@ -50,6 +50,9 @@ export interface PerformanceSuggestion {
   suggests_price_drop: boolean;
   suggests_best_offer: boolean;
   suggests_content_fix: boolean;
+  // US-1899: 90+ days of total zero-engagement → a MANUAL "Sell Similar" last
+  // resort may be worth it. A hint only; the UI gates it behind a confirmation.
+  sell_similar_eligible: boolean;
 }
 
 export function usePerformanceSuggestions() {

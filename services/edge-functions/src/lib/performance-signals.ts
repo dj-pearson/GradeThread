@@ -44,6 +44,12 @@ export const WATCHED_NO_SALE_DAYS = 7; // watched this long without selling
 export const NO_TRAFFIC_DAYS = 10; // listed at least this long…
 export const NO_TRAFFIC_MAX_IMPRESSIONS = 20; // …with barely any exposure
 
+// US-1899: a listing is only a "Sell Similar" candidate after LONG, total
+// zero-engagement — deliberately far longer than the revise-in-place signals
+// above, because relisting is the escalation you reach for only once revising
+// has failed.
+export const SELL_SIMILAR_MIN_DAYS = 90;
+
 const HEALTHY: PerformanceSuggestion = {
   code: "HEALTHY",
   title: "Performing normally",
@@ -120,4 +126,24 @@ export function evaluatePerformance(
  */
 export function engagementSuggestsMarkdown(m: PerformanceMetrics): boolean {
   return evaluatePerformance(m).suggestsPriceDrop;
+}
+
+/**
+ * US-1899: is this listing a candidate for a MANUAL "Sell Similar" last resort?
+ *
+ * True only after long, TOTAL zero-engagement: 90+ days live with no lifetime
+ * views, no watchers, and barely any recent impressions — i.e. revise-in-place
+ * has had every chance and nothing is landing. This is only ever a HINT the UI
+ * surfaces WITH a confirmation and a warning; nothing here (or anywhere in this
+ * flow) ends or relists a listing automatically. eBay's own guidance is that
+ * end-and-relist destroys a listing's accumulated performance data, so Sell
+ * Similar is the deliberate escalation AFTER revising, never the first move.
+ */
+export function sellSimilarEligible(m: PerformanceMetrics): boolean {
+  return (
+    m.listingAgeDays >= SELL_SIMILAR_MIN_DAYS &&
+    m.views === 0 &&
+    m.watchers === 0 &&
+    m.impressions <= NO_TRAFFIC_MAX_IMPRESSIONS
+  );
 }

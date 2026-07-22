@@ -26,6 +26,7 @@ import {
 import {
   evaluatePerformance,
   type PerformanceSignalCode,
+  sellSimilarEligible,
 } from "../lib/performance-signals.ts";
 import { valueAtGrade } from "../lib/condition-value.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
@@ -388,18 +389,24 @@ flipdeskPricingRoutes.get("/performance", async (c) => {
   const rows = (data ?? []) as unknown as PerfRow[];
   const suggestions = rows
     .map((r) => {
-      const suggestion = evaluatePerformance({
+      // Build the metrics once so evaluatePerformance and the US-1899
+      // Sell-Similar gate read the exact same snapshot (single source).
+      const metrics = {
         impressions: r.impressions_7d ?? 0,
         views: r.views_total ?? 0,
         watchers: r.watchers_count ?? 0,
         clickThroughRate: r.click_through_rate,
         listingAgeDays: daysSince(r.listed_at),
         hasBestOffer: r.best_offer_enabled === true,
-      });
-      return { row: r, suggestion };
+      };
+      return {
+        row: r,
+        suggestion: evaluatePerformance(metrics),
+        sellSimilar: sellSimilarEligible(metrics),
+      };
     })
     .filter((x) => x.suggestion.code !== "HEALTHY")
-    .map(({ row, suggestion }) => ({
+    .map(({ row, suggestion, sellSimilar }) => ({
       listing_id: row.id,
       inventory_item_id: row.inventory_item_id,
       title: row.listing_title || row.inventory_items?.title || "Untitled item",
@@ -410,6 +417,8 @@ flipdeskPricingRoutes.get("/performance", async (c) => {
       suggests_price_drop: suggestion.suggestsPriceDrop,
       suggests_best_offer: suggestion.suggestsBestOffer,
       suggests_content_fix: suggestion.suggestsContentFix,
+      // US-1899: manual last-resort hint — 90+ days of total zero-engagement.
+      sell_similar_eligible: sellSimilar,
     }));
 
   return c.json({ suggestions });

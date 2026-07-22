@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -11,7 +11,9 @@ import {
   Info,
   Lightbulb,
   RefreshCw,
+  Repeat,
 } from "lucide-react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Card,
   CardContent,
@@ -96,6 +98,27 @@ export function FlipdeskListingPerformancePage() {
   const user = useAuthStore((s) => s.user);
   const { data: connection } = useEbayConnection();
   const { data: suggestions = [] } = usePerformanceSuggestions();
+  const confirm = useConfirm();
+  const navigate = useNavigate();
+
+  // US-1899: Sell Similar is a MANUAL last resort for 90+-day zero-engagement
+  // listings — never auto. Gate it behind an explicit, destructive-styled
+  // confirmation that spells out the cost (relisting resets the accumulated eBay
+  // performance history), then hand off to the item page for the manual relist.
+  async function handleSellSimilar(inventoryItemId: string) {
+    const ok = await confirm({
+      title: "Sell Similar is a last resort",
+      description:
+        "This listing has gone 90+ days with no views, watchers or clicks. " +
+        "Sell Similar ends it and creates a NEW listing, which resets the " +
+        "eBay performance history it has built. Try revising the title, photos " +
+        "and price first. Open the item to relist manually?",
+      confirmLabel: "Open item to relist",
+      cancelLabel: "Keep revising",
+      destructive: true,
+    });
+    if (ok) navigate(`/dashboard/flipdesk/items/${inventoryItemId}`);
+  }
 
   const [sortKey, setSortKey] = useState<SortKey>("views_total");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -290,6 +313,17 @@ export function FlipdeskListingPerformancePage() {
                 <span className="w-full text-muted-foreground sm:w-auto sm:flex-1">
                   {s.message}
                 </span>
+                {s.sell_similar_eligible && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => handleSellSimilar(s.inventory_item_id)}
+                  >
+                    <Repeat className="mr-1 h-3.5 w-3.5" />
+                    Sell Similar
+                  </Button>
+                )}
               </div>
             ))}
           </CardContent>

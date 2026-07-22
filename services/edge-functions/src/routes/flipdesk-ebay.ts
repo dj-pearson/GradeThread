@@ -5,10 +5,6 @@ import { trimTitleToLimit, trimTitleWithReport } from "../lib/title-trim.ts";
 import { lintTitle } from "../lib/title-lint.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import {
-  DEFAULT_STALE_WINDOW_DAYS,
-  decideStaleListing,
-} from "../lib/stale-listings.ts";
-import {
   filterListablePhotos,
   SENSITIVE_ITEM_PHOTO_TYPES,
 } from "../lib/item-photo-storage.ts";
@@ -963,125 +959,6 @@ flipdeskEbayRoutes.get("/compliance/violations", async (c) => {
     console.error("[flipdesk-ebay] /compliance/violations failed:", err);
     return c.json({ error: "Could not load eBay listing violations." }, 502);
   }
-});
-
-// US-1899: Stale-listing playbook — surface this seller's live listings that
-// have gone N days (default 45) with ZERO clicks, each with concrete revise
-// suggestions. Read-only and computed entirely from data we already store
-// (listings snapshot + listing_metrics history from the US-131/US-565 traffic
-// sync), so no eBay call and no analytics-access gate is needed here.
-//
-// AC3 — the hard rule: this endpoint NEVER ends or relists anything. The
-// strongest thing it emits is `sellSimilarEligible` (a hint for a 90+-day
-// zero-engagement listing); acting on it is a manual client action through the
-// EXISTING revise flow, with a confirmation. There is no mutation on this path.
-flipdeskEbayRoutes.get("/listings/stale", async (c) => {
-  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
-
-  // Caller-configurable window (AC2). Clamp to a sane range so a hand-crafted
-  // query string can't ask for a 1-day (noise) or multi-year (unbounded) scan.
-  const windowDays = Math.min(
-    Math.max(Number(c.req.query("window_days")) || DEFAULT_STALE_WINDOW_DAYS, 7),
-    180,
-  );
-  const windowStart = new Date(Date.now() - windowDays * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-
-  // Active listings this owner owns. Tenant-scoped via inventory_items.user_id —
-  // listings has no user_id column of its own (US-268), same pattern as the
-  // traffic sync above.
-  const { data: listingRows, error: listErr } = await supabaseAdmin
-    .from("listings")
-    .select(
-      "id, inventory_item_id, listing_title, listed_at, created_at, watchers_count, inventory_items!inner(user_id)",
-    )
-    .eq("listing_status", "active")
-    .eq("inventory_items.user_id", ownerId);
-  if (listErr) {
-    console.error("[flipdesk-ebay] /listings/stale listings load:", listErr.message);
-    return c.json({ error: "Could not load listings." }, 500);
-  }
-
-  interface StaleRow {
-    id: string;
-    inventory_item_id: string;
-    listing_title: string | null;
-    listed_at: string | null;
-    created_at: string;
-    watchers_count: number | null;
-  }
-  const rows = (listingRows ?? []) as unknown as StaleRow[];
-  if (rows.length === 0) return c.json({ window_days: windowDays, stale: [] });
-
-  const listingIds = rows.map((r) => r.id);
-  const itemIds = [...new Set(rows.map((r) => r.inventory_item_id))];
-
-  // Window traffic for THIS owner only. listing_metrics carries user_id, so we
-  // double-scope: .eq user_id AND .in the listing ids we just proved are the
-  // owner's — a foreign listing id in the set still can't leak another tenant's
-  // rows because user_id gates them.
-  const { data: metricRows } = await supabaseAdmin
-    .from("listing_metrics")
-    .select("listing_id, impressions, views")
-    .eq("user_id", ownerId)
-    .gte("metric_date", windowStart)
-    .in("listing_id", listingIds);
-
-  const agg = new Map<string, { impressions: number; views: number }>();
-  for (const m of (metricRows ?? []) as Array<
-    { listing_id: string; impressions: number; views: number }
-  >) {
-    const cur = agg.get(m.listing_id) ?? { impressions: 0, views: 0 };
-    cur.impressions += m.impressions ?? 0;
-    cur.views += m.views ?? 0;
-    agg.set(m.listing_id, cur);
-  }
-
-  // Photo counts. item_photos is scoped through inventory_items.user_id too —
-  // defence in depth on top of itemIds already being owner-derived.
-  const { data: photoRows } = await supabaseAdmin
-    .from("item_photos")
-    .select("inventory_item_id, inventory_items!inner(user_id)")
-    .eq("inventory_items.user_id", ownerId)
-    .in("inventory_item_id", itemIds);
-  const photoCount = new Map<string, number>();
-  for (const p of (photoRows ?? []) as Array<{ inventory_item_id: string }>) {
-    photoCount.set(
-      p.inventory_item_id,
-      (photoCount.get(p.inventory_item_id) ?? 0) + 1,
-    );
-  }
-
-  const now = Date.now();
-  const stale = rows
-    .map((r) => {
-      const activeAt = r.listed_at ?? r.created_at;
-      const activeDays = activeAt
-        ? Math.floor((now - new Date(activeAt).getTime()) / 86_400_000)
-        : 0;
-      const t = agg.get(r.id) ?? { impressions: 0, views: 0 };
-      const decision = decideStaleListing(
-        {
-          listingId: r.id,
-          title: r.listing_title,
-          photoCount: photoCount.get(r.inventory_item_id) ?? 0,
-          activeDays,
-          windowImpressions: t.impressions,
-          windowViews: t.views,
-          watchers: r.watchers_count ?? 0,
-        },
-        { windowDays },
-      );
-      return { decision, title: r.listing_title, activeDays };
-    })
-    .filter((x) => x.decision.isStale)
-    // Longest-stale first — the listings most worth acting on rise to the top.
-    .sort((a, b) => b.activeDays - a.activeDays)
-    .map((x) => ({ ...x.decision, title: x.title, activeDays: x.activeDays }));
-
-  return c.json({ window_days: windowDays, stale });
 });
 
 // US-1422 chunk 2: persist per-listing compliance so the pipeline can flag
