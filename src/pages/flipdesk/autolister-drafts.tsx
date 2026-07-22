@@ -55,6 +55,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
 import { titleQuality } from "@/lib/title-quality";
+import { estimateListingProfit } from "@/lib/listing-profit";
 import type { AspectReviewEntry } from "@/types/database";
 
 // US-548: persistent AutoLister "Drafts" cockpit. The generation queue lives
@@ -199,17 +200,27 @@ export function FlipdeskAutolisterDraftsPage() {
     if (!c || c.total === 0) return 2;
     return c.filled / c.total;
   };
-  const { data: titles = {} } = useQuery<Record<string, string>>({
-    queryKey: ["autolister_drafts_titles", user?.id, itemIds.length],
+  // The draft lives on `listings`, but what you PAID lives on the inventory
+  // item (inventory_items.acquired_price — surfaced as purchase_price by the
+  // items_full view the Inventory table reads). Pull it alongside the title so
+  // a draft can show cost + estimated return without a second round trip.
+  const { data: itemMeta = {} } = useQuery<
+    Record<string, { title: string; cost: number | null }>
+  >({
+    queryKey: ["autolister_drafts_items", user?.id, itemIds.length],
     enabled: itemIds.length > 0,
     queryFn: async () => {
       const { data: rows } = await supabase
         .from("inventory_items")
-        .select("id, title")
+        .select("id, title, acquired_price")
         .in("id", itemIds);
-      const map: Record<string, string> = {};
-      for (const r of (rows ?? []) as Array<{ id: string; title: string }>) {
-        map[r.id] = r.title;
+      const map: Record<string, { title: string; cost: number | null }> = {};
+      for (const r of (rows ?? []) as Array<{
+        id: string;
+        title: string;
+        acquired_price: number | null;
+      }>) {
+        map[r.id] = { title: r.title, cost: r.acquired_price };
       }
       return map;
     },
@@ -218,9 +229,28 @@ export function FlipdeskAutolisterDraftsPage() {
   function titleFor(d: DraftRow): string {
     return (
       (d.listing_title && d.listing_title.trim()) ||
-      titles[d.inventory_item_id] ||
+      itemMeta[d.inventory_item_id]?.title ||
       "Untitled draft"
     );
+  }
+
+  function costFor(d: DraftRow): number | null {
+    return itemMeta[d.inventory_item_id]?.cost ?? null;
+  }
+
+  // Forward-looking net for an UNSOLD draft: price − eBay fees − cost, via the
+  // same estimator the AutoLister price input uses (US-553), so the two
+  // surfaces can never quote different numbers for the same draft. Null when
+  // there's no price to estimate from; cost is treated as 0 when unset, which
+  // makes the return an upper bound rather than a blank.
+  function returnFor(d: DraftRow): { net: number; marginPct: number } | null {
+    const price = d.listing_price;
+    if (price == null || !Number.isFinite(price) || price <= 0) return null;
+    const { net, marginPct } = estimateListingProfit({
+      price,
+      costBasis: costFor(d),
+    });
+    return { net, marginPct };
   }
 
   const filtered = useMemo(() => {
@@ -229,11 +259,11 @@ export function FlipdeskAutolisterDraftsPage() {
     return drafts.filter((d) => {
       const title =
         (d.listing_title && d.listing_title.trim()) ||
-        titles[d.inventory_item_id] ||
+        itemMeta[d.inventory_item_id]?.title ||
         "Untitled draft";
       return title.toLowerCase().includes(q);
     });
-  }, [drafts, search, titles]);
+  }, [drafts, search, itemMeta]);
 
   // US-548: apply the chosen sort to the filtered set.
   const sorted = useMemo(() => {
@@ -261,7 +291,7 @@ export function FlipdeskAutolisterDraftsPage() {
       }
     });
     return rows;
-  }, [filtered, sortKey, titles, coverageByItem, scoreByListing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filtered, sortKey, itemMeta, coverageByItem, scoreByListing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // US-548: a draft is "ready" to publish when it isn't flagged for review,
   // carries a real price + category, and isn't already on a schedule. Bulk
@@ -293,6 +323,7 @@ export function FlipdeskAutolisterDraftsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editPrice, setEditPrice] = useState("");
+  const [editCost, setEditCost] = useState("");
   const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const searchRef = useRef<HTMLInputElement>(null);
@@ -323,11 +354,13 @@ export function FlipdeskAutolisterDraftsPage() {
     setEditingId(d.id);
     setEditTitle(
       (d.listing_title && d.listing_title.trim()) ||
-        titles[d.inventory_item_id] ||
+        itemMeta[d.inventory_item_id]?.title ||
         "",
     );
     setEditPrice(d.listing_price != null ? String(d.listing_price) : "");
-  }, [titles]);
+    const cost = itemMeta[d.inventory_item_id]?.cost;
+    setEditCost(cost != null ? String(cost) : "");
+  }, [itemMeta]);
 
   // Persist the inline edits, patching the cached row in place so the list
   // doesn't re-sort/jump mid-review.
@@ -336,6 +369,11 @@ export function FlipdeskAutolisterDraftsPage() {
       const title = editTitle.trim();
       const parsed = editPrice.trim() === "" ? null : Number(editPrice);
       const price = parsed != null && Number.isFinite(parsed) ? parsed : null;
+      const parsedCost = editCost.trim() === "" ? null : Number(editCost);
+      const cost =
+        parsedCost != null && Number.isFinite(parsedCost) && parsedCost >= 0
+          ? parsedCost
+          : null;
       setSaving(true);
       try {
         const { error } = await supabase
@@ -345,6 +383,34 @@ export function FlipdeskAutolisterDraftsPage() {
         if (error) {
           toast.error(`Couldn't save: ${error.message}`);
           return false;
+        }
+        // Cost lives on the ITEM, not the listing — a separate write, and only
+        // when it actually changed so the keyboard review loop doesn't issue a
+        // pointless update per draft. A failure here is reported but does NOT
+        // fail the save: the title/price edit already landed, and silently
+        // rolling the user back to the previous draft would lose it.
+        const prevCost = itemMeta[row.inventory_item_id]?.cost ?? null;
+        if (cost !== prevCost) {
+          const { error: costErr } = await supabase
+            .from("inventory_items")
+            .update({ acquired_price: cost } as never)
+            .eq("id", row.inventory_item_id);
+          if (costErr) {
+            toast.error(`Saved, but the cost didn't stick: ${costErr.message}`);
+          } else {
+            queryClient.setQueryData<
+              Record<string, { title: string; cost: number | null }>
+            >(
+              ["autolister_drafts_items", user?.id, itemIds.length],
+              (old) => ({
+                ...(old ?? {}),
+                [row.inventory_item_id]: {
+                  title: old?.[row.inventory_item_id]?.title ?? "",
+                  cost,
+                },
+              }),
+            );
+          }
         }
         queryClient.setQueryData<DraftRow[]>(
           ["autolister_drafts", user?.id],
@@ -360,7 +426,7 @@ export function FlipdeskAutolisterDraftsPage() {
         setSaving(false);
       }
     },
-    [editTitle, editPrice, queryClient, user?.id],
+    [editTitle, editPrice, editCost, itemMeta, itemIds.length, queryClient, user?.id],
   );
 
   // Enter inside the editor: save the current row, then advance and keep the
@@ -483,6 +549,26 @@ export function FlipdeskAutolisterDraftsPage() {
     () => drafts.reduce((sum, d) => sum + (d.listing_price ?? 0), 0),
     [drafts],
   );
+  // What this pile of drafts cost you, and what it nets if every one sells at
+  // its current price. `costKnown` is reported alongside so a partial total
+  // can't read as a complete one.
+  const costTotals = useMemo(() => {
+    let cost = 0;
+    let net = 0;
+    let costKnown = 0;
+    for (const d of drafts) {
+      const c = itemMeta[d.inventory_item_id]?.cost ?? null;
+      if (c != null) {
+        cost += c;
+        costKnown++;
+      }
+      const price = d.listing_price;
+      if (price != null && Number.isFinite(price) && price > 0) {
+        net += estimateListingProfit({ price, costBasis: c }).net;
+      }
+    }
+    return { cost, net, costKnown };
+  }, [drafts, itemMeta]);
   // Distinct batches represented, for the "open queue" affordance.
   const batchCount = useMemo(
     () => new Set(drafts.map((d) => d.batch_id).filter(Boolean)).size,
@@ -520,7 +606,18 @@ export function FlipdeskAutolisterDraftsPage() {
               </CardTitle>
               <CardDescription>
                 Across {batchCount} batch{batchCount === 1 ? "" : "es"} ·{" "}
-                {fmtMoney(totalValue)} total list value
+                {fmtMoney(totalValue)} total list value ·{" "}
+                {fmtMoney(costTotals.cost)} cost
+                {costTotals.costKnown < drafts.length && (
+                  <span
+                    className="text-muted-foreground"
+                    title={`${drafts.length - costTotals.costKnown} draft(s) have no purchase price recorded`}
+                  >
+                    {" "}
+                    ({costTotals.costKnown}/{drafts.length} priced)
+                  </span>
+                )}{" "}
+                · {fmtMoney(costTotals.net)} est. return
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -634,6 +731,8 @@ export function FlipdeskAutolisterDraftsPage() {
                     <TableHead>Title</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Price</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
+                    <TableHead className="text-right">Est. return</TableHead>
                     <TableHead>Category</TableHead>
                     {/* US-1895: recommended-aspect coverage. */}
                     <TableHead>Specifics</TableHead>
@@ -764,6 +863,51 @@ export function FlipdeskAutolisterDraftsPage() {
                           </Badge>
                         )}
                       </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {costFor(d) == null ? (
+                          <span
+                            className="text-muted-foreground"
+                            title="No purchase price recorded — press e to add it"
+                          >
+                            —
+                          </span>
+                        ) : (
+                          fmtMoney(costFor(d))
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {(() => {
+                          const r = returnFor(d);
+                          if (!r) return <span className="text-muted-foreground">—</span>;
+                          return (
+                            <span
+                              className={cn(
+                                r.net < 0 && "text-destructive",
+                                r.net >= 0 &&
+                                  "text-emerald-700 dark:text-emerald-400",
+                              )}
+                              title={
+                                costFor(d) == null
+                                  ? "No cost recorded — this is the ceiling, not your actual return"
+                                  : `${fmtMoney(d.listing_price)} − eBay fees − ${fmtMoney(costFor(d))} cost`
+                              }
+                            >
+                              {fmtMoney(r.net)}
+                              <span className="ml-1 text-[11px] text-muted-foreground">
+                                {r.marginPct.toFixed(0)}%
+                              </span>
+                              {costFor(d) == null && (
+                                <span
+                                  className="ml-1 text-[11px] text-muted-foreground"
+                                  aria-hidden
+                                >
+                                  max
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell>
                         {d.platform_category_id ? (
                           <span className="text-xs text-muted-foreground">
@@ -871,7 +1015,7 @@ export function FlipdeskAutolisterDraftsPage() {
                     </TableRow>
                     {isEditing && (
                       <TableRow data-draft-editor className="bg-muted/40 hover:bg-muted/40">
-                        <TableCell colSpan={10} className="py-3">
+                        <TableCell colSpan={12} className="py-3">
                           <div className="flex flex-wrap items-end gap-3">
                             <div className="min-w-[16rem] flex-1 space-y-1">
                               <label
@@ -904,6 +1048,24 @@ export function FlipdeskAutolisterDraftsPage() {
                                 value={editPrice}
                                 onChange={(e) => setEditPrice(e.target.value)}
                                 className="h-9 tabular-nums"
+                              />
+                            </div>
+                            <div className="w-32 space-y-1">
+                              <label
+                                htmlFor={`edit-cost-${d.id}`}
+                                className="text-xs font-medium text-muted-foreground"
+                              >
+                                Cost ($)
+                              </label>
+                              <Input
+                                id={`edit-cost-${d.id}`}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={editCost}
+                                onChange={(e) => setEditCost(e.target.value)}
+                                className="h-9 tabular-nums"
+                                placeholder="paid"
                               />
                             </div>
                             <div className="flex items-center gap-2">

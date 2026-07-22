@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import { cn } from "@/lib/utils";
+import { estimateListingProfit } from "@/lib/listing-profit";
 import type { ItemFullRow } from "@/types/database";
 
 function money(n: number | null | undefined): string | null {
@@ -38,10 +39,16 @@ export function ItemCardList({
   return (
     <ul className="divide-y">
       {items.map((it) => {
-        const price =
-          money(it.target_price) ??
-          money(it.list_price) ??
-          money(it.purchase_price);
+        // Cost is NOT a price fallback here (it used to be): showing what you
+        // paid in the slot where the asking price goes reads as the asking
+        // price. It gets its own labelled line below instead.
+        const price = money(it.target_price) ?? money(it.list_price);
+        const cost = it.purchase_price;
+        const askingPrice = it.target_price ?? it.list_price;
+        const est =
+          askingPrice != null && askingPrice > 0
+            ? estimateListingProfit({ price: askingPrice, costBasis: cost })
+            : null;
         const sub = [it.brand, it.style, it.size].filter(Boolean).join(" · ");
         const isSel = selectedIds?.has(it.id) ?? false;
         return (
@@ -91,6 +98,33 @@ export function ItemCardList({
                   )}
                 </div>
               </div>
+              {(cost != null || est != null) && (
+                <div className="flex items-center gap-3 text-[11px] tabular-nums text-muted-foreground">
+                  <span>
+                    Cost{" "}
+                    <span className="font-mono text-foreground">
+                      {money(cost) ?? "—"}
+                    </span>
+                  </span>
+                  {est && (
+                    <span>
+                      Est. return{" "}
+                      <span
+                        className={cn(
+                          "font-mono",
+                          est.net < 0
+                            ? "text-destructive"
+                            : "text-emerald-700 dark:text-emerald-400",
+                        )}
+                      >
+                        {money(est.net)}
+                      </span>{" "}
+                      {est.marginPct.toFixed(0)}%
+                      {cost == null && " max"}
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2">
                 <NextActionBadge item={it} />
                 {it.grade_value != null && (
