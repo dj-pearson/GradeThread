@@ -487,6 +487,24 @@ Deno.test({
 });
 
 Deno.test({
+  // US-2101: the UTM persist route writes ONLY the caller's own user row — the
+  // target id is c.get("userId"), never taken from the body — so there is no
+  // foreign-tenant id to smuggle in. The meaningful boundary is that it is
+  // authenticated at all, so an anonymous POST can never stamp a user row.
+  name: "utm attribution requires auth (no anonymous write)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/attribution/utm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ last: { utm_source: "x", landingAt: "2026-07-22" } }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST utm attribution unauthenticated");
+  },
+});
+
+Deno.test({
   // US-1968: migration turns a read-only eBay mirror into a GT-MANAGED listing
   // (it writes listings.inventory_sku + flips listing_origin), so a successful
   // cross-tenant call would hand B control of A's live catalog. The route scopes

@@ -9,6 +9,7 @@ import { initAnalyticsFromStoredConsent } from "@/lib/analytics";
 import { initSentry } from "@/lib/sentry";
 import { captureUtms, captureClickIds } from "@/lib/ad-attribution";
 import { initAdAttributionSync } from "@/lib/ad-attribution-sync";
+import { initUtmAttributionSync } from "@/lib/utm-attribution-sync";
 import "@/index.css";
 
 // Stale-chunk guard. After a deploy, an already-open tab (or a stale PWA
@@ -47,6 +48,9 @@ captureClickIds();
 // identifier, so it belongs behind the same gate as analytics.
 captureUtms();
 initAdAttributionSync();
+// US-2101 AC2: persist the captured UTMs to the user row once authenticated,
+// same lifecycle as the click-id sync above.
+initUtmAttributionSync();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

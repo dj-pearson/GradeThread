@@ -168,6 +168,7 @@ import { handleKeywordResearchCron } from "./routes/jobs-keyword-research.ts";
 import { handleAdsSyncCron } from "./routes/jobs-ads-sync.ts";
 import { handleAdsConversionsUploadCron } from "./routes/jobs-ads-conversions-upload.ts";
 import { handleRecordAttribution } from "./routes/ads-attribution.ts";
+import { handleRecordUtm } from "./routes/utm-attribution.ts";
 import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconciliation.ts";
 import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
 import { handleCronFleetHealthCron } from "./routes/jobs-cron-fleet.ts";
@@ -375,6 +376,9 @@ app.use("/api/referrals/*", authMiddleware);
 // US-1700: persist a captured ad click id against the signed-in user (authed).
 app.use("/api/ads/attribution", authMiddleware);
 app.post("/api/ads/attribution", (c) => handleRecordAttribution(c));
+// US-2101: first-/last-touch UTM channel attribution → the caller's user row.
+app.use("/api/attribution/utm", authMiddleware);
+app.post("/api/attribution/utm", (c) => handleRecordUtm(c));
 // US-603: affiliate earned-link channel. /me is per-user (authed); /click is
 // PUBLIC (anonymous badge clicks), so authMiddleware is scoped to /me only.
 app.use("/api/affiliate/me", authMiddleware);

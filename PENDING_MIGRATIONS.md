@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00492_utm_attribution.sql (US-2101 first-/last-touch UTM, 2026-07-22)
+
+**Apply AFTER 00491.** Adds `users.utm_first_touch` / `users.utm_last_touch`
+(jsonb) + a partial index on the first-touch source, and a SECURITY DEFINER
+`channel_attribution()` RPC (revoked from public, granted to service_role) that
+the admin analytics `/channels` endpoint aggregates.
+
+**Why it matters:** UTMs were captured on landing but never persisted, so
+organic / email / social / content signups were unattributable. The edge route
+`POST /api/attribution/utm` writes them to the caller's own user row at signup
+(first-touch immutable, last-touch refreshed); the admin Funnel & Retention page
+gains a Channel Attribution table.
+
+**Risk: LOW.** Additive columns + one index + one read-only RPC; no existing
+column touched, no backfill. The client sync (`initUtmAttributionSync`) and the
+edge write both degrade gracefully if the columns are missing until applied —
+but the write returns 500 until the migration lands, so apply it before the push
+so the first authenticated sync after deploy succeeds. Run
+`NOTIFY pgrst, 'reload schema';` after applying (new columns + new RPC).
+
 ## ⏳ HELD: 00491_google_photos_connections.sql (persistent Google Photos grant, 2026-07-21)
 
 **Apply AFTER 00490.** Adds `public.google_photos_connections` — one row per

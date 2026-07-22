@@ -54,6 +54,20 @@ adminAnalyticsRoutes.get("/funnel", async (c) => {
   return c.json({ window, funnel: data });
 });
 
+// GET /api/admin/analytics/channels — US-2101 AC5: first-touch UTM channel
+// attribution (source/medium/campaign → converting-user counts), so the
+// organic / email / social / content investment is finally measurable. The
+// aggregation is the SECURITY DEFINER channel_attribution() RPC (00492); it
+// returns only counts, never a user id.
+adminAnalyticsRoutes.get("/channels", async (c) => {
+  const { data, error } = await supabaseAdmin.rpc("channel_attribution");
+  if (error) {
+    console.error("[admin-analytics] channel_attribution failed:", error);
+    return c.json({ error: "Failed to load channel attribution" }, 500);
+  }
+  return c.json({ channels: data ?? [] });
+});
+
 // GET /api/admin/analytics/retention — fixed last-12-weeks weekly cohort grid.
 adminAnalyticsRoutes.get("/retention", async (c) => {
   const { data, error } = await supabaseAdmin.rpc("retention_cohorts");

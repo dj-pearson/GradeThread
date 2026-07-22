@@ -54,6 +54,18 @@ interface RetentionResponse {
   };
 }
 
+// US-2101 AC5: first-touch UTM channel attribution (channel_attribution RPC).
+interface ChannelRow {
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  users: number;
+}
+
+interface ChannelsResponse {
+  channels: ChannelRow[];
+}
+
 type PeriodKey = "mtd" | "qtd" | "ytd" | "custom";
 
 const PERIOD_LABELS: Array<{ key: PeriodKey; label: string }> = [
@@ -121,14 +133,30 @@ export function AdminAnalyticsPage() {
     staleTime: 60 * 1000,
   });
 
+  const channelsQuery = useQuery({
+    queryKey: ["admin-channels"],
+    queryFn: async (): Promise<ChannelsResponse> => {
+      const res = await edgeFetch(`/api/admin/analytics/channels`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Failed to load channel attribution");
+      return json as ChannelsResponse;
+    },
+    staleTime: 60 * 1000,
+  });
+
   const steps = funnelQuery.data?.funnel.steps ?? [];
   const topCount = steps[0]?.count ?? 0;
-  const isFetching = funnelQuery.isFetching || retentionQuery.isFetching;
+  const isFetching =
+    funnelQuery.isFetching || retentionQuery.isFetching ||
+    channelsQuery.isFetching;
 
   const refetchAll = () => {
     void funnelQuery.refetch();
     void retentionQuery.refetch();
+    void channelsQuery.refetch();
   };
+
+  const channels = channelsQuery.data?.channels ?? [];
 
   const cohorts = retentionQuery.data?.retention.cohorts ?? [];
   const maxOffset = retentionQuery.data?.retention.maxOffset ?? 8;
@@ -356,6 +384,65 @@ export function AdminAnalyticsPage() {
                           </td>
                         );
                       })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── US-2101 AC5: channel attribution ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Channel Attribution</CardTitle>
+          <CardDescription>
+            First-touch UTM channel per converting user — how organic, email,
+            social and content acquired the accounts we have. Captured on landing
+            (consent-gated) and persisted at signup.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {channelsQuery.isLoading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : channelsQuery.error ? (
+            <p className="py-4 text-sm text-red-600 dark:text-red-400">
+              {channelsQuery.error instanceof Error
+                ? channelsQuery.error.message
+                : "Failed to load channel attribution"}
+            </p>
+          ) : channels.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No UTM-tagged signups yet. Tagged inbound links populate this once
+              they start converting.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-separate border-spacing-1 text-sm">
+                <thead>
+                  <tr className="text-xs text-muted-foreground">
+                    <th className="px-2 py-1 text-left font-medium">Source</th>
+                    <th className="px-2 py-1 text-left font-medium">Medium</th>
+                    <th className="px-2 py-1 text-left font-medium">Campaign</th>
+                    <th className="px-2 py-1 text-right font-medium">Users</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {channels.map((row, i) => (
+                    <tr key={`${row.utm_source}-${row.utm_medium}-${row.utm_campaign}-${i}`}>
+                      <td className="px-2 py-1 font-medium">
+                        {row.utm_source ?? "—"}
+                      </td>
+                      <td className="px-2 py-1 text-muted-foreground">
+                        {row.utm_medium ?? "—"}
+                      </td>
+                      <td className="px-2 py-1 text-muted-foreground">
+                        {row.utm_campaign ?? "—"}
+                      </td>
+                      <td className="px-2 py-1 text-right font-bold tabular-nums">
+                        {row.users.toLocaleString()}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
