@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
-reviewed: 2026-07-19
+reviewed: 2026-07-22
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---

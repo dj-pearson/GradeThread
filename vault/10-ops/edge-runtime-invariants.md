@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
-reviewed: 2026-07-19
+reviewed: 2026-07-22
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas and migrations apply separately from the code roll; both facts constrain what any edge module may assume.
 ---
