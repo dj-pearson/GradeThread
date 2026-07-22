@@ -46,6 +46,34 @@ Deno.test("AC6: every transactional category force-classifies as transactional",
   }
 });
 
+// US-2119 / US-2120 / US-2128: the completeness half. The test above proves
+// every MEMBER of the set force-classifies transactional — but it would still
+// pass if someone REMOVED a required billing notice from the set, silently
+// making it marketing-suppressible. Each of these is the ONLY warning a
+// subscriber gets of a billing event (trial ending, upcoming renewal, an SCA
+// challenge, a failed charge), so a marketing opt-out must never suppress it.
+// This asserts membership, so that regression fails HERE rather than in prod as
+// an unexplained loss of service.
+Deno.test("required billing notices are all transactional (cannot be marketing-suppressed)", () => {
+  const REQUIRED_BILLING_NOTICES = [
+    "trial_expiring", // US-2120
+    "subscription_renewal_reminder", // US-2119
+    "payment_action_required", // US-2128 (SCA/3DS challenge)
+    "payment_failed", // dunning
+  ];
+  for (const category of REQUIRED_BILLING_NOTICES) {
+    assert(
+      TRANSACTIONAL_CATEGORIES.has(category),
+      `${category} must be in TRANSACTIONAL_CATEGORIES — it is the only warning of a billing event`,
+    );
+    assertEquals(
+      resolveIsMarketing({ category, marketing: true }),
+      false,
+      `${category} must never be classified marketing`,
+    );
+  }
+});
+
 Deno.test("AC6: a known transactional category is detected", () => {
   assert(isTransactionalCategory("grade_ready"));
   assert(isTransactionalCategory("payment_failed"));

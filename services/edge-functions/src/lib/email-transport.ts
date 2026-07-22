@@ -53,6 +53,13 @@ export const TRANSACTIONAL_CATEGORIES: ReadonlySet<string> = new Set([
   "subscription_resumed",
   "credit_pack_purchased",
   "payment_failed",
+  // US-2128: the SCA/3DS challenge notice. It mirrors payment_failed (a required
+  // billing warning that must reach the user regardless of marketing consent),
+  // but the category string was added in email.ts and never registered here, so
+  // it was not force-classified transactional. A subscriber who opted out of
+  // marketing must still be told an authentication challenge is blocking their
+  // renewal — otherwise the service silently degrades with no explanation.
+  "payment_action_required",
   "trial_expiring",
   "workspace_invite",
   "grading_regression_alert",
