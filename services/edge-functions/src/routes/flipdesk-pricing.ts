@@ -387,6 +387,27 @@ flipdeskPricingRoutes.get("/performance", async (c) => {
   }
 
   const rows = (data ?? []) as unknown as PerfRow[];
+
+  // US-1899: photo counts per inventory item, for the "too few photos" nudge.
+  // Tenant-scoped through inventory_items.user_id (defence in depth on top of
+  // the item ids already being the owner's, since they come from the owner-
+  // scoped listings query above).
+  const itemIds = [...new Set(rows.map((r) => r.inventory_item_id))];
+  const photoCount = new Map<string, number>();
+  if (itemIds.length > 0) {
+    const { data: photoRows } = await supabaseAdmin
+      .from("item_photos")
+      .select("inventory_item_id, inventory_items!inner(user_id)")
+      .eq("inventory_items.user_id", ownerId)
+      .in("inventory_item_id", itemIds);
+    for (const p of (photoRows ?? []) as Array<{ inventory_item_id: string }>) {
+      photoCount.set(
+        p.inventory_item_id,
+        (photoCount.get(p.inventory_item_id) ?? 0) + 1,
+      );
+    }
+  }
+
   const suggestions = rows
     .map((r) => {
       // Build the metrics once so evaluatePerformance and the US-1899
@@ -398,6 +419,7 @@ flipdeskPricingRoutes.get("/performance", async (c) => {
         clickThroughRate: r.click_through_rate,
         listingAgeDays: daysSince(r.listed_at),
         hasBestOffer: r.best_offer_enabled === true,
+        photoCount: photoCount.get(r.inventory_item_id) ?? 0,
       };
       return {
         row: r,

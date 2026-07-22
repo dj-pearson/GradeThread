@@ -116,6 +116,36 @@ Deno.test("no engagement signal → young in-line listing stays OK", () => {
   assertEquals(s.reasonCode, "OK");
 });
 
+// ── US-1899: missing-photos suggestion ───────────────────────────────────────
+
+Deno.test("US-1899: a seen listing with too few photos is told to add photos", () => {
+  const s = evaluatePerformance(
+    metrics({ impressions: 300, photoCount: 2, clickThroughRate: 0.05 }),
+  );
+  assertEquals(s.code, "FEW_PHOTOS");
+  assert(s.suggestsContentFix);
+});
+
+Deno.test("US-1899: photoCount is only read when explicitly provided", () => {
+  // No photoCount → the missing-photos branch must never fire (repricing and
+  // other callers omit it, and an unset field is not 'zero photos').
+  const s = evaluatePerformance(metrics({ impressions: 300 }));
+  assert(s.code !== "FEW_PHOTOS");
+});
+
+Deno.test("US-1899: enough photos does NOT trigger the photos nudge", () => {
+  const s = evaluatePerformance(metrics({ impressions: 300, photoCount: 6 }));
+  assert(s.code !== "FEW_PHOTOS");
+});
+
+Deno.test("US-1899: an unseen listing is not nagged about photos", () => {
+  // Barely any impressions → NO_TRAFFIC (visibility) wins; photos come later.
+  const s = evaluatePerformance(
+    metrics({ impressions: 2, photoCount: 1, listingAgeDays: 30 }),
+  );
+  assertEquals(s.code, "NO_TRAFFIC");
+});
+
 // ── US-1899: Sell-Similar eligibility (manual last resort, never auto) ────────
 
 Deno.test("US-1899: Sell Similar needs 90+ days of TOTAL zero-engagement", () => {

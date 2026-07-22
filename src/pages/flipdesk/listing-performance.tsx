@@ -63,7 +63,9 @@ type SortKey =
   | "click_through_rate"
   | "days_listed";
 
-const NO_VIEW_WINDOWS = [7, 14, 30] as const;
+// US-1899: the stale-listing playbook works a 45-day zero-click window; keep the
+// shorter 7/14/30 options too so a seller can tighten it.
+const NO_VIEW_WINDOWS = [7, 14, 30, 45, 60] as const;
 
 function daysListed(iso: string | null | undefined): number {
   if (!iso) return 0;

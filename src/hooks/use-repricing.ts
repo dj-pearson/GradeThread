@@ -36,6 +36,7 @@ export interface RepriceSuggestion {
 // active listing that needs attention, derived from the engagement snapshot.
 export type PerformanceSignalCode =
   | "NO_TRAFFIC"
+  | "FEW_PHOTOS"
   | "LOW_CTR"
   | "WATCHED_NO_SALE";
 

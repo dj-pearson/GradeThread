@@ -9,6 +9,7 @@
 
 export type PerformanceSignalCode =
   | "NO_TRAFFIC" // listed a while, almost no impressions → promote / refresh keywords
+  | "FEW_PHOTOS" // seen but under-photographed → add more angles (US-1899)
   | "LOW_CTR" // seen a lot, rarely clicked → fix the title or lead photo
   | "WATCHED_NO_SALE" // clicked + watched, still unsold → drop price / enable Best Offer
   | "HEALTHY"; // nothing to do
@@ -23,6 +24,13 @@ export interface PerformanceMetrics {
   listingAgeDays: number;
   /** Best Offer already enabled? Suppresses the "enable Best Offer" nudge. */
   hasBestOffer: boolean;
+  /**
+   * US-1899: number of photos on the listing / its item. OPTIONAL — callers that
+   * don't have it (e.g. the repricing engine) omit it, and the missing-photos
+   * suggestion never fires for them. Only an EXPLICIT low count triggers it, so
+   * an unset field is never read as "zero photos".
+   */
+  photoCount?: number;
 }
 
 export interface PerformanceSuggestion {
@@ -43,6 +51,7 @@ export const HIGH_WATCHERS = 3; // "several people watching"
 export const WATCHED_NO_SALE_DAYS = 7; // watched this long without selling
 export const NO_TRAFFIC_DAYS = 10; // listed at least this long…
 export const NO_TRAFFIC_MAX_IMPRESSIONS = 20; // …with barely any exposure
+export const MIN_PHOTOS = 3; // below this, "add photos" is the cheapest fix (US-1899)
 
 // US-1899: a listing is only a "Sell Similar" candidate after LONG, total
 // zero-engagement — deliberately far longer than the revise-in-place signals
@@ -82,7 +91,29 @@ export function evaluatePerformance(
     };
   }
 
-  // 2. Plenty of impressions but almost nobody clicks — a top-of-funnel problem,
+  // 2. Being seen but under-photographed — the cheapest, most concrete content
+  //    fix (US-1899). Only when the count is KNOWN (photoCount set) and the
+  //    listing has real exposure, so we don't nag a brand-new or unseen listing.
+  //    Placed before LOW_CTR because too-few-photos is a likely CAUSE of a weak
+  //    click-through, and "add photos" is more actionable than "improve the photo".
+  if (
+    m.photoCount != null &&
+    m.photoCount < MIN_PHOTOS &&
+    m.impressions >= MIN_IMPRESSIONS_FOR_CTR
+  ) {
+    return {
+      code: "FEW_PHOTOS",
+      title: "Too few photos",
+      message: `Only ${m.photoCount} photo${
+        m.photoCount === 1 ? "" : "s"
+      } despite ${m.impressions.toLocaleString()} impressions. Add more angles, the label, and any flaws close-up — more photos lift clicks and buyer confidence.`,
+      suggestsPriceDrop: false,
+      suggestsBestOffer: false,
+      suggestsContentFix: true,
+    };
+  }
+
+  // 3. Plenty of impressions but almost nobody clicks — a top-of-funnel problem,
   //    so the lever is the title and lead photo, not the price.
   if (
     m.impressions >= MIN_IMPRESSIONS_FOR_CTR &&
@@ -99,7 +130,7 @@ export function evaluatePerformance(
     };
   }
 
-  // 3. People are clicking and watching, but it still hasn't sold — the lever is
+  // 4. People are clicking and watching, but it still hasn't sold — the lever is
   //    price (or Best Offer to let them name one).
   if (m.watchers >= HIGH_WATCHERS && m.listingAgeDays >= WATCHED_NO_SALE_DAYS) {
     const offerHint = m.hasBestOffer

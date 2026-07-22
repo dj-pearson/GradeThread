@@ -631,6 +631,26 @@ Deno.test({
 });
 
 Deno.test({
+  // US-1899: the listing-performance feed (which drives the stale surface +
+  // Sell-Similar hint) is scoped to the caller's workspace owner via
+  // inventory_items.user_id, so B's performance rows must never include one of
+  // A's listing ids.
+  name: "B's listing-performance feed never includes A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/pricing/performance`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      suggestions?: Array<{ listing_id: string }>;
+    };
+    const ids = (body.suggestions ?? []).map((s) => s.listing_id);
+    assert(!ids.includes(aId), `B's performance feed leaked A's listing ${aId}`);
+  },
+});
+
+Deno.test({
   // US-674: listing templates CRUD is scoped by user_id. B must not be able to
   // overwrite or delete A's template; the PUT/DELETE are scoped, so they hit
   // 0 rows and return 404 (never confirming the row exists).
