@@ -31,6 +31,45 @@ const ALLOWANCES = [
   "portfolioItemCap",
 ] as const;
 
+// Buyer feature flags the web advertises (flat booleans on BUYER_PLANS) and the
+// edge enforces (BUYER_PLAN_ENTITLEMENTS.gateFlags). Same key names, so a value
+// drift means a buyer is sold a capability (e.g. purchaseGuarantee) the server
+// gate denies — the advertised-vs-enforced class, and for the guarantee flag a
+// trust/legal one. (wardrobePortfolio/demandBoard/prioritySupport are edge-only
+// enforcement, not advertised here, so they're excluded.)
+const BUYER_GATE_FLAGS = [
+  "extensionSecondOpinion",
+  "discrepancyScoring",
+  "priceFairness",
+  "conditionAlerts",
+  "fitPrediction",
+  "authenticityAddon",
+  "videoGrading",
+  "rewards",
+  "trustScore",
+  "purchaseGuarantee",
+] as const;
+
+/** Parse each plan's `gateFlags` booleans from the edge source. */
+function edgeGateFlags(): Record<string, Record<string, boolean>> {
+  const src = readFileSync(BUYER_PLANS_EDGE, "utf8");
+  const out: Record<string, Record<string, boolean>> = {};
+  for (const plan of PLANS) {
+    const planStart = src.search(new RegExp(`\\b${plan}:\\s*\\{`));
+    if (planStart < 0) throw new Error(`buyer plan ${plan} not found`);
+    const flagsStart = src.indexOf("gateFlags:", planStart);
+    if (flagsStart < 0) throw new Error(`gateFlags for ${plan} not found`);
+    const block = src.slice(flagsStart, src.indexOf("}", flagsStart));
+    const flags: Record<string, boolean> = {};
+    for (const flag of BUYER_GATE_FLAGS) {
+      const m = block.match(new RegExp(`${flag}:\\s*(true|false)`));
+      if (m) flags[flag] = m[1] === "true";
+    }
+    out[plan] = flags;
+  }
+  return out;
+}
+
 /** Parse each plan's `allowances` numeric caps from the edge source. */
 function edgeAllowances(): Record<string, Record<string, number>> {
   const src = readFileSync(BUYER_PLANS_EDGE, "utf8");
@@ -64,6 +103,28 @@ describe("buyer web advertised allowances ↔ edge enforced allowances", () => {
           webVal,
           `advertised (web BUYER_PLANS) vs enforced (edge allowances) drift on ` +
             `${plan}.${cap} — the buyer pricing page would show an allowance the server does not grant`,
+        ).toBe(edgeVal);
+      });
+    }
+  }
+});
+
+describe("buyer web advertised feature flags ↔ edge enforced gateFlags", () => {
+  const edge = edgeGateFlags();
+
+  for (const plan of PLANS) {
+    for (const flag of BUYER_GATE_FLAGS) {
+      it(`${plan}.${flag} agrees between the web and the edge`, () => {
+        const webFlags = (BUYER_PLANS[plan] as { gateFlags?: Record<string, boolean> })
+          .gateFlags ?? {};
+        const webVal = webFlags[flag];
+        const edgeVal = edge[plan][flag];
+        expect(edgeVal, `edge buyer-plans.ts is missing ${plan}.gateFlags.${flag}`).not
+          .toBeUndefined();
+        expect(
+          webVal,
+          `advertised (web BUYER_PLANS) vs enforced (edge gateFlags) drift on ${plan}.${flag} ` +
+            `— the buyer pricing page and the server disagree on this capability`,
         ).toBe(edgeVal);
       });
     }
