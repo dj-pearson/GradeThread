@@ -143,3 +143,21 @@ Server uploads MUST go: `validateImageUpload()` (magic-byte sniff, not client MI
 - **Env vars:** `vault/10-ops/env-reference.md` + `.env.example` (frontend) / `services/edge-functions/.env.example` (edge). Critical edge: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PORT=8787`.
 - **Deploy/launch:** ops runbooks now live in `vault/10-ops/` — start at `vault/00-index/moc-ops.md`. Deploy order (DB→edge→frontend), rollback, backups, incident response, key rotation, capacity, launch checklist. `SECURITY.md` is still at the repo root.
 - **Roadmap:** `prd.json` (Ralph format) holds ONLY the **active backlog** (`passes:false`, ~0.27 MB). Completed stories are archived to **`prd.archive.json`** (`passes:true`, ~1.5 MB — NEVER read whole; query with targeted `node -e`). New stories MUST use `prd.json.nextId` then bump it (do NOT use `max(userStories.id)+1` — the high-id done stories live in the archive, so that would reuse IDs). When `prd.json` re-accumulates `passes:true` stories, re-archive (move them to `prd.archive.json`) — **stop the Ralph loop first** (`scripts/ralph/stop-ralph.*`) so it can't clobber the rewrite. US-001→021 = foundation (done).
+
+<!-- SELVEDGE:START -->
+## Pearson Media — shared context
+
+*Managed from the vault. Edit `14 - Resources/Shared CLAUDE Block.md` in the vault; direct edits between these markers are overwritten once a sync exists. Everything outside them is yours and is never touched.*
+
+**The memory vault.** Portfolio-wide memory lives in the **Hermes** vault at `<your-home>\Documents\Hermes` (`C:\Users\dpearson\Documents\Hermes` on this machine; remote: https://github.com/dj-pearson/Hermes). It holds the profile, the map of all ten projects, and cross-project knowledge. Read `VAULT-INDEX.md` there when a task needs context beyond this repo. This repo's own `CLAUDE.md`, `~/.claude` memory, and skills remain authoritative for work inside it — the vault supplements them, never replaces them.
+
+**Name the project.** Pearson Media runs ten projects on a shared stack. Never say "the app," "the repo," or "production" without naming which one. A right answer about the wrong project is a wrong answer.
+
+**The shared stack.** React + TypeScript + Vite, Tailwind, shadcn/ui, self-hosted Supabase, Cloudflare Pages, Coolify on Contabo, Stripe. A problem solved in one repo is usually already solved for this one — check the vault before solving it twice.
+
+**Secrets are references, never values.** Never write a password, key, or token value into a note, summary, commit, or setup doc; name where it's stored instead. Loose credential files exist under your `Documents` folder (`C:\Users\dpearson\Documents` on this machine) — never read one into a document.
+
+**Never delete what Claude Code relies on.** Repo `CLAUDE.md` files, `~/.claude/projects/*/memory/`, `.claude/skills/`, settings. Copy from them freely; removing or stubbing them is Dj's call alone.
+
+**Evidence only.** Verify state from the actual file or command before claiming anything is done or in place. If unsure, say so and go find out.
+<!-- SELVEDGE:END -->
