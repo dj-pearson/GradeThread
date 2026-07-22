@@ -1,5 +1,6 @@
 // Google Photos Picker import: the OAuth consent URL must request the Photos
-// Picker scope with per-import (online) access, and config gating must reflect
+// Picker scope with OFFLINE access (so Google returns a refresh token we store
+// and reuse to skip consent on later imports), and config gating must reflect
 // the env. flipdesk-google-photos.ts imports the service-role supabase client
 // at load, so set dummy env BEFORE the dynamic import.
 //   deno test --allow-env src/tests/google-photos_test.ts
@@ -15,7 +16,7 @@ const { buildGoogleConsentUrl, isGooglePhotosConfigured } = await import(
   "../routes/flipdesk-google-photos.ts"
 );
 
-Deno.test("consent URL targets Google with the Picker scope + online access", () => {
+Deno.test("consent URL targets Google with the Picker scope + offline access", () => {
   const url = new URL(buildGoogleConsentUrl("state8", "cid123", "https://edge/cb"));
   assertEquals(
     url.origin + url.pathname,
@@ -26,8 +27,10 @@ Deno.test("consent URL targets Google with the Picker scope + online access", ()
   assertEquals(p.get("redirect_uri"), "https://edge/cb");
   assertEquals(p.get("state"), "state8");
   assertEquals(p.get("response_type"), "code");
-  // Per-import: online access (no refresh token requested/stored).
-  assertEquals(p.get("access_type"), "online");
+  // Offline + prompt=consent so Google returns a refresh token we can store and
+  // reuse — that's what lets later imports skip this consent screen.
+  assertEquals(p.get("access_type"), "offline");
+  assertEquals(p.get("prompt"), "consent");
   assert(
     p.get("scope")!.includes("photospicker.mediaitems.readonly"),
     "scope must be the Photos Picker readonly scope",

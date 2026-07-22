@@ -24,13 +24,23 @@
 # API is present, only the permission is denied, so it looks supported until the
 # user taps. microphone/geolocation stay fully closed — nothing in the app asks
 # for them, so keep those denials explicit.
+#
+# Cross-Origin-Opener-Policy is `same-origin-allow-popups` (NOT bare
+# `same-origin`) so the app keeps the window handle to OAuth/picker popups it
+# opens (Google Photos import, Stripe/eBay/Google OAuth) and can close them
+# programmatically when the flow completes. Bare `same-origin` severs that
+# handle for cross-origin popups, so `popup.close()` silently no-ops and the
+# Google picker window is left open for the user to close by hand. We do not set
+# COEP, so we were never cross-origin isolated anyway — allow-popups keeps the
+# cross-window (XS-Leak) protection that actually applied while unbreaking the
+# popup close. microphone/geolocation stay fully closed above.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(self), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
-  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
   Reporting-Endpoints: csp-endpoint="/csp-report"
   Link: </fonts/inter-latin.woff2>; rel=preload; as=font; type=font/woff2; crossorigin
   Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-79rFJF9W1WmuW2ynG7+8bgWSgcgbohhmRmGDEV6pttw=' https://js.stripe.com https://www.googletagmanager.com https://googleads.g.doubleclick.net https://www.googleadservices.com https://us-assets.i.posthog.com https://static.cloudflareinsights.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://gradethread.com https://*.gradethread.com https://*.googleusercontent.com https://*.ebayimg.com https://*.ebaystatic.com https://*.stripe.com https://www.googletagmanager.com https://*.google-analytics.com https://*.g.doubleclick.net https://pagead2.googlesyndication.com https://www.google.com; media-src 'self' blob:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://api.gradethread.com wss://api.gradethread.com https://functions.gradethread.com https://staticimgly.com https://*.ebayimg.com https://*.stripe.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://cloudflareinsights.com https://challenges.cloudflare.com https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://ad.doubleclick.net https://www.google.com; frame-src https://js.stripe.com https://hooks.stripe.com https://challenges.cloudflare.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /csp-report; report-to csp-endpoint

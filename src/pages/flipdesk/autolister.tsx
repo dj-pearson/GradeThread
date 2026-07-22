@@ -1140,22 +1140,26 @@ export function FlipdeskAutolisterPage() {
       const start = (await startRes.json()) as {
         session_id?: string;
         consent_url?: string;
+        picker_uri?: string;
         error?: string;
       };
-      if (!startRes.ok || !start.session_id || !start.consent_url) {
+      // Fast path returns picker_uri (already signed in — straight to the
+      // picker, no consent screen); first-time returns consent_url.
+      const openUrl = start.picker_uri || start.consent_url;
+      if (!startRes.ok || !start.session_id || !openUrl) {
         toast.error(start.error || "Could not start Google Photos import.");
         setGpImporting(false);
         return;
       }
       const sessionId = start.session_id;
-      popup = window.open(start.consent_url, "gphotos", "width=620,height=760");
+      popup = window.open(openUrl, "gphotos", "width=620,height=760");
       if (!popup) {
         toast.error("Please allow popups to import from Google Photos.");
         setGpImporting(false);
         return;
       }
       toast.info(
-        "Pick your photos in the Google window, then hit Done — you can close that window and they'll appear here.",
+        "Pick your photos in the Google window and hit Done — the window closes on its own and they'll appear here.",
         { duration: 8000 },
       );
 
@@ -1197,16 +1201,14 @@ export function FlipdeskAutolisterPage() {
         }
       };
 
-      // The picker window is NOT a cancellation signal. Two reasons it used to
-      // look like one and killed the import: (1) our own COOP `same-origin`
-      // header (public/_headers) severs the handle on the Google-hosted popup,
-      // so `popup.closed` reports `true` spuriously and only logs a console
-      // warning; (2) Google's picker tells the user to close that window and
-      // finish "in the other window" — closing it is the NORMAL completion
-      // path, and `mediaItemsSet` often flips a beat later, so stopping on
-      // close raced the very poll that would have returned ready. Poll until
-      // the session is ready or we time out; the button offers an explicit
-      // cancel instead.
+      // The picker window is NOT a cancellation signal: Google's picker tells
+      // the user to close that window and finish "in the other window", so
+      // closing it is the NORMAL completion path, and `mediaItemsSet` often
+      // flips a beat later — stopping on close would race the very poll that
+      // returns ready. So we poll until the session is ready (then WE close the
+      // window, below) or we time out; the button offers an explicit cancel
+      // instead. (The COOP header is `same-origin-allow-popups`, so the handle
+      // survives and `popup.close()` actually works — see public/_headers.)
       gpCancelRef.current = () => {
         stop();
         toast.info("Google Photos import cancelled.");
@@ -1229,7 +1231,7 @@ export function FlipdeskAutolisterPage() {
             try {
               popup?.close();
             } catch {
-              /* COOP-severed handle — the user closed it themselves anyway */
+              /* handle lost for some reason — the user can close it themselves */
             }
             try {
               await doImport();

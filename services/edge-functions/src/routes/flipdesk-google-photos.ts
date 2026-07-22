@@ -5,14 +5,20 @@ import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 
 // Google Photos import via the Photos PICKER API (the Library API's
-// list-everything access was retired 2025-03-31). Per-import OAuth: the user
-// consents, picks photos in a Google-hosted picker, and we download ONLY what
-// they selected — server-side, through the same US-276 validation + EXIF strip
-// as every other upload — then stage them into item-photos for AutoLister.
+// list-everything access was retired 2025-03-31). The user consents once, picks
+// photos in a Google-hosted picker, and we download ONLY what they selected —
+// server-side, through the same US-276 validation + EXIF strip as every other
+// upload — then stage them into item-photos for AutoLister.
 //
-// No long-lived Google token is stored (access_type=online); the short-lived
-// access token lives ENCRYPTED on a 30-min session row (migration 00089) just
-// long enough to create the picker session and download the picks.
+// Two token lifetimes:
+//   • DURABLE refresh token — stored ENCRYPTED per user in
+//     google_photos_connections (migration 00491, offline access). Reused to
+//     mint a fresh access token and open the picker DIRECTLY on every import
+//     after the first, so the user is NOT dragged through Google's consent
+//     screen every time. Cleared automatically if Google reports it revoked.
+//   • EPHEMERAL access token + picker session — live on a 30-min session row
+//     (migration 00089), long enough to create the picker session and download
+//     the picks, then the session row is deleted.
 //
 // Mounted at /api/flipdesk/google/photos. /oauth/callback is PUBLIC (Google
 // redirects the browser there); everything else is user-authed.
@@ -78,7 +84,9 @@ export function buildGoogleConsentUrl(
     response_type: "code",
     scope: SCOPE,
     state,
-    access_type: "online", // per-import — no refresh token requested/stored
+    // offline + prompt=consent so Google returns a refresh token we can store
+    // and reuse — that's what lets later imports skip this consent screen.
+    access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",
   });
@@ -89,8 +97,51 @@ function randomState(): string {
   return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
 }
 
+// Mint a fresh short-lived access token from a stored refresh token. Returns
+// null if Google rejects it (refresh token revoked/expired) — the caller then
+// clears the stored connection and falls back to the consent flow.
+async function mintAccessToken(
+  refreshToken: string,
+): Promise<{ accessToken: string; expiresIn: number } | null> {
+  const res = await fetch(TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId(),
+      client_secret: clientSecret(),
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!res.ok) return null;
+  const t = (await res.json()) as { access_token?: string; expires_in?: number };
+  if (!t.access_token) return null;
+  return { accessToken: t.access_token, expiresIn: t.expires_in ?? 3600 };
+}
+
+// Create a Google Picker session for an access token. Returns null on failure.
+async function createPickerSession(
+  accessToken: string,
+): Promise<{ id: string; pickerUri: string } | null> {
+  const res = await fetch(`${PICKER_API}/sessions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  });
+  if (!res.ok) return null;
+  const p = (await res.json()) as { id?: string; pickerUri?: string };
+  if (!p.id || !p.pickerUri) return null;
+  return { id: p.id, pickerUri: p.pickerUri };
+}
+
 // ── GET /oauth/start ────────────────────────────────────────────────
-// Returns a consent URL + session id. The SPA opens the URL in a popup.
+// Opens an import session. If the user already has a stored Google Photos grant
+// (refresh token), we mint an access token + Picker session server-side and
+// return `picker_uri` so the SPA opens the Google picker DIRECTLY — no consent
+// screen. Otherwise we return `consent_url` for the first-time OAuth dance.
 flipdeskGooglePhotosRoutes.get("/oauth/start", async (c) => {
   if (!isGooglePhotosConfigured()) {
     return c.json({ error: "Google Photos import is not configured on this server." }, 503);
@@ -108,9 +159,56 @@ flipdeskGooglePhotosRoutes.get("/oauth/start", async (c) => {
     console.error("[gphotos] session create failed:", error?.message);
     return c.json({ error: "Could not start Google Photos import." }, 500);
   }
+  const sessionId = (data as { id: string }).id;
+
+  // Fast path: reuse a stored refresh token to skip Google's consent screen.
+  // Tenant scope: the Google grant belongs to the authenticating PERSON, so it
+  // is keyed on userId (not the workspace owner). A foreign id can't reach this
+  // — the row is looked up strictly by the request's own userId.
+  const { data: connRow } = await supabaseAdmin
+    .from("google_photos_connections")
+    .select("refresh_token_enc")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .maybeSingle();
+  const refreshEnc = (connRow as { refresh_token_enc?: string } | null)?.refresh_token_enc;
+  if (refreshEnc) {
+    try {
+      const refresh = await decryptToken(refreshEnc, { aad: userId });
+      const minted = await mintAccessToken(refresh);
+      const picker = minted ? await createPickerSession(minted.accessToken) : null;
+      if (minted && picker) {
+        const accessTokenEnc = await encryptToken(minted.accessToken, { aad: sessionId });
+        const expiresAt = new Date(Date.now() + minted.expiresIn * 1000).toISOString();
+        await supabaseAdmin
+          .from("google_photos_import_sessions")
+          .update({
+            status: "picking",
+            access_token_enc: accessTokenEnc,
+            token_expires_at: expiresAt,
+            picker_session_id: picker.id,
+            picker_uri: picker.pickerUri,
+            error: null,
+          })
+          .eq("id", sessionId);
+        return c.json({ session_id: sessionId, picker_uri: picker.pickerUri });
+      }
+      // Mint or picker create failed → the grant is likely revoked. Drop it so
+      // the consent flow below re-establishes one.
+      await supabaseAdmin
+        .from("google_photos_connections")
+        .delete()
+        .eq("user_id", userId);
+    } catch (err) {
+      console.warn(
+        "[gphotos] stored-grant fast path failed, falling back to consent:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 
   return c.json({
-    session_id: (data as { id: string }).id,
+    session_id: sessionId,
     consent_url: buildGoogleConsentUrl(state, clientId(), redirectUri()),
   });
 });
@@ -130,11 +228,11 @@ flipdeskGooglePhotosRoutes.get("/oauth/callback", async (c) => {
 
   const { data: sessionRow } = await supabaseAdmin
     .from("google_photos_import_sessions")
-    .select("id, status, expires_at")
+    .select("id, user_id, status, expires_at")
     .eq("state", state)
     .maybeSingle();
   const session = sessionRow as
-    | { id: string; status: string; expires_at: string }
+    | { id: string; user_id: string; status: string; expires_at: string }
     | null;
   if (!session) return fail("error");
   if (new Date(session.expires_at) < new Date()) return fail("expired");
@@ -163,26 +261,47 @@ flipdeskGooglePhotosRoutes.get("/oauth/callback", async (c) => {
     if (!tokenRes.ok) {
       throw new Error(`token exchange ${tokenRes.status}: ${(await tokenRes.text()).slice(0, 200)}`);
     }
-    const token = (await tokenRes.json()) as { access_token?: string; expires_in?: number };
+    const token = (await tokenRes.json()) as {
+      access_token?: string;
+      expires_in?: number;
+      refresh_token?: string;
+      scope?: string;
+    };
     if (!token.access_token) throw new Error("no access_token in response");
+
+    // Persist the refresh token (offline access) so future imports skip this
+    // consent screen. Encrypted with AAD = user_id (per-tenant binding), one row
+    // per user (upsert on the unique user_id index). Google only returns a
+    // refresh_token on a fresh consent — if absent (e.g. an incremental grant),
+    // keep whatever we already stored.
+    if (token.refresh_token) {
+      const refreshTokenEnc = await encryptToken(token.refresh_token, {
+        aad: session.user_id,
+      });
+      const { error: connErr } = await supabaseAdmin
+        .from("google_photos_connections")
+        .upsert(
+          {
+            user_id: session.user_id,
+            refresh_token_enc: refreshTokenEnc,
+            scope: token.scope ?? SCOPE,
+            is_active: true,
+          },
+          { onConflict: "user_id" },
+        );
+      if (connErr) {
+        // Non-fatal: the import can still proceed on the access token we just
+        // got; the user just won't get the skip-consent benefit next time.
+        console.warn("[gphotos] could not persist Google grant:", connErr.message);
+      }
+    }
 
     const accessTokenEnc = await encryptToken(token.access_token, { aad: session.id });
     const expiresAt = new Date(Date.now() + (token.expires_in ?? 3600) * 1000).toISOString();
 
     // 2. Create a Picker session.
-    const pickerRes = await fetch(`${PICKER_API}/sessions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: "{}",
-    });
-    if (!pickerRes.ok) {
-      throw new Error(`picker create ${pickerRes.status}: ${(await pickerRes.text()).slice(0, 200)}`);
-    }
-    const picker = (await pickerRes.json()) as { id?: string; pickerUri?: string };
-    if (!picker.id || !picker.pickerUri) throw new Error("picker session missing id/uri");
+    const picker = await createPickerSession(token.access_token);
+    if (!picker) throw new Error("picker session create failed");
 
     await supabaseAdmin
       .from("google_photos_import_sessions")

@@ -1,5 +1,39 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00491_google_photos_connections.sql (persistent Google Photos grant, 2026-07-21)
+
+**Apply AFTER 00490.** Adds `public.google_photos_connections` — one row per
+user holding an ENCRYPTED Google Photos refresh token (AES-256-GCM, AAD =
+`user_id`), unique on `user_id`, RLS on (owner may `SELECT` own row; all writes
+via the service-role edge client), with the standard `set_updated_at` trigger.
+
+**Why it matters:** the AutoLister "Import from Google Photos" flow was
+per-import only (online access, no refresh token, session row deleted after
+every import), so the user hit Google's full OAuth consent screen on EVERY
+import — even twice within a minute. The edge now stores the refresh token here
+and reuses it to mint an access token + open the Google picker directly,
+skipping consent on every import after the first.
+
+**Risk: LOW.** New table only; no existing table/column touched, no data
+backfill. New rows are written by `/oauth/callback` (offline grant) and read by
+`/oauth/start` (fast path); if the table is missing both paths degrade
+gracefully — the fast-path read just returns nothing and the flow falls back to
+the (still-working) consent dance, and the callback's upsert failure is caught
+and logged non-fatally.
+
+**Deploy-order note.** The edge in this commit READS/WRITES the new table, but
+tolerates its absence (see above), so an edge-first roll is safe — it simply
+keeps showing consent every time until the SQL lands. The SPA does NOT read the
+new table (it only reads the `/oauth/start` JSON), so the Cloudflare Pages
+auto-deploy on push carries no schema dependency.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` (new table).
+
+**Verify:** import from Google Photos once (consent shown, refresh token
+stored), then import again within minutes — the second import should jump
+straight to the picker with NO consent screen, and the picker window should
+close on its own once the photos land.
+
 ## ✅ APPLIED (2026-07-19, confirmed by user): 00490_guarantee_pool_reserve.sql (US-2144 transactional pool reserve, 2026-07-19)
 
 **Apply AFTER 00489.** Adds `reserve_guarantee_pool_drawdown(...)` — a
