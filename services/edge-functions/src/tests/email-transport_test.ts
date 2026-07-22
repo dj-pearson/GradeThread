@@ -60,6 +60,7 @@ Deno.test("required billing notices are all transactional (cannot be marketing-s
     "subscription_renewal_reminder", // US-2119
     "payment_action_required", // US-2128 (SCA/3DS challenge)
     "payment_failed", // dunning
+    "guarantee_remedy", // Grade Accuracy Guarantee claim outcome (refund/credit)
   ];
   for (const category of REQUIRED_BILLING_NOTICES) {
     assert(

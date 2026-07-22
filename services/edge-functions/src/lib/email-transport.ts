@@ -60,6 +60,13 @@ export const TRANSACTIONAL_CATEGORIES: ReadonlySet<string> = new Set([
   // marketing must still be told an authentication challenge is blocking their
   // renewal — otherwise the service silently degrades with no explanation.
   "payment_action_required",
+  // A Grade Accuracy Guarantee claim outcome (fee refund to the original
+  // payment method or as credits, + a free re-grade credit). Like any refund
+  // receipt it is a required financial notice — a claimant who opted out of
+  // marketing must still be told their claim was resolved and how they were made
+  // whole. Sent transactionally today only because the caller passes no
+  // marketing flag; registering it here makes that a guarantee, not an accident.
+  "guarantee_remedy",
   "trial_expiring",
   "workspace_invite",
   "grading_regression_alert",
