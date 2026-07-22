@@ -2396,10 +2396,14 @@ export function FlipdeskListingsPage() {
                             "cursor-pointer hover:bg-muted/30",
                             isSel && "bg-brand-navy/5",
                           )}
+                          // One editor for every tab. This used to send Drafts to
+                          // the composer and everything else to a narrower
+                          // canvas that had no eBay specifics editor — which is
+                          // how a listed item ended up unable to save (eBay
+                          // rejecting the revision for a missing required
+                          // specific the seller had no way to fill).
                           onClick={() =>
-                            tab === "drafts" && it.listing_id
-                              ? navigate(`/dashboard/flipdesk/items/${it.id}/draft`)
-                              : setDetailItem(it)
+                            navigate(`/dashboard/flipdesk/items/${it.id}/draft`)
                           }
                         >
                           {selectable && (
@@ -2425,11 +2429,9 @@ export function FlipdeskListingsPage() {
                               size="icon"
                               className="h-6 w-6"
                               onClick={() =>
-                                tab === "drafts" && it.listing_id
-                                  ? navigate(
-                                      `/dashboard/flipdesk/items/${it.id}/draft`,
-                                    )
-                                  : setDetailItem(it)
+                                navigate(
+                                  `/dashboard/flipdesk/items/${it.id}/draft`,
+                                )
                               }
                               aria-label="Open full editor"
                             >

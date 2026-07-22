@@ -70,6 +70,10 @@ import { titleQuality } from "@/lib/title-quality";
 import {
   API_CROSS_LISTING_PLATFORMS,
   EBAY_CONDITION_OPTIONS,
+  ITEM_CATEGORIES,
+  ITEM_CATEGORY_LABELS,
+  ITEM_STATUSES,
+  ITEM_STATUS_LABELS,
   EXTENSION_CROSS_LISTING_PLATFORMS,
   MARKETPLACE_LABELS,
   MARKETPLACE_TIER,
@@ -137,6 +141,7 @@ import {
   useEbayConnection,
   useEbayPolicies,
   useEbayReviseListing,
+  useMigrateEbayListings,
   useRecommendedCoverage,
 } from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
@@ -144,6 +149,7 @@ import { useSellThroughForecast } from "@/hooks/use-forecast";
 import type {
   ItemCategory,
   ItemPhotoRow,
+  ItemStatus,
   ListingInsert,
   ListingRow,
   InventoryItemRow,
@@ -152,6 +158,16 @@ import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
 import { rowToMergeValues, type MergeValues } from "@/lib/merge-values";
 
 const TITLE_MAX = 80;
+
+// Legacy rows can carry a coarse category string that predates ITEM_CATEGORIES.
+// Anything unrecognized is clothing (the only vertical FlipDesk shipped with).
+function normalizeItemCategory(raw: string | null | undefined): ItemCategory | "" {
+  if (!raw) return "";
+  if ((ITEM_CATEGORIES as readonly string[]).includes(raw)) {
+    return raw as ItemCategory;
+  }
+  return "clothing";
+}
 
 // Stable identity for the photos query's pending/empty state. An inline `[]`
 // default is a NEW array every render, and the drag-order sync effect
@@ -249,8 +265,20 @@ function descriptionMentions(description: string, value: string): boolean {
   return new RegExp(`\\b${esc}\\b`, "i").test(description);
 }
 
-export function FlipdeskComposerPage() {
-  const { id } = useParams<{ id: string }>();
+// One editor, every status. This page is the single item/listing editor behind
+// /dashboard/flipdesk/items/:id — the old split (composer for drafts, ItemCanvas
+// for everything else) meant an item that went live lost the eBay category +
+// item-specifics editor, so a save on a listed item pushed an incomplete
+// specifics map and eBay bounced it ("The item specific Department is missing").
+// `itemId` lets a host (the item page, the detail sheet) mount the same editor
+// without a route; `showHeader={false}` suppresses the back-arrow header when
+// that host already renders one.
+export function FlipdeskComposerPage({
+  itemId,
+  showHeader = true,
+}: { itemId?: string; showHeader?: boolean } = {}) {
+  const { id: routeId } = useParams<{ id: string }>();
+  const id = itemId ?? routeId;
   const navigate = useNavigate();
   const qc = useQueryClient();
   // US-827/US-648: render description measurements in the seller's unit.
@@ -290,6 +318,18 @@ export function FlipdeskComposerPage() {
   const [storageLocation, setStorageLocation] = useState("");
   const [storageContainer, setStorageContainer] = useState("");
   const [savingStorage, setSavingStorage] = useState(false);
+  // Item-level bookkeeping that used to live only on the retired ItemCanvas.
+  // These are inventory_items columns, saved by the same single Save as the
+  // listing fields — the whole point of one editor is that nothing is stranded
+  // on a surface you can only reach at one status.
+  const [itemStatus, setItemStatus] = useState<ItemStatus>("sourced");
+  const [itemCategory, setItemCategory] = useState<ItemCategory | "">("");
+  // Tracks whether the seller picked the coarse category by hand this session.
+  // If they did, it wins over the eBay-category cascade (which would otherwise
+  // silently overwrite the deliberate pick in the same save).
+  const [categoryTouched, setCategoryTouched] = useState(false);
+  const [sourcedBy, setSourcedBy] = useState("");
+  const [acquiredDate, setAcquiredDate] = useState("");
   // Duplicate-SKU merge: set when a storage save hits the (user_id, sku) unique
   // index — holds the field-shaped values of both records so the MergeSkuDialog
   // can resolve conflicts, then merge_inventory_items combines them in place.
@@ -617,6 +657,12 @@ export function FlipdeskComposerPage() {
     setStorageSku(item.item_number ?? "");
     setStorageLocation(item.location_bin ?? "");
     setStorageContainer(item.container ?? "");
+    // Item bookkeeping (items_full names these purchase_date/purchase_price).
+    setItemStatus(item.status);
+    setItemCategory(normalizeItemCategory(item.category));
+    setCategoryTouched(false);
+    setSourcedBy(item.sourced_by ?? "");
+    setAcquiredDate(item.purchase_date?.slice(0, 10) ?? "");
     setInitialised(true);
   }, [
     initialised,
@@ -822,10 +868,37 @@ export function FlipdeskComposerPage() {
     listing.listing_status === "active" &&
     !!listing.platform_offer_id;
 
+  // One editor, three shapes. The FIELDS are identical at every status — only
+  // the header wording and the footer actions differ, which is the whole point:
+  // a listing can't lose an editor (and with it a required item specific)
+  // because it moved forward in the pipeline.
+  //   draft  → Save draft + Publish
+  //   live   → Save & resubmit to eBay (a revise, not a re-publish)
+  //   closed → Save only (sold / shipped / ended / archived — nothing to push)
+  const isClosedItem =
+    item != null &&
+    (["sold", "shipped", "completed", "returned", "archived"] as const).some(
+      (s) => s === item.status,
+    );
+  const editorMode: "draft" | "live" | "closed" = isLiveListing
+    ? "live"
+    : isClosedItem
+      ? "closed"
+      : "draft";
+
   // US-1077/US-1081: listing provenance drives the sync authority AND the badge.
   // A brand-new draft (no listing row yet) is GradeThread-originated by definition.
   const listingOrigin = listing ? deriveListingOrigin(listing) : "gradethread";
   const isEbayOrigin = listingOrigin === "ebay";
+  // US-1080: on an eBay-ORIGINATED mirror, eBay owns title/price/description —
+  // the server rejects edits to them. This editor is now the only one an
+  // eBay-created listing ever opens in, so the lock (and the way out of it) has
+  // to live here rather than on the retired canvas.
+  // US-1968: converting the listing to a managed Inventory offer is what
+  // unlocks revise/reprice/promote. Only offer it for something actually live on
+  // eBay — a mirror with no platform_listing_id has nothing to migrate.
+  const migrateListings = useMigrateEbayListings();
+  const canMigrate = isEbayOrigin && !!listing?.platform_listing_id;
   const ebayItemUrl =
     listing?.listing_url ||
     (listing?.platform_listing_id
@@ -911,6 +984,9 @@ export function FlipdeskComposerPage() {
   // category axes. Returns extra inventory_items patch fields, or {} when we
   // can't confidently derive a coarse category or it already matches.
   function categoryCascadePatch(): Record<string, unknown> {
+    // A coarse category the seller set by hand in Item details this session is
+    // the newer human intent — don't let the eBay-path derivation overwrite it.
+    if (categoryTouched) return {};
     const derived = ebayPathToItemCategory(livePickedCategoryPath);
     if (!derived) return {};
     const current = ebayMapping?.item_category ?? null;
@@ -924,6 +1000,19 @@ export function FlipdeskComposerPage() {
       patch.garment_category = g.garment_category;
     }
     return patch;
+  }
+
+  // The inventory_items bookkeeping edited in the Item details card. Written by
+  // every save path (draft, live revise) so these fields behave identically at
+  // every status — the split editor is exactly what let them drift.
+  function itemDetailsPatch(): Record<string, unknown> {
+    return {
+      sourced_by: sourcedBy.trim() || null,
+      acquired_date: acquiredDate || null,
+      ...(categoryTouched
+        ? { item_category: itemCategory === "" ? null : itemCategory }
+        : {}),
+    };
   }
 
   // Reverse-sync shared fields: fold manual/AI edits made in the eBay specifics
@@ -988,7 +1077,10 @@ export function FlipdeskComposerPage() {
       const payload: ListingInsert = {
         inventory_item_id: item.id,
         platform: "ebay",
-        listing_status: "draft",
+        // Only a row we're creating (or one still a draft) may be stamped
+        // "draft". Now that this editor opens at EVERY status, hard-coding it
+        // would demote an ended/sold listing to a draft on an ordinary save.
+        listing_status: listing?.listing_status ?? "draft",
         listing_price: resolvedPrice,
         listing_title: title.trim(),
         listing_description: description.trim() || null,
@@ -1004,7 +1096,10 @@ export function FlipdeskComposerPage() {
         // US-1568: a composer Save IS the human review — the draft leaves the
         // AutoLister 'needs review' queue and lives on in Inventory → Drafts.
         reviewed_at: new Date().toISOString(),
-        is_active: false,
+        // Draft-only. A live row's is_active is owned by the publish/end flow.
+        ...(listing?.listing_status && listing.listing_status !== "draft"
+          ? {}
+          : { is_active: false }),
         primary_photo_id: primaryPhotoId,
         // 00432: persist the Promoted Listings choice as an EXPLICIT per-listing
         // override (saving the composer is a deliberate decision, so it no longer
@@ -1032,7 +1127,11 @@ export function FlipdeskComposerPage() {
       };
 
       let listingId: string;
-      if (item.listing_id && item.listing_status === "draft") {
+      // Update whenever a listing row EXISTS, whatever its status. The old
+      // `&& item.listing_status === "draft"` gate was safe only because this
+      // editor was draft-only; reached from Active/Sold it would insert a
+      // SECOND listings row for the same item and orphan the live one.
+      if (item.listing_id) {
         const { error } = await supabase
           .from("listings")
           .update(payload as never)
@@ -1050,8 +1149,11 @@ export function FlipdeskComposerPage() {
         listingId = (created as { id: string }).id;
       }
 
-      // Forward-only: never regress a listed/sold item back to "drafted".
-      const resolvedStatus = resolveStatus(item.status, "drafted", {
+      // Forward-only: never regress a listed/sold item back to "drafted". The
+      // seller's own Item details pick is the `selected` input — resolveStatus
+      // lets a deliberate non-prep choice (archived, sold) win outright and
+      // otherwise takes the furthest of current / picked / earned.
+      const resolvedStatus = resolveStatus(item.status, itemStatus, {
         ...factsOf(item),
         hasDraftListing: true,
       });
@@ -1073,6 +1175,7 @@ export function FlipdeskComposerPage() {
           // (including back to null when cleared) so the field behaves like
           // every other one in this form rather than being write-once.
           acquired_price: effectiveCost,
+          ...itemDetailsPatch(),
           ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
           ...categoryCascadePatch(),
         } as never)
@@ -1086,7 +1189,7 @@ export function FlipdeskComposerPage() {
       });
       // US-1895: refresh the recommended-coverage meter after an aspect save.
       await qc.invalidateQueries({ queryKey: ["recommended-coverage", item.id] });
-      toast.success("Draft saved.");
+      toast.success(item.listing_id ? "Saved." : "Draft saved.");
       return listingId;
     } catch (err) {
       toast.error(`Save failed: ${errorMessage(err)}`);
@@ -1309,15 +1412,26 @@ export function FlipdeskComposerPage() {
         } as never)
         .eq("id", item.listing_id);
       if (error) throw error;
-      // Mirror onto the item, but DON'T touch status — it stays 'listed'.
-      // Specifics edits also fold back into their backing item fields
-      // (single-entry rule, same as the draft save).
+      // Mirror onto the item. Status still comes from resolveStatus (forward-
+      // only, and a listed item's earned status can't regress) rather than being
+      // skipped — the seller can now move a live item to sold/archived from the
+      // same Item details card they use on a draft.
       const { error: sErr } = await supabase
         .from("inventory_items")
         .update({
+          status: resolveStatus(item.status, itemStatus, {
+            ...factsOf(item),
+            hasDraftListing: true,
+          }),
           ebay_category_id: resolvedCategoryId,
           ebay_aspects: resolvedAspects,
           ebay_aspect_sources: resolvedSources,
+          // US-1567 parity: measurements + cost are editable at every status now,
+          // so the live save must persist them like the draft save does.
+          measurements:
+            Object.keys(measurements).length > 0 ? measurements : null,
+          acquired_price: effectiveCost,
+          ...itemDetailsPatch(),
           ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
           ...categoryCascadePatch(),
         } as never)
@@ -1532,24 +1646,33 @@ export function FlipdeskComposerPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => navigate(-1)}
-          aria-label="Back"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Listing composer
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Build, preview, and pick photo variants for "{item.item_title}".
-          </p>
+      {showHeader && (
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate(-1)}
+            aria-label="Back"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold tracking-tight">
+              {editorMode === "draft" ? "Listing composer" : "Edit item"}
+            </h1>
+            <p className="truncate text-sm text-muted-foreground">
+              {editorMode === "live"
+                ? `Editing the live listing for "${item.item_title}".`
+                : editorMode === "closed"
+                  ? `Editing "${item.item_title}" — this item is no longer listed.`
+                  : `Build, preview, and pick photo variants for "${item.item_title}".`}
+            </p>
+          </div>
+          <Badge variant="outline" className="ml-auto shrink-0 font-normal">
+            {ITEM_STATUS_LABELS[item.status]}
+          </Badge>
         </div>
-      </div>
+      )}
 
       {/* At-a-glance "this IS listed" confirmation. Keys off a genuinely live
           listing (active status + a real eBay offer id) so it never claims
@@ -1596,7 +1719,9 @@ export function FlipdeskComposerPage() {
               eBay-generated listing
             </Badge>
             <span className="text-xs text-muted-foreground">
-              Created on eBay — eBay owns the title, price, and description here.{" "}
+              Created on eBay — eBay owns the title, price, and description here,
+              so those fields are locked. Your grade, specifics, measurements and
+              cost stay editable.{" "}
               {ebayItemUrl && (
                 <a
                   href={ebayItemUrl}
@@ -1608,6 +1733,19 @@ export function FlipdeskComposerPage() {
                 </a>
               )}
             </span>
+            {canMigrate && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={migrateListings.isPending}
+                onClick={() => migrateListings.mutate([listing!.id])}
+              >
+                {migrateListings.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Manage in FlipDesk
+              </Button>
+            )}
           </>
         ) : (
           <>
@@ -1714,6 +1852,90 @@ export function FlipdeskComposerPage() {
             </CardContent>
           </Card>
 
+          {/* Item details — the bookkeeping that used to live only on the
+              status-gated item canvas. Saved by the main Save below, at every
+              status, so nothing here is reachable at one status and not another.
+              Brand / size / color / material deliberately aren't repeated here:
+              they're owned by the eBay item specifics editor and folded back
+              into their columns on save (single-entry rule, US-557). */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Item details</CardTitle>
+              <CardDescription>
+                Pipeline status and sourcing — saved to the item alongside your
+                listing edits.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="item-status">Status</Label>
+                <Select
+                  value={itemStatus}
+                  onValueChange={(v) => setItemStatus(v as ItemStatus)}
+                >
+                  <SelectTrigger id="item-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ITEM_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {ITEM_STATUS_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Prep stages only move forward — completed work can't be undone
+                  by picking an earlier stage.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="item-category">Category</Label>
+                <Select
+                  value={itemCategory || "__none"}
+                  onValueChange={(v) => {
+                    setItemCategory(v === "__none" ? "" : (v as ItemCategory));
+                    setCategoryTouched(true);
+                  }}
+                >
+                  <SelectTrigger id="item-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">— None —</SelectItem>
+                    {ITEM_CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {ITEM_CATEGORY_LABELS[c]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  The coarse grading category. Picking an eBay category below
+                  keeps this in sync unless you set it here yourself.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="item-sourced-by">Sourced by</Label>
+                <Input
+                  id="item-sourced-by"
+                  value={sourcedBy}
+                  onChange={(e) => setSourcedBy(e.target.value)}
+                  placeholder="Who picked it up"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="item-acquired-date">Purchase date</Label>
+                <Input
+                  id="item-acquired-date"
+                  type="date"
+                  value={acquiredDate}
+                  onChange={(e) => setAcquiredDate(e.target.value)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Title */}
           <Card>
             <CardHeader>
@@ -1733,6 +1955,12 @@ export function FlipdeskComposerPage() {
                   maxLength={TITLE_MAX}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Brand Item Size Category"
+                  disabled={isEbayOrigin}
+                  title={
+                    isEbayOrigin
+                      ? "eBay owns this listing's title — edit it on eBay."
+                      : undefined
+                  }
                 />
                 <span
                   className={cn(
@@ -2069,6 +2297,12 @@ export function FlipdeskComposerPage() {
                     }}
                     placeholder="0.00"
                     className="max-w-[10rem]"
+                    disabled={isEbayOrigin}
+                    title={
+                      isEbayOrigin
+                        ? "eBay owns this listing's price — change it on eBay."
+                        : undefined
+                    }
                   />
                   {priceEstimated && (
                     <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
@@ -2762,6 +2996,12 @@ export function FlipdeskComposerPage() {
                 rows={14}
                 placeholder="Apply the template above, or write your own."
                 className="font-mono text-xs"
+                disabled={isEbayOrigin}
+                title={
+                  isEbayOrigin
+                    ? "eBay owns this listing's description — edit it on eBay."
+                    : undefined
+                }
               />
               {aiSnapshot?.description && (
                 <AiDiffChip
@@ -2876,22 +3116,51 @@ export function FlipdeskComposerPage() {
         <Button variant="outline" onClick={() => navigate(-1)} disabled={saving}>
           Close
         </Button>
-        {isLiveListing ? (
-          <Button
-            onClick={() => void handleResubmitClick()}
-            disabled={saving || reviseListing.isPending || !ebayConnection}
-            title={
-              !ebayConnection
-                ? "Connect eBay first on the Marketplaces page."
-                : "Saves your edits, then pushes them to the live eBay listing."
-            }
-          >
-            {saving || reviseListing.isPending ? (
+        {editorMode === "live" ? (
+          <>
+            {/* An edit that isn't worth an eBay round-trip (cost, bin, sourcing)
+                still needs somewhere to land — otherwise the only Save on a live
+                listing is a ~5-8s revise the seller may not want. */}
+            <Button
+              variant="outline"
+              onClick={() => void saveLiveListing()}
+              disabled={saving || reviseListing.isPending}
+              title="Saves your edits in GradeThread without pushing to eBay."
+            >
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Save without pushing
+            </Button>
+            <Button
+              onClick={() => void handleResubmitClick()}
+              disabled={saving || reviseListing.isPending || !ebayConnection}
+              title={
+                !ebayConnection
+                  ? "Connect eBay first on the Marketplaces page."
+                  : "Saves your edits, then pushes them to the live eBay listing."
+              }
+            >
+              {saving || reviseListing.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="mr-2 h-4 w-4" />
+              )}
+              Save &amp; resubmit to eBay
+            </Button>
+          </>
+        ) : editorMode === "closed" ? (
+          // Sold / shipped / returned / archived: the same form, but there is no
+          // live offer to push to and nothing to publish. Save is the only verb.
+          <Button onClick={saveDraft} disabled={saving}>
+            {saving ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <Rocket className="mr-2 h-4 w-4" />
+              <Save className="mr-2 h-4 w-4" />
             )}
-            Save &amp; resubmit to eBay
+            Save
           </Button>
         ) : (
           <>

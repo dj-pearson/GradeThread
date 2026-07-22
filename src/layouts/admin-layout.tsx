@@ -62,6 +62,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { AdminMfaGate } from "@/components/admin/admin-mfa-gate";
+import { StepUpHost } from "@/components/admin/step-up-host";
 import { AdminNotificationBell } from "@/components/admin/admin-notification-bell";
 import { CommandPalette } from "@/components/admin/command-palette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -622,6 +623,9 @@ export function AdminLayout() {
         >
           {/* US-270: require MFA (AAL2) before any admin content renders. */}
           <AdminMfaGate>
+            {/* The single step-up prompt edgeFetch raises on a
+                403 STEP_UP_REQUIRED, for every admin surface. */}
+            <StepUpHost />
             <Outlet />
           </AdminMfaGate>
         </main>

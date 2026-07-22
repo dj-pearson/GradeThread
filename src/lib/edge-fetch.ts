@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import { getFreshAccessToken, forceRefreshAccessToken } from "@/lib/auth-token";
+import { requestStepUp } from "@/lib/step-up-request";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { track } from "@/lib/analytics";
 import { useAuthStore } from "@/stores/auth-store";
@@ -112,6 +113,31 @@ export async function edgeFetch(
     if (fresh) {
       headers.set("Authorization", `Bearer ${fresh}`);
       res = await fetch(url, { ...opts, headers, body });
+    }
+  }
+
+  // Destructive admin endpoints answer 403 STEP_UP_REQUIRED when the session's
+  // last MFA verification has aged out. Prompt here — once, centrally — then
+  // retry with the re-verified token. Doing this per call site meant the ~30
+  // admin surfaces that never added the handler simply failed on repeat with no
+  // way to re-verify. Dismissing the prompt returns the original 403, so the
+  // caller's own error path still runs.
+  if (res.status === 403 && authed) {
+    const probe = await res
+      .clone()
+      .json()
+      .catch(() => ({}) as Record<string, unknown>);
+    if ((probe as { code?: string }).code === "STEP_UP_REQUIRED") {
+      const verified = await requestStepUp();
+      if (verified) {
+        // mfa.verify() mints a new access token carrying a fresh `amr`
+        // timestamp; read it rather than reusing the one that was just refused.
+        const stepped = await getFreshAccessToken();
+        if (stepped) {
+          headers.set("Authorization", `Bearer ${stepped}`);
+          res = await fetch(url, { ...opts, headers, body });
+        }
+      }
     }
   }
 

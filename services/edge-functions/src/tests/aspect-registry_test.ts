@@ -365,3 +365,64 @@ Deno.test("reverse: attribute-backed aspects (Department etc.) are ignored", () 
     {},
   );
 });
+
+// ── Revise parity: the gap-fill the revise path was missing ─────────────────
+//
+// Publish ran resolveItemAspects (via deriveAspectsFromItem) over the category
+// spec, which is what filled attribute- and inference-backed REQUIRED aspects
+// like Department. Revise only ran applyColumnAspects (Brand/Size/Color/
+// Material/Style), so a listing whose stored item_specifics_override lacked
+// Department published fine and then failed EVERY revise with eBay's "The item
+// specific Department is missing". These pin the resolver behaviour the revise
+// path now depends on.
+
+Deno.test("revise parity: column-only forcing leaves a required Department unfilled", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    title: "Maeve The Collette Black Wide Leg Cropped Pants",
+    brand: "Maeve",
+    size: "6",
+    color: "Black",
+  };
+  const spec = [
+    free("Brand"),
+    free("Size"),
+    free("Color"),
+    sel("Department", ["Men", "Women", "Unisex Adult", "Girls", "Boys"]),
+  ];
+  // What the revise path used to send: columns re-asserted, nothing else.
+  const columnsOnly = applyColumnAspects({}, item, spec);
+  assertEquals(columnsOnly.Department, undefined);
+});
+
+Deno.test("revise parity: the resolver fills Department from the item's own text", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    title: "Maeve The Collette Black Wide Leg Cropped Pants",
+    style: "Women's wide leg trouser",
+    brand: "Maeve",
+    size: "6",
+    color: "Black",
+  };
+  const spec = [
+    free("Brand"),
+    free("Size"),
+    free("Color"),
+    sel("Department", ["Men", "Women", "Unisex Adult", "Girls", "Boys"]),
+  ];
+  const columnsOnly = applyColumnAspects({}, item, spec);
+  const derived = resolveItemAspects(item, spec, columnsOnly);
+  assertEquals(derived.Department, ["Women"]);
+});
+
+Deno.test("revise parity: gap-fill never overwrites a Department the seller set", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    title: "Women's wide leg trouser",
+  };
+  const spec = [sel("Department", ["Men", "Women", "Unisex Adult"])];
+  assertEquals(
+    resolveItemAspects(item, spec, { Department: ["Unisex Adult"] }),
+    {},
+  );
+});

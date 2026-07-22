@@ -8,14 +8,14 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { ItemCanvas } from "@/components/flipdesk/item-canvas";
+import { FlipdeskComposerPage } from "@/pages/flipdesk/composer";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import type { ItemFullRow } from "@/types/database";
 
-// Quick-look wrapper around <ItemCanvas /> used from the items list and the
-// pipeline kanban. The same canvas also renders standalone at
-// /dashboard/flipdesk/items/:id — use the "Open as page" link for a
-// deep-linkable URL.
+// Quick-look wrapper around the item editor, used from the items list and the
+// pipeline kanban. The same editor renders standalone at
+// /dashboard/flipdesk/items/:id — use the "Full page" link for a deep-linkable
+// URL (and more room; this editor is a two-column layout at desktop widths).
 type Props = {
   item: ItemFullRow | null;
   onClose: () => void;
@@ -77,14 +77,11 @@ export function ItemDetailDialog({ item, onClose }: Props) {
               </div>
             </SheetHeader>
 
-            {/* Scrollable canvas */}
+            {/* Scrollable editor — the same one the full page renders, so a
+                quick-look never shows a different (smaller) set of fields than
+                the page does. */}
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-              <ItemCanvas
-                item={item}
-                onAfterSave={onClose}
-                onCancel={onClose}
-                showHeader={false}
-              />
+              <FlipdeskComposerPage itemId={item.id} showHeader={false} />
             </div>
           </>
         )}

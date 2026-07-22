@@ -223,7 +223,9 @@ function ChallengePanel({ factorId, onDone }: { factorId: string; onDone: () => 
 
 // US-270: step-up dialog for destructive actions. Performs a fresh MFA
 // challenge so the next edge call carries a recent `amr` timestamp (the server
-// requires a step-up within the last 5 minutes). Resolves onVerified on success.
+// requires a step-up within ADMIN_STEP_UP_MAX_AGE_SEC, 24h by default).
+// Resolves onVerified on success. Usually raised by <StepUpHost /> via
+// edgeFetch rather than mounted per call site.
 export function MfaStepUpDialog({
   open,
   onOpenChange,

@@ -273,7 +273,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 |---|---|---|
 | `ADMIN_MFA_ENFORCED` | ⬜ Coolify edge | Require AAL2 (TOTP) on `/api/admin/*`. Default `true`; `false` only during enrollment. |
 | `ADMIN_MFA_ENROLLMENT_WINDOW` | ⬜ Coolify edge | Explicit opt-out that lets the service boot with MFA off during enrollment. |
-| `ADMIN_STEP_UP_MAX_AGE_SEC` | ⬜ Coolify edge | Seconds a fresh MFA step-up stays valid before destructive admin actions re-prompt. Default `28800` (8h); min `60`. |
+| `ADMIN_STEP_UP_MAX_AGE_SEC` | ⬜ Coolify edge | Seconds a fresh MFA step-up stays valid before destructive admin actions re-prompt. Default `86400` (24h — one verification per working day; a new session always starts unverified); min `60`. |
 | `TENANT_ISOLATION_REQUIRED` | ⬜ Coolify edge | Hardens the tenant-isolation guard (fail-closed) when set. |
 | `DATA_RETENTION_DAYS` | ⬜ Coolify edge | Retention window for the data-cleanup job. |
 | `ABANDONED_CHECKOUT_HOURS` | ⬜ Coolify edge | Hours before a checkout is treated as abandoned. |

@@ -159,6 +159,20 @@ function computeWeightedScore(factors: FactorScores): number {
   return sharedWeightedOverall(factors as WeightedFactorScores);
 }
 
+// The grading contract: factors are 1.0–10.0 in 0.5 steps. Applied when a score
+// box is COMMITTED (blur / submit), never while the reviewer is still typing —
+// the server re-applies the same clamp in admin-grading.ts.
+function clampFactorScore(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.round(Math.min(10, Math.max(1, n)) * 2) / 2;
+}
+
+function draftsFromScores(scores: FactorScores): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of FACTOR_KEYS) out[key] = scores[key].toFixed(1);
+  return out;
+}
+
 // ─── Main Component ─────────────────────────────────────────────────
 
 export function AdminGradingQueuePage() {
@@ -185,6 +199,13 @@ export function AdminGradingQueuePage() {
     functional_elements_score: 5,
     odor_cleanliness_score: 5,
   });
+  // What's literally IN each score box, as typed. Kept separate from the numeric
+  // scores because clamping on every keystroke makes the field uneditable: clear
+  // "7" and the next digit you type ("0" on the way to "0.5", say) is instantly
+  // snapped up to the 1.0 floor, and you can never hold an empty or partial
+  // value like "" or "8." long enough to finish typing it. Drafts are free-form
+  // while focused and normalized on blur.
+  const [factorDrafts, setFactorDrafts] = useState<Record<string, string>>({});
   const [intentionalMisread, setIntentionalMisread] = useState(false);
   const [notes, setNotes] = useState("");
 
@@ -298,6 +319,7 @@ export function AdminGradingQueuePage() {
     setIntentionalMisread(false);
     setNotes("");
     setAdjustedScores({ ...item.factor_scores });
+    setFactorDrafts(draftsFromScores(item.factor_scores));
     refresh();
 
     setLoadingDetail(true);
@@ -336,11 +358,31 @@ export function AdminGradingQueuePage() {
 
   const computedOverall = useMemo(() => computeWeightedScore(adjustedScores), [adjustedScores]);
 
+  // Accept the keystroke as typed (including "" and "8."), and only mirror it
+  // onto the numeric score when it parses — no clamping here, so the floor can't
+  // hijack a digit mid-entry. Anything unparseable just leaves the last good
+  // number in place for the weighted-overall readout.
   function updateFactor(key: keyof FactorScores, value: string) {
-    const num = parseFloat(value);
-    if (isNaN(num)) return;
-    const clamped = Math.round(Math.min(10, Math.max(1, num)) * 2) / 2;
-    setAdjustedScores((prev) => ({ ...prev, [key]: clamped }));
+    // Digits with at most one decimal point; a stray letter is simply ignored.
+    if (!/^\d*\.?\d*$/.test(value)) return;
+    setFactorDrafts((prev) => ({ ...prev, [key]: value }));
+    const num = Number.parseFloat(value);
+    if (Number.isFinite(num)) {
+      setAdjustedScores((prev) => ({ ...prev, [key]: num }));
+    }
+  }
+
+  // Commit on blur: snap to the 1.0–10.0 range in 0.5 steps and rewrite the box
+  // to match, so what the reviewer sees is exactly what gets submitted. A field
+  // left empty or nonsense reverts to the score it had.
+  function commitFactor(key: keyof FactorScores) {
+    setAdjustedScores((prev) => {
+      const typed = Number.parseFloat(factorDrafts[key] ?? "");
+      const base = Number.isFinite(typed) ? typed : prev[key];
+      const clamped = clampFactorScore(base);
+      setFactorDrafts((d) => ({ ...d, [key]: clamped.toFixed(1) }));
+      return { ...prev, [key]: clamped };
+    });
   }
 
   // ─── Actions ────────────────────────────────────────────────────
@@ -373,7 +415,14 @@ export function AdminGradingQueuePage() {
       toast.error("Notes required", { description: "Explain the adjustment for the audit trail." });
       return;
     }
-    const scoreDiff = Math.abs(computedOverall - selected.overall_score);
+    // Submitting straight from a focused box (tap "Save" without blurring first)
+    // must still send contract-legal factors, so clamp here rather than trusting
+    // the blur to have run.
+    const factors = { ...adjustedScores };
+    for (const k of FACTOR_KEYS) factors[k] = clampFactorScore(factors[k]);
+    const scoreDiff = Math.abs(
+      computeWeightedScore(factors) - selected.overall_score,
+    );
     if (scoreDiff > 1.5 && profile?.role !== "super_admin") {
       toast.error("Super admin approval required", {
         description: "Grade changes greater than 1.5 points require super_admin approval.",
@@ -385,7 +434,7 @@ export function AdminGradingQueuePage() {
       const res = await edgeFetch(`/api/admin/grading/review/${selected.report_id}/adjust`, {
         method: "POST",
         body: JSON.stringify({
-          factors: adjustedScores,
+          factors,
           notes: notes.trim(),
           intentional_misread: intentionalMisread,
         }),
@@ -780,12 +829,18 @@ export function AdminGradingQueuePage() {
                         </div>
                         <div className="col-span-4">
                           <Input
-                            type="number"
-                            min={1}
-                            max={10}
-                            step={0.5}
-                            value={adjusted}
+                            // type="text" + inputMode="decimal": a number input
+                            // hands back "" for anything the browser considers
+                            // intermediate, which on mobile keyboards makes a
+                            // partially-typed score indistinguishable from a
+                            // cleared one. The draft state does the validating.
+                            type="text"
+                            inputMode="decimal"
+                            value={factorDrafts[key] ?? adjusted.toFixed(1)}
                             onChange={(e) => updateFactor(key, e.target.value)}
+                            onBlur={() => commitFactor(key)}
+                            onFocus={(e) => e.currentTarget.select()}
+                            aria-label={`${meta.label} score, 1.0 to 10.0`}
                             className="tabular-nums"
                           />
                         </div>

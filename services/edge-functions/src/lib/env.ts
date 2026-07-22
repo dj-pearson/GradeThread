@@ -67,13 +67,15 @@ export function assertAdminMfaConfig(
 // Step-up freshness window for destructive super-admin actions (seconds).
 // US-270: how long a fresh MFA step-up stays valid before the next DESTRUCTIVE
 // admin action (refund, credit grant, role change, prompt-version activation,
-// deletion) re-prompts for the authenticator. Default 8h so a normal admin work
-// session verifies ONCE instead of every 5 minutes. Override with
-// ADMIN_STEP_UP_MAX_AGE_SEC (whole seconds, floored to a 60s minimum). Setting it
-// very high effectively disables the fresh-re-auth protection on those actions.
+// deletion) re-prompts for the authenticator. Default 24h: one verification per
+// working day, and signing out ends it regardless (the window is measured off
+// the SESSION's `amr` timestamp, so a new session always starts unverified).
+// Override with ADMIN_STEP_UP_MAX_AGE_SEC (whole seconds, floored to a 60s
+// minimum). Setting it very high effectively disables the fresh-re-auth
+// protection on those actions.
 export const STEP_UP_MAX_AGE_SEC = (() => {
   const raw = Number(Deno.env.get("ADMIN_STEP_UP_MAX_AGE_SEC"));
-  return Number.isFinite(raw) && raw >= 60 ? Math.floor(raw) : 8 * 60 * 60;
+  return Number.isFinite(raw) && raw >= 60 ? Math.floor(raw) : 24 * 60 * 60;
 })();
 
 // True only when the named flag is "true" AND we are not in production.

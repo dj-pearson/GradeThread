@@ -5713,6 +5713,25 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       reviseAspectList,
       baseAspects,
     );
+    // Gap-fill the aspects the columns don't own the same way publish does.
+    // forceColumnAspects only re-asserts Brand/Size/Color/Material/Style; the
+    // attribute- and inference-backed required specifics (Department, Size Type,
+    // …) came from deriveAspectsFromItem on the publish path and had no
+    // equivalent here — so a listing whose stored override was missing one could
+    // be published (publish filled it) yet fail EVERY later revise with eBay's
+    // "The item specific X is missing". Same resolver, same never-overwrite rule.
+    const reviseDerivedKeys: string[] = [];
+    if (reviseAspectList && reviseAspectList.length > 0) {
+      const derived = deriveAspectsFromItem(
+        item as unknown as PublishItem,
+        reviseAspectList,
+        aspects,
+      );
+      for (const [k, v] of Object.entries(derived)) {
+        aspects[k] = v;
+        reviseDerivedKeys.push(k);
+      }
+    }
 
     // US-1502/US-1503: on a structured resync, fold the CURRENT measurements +
     // grade into the aspect map + description BEFORE we persist/PUT so the live
@@ -5804,10 +5823,27 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     // onto the item too for legacy/no-listing reads). US-1503: also persist the
     // resync-regenerated description (measurements block + grade line) so the
     // composer + next revise's fallback don't re-serve the publish-time snapshot.
+    // US-825: anything the gap-fill just derived is attributed
+    // `inventory_derived`, merged over the existing provenance so an AI- or
+    // user-attributed aspect is never downgraded. Without this the next revise's
+    // reverseColumnAspects would read a derived value as unattributed.
+    const reviseSources =
+      reviseDerivedKeys.length > 0
+        ? mergeSources(
+            (((listingRow as {
+              item_specifics_sources?: AspectSourceMap | null;
+            } | null)?.item_specifics_sources ??
+              item.ebay_aspect_sources ??
+              {}) as AspectSourceMap),
+            sourcesFor(reviseDerivedKeys, "inventory_derived"),
+            aspects,
+          )
+        : null;
     await supabaseAdmin
       .from("listings")
       .update({
         item_specifics_override: aspects,
+        ...(reviseSources ? { item_specifics_sources: reviseSources } : {}),
         ...(reviseGradeDesc != null
           ? { listing_description: reviseGradeDesc }
           : {}),
@@ -5815,7 +5851,10 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       .eq("id", listingId);
     await supabaseAdmin
       .from("inventory_items")
-      .update({ ebay_aspects: aspects })
+      .update({
+        ebay_aspects: aspects,
+        ...(reviseSources ? { ebay_aspect_sources: reviseSources } : {}),
+      })
       .eq("id", itemId);
     // US-1999: address the SKU eBay actually holds this listing under. Deriving
     // from item.sku here is what let a post-publish SKU rename send the revise
@@ -5893,6 +5932,39 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
           return r.aspects;
         })()
       : aspects;
+
+    // Pre-flight the SAME required-aspect rule publish enforces. eBay rejects a
+    // revision whose specifics are missing a required aspect ("The item specific
+    // Department is missing"), and relaying that raw text after a wasted round
+    // trip left the seller with no idea where to fix it. Check the wire map (a
+    // required aspect whose only value failed value-validation reads as missing,
+    // which is what eBay will say too) and answer with the composer instruction.
+    if (reviseAspectList && reviseAspectList.length > 0) {
+      const missing = requiredMissingAspects(reviseAspectList, reviseWireAspects);
+      if (missing.length > 0) {
+        console.warn(
+          `[flipdesk-ebay] revise blocked for item ${itemId} (category ` +
+            `${reviseCategoryId}): required specifics unfilled: ${missing.join(", ")}`,
+        );
+        await persistReviseFailure(
+          listingId,
+          new Error(`Required eBay specifics missing: ${missing.join(", ")}`),
+        );
+        return c.json(
+          {
+            error: "Required eBay item specifics are missing.",
+            detail:
+              `eBay requires ${missing.slice(0, 4).join(", ")}` +
+              (missing.length > 4 ? ` and ${missing.length - 4} more` : "") +
+              " for this category. Open the item, fill " +
+              (missing.length === 1 ? "it" : "them") +
+              " in the eBay item specifics editor, then save again.",
+            missing_aspects: missing,
+          },
+          422,
+        );
+      }
+    }
 
     try {
       await createOrReplaceInventoryItem(userId, sku, {

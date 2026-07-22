@@ -38,7 +38,7 @@ import {
   type SyncDriftMarker,
 } from "@/lib/listing-origin";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
-import { ItemCanvas } from "@/components/flipdesk/item-canvas";
+import { FlipdeskComposerPage } from "@/pages/flipdesk/composer";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { GradeOutcomeCard } from "@/components/flipdesk/grade-outcome-card";
@@ -183,9 +183,12 @@ export function FlipdeskItemPage() {
 
       <LeaveFeedbackCard itemId={item.id} />
 
-      {/* On the page, Save keeps the user here (the query refetches); only
-          Cancel and the back button navigate away. */}
-      <ItemCanvas item={item} onCancel={goBack} />
+      {/* The ONE item editor, at every status — same fields whether this item is
+          a draft, live on eBay, or sold. Only the footer actions change. The old
+          split (composer for drafts, ItemCanvas here) meant a listed item lost
+          the eBay category + item-specifics editor, so saving it pushed an
+          incomplete specifics map and eBay rejected the revision. */}
+      <FlipdeskComposerPage itemId={item.id} showHeader={false} />
 
       {/* US-848: grade-anchored value from the public Condition Index curve. */}
       <ConditionIndexValueHint

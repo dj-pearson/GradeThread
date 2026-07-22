@@ -150,7 +150,6 @@ const FlipdeskSearchPage = lazy(() => import("@/pages/flipdesk/search").then(m =
 // (listings/grid/pipeline/prep) are imported lazily by this container — they
 // are no longer mounted directly by the router — so their chunks stay split.
 const FlipdeskInventoryPage = lazy(() => import("@/pages/flipdesk/inventory").then(m => ({ default: m.FlipdeskInventoryPage })));
-const FlipdeskComposerPage = lazy(() => import("@/pages/flipdesk/composer").then(m => ({ default: m.FlipdeskComposerPage })));
 const FlipdeskItemPage = lazy(() => import("@/pages/flipdesk/item").then(m => ({ default: m.FlipdeskItemPage })));
 const FlipdeskExpensesPage = lazy(() => import("@/pages/flipdesk/expenses").then(m => ({ default: m.FlipdeskExpensesPage })));
 const FlipdeskAnalyticsPage = lazy(() => import("@/pages/flipdesk/analytics").then(m => ({ default: m.FlipdeskAnalyticsPage })));
@@ -451,7 +450,11 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/items", element: <InventoryModeRedirect /> },
               { path: "/dashboard/flipdesk/grid", element: <InventoryModeRedirect mode="grid" /> },
               { path: "/dashboard/flipdesk/items/:id", element: <SuspenseWrapper><FlipdeskItemPage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/items/:id/draft", element: <SuspenseWrapper><FlipdeskComposerPage /></SuspenseWrapper> },
+              // One item editor at every status, so /draft is now an ALIAS for
+              // the item page rather than a second, narrower surface. Dozens of
+              // links (AutoLister, scheduled drops, publish blockers with
+              // ?focus=) still point here, and they all keep working.
+              { path: "/dashboard/flipdesk/items/:id/draft", element: <SuspenseWrapper><FlipdeskItemPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/intake", element: <SuspenseWrapper><FlipdeskIntakePage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/prep", element: <InventoryModeRedirect mode="prep" /> },
               { path: "/dashboard/flipdesk/import", element: <SuspenseWrapper><FlipdeskImportPage /></SuspenseWrapper> },
