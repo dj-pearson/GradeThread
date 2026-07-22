@@ -1,8 +1,17 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Upload, Trash2, Loader2, Check, Camera, Pencil } from "lucide-react";
+import {
+  Upload,
+  Trash2,
+  Loader2,
+  Check,
+  Camera,
+  Pencil,
+  ImagePlus,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -61,6 +70,12 @@ export function PhotoUploader({
   const qc = useQueryClient();
   const [uploading, setUploading] = useState<FlipdeskPhotoType | null>(null);
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
+  // Bulk-add progress: {done,total} while a multi-select batch is uploading,
+  // null otherwise. Drives the button label/spinner and disables re-picking.
+  const [bulkBusy, setBulkBusy] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const bulkInputRef = useRef<HTMLInputElement>(null);
 
   // Category-driven photo slots. Required roles gate the "photographed" status;
   // optional roles are extra coverage. Both come from the (cached) profile.
@@ -87,162 +102,173 @@ export function PhotoUploader({
   const byType = (t: FlipdeskPhotoType) =>
     photos.filter((p) => p.photo_type === t);
 
-  async function upload(picked: File, photoType: FlipdeskPhotoType) {
-    if (!user) return;
-    setUploading(photoType);
+  // The shared upload core — normalize → compress → store → thumbnail → insert
+  // one photo row. Takes an explicit `sortOrder` so the bulk path can sequence a
+  // whole batch deterministically without waiting for the query cache to refresh
+  // between files. Returns the original + stored byte sizes for the caller's
+  // "saved N%" note. Throws on failure; callers own the toast + status advance.
+  async function processAndUpload(
+    picked: File,
+    photoType: FlipdeskPhotoType,
+    sortOrder: number,
+  ): Promise<{ originalSize: number; storedSize: number }> {
+    if (!user) throw new Error("You must be signed in.");
     // US-1300: normalize odd iPhone inputs first — a Live Photo exported as a
     // .mov/.mp4 video becomes a still JPEG frame and HEIC/HEIF becomes JPEG, so
     // the canvas compress/upload path below gets a decodable image.
-    let file: File;
-    try {
-      file = await normalizeToImageFile(picked);
-    } catch (err) {
-      setUploading(null);
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Couldn't convert this file. Re-export it as a JPEG and try again.",
-      );
-      return;
-    }
-    try {
-      // Compress + strip EXIF client-side via canvas re-encode. Falls back
-      // to the original file if decode fails (e.g. HEIC in Chrome), so
-      // iOS users who pick a HEIC photo still upload successfully — iOS
-      // Safari does this conversion natively at the file-input layer in
-      // most cases anyway.
-      const originalSize = file.size;
-      let body: Blob = file;
-      let bodyType = file.type;
-      let ext = extOf(file);
-      let width: number | null = null;
-      let height: number | null = null;
-      let thumbBlob: Blob | null = null;
-      let thumbType = "image/webp";
-      try {
-        const main = await compressImage(file, 2400, 0.85);
-        // Always prefer the canvas-baked output: compressImage applies EXIF
-        // orientation to the PIXELS (upright) and strips metadata, so the
-        // stored image renders the right way up everywhere — including eBay,
-        // which ignores EXIF orientation tags. Falling back to the original
-        // only to dodge a marginally larger file would re-introduce
-        // sideways/upside-down photos, so correctness wins over a few KB.
-        if (main.blob.size > 0) {
-          body = main.blob;
-          bodyType = main.blob.type || "image/webp";
-          ext = extForBlobType(bodyType, ext);
-        }
-        width = main.width;
-        height = main.height;
+    const file = await normalizeToImageFile(picked);
 
-        // Thumbnail — 320w is the sweet spot for grid views and avatar-sized
-        // previews. Quality 0.7 because perceptual quality at that size is
-        // already saturated. Same canvas pipeline = same EXIF-stripped result.
-        try {
-          const thumb = await compressImage(file, 320, 0.7);
-          if (thumb.blob.size > 0) {
-            thumbBlob = thumb.blob;
-            thumbType = thumb.blob.type || "image/webp";
-          }
-        } catch (thumbErr) {
-          // US-1487: expected best-effort fallback — don't log unconditionally
-          // in production (US-784).
-          if (import.meta.env.DEV) {
-            console.warn("[photo-uploader] thumbnail gen failed:", thumbErr);
-          }
+    // Compress + strip EXIF client-side via canvas re-encode. Falls back
+    // to the original file if decode fails (e.g. HEIC in Chrome), so
+    // iOS users who pick a HEIC photo still upload successfully — iOS
+    // Safari does this conversion natively at the file-input layer in
+    // most cases anyway.
+    const originalSize = file.size;
+    let body: Blob = file;
+    let bodyType = file.type;
+    let ext = extOf(file);
+    let width: number | null = null;
+    let height: number | null = null;
+    let thumbBlob: Blob | null = null;
+    let thumbType = "image/webp";
+    try {
+      const main = await compressImage(file, 2400, 0.85);
+      // Always prefer the canvas-baked output: compressImage applies EXIF
+      // orientation to the PIXELS (upright) and strips metadata, so the
+      // stored image renders the right way up everywhere — including eBay,
+      // which ignores EXIF orientation tags. Falling back to the original
+      // only to dodge a marginally larger file would re-introduce
+      // sideways/upside-down photos, so correctness wins over a few KB.
+      if (main.blob.size > 0) {
+        body = main.blob;
+        bodyType = main.blob.type || "image/webp";
+        ext = extForBlobType(bodyType, ext);
+      }
+      width = main.width;
+      height = main.height;
+
+      // Thumbnail — 320w is the sweet spot for grid views and avatar-sized
+      // previews. Quality 0.7 because perceptual quality at that size is
+      // already saturated. Same canvas pipeline = same EXIF-stripped result.
+      try {
+        const thumb = await compressImage(file, 320, 0.7);
+        if (thumb.blob.size > 0) {
+          thumbBlob = thumb.blob;
+          thumbType = thumb.blob.type || "image/webp";
         }
-      } catch (compressErr) {
+      } catch (thumbErr) {
+        // US-1487: expected best-effort fallback — don't log unconditionally
+        // in production (US-784).
+        if (import.meta.env.DEV) {
+          console.warn("[photo-uploader] thumbnail gen failed:", thumbErr);
+        }
+      }
+    } catch (compressErr) {
+      if (import.meta.env.DEV) {
+        console.warn(
+          "[photo-uploader] compress failed, uploading original:",
+          compressErr,
+        );
+      }
+    }
+
+    // Millisecond timestamp alone collides when a bulk batch uploads several
+    // files of the SAME assigned type in the same tick; a short random suffix
+    // keeps every storage path (and thus the upsert:false insert) unique.
+    const ts = Date.now();
+    const rand = Math.random().toString(36).slice(2, 7);
+    const ownerFolder = workspaceOwnerId ?? user.id;
+    const path = `${ownerFolder}/${itemId}/${photoType}_${ts}_${rand}.${ext}`;
+    const { error: upErr } = await supabase.storage
+      .from("item-photos")
+      .upload(path, body, {
+        upsert: false,
+        contentType: bodyType || undefined,
+      });
+    if (upErr) throw upErr;
+
+    const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
+
+    // Best-effort thumbnail upload. If it fails, we still have the full
+    // image — frontend falls back to photo_url via `thumbnail_url ?? photo_url`.
+    let thumbnailUrl: string | null = null;
+    let thumbnailPath: string | null = null;
+    if (thumbBlob) {
+      thumbnailPath = `${ownerFolder}/${itemId}/thumbs/${photoType}_${ts}_${rand}.${extForBlobType(thumbType, "webp")}`;
+      const { error: thumbUpErr } = await supabase.storage
+        .from("item-photos")
+        .upload(thumbnailPath, thumbBlob, {
+          upsert: false,
+          contentType: thumbType,
+        });
+      if (thumbUpErr) {
         if (import.meta.env.DEV) {
           console.warn(
-            "[photo-uploader] compress failed, uploading original:",
-            compressErr,
+            "[photo-uploader] thumbnail upload failed:",
+            thumbUpErr.message,
           );
         }
-      }
-
-      const ts = Date.now();
-      const ownerFolder = workspaceOwnerId ?? user.id;
-      const path = `${ownerFolder}/${itemId}/${photoType}_${ts}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from("item-photos")
-        .upload(path, body, {
-          upsert: false,
-          contentType: bodyType || undefined,
-        });
-      if (upErr) throw upErr;
-
-      const { data: pub } = supabase.storage
-        .from("item-photos")
-        .getPublicUrl(path);
-
-      // Best-effort thumbnail upload. If it fails, we still have the full
-      // image — frontend falls back to photo_url via `thumbnail_url ?? photo_url`.
-      let thumbnailUrl: string | null = null;
-      let thumbnailPath: string | null = null;
-      if (thumbBlob) {
-        thumbnailPath = `${ownerFolder}/${itemId}/thumbs/${photoType}_${ts}.${extForBlobType(thumbType, "webp")}`;
-        const { error: thumbUpErr } = await supabase.storage
+        thumbnailPath = null;
+      } else {
+        thumbnailUrl = supabase.storage
           .from("item-photos")
-          .upload(thumbnailPath, thumbBlob, {
-            upsert: false,
-            contentType: thumbType,
-          });
-        if (thumbUpErr) {
-          if (import.meta.env.DEV) {
-            console.warn(
-              "[photo-uploader] thumbnail upload failed:",
-              thumbUpErr.message,
-            );
-          }
-          thumbnailPath = null;
-        } else {
-          thumbnailUrl = supabase.storage
-            .from("item-photos")
-            .getPublicUrl(thumbnailPath).data.publicUrl;
-        }
+          .getPublicUrl(thumbnailPath).data.publicUrl;
       }
+    }
 
-      const { error: insErr } = await supabase
-        .from("item_photos")
-        .insert({
-          inventory_item_id: itemId,
-          photo_url: pub.publicUrl,
-          storage_path: path,
-          photo_type: photoType,
-          // Canonical default order: Front → Back → Tag → Detail … so the
-          // listing's photo order (and eBay cover) is sensible without any
-          // manual drag. A later reorder densifies sort_order and wins.
-          sort_order: nextUploadSortOrder(photos, photoType),
-          thumbnail_url: thumbnailUrl,
-          thumbnail_storage_path: thumbnailPath,
-          width,
-          height,
-          bytes: body.size,
-        } as never);
-      if (insErr) throw insErr;
+    const { error: insErr } = await supabase.from("item_photos").insert({
+      inventory_item_id: itemId,
+      photo_url: pub.publicUrl,
+      storage_path: path,
+      photo_type: photoType,
+      // Canonical default order: Front → Back → Tag → Detail … so the
+      // listing's photo order (and eBay cover) is sensible without any
+      // manual drag. A later reorder densifies sort_order and wins.
+      sort_order: sortOrder,
+      thumbnail_url: thumbnailUrl,
+      thumbnail_storage_path: thumbnailPath,
+      width,
+      height,
+      bytes: body.size,
+    } as never);
+    if (insErr) throw insErr;
 
-      // Auto-advance to "photographed" once the required set is complete.
-      const typesAfter = new Set(
-        photos.map((p) => p.photo_type).concat(photoType),
+    return { originalSize, storedSize: body.size };
+  }
+
+  // After a batch of one or more new photos of `newTypes`, advance the item to
+  // "photographed" if the required set is now complete, and refresh the caches.
+  async function afterPhotosChanged(newTypes: FlipdeskPhotoType[]) {
+    const typesAfter = new Set(
+      photos.map((p) => p.photo_type).concat(newTypes),
+    );
+    const requiredNowComplete = requiredTypes.every((t) => typesAfter.has(t));
+    if (requiredNowComplete && currentStatus) {
+      const advanced = await advanceItemStatus(
+        itemId,
+        currentStatus,
+        "photographed",
       );
-      const requiredNowComplete = requiredTypes.every((t) =>
-        typesAfter.has(t),
-      );
-      if (requiredNowComplete && currentStatus) {
-        const advanced = await advanceItemStatus(
-          itemId,
-          currentStatus,
-          "photographed",
-        );
-        if (advanced) await qc.invalidateQueries({ queryKey: ["items_full"] });
-      }
+      if (advanced) await qc.invalidateQueries({ queryKey: ["items_full"] });
+    }
+    await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+    onChange?.();
+  }
 
-      await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
-      onChange?.();
-      const savedPct = ((1 - body.size / originalSize) * 100).toFixed(0);
+  async function upload(picked: File, photoType: FlipdeskPhotoType) {
+    if (!user) return;
+    setUploading(photoType);
+    try {
+      const { originalSize, storedSize } = await processAndUpload(
+        picked,
+        photoType,
+        nextUploadSortOrder(photos, photoType),
+      );
+      await afterPhotosChanged([photoType]);
+      const savedPct = ((1 - storedSize / originalSize) * 100).toFixed(0);
       const sizeNote =
-        body.size < originalSize && originalSize > 100 * 1024
-          ? ` (−${savedPct}%, ${(originalSize / 1024 / 1024).toFixed(1)}MB → ${(body.size / 1024 / 1024).toFixed(1)}MB)`
+        storedSize < originalSize && originalSize > 100 * 1024
+          ? ` (−${savedPct}%, ${(originalSize / 1024 / 1024).toFixed(1)}MB → ${(storedSize / 1024 / 1024).toFixed(1)}MB)`
           : "";
       toast.success(`${labelFor(photoType)} photo uploaded${sizeNote}.`);
     } catch (err) {
@@ -251,6 +277,61 @@ export function PhotoUploader({
       );
     } finally {
       setUploading(null);
+    }
+  }
+
+  // Bulk add: take everything the seller picked in one go, auto-assign a
+  // sensible starting tag, and upload the batch — so photographing no longer
+  // means clicking a slot per shot. Each photo lands with a provisional tag the
+  // seller corrects below (PhotoManager's per-photo tag dropdown); we don't try
+  // to guess the real role from pixels. The first files fill any UNFILLED
+  // required slots in canonical order (front, back … so the required-set /
+  // "photographed" advance still fires); the rest come in as "detail", which
+  // is listable and holds any number of photos.
+  async function bulkUpload(files: File[]) {
+    if (!user || files.length === 0) return;
+    // Which required roles still have no photo — the batch fills these first.
+    const openRequired = requiredTypes.filter((t) => byType(t).length === 0);
+    // Running tally per type so each file of the same assigned type gets the
+    // next sort_order without re-reading the (not-yet-refreshed) query cache.
+    const working: { photo_type: FlipdeskPhotoType }[] = photos.map((p) => ({
+      photo_type: p.photo_type,
+    }));
+
+    setBulkBusy({ done: 0, total: files.length });
+    const assigned: FlipdeskPhotoType[] = [];
+    let failed = 0;
+    for (let i = 0; i < files.length; i++) {
+      const photoType: FlipdeskPhotoType = openRequired[i] ?? "detail";
+      const sortOrder = nextUploadSortOrder(working, photoType);
+      try {
+        await processAndUpload(files[i]!, photoType, sortOrder);
+        working.push({ photo_type: photoType });
+        assigned.push(photoType);
+      } catch (err) {
+        failed += 1;
+        if (import.meta.env.DEV) {
+          console.warn(`[photo-uploader] bulk item ${i} failed:`, err);
+        }
+      }
+      setBulkBusy({ done: i + 1, total: files.length });
+    }
+
+    if (assigned.length > 0) await afterPhotosChanged(assigned);
+    setBulkBusy(null);
+
+    if (assigned.length > 0 && failed === 0) {
+      toast.success(
+        `Added ${assigned.length} photo${assigned.length === 1 ? "" : "s"}.`,
+        { description: "Set the correct tag for each one below." },
+      );
+    } else if (assigned.length > 0) {
+      toast.warning(
+        `Added ${assigned.length} of ${files.length} photos — ${failed} failed.`,
+        { description: "Set the correct tag for each one below." },
+      );
+    } else {
+      toast.error("None of the selected photos could be uploaded.");
     }
   }
 
@@ -342,6 +423,43 @@ export function PhotoUploader({
             {requiredTypes.length} required photos
           </Badge>
         )}
+      </div>
+
+      {/* Bulk add — pick every photo for this item at once instead of filling
+          one slot at a time. They come in with a provisional tag (unfilled
+          required slots first, then Detail) that you correct per-photo below. */}
+      <div>
+        <input
+          ref={bulkInputRef}
+          type="file"
+          multiple
+          accept="image/*,.heic,.heif,video/*,.mov,.mp4,.m4v"
+          className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length > 0) void bulkUpload(files);
+            e.target.value = "";
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full border-dashed"
+          disabled={bulkBusy != null}
+          onClick={() => bulkInputRef.current?.click()}
+        >
+          {bulkBusy ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Uploading {bulkBusy.done}/{bulkBusy.total}…
+            </>
+          ) : (
+            <>
+              <ImagePlus className="mr-2 h-4 w-4" />
+              Add photos — pick them all, tag below
+            </>
+          )}
+        </Button>
       </div>
 
       <div>
