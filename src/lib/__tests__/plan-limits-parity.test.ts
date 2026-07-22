@@ -89,8 +89,8 @@ describe("web advertised plan caps ↔ edge enforced plan caps", () => {
   for (const plan of PLANS) {
     for (const cap of SHARED_CAPS) {
       it(`${plan}.${cap} agrees between the web and the edge`, () => {
-        const webVal = (FLIPDESK_PLANS[plan] as Record<string, unknown>)[cap];
-        const edgeVal = edge[plan][cap];
+        const webVal = (FLIPDESK_PLANS[plan] as unknown as Record<string, unknown>)[cap];
+        const edgeVal = edge[plan]?.[cap];
         expect(edgeVal, `edge pricing-config.ts is missing ${plan}.${cap}`).not.toBeUndefined();
         expect(
           webVal,
@@ -108,10 +108,11 @@ describe("web advertised feature gates ↔ edge enforced feature gates", () => {
   for (const plan of PLANS) {
     for (const flag of GATE_FLAGS) {
       it(`${plan}.${flag} agrees between the web and the edge`, () => {
-        const webFlags = (FLIPDESK_PLANS[plan] as { gateFlags?: Record<string, boolean> })
-          .gateFlags ?? {};
+        const webFlags =
+          (FLIPDESK_PLANS[plan] as unknown as { gateFlags?: Record<string, boolean> })
+            .gateFlags ?? {};
         const webVal = webFlags[flag];
-        const edgeVal = edge[plan][flag];
+        const edgeVal = edge[plan]?.[flag];
         expect(edgeVal, `edge pricing-config.ts is missing ${plan}.gateFlags.${flag}`).not
           .toBeUndefined();
         expect(

@@ -33,9 +33,13 @@ function dbEnumValues(enumName: string): Set<string> {
     const sql = readFileSync(resolve(MIGRATIONS_DIR, file), "utf8");
     const create = sql.match(createRe);
     if (create) {
-      for (const m of create[1].matchAll(/'([a-z_]+)'/g)) values.add(m[1]);
+      for (const m of (create[1] ?? "").matchAll(/'([a-z_]+)'/g)) {
+        if (m[1]) values.add(m[1]);
+      }
     }
-    for (const m of sql.matchAll(addRe)) values.add(m[1]);
+    for (const m of sql.matchAll(addRe)) {
+      if (m[1]) values.add(m[1]);
+    }
   }
   return values;
 }

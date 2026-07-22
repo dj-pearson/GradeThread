@@ -27,7 +27,9 @@ function crossListingPlatforms(): string[] {
     /CROSS_LISTING_PLATFORMS:\s*readonly CrossListingPlatform\[\]\s*=\s*\[([^\]]*)\]/,
   );
   if (!m) throw new Error("could not parse CROSS_LISTING_PLATFORMS from edge source");
-  return [...m[1].matchAll(/"([a-z_]+)"/g)].map((x) => x[1]);
+  return [...(m[1] ?? "").matchAll(/"([a-z_]+)"/g)]
+    .map((x) => x[1])
+    .filter((v): v is string => v != null);
 }
 
 describe("marketplace adapter platforms ⊆ frontend listing platforms", () => {

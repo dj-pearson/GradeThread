@@ -96,8 +96,8 @@ describe("buyer web advertised allowances ↔ edge enforced allowances", () => {
   for (const plan of PLANS) {
     for (const cap of ALLOWANCES) {
       it(`${plan}.${cap} agrees between the web and the edge`, () => {
-        const webVal = (BUYER_PLANS[plan] as Record<string, unknown>)[cap];
-        const edgeVal = edge[plan][cap];
+        const webVal = (BUYER_PLANS[plan] as unknown as Record<string, unknown>)[cap];
+        const edgeVal = edge[plan]?.[cap];
         expect(edgeVal, `edge buyer-plans.ts is missing ${plan}.${cap}`).not.toBeUndefined();
         expect(
           webVal,
@@ -115,10 +115,11 @@ describe("buyer web advertised feature flags ↔ edge enforced gateFlags", () =>
   for (const plan of PLANS) {
     for (const flag of BUYER_GATE_FLAGS) {
       it(`${plan}.${flag} agrees between the web and the edge`, () => {
-        const webFlags = (BUYER_PLANS[plan] as { gateFlags?: Record<string, boolean> })
-          .gateFlags ?? {};
+        const webFlags =
+          (BUYER_PLANS[plan] as unknown as { gateFlags?: Record<string, boolean> })
+            .gateFlags ?? {};
         const webVal = webFlags[flag];
-        const edgeVal = edge[plan][flag];
+        const edgeVal = edge[plan]?.[flag];
         expect(edgeVal, `edge buyer-plans.ts is missing ${plan}.gateFlags.${flag}`).not
           .toBeUndefined();
         expect(

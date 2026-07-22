@@ -261,6 +261,11 @@ export function FlipdeskComposerPage() {
   const [ebayCondition, setEbayCondition] = useState("");
   const [conditionDesc, setConditionDesc] = useState("");
   const [price, setPrice] = useState("");
+  // What you PAID for the item (inventory_items.acquired_price). Lives on the
+  // item, not the listing, but it's edited here because this is where the
+  // margin decision gets made — the profit panel below was telling sellers to
+  // "add this item's cost" with nowhere in the composer to add it.
+  const [cost, setCost] = useState("");
   const [priceEstimated, setPriceEstimated] = useState(false);
   // US-542: which comp source produced the price (active_asking warrants a
   // distinct caveat — asking prices, not realized sales).
@@ -559,6 +564,7 @@ export function FlipdeskComposerPage() {
         (p): p is number => p != null && p > 0,
       ) ?? null;
     setPrice(seedPrice != null ? String(seedPrice) : "");
+    setCost(item.purchase_price != null ? String(item.purchase_price) : "");
     setPriceEstimated(listing?.price_is_estimated ?? false);
     setPriceCompSource(listing?.price_comp_source ?? null);
     setScheduledAt(isoToLocalInput(listing?.scheduled_publish_at ?? null));
@@ -1063,6 +1069,10 @@ export function FlipdeskComposerPage() {
           // US-1567: measurements edited in the composer save with the draft.
           measurements:
             Object.keys(measurements).length > 0 ? measurements : null,
+          // Cost basis, edited in Condition & price. Written unconditionally
+          // (including back to null when cleared) so the field behaves like
+          // every other one in this form rather than being write-once.
+          acquired_price: effectiveCost,
           ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
           ...categoryCascadePatch(),
         } as never)
@@ -1483,10 +1493,17 @@ export function FlipdeskComposerPage() {
   const previewPrice = Number.isFinite(parsedPreviewPrice)
     ? parsedPreviewPrice
     : (item.target_price ?? item.list_price ?? null);
+  // The cost being EDITED, not the saved one, so margin moves as you type.
+  // Falls back to the persisted value until the field is touched.
+  const parsedCost = cost.trim() === "" ? null : Number.parseFloat(cost);
+  const effectiveCost =
+    parsedCost != null && Number.isFinite(parsedCost) && parsedCost >= 0
+      ? parsedCost
+      : null;
   // US-553: forward profit/margin at the current list price.
   const profitEstimate = estimateListingProfit({
     price: Number.isFinite(parsedPreviewPrice) ? parsedPreviewPrice : 0,
-    costBasis: item.purchase_price,
+    costBasis: effectiveCost,
     shippingCost: item.shipping_cost,
   });
   // US-558: resolve the assigned (default) shipping + return policy names so the
@@ -2079,6 +2096,25 @@ export function FlipdeskComposerPage() {
                       : "No eBay comps were found, so this price is the AI's estimate. Edit it to confirm."}
                   </p>
                 )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="purchase-cost">Purchase price (what you paid)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="purchase-cost"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={cost}
+                    onChange={(e) => setCost(e.target.value)}
+                    placeholder="0.00"
+                    className="max-w-[10rem]"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Saves with the draft · drives margin + ROI
+                  </span>
+                </div>
                 {/* US-553: live profit/margin so pricing is a margin decision. */}
                 {parsedPreviewPrice > 0 && (
                   <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
@@ -2100,14 +2136,15 @@ export function FlipdeskComposerPage() {
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                       <span>eBay fees ~${profitEstimate.fees.toFixed(2)}</span>
-                      <span>Cost ${(item.purchase_price ?? 0).toFixed(2)}</span>
+                      <span>Cost ${(effectiveCost ?? 0).toFixed(2)}</span>
                       {(item.shipping_cost ?? 0) > 0 && (
                         <span>Shipping ${(item.shipping_cost ?? 0).toFixed(2)}</span>
                       )}
                     </div>
-                    {item.purchase_price == null && (
+                    {effectiveCost == null && (
                       <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                        Add this item's cost to see true margin.
+                        Enter the purchase price above to see true margin — this
+                        is the ceiling until you do.
                       </p>
                     )}
                   </div>
