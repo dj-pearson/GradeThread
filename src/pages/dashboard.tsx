@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
+import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
 import { supabase } from "@/lib/supabase";
 import { fetchInChunks } from "@/lib/supabase-batch";
 import { PLANS, getStatusBadgeClasses, getScoreColor } from "@/lib/constants";
@@ -429,6 +430,13 @@ export function DashboardPage() {
           </Button>
         }
       />
+
+      {/* US-2108 AC4: the PWA install prompt belongs on a real-install-intent
+          surface, not only FlipDesk intake / Snap. The dashboard is where an
+          engaged, returning user lands. The banner self-hides unless the browser
+          reports the app is installable and shares one dismiss key across mounts,
+          so it never nags. `general` variant → grades/certificates copy. */}
+      <PwaInstallBanner variant="general" />
 
       {/* App-wide, persona-aware activation checklist (US-1122). Self-hides once
           every step is done or the user dismisses it; renders nothing for the
