@@ -531,6 +531,8 @@ interface EbayRawAspect {
     aspectRequired?: boolean;
     aspectUsage?: string;
     itemToAspectCardinality?: string;
+    /** "STRING" | "NUMBER" | "DATE" — drives numeric value validation. */
+    aspectDataType?: string;
   };
   aspectValues?: Array<{ localizedValue?: string }>;
 }
@@ -563,6 +565,7 @@ function toAspectSpecs(rawAspects: unknown): EbayAspectSpec[] {
       cardinality,
       mode,
       allowedValues: allowedValues.length > 0 ? allowedValues : undefined,
+      dataType: c.aspectDataType,
     });
   }
   return specs;

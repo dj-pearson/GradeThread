@@ -893,6 +893,8 @@ function buildAspectSpecsForCategory(
       aspectMode?: string;
       itemToAspectCardinality?: string;
       aspectUsage?: string;
+      /** "STRING" | "NUMBER" | "DATE" — drives numeric value validation. */
+      aspectDataType?: string;
     };
     aspectValues?: Array<{ localizedValue?: string }>;
   };
@@ -923,6 +925,7 @@ function buildAspectSpecsForCategory(
       cardinality,
       mode,
       allowedValues: allowedValues.length > 0 ? allowedValues : undefined,
+      dataType: c.aspectDataType,
     });
   }
 

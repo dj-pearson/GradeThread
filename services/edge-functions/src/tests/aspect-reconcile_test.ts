@@ -6,6 +6,7 @@
 //   deno test src/tests/aspect-reconcile_test.ts
 import { assertEquals } from "@std/assert";
 import {
+  coerceNumericAspectValue,
   normalizeAspectMap,
   reconcileGeneratedAspects,
   reconcilePublishAspects,
@@ -188,4 +189,94 @@ Deno.test("publish: normalized then reconciled string map validates SELECTION_ON
   assertEquals(r.aspects.Size, ["M"]); // near-miss casing repaired
   assertEquals(r.aspects.Brand, ["Levi's"]);
   assertEquals(r.omitted, []);
+});
+
+// ── NUMBER-typed aspects: eBay parses the value, and a word fails the publish ──
+// Live case: a Women's Tops draft carried Fabric Weight="Midweight"; eBay
+// answered the publish with 25002 "Fabric weight must be greater than 0. Enter
+// up to 1 number after the decimal." and NOTHING listed.
+
+const num = (name: string): ReconcileSpec => ({
+  name,
+  mode: "FREE_TEXT",
+  dataType: "NUMBER",
+});
+
+Deno.test("coerceNumericAspectValue: accepts, strips units, rounds to 1dp", () => {
+  assertEquals(coerceNumericAspectValue("16"), "16");
+  assertEquals(coerceNumericAspectValue("16.5"), "16.5");
+  assertEquals(coerceNumericAspectValue(" 16 oz "), "16");
+  assertEquals(coerceNumericAspectValue("8.5 oz/yd²"), "8.5");
+  assertEquals(coerceNumericAspectValue("5,5"), "5.5");
+  assertEquals(coerceNumericAspectValue("16.75"), "16.8");
+});
+
+Deno.test("coerceNumericAspectValue: rejects words, ranges, zero, negatives", () => {
+  assertEquals(coerceNumericAspectValue("Midweight"), null);
+  assertEquals(coerceNumericAspectValue("Heavy"), null);
+  assertEquals(coerceNumericAspectValue("16-18"), null); // range: no single value
+  assertEquals(coerceNumericAspectValue("0"), null);
+  assertEquals(coerceNumericAspectValue("0.04"), null); // rounds to 0
+  assertEquals(coerceNumericAspectValue("-2"), null);
+  assertEquals(coerceNumericAspectValue(""), null);
+});
+
+Deno.test("publish: unparseable NUMBER aspect is omitted, not sent (25002)", () => {
+  const r = reconcilePublishAspects({ "Fabric Weight": ["Midweight"] }, [
+    num("Fabric Weight"),
+  ]);
+  assertEquals(r.aspects["Fabric Weight"], undefined);
+  assertEquals(r.omitted, [
+    {
+      aspect: "Fabric Weight",
+      omittedValues: ["Midweight"],
+      reason: "unmatched_value",
+    },
+  ]);
+});
+
+Deno.test("publish: NUMBER aspect with a unit is repaired, not dropped", () => {
+  const r = reconcilePublishAspects({ "Fabric Weight": ["16 oz"] }, [
+    num("Fabric Weight"),
+  ]);
+  assertEquals(r.aspects["Fabric Weight"], ["16"]);
+  assertEquals(r.omitted, []);
+});
+
+Deno.test("publish: one bad NUMBER value costs the specific, not the listing", () => {
+  const r = reconcilePublishAspects(
+    { "Fabric Weight": ["Midweight"], Size: ["M"], Brand: ["Indie"] },
+    [...SPECS, num("Fabric Weight")],
+  );
+  assertEquals(r.aspects.Size, ["M"]);
+  assertEquals(r.aspects.Brand, ["Indie"]);
+  assertEquals(r.omitted.length, 1);
+});
+
+Deno.test("publish: STRING aspects are untouched by numeric validation", () => {
+  const r = reconcilePublishAspects({ Brand: ["16 Candles"] }, [free("Brand")]);
+  assertEquals(r.aspects.Brand, ["16 Candles"]);
+  assertEquals(r.omitted, []);
+});
+
+Deno.test("generation: bad NUMBER value is KEPT and flagged for the seller", () => {
+  const r = reconcileGeneratedAspects({ "Fabric Weight": ["Midweight"] }, [
+    num("Fabric Weight"),
+  ]);
+  assertEquals(r.aspects["Fabric Weight"], ["Midweight"]); // visible, fixable
+  assertEquals(r.review, [
+    {
+      aspect: "Fabric Weight",
+      values: ["Midweight"],
+      reason: "unmatched_value",
+    },
+  ]);
+});
+
+Deno.test("generation: repairable NUMBER value is normalized with no review", () => {
+  const r = reconcileGeneratedAspects({ "Fabric Weight": ["16 oz"] }, [
+    num("Fabric Weight"),
+  ]);
+  assertEquals(r.aspects["Fabric Weight"], ["16"]);
+  assertEquals(r.review, []);
 });

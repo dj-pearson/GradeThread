@@ -1109,6 +1109,10 @@ export interface EbayAspectSpec {
   mode: AspectMode;
   // Only present when eBay's getItemAspectsForCategory returned aspectValues.
   allowedValues?: string[];
+  // eBay's aspectConstraint.aspectDataType: "STRING" (default) | "NUMBER" |
+  // "DATE". NUMBER aspects are mode FREE_TEXT but eBay parses the value as a
+  // number and rejects the publish outright when it can't.
+  dataType?: string;
 }
 
 export interface AspectValueSuggestion {
@@ -1150,6 +1154,7 @@ Hard rules:
 - For SELECTION_ONLY aspects with allowed values: pick ONLY from the allowed list. If none of the listed values match what you see, OMIT the aspect entirely.
 - For SUGGESTED aspects with allowed values: prefer a listed value; only return a free-text value if the item clearly matches something outside the list.
 - For FREE_TEXT aspects: return a clean, listing-ready value (Title Case, no marketing language).
+- For aspects marked NUMBER: return a bare positive number with at most one decimal ("16", "8.5") — no units, words, or ranges. eBay rejects the whole listing otherwise. If you cannot read an actual number, omit the aspect.
 - For MULTI-cardinality aspects: return ALL applicable values as a JSON array. For SINGLE: return one value as a single-element array.
 - Never guess. If the input does not clearly support an aspect, omit it.
 - For every aspect you return, give a 0..1 confidence and a source string ('photo:tag', 'photo:front', 'text', etc.).
@@ -1221,6 +1226,10 @@ function buildAspectTool(aspects: EbayAspectSpec[]): BuiltAspectTool {
       // sanitized for Anthropic's pattern.
       description: `eBay aspect "${a.name}" — ${a.cardinality}, ${a.mode}${
         a.required ? ", required" : ""
+      }${
+        (a.dataType ?? "").toUpperCase() === "NUMBER"
+          ? ", NUMBER (bare positive number, max one decimal, no units)"
+          : ""
       }`,
       properties: {
         values: valuesSchema,

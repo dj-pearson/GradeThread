@@ -5864,12 +5864,45 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     // grade promotion) when a resync ran; otherwise use the plain finalDesc.
     const reviseDesc = reviseGradeDesc ?? finalDesc;
 
+    // Same value-validation rule the publish path applies (US-828 + NUMBER-typed
+    // aspects): the PERSISTED map above keeps the seller's value so they can fix
+    // it in the composer, but what goes OVER THE WIRE is reconciled — one
+    // unparseable specific must not fail the whole revision the way it fails a
+    // publish (25002). No spec loaded ⇒ send the map as-is, as before.
+    const reviseWireAspects = reviseAspectList
+      ? (() => {
+          const r = reconcilePublishAspects(
+            aspects,
+            reviseAspectList
+              .map((a) => ({
+                name: a.localizedAspectName ?? "",
+                mode: a.aspectConstraint?.aspectMode ?? "FREE_TEXT",
+                allowedValues: (a.aspectValues ?? [])
+                  .map((v) => v.localizedValue ?? "")
+                  .filter((v) => v.length > 0),
+                dataType: a.aspectConstraint?.aspectDataType,
+              }))
+              .filter((s) => s.name.length > 0),
+          );
+          if (r.omitted.length > 0) {
+            console.warn(
+              `[flipdesk-ebay] revise omitted ${r.omitted.length} aspect value(s) ` +
+                `for item ${itemId}: ${JSON.stringify(r.omitted)}`,
+            );
+          }
+          return r.aspects;
+        })()
+      : aspects;
+
     try {
       await createOrReplaceInventoryItem(userId, sku, {
         product: {
           title: finalTitle,
           description: reviseDesc,
-          aspects: Object.keys(aspects).length > 0 ? aspects : undefined,
+          aspects:
+            Object.keys(reviseWireAspects).length > 0
+              ? reviseWireAspects
+              : undefined,
           imageUrls,
           // Mirror the publish path (US: error 25002 <BrandMPN>): eBay requires a
           // Brand+MPN product identifier on every inventory_item PUT, so the
@@ -8951,6 +8984,10 @@ interface AspectSpecRaw {
     itemToAspectCardinality?: string; // "SINGLE" | "MULTI"
     // US-1895: "REQUIRED" | "RECOMMENDED" | "OPTIONAL".
     aspectUsage?: string;
+    // "STRING" (default) | "NUMBER" | "DATE". NUMBER aspects are mode
+    // FREE_TEXT but eBay still parses the value as a number — see
+    // aspect-reconcile.ts coerceNumericAspectValue.
+    aspectDataType?: string;
   };
   aspectValues?: Array<{ localizedValue?: string }>;
   // US-1895: eBay's real 30-day buyer-search-volume ranking for the aspect.
@@ -9762,6 +9799,7 @@ export async function assemblePublishContext(
           allowedValues: (a.aspectValues ?? [])
             .map((v) => v.localizedValue ?? "")
             .filter((v) => v.length > 0),
+          dataType: a.aspectConstraint?.aspectDataType,
         }))
         .filter((s) => s.name.length > 0);
       const reconciled = reconcilePublishAspects(aspectMap, reconcileSpecs);
@@ -9805,11 +9843,34 @@ export async function assemblePublishContext(
             `| item title=${JSON.stringify(item.title)} style=${JSON.stringify(item.style)} ` +
             `item_category=${JSON.stringify(item.item_category)}`,
         );
-        blockers.push(
-          `Fill required eBay specifics in the composer: ${requiredMissing.slice(0, 4).join(", ")}${
-            requiredMissing.length > 4 ? "…" : ""
-          }`
+        // A required aspect we OMITTED (value eBay wouldn't take) reads as
+        // "unfilled" to the seller who can plainly see a value in the composer.
+        // Say what was actually wrong with it instead.
+        const omittedRequired = requiredMissing.filter((name) =>
+          aspectDiagnostics.some((d) => d.aspect === name),
         );
+        for (const name of omittedRequired.slice(0, 3)) {
+          const bad = aspectDiagnostics.find((d) => d.aspect === name);
+          const spec = list.find((a) => a.localizedAspectName === name);
+          const numeric =
+            (spec?.aspectConstraint?.aspectDataType ?? "").toUpperCase() === "NUMBER";
+          blockers.push(
+            `eBay won't accept "${bad?.omittedValues[0] ?? ""}" for ${name}` +
+              (numeric
+                ? " — it needs a number (e.g. 8.5), no units or words."
+                : " — pick one of eBay's allowed values in the composer."),
+          );
+        }
+        const plainMissing = requiredMissing.filter(
+          (n) => !omittedRequired.includes(n),
+        );
+        if (plainMissing.length > 0) {
+          blockers.push(
+            `Fill required eBay specifics in the composer: ${plainMissing.slice(0, 4).join(", ")}${
+              plainMissing.length > 4 ? "…" : ""
+            }`
+          );
+        }
       }
     } catch (err) {
       // US-1505: distinguish an internal bug (e.g. a TypeError from a malformed
