@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Rocket, Check } from "lucide-react";
+import { Rocket, Check, Sparkles } from "lucide-react";
 import {
   appleOAuthEnabled,
   signUpWithEmail,
@@ -33,6 +33,14 @@ import { toast } from "sonner";
 // auto-hides on/after launch so we don't have to remember to strip it.
 const LAUNCH_DATE = new Date("2026-07-01T00:00:00Z");
 const PRE_LAUNCH = Date.now() < LAUNCH_DATE.getTime();
+
+// US-2121: the seller signup path enrols the account in a 14-day Pro trial
+// server-side (handle_new_user, 00401_buyer_account_roles.sql). ROSCA / the
+// state auto-renewal laws require the trial to be disclosed AT the point of
+// enrolment — not only in the pricing FAQ or a post-signup banner. Single source
+// so the disclosure copy and the analytics event can never drift apart. Buyers
+// (`intent=buyer`) get NO trial (free/none), so the disclosure is seller-only.
+const TRIAL_DAYS = 14;
 
 export function SignupPage() {
   const [params] = useSearchParams();
@@ -131,8 +139,8 @@ export function SignupPage() {
 
       // US-219: every new signup is granted a 14-day Pro trial by the
       // handle_new_user trigger. Record the trial start (consent-gated no-op
-      // until the visitor opts in).
-      track("trial.started", { plan: "pro", trial_days: 14 });
+      // until the visitor opts in). US-2121: disclosed on-screen below.
+      track("trial.started", { plan: "pro", trial_days: TRIAL_DAYS });
 
       // US-1433: the welcome email is no longer fired here. It's now sent from
       // useAuth on the first authenticated session (any signup method, incl.
@@ -301,6 +309,28 @@ export function SignupPage() {
                 Create your account now to be ready on day one. AI grading and
                 FlipDesk go live July 1 — your profile, preferences, and
                 onboarding will be waiting for you.
+              </p>
+            </div>
+          </div>
+        )}
+        {/* US-2121: disclose the 14-day Pro trial AT the point of enrolment.
+            Sits above the form and both OAuth buttons, so it is shown before the
+            account is created by ANY method (email or OAuth). Seller-only —
+            buyer signups (intent=buyer) are provisioned free/none with no trial,
+            so showing trial copy there would be a false disclosure. The
+            no-charge outcome is stated positively (features switch to Free),
+            per US-2121 AC2. */}
+        {!isBuyer && (
+          <div className="mb-5 flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+            <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+            <div>
+              <p className="font-semibold text-brand-navy dark:text-foreground">
+                Your account starts with a {TRIAL_DAYS}-day free Pro trial
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                No credit card required. When the {TRIAL_DAYS} days are up, your
+                account simply switches to the free plan — you're never charged
+                unless you choose to add a card and upgrade to Pro.
               </p>
             </div>
           </div>

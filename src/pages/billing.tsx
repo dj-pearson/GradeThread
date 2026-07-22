@@ -332,8 +332,10 @@ export function BillingPage() {
           <div className="flex-1 text-sm">
             <p className="font-semibold">Pro free trial active</p>
             <p className="text-muted-foreground">
-              Your trial ends on {dateLabel(subscription.trial_ends_at)}. Add a
-              card before then to keep your features.
+              Your trial ends on {dateLabel(subscription.trial_ends_at)}. No card
+              is on file and you won't be charged — at the end your account simply
+              switches to the free plan. Add a card anytime to keep your Pro
+              features.
             </p>
           </div>
           <Button size="sm" onClick={() => openPlanPicker("pro")}>
