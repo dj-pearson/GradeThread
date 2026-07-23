@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { sendExtensionMessage } from "@/lib/lister-extension";
+import { sendExtensionMessage, listerExtensionId } from "@/lib/lister-extension";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -44,6 +44,14 @@ export function ConnectExtensionPage() {
   const { user, isLoading } = useAuth();
   const [params] = useSearchParams();
   const extId = params.get("ext") ?? undefined;
+  // SECURITY: only deliver the minted token to the CONFIGURED GradeThread
+  // extension. A victim lured to /connect-extension?ext=<attacker_ext_id> with a
+  // malicious extension installed would otherwise get a valid short-lived
+  // account token minted and handed to the attacker's extension. An id that
+  // doesn't match falls back to undefined → the configured id / bridge transport.
+  const configuredExtId = listerExtensionId();
+  const targetExtId =
+    extId && configuredExtId && extId === configuredExtId ? extId : undefined;
   const [phase, setPhase] = useState<Phase>("checking");
   const [error, setError] = useState<string>("");
   const [caps, setCaps] = useState<Capabilities | null>(null);
@@ -75,7 +83,7 @@ export function ConnectExtensionPage() {
       ok?: boolean;
       error?: string;
       capabilities?: Capabilities;
-    }>({ type: "GT_SET_TOKEN", token }, { extensionId: extId });
+    }>({ type: "GT_SET_TOKEN", token }, { extensionId: targetExtId });
     if (resp.ok) {
       setCaps(resp.capabilities ?? null);
       setPhase("connected");
@@ -87,7 +95,7 @@ export function ConnectExtensionPage() {
       );
       setPhase("error");
     }
-  }, [extId]);
+  }, [targetExtId]);
 
   useEffect(() => {
     if (isLoading || attempted.current) return;
