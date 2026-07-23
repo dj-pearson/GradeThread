@@ -184,12 +184,17 @@ public final class SpeechDictation {
         // tap; iOS picks the right hardware format for record category.
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            // Tap callback runs on a private real-time thread. Hand the
-            // buffer to the request directly (it's thread-safe). State
-            // updates on `self` happen via the recognition-task callback
-            // which we bounce to main below.
-            self?.request?.append(buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [request] buffer, _ in
+            // Tap callback runs on a private real-time (audio IO) thread. Append
+            // to the request captured HERE — SFSpeechAudioBufferRecognitionRequest
+            // is thread-safe for append. Do NOT read `self.request`: that property
+            // is @MainActor-isolated and `stop()` nils it on the main actor, so an
+            // unsynchronized load of it from this audio thread is a data race
+            // (TSan-detectable; torn read under strict concurrency). Capturing the
+            // request directly touches no isolated `self` state and forms no cycle
+            // (the request doesn't retain self); the tap is removed in stop(), which
+            // releases this capture.
+            request.append(buffer)
         }
         didInstallTap = true
 
