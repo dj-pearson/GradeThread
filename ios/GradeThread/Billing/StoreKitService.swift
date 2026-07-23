@@ -176,7 +176,18 @@ struct StoreKitService: StoreKitProviding {
                     // Server never confirmed (left unfinished for listener retry) —
                     // don't claim success; the entitlement lands once it reconciles.
                     case .failed: return .pendingServerConfirmation
-                    default: return .success
+                    // The edge 403'd this transaction as belonging to a DIFFERENT
+                    // account (its appAccountToken != the signed-in user). It's
+                    // finished above (report != .failed) so it won't redeliver, but
+                    // it must NOT grant the current user a plan the server refused —
+                    // so don't let it fall through to .success. This shouldn't happen
+                    // in the foreground path (the token IS the current user), but map
+                    // it explicitly so a future change to how the token is set can't
+                    // silently unlock. Exhaustive switch (no `default`) so a new
+                    // VerifyReport case is a compile error, not an accidental grant.
+                    case .ownershipMismatch:
+                        return .failed("This purchase is registered to a different GradeThread account, so it couldn't be applied here. Contact support if you were charged.")
+                    case .ok: return .success
                     }
                 case .unverified:
                     Telemetry.backgroundBreadcrumb(
