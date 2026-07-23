@@ -251,19 +251,41 @@ actor SyncEngine {
             // permanently (the next delta pull's `gt(cursor)` skips them). A failed
             // merge keeps its cursor put so the rows are re-fetched + re-merged next
             // pass.
-            let itemsOk = await mergeActor.mergeItems(
-                payload.items,
-                primaryPhotos: payload.primaryPhotos,
-                prune: payload.isFullItemSync
-            )
-            let photosOk = await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
-            let salesOk = await mergeActor.mergeSales(payload.sales)
-            let expensesOk = await mergeActor.mergeExpenses(payload.expenses)
-            let listingsOk = await mergeActor.mergeListings(payload.listings)
+            //
+            // US-1493 (per-merge scope guard): re-check the epoch before EACH
+            // merge, not only before the first (guard above) and after the last
+            // (guard below). The SyncEngine actor suspends at every
+            // `await mergeActor.merge*`, and a workspace switch / sign-out runs
+            // `invalidateScope()` — which bumps the epoch BEFORE it wipes the local
+            // cache — on this same actor, so it can land BETWEEN two merges. Without
+            // a per-merge guard the remaining merges keep writing the previous
+            // tenant's rows into the freshly-wiped store; sales / expenses / listings
+            // have no full-backfill prune, so they'd linger in the new tenant's Money
+            // tab until the throttled reconcile (~15 min) removed them. Bailing here
+            // caps the leak at the single merge already in flight at the switch (its
+            // rows predate — and are erased by — the wipe).
+            func scopeHeld() -> Bool {
+                Self.pullResultApplies(startEpoch: startEpoch, currentEpoch: scopeEpoch)
+            }
+            var itemsOk = false, photosOk = false, salesOk = false
+            var expensesOk = false, listingsOk = false, disputesOk = false
+            if scopeHeld() {
+                itemsOk = await mergeActor.mergeItems(
+                    payload.items,
+                    primaryPhotos: payload.primaryPhotos,
+                    prune: payload.isFullItemSync
+                )
+            }
+            if scopeHeld() {
+                photosOk = await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
+            }
+            if scopeHeld() { salesOk = await mergeActor.mergeSales(payload.sales) }
+            if scopeHeld() { expensesOk = await mergeActor.mergeExpenses(payload.expenses) }
+            if scopeHeld() { listingsOk = await mergeActor.mergeListings(payload.listings) }
             // US-819: stamp each item's dispute status from the changed disputes.
             // Runs after mergeItems so the items (and their grade_report_id) are
             // already present for the grade_report_id → item mapping.
-            let disputesOk = await mergeActor.mergeDisputes(payload.disputes)
+            if scopeHeld() { disputesOk = await mergeActor.mergeDisputes(payload.disputes) }
 
             // Advance watermarks ONLY after a successful merge (US-633) so a
             // dropped pass re-fetches the missed rows next time. US-1210: each
