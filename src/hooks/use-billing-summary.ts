@@ -167,12 +167,20 @@ export function useFlipdeskSubscribe() {
       unchanged?: boolean;
     },
     Error,
-    { plan: Exclude<FlipdeskPlanKey, "free">; interval: BillingInterval }
+    {
+      plan: Exclude<FlipdeskPlanKey, "free">;
+      interval: BillingInterval;
+      // US-2118: set true only after the in-place-upgrade confirmation dialog has
+      // disclosed the proration and captured consent. The server refuses an
+      // in-place plan change without it (UPGRADE_CONFIRMATION_REQUIRED), so the
+      // click alone can never charge.
+      confirmUpgrade?: boolean;
+    }
   >({
-    mutationFn: async ({ plan, interval }) => {
+    mutationFn: async ({ plan, interval, confirmUpgrade }) => {
       const res = await edgeFetch("/api/payments/flipdesk/subscribe", {
         method: "POST",
-        json: { plan, interval },
+        json: { plan, interval, confirmUpgrade },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to start checkout.");
@@ -198,6 +206,36 @@ export function useFlipdeskSubscribe() {
       }
     },
     onError: (err) => toast.error(err.message),
+  });
+}
+
+// US-2118: proration preview for an in-place plan change, shown in the
+// confirmation dialog before the (server-gated) upgrade mutation fires.
+export interface UpgradePreview {
+  inPlace: boolean;
+  unchanged?: boolean;
+  amount_due_today_cents?: number;
+  currency?: string;
+  new_recurring_cents?: number | null;
+  interval?: BillingInterval;
+  next_renewal_at?: string | null;
+}
+
+export function useUpgradePreview() {
+  return useMutation<
+    UpgradePreview,
+    Error,
+    { plan: Exclude<FlipdeskPlanKey, "free">; interval: BillingInterval }
+  >({
+    mutationFn: async ({ plan, interval }) => {
+      const res = await edgeFetch("/api/payments/flipdesk/upgrade-preview", {
+        method: "POST",
+        json: { plan, interval },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't preview the plan change.");
+      return json as UpgradePreview;
+    },
   });
 }
 

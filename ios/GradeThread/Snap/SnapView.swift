@@ -11,15 +11,23 @@ struct SnapView: View {
     // US-1180: @Observable store via @State (was @StateObject/ObservableObject).
     @State private var store = SnapStore()
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var authStore
     @State private var showCamera = false
     @State private var showLibrary = false
     // US-1181: recover gracefully when camera access was previously denied, and
     // surface a library pick that fails to load instead of a silent no-op.
     @State private var showCameraDeniedAlert = false
     @State private var loadError: String?
+    // US-2152: in-app paywall when a cap-reached snap offers the upgrade route.
+    @State private var showPaywall = false
 
     private var cameraAvailable: Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera)
+    }
+
+    private var currentUserId: UUID? {
+        if case let .signedIn(user) = authStore.phase { return user.id }
+        return nil
     }
 
     var body: some View {
@@ -87,6 +95,12 @@ struct SnapView: View {
             .fullScreenCover(isPresented: $showCamera) {
                 CameraPicker { img in store.setImage(img) }
                     .ignoresSafeArea()
+            }
+            // US-2152: in-app paywall when a cap-reached snap routes to upgrade.
+            .sheet(isPresented: $showPaywall) {
+                if let userId = currentUserId {
+                    NavigationStack { PaywallView(userId: userId) }
+                }
             }
             .alert("Camera access is off", isPresented: $showCameraDeniedAlert) {
                 Button("Open Settings") {
@@ -170,6 +184,12 @@ struct SnapView: View {
     /// US-1116: a dedicated, obvious error+retry state. The picked photo and
     /// hint fields stay visible above so the user can retry in place (the most
     /// common failure here is a transient network blip on the valuation call).
+    ///
+    /// US-2152: when the failure is a plan wall (the monthly free-Snap cap), the
+    /// recovery is to upgrade, not to retry — retrying just re-hits the cap. The
+    /// "Try again" button is replaced with "Upgrade", which opens the paywall.
+    /// The upgrade route falls back to "Try again" only if there's no signed-in
+    /// user to bill (the paywall needs a user id).
     private func errorCard(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label {
@@ -181,19 +201,30 @@ struct SnapView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(Color.brandRed)
             }
-            Button {
-                AppRouter.haptic()
-                Task { await store.evaluate() }
-            } label: {
-                if store.isLoading {
-                    ProgressView().frame(maxWidth: .infinity)
-                } else {
-                    Label("Try again", systemImage: "arrow.clockwise")
+            if store.isUpgradePrompt, currentUserId != nil {
+                Button {
+                    AppRouter.haptic()
+                    showPaywall = true
+                } label: {
+                    Label("Upgrade", systemImage: "sparkles")
                         .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.brandPrimary)
+            } else {
+                Button {
+                    AppRouter.haptic()
+                    Task { await store.evaluate() }
+                } label: {
+                    if store.isLoading {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("Try again", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.brandSecondary)
+                .disabled(!store.canEvaluate)
             }
-            .buttonStyle(.brandSecondary)
-            .disabled(!store.canEvaluate)
         }
         .padding()
         .background(Color.brandRed.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))

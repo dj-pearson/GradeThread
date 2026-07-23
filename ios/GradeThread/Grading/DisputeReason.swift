@@ -49,9 +49,12 @@ enum DisputeComposer {
     }
 }
 
-/// The window in which a grade can still be disputed. Matches the web's
-/// 7-day rule. An unparseable/absent timestamp is treated as open so we
-/// never wrongly hide the action.
+/// The window in which a grade can still be disputed. The SERVER
+/// (grade.ts DISPUTE_WINDOW_DAYS, US-2153) is the source of truth and now
+/// rejects an out-of-window filing with a typed DISPUTE_WINDOW_EXPIRED error;
+/// this local copy only decides whether to show the affordance and must stay
+/// equal to it. An unparseable/absent timestamp is treated as open so we never
+/// wrongly hide the action.
 enum GradeDisputeWindow {
     static let days = 7
 

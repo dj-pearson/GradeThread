@@ -660,9 +660,18 @@ const CERT_REPORT_GENESIS_COLUMNS =
 
 // Added after 00001; individually null-safe downstream (buyer_writeup 00118,
 // verified_capture 00138, original_photos 00194, certificate_number 00307,
-// live_capture 00314, verified_360 00316).
+// live_capture 00314, verified_360 00316, factor_scores/rubric_key 00231).
+//
+// US-1997: factor_scores (jsonb) + rubric_key let the cert render a non-clothing
+// Factor Breakdown (sports_cards/watches/shoes) from the generic rubric. NULL on
+// every clothing report (which renders from the 5 typed columns), so exposing
+// them changes nothing for existing certs — the client (certificate.tsx) already
+// prefers them only when both are present and falls back to the typed columns
+// otherwise. Kept in the EXTRA (not GENESIS) set so the 42703 fallback still
+// serves clothing certs if 00231 is unapplied in prod (US-1945 drift-safety).
 const CERT_REPORT_EXTRA_COLUMNS =
-  "buyer_writeup, certificate_number, verified_capture, original_photos, live_capture, verified_360";
+  "buyer_writeup, certificate_number, verified_capture, original_photos, " +
+  "live_capture, verified_360, factor_scores, rubric_key";
 
 const CERT_REPORT_COLUMNS = `${CERT_REPORT_GENESIS_COLUMNS}, ${CERT_REPORT_EXTRA_COLUMNS}`;
 

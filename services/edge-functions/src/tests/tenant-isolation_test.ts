@@ -116,25 +116,22 @@ const REQUIRED_RESOURCE_IDS = [
  * entry here means a cross-tenant path is UNVERIFIED in CI.
  */
 const KNOWN_UNSEEDED: Record<string, string> = {
+  // External systems — cannot be produced by the local seed script.
   TEST_USER_A_EBAY_OFFER_ID: "needs a live eBay sandbox offer — external dependency",
   TEST_USER_A_EBAY_ORDER_ID: "needs a live eBay sandbox order — external dependency",
   TEST_USER_A_EBAY_SKU: "needs a published eBay inventory item — external dependency",
   TEST_USER_A_FULFILLMENT_POLICY_ID: "needs eBay business policies — external dependency",
   TEST_USER_A_PUSH_ENDPOINT: "needs a real Web Push subscription endpoint",
-  TEST_USER_A_CONVERSATION_ID: "plain DB row — seedable, not yet wired",
-  TEST_USER_A_TICKET_ID: "plain DB row — seedable, not yet wired",
-  TEST_USER_A_CLOSET_ITEM_ID: "plain DB row — seedable, not yet wired",
-  TEST_USER_A_WANT_ID: "plain DB row — seedable, not yet wired",
-  TEST_USER_A_SALE_ID: "plain DB row — seedable, not yet wired",
-  TEST_USER_A_GARMENT_ID: "plain DB row — seedable, not yet wired",
+  // US-2078: the plain-DB-row ids (closet item, conversation, ticket, sale,
+  // want, garment, grading batch, passport node) are now emitted by the seed
+  // script — moved out of this list, which the stale-check requires.
+  // These remain because they need more than a plain insert:
   TEST_USER_A_PHOTO_ID: "needs an uploaded item photo in storage",
   TEST_USER_A_SUGGESTION_ID: "produced by a repricing run — needs pipeline execution",
-  TEST_USER_A_GRADING_BATCH_ID: "plain DB row — seedable, not yet wired",
-  TEST_USER_A_PASSPORT_NODE_ID: "plain DB row — seedable, not yet wired",
   TEST_USER_A_BUYER_PURCHASE_ID: "needs a completed buyer purchase",
-  TEST_USER_A_CERT_ID: "needs a certified grade report",
+  TEST_USER_A_CERT_ID: "needs a certified grade report (published, certificate_id set)",
   TEST_PRIVATE_REPORT_ID: "needs an uncertified/private report",
-  TEST_USER_B_API_KEY: "needs an issued API key for tenant B",
+  TEST_USER_B_API_KEY: "needs a RAW api key (gt_sk_…) for tenant B — the row's key_hash must match the edge's hashing, not a plain insert",
   TEST_USER_B_HANDLE: "needs a storefront handle for tenant B",
   TEST_SELLER_NO_STOREFRONT_HANDLE: "needs a seller with storefront opt-in disabled",
 };

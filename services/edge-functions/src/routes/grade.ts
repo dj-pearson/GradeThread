@@ -1120,6 +1120,13 @@ gradeRoutes.post("/snap", async (c) => {
 //       the grade report (US-268).
 const MAX_DISPUTE_EVIDENCE = 8;
 
+// US-2153: the CANONICAL dispute filing window. The server is the source of
+// truth — web (submission-detail.tsx) and iOS (DisputeReason.days) each keep a
+// local copy for the affordance's enabled/disabled state, but only this value
+// decides whether a filing is accepted, and it is echoed back in the typed
+// rejection so a client can display the real window instead of hardcoding it.
+const DISPUTE_WINDOW_DAYS = 7;
+
 gradeRoutes.post("/dispute", async (c) => {
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
@@ -1157,11 +1164,13 @@ gradeRoutes.post("/dispute", async (c) => {
   // so an id probe can't distinguish "doesn't exist" from "not yours".
   const { data: gr } = await supabaseAdmin
     .from("grade_reports")
-    .select("id, submission_id")
+    .select("id, submission_id, created_at")
     .eq("id", gradeReportId)
     .maybeSingle();
-  const submissionId =
-    (gr as { submission_id: string } | null)?.submission_id ?? null;
+  const report = gr as
+    | { submission_id: string; created_at: string }
+    | null;
+  const submissionId = report?.submission_id ?? null;
   if (!submissionId) return c.json({ error: "Grade report not found" }, 404);
   const { data: sub } = await supabaseAdmin
     .from("submissions")
@@ -1170,6 +1179,44 @@ gradeRoutes.post("/dispute", async (c) => {
     .eq("user_id", ownerId)
     .maybeSingle();
   if (!sub) return c.json({ error: "Grade report not found" }, 404);
+
+  // US-2153: enforce the filing window server-side. The 7-day rule was only in
+  // client UI, so a slow/older report could still be disputed via a direct API
+  // call. The window is echoed so the client can word its own message.
+  const ageMs = Date.now() - new Date(report!.created_at).getTime();
+  if (ageMs > DISPUTE_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+    return c.json(
+      {
+        error: `The ${DISPUTE_WINDOW_DAYS}-day window to dispute this grade has passed.`,
+        code: "DISPUTE_WINDOW_EXPIRED",
+        windowDays: DISPUTE_WINDOW_DAYS,
+      },
+      422,
+    );
+  }
+
+  // US-2153: refuse a second GRADE dispute for the same (owner, report). The
+  // client gate is advisory — a double-tap, a two-device race, or a direct API
+  // call could each insert a duplicate that lands in the human review queue.
+  // Scoped to kind='grade' so it never collides with an authenticity appeal
+  // (00489) on the same report. The unique index (00493) is the race-proof
+  // backstop; this SELECT gives a clean message on the common case.
+  const { data: existing } = await supabaseAdmin
+    .from("disputes")
+    .select("id")
+    .eq("user_id", ownerId)
+    .eq("grade_report_id", gradeReportId)
+    .eq("kind", "grade")
+    .maybeSingle();
+  if (existing) {
+    return c.json(
+      {
+        error: "You've already filed a dispute for this grade.",
+        code: "DISPUTE_ALREADY_EXISTS",
+      },
+      409,
+    );
+  }
 
   // Validate + strip + store each evidence image (US-276). Stored under the
   // owner's folder, matching the submission's own images. The service-role write
@@ -1216,6 +1263,18 @@ gradeRoutes.post("/dispute", async (c) => {
     .select()
     .single();
   if (dErr || !dispute) {
+    // US-2153: the unique index (00493) catches a duplicate that raced past the
+    // SELECT above (two devices, a double-tap). Report it as the same 409 the
+    // pre-check returns rather than a 500 the client would surface as a failure.
+    if ((dErr as { code?: string } | null)?.code === "23505") {
+      return c.json(
+        {
+          error: "You've already filed a dispute for this grade.",
+          code: "DISPUTE_ALREADY_EXISTS",
+        },
+        409,
+      );
+    }
     captureException(dErr, { route: "grade.dispute", userId });
     return c.json({ error: "Couldn't file the dispute" }, 500);
   }
