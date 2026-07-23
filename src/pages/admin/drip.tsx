@@ -780,6 +780,7 @@ function StepCard({
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7"
+                      aria-label="Remove variant"
                       disabled={disabled}
                       onClick={() => onRemoveVariant(v.id)}
                     >

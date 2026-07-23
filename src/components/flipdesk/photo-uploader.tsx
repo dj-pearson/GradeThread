@@ -572,10 +572,10 @@ function PhotoSlot({
             <button
               type="button"
               onClick={() => onEdit(first)}
-              className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/40 sm:opacity-0 sm:group-hover:opacity-100"
+              className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/40 focus-visible:bg-black/40 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
               aria-label="Edit photo"
             >
-              <Pencil className="h-5 w-5 text-white opacity-0 drop-shadow group-hover:opacity-100" />
+              <Pencil className="h-5 w-5 text-white opacity-0 drop-shadow group-hover:opacity-100 group-focus-within:opacity-100" />
             </button>
           </div>
         ) : (

@@ -24,7 +24,7 @@ export function AccessibilityPage() {
         .
       </p>
       <p>
-        <em>Last reviewed: June 2026.</em>
+        <em>Last conformance review: June 12, 2026.</em>
       </p>
 
       <h2 id="standards">1. Standards we follow</h2>

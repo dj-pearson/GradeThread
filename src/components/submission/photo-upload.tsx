@@ -591,11 +591,12 @@ export function PhotoUpload({
               />
               <button
                 type="button"
+                aria-label={`Remove ${slot.label} photo`}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleRemove(slot.slotKey);
                 }}
-                className="absolute right-1 top-1 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                className="absolute right-1 top-1 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
               >
                 <X className="h-3 w-3" />
               </button>

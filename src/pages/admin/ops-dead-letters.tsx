@@ -409,7 +409,7 @@ export function AdminOpsDeadLettersPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button size="icon" variant="ghost" onClick={() => setDetail(item)}>
+                          <Button size="icon" variant="ghost" aria-label="View details" onClick={() => setDetail(item)}>
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
                           <Button

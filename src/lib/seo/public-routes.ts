@@ -169,14 +169,15 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/tools/fit-checker": "2026-07-09",
   // Brand-partner pitch landing (US-1788).
   "/for-brands": "2026-07-09",
-  // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
-  "/privacy": "2026-04-01",
+  // Legal pages mirror their rendered effectiveDate. Keep each entry in sync
+  // with the `effectiveDate` prop on the corresponding page in src/pages/legal/.
+  "/privacy": "2026-06-12",
   "/terms": "2026-04-01",
   "/cookies": "2026-04-01",
   "/acceptable-use": "2026-04-01",
   "/refund": "2026-07-02",
   "/imprint": "2026-07-02",
-  "/dpa": "2026-04-01",
+  "/dpa": "2026-06-12",
   "/subprocessors": "2026-04-01",
   "/dmca": "2026-04-01",
   "/accessibility": "2026-04-01",
