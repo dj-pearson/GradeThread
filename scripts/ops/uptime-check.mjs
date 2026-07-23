@@ -29,10 +29,17 @@ const TIMEOUT_MS = 10_000;
 const CONFIRM_DELAY_MS = Number(process.env.UPTIME_CONFIRM_DELAY_MS ?? 30_000);
 
 // The SPA shell carries the app root div; the hard-404 page (public/404.html,
-// US-422) carries a noindex marker + "Page Not Found" title. We use these to
+// US-422) carries a "Page Not Found" title and has NO root div. We use these to
 // tell "deep link served the app" from "deep link soft/hard-404'd".
+//
+// NOTE: do NOT key the 404 marker off `robots: noindex`. Since US-2045 every
+// app shell served by functions/_shared/spa-shell.ts is deliberately marked
+// `noindex, nofollow` to keep authed routes out of the index, so noindex now
+// appears on HEALTHY /dashboard/* responses too — using it as a 404 signal
+// produced a false "soft-404" on the (correctly served) SPA shell. The unique
+// "Page Not Found" title plus the absence of the root div identify a real 404.
 const SPA_SHELL_MARKER = /<div id="root">/i;
-const NOT_FOUND_MARKER = /Page Not Found|name="robots" content="noindex/i;
+const NOT_FOUND_MARKER = /Page Not Found/i;
 
 const TARGETS = [
   {
