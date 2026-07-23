@@ -124,13 +124,19 @@ export function FlipdeskScheduledDropsPage() {
     queryKey: ["scheduled_drops_titles", user?.id, itemIdsKey],
     enabled: itemIds.length > 0,
     queryFn: async () => {
-      const { data } = await supabase
-        .from("inventory_items")
-        .select("id, title")
-        .in("id", itemIds);
+      // Chunk the id list: a single `.in("id", [...])` with hundreds of UUIDs
+      // overflows the request URL length limit (ERR_FAILED on large queues) —
+      // same cap the sibling listing-performance query guards against.
       const map: Record<string, string> = {};
-      for (const row of (data ?? []) as { id: string; title: string | null }[]) {
-        if (row.title) map[row.id] = row.title;
+      const CHUNK = 100;
+      for (let i = 0; i < itemIds.length; i += CHUNK) {
+        const { data } = await supabase
+          .from("inventory_items")
+          .select("id, title")
+          .in("id", itemIds.slice(i, i + CHUNK));
+        for (const row of (data ?? []) as { id: string; title: string | null }[]) {
+          if (row.title) map[row.id] = row.title;
+        }
       }
       return map;
     },
