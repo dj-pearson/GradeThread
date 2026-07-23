@@ -21,6 +21,7 @@ import {
 } from "@/hooks/use-billing-summary";
 import { useRedirectStore } from "@/stores/redirect-store";
 import { DowngradePreviewDialog } from "@/components/billing/downgrade-preview-dialog";
+import { UpgradePreviewDialog } from "@/components/billing/upgrade-preview-dialog";
 import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { Check, X, Crown, Loader2, Sparkles } from "lucide-react";
@@ -108,6 +109,13 @@ export function FlipdeskPlanPickerDialog({
   const [downgradeTarget, setDowngradeTarget] = useState<
     Exclude<FlipdeskPlanKey, "free"> | null
   >(null);
+  // US-2118: an in-place upgrade (user already on a paid plan) must disclose the
+  // prorated charge + capture consent before it fires. A free → paid upgrade is
+  // a fresh Stripe Checkout, which discloses on its own hosted page, so it skips
+  // this dialog.
+  const [upgradeTarget, setUpgradeTarget] = useState<
+    Exclude<FlipdeskPlanKey, "free"> | null
+  >(null);
 
   // US-212 telemetry: fire once each time the dialog opens.
   useEffect(() => {
@@ -173,6 +181,20 @@ export function FlipdeskPlanPickerDialog({
             }}
             targetPlan={downgradeTarget}
             targetInterval={interval}
+          />
+        )}
+        {upgradeTarget && (
+          <UpgradePreviewDialog
+            open={!!upgradeTarget}
+            onOpenChange={(v) => {
+              if (!v) {
+                setUpgradeTarget(null);
+                onOpenChange(false);
+              }
+            }}
+            targetPlan={upgradeTarget}
+            targetInterval={interval}
+            fromPlan={currentPlan}
           />
         )}
         <div className="grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -312,7 +334,15 @@ export function FlipdeskPlanPickerDialog({
                         to: planKey,
                         interval,
                       });
-                      subscribe.mutate({ plan: planKey, interval });
+                      // US-2118: on a live paid plan → in-place upgrade, which
+                      // charges immediately. Disclose + confirm first. From free
+                      // (no subscription) it's a fresh Checkout that discloses on
+                      // Stripe's page, so go straight there.
+                      if (currentPlan === "free") {
+                        subscribe.mutate({ plan: planKey, interval });
+                      } else {
+                        setUpgradeTarget(planKey);
+                      }
                     },
                     onDowngrade: () => {
                       if (planKey === "free") return;

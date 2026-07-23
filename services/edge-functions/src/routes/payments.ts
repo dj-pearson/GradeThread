@@ -287,6 +287,11 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
 
   const plan = body.plan;
   const interval = body.interval ?? "monthly";
+  // US-2118: an in-place upgrade charges a prorated amount immediately. Unlike a
+  // new subscription (which passes through Stripe Checkout's price disclosure),
+  // this path has no interstitial, so the mutation MUST NOT fire until the client
+  // has shown the confirmation dialog and echoes back confirmUpgrade:true.
+  const confirmUpgrade = (body as { confirmUpgrade?: boolean }).confirmUpgrade === true;
 
   if (plan !== "starter" && plan !== "pro" && plan !== "business") {
     return c.json({
@@ -337,6 +342,16 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
       if (currentPriceId === priceId) {
         return c.json({ ok: true, updated: true, unchanged: true });
       }
+      // US-2118: the price is actually changing, so this click WOULD charge a
+      // prorated amount now. Refuse until the client has disclosed the amount and
+      // captured consent (confirmUpgrade:true). The click alone can no longer buy.
+      if (!confirmUpgrade) {
+        return c.json({
+          error: "Confirmation required before an in-place plan change.",
+          code: "UPGRADE_CONFIRMATION_REQUIRED",
+          requiresConfirmation: true,
+        }, 409);
+      }
       // An upgrade supersedes any pending downgrade. Stripe rejects mutating a
       // subscription that's still attached to a schedule ("cannot migrate a
       // subscription that is already attached to a schedule"), so release it
@@ -372,6 +387,29 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
           pending_effective_at: null,
         })
         .eq("id", userId);
+      // US-2118 (AC2): record the affirmative-consent artifact for the in-place
+      // change — the equivalent of the disclosure a new subscriber sees on the
+      // Stripe Checkout page. Best-effort: the plan change already succeeded, so a
+      // logging failure must not fail the request (captured, not thrown).
+      const { error: consentErr } = await supabaseAdmin
+        .from("flipdesk_subscription_events")
+        .insert({
+          user_id: userId,
+          event_type: "in_place_change_confirmed",
+          from_plan: (user as { flipdesk_plan?: string | null }).flipdesk_plan ?? null,
+          to_plan: plan,
+          raw_payload: {
+            interval,
+            new_price_id: priceId,
+            previous_price_id: currentPriceId,
+            proration_behavior: "create_prorations",
+            confirmed: true,
+            source: "flipdesk_plan_picker",
+          },
+        });
+      if (consentErr) {
+        console.error("[flipdesk/subscribe] consent-artifact insert failed:", consentErr.message);
+      }
       return c.json({ ok: true, updated: true });
     } catch (err) {
       console.error("FlipDesk subscription update (upgrade) failed:", err);
@@ -475,6 +513,83 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
   } catch (err) {
     console.error("FlipDesk subscribe checkout failed:", err);
     return c.json({ error: "Failed to create subscription checkout" }, 500);
+  }
+});
+
+// US-2118: proration preview for an in-place plan change. The plan picker calls
+// this BEFORE the (now confirmation-gated) /flipdesk/subscribe so the dialog can
+// disclose the real amount charged today, the new recurring amount + interval,
+// and the next renewal date — the numbers a new subscriber sees on Stripe
+// Checkout. Returns { inPlace:false } when there's no live subscription to
+// modify (that's a fresh Checkout, which discloses on its own hosted page).
+paymentRoutes.post("/flipdesk/upgrade-preview", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { plan?: string; interval?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const plan = body.plan;
+  const interval = body.interval ?? "monthly";
+  if (plan !== "starter" && plan !== "pro" && plan !== "business") {
+    return c.json({ error: "plan must be one of: starter, pro, business" }, 400);
+  }
+  if (interval !== "monthly" && interval !== "yearly") {
+    return c.json({ error: "interval must be 'monthly' or 'yearly'" }, 400);
+  }
+
+  const FLIPDESK_PRICE_IDS = await getFlipdeskPriceIds();
+  const priceId = FLIPDESK_PRICE_IDS[plan][interval];
+  if (!priceId) return c.json({ error: "Pricing not configured" }, 503);
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+
+  // No live subscription → a fresh Checkout will disclose the price itself.
+  if (!user.flipdesk_subscription_id || user.subscription_status === "canceled") {
+    return c.json({ inPlace: false });
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const existing = await stripe.subscriptions.retrieve(user.flipdesk_subscription_id);
+    const item = existing.items.data[0];
+    if (!item) return c.json({ error: "Subscription has no line item" }, 500);
+    const currentPriceId = typeof item.price === "string" ? item.price : item.price?.id;
+    if (currentPriceId === priceId) {
+      return c.json({ inPlace: true, unchanged: true });
+    }
+
+    // Simulate the item swap so amount_due reflects the immediate proration.
+    const preview = await stripe.invoices.retrieveUpcoming({
+      customer: typeof existing.customer === "string"
+        ? existing.customer
+        : existing.customer.id,
+      subscription: existing.id,
+      subscription_items: [{ id: item.id, price: priceId }],
+      subscription_proration_behavior: "create_prorations",
+    });
+    // The new recurring amount is the target price's unit amount (proration is a
+    // one-off; this is what recurs each period after).
+    const newPrice = await stripe.prices.retrieve(priceId);
+
+    return c.json({
+      inPlace: true,
+      amount_due_today_cents: preview.amount_due,
+      currency: preview.currency,
+      new_recurring_cents: newPrice.unit_amount ?? null,
+      interval,
+      next_renewal_at: existing.current_period_end
+        ? new Date(existing.current_period_end * 1000).toISOString()
+        : null,
+    });
+  } catch (err) {
+    console.error("FlipDesk upgrade-preview failed:", err instanceof Error ? err.message : err);
+    return c.json({ error: "Couldn't preview the plan change" }, 502);
   }
 });
 
