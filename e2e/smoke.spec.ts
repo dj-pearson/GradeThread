@@ -10,9 +10,10 @@ test.beforeEach(async ({ page }) => {
 
 test("landing page renders the hero (prerendered, no JS needed)", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle(/GradeThread|Clothing Condition Grading/i);
-  // Hero text is in the prerendered HTML.
-  await expect(page.locator("body")).toContainText(/Clothing Condition Grading/i);
+  await expect(page).toHaveTitle(/GradeThread/i);
+  // Hero text is in the prerendered HTML — keep in step with the prerender
+  // crawl-parity assertions for "/" (src/prerender/__tests__).
+  await expect(page.locator("body")).toContainText(/Photograph it\./i);
 });
 
 test("login page renders the email + password form", async ({ page }) => {

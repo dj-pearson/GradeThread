@@ -70,16 +70,24 @@ final class RealtimeTests: XCTestCase {
             container: container, statusStore: status, networkMonitor: monitor
         )
 
-        // Seed the cache.
+        // Seed the cache with a row OLDER than the incoming realtime event.
+        // mergeSingleInventory's freshness guard (SyncMergeActor) drops any
+        // event whose updated_at predates the cached row, so the seed must be
+        // older than makeInventoryRecord's fixed updated_at for the update to
+        // apply — mirroring a real edit where the server bumps updated_at.
+        // (Both timestamps are fixed so this can't rot once the wall clock
+        // passes the record's date.)
         let context = ModelContext(container)
+        let seededAt = SyncEngine.parseDate("2026-05-27T11:00:00Z")
         let initial = LocalInventoryItem(
             id: "rt-2", userId: "u", title: "Stale title",
-            status: "cataloged", createdAt: .now, updatedAt: .now
+            status: "cataloged", createdAt: seededAt, updatedAt: seededAt
         )
         context.insert(initial)
         try context.save()
 
-        // Realtime update.
+        // Realtime update — makeInventoryRecord stamps updated_at at
+        // 2026-05-27T12:00:00Z, one hour after the seeded row.
         let payload = makeInventoryRecord(
             id: "rt-2",
             userId: "u",
