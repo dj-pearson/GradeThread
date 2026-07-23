@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
-import { ErrorBoundary } from "@/components/error-boundary";
+import { RouteErrorBoundary } from "@/components/error-boundary";
 import { CookieConsent } from "@/components/cookie-consent";
 import { captureAffiliateRef } from "@/lib/affiliate";
 
@@ -17,11 +17,11 @@ export function RootLayout() {
   }, []);
 
   return (
-    <ErrorBoundary>
+    <RouteErrorBoundary>
       <Outlet />
       <Toaster position="bottom-right" richColors />
       {/* Consent banner — gates Google Analytics + PostHog (GDPR/CCPA). */}
       <CookieConsent />
-    </ErrorBoundary>
+    </RouteErrorBoundary>
   );
 }
