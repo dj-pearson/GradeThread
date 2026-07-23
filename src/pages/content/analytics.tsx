@@ -10,6 +10,7 @@ import {
   useSendContentDigest,
 } from "@/hooks/use-content";
 import { PRODUCT_LABELS } from "@/lib/constants";
+import { safeHref } from "@/lib/safe-url";
 
 // At-a-glance health for the content module. No external analytics —
 // everything is derived from data already in the DB. Useful answers:
@@ -306,9 +307,9 @@ export function ContentAnalyticsPage() {
                     >
                       {item.title}
                     </Link>
-                    {item.external_url && (
+                    {safeHref(item.external_url) && (
                       <a
-                        href={item.external_url}
+                        href={safeHref(item.external_url) ?? undefined}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs text-muted-foreground hover:underline"

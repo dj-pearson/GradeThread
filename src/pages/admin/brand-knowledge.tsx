@@ -27,6 +27,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { safeHref } from "@/lib/safe-url";
 
 // US-1715: admin authoring + verification surface for the Brand & Style
 // Knowledge Base (/api/admin/brand-knowledge). Reviewers confirm AI-drafted /
@@ -338,10 +339,10 @@ export function AdminBrandKnowledgePage() {
                               <span className="flex items-center gap-2">
                                 <ConfidenceBadge c={fact.confidence} />
                                 <VerifiedBadge v={fact.verified} />
-                                {fact.source_url
+                                {safeHref(fact.source_url)
                                   ? (
                                     <a
-                                      href={fact.source_url}
+                                      href={safeHref(fact.source_url) ?? undefined}
                                       target="_blank"
                                       rel="noreferrer"
                                       className="text-xs text-primary underline"

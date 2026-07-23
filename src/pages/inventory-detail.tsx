@@ -70,6 +70,7 @@ import type {
 } from "@/types/database";
 import { calculateSuggestedPrice } from "@/lib/price-suggestions";
 import { InventoryItemSuggestions } from "@/components/analytics/listing-suggestions";
+import { safeHref } from "@/lib/safe-url";
 
 const CARRIERS = [
   { value: "usps", label: "USPS" },
@@ -1108,10 +1109,10 @@ export function InventoryDetailPage() {
                           ? "Deactivate"
                           : "Activate"}
                     </Button>
-                    {listing.listing_url && (
+                    {safeHref(listing.listing_url) && (
                       <Button variant="ghost" size="sm" asChild>
                         <a
-                          href={listing.listing_url}
+                          href={safeHref(listing.listing_url) ?? undefined}
                           target="_blank"
                           rel="noopener noreferrer"
                         >

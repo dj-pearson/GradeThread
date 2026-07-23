@@ -71,6 +71,7 @@ import {
   useStartShopifyOauth,
   useSyncShopify,
 } from "@/hooks/use-shopify";
+import { safeHref } from "@/lib/safe-url";
 
 // US-718: the non-API channels, grouped by their REAL tier (read from the
 // MARKETPLACE_TIER single source of truth). eBay + Shopify are tier "api" and
@@ -933,9 +934,9 @@ function PromotedListingsSection() {
                   {listings.map((l) => (
                     <TableRow key={l.id}>
                       <TableCell className="max-w-[18rem]">
-                        {l.listing_url ? (
+                        {safeHref(l.listing_url) ? (
                           <a
-                            href={l.listing_url}
+                            href={safeHref(l.listing_url) ?? undefined}
                             target="_blank"
                             rel="noreferrer"
                             className="block truncate font-medium text-brand-navy hover:underline dark:text-foreground"
