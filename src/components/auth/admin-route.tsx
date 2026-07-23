@@ -3,9 +3,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { VerifyEmailGate } from "@/components/auth/verify-email-gate";
 
 export function AdminRoute() {
-  const { session, profile, isLoading } = useAuth();
+  const { session, user, profile, isLoading } = useAuth();
   const hasShownToast = useRef(false);
 
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
@@ -29,6 +30,14 @@ export function AdminRoute() {
 
   if (!session) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Parity with ProtectedRoute (US-366): the admin tree is a SIBLING of
+  // ProtectedRoute, so its email-verification gate never ran for /admin/*. An
+  // unconfirmed-email admin could render the shell (the edge still 403s its API
+  // calls). Enforce the same gate here.
+  if (user && !user.email_confirmed_at) {
+    return <VerifyEmailGate email={user.email ?? null} />;
   }
 
   // The profile load is async and independent of `isLoading` (which only tracks
