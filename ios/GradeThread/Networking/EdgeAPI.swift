@@ -415,7 +415,13 @@ public actor EdgeAPI {
                 }
                 interceptPlanSignals(http, data: data)
                 guard (200..<300).contains(http.statusCode) else {
-                    if http.statusCode == 429 {
+                    let mapped = EdgeAPIError.from(statusCode: http.statusCode, body: data)
+                    // US-2152: a 429 that is actually a plan wall carries
+                    // action:"upgrade" and maps to .upgradeRequired above — it
+                    // must NOT be enriched as a rate-limit or retried (retrying a
+                    // cap-reached snap twice burns the per-IP daily ceiling).
+                    // Only a genuine .rateLimited gets the Retry-After treatment.
+                    if http.statusCode == 429, case .rateLimited = mapped {
                         // US-1145: surface rate-limit frequency to Sentry and
                         // capture the server's backoff hint for the retry.
                         retryAfterHint = Self.parseRetryAfter(
@@ -428,7 +434,7 @@ public actor EdgeAPI {
                         // caller that exhausts retries can show "try again in Ns".
                         throw EdgeAPIError.rateLimited(retryAfter: retryAfterHint)
                     }
-                    throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
+                    throw mapped
                 }
                 if cacheTTL > 0, method == "GET" {
                     cacheStore(cacheKey, data: data, ttl: cacheTTL)

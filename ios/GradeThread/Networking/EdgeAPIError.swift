@@ -45,6 +45,19 @@ public enum EdgeAPIError: LocalizedError, Equatable {
     /// `{ code: "offer_not_open" }` — expired, retracted, or answered elsewhere).
     /// Distinct so the inbox can refresh itself instead of showing a raw error.
     case offerNotOpen
+    /// US-2152: any status carrying `action: "upgrade"` — a plan or quota wall,
+    /// not a transport failure. Mirrors Android `EdgeApiError.UpgradeRequired`
+    /// (US-1335).
+    ///
+    /// It exists because the two statuses the edge uses for it are already
+    /// spoken for and BOTH said the wrong thing: the monthly free-Snap cap
+    /// returns 429 (mapped to `.rateLimited` — "slow down, try again in a
+    /// moment", to a seller who must wait until next month), and AI enrichment
+    /// being off returns 403 (mapped to `.unauthorized` — "session expired",
+    /// prompting a pointless re-sign-in). The server already writes the correct
+    /// sentence; keying on the discriminator lets it through, and (being neither
+    /// `.rateLimited` nor transient) it is NOT retried.
+    case upgradeRequired(detail: String?, code: String?)
 
     public var errorDescription: String? {
         switch self {
@@ -75,7 +88,18 @@ public enum EdgeAPIError: LocalizedError, Equatable {
             return detail ?? "This feature isn't available yet."
         case .offerNotOpen:
             return "This offer is no longer available — it may have expired or already been answered."
+        case .upgradeRequired(let detail, _):
+            // The server's copy names the actual limit and what lifts it, so it
+            // beats anything generic we could write here.
+            return detail ?? "You've reached a limit on your plan. Upgrade to keep going."
         }
+    }
+
+    /// US-2152: whether the UI should offer an upgrade route rather than a
+    /// retry. Mirrors Android `EdgeApiError.isUpgradePrompt`.
+    public var isUpgradePrompt: Bool {
+        if case .upgradeRequired = self { return true }
+        return false
     }
 
     /// JSON error shape used by the edge service: `{ "error": "...", "detail": "...",
@@ -88,6 +112,8 @@ public enum EdgeAPIError: LocalizedError, Equatable {
         let detail: String?
         let error_code: String?
         let code: String?
+        /// US-2152: the edge's "this is a plan wall" marker (`action: "upgrade"`).
+        let action: String?
 
         /// The machine-readable discriminator, from whichever key the edge used.
         var discriminator: String? { error_code ?? code }
@@ -121,6 +147,14 @@ public enum EdgeAPIError: LocalizedError, Equatable {
         }
         if payload?.discriminator == "offer_not_open" {
             return .offerNotOpen
+        }
+        // US-2152: a plan/quota wall. Checked AFTER the specific discriminators
+        // above (so a revoked workspace still recovers under the personal
+        // tenant) but BEFORE the status switch — which is the whole point: the
+        // statuses the edge uses for it (429 snap cap, 403 enrichment-off)
+        // already map to errors whose copy actively misleads here.
+        if payload?.action == "upgrade" {
+            return .upgradeRequired(detail: detail, code: payload?.discriminator)
         }
         switch statusCode {
         case 401:      return .unauthorized

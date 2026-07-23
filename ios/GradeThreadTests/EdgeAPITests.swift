@@ -170,6 +170,86 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertEqual(calls.count, 2)  // one 429, one success
     }
 
+    // MARK: - US-2152: action:"upgrade" → .upgradeRequired (plan/quota wall)
+
+    // grade.ts snap monthly cap: 429 with code SNAP_LIMIT_REACHED + action:upgrade.
+    // The whole point is it must NOT map to .rateLimited ("slow down, try again in
+    // a moment", to a seller who must wait until next month).
+    func test_from_snapMonthlyCap_mapsToUpgradeRequired_notRateLimited() {
+        let body = Data(#"{"error":"You've used all 5 free Snap-to-Value checks this month. Upgrade for more, or get a full certified grade.","code":"SNAP_LIMIT_REACHED","action":"upgrade"}"#.utf8)
+        let mapped = EdgeAPIError.from(statusCode: 429, body: body)
+        XCTAssertEqual(
+            mapped,
+            .upgradeRequired(
+                detail: "You've used all 5 free Snap-to-Value checks this month. Upgrade for more, or get a full certified grade.",
+                code: "SNAP_LIMIT_REACHED"))
+        // AC3: the server sentence is surfaced verbatim.
+        XCTAssertEqual(
+            mapped.errorDescription,
+            "You've used all 5 free Snap-to-Value checks this month. Upgrade for more, or get a full certified grade.")
+        // AC3: the call site offers an upgrade route, not a retry.
+        XCTAssertTrue(mapped.isUpgradePrompt)
+    }
+
+    // grade.ts snap per-network daily cap: 429 with code SNAP_IP_LIMIT_REACHED.
+    func test_from_snapIpCap_mapsToUpgradeRequired() {
+        let body = Data(#"{"error":"Daily free Snap-to-Value limit reached for your network. Try again tomorrow, or upgrade for more.","code":"SNAP_IP_LIMIT_REACHED","action":"upgrade"}"#.utf8)
+        let mapped = EdgeAPIError.from(statusCode: 429, body: body)
+        XCTAssertEqual(
+            mapped,
+            .upgradeRequired(
+                detail: "Daily free Snap-to-Value limit reached for your network. Try again tomorrow, or upgrade for more.",
+                code: "SNAP_IP_LIMIT_REACHED"))
+        XCTAssertTrue(mapped.isUpgradePrompt)
+    }
+
+    // flipdesk-ai.ts enrichment-off: 403 with action:upgrade and NO code. Must not
+    // map to .unauthorized ("session expired", prompting a pointless re-sign-in).
+    func test_from_enrichmentOff_mapsToUpgradeRequired_notUnauthorized() {
+        let body = Data(#"{"error":"AI enrichment is turned off for your account. Enable it in Settings.","action":"upgrade"}"#.utf8)
+        let mapped = EdgeAPIError.from(statusCode: 403, body: body)
+        XCTAssertEqual(
+            mapped,
+            .upgradeRequired(
+                detail: "AI enrichment is turned off for your account. Enable it in Settings.",
+                code: nil))
+        XCTAssertEqual(
+            mapped.errorDescription,
+            "AI enrichment is turned off for your account. Enable it in Settings.")
+        XCTAssertTrue(mapped.isUpgradePrompt)
+    }
+
+    // AC2: the specific discriminators are checked BEFORE action:"upgrade", so a
+    // revoked workspace still recovers under the personal tenant even if the body
+    // also carried the upgrade marker.
+    func test_from_specificDiscriminator_winsOverUpgradeAction() {
+        let body = Data(#"{"error":"gone","code":"workspace_access_revoked","action":"upgrade"}"#.utf8)
+        XCTAssertEqual(EdgeAPIError.from(statusCode: 403, body: body), .workspaceAccessRevoked)
+    }
+
+    // AC4: a cap-reached snap (429 action:upgrade) is NOT retried — retrying twice
+    // burns the per-IP daily ceiling. The handler must be hit exactly once.
+    func test_snapCap429_action_upgrade_isNotRetried() async {
+        let calls = CallBox()
+        MockURLProtocol.handler = { request in
+            _ = calls.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!, statusCode: 429, httpVersion: nil,
+                    headerFields: ["Retry-After": "0"])!,
+                Data(#"{"error":"You've used all 5 free Snap-to-Value checks this month.","code":"SNAP_LIMIT_REACHED","action":"upgrade"}"#.utf8))
+        }
+        do {
+            let _: Item = try await makeAPI().getJSON("/foo")
+            XCTFail("Expected .upgradeRequired to be thrown")
+        } catch let error as EdgeAPIError {
+            XCTAssertTrue(error.isUpgradePrompt, "Expected .upgradeRequired, got \(error)")
+        } catch {
+            XCTFail("Expected EdgeAPIError, got \(type(of: error)): \(error)")
+        }
+        XCTAssertEqual(calls.count, 1, "a plan-wall 429 must not be retried")
+    }
+
     func test_parseRetryAfter_secondsForm() {
         XCTAssertEqual(EdgeAPI.parseRetryAfter("30"), 30)
         XCTAssertEqual(EdgeAPI.parseRetryAfter("  5 "), 5)

@@ -17,6 +17,10 @@ final class SnapStore {
     var isLoading = false
     var result: SnapResponse?
     var errorMessage: String?
+    /// US-2152: the failure is a plan/quota wall (the monthly free-Snap cap),
+    /// not a transient error — the view offers an upgrade route, not a retry
+    /// (retrying just re-hits the cap and burns the per-IP daily ceiling).
+    var isUpgradePrompt = false
 
     private let service: SnapService
 
@@ -32,6 +36,7 @@ final class SnapStore {
         image = img
         result = nil
         errorMessage = nil
+        isUpgradePrompt = false
     }
 
     var canEvaluate: Bool { image != nil && !isLoading }
@@ -47,6 +52,7 @@ final class SnapStore {
         }
         isLoading = true
         errorMessage = nil
+        isUpgradePrompt = false
         defer { isLoading = false }
         // US-636: compress off the main actor so the spinner stays smooth.
         guard let output = await PhotoCompressor.compressOffMain(img) else {
@@ -62,6 +68,9 @@ final class SnapStore {
         } catch {
             result = nil
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            // US-2152: a cap-reached snap (429 action:"upgrade") surfaces the
+            // server's upgrade sentence and routes to the paywall, not "Try again".
+            isUpgradePrompt = (error as? EdgeAPIError)?.isUpgradePrompt ?? false
         }
     }
 }
