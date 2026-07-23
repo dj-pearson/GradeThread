@@ -342,6 +342,28 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(rows.first?.title, "Linen blazer (updated)")
     }
 
+    func test_mergeActor_staleDeltaDoesNotRewindNewerRow() async throws {
+        // A non-dirty row already holding the newer server state (T2) must not be
+        // clobbered by an older snapshot (T1<T2) arriving in a later/racing merge —
+        // e.g. a realtime apply landed T2, then a bulk delta pull carrying T1 runs.
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Fresh", updated: "2026-06-02T00:00:00Z")],
+            primaryPhotos: [:], prune: false
+        )
+        // Stale delta for the same id arrives after — must be ignored, not applied.
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Stale", updated: "2026-06-01T00:00:00Z")],
+            primaryPhotos: [:], prune: false
+        )
+
+        let rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.title, "Fresh")   // not rewound to "Stale"
+    }
+
     func test_mergeActor_prunesStaleItemsOnFullBackfill() async throws {
         let container = try inMemoryContainer()
         let actor = SyncMergeActor(modelContainer: container)

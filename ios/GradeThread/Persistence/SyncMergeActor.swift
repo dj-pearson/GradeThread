@@ -88,6 +88,15 @@ actor SyncMergeActor {
             let primaryURL = primary?.thumbnail_url ?? primary?.photo_url
 
             if let local = existingById[remote.id] {
+                // Freshness guard: a non-dirty row already holding a NEWER server
+                // state — e.g. from a realtime single-row apply (US-198) — must not
+                // be rewound by an older snapshot carried in a concurrent bulk delta
+                // pull. Both run on this actor, so a stale pull mid-merge would
+                // otherwise overwrite the fresher fields and move updatedAt backwards
+                // (stale data + a backwards timestamp until the next delta heals it).
+                // Skip the stale overwrite; dirty rows keep dirty-wins resolution
+                // regardless of timestamp.
+                if !local.hasLocalChanges && updatedAt < local.updatedAt { continue }
                 if local.hasLocalChanges && updatedAt > local.updatedAt { dirtyConflicts += 1 }
                 Self.applyServerWins(to: local, remote: remote)
                 // Only overwrite the cached primary when the delta actually
@@ -630,6 +639,11 @@ actor SyncMergeActor {
         let updatedAt = SyncEngine.parseDate(remote.updated_at)
 
         if let local = try? modelContext.fetch(descriptor).first {
+            // Same freshness guard as mergeItems: ignore a realtime event older than
+            // the server state we already hold on a non-dirty row (a late/duplicated
+            // event, or one racing a fresher bulk pull) so it can't rewind the row.
+            // Dirty rows keep dirty-wins resolution.
+            if !local.hasLocalChanges && updatedAt < local.updatedAt { return }
             Self.applyServerWins(to: local, remote: remote)
             local.updatedAt = updatedAt
         } else {
