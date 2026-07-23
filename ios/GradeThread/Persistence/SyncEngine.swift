@@ -1241,7 +1241,13 @@ actor SyncEngine {
         // fails transiently and B still flushed, the next pass would replay A
         // alone and revert the row to the older edit. Blocking the target keeps
         // B queued behind A so per-target order is preserved across passes.
-        var blockedTargetIds = Set<String>()
+        // Seed with the targets of already-stuck mutations. They're filtered out of
+        // `mutations` (they wait for an inspector Retry), so they can't block their
+        // own successors from inside the loop the way a transient in-pass failure
+        // does. Without this seed a newer same-target update flushes ahead of a
+        // stuck older one, which then reverts the row when the user later taps Retry
+        // on the stuck mutation — the lost-update class US-1496 exists to prevent.
+        var blockedTargetIds = Self.stuckTargetIds(allMutations)
         for mutation in mutations {
             // US-1147: stop cleanly on teardown — replays are idempotent so the
             // remaining mutations simply flush on the next start/sync. Also break on
@@ -1372,6 +1378,17 @@ actor SyncEngine {
     /// their `hasLocalChanges` flag (and stay protected from delete-reconcile).
     static func itemIdsWithPendingEdits(_ queue: [PendingMutationSnapshot]) -> Set<String> {
         Set(queue.filter { isInventoryItemEdit($0.kind) }.compactMap(\.targetId))
+    }
+
+    /// US-1496 (stuck predecessor): target ids of mutations that have exhausted
+    /// their auto-retry budget. These are filtered OUT of the flush loop (they wait
+    /// for an inspector Retry), so — unlike a mutation that fails DURING the pass —
+    /// a stuck predecessor never inserts its own target into `blockedTargetIds`.
+    /// Seeding the blocked set with them holds a newer same-target mutation behind
+    /// the stuck older one, so it can't flush ahead and leave the stuck snapshot to
+    /// replay alone later (on a manual Retry) and revert the row to the older edit.
+    static func stuckTargetIds(_ queue: [PendingMutationSnapshot]) -> Set<String> {
+        Set(queue.filter { $0.retryCount >= maxRetries }.compactMap(\.targetId))
     }
 
     /// US-1496: true when `mutation` must be held this pass because an earlier

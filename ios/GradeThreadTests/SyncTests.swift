@@ -890,6 +890,31 @@ final class SyncTests: XCTestCase {
         XCTAssertFalse(SyncEngine.shouldHoldForBlockedTarget(other, blockedTargetIds: blocked))
     }
 
+    /// Stuck-predecessor case: an older update A that has exhausted its retry
+    /// budget is filtered out of the flush loop, so it can't block its own
+    /// successor from inside the loop. Seeding `blockedTargetIds` from the stuck
+    /// set holds the newer update B behind it — otherwise B flushes and dequeues,
+    /// and a later manual Retry of A replays the older snapshot and reverts the row.
+    func test_sameTargetOrdering_stuckPredecessorHoldsLaterEdit() {
+        let stuckA = snapshot(kind: .updateInventoryItem, targetId: "item-1", retryCount: 6)
+        let b = snapshot(kind: .updateInventoryItem, targetId: "item-1")
+        let other = snapshot(kind: .updateInventoryItem, targetId: "item-2")
+
+        // The blocked set is seeded from stuck mutations BEFORE the loop runs.
+        let blocked = SyncEngine.stuckTargetIds([stuckA, b, other])
+        XCTAssertEqual(blocked, ["item-1"])
+        // B (same target as the stuck A) is held; an unrelated item is not.
+        XCTAssertTrue(SyncEngine.shouldHoldForBlockedTarget(b, blockedTargetIds: blocked))
+        XCTAssertFalse(SyncEngine.shouldHoldForBlockedTarget(other, blockedTargetIds: blocked))
+    }
+
+    /// A retry-eligible mutation (under the budget) does not seed the blocked set —
+    /// only genuinely stuck predecessors do; in-pass failures block via the loop.
+    func test_stuckTargetIds_ignoresRetryEligibleMutations() {
+        let retrying = snapshot(kind: .updateInventoryItem, targetId: "item-1", retryCount: 5)
+        XCTAssertTrue(SyncEngine.stuckTargetIds([retrying]).isEmpty)
+    }
+
     /// A mutation with no targetId (e.g. a create keyed only by payload) is never
     /// held by the target-block guard.
     func test_sameTargetOrdering_nilTargetNeverHeld() {
