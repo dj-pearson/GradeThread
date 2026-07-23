@@ -48,6 +48,21 @@ function isSignedIn(): boolean {
   return !!useAuthStore.getState().session;
 }
 
+/**
+ * Clear the persisted last-activity stamp. Called on every sign-out (idle or
+ * explicit) so a stale timestamp can't linger on a shared browser and, on the
+ * next user's first page load, be read as ">12h idle" and sign them straight
+ * back out. See the SIGNED_OUT handler in use-auth.
+ */
+export function clearIdleActivity(): void {
+  lastPersist = 0;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function signOutIdle(): Promise<void> {
   try {
     // Local scope only — must NOT revoke the iOS / other-device sessions.
@@ -55,11 +70,7 @@ async function signOutIdle(): Promise<void> {
   } catch {
     /* onAuthStateChange still resets the store even if the network call fails */
   }
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
+  clearIdleActivity();
   toast.info("Signed out after 12 hours of inactivity. Sign in again to continue.");
 }
 
@@ -78,15 +89,28 @@ export function initIdleLogout(): void {
   if (initialized || typeof window === "undefined") return;
   initialized = true;
 
-  // A fresh load is itself an interaction. But if a session was restored after
-  // the tab sat closed past the idle window, sign out immediately. (When the
-  // session hasn't hydrated into the store yet, the interval check below catches
-  // it within a minute.)
-  if (isSignedIn() && Date.now() - readLastActivity() >= IDLE_MS) {
-    void signOutIdle();
-  } else {
-    markActivity(true);
-  }
+  // Evaluate the RESTORED session (if any) against the real last-activity stamp.
+  // We must read the persisted session via getSession() rather than the store:
+  // initIdleLogout runs BEFORE use-auth hydrates the store, so the store's
+  // session is still null here — reading it would always take the "signed out"
+  // path and unconditionally stamp `now`, overwriting a genuinely stale
+  // timestamp and restarting the 12h window on every page load (the idle
+  // sign-out then never fired). getSession() reflects the persisted session
+  // directly, so a tab reopened past the idle window is expired as intended.
+  //
+  // Only a RESTORED session is evaluated here. A fresh interactive sign-in that
+  // happens later is NOT re-checked against a possibly-stale timestamp (that
+  // would sign the user out the instant they log in); it's covered by the normal
+  // activity listeners below.
+  void supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!session) return;
+    if (Date.now() - readLastActivity() >= IDLE_MS) {
+      void signOutIdle();
+    } else {
+      // Restored and still within the window — this load counts as activity.
+      markActivity(true);
+    }
+  });
 
   const onActivity = () => markActivity();
   const events: Array<keyof WindowEventMap> = [
