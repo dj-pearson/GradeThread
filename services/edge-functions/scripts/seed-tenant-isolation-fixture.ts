@@ -251,6 +251,61 @@ async function main(): Promise<void> {
     default_split_pct: 50,
   });
 
+  // US-2078: the plain-DB-row resources that gated cross-tenant cases but were
+  // never emitted, so 26 cases skipped silently on every CI run. Each is a
+  // minimal row OWNED BY A (or scoped to A's item), matching how the route
+  // verifies ownership — see tenant-isolation_test.ts for the paired case.
+
+  // A closet entry owned by A (manual source needs no link target).
+  out.TEST_USER_A_CLOSET_ITEM_ID = await insert("closet_items", {
+    user_id: aId,
+    source: "manual",
+    title: "Tenant-A fixture closet item",
+  });
+
+  // A support chat owned by A (workspace_owner_id = A for a solo seller).
+  out.TEST_USER_A_CONVERSATION_ID = await insert("support_conversations", {
+    user_id: aId,
+    workspace_owner_id: aId,
+    subject: "Tenant-A fixture conversation",
+  });
+
+  // A support ticket owned by A.
+  out.TEST_USER_A_TICKET_ID = await insert("support_tickets", {
+    user_id: aId,
+    subject: "Tenant-A fixture ticket",
+  });
+
+  // A sale, scoped to A via its inventory item (sales has no user_id column;
+  // ownership is verified through inventory_item_id → user_id).
+  out.TEST_USER_A_SALE_ID = await insert("sales", {
+    inventory_item_id: itemId,
+    sale_price: 42.0,
+  });
+
+  // A grading batch owned by A.
+  out.TEST_USER_A_GRADING_BATCH_ID = await insert("grading_batches", {
+    user_id: aId,
+  });
+
+  // A demand-board want owned by A.
+  out.TEST_USER_A_WANT_ID = await insert("buyer_wants", {
+    user_id: aId,
+  });
+
+  // A Garment Passport garment. Ownership is verified by created_by before any
+  // event/claim write, so created_by = A is the isolation surface (US-1090/1094).
+  out.TEST_USER_A_GARMENT_ID = await insert("garments", {
+    created_by: aId,
+  });
+
+  // A passport owner node linked to A (owner_node_kind 'seller').
+  out.TEST_USER_A_PASSPORT_NODE_ID = await insert("owner_nodes", {
+    pseudonymous_label: "Tenant-A fixture node",
+    kind: "seller",
+    linked_user_id: aId,
+  });
+
   log(`seeded fixture for A=${aId} B=${bId}`);
 
   // Emit KEY=VALUE lines on stdout for $GITHUB_ENV. JWTs are single-line tokens.
