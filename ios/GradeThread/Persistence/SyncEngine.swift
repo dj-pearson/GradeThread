@@ -395,8 +395,10 @@ actor SyncEngine {
 
     /// Fetches the surviving server `id` set for `table` (id column only, so the
     /// payload stays tiny even for thousands of rows), paginated + bounded by
-    /// `maxRowsPerPass`. Returns nil on any error so the caller skips pruning
-    /// that table rather than pruning against a partial view.
+    /// `maxRowsPerPass`. Returns nil when the set cannot be trusted as complete —
+    /// on any error, OR when the scan hits the `maxRowsPerPass` cap with rows still
+    /// remaining — so the caller SKIPS pruning that table rather than pruning
+    /// against a partial view (which would delete every local row above the cap).
     private func fetchServerIds(table: String, scopeUserId: String?) async -> Set<String>? {
         var ids = Set<String>()
         var offset = 0
@@ -410,9 +412,23 @@ actor SyncEngine {
                     .execute()
                 let rows = (try? JSONSerialization.jsonObject(with: response.data)) as? [[String: Any]] ?? []
                 for row in rows { if let id = row["id"] as? String { ids.insert(id) } }
+                // A short page means we've read every surviving id → complete set,
+                // safe to prune against.
                 if rows.count < Self.pageSize { break }
                 offset += Self.pageSize
-                if offset >= Self.maxRowsPerPass { break }
+                if offset >= Self.maxRowsPerPass {
+                    // Hit the per-pass row cap on a still-full page, so more rows
+                    // almost certainly exist server-side and this id set is
+                    // truncated (it holds only the `maxRowsPerPass` lowest ids).
+                    // Return nil to SKIP pruning: reconciling against a partial
+                    // surviving-id set would delete every local row above the cap,
+                    // which the next delta pull then re-fetches and the next
+                    // reconcile prunes again — delete/re-fetch churn with rows
+                    // vanishing from the UI for large accounts. Losing this pass's
+                    // prune is harmless; server-deletes reconcile once the account
+                    // is back under the cap.
+                    return nil
+                }
             }
             return ids
         } catch {
