@@ -731,7 +731,7 @@ function TaskDetailDialog({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6 flex-shrink-0 opacity-0 group-hover:opacity-100"
+                      className="h-6 w-6 flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                       aria-label="Delete comment"
                       onClick={() =>
                         deleteComment.mutate({ id: c.id, taskId: task.id })

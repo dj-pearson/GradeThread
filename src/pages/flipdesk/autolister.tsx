@@ -3370,7 +3370,7 @@ export function FlipdeskAutolisterPage() {
                     aria-label="Delete photo"
                     onClick={() => removePhotos([p.id])}
                     disabled={processing}
-                    className="absolute left-1 top-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100 disabled:opacity-30"
+                    className="absolute left-1 top-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -3380,7 +3380,7 @@ export function FlipdeskAutolisterPage() {
                       type="button"
                       title="Undo background removal"
                       onClick={() => undoBg(p.id)}
-                      className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 group-hover:opacity-100"
+                      className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                     >
                       <Undo2 className="h-3 w-3" />
                       Undo
@@ -3392,7 +3392,7 @@ export function FlipdeskAutolisterPage() {
                         title="Clean background"
                         onClick={() => applyBgToPhoto(p.id, bgMode)}
                         disabled={processing || bgBusy}
-                        className="absolute bottom-1 left-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100"
+                        className="absolute bottom-1 left-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                       >
                         <Eraser className="h-3 w-3" />
                       </button>
@@ -3401,7 +3401,7 @@ export function FlipdeskAutolisterPage() {
                         title="Auto-enhance"
                         onClick={() => void enhancePhoto(p.id)}
                         disabled={processing || enhanceBusy}
-                        className="absolute bottom-1 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100"
+                        className="absolute bottom-1 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                       >
                         <WandSparkles className="h-3 w-3" />
                       </button>
@@ -3413,7 +3413,7 @@ export function FlipdeskAutolisterPage() {
                     title="Edit photo"
                     onClick={() => setEditingPhotoId(p.id)}
                     disabled={processing}
-                    className="absolute bottom-1 right-1 z-10 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 disabled:opacity-30"
+                    className="absolute bottom-1 right-1 z-10 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
@@ -3791,7 +3791,7 @@ export function FlipdeskAutolisterPage() {
                           "absolute left-1 top-1 rounded-full p-0.5",
                           isCover
                             ? "bg-brand-red text-white"
-                            : "bg-black/40 text-white opacity-0 group-hover:opacity-100",
+                            : "bg-black/40 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
                         )}
                       >
                         <Star className="h-3 w-3" />
@@ -3800,7 +3800,7 @@ export function FlipdeskAutolisterPage() {
                         type="button"
                         title="Remove from group"
                         onClick={() => removePhotoFromGroup(g.id, pid)}
-                        className="absolute right-1 top-1 rounded-full bg-black/40 p-0.5 text-white opacity-0 group-hover:opacity-100"
+                        className="absolute right-1 top-1 rounded-full bg-black/40 p-0.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -3818,7 +3818,7 @@ export function FlipdeskAutolisterPage() {
                         type="button"
                         title="Edit photo"
                         onClick={() => setEditingPhotoId(pid)}
-                        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white opacity-0 group-hover:opacity-100"
+                        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>

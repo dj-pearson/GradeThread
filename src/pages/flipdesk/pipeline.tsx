@@ -990,7 +990,7 @@ function DraggableItemCard({
           aria-label={`Select ${item.item_title}`}
           className={cn(
             "h-3.5 w-3.5 cursor-pointer accent-brand-navy transition-opacity",
-            !selected && "opacity-0 group-hover:opacity-100",
+            !selected && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
           )}
         />
       </div>

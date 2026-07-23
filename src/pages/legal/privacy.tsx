@@ -338,7 +338,10 @@ export function PrivacyPage() {
       <ul>
         <li>
           <strong>Service providers (subprocessors).</strong> Vendors that
-          host, secure, monitor, and support the Service, including:
+          host, secure, monitor, and support the Service. This list is
+          representative, not exhaustive &mdash; the authoritative, dated list
+          is maintained on our <a href="/subprocessors">Subprocessors</a> page.
+          They include:
           <ul>
             <li>
               <strong>Supabase / self-hosted infrastructure</strong> &mdash;
@@ -349,6 +352,10 @@ export function PrivacyPage() {
               AI-assisted grading and listing generation;
             </li>
             <li>
+              <strong>OpenAI, L.L.C.</strong> &mdash; AI-assisted listing and
+              marketing image generation;
+            </li>
+            <li>
               <strong>Stripe, Inc.</strong> &mdash; payment processing,
               subscription billing, and tax handling;
             </li>
@@ -357,11 +364,21 @@ export function PrivacyPage() {
               edge security;
             </li>
             <li>
+              <strong>eBay, Inc.</strong> &mdash; marketplace listing, order,
+              and payout integration for FlipDesk (only when you connect an
+              eBay account);
+            </li>
+            <li>
               <strong>PostHog, Inc.</strong> &mdash; product analytics;
             </li>
             <li>
               <strong>Functional Software, Inc. (Sentry)</strong> &mdash;
               error monitoring and performance tracing;
+            </li>
+            <li>
+              <strong>Our infrastructure hosting provider</strong> &mdash; the
+              VPS/hosting environment where the Service runs (data in transit
+              and at rest);
             </li>
             <li>
               <strong>Email delivery providers</strong> &mdash; transactional
@@ -477,7 +494,24 @@ export function PrivacyPage() {
         the right to know what personal information we collect, the right to
         delete, the right to correct, the right to opt out of certain
         &ldquo;sharing,&rdquo; and the right to non-discrimination. We do not
-        sell personal information.
+        sell personal information. You can exercise the opt-out for
+        cross-context behavioral advertising through the &ldquo;Your Privacy
+        Choices&rdquo; control in our cookie settings, and we honor Global
+        Privacy Control (GPC) browser signals as a valid opt-out request.
+      </p>
+      <p>
+        <strong>Other U.S. state residents.</strong> If you reside in a state
+        with a comprehensive consumer privacy law &mdash; including Virginia
+        (VCDPA), Colorado (CPA), Connecticut (CTDPA), Utah (UCPA), Texas
+        (TDPSA), Oregon, and others as they take effect &mdash; you may have
+        rights to access, correct, delete, and obtain a portable copy of your
+        personal information, and to opt out of targeted advertising, the
+        &ldquo;sale&rdquo; of personal information, and certain profiling. You
+        may exercise these rights using the same methods above, and where the
+        law permits, you may appeal a decision by contacting{" "}
+        <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a>.
+        We honor the &ldquo;Your Privacy Choices&rdquo; control and GPC signals
+        for residents of these states as well.
       </p>
 
       <h2 id="security">10. Security</h2>
@@ -525,7 +559,17 @@ export function PrivacyPage() {
         <br />
         Attn: Privacy
         <br />
+        7888 Beechtree Ln
+        <br />
+        West Des Moines, IA 50266
+        <br />
+        United States
+        <br />
         <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a>
+      </p>
+      <p>
+        Our full provider identification is on the{" "}
+        <Link to="/imprint">Imprint / Legal Notice</Link> page.
       </p>
     </LegalLayout>
   );
