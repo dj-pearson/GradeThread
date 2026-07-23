@@ -203,6 +203,32 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(Backoff.delayNanos(attempt: 9, base: 1, cap: 8), 8_000_000_000)
     }
 
+    func test_jitteredBackoff_staysWithinHalfToFullWindow() {
+        // Equal jitter: the delay is d/2 at fraction 0, d at fraction 1, and the
+        // midpoint at 0.5 — always within [d/2, d], never below half the backoff.
+        let ceiling = Backoff.delayNanos(attempt: 2, base: 1, cap: 8)   // 4s
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 2, base: 1, cap: 8, randomFraction: 0),
+            ceiling / 2)
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 2, base: 1, cap: 8, randomFraction: 1),
+            ceiling)
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 2, base: 1, cap: 8, randomFraction: 0.5),
+            ceiling / 2 + ceiling / 4)
+    }
+
+    func test_jitteredBackoff_clampsOutOfRangeFraction() {
+        // An out-of-range fraction can't push the delay outside [d/2, d].
+        let ceiling = Backoff.delayNanos(attempt: 1, base: 1, cap: 8)   // 2s
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 1, base: 1, cap: 8, randomFraction: -5),
+            ceiling / 2)
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 1, base: 1, cap: 8, randomFraction: 5),
+            ceiling)
+    }
+
     // MARK: - ConnectivityDebouncer (US-997)
 
     /// Five reconnects in quick succession (a Wi-Fi↔cell flap storm) must

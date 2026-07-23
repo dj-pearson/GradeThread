@@ -466,7 +466,7 @@ public actor EdgeAPI {
                         nanos = UInt64(min(max(hint, 0), 8) * 1_000_000_000)
                         retryAfterHint = nil
                     } else {
-                        nanos = Backoff.delayNanos(attempt: attempt, base: 0.5, cap: 4)
+                        nanos = Backoff.jitteredDelayNanos(attempt: attempt, base: 0.5, cap: 4)
                     }
                     try? await Task.sleep(nanoseconds: nanos)
                     attempt += 1
