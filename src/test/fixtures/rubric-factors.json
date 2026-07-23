@@ -1,0 +1,64 @@
+{
+  "_readme": [
+    "US-1997 AC4: the SHARED behavioural fixture for the category grading rubrics.",
+    "",
+    "There are two rubric definitions — services/edge-functions/src/lib/rubric.ts (server",
+    "source of truth, carries prompt guidance + defect routing) and src/lib/rubrics.ts (client,",
+    "renders the certificate Factor Breakdown) — because the edge and the web app are separate",
+    "projects that cannot import each other. They are declared to stay in sync (factor keys +",
+    "weights + labels) and NOTHING pinned them, so a divergence would silently render a cert",
+    "against weights the grade was never computed on.",
+    "",
+    "The guard is the SAME remedy US-1995 used for title-sync: both suites load this file and",
+    "assert their RUBRICS match it exactly. Change a rubric's factors/labels/weights HERE first,",
+    "then in both rubric modules — never in one module alone.",
+    "",
+    "This file constrains ONLY key + label + weight (the fields both sides share). The server's",
+    "extra fields (guidance, promptGuidance, defectRouting) are not mirrored on the client and",
+    "are out of scope for the parity check.",
+    "",
+    "Consumed by services/edge-functions/src/tests/rubric-parity_test.ts and",
+    "src/lib/__tests__/rubrics.test.ts."
+  ],
+  "rubrics": {
+    "clothing": {
+      "label": "Clothing",
+      "factors": [
+        { "key": "fabric_condition", "label": "Fabric Condition", "weight": 0.3 },
+        { "key": "structural_integrity", "label": "Structural Integrity", "weight": 0.25 },
+        { "key": "cosmetic_appearance", "label": "Cosmetic Appearance", "weight": 0.2 },
+        { "key": "functional_elements", "label": "Functional Elements", "weight": 0.15 },
+        { "key": "odor_cleanliness", "label": "Odor & Cleanliness", "weight": 0.1 }
+      ]
+    },
+    "sports_cards": {
+      "label": "Sports card",
+      "factors": [
+        { "key": "surface", "label": "Surface", "weight": 0.3 },
+        { "key": "corners", "label": "Corners", "weight": 0.25 },
+        { "key": "edges", "label": "Edges", "weight": 0.25 },
+        { "key": "centering", "label": "Centering", "weight": 0.2 }
+      ]
+    },
+    "watches": {
+      "label": "Watch",
+      "factors": [
+        { "key": "dial_hands", "label": "Dial & Hands", "weight": 0.3 },
+        { "key": "case_bracelet", "label": "Case & Bracelet", "weight": 0.25 },
+        { "key": "crystal", "label": "Crystal", "weight": 0.2 },
+        { "key": "movement_function", "label": "Movement & Function", "weight": 0.15 },
+        { "key": "cosmetic", "label": "Cosmetic", "weight": 0.1 }
+      ]
+    },
+    "shoes": {
+      "label": "Shoes",
+      "factors": [
+        { "key": "upper", "label": "Upper", "weight": 0.3 },
+        { "key": "outsole", "label": "Outsole & Tread", "weight": 0.25 },
+        { "key": "structure", "label": "Structure", "weight": 0.2 },
+        { "key": "cosmetic", "label": "Cosmetic", "weight": 0.15 },
+        { "key": "interior_odor", "label": "Interior & Odor", "weight": 0.1 }
+      ]
+    }
+  }
+}
