@@ -11,11 +11,13 @@ export function AdminRoute() {
   const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
 
   useEffect(() => {
-    if (!isLoading && session && !isAdmin && !hasShownToast.current) {
+    // Only judge the role once the profile has actually loaded — see the
+    // `session && !profile` spinner below.
+    if (!isLoading && session && profile && !isAdmin && !hasShownToast.current) {
       hasShownToast.current = true;
       toast.error("Access denied");
     }
-  }, [isLoading, session, isAdmin]);
+  }, [isLoading, session, profile, isAdmin]);
 
   if (isLoading) {
     return (
@@ -27,6 +29,20 @@ export function AdminRoute() {
 
   if (!session) {
     return <Navigate to="/login" replace />;
+  }
+
+  // The profile load is async and independent of `isLoading` (which only tracks
+  // the very first bootstrap load, and stays false on subsequent SPA sign-ins).
+  // On a deep-link sign-in the SIGNED_IN event sets `session` synchronously while
+  // `profile` is still null in flight — evaluating `isAdmin` here would read
+  // false and hard-bounce a legitimate admin with a spurious "Access denied".
+  // Wait for the profile to resolve before judging the role.
+  if (!profile) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
   }
 
   if (!isAdmin) {
