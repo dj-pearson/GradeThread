@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { advanceItemStatus } from "@/lib/status-writer";
+import { safeHref } from "@/lib/safe-url";
 import { todayLocalDate } from "@/lib/local-date";
 import type { ItemFullRow, ListingInsert } from "@/types/database";
 
@@ -55,6 +56,11 @@ export function MarkListedDialog({
     const p = Number(price);
     if (!Number.isFinite(p) || p <= 0) {
       toast.error("Enter a valid list price.");
+      return;
+    }
+    const trimmedUrl = url.trim();
+    if (trimmedUrl && !safeHref(trimmedUrl)) {
+      toast.error("Enter a valid listing URL (http:// or https://).");
       return;
     }
     savingRef.current = true;
@@ -109,26 +115,31 @@ export function MarkListedDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label>List price</Label>
+            <Label htmlFor="mark-listed-price">List price</Label>
             <Input
+              id="mark-listed-price"
               type="number"
               step="0.01"
+              min="0"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               autoFocus
             />
           </div>
           <div className="space-y-1">
-            <Label>Listing URL</Label>
+            <Label htmlFor="mark-listed-url">Listing URL</Label>
             <Input
+              id="mark-listed-url"
+              type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://www.ebay.com/itm/…"
             />
           </div>
           <div className="space-y-1">
-            <Label>Listed date</Label>
+            <Label htmlFor="mark-listed-date">Listed date</Label>
             <Input
+              id="mark-listed-date"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
