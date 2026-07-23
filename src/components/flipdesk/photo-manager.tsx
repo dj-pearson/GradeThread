@@ -156,13 +156,17 @@ export function PhotoManager({
   }
 
   // Any pending/processing grading submission blocks deleting graded photos.
-  const { data: gradingInFlight = false } = useQuery({
+  const { data: gradingInFlightData, isError: gradingCheckFailed } = useQuery({
     queryKey: ["grading-inflight", itemId],
     queryFn: async (): Promise<boolean> => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("flipdesk_grading_submissions")
         .select("status")
         .eq("inventory_item_id", itemId);
+      // Throw (don't swallow) so a failed check surfaces as isError and we can
+      // fail CLOSED — previously an errored check returned false and let a
+      // graded photo be deleted mid grading run.
+      if (error) throw error;
       const rows = (data ?? []) as Pick<
         FlipdeskGradingSubmissionRow,
         "status"
@@ -172,6 +176,9 @@ export function PhotoManager({
       );
     },
   });
+  // Fail closed on a check failure (undefined while loading → not blocked;
+  // isError → blocked). Only a confirmed "no in-flight grading" unblocks delete.
+  const gradingInFlight = gradingInFlightData ?? gradingCheckFailed;
 
   // Keep local drag order in sync with the fetched rows.
   useEffect(() => {
