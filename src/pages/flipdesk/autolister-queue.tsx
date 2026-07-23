@@ -146,6 +146,9 @@ export function FlipdeskAutolisterQueuePage() {
 
   const jobs = useMemo(() => data?.jobs ?? [], [data]);
   const itemIds = useMemo(() => jobs.map((j) => j.inventory_item_id), [jobs]);
+  // Key on the id CONTENTS, not the count: a length-only key returns the stale
+  // meta map when the batch's id set changes without changing size.
+  const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
 
   // Item titles + persisted photo-QA (US-537) for friendlier, actionable rows.
   interface ItemMeta {
@@ -159,7 +162,7 @@ export function FlipdeskAutolisterQueuePage() {
     status: ItemStatus | null;
   }
   const { data: itemMeta = {} } = useQuery<Record<string, ItemMeta>>({
-    queryKey: ["autolister_item_meta", batchId, itemIds.length],
+    queryKey: ["autolister_item_meta", batchId, itemIdsKey],
     enabled: itemIds.length > 0,
     queryFn: async () => {
       // US-554: chunk so large batches don't overflow the `in` list.
@@ -221,10 +224,12 @@ export function FlipdeskAutolisterQueuePage() {
     () => jobs.map((j) => j.listing_id).filter((id): id is string => !!id),
     [jobs],
   );
+  // Content key, not count — see itemIdsKey above.
+  const listingIdsKey = useMemo(() => [...listingIds].sort().join(","), [listingIds]);
   const { data: reviewByListing = {} } = useQuery<
     Record<string, { needsReview: boolean; fields: string[]; price: number | null }>
   >({
-    queryKey: ["autolister_listing_review", batchId, listingIds.length],
+    queryKey: ["autolister_listing_review", batchId, listingIdsKey],
     enabled: listingIds.length > 0,
     queryFn: async () => {
       // US-554: chunk the id list so a very large batch can't blow the URL/`in`

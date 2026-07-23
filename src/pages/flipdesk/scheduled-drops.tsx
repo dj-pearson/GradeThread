@@ -117,8 +117,11 @@ export function FlipdeskScheduledDropsPage() {
     () => drops.map((d) => d.inventory_item_id),
     [drops],
   );
+  // Key on the id CONTENTS, not the count — a length-only key serves the stale
+  // title map when the set turns over without changing size.
+  const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
   const { data: titles = {} } = useQuery<Record<string, string>>({
-    queryKey: ["scheduled_drops_titles", user?.id, itemIds.length],
+    queryKey: ["scheduled_drops_titles", user?.id, itemIdsKey],
     enabled: itemIds.length > 0,
     queryFn: async () => {
       const { data } = await supabase
