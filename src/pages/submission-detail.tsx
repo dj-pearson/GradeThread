@@ -173,6 +173,13 @@ export function SubmissionDetailPage() {
   const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
   const [submittingDispute, setSubmittingDispute] = useState(false);
 
+  // Tracks the currently-rendered submission id so an in-flight refetch bound to
+  // a previous id can detect it navigated away and skip its stale setState.
+  const currentIdRef = useRef(id);
+  useEffect(() => {
+    currentIdRef.current = id;
+  }, [id]);
+
   const refetchData = useCallback(async () => {
     if (!id) return;
     const { data: sub } = await supabase
@@ -180,6 +187,10 @@ export function SubmissionDetailPage() {
       .select("*")
       .eq("id", id)
       .single();
+    // A refetch (realtime handler or the 5s interval) can still be in flight
+    // when the route param changes A→B; without this guard its resolution would
+    // setState the previous submission's data over B. Drop stale writes.
+    if (currentIdRef.current !== id) return;
     if (sub) setSubmission(sub);
 
     const { data: reportData } = await supabase
@@ -190,6 +201,7 @@ export function SubmissionDetailPage() {
       .eq("submission_id", id)
       .is("superseded_at", null)
       .maybeSingle();
+    if (currentIdRef.current !== id) return;
     if (reportData) setGradeReport(reportData);
   }, [id]);
 
