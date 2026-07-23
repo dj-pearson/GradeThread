@@ -109,6 +109,20 @@ public final class RealtimeService {
             #if DEBUG
             print("[Realtime] subscribe failed: \(TelemetryScrubber.redact(error.localizedDescription))")
             #endif
+            // A failed subscribe previously left `self.channel` set and both the
+            // listen/status tasks running, so the `guard channel == nil` at the top
+            // of start() made every later start() a no-op — realtime wedged
+            // .reconnecting for the whole session, with two orphaned tasks looping
+            // against a channel that never subscribed and no path back except an
+            // explicit stop()/resubscribe(). Tear the half-open channel down (same
+            // teardown as stop()) so the next start() — next foreground, the Live
+            // Updates toggle, or a workspace resubscribe — can actually retry.
+            listenTask?.cancel()
+            listenTask = nil
+            statusTask?.cancel()
+            statusTask = nil
+            await supabase.removeChannel(channel)
+            self.channel = nil
             phase = .reconnecting
         }
     }
