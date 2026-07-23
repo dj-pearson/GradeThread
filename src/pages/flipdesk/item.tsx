@@ -45,6 +45,7 @@ import { GradeOutcomeCard } from "@/components/flipdesk/grade-outcome-card";
 import { DisclosurePanel } from "@/components/disclosure/disclosure-panel";
 import { RelistSuggestionCard } from "@/components/passport/relist-suggestion-card";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
+import { safeHref } from "@/lib/safe-url";
 
 // US-1075: dollar floor for the "grade this to boost trust" cross-surface nudge.
 // Below this, the extra grading cost is rarely worth it, so we stay quiet.
@@ -278,10 +279,10 @@ function EbayNativeNotice({ itemId }: { itemId: string }) {
           measurements, and cost — stay editable. To change what buyers see, edit
           it on eBay, or relist it through GradeThread to manage it here.
         </p>
-        {listing.listing_url && (
+        {safeHref(listing.listing_url) && (
           <Button asChild variant="outline" className="w-full sm:w-auto">
             <a
-              href={listing.listing_url}
+              href={safeHref(listing.listing_url) ?? undefined}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -455,10 +456,10 @@ function GradethreadListingCard({
           </div>
         )}
 
-        {listing.listing_url && (
+        {safeHref(listing.listing_url) && (
           <Button asChild variant="ghost" size="sm" className="px-0">
             <a
-              href={listing.listing_url}
+              href={safeHref(listing.listing_url) ?? undefined}
               target="_blank"
               rel="noopener noreferrer"
             >

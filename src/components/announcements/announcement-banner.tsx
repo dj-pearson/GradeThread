@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { X, Info, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { safeHref } from "@/lib/safe-url";
 
 // US-628: renders the single highest-priority active announcement for the
 // current user. Targeting + window filtering happens server-side; this just
@@ -63,9 +64,9 @@ export function AnnouncementBanner() {
       <div className="flex-1">
         <p className="font-semibold">{top.title}</p>
         <p className="text-sm opacity-90">{top.body}</p>
-        {top.cta_label && top.cta_url && (
+        {top.cta_label && safeHref(top.cta_url) && (
           <a
-            href={top.cta_url}
+            href={safeHref(top.cta_url) ?? undefined}
             className="mt-1 inline-block text-sm font-semibold underline underline-offset-2"
           >
             {top.cta_label}

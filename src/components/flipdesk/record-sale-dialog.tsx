@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, DollarSign } from "lucide-react";
@@ -63,6 +63,10 @@ export function RecordSaleDialog({
   });
   const [saving, setSaving] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
+  // Synchronous double-submit guard: `disabled={saving}` only applies next
+  // render, so a fast double-click could insert two `sales` rows (and double
+  // advanceItemStatus), corrupting reconciliation. Flip this before any await.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (item) {
@@ -104,12 +108,28 @@ export function RecordSaleDialog({
 
   async function save() {
     if (!item) return;
+    if (savingRef.current) return;
     if (n(form.sale_price) <= 0) {
       setPriceError("Enter a sale price greater than 0.");
       document.getElementById("sale-price")?.focus();
       return;
     }
+    // Reject negative fees/costs — the min="0" input hint is advisory, and a
+    // negative here silently inflates net profit and corrupts reconciliation.
+    const costFields = [
+      form.shipping_collected,
+      form.platform_fees,
+      form.payment_processing_fees,
+      form.shipping_cost,
+      form.tax,
+      form.other_costs,
+    ];
+    if (costFields.some((v) => n(v) < 0)) {
+      toast.error("Fees and costs can't be negative.");
+      return;
+    }
     setPriceError(null);
+    savingRef.current = true;
     setSaving(true);
     try {
       const insert: SaleInsert = {
@@ -215,6 +235,7 @@ export function RecordSaleDialog({
         `Failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -272,16 +293,18 @@ export function RecordSaleDialog({
             onChange={(v) => set("other_costs", v)}
           />
           <div className="space-y-1">
-            <Label className="text-xs">Sale date</Label>
+            <Label className="text-xs" htmlFor="sale-date">Sale date</Label>
             <Input
+              id="sale-date"
               type="date"
               value={form.sale_date}
               onChange={(e) => set("sale_date", e.target.value)}
             />
           </div>
           <div className="col-span-2 space-y-1">
-            <Label className="text-xs">Buyer username</Label>
+            <Label className="text-xs" htmlFor="buyer-username">Buyer username</Label>
             <Input
+              id="buyer-username"
               value={form.buyer_username}
               onChange={(e) => set("buyer_username", e.target.value)}
               placeholder="optional"
@@ -338,23 +361,29 @@ function Field({
   id?: string;
   error?: string | null;
 }) {
+  // Always associate the label with the input. Most callers don't pass an id,
+  // which previously rendered <Label htmlFor={undefined}> / <Input id={undefined}>
+  // — no programmatic association, so screen readers announced unlabeled number
+  // fields on a money form. Derive a stable id from the label as the fallback.
+  const fieldId = id ?? `sale-field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <div className="space-y-1">
-      <Label className="text-xs" htmlFor={id}>
+      <Label className="text-xs" htmlFor={fieldId}>
         {label}
       </Label>
       <Input
-        id={id}
+        id={fieldId}
         type="number"
         step="0.01"
+        min="0"
         inputMode="decimal"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         autoFocus={autoFocus}
         aria-invalid={!!error}
-        aria-describedby={error && id ? `${id}-error` : undefined}
+        aria-describedby={error ? `${fieldId}-error` : undefined}
       />
-      {error && <FieldError id={id ? `${id}-error` : undefined}>{error}</FieldError>}
+      {error && <FieldError id={`${fieldId}-error`}>{error}</FieldError>}
     </div>
   );
 }

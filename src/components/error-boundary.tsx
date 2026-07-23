@@ -1,6 +1,6 @@
 import { Component, useEffect } from "react";
 import type { ReactNode, ErrorInfo } from "react";
-import { useRouteError } from "react-router-dom";
+import { useRouteError, useLocation } from "react-router-dom";
 import { captureException } from "@/lib/sentry";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,11 @@ import { Card, CardContent } from "@/components/ui/card";
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  // When this value changes, a boundary that is currently showing its error
+  // state clears it. Wire it to the route (see RouteErrorBoundary) so a single
+  // recoverable page error doesn't trap every subsequent in-app navigation
+  // behind the "Something went wrong" card until a full reload.
+  resetKey?: unknown;
 }
 
 interface State {
@@ -37,6 +42,15 @@ export class ErrorBoundary extends Component<Props, State> {
     captureException(error, {
       extra: { componentStack: errorInfo.componentStack },
     });
+  }
+
+  componentDidUpdate(prevProps: Props) {
+    // Clear the error when the route changes so navigating away from a broken
+    // page recovers the app. Only touches state while an error is showing, so
+    // the happy path re-renders normally (no forced child remount).
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null });
+    }
   }
 
   handleReset = () => {
@@ -170,5 +184,26 @@ export function RouteErrorFallback() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * ErrorBoundary that resets itself on client-side navigation. Reads the current
+ * pathname and feeds it as `resetKey`, so once a page throws, navigating to any
+ * other route clears the boundary instead of leaving the "Something went wrong"
+ * card rendered over every subsequent in-app link until a full reload.
+ */
+export function RouteErrorBoundary({
+  children,
+  fallback,
+}: {
+  children: ReactNode;
+  fallback?: ReactNode;
+}) {
+  const location = useLocation();
+  return (
+    <ErrorBoundary resetKey={location.pathname} fallback={fallback}>
+      {children}
+    </ErrorBoundary>
   );
 }

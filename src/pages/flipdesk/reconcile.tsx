@@ -223,7 +223,7 @@ export function FlipdeskReconcilePage() {
     if (!workspaceOwnerId || restored) return;
     let cancelled = false;
     void (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("flipdesk_reconcile_sessions")
         .select("id, gap_seconds, assignments")
         .eq("user_id", workspaceOwnerId)
@@ -232,6 +232,12 @@ export function FlipdeskReconcilePage() {
         .limit(1)
         .maybeSingle();
       if (cancelled) return;
+      if (error) {
+        // Don't silently drop an in-progress reconcile board on a transient
+        // failure. Surface it and leave `restored` false so a reload retries.
+        toast.error("Couldn't restore your in-progress reconcile session. Reload to retry.");
+        return;
+      }
       setRestored(true);
       const row = data as
         | { id: string; gap_seconds: number; assignments: ReconcileAssignmentSnapshot[] }

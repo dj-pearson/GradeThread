@@ -21,7 +21,11 @@ export function BuyerRoute() {
     }
   }, [isLoading, profile, canAccessBuyer]);
 
-  if (isLoading) {
+  // `isLoading` only tracks the first bootstrap load; on a deep-link SPA sign-in
+  // the SIGNED_IN event sets the session while `profile` is still null in flight.
+  // Judging `canAccessBuyer` off a null profile would bounce a legitimate buyer,
+  // so wait for the profile to resolve before evaluating access.
+  if (isLoading || !profile) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />

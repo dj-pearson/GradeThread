@@ -173,6 +173,13 @@ export function SubmissionDetailPage() {
   const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
   const [submittingDispute, setSubmittingDispute] = useState(false);
 
+  // Tracks the currently-rendered submission id so an in-flight refetch bound to
+  // a previous id can detect it navigated away and skip its stale setState.
+  const currentIdRef = useRef(id);
+  useEffect(() => {
+    currentIdRef.current = id;
+  }, [id]);
+
   const refetchData = useCallback(async () => {
     if (!id) return;
     const { data: sub } = await supabase
@@ -180,6 +187,10 @@ export function SubmissionDetailPage() {
       .select("*")
       .eq("id", id)
       .single();
+    // A refetch (realtime handler or the 5s interval) can still be in flight
+    // when the route param changes A→B; without this guard its resolution would
+    // setState the previous submission's data over B. Drop stale writes.
+    if (currentIdRef.current !== id) return;
     if (sub) setSubmission(sub);
 
     const { data: reportData } = await supabase
@@ -190,6 +201,7 @@ export function SubmissionDetailPage() {
       .eq("submission_id", id)
       .is("superseded_at", null)
       .maybeSingle();
+    if (currentIdRef.current !== id) return;
     if (reportData) setGradeReport(reportData);
   }, [id]);
 
@@ -393,15 +405,22 @@ export function SubmissionDetailPage() {
         );
         setImages(sorted);
 
-        // Get signed URLs for images
+        // Sign all image paths in ONE request rather than one awaited round-trip
+        // per image (a submission has 5-8 photos — that was 5-8 serial calls
+        // before any thumbnail rendered). Private bucket → short-lived signed
+        // URLs (US-276).
         const urls: Record<string, string> = {};
-        for (const img of sorted) {
-          const { data: urlData } = await supabase.storage
-            .from("submission-images")
-            // private bucket — short-lived signed URL (US-276)
-            .createSignedUrl(img.storage_path, 900);
-          if (urlData?.signedUrl) {
-            urls[img.id] = urlData.signedUrl;
+        const { data: signed } = await supabase.storage
+          .from("submission-images")
+          .createSignedUrls(
+            sorted.map((img) => img.storage_path),
+            900,
+          );
+        if (signed) {
+          const idByPath = new Map(sorted.map((img) => [img.storage_path, img.id]));
+          for (const entry of signed) {
+            const id = entry.path ? idByPath.get(entry.path) : undefined;
+            if (id && entry.signedUrl) urls[id] = entry.signedUrl;
           }
         }
         if (cancelled) return;

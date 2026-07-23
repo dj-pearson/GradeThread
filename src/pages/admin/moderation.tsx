@@ -45,6 +45,7 @@ import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { EmptyState } from "@/components/ui/empty-state";
+import { safeHref } from "@/lib/safe-url";
 
 interface FlaggedSubmission {
   submission: SubmissionRow;
@@ -843,9 +844,9 @@ function ListingsTab() {
                       <Bell className="mr-1.5 h-4 w-4" />
                       Notify owner
                     </Button>
-                    {row.url && (
+                    {safeHref(row.url) && (
                       <Button size="sm" variant="ghost" asChild>
-                        <a href={row.url} target="_blank" rel="noreferrer">
+                        <a href={safeHref(row.url) ?? undefined} target="_blank" rel="noreferrer">
                           <ExternalLink className="mr-1.5 h-4 w-4" />
                           View
                         </a>

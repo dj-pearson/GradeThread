@@ -1,7 +1,7 @@
 import { Outlet, Link } from "react-router-dom";
 import { Store } from "lucide-react";
 import { BuyerSidebar } from "@/components/buyer/buyer-sidebar";
-import { ErrorBoundary } from "@/components/error-boundary";
+import { RouteErrorBoundary } from "@/components/error-boundary";
 import { useAuthStore } from "@/stores/auth-store";
 
 // US-1802: buyer app shell. A surface parallel to DashboardLayout (seller) with
@@ -39,9 +39,9 @@ export function BuyerLayout() {
           tabIndex={-1}
           className="flex-1 overflow-y-auto bg-background p-6 outline-none"
         >
-          <ErrorBoundary>
+          <RouteErrorBoundary>
             <Outlet />
-          </ErrorBoundary>
+          </RouteErrorBoundary>
         </main>
       </div>
     </div>

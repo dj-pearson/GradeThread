@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { computeStats, ebaySoldSearchUrl } from "@/lib/comps";
 import type { ItemComp } from "@/types/database";
+import { safeHref } from "@/lib/safe-url";
 
 interface Props {
   comps: ItemComp[];
@@ -239,10 +240,10 @@ export function CompEditor({
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              {c.url && (
+              {safeHref(c.url) && (
                 <div className="col-span-12 -mt-1 truncate text-[10px]">
                   <a
-                    href={c.url}
+                    href={safeHref(c.url) ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-brand-red-text underline"

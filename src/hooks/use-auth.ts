@@ -4,7 +4,7 @@ import { queryClient } from "@/lib/query-client";
 import { useAuthStore } from "@/stores/auth-store";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
 import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
-import { initIdleLogout } from "@/lib/idle-logout";
+import { initIdleLogout, clearIdleActivity } from "@/lib/idle-logout";
 import type {
   UserRow,
   WorkspaceMemberRow,
@@ -219,6 +219,9 @@ function initAuth() {
       // shared browser never sees user A's finances/submissions/disputes
       // without a fresh fetch (US-1617 / C4).
       queryClient.clear();
+      // Clear the idle-logout activity stamp so it can't be read as ">12h idle"
+      // for the next user who signs in on this shared browser.
+      clearIdleActivity();
       s.reset();
     }
   });

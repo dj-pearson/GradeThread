@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -88,6 +88,15 @@ export function useRealtimeSubmission(
 ) {
   const queryClient = useQueryClient();
 
+  // Hold onChange in a ref so a non-memoized callback from a caller doesn't tear
+  // down and resubscribe the Supabase realtime channel (a full unsubscribe /
+  // resubscribe round-trip) on every render. The channel binds only to
+  // submissionId; the latest callback is always read from the ref.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
+
   useEffect(() => {
     if (!submissionId) return;
 
@@ -103,7 +112,7 @@ export function useRealtimeSubmission(
         },
         (payload) => {
           queryClient.invalidateQueries({ queryKey: ["submission", submissionId] });
-          onChange?.(payload.new as SubmissionChange);
+          onChangeRef.current?.(payload.new as SubmissionChange);
         }
       )
       .subscribe();
@@ -111,5 +120,5 @@ export function useRealtimeSubmission(
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [submissionId, queryClient, onChange]);
+  }, [submissionId, queryClient]);
 }

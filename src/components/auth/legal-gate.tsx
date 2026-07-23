@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { captureException } from "@/lib/sentry";
 import { ScrollText } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { signOut } from "@/lib/auth";
@@ -48,7 +49,7 @@ export function LegalGate({ children }: { children: React.ReactNode }) {
   const [submitting, setSubmitting] = useState(false);
 
   // Only check once a profile is loaded (i.e. the user is signed in).
-  const { data: status, isLoading } = useQuery<LegalStatus>({
+  const { data: status, isLoading, isError, error } = useQuery<LegalStatus>({
     queryKey: ["legal-status"],
     enabled: !!profile,
     queryFn: async () => {
@@ -60,11 +61,28 @@ export function LegalGate({ children }: { children: React.ReactNode }) {
       return (await res.json()) as LegalStatus;
     },
     staleTime: 5 * 60 * 1000,
+    // A transient failure must not silently bypass the consent gate — retry so a
+    // blip self-heals and the gate appears the moment the status resolves.
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   });
+
+  // If the status endpoint is persistently failing we intentionally fail OPEN
+  // (render the app) rather than lock every user out over a re-acceptance check
+  // most of them don't need — the edge still enforces consent on writes. But the
+  // pass-through must be OBSERVABLE, not silent: report it so a real outage that
+  // is suppressing consent capture gets surfaced instead of hiding.
+  useEffect(() => {
+    if (isError && error) {
+      captureException(error, { tags: { source: "LegalGate.status" } });
+    }
+  }, [isError, error]);
 
   // While the status loads (first navigation only — it's cached after), don't
   // block the app behind a spinner. If acceptance is needed the gate appears the
-  // moment the status resolves; if it isn't, nothing flashes.
+  // moment the status resolves; if it isn't, nothing flashes. On a persistent
+  // error `status` is undefined → we fall through here (documented fail-open,
+  // reported above; the edge enforces consent on writes regardless).
   if (!profile || isLoading || !status?.needsAcceptance) {
     return <>{children}</>;
   }

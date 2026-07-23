@@ -138,7 +138,11 @@ export function BuyerGuaranteeClaimPage() {
                 for what&rsquo;s covered.
               </p>
 
-              <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+              {/* noValidate: the inputs carry required/type="email", so without
+                  this the browser's native validation fires BEFORE handleSubmit,
+                  producing a different error style than the JS validation below
+                  for the same submit. Let the JS handler own validation. */}
+              <form onSubmit={handleSubmit} className="mt-8 space-y-5" noValidate>
                 <div>
                   <Label htmlFor="certificate">Certificate link or code *</Label>
                   <Input

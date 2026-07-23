@@ -151,8 +151,12 @@ export function FlipdeskListingPerformancePage() {
     () => Array.from(new Set(listings.map((l) => l.inventory_item_id))),
     [listings],
   );
+  // Key on the id CONTENTS, not the count: when the set changes but its length
+  // stays equal (one listing sells, another is added), a length-only key would
+  // serve the previous id→title map and titles would resolve to the wrong item.
+  const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
   const { data: titles = {} } = useQuery<Record<string, string>>({
-    queryKey: ["listing_performance_titles", user?.id, itemIds.length],
+    queryKey: ["listing_performance_titles", user?.id, itemIdsKey],
     enabled: itemIds.length > 0,
     queryFn: async () => {
       // Chunk the id list: a single `.in("id", [...])` with hundreds of UUIDs

@@ -217,13 +217,20 @@ export function NewSubmissionPage() {
     if (!workspaceOwnerId) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("inventory_items")
         .select("*")
         .eq("user_id", workspaceOwnerId)
         .is("grade_report_id", null)
         .order("created_at", { ascending: false });
-      if (!cancelled) setInventoryItems((data ?? []) as InventoryItemRow[]);
+      if (cancelled) return;
+      if (error) {
+        // Don't silently render an empty "link to inventory item" list on a
+        // transient failure — the user would think they have no items.
+        toast.error("Couldn't load your inventory items to link.");
+        return;
+      }
+      setInventoryItems((data ?? []) as InventoryItemRow[]);
     })();
     return () => {
       cancelled = true;

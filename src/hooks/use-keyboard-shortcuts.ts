@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export interface KeyboardShortcut {
   /** Key to match, case-insensitive (e.g. "n", "Escape", "/"). */
@@ -36,11 +36,20 @@ export function useKeyboardShortcuts(
   shortcuts: KeyboardShortcut[],
   enabled = true
 ): void {
+  // Every call site passes an inline array literal, so `shortcuts` has a fresh
+  // identity each render. Holding it in a ref (instead of an effect dep) lets us
+  // register ONE stable listener keyed only on `enabled`, rather than tearing
+  // down and re-adding the window keydown listener on every parent re-render.
+  const shortcutsRef = useRef(shortcuts);
+  useEffect(() => {
+    shortcutsRef.current = shortcuts;
+  });
+
   useEffect(() => {
     if (!enabled) return;
 
     function onKey(e: KeyboardEvent) {
-      for (const shortcut of shortcuts) {
+      for (const shortcut of shortcutsRef.current) {
         if (e.key.toLowerCase() !== shortcut.key.toLowerCase()) continue;
 
         const hasMod = e.metaKey || e.ctrlKey;
@@ -57,5 +66,5 @@ export function useKeyboardShortcuts(
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [shortcuts, enabled]);
+  }, [enabled]);
 }

@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { profileUrl } from "@/lib/verified";
 import { shareOrCopy } from "@/lib/share";
 import { track } from "@/lib/analytics";
+import { safeHref } from "@/lib/safe-url";
 
 interface RecentCert {
   id: string;
@@ -133,7 +134,7 @@ function StorefrontCard({ listing }: { listing: StorefrontListing }) {
     </Link>
   ) : (
     <a
-      href={listing.listing_url}
+      href={safeHref(listing.listing_url) ?? undefined}
       target="_blank"
       rel="nofollow noopener"
       className={cardClass}
