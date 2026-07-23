@@ -120,6 +120,13 @@ export const DISPUTE_STATUSES = [
   "rejected",
 ] as const;
 
+// US-2153: how long after a grade is issued it can still be disputed. This is
+// the web copy of the value; the SERVER (grade.ts DISPUTE_WINDOW_DAYS) is the
+// source of truth and enforces it — this only decides whether the "Dispute"
+// affordance is shown. Keep the two numbers equal; the server echoes its window
+// (windowDays) in a DISPUTE_WINDOW_EXPIRED rejection if they ever drift.
+export const DISPUTE_WINDOW_DAYS = 7;
+
 // Predefined dispute reason categories (US: submitter dispute path). A submitter
 // picks one — or "Other" — and can add free-text details. The chosen label is
 // composed into the dispute's `reason` text.

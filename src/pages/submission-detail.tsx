@@ -53,6 +53,7 @@ import { cn } from "@/lib/utils";
 import {
   GRADE_FACTORS,
   DISPUTE_REASONS,
+  DISPUTE_WINDOW_DAYS,
   COUNTERFEIT_RISK_LABELS,
   getScoreColor,
   getTierBadgeClasses,
@@ -459,9 +460,9 @@ export function SubmissionDetailPage() {
     !dispute &&
     (() => {
       const createdAt = new Date(gradeReport.created_at);
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      return createdAt > sevenDaysAgo;
+      const windowStart = new Date();
+      windowStart.setDate(windowStart.getDate() - DISPUTE_WINDOW_DAYS);
+      return createdAt > windowStart;
     })();
 
   // US-949: one-tap retake. Carry the prior submission's garment details, any
