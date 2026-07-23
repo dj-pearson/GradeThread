@@ -78,7 +78,7 @@ Each row: confirm `/health/ready` → `features.<group>` is `"ok"`.
 | `VITE_GOOGLE_SITE_VERIFICATION` / `VITE_BING_SITE_VERIFICATION` | Pages (GSC / Bing) | view-source shows the verification `<meta>` | ☐ |
 | `VITE_RELEASE_SHA=$CF_PAGES_COMMIT_SHA` | Pages build command | footer build tag shows the SHA | ☐ |
 | `VITE_CF_IMAGE_RESIZING` | Pages — `true` ONLY after enabling zone Transformations | images load (no broken srcset) | ☐ |
-| `VITE_SAMPLE_CERTIFICATE_ID` (US-1945 AC4) | Pages — a **real public** cert uuid. Verified live 2026-07-18: `cce9b573-6b29-45e3-ba45-7c0fe1578418` (renders Certificate No. GT-7Y3BCAF). Any id from `https://gradethread.com/sitemap-certs.xml` works — the sitemap only lists published, indexable certs. | homepage sample-certificate card becomes a link to `/cert/<id>` and that page returns 200. Unset ⇒ the card falls back to signup, so a buyer evaluating us never sees a real certificate. | ☐ |
+| `VITE_SAMPLE_CERTIFICATE_ID` (US-1945 AC4) | ✅ Now committed in `.env.production` (`cce9b573-6b29-45e3-ba45-7c0fe1578418`, renders Certificate No. GT-7Y3BCAF) so it's baked in on every Pages build — no dashboard entry needed. To point at a different cert, override in Pages env or edit `.env.production`; any id from `https://gradethread.com/sitemap-certs.xml` is safe (only published, indexable certs). | homepage sample-certificate card links to `/cert/<id>` (returns 200). | ☑ (in code) |
 
 ### 1d. Ads Command Center — "Ads apply enabled" gate (US-1709)
 
