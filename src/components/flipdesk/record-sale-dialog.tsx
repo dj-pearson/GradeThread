@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, DollarSign } from "lucide-react";
@@ -63,6 +63,10 @@ export function RecordSaleDialog({
   });
   const [saving, setSaving] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
+  // Synchronous double-submit guard: `disabled={saving}` only applies next
+  // render, so a fast double-click could insert two `sales` rows (and double
+  // advanceItemStatus), corrupting reconciliation. Flip this before any await.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (item) {
@@ -104,12 +108,14 @@ export function RecordSaleDialog({
 
   async function save() {
     if (!item) return;
+    if (savingRef.current) return;
     if (n(form.sale_price) <= 0) {
       setPriceError("Enter a sale price greater than 0.");
       document.getElementById("sale-price")?.focus();
       return;
     }
     setPriceError(null);
+    savingRef.current = true;
     setSaving(true);
     try {
       const insert: SaleInsert = {
@@ -215,6 +221,7 @@ export function RecordSaleDialog({
         `Failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, Rocket } from "lucide-react";
@@ -32,6 +32,10 @@ export function MarkListedDialog({
   const [price, setPrice] = useState("");
   const [date, setDate] = useState(todayLocalDate());
   const [saving, setSaving] = useState(false);
+  // Synchronous double-submit guard: `disabled={saving}` only takes effect on
+  // the next render, so a fast double-click can fire save() twice and insert two
+  // listing rows. Flip this ref synchronously, before any await.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (item) {
@@ -47,11 +51,13 @@ export function MarkListedDialog({
 
   async function save() {
     if (!item) return;
+    if (savingRef.current) return;
     const p = Number(price);
     if (!Number.isFinite(p) || p <= 0) {
       toast.error("Enter a valid list price.");
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       const payload: ListingInsert = {
@@ -87,6 +93,7 @@ export function MarkListedDialog({
         `Failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
