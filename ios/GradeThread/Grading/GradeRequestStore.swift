@@ -275,7 +275,7 @@ final class GradeRequestStore {
             }
             // US-638: exponential backoff (1s→2s→4s→… capped) instead of a
             // constant 3s loop, so a long grade stops hammering the endpoint.
-            try? await Task.sleep(nanoseconds: Backoff.delayNanos(attempt: attempt, base: 1, cap: 8))
+            try? await Task.sleep(nanoseconds: Backoff.jitteredDelayNanos(attempt: attempt, base: 1, cap: 8))
         }
         // Window elapsed without a terminal state.
         phase = .stillProcessing

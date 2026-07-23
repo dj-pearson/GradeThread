@@ -511,6 +511,13 @@ struct LoginView: View {
     /// Throws ``Captcha/Error`` — `.cancelled` when the user backs out.
     private func resolveCaptcha() async throws -> String? {
         guard let siteKey = AppConfig.turnstileSiteKey else { return nil }
+        // Don't clobber an in-flight challenge. Overwriting `captchaRequest` while a
+        // prior continuation is still suspended (e.g. rapid double-taps on Forgot
+        // password, which — unlike submit — doesn't set isSubmitting) drops that
+        // continuation un-resumed: a leaked CheckedContinuation whose awaiting auth
+        // task hangs forever. Refuse the second challenge (treated as a silent
+        // cancel by handleCaptchaFailure) so the first one resolves normally.
+        guard captchaRequest == nil else { throw Captcha.Error.cancelled }
         return try await withCheckedThrowingContinuation { continuation in
             captchaRequest = CaptchaRequest(siteKey: siteKey, continuation: continuation)
         }

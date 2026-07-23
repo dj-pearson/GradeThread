@@ -251,19 +251,41 @@ actor SyncEngine {
             // permanently (the next delta pull's `gt(cursor)` skips them). A failed
             // merge keeps its cursor put so the rows are re-fetched + re-merged next
             // pass.
-            let itemsOk = await mergeActor.mergeItems(
-                payload.items,
-                primaryPhotos: payload.primaryPhotos,
-                prune: payload.isFullItemSync
-            )
-            let photosOk = await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
-            let salesOk = await mergeActor.mergeSales(payload.sales)
-            let expensesOk = await mergeActor.mergeExpenses(payload.expenses)
-            let listingsOk = await mergeActor.mergeListings(payload.listings)
+            //
+            // US-1493 (per-merge scope guard): re-check the epoch before EACH
+            // merge, not only before the first (guard above) and after the last
+            // (guard below). The SyncEngine actor suspends at every
+            // `await mergeActor.merge*`, and a workspace switch / sign-out runs
+            // `invalidateScope()` — which bumps the epoch BEFORE it wipes the local
+            // cache — on this same actor, so it can land BETWEEN two merges. Without
+            // a per-merge guard the remaining merges keep writing the previous
+            // tenant's rows into the freshly-wiped store; sales / expenses / listings
+            // have no full-backfill prune, so they'd linger in the new tenant's Money
+            // tab until the throttled reconcile (~15 min) removed them. Bailing here
+            // caps the leak at the single merge already in flight at the switch (its
+            // rows predate — and are erased by — the wipe).
+            func scopeHeld() -> Bool {
+                Self.pullResultApplies(startEpoch: startEpoch, currentEpoch: scopeEpoch)
+            }
+            var itemsOk = false, photosOk = false, salesOk = false
+            var expensesOk = false, listingsOk = false, disputesOk = false
+            if scopeHeld() {
+                itemsOk = await mergeActor.mergeItems(
+                    payload.items,
+                    primaryPhotos: payload.primaryPhotos,
+                    prune: payload.isFullItemSync
+                )
+            }
+            if scopeHeld() {
+                photosOk = await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
+            }
+            if scopeHeld() { salesOk = await mergeActor.mergeSales(payload.sales) }
+            if scopeHeld() { expensesOk = await mergeActor.mergeExpenses(payload.expenses) }
+            if scopeHeld() { listingsOk = await mergeActor.mergeListings(payload.listings) }
             // US-819: stamp each item's dispute status from the changed disputes.
             // Runs after mergeItems so the items (and their grade_report_id) are
             // already present for the grade_report_id → item mapping.
-            let disputesOk = await mergeActor.mergeDisputes(payload.disputes)
+            if scopeHeld() { disputesOk = await mergeActor.mergeDisputes(payload.disputes) }
 
             // Advance watermarks ONLY after a successful merge (US-633) so a
             // dropped pass re-fetches the missed rows next time. US-1210: each
@@ -395,8 +417,10 @@ actor SyncEngine {
 
     /// Fetches the surviving server `id` set for `table` (id column only, so the
     /// payload stays tiny even for thousands of rows), paginated + bounded by
-    /// `maxRowsPerPass`. Returns nil on any error so the caller skips pruning
-    /// that table rather than pruning against a partial view.
+    /// `maxRowsPerPass`. Returns nil when the set cannot be trusted as complete —
+    /// on any error, OR when the scan hits the `maxRowsPerPass` cap with rows still
+    /// remaining — so the caller SKIPS pruning that table rather than pruning
+    /// against a partial view (which would delete every local row above the cap).
     private func fetchServerIds(table: String, scopeUserId: String?) async -> Set<String>? {
         var ids = Set<String>()
         var offset = 0
@@ -410,9 +434,23 @@ actor SyncEngine {
                     .execute()
                 let rows = (try? JSONSerialization.jsonObject(with: response.data)) as? [[String: Any]] ?? []
                 for row in rows { if let id = row["id"] as? String { ids.insert(id) } }
+                // A short page means we've read every surviving id → complete set,
+                // safe to prune against.
                 if rows.count < Self.pageSize { break }
                 offset += Self.pageSize
-                if offset >= Self.maxRowsPerPass { break }
+                if offset >= Self.maxRowsPerPass {
+                    // Hit the per-pass row cap on a still-full page, so more rows
+                    // almost certainly exist server-side and this id set is
+                    // truncated (it holds only the `maxRowsPerPass` lowest ids).
+                    // Return nil to SKIP pruning: reconciling against a partial
+                    // surviving-id set would delete every local row above the cap,
+                    // which the next delta pull then re-fetches and the next
+                    // reconcile prunes again — delete/re-fetch churn with rows
+                    // vanishing from the UI for large accounts. Losing this pass's
+                    // prune is harmless; server-deletes reconcile once the account
+                    // is back under the cap.
+                    return nil
+                }
             }
             return ids
         } catch {
@@ -1225,7 +1263,13 @@ actor SyncEngine {
         // fails transiently and B still flushed, the next pass would replay A
         // alone and revert the row to the older edit. Blocking the target keeps
         // B queued behind A so per-target order is preserved across passes.
-        var blockedTargetIds = Set<String>()
+        // Seed with the targets of already-stuck mutations. They're filtered out of
+        // `mutations` (they wait for an inspector Retry), so they can't block their
+        // own successors from inside the loop the way a transient in-pass failure
+        // does. Without this seed a newer same-target update flushes ahead of a
+        // stuck older one, which then reverts the row when the user later taps Retry
+        // on the stuck mutation — the lost-update class US-1496 exists to prevent.
+        var blockedTargetIds = Self.stuckTargetIds(allMutations)
         for mutation in mutations {
             // US-1147: stop cleanly on teardown — replays are idempotent so the
             // remaining mutations simply flush on the next start/sync. Also break on
@@ -1356,6 +1400,17 @@ actor SyncEngine {
     /// their `hasLocalChanges` flag (and stay protected from delete-reconcile).
     static func itemIdsWithPendingEdits(_ queue: [PendingMutationSnapshot]) -> Set<String> {
         Set(queue.filter { isInventoryItemEdit($0.kind) }.compactMap(\.targetId))
+    }
+
+    /// US-1496 (stuck predecessor): target ids of mutations that have exhausted
+    /// their auto-retry budget. These are filtered OUT of the flush loop (they wait
+    /// for an inspector Retry), so — unlike a mutation that fails DURING the pass —
+    /// a stuck predecessor never inserts its own target into `blockedTargetIds`.
+    /// Seeding the blocked set with them holds a newer same-target mutation behind
+    /// the stuck older one, so it can't flush ahead and leave the stuck snapshot to
+    /// replay alone later (on a manual Retry) and revert the row to the older edit.
+    static func stuckTargetIds(_ queue: [PendingMutationSnapshot]) -> Set<String> {
+        Set(queue.filter { $0.retryCount >= maxRetries }.compactMap(\.targetId))
     }
 
     /// US-1496: true when `mutation` must be held this pass because an earlier

@@ -140,7 +140,7 @@ public final class EbaySyncService {
             if Task.isCancelled { return .timedOut }
             do {
                 try await Task.sleep(
-                    nanoseconds: Backoff.delayNanos(attempt: pollAttempt, base: policy.interval, cap: max(policy.interval, 8))
+                    nanoseconds: Backoff.jitteredDelayNanos(attempt: pollAttempt, base: policy.interval, cap: max(policy.interval, 8))
                 )
             } catch {
                 // Sleep throws CancellationError when the Task is cancelled

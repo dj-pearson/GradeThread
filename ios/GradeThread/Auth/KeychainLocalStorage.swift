@@ -24,14 +24,20 @@ public final class KeychainLocalStorage: AuthLocalStorage, @unchecked Sendable {
     }
 
     public func store(key: String, value: Data) throws {
-        // Upsert pattern: try update first; if no item exists, add. Saves a
-        // delete+add round-trip and is atomic on the Keychain side.
+        // Upsert: try update first; if no item exists yet, add. NOT a single
+        // atomic transaction — SecItemUpdate + SecItemAdd are two separate calls —
+        // so two concurrent stores of a not-yet-existing key can both see
+        // errSecItemNotFound and race to add; the loser gets errSecDuplicateItem.
+        // This type is `@unchecked Sendable` and lock-free, and the Supabase SDK
+        // doesn't guarantee it serializes session writes, so treat a lost add race
+        // as "someone just created it" and fold back to an update rather than
+        // throwing — otherwise a legitimate token write spuriously fails.
         let query = baseQuery(for: key)
-        let update: [String: Any] = [
+        let attrs: [String: Any] = [
             kSecValueData as String: value,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
-        let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        let updateStatus = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
 
         switch updateStatus {
         case errSecSuccess:
@@ -42,7 +48,17 @@ public final class KeychainLocalStorage: AuthLocalStorage, @unchecked Sendable {
             addQuery[kSecAttrAccessible as String] =
                 kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
+            switch addStatus {
+            case errSecSuccess:
+                return
+            case errSecDuplicateItem:
+                // Lost the add race to a concurrent store — the item now exists,
+                // so update it instead of reporting a spurious failure.
+                let retry = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+                guard retry == errSecSuccess else {
+                    throw KeychainError.statusFailure(retry, op: "update", key: key)
+                }
+            default:
                 throw KeychainError.statusFailure(addStatus, op: "add", key: key)
             }
         default:

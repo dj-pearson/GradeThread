@@ -203,6 +203,32 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(Backoff.delayNanos(attempt: 9, base: 1, cap: 8), 8_000_000_000)
     }
 
+    func test_jitteredBackoff_staysWithinHalfToFullWindow() {
+        // Equal jitter: the delay is d/2 at fraction 0, d at fraction 1, and the
+        // midpoint at 0.5 — always within [d/2, d], never below half the backoff.
+        let ceiling = Backoff.delayNanos(attempt: 2, base: 1, cap: 8)   // 4s
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 2, base: 1, cap: 8, randomFraction: 0),
+            ceiling / 2)
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 2, base: 1, cap: 8, randomFraction: 1),
+            ceiling)
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 2, base: 1, cap: 8, randomFraction: 0.5),
+            ceiling / 2 + ceiling / 4)
+    }
+
+    func test_jitteredBackoff_clampsOutOfRangeFraction() {
+        // An out-of-range fraction can't push the delay outside [d/2, d].
+        let ceiling = Backoff.delayNanos(attempt: 1, base: 1, cap: 8)   // 2s
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 1, base: 1, cap: 8, randomFraction: -5),
+            ceiling / 2)
+        XCTAssertEqual(
+            Backoff.jitteredDelayNanos(attempt: 1, base: 1, cap: 8, randomFraction: 5),
+            ceiling)
+    }
+
     // MARK: - ConnectivityDebouncer (US-997)
 
     /// Five reconnects in quick succession (a Wi-Fi↔cell flap storm) must
@@ -340,6 +366,28 @@ final class SyncTests: XCTestCase {
         rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.title, "Linen blazer (updated)")
+    }
+
+    func test_mergeActor_staleDeltaDoesNotRewindNewerRow() async throws {
+        // A non-dirty row already holding the newer server state (T2) must not be
+        // clobbered by an older snapshot (T1<T2) arriving in a later/racing merge —
+        // e.g. a realtime apply landed T2, then a bulk delta pull carrying T1 runs.
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Fresh", updated: "2026-06-02T00:00:00Z")],
+            primaryPhotos: [:], prune: false
+        )
+        // Stale delta for the same id arrives after — must be ignored, not applied.
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Stale", updated: "2026-06-01T00:00:00Z")],
+            primaryPhotos: [:], prune: false
+        )
+
+        let rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.title, "Fresh")   // not rewound to "Stale"
     }
 
     func test_mergeActor_prunesStaleItemsOnFullBackfill() async throws {
@@ -888,6 +936,31 @@ final class SyncTests: XCTestCase {
         // B (same target) is now held; an unrelated item is not.
         XCTAssertTrue(SyncEngine.shouldHoldForBlockedTarget(b, blockedTargetIds: blocked))
         XCTAssertFalse(SyncEngine.shouldHoldForBlockedTarget(other, blockedTargetIds: blocked))
+    }
+
+    /// Stuck-predecessor case: an older update A that has exhausted its retry
+    /// budget is filtered out of the flush loop, so it can't block its own
+    /// successor from inside the loop. Seeding `blockedTargetIds` from the stuck
+    /// set holds the newer update B behind it — otherwise B flushes and dequeues,
+    /// and a later manual Retry of A replays the older snapshot and reverts the row.
+    func test_sameTargetOrdering_stuckPredecessorHoldsLaterEdit() {
+        let stuckA = snapshot(kind: .updateInventoryItem, targetId: "item-1", retryCount: 6)
+        let b = snapshot(kind: .updateInventoryItem, targetId: "item-1")
+        let other = snapshot(kind: .updateInventoryItem, targetId: "item-2")
+
+        // The blocked set is seeded from stuck mutations BEFORE the loop runs.
+        let blocked = SyncEngine.stuckTargetIds([stuckA, b, other])
+        XCTAssertEqual(blocked, ["item-1"])
+        // B (same target as the stuck A) is held; an unrelated item is not.
+        XCTAssertTrue(SyncEngine.shouldHoldForBlockedTarget(b, blockedTargetIds: blocked))
+        XCTAssertFalse(SyncEngine.shouldHoldForBlockedTarget(other, blockedTargetIds: blocked))
+    }
+
+    /// A retry-eligible mutation (under the budget) does not seed the blocked set —
+    /// only genuinely stuck predecessors do; in-pass failures block via the loop.
+    func test_stuckTargetIds_ignoresRetryEligibleMutations() {
+        let retrying = snapshot(kind: .updateInventoryItem, targetId: "item-1", retryCount: 5)
+        XCTAssertTrue(SyncEngine.stuckTargetIds([retrying]).isEmpty)
     }
 
     /// A mutation with no targetId (e.g. a create keyed only by payload) is never

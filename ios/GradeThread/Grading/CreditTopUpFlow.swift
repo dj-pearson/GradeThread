@@ -70,7 +70,7 @@ final class CreditTopUpFlow {
             }
             // No sleep after the final attempt — we're about to give up.
             if attempt < maxPolls - 1 {
-                await sleep(Backoff.delayNanos(attempt: attempt, base: 1, cap: 8))
+                await sleep(Backoff.jitteredDelayNanos(attempt: attempt, base: 1, cap: 8))
             }
         }
         state = .timedOut
