@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { EbayPromotionsCard } from "@/components/flipdesk/ebay-promotions-card";
+import { EbayProgramsCard } from "@/components/flipdesk/ebay-programs-card";
 import {
   Table,
   TableBody,
@@ -1228,6 +1229,9 @@ export function FlipdeskMarketplacesPage() {
           {connection && <PromotedListingsSection />}
           {/* US-1448: surface the seller's eBay Promotions Manager offers. */}
           {connection && <EbayPromotionsCard />}
+          {/* US-2157: eBay account-level program opt-in (out-of-stock control,
+              business policy management). */}
+          {connection && <EbayProgramsCard />}
         </div>
       </section>
 

@@ -2571,3 +2571,102 @@ export function useMigrateEbayListings() {
     onError: (e) => toast.error(e.message),
   });
 }
+
+// ── US-2157: eBay seller programs (opt-in/opt-out) ───────────────────
+//
+// The routes (GET/POST/DELETE /programs) shipped with US-1979 but never got a
+// frontend, so the only way a seller could change these was eBay Seller Hub.
+//
+// The one that matters is OUT_OF_STOCK_CONTROL. eBay ENDS a multi-quantity
+// listing the moment quantity hits 0; for evergreen clothing (the same tee in
+// eight sizes, restocked continuously) that loses the item id, the watchers,
+// the search standing and the sales history. Opted in, the listing stays live
+// at qty 0 and keeps all of it.
+//
+// It stays an explicit opt-in and this UI never decides for the seller: for a
+// single-quantity thrift item — most of FlipDesk — eBay's default is CORRECT,
+// and a blanket opt-in would leave sold-out one-offs sitting live. The copy
+// below has to carry that trade-off, not just the upside.
+
+/** Slug in the route path ←→ what the seller is actually turning on. */
+export const EBAY_PROGRAMS = [
+  {
+    slug: "out-of-stock",
+    apiName: "OUT_OF_STOCK_CONTROL",
+    label: "Out-of-stock control",
+    description:
+      "Keep a listing live at zero quantity instead of letting eBay end it — so restocked items keep their item id, watchers and sales history. Leave off for one-of-a-kind items, or they stay listed after they sell.",
+  },
+  {
+    slug: "selling-policy-management",
+    apiName: "SELLING_POLICY_MANAGEMENT",
+    label: "Business policy management",
+    description:
+      "Required for FlipDesk to attach your shipping, payment and return policies when it publishes. Turn this off and publishing falls back to whatever eBay defaults your account has.",
+  },
+] as const;
+
+export type EbayProgramSlug = (typeof EBAY_PROGRAMS)[number]["slug"];
+
+export interface EbayPrograms {
+  programs: string[];
+  out_of_stock: boolean;
+}
+
+export function useEbayPrograms(enabled = true) {
+  const tenantKey = useEbayTenantKey();
+  return useQuery({
+    queryKey: ["ebay_programs", tenantKey],
+    enabled,
+    staleTime: 30 * 60_000,
+    queryFn: async (): Promise<EbayPrograms> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/programs`, {
+        headers: await ebayHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not load your eBay programs.");
+      }
+      return json as EbayPrograms;
+    },
+  });
+}
+
+/**
+ * Opt in / out of a program. The edge treats "already in the state you asked
+ * for" as success, so a double-click is harmless rather than an error toast.
+ */
+export function useSetEbayProgram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      vars: { slug: EbayProgramSlug; optIn: boolean },
+    ): Promise<{ ok: boolean }> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/programs/${vars.slug}`,
+        {
+          method: vars.optIn ? "POST" : "DELETE",
+          headers: await ebayHeaders(),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          json.error ||
+            (vars.optIn
+              ? "eBay rejected the opt-in."
+              : "eBay rejected the opt-out."),
+        );
+      }
+      return json as { ok: boolean };
+    },
+    onSuccess: (_d, vars) => {
+      const program = EBAY_PROGRAMS.find((p) => p.slug === vars.slug);
+      toast.success(
+        `${program?.label ?? "Program"} ${vars.optIn ? "turned on" : "turned off"}.`,
+      );
+      void qc.invalidateQueries({ queryKey: ["ebay_programs"] });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+}
