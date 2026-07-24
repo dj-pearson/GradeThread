@@ -4095,16 +4095,17 @@
     {
       "id": "US-2158",
       "priority": 73,
-      "title": "eBay compliance violations: sellers see a count they cannot open or fix",
-      "description": "As a reseller, I want to open the actual eBay listing violations and apply the recommended fix, so the Listing Health count is actionable instead of just alarming.",
+      "title": "eBay compliance: sellers see violation COUNTS with no way to see which listings or why",
+      "description": "As a reseller, I want to open the actual eBay listing violations — which listings, and the reasons eBay gave — so Listing Health is diagnosable instead of a count plus a blind bulk-fix button.",
       "acceptanceCriteria": [
-        "ebay-listing-health-card.tsx links through to a violations view backed by GET /api/flipdesk/ebay/compliance/violations",
-        "Each violation shows the listing, the compliance type, the reason, and eBay recommended remedy",
-        "A one-click fix calls POST /compliance/apply-recommendations/:id and refreshes both the violations list and the summary",
-        "Violations with no eBay-supplied recommendation render as read-only with a deep link to the eBay listing",
-        "Empty state reads as healthy, not broken"
+        "GET /api/flipdesk/ebay/compliance/violations is consumed: each summary row in ebay-listing-health-card.tsx expands to the per-listing detail for that compliance type",
+        "Each violation shows the item title (or SKU), the eBay listing id, and the reasons eBay returned",
+        "A per-listing fix applies that one listing recommendations and revises it, instead of only the existing all-or-nothing bulk apply",
+        "A violation with no aspectRecommendations renders read-only with a deep link to the eBay listing rather than a fix button that would no-op",
+        "useListingComplianceFlags selects platform_listing_id and the item title so eBay listing ids can be matched back to local rows",
+        "Detail is fetched lazily per compliance type — expanding is what triggers the call, not rendering the card"
       ],
-      "notes": "[P2][FlipDesk/eBay] Found during the 2026-07-24 integration review. GET /compliance/violations (flipdesk-ebay.ts:946) and POST /compliance/apply-recommendations/:id (:1033) are implemented; only the aggregate /compliance/summary is consumed (use-ebay.ts:234). The fix endpoint has never been reachable from the UI.",
+      "notes": "[P2][FlipDesk/eBay] Found during the 2026-07-24 integration review; scope CORRECTED after reading the card — POST /compliance/apply-recommendations/:id is already wired as a bulk action (useApplyComplianceRecommendations + useEbayReviseListing in ebay-listing-health-card.tsx), so the fix action is NOT missing. What is genuinely unused is GET /compliance/violations (flipdesk-ebay.ts:946): nothing in src/ references it, so a seller sees \"3 listings with compliance issues\" and cannot see which three or why.",
       "passes": false
     },
     {

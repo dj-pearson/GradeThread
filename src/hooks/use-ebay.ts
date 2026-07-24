@@ -273,6 +273,12 @@ export interface ListingComplianceFlag {
   inventory_item_id: string;
   compliance_violation_count: number;
   compliance_types: string[] | null;
+  // US-2158: eBay returns violations keyed by ITS listing id, so the detail view
+  // needs this to match a violation back to the local row the fix acts on. The
+  // title is what makes the row readable — a bare eBay id names nothing.
+  platform_listing_id: string | null;
+  listing_url: string | null;
+  inventory_items: { title: string | null } | null;
 }
 export function useListingComplianceFlags() {
   const user = useAuthStore((s) => s.user);
@@ -284,11 +290,60 @@ export function useListingComplianceFlags() {
       const { data, error } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, compliance_violation_count, compliance_types",
+          "id, inventory_item_id, compliance_violation_count, compliance_types, " +
+            "platform_listing_id, listing_url, inventory_items(title)",
         )
         .gt("compliance_violation_count", 0);
       if (error) throw error;
       return (data ?? []) as unknown as ListingComplianceFlag[];
+    },
+  });
+}
+
+// US-2158: the per-listing violation DETAIL behind the summary counts. Until
+// this, GET /compliance/violations had no caller at all — a seller saw "3
+// listings with compliance issues" and had no way to learn which three or why.
+//
+// Fetched per compliance type and only when a summary row is expanded: each
+// call is a live eBay round-trip, so loading every type up front would spend
+// several on data nobody asked to see.
+export interface EbayAspectRecommendation {
+  name: string;
+  values: string[];
+}
+export interface EbayListingViolation {
+  listingId: string | null;
+  sku: string | null;
+  offerId: string | null;
+  complianceType: string;
+  reasons: string[];
+  aspectRecommendations: EbayAspectRecommendation[];
+}
+
+export function useEbayListingViolations(
+  complianceType: string,
+  enabled: boolean,
+) {
+  const tenantKey = useEbayTenantKey();
+  return useQuery({
+    queryKey: ["ebay_listing_violations", tenantKey, complianceType],
+    enabled,
+    staleTime: 10 * 60_000,
+    queryFn: async (): Promise<{
+      access: boolean;
+      violations?: EbayListingViolation[];
+    }> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/compliance/violations?type=${
+          encodeURIComponent(complianceType)
+        }`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not load eBay listing violations.");
+      }
+      return json as { access: boolean; violations?: EbayListingViolation[] };
     },
   });
 }
