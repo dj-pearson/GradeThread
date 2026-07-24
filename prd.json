@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2154",
+  "nextId": "US-2155",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4030,6 +4030,21 @@
         "Existing duplicate dispute rows are identified before the constraint is added, so the migration cannot fail on live data"
       ],
       "notes": "[P2][Grading/Edge] Found while porting the dispute flow for US-1340. The 7-day window lives in TWO client files with no server check, and the /dispute route inserts unconditionally: it verifies ownership and evidence but never looks for an existing dispute or at the report age. So the window is advisory and the re-file gate is cosmetic. Low severity today because filing is a UI action, but the duplicate case is reachable by an ordinary double-tap on a slow connection, and duplicates land in a human reviewer queue. The Android client (US-1340) gates on both client-side, matching web and iOS. | 2026-07-23 CODE COMPLETE (branch claude/session-planning-jokq5h), migration HELD for prod apply. AC1 (window): POST /api/grade/dispute now rejects a filing for a report older than DISPUTE_WINDOW_DAYS (7) with a typed 422 { code:'DISPUTE_WINDOW_EXPIRED', windowDays } (grade.ts) — previously only client UI checked age. AC2 (duplicate): the route SELECTs for an existing kind='grade' dispute on (ownerId, gradeReportId) and refuses with a 409 { code:'DISPUTE_ALREADY_EXISTS' }; a raced insert that beats the SELECT is caught via the 23505 unique-violation and returned as the same 409 instead of a 500. AC3 (constraint) + AC5 (dedup): migration 00493 deletes pre-existing duplicate grade disputes (keep earliest per user_id,grade_report_id) THEN builds the unique index, so it cannot fail on live data. DEVIATION FROM LITERAL AC3, documented: used a PARTIAL unique index on (user_id, grade_report_id) WHERE kind='grade', NOT the blanket UNIQUE the AC names — AC3 predates the kind column (00489); a blanket constraint would wrongly block a grade dispute and an authenticity appeal from coexisting on one report, and the authenticity path is deliberately re-fileable so it is left untouched. AC4 (canonical window): the SERVER is now the source of truth and echoes windowDays in the rejection; web inline '7' replaced by DISPUTE_WINDOW_DAYS in src/lib/constants.ts (used by submission-detail.tsx), and ios/GradeThread/Grading/DisputeReason.swift's GradeDisputeWindow.days comment now states the server enforces + is authoritative. Verified in-sandbox: web tsc -b clean (pinned TS 5.9.3; the env's TS 6.0.2 trips a pre-existing baseUrl-deprecation error unrelated to this change) + eslint clean on touched files. Deno not installed in this sandbox so the edge change was NOT deno-checked here — CI (deno lane) + verify:db (Docker, runs 00493 on a fresh schema) cover it. KEPT passes:false: 00493 is a HELD migration (packaged in PENDING_MIGRATIONS.md) — the duplicate gate is only race-proof once the index exists in prod. Flip to true after the SQL is applied (apply-prod-migrations.sh) + NOTIFY pgrst + edge redeploy."
+    },
+    {
+      "id": "US-2154",
+      "priority": 2400,
+      "passes": false,
+      "title": "Zoom/crop-tool grading enhancements: magnify defect crops + re-read illegible labels & suspected-manipulation photos",
+      "description": "As the grading team, we want the Forensic high-resolution pass to (a) magnify defect crops far more (the 320px upscale floor wasted the vision model’s resolution) and (b) extend the re-read beyond defects to illegible care labels (recover fiber composition that feeds the composite’s fabric criteria) and photos the first pass flagged as possibly manipulated (sharpen the tamper tells before human review), applying the Anthropic crop-tool cookbook pattern to raise confidence and grading efficiency.",
+      "acceptanceCriteria": [
+        "Defect crops upscale to a 768px floor and downscale to a 1536px cap (was a flat 320px floor); pure sizing change, no prompt-version change.",
+        "Label re-read: selectLabelsForReread picks illegible / no-fiber labels; mergeLabelReread recovers fiber_content only when the original had none and only improves legibility, never regressing or touching scores.",
+        "Authenticity re-read: selectImagesForAuthenticityReread picks manipulation-suspected images; mergeAuthenticityReread is one-directional (suspicion sticky, confidence max, tells unioned) so a re-read can never launder a tampered photo clean.",
+        "Both new re-reads run ONLY under the paid Forensic add-on gate (wantForensic) on both the first-pass and escalation paths; standard grades are byte-identical (best-effort, bounded, download-capped, never fail a paid grade).",
+        "Reuses the existing per-image prompt (label/photo image_type) — no PER_IMAGE_PROMPT_VERSION bump; pure selector/merge logic unit-tested in grading-zoom_test.ts."
+      ],
+      "notes": "Applies multimodal/crop_tool.ipynb. Defect zoom = US-1035/US-1296. Future option: ungate the label re-read onto all grades (product/pricing decision) or an agentic model-requested zoom (conflicts with forced structured outputs)."
     }
   ]
 }
