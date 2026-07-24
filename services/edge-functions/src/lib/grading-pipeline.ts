@@ -4,9 +4,13 @@ import { deleteCertImages } from "./cloudflare-purge.ts";
 import {
   analyzeImage,
   compositeGrade,
+  mergeAuthenticityReread,
+  mergeLabelReread,
   mergeZoomIntoIssue,
   partitionImageResults,
   selectDefectsForZoom,
+  selectImagesForAuthenticityReread,
+  selectLabelsForReread,
   selectVerificationImages,
   PARTIAL_IMAGE_CONFIDENCE_CAP,
   type SettledImage,
@@ -135,7 +139,13 @@ export function mediaTypeForVision(bytes: Uint8Array, storagePath: string): stri
 // small defect instead of a sub-pixel speck. Returns JPEG bytes, or null on any
 // decode/crop failure (the zoom for that defect is then skipped).
 const ZOOM_PAD_FRAC = 0.3; // context around the defect box
-const ZOOM_MIN_PX = 320; // upscale crops whose long edge is below this
+// US-2154: 320px was far below the vision model's usable resolution (~1568px),
+// so a magnified defect crop was still handed to the model as a thumbnail. Raise
+// the upscale floor so a small crop actually fills real pixels, and cap the long
+// edge so a large region stays token-bounded (the crop-tool cookbook's magnify
+// insight, both directions). Crops sit between [ZOOM_MIN_PX, ZOOM_MAX_PX].
+const ZOOM_MIN_PX = 768; // upscale crops whose long edge is below this
+const ZOOM_MAX_PX = 1536; // downscale crops whose long edge exceeds this
 const ZOOM_MAX_DOWNLOADS = 4; // cap distinct originals fetched per submission
 
 async function cropDefectRegion(
@@ -162,8 +172,14 @@ async function cropDefectRegion(
     if (pw < 2 || ph < 2) return null;
     const crop = img.clone().crop(px, py, pw, ph);
     const longEdge = Math.max(crop.width, crop.height);
-    if (longEdge < ZOOM_MIN_PX) {
-      const scale = ZOOM_MIN_PX / longEdge;
+    // US-2154: magnify a tiny crop up to the floor, or shrink an oversized one to
+    // the cap, so the re-analysis sees real detail without wasting tokens.
+    const scale = longEdge < ZOOM_MIN_PX
+      ? ZOOM_MIN_PX / longEdge
+      : longEdge > ZOOM_MAX_PX
+      ? ZOOM_MAX_PX / longEdge
+      : 1;
+    if (scale !== 1) {
       crop.resize(
         Math.max(1, Math.round(crop.width * scale)),
         Math.max(1, Math.round(crop.height * scale)),
@@ -262,6 +278,132 @@ async function runDefectZoomPass(
   return updated;
 }
 
+// US-2154: re-encode a full retained ORIGINAL for a whole-image re-read (label
+// legibility / authenticity). Magnifies a small original up to the floor and
+// caps a large one, mirroring cropDefectRegion's sizing. Returns JPEG bytes or
+// null on any decode failure (the re-read for that image is then skipped).
+async function reencodeOriginalForReread(
+  bytes: Uint8Array,
+): Promise<Uint8Array | null> {
+  try {
+    const img = await Image.decode(bytes);
+    const longEdge = Math.max(img.width, img.height);
+    const scale = longEdge > ZOOM_MAX_PX
+      ? ZOOM_MAX_PX / longEdge
+      : longEdge < ZOOM_MIN_PX
+      ? ZOOM_MIN_PX / longEdge
+      : 1;
+    if (scale !== 1) {
+      img.resize(
+        Math.max(1, Math.round(img.width * scale)),
+        Math.max(1, Math.round(img.height * scale)),
+      );
+    }
+    return await img.encodeJPEG(92);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * US-2154: high-res re-read of illegible labels (recover the fiber composition
+ * that feeds the composite's fabric criteria) and possibly-manipulated photos
+ * (sharpen the tamper tells before the grade is held for review). Re-reads the
+ * retained ORIGINAL of the flagged image with the existing per-image prompt, then
+ * merges the sharper read back. Same best-effort + bounded contract as the defect
+ * zoom: capped candidates, downloads cached/capped, and any failure leaves the
+ * first-pass read intact — a re-read must never fail a paid grade.
+ */
+async function runRereadPass(
+  perImageResults: PerImageAnalysis[],
+  images: ZoomImageRow[],
+  submission: { garment_type: string; garment_category: string },
+  styleHint: string[],
+  bucketKey?: string,
+  modelOverride?: string,
+): Promise<PerImageAnalysis[]> {
+  const labelCands = selectLabelsForReread(perImageResults);
+  const authCands = selectImagesForAuthenticityReread(perImageResults);
+  if (labelCands.length === 0 && authCands.length === 0) return perImageResults;
+
+  // image_type → best source (prefer the retained uncompressed original).
+  const srcByType = new Map<string, string>();
+  for (const img of images) {
+    if (img.storage_path && !srcByType.has(img.image_type)) {
+      srcByType.set(img.image_type, img.original_storage_path || img.storage_path);
+    }
+  }
+
+  const updated = perImageResults.map((r) => ({ ...r }));
+  const byType = new Map(updated.map((r) => [r.image_type, r]));
+  const bytesCache = new Map<string, Uint8Array | null>();
+  const rereadCache = new Map<string, PerImageAnalysis | null>();
+
+  // Re-read one image's original at high resolution (cached per image_type so a
+  // label that's both illegible AND flagged only costs one extra vision call).
+  const rereadImage = async (
+    image_type: string,
+  ): Promise<PerImageAnalysis | null> => {
+    if (rereadCache.has(image_type)) return rereadCache.get(image_type) ?? null;
+    let result: PerImageAnalysis | null = null;
+    const srcPath = srcByType.get(image_type);
+    if (srcPath) {
+      let bytes = bytesCache.get(srcPath);
+      if (bytes === undefined && bytesCache.size < ZOOM_MAX_DOWNLOADS) {
+        const { data: blob, error } = await supabaseAdmin.storage
+          .from("submission-images")
+          .download(srcPath);
+        bytes = error || !blob ? null : new Uint8Array(await blob.arrayBuffer());
+        bytesCache.set(srcPath, bytes);
+      }
+      if (bytes) {
+        const encoded = await reencodeOriginalForReread(bytes);
+        if (encoded) {
+          const dataUri = `data:image/jpeg;base64,${uint8ToBase64(encoded)}`;
+          result = await analyzeImage(
+            dataUri,
+            image_type,
+            submission.garment_type,
+            submission.garment_category,
+            styleHint,
+            undefined,
+            modelOverride,
+            bucketKey,
+          );
+        }
+      }
+    }
+    rereadCache.set(image_type, result);
+    return result;
+  };
+
+  for (const cand of labelCands) {
+    try {
+      const rr = await rereadImage(cand.image_type);
+      const target = byType.get(cand.image_type);
+      if (rr && target) Object.assign(target, mergeLabelReread(target, rr));
+    } catch (err) {
+      console.error(
+        `[Pipeline] label re-read failed (${cand.image_type}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  for (const cand of authCands) {
+    try {
+      const rr = await rereadImage(cand.image_type);
+      const target = byType.get(cand.image_type);
+      if (rr && target) Object.assign(target, mergeAuthenticityReread(target, rr));
+    } catch (err) {
+      console.error(
+        `[Pipeline] authenticity re-read failed (${cand.image_type}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return updated;
+}
+
 // US-1066: re-grade a submission on the (stronger) escalation model after a
 // low-confidence / high-value first pass. Re-downloads + re-analyzes every image
 // on the escalation model (under the same memory gate), re-runs the defect-zoom
@@ -343,6 +485,15 @@ async function escalateGrade(
   let perImageResults = usable;
   if (wantForensic) {
     perImageResults = await runDefectZoomPass(
+      perImageResults,
+      images,
+      submission,
+      styleHint,
+      submissionId,
+      model,
+    ).catch(() => perImageResults);
+    // US-2154: label-legibility + authenticity re-read (same paid gate).
+    perImageResults = await runRereadPass(
       perImageResults,
       images,
       submission,
@@ -1421,6 +1572,24 @@ export async function processSubmission(submissionId: string) {
       ).catch((err) => {
         console.error(
           `[Pipeline] defect zoom pass error for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        return perImageResults;
+      });
+      // US-2154: high-res re-read of illegible labels (recover fiber composition
+      // for the composite's fabric criteria) and possibly-manipulated photos
+      // (sharpen the tamper tells before review). Same paid-Forensic gate +
+      // best-effort contract as the defect zoom above.
+      perImageResults = await runRereadPass(
+        perImageResults,
+        images as ZoomImageRow[],
+        submission,
+        styleHint,
+        submissionId,
+        firstPassModel,
+      ).catch((err) => {
+        console.error(
+          `[Pipeline] re-read pass error for submission ${submissionId}:`,
           err instanceof Error ? err.message : String(err),
         );
         return perImageResults;

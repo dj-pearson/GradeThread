@@ -1298,6 +1298,125 @@ export function mergeZoomIntoIssue(
   };
 }
 
+// --- US-2154: label-legibility & authenticity re-read (crop-tool pattern) ---
+//
+// The US-1035 defect zoom re-reads small DEFECT regions at high resolution. The
+// Anthropic crop-tool cookbook (multimodal/crop_tool.ipynb) shows the same
+// magnify-and-re-read trick lifts accuracy wherever detail is small relative to
+// the frame. Two other regions gate grading confidence and benefit from it:
+//   • an ILLEGIBLE care label whose fiber composition the first pass couldn't
+//     read — recovering it feeds the composite's fabric-specific criteria; and
+//   • an image the first pass flagged as possibly MANIPULATED — a sharper read
+//     corroborates / strengthens the tells before the grade is held for review.
+// Unlike the defect zoom these have no bbox — the whole label/photo IS the
+// region, so the pipeline re-reads the retained high-res ORIGINAL of the SAME
+// image with the EXISTING per-image prompt (no prompt-version change). These
+// helpers are pure + unit-tested; grading-pipeline.ts does the download + call.
+
+const LABEL_IMAGE_TYPES = new Set(["label", "label_2"]);
+
+export interface RereadCandidate {
+  image_type: string;
+}
+
+/**
+ * Pick label images worth a high-res re-read: a label the first pass judged
+ * illegible, or one that yielded NO fiber_content (composition unread). A sharper
+ * read can recover the care-label transcription that drives the composite's
+ * fabric-specific criteria. Capped to bound the extra AI cost.
+ */
+export function selectLabelsForReread(
+  results: PerImageAnalysis[],
+  maxRereads = 2,
+): RereadCandidate[] {
+  const out: RereadCandidate[] = [];
+  for (const r of results) {
+    if (out.length >= maxRereads) break;
+    if (!LABEL_IMAGE_TYPES.has(r.image_type)) continue;
+    const illegible = r.quality?.legible === false;
+    const noFiber = !r.fiber_content || r.fiber_content.length === 0;
+    if (illegible || noFiber) out.push({ image_type: r.image_type });
+  }
+  return out;
+}
+
+/**
+ * Merge a high-res label re-read back into the original label analysis. The
+ * re-read only recovers LABEL LEGIBILITY: adopt recovered fiber_content when the
+ * original had none, and clear an illegible flag the sharper read could actually
+ * read. Never drops existing fiber_content, never regresses legibility, and never
+ * touches condition scores — a label re-read informs fabric, not the grade.
+ */
+export function mergeLabelReread(
+  original: PerImageAnalysis,
+  reread: PerImageAnalysis,
+): PerImageAnalysis {
+  const merged: PerImageAnalysis = { ...original };
+  const hadFiber = (original.fiber_content?.length ?? 0) > 0;
+  const gotFiber = (reread.fiber_content?.length ?? 0) > 0;
+  if (!hadFiber && gotFiber) {
+    merged.fiber_content = reread.fiber_content;
+  }
+  // Legibility can only IMPROVE on a sharper read (false→true), never regress.
+  if (original.quality && reread.quality?.legible === true) {
+    merged.quality = { ...original.quality, legible: true };
+  }
+  return merged;
+}
+
+/**
+ * Pick images the first pass flagged as possibly manipulated. A high-res re-read
+ * of the retained original can corroborate or sharpen the tells before the grade
+ * is routed to human review. Capped.
+ */
+export function selectImagesForAuthenticityReread(
+  results: PerImageAnalysis[],
+  maxRereads = 2,
+): RereadCandidate[] {
+  const out: RereadCandidate[] = [];
+  for (const r of results) {
+    if (out.length >= maxRereads) break;
+    if (r.authenticity?.manipulation_suspected === true) {
+      out.push({ image_type: r.image_type });
+    }
+  }
+  return out;
+}
+
+/**
+ * Merge a high-res authenticity re-read back. ONE-DIRECTIONAL by design — a
+ * manipulation suspicion is sticky (a sharper read may only corroborate, never
+ * launder a tampered photo clean), confidence takes the max, and tells are
+ * unioned + deduped. This preserves the grading invariant "when in doubt, LESS
+ * confident, never more": the re-read can strengthen a flag but not remove it.
+ */
+export function mergeAuthenticityReread(
+  original: PerImageAnalysis,
+  reread: PerImageAnalysis,
+): PerImageAnalysis {
+  const a = original.authenticity;
+  if (!a) return original;
+  const b = reread.authenticity;
+  const tells = Array.from(
+    new Set(
+      [...(a.tells ?? []), ...(b?.tells ?? [])].filter((t) => t.trim().length > 0),
+    ),
+  );
+  const merged: PerImageAnalysis = { ...original };
+  merged.authenticity = {
+    ...a,
+    // Sticky: a suspicion the first pass raised is never cleared by a re-read.
+    manipulation_suspected: a.manipulation_suspected || b?.manipulation_suspected === true,
+    manipulation_confidence: Math.max(
+      a.manipulation_confidence ?? 0,
+      b?.manipulation_confidence ?? 0,
+    ),
+    tells,
+    screenshot_or_watermark: a.screenshot_or_watermark || b?.screenshot_or_watermark === true,
+  };
+  return merged;
+}
+
 // --- Composite Grading ---
 
 const FACTOR_WEIGHTS: Record<keyof FactorScores, number> = {

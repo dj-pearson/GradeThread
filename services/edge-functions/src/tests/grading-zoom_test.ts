@@ -1,7 +1,11 @@
 import { assert, assertEquals } from "@std/assert";
 import {
+  mergeAuthenticityReread,
+  mergeLabelReread,
   mergeZoomIntoIssue,
   selectDefectsForZoom,
+  selectImagesForAuthenticityReread,
+  selectLabelsForReread,
   type DetectedIssue,
   type PerImageAnalysis,
 } from "../lib/ai-grading.ts";
@@ -121,4 +125,142 @@ Deno.test("mergeZoomIntoIssue: never downgrades a worse original", () => {
   assertEquals(merged.severity, "major");
   assertEquals(merged.size_bucket, "large");
   assert((merged.size_confidence ?? 0) >= 0.9);
+});
+
+// --- US-2154: label-legibility & authenticity re-read ---
+
+function labelImg(over: Partial<PerImageAnalysis>): PerImageAnalysis {
+  return { ...img("label", []), ...over };
+}
+
+Deno.test("selectLabelsForReread: illegible label and no-fiber label qualify", () => {
+  const r = [
+    labelImg({
+      quality: { blur: "none", lighting: "ok", framing: "full", legible: false },
+      fiber_content: [{ fiber: "cotton", pct: 100 }],
+    }),
+    labelImg({ image_type: "label_2", fiber_content: [] }),
+  ];
+  assertEquals(selectLabelsForReread(r).length, 2);
+});
+
+Deno.test("selectLabelsForReread: legible label with fiber, and non-labels, are skipped", () => {
+  const r = [
+    labelImg({
+      quality: { blur: "none", lighting: "ok", framing: "full", legible: true },
+      fiber_content: [{ fiber: "wool", pct: 80 }],
+    }),
+    img("front", []),
+    img("defect", []),
+  ];
+  assertEquals(selectLabelsForReread(r).length, 0);
+});
+
+Deno.test("selectLabelsForReread: caps the number of candidates", () => {
+  const r = [
+    labelImg({ fiber_content: [] }),
+    labelImg({ image_type: "label_2", fiber_content: [] }),
+  ];
+  assertEquals(selectLabelsForReread(r, 1).length, 1);
+});
+
+Deno.test("mergeLabelReread: recovers fiber_content when the original had none", () => {
+  const original = labelImg({ fiber_content: [] });
+  const reread = labelImg({ fiber_content: [{ fiber: "cashmere", pct: 100 }] });
+  const merged = mergeLabelReread(original, reread);
+  assertEquals(merged.fiber_content, [{ fiber: "cashmere", pct: 100 }]);
+});
+
+Deno.test("mergeLabelReread: never overwrites existing fiber_content", () => {
+  const original = labelImg({ fiber_content: [{ fiber: "cotton", pct: 100 }] });
+  const reread = labelImg({ fiber_content: [{ fiber: "polyester", pct: 100 }] });
+  const merged = mergeLabelReread(original, reread);
+  assertEquals(merged.fiber_content, [{ fiber: "cotton", pct: 100 }]);
+});
+
+Deno.test("mergeLabelReread: improves legibility false→true, never regresses", () => {
+  const original = labelImg({
+    quality: { blur: "none", lighting: "ok", framing: "full", legible: false },
+  });
+  const better = labelImg({
+    quality: { blur: "none", lighting: "ok", framing: "full", legible: true },
+  });
+  assertEquals(mergeLabelReread(original, better).quality?.legible, true);
+
+  const worse = labelImg({
+    quality: { blur: "none", lighting: "ok", framing: "full", legible: false },
+  });
+  const legibleOriginal = labelImg({
+    quality: { blur: "none", lighting: "ok", framing: "full", legible: true },
+  });
+  assertEquals(mergeLabelReread(legibleOriginal, worse).quality?.legible, true);
+});
+
+Deno.test("selectImagesForAuthenticityReread: only manipulation-suspected images", () => {
+  const suspected = img("front", []);
+  suspected.authenticity = {
+    manipulation_suspected: true,
+    manipulation_confidence: 0.4,
+    tells: ["cloned texture"],
+    screenshot_or_watermark: false,
+    screenshot_watermark_reason: "",
+  };
+  const clean = img("back", []);
+  clean.authenticity = {
+    manipulation_suspected: false,
+    manipulation_confidence: 0,
+    tells: [],
+    screenshot_or_watermark: false,
+    screenshot_watermark_reason: "",
+  };
+  const c = selectImagesForAuthenticityReread([suspected, clean]);
+  assertEquals(c.length, 1);
+  assertEquals(c[0].image_type, "front");
+});
+
+Deno.test("mergeAuthenticityReread: suspicion is sticky, confidence maxes, tells union", () => {
+  const original = img("front", []);
+  original.authenticity = {
+    manipulation_suspected: true,
+    manipulation_confidence: 0.4,
+    tells: ["cloned texture near knee"],
+    screenshot_or_watermark: false,
+    screenshot_watermark_reason: "",
+  };
+  // A sharper read that (wrongly) clears the flag must NOT launder it clean.
+  const reread = img("front", []);
+  reread.authenticity = {
+    manipulation_suspected: false,
+    manipulation_confidence: 0.1,
+    tells: ["soft halo at hem"],
+    screenshot_or_watermark: false,
+    screenshot_watermark_reason: "",
+  };
+  const merged = mergeAuthenticityReread(original, reread);
+  assertEquals(merged.authenticity?.manipulation_suspected, true);
+  assertEquals(merged.authenticity?.manipulation_confidence, 0.4);
+  assertEquals(merged.authenticity?.tells.length, 2);
+});
+
+Deno.test("mergeAuthenticityReread: a corroborating read strengthens confidence", () => {
+  const original = img("front", []);
+  original.authenticity = {
+    manipulation_suspected: true,
+    manipulation_confidence: 0.4,
+    tells: ["cloned texture"],
+    screenshot_or_watermark: false,
+    screenshot_watermark_reason: "",
+  };
+  const reread = img("front", []);
+  reread.authenticity = {
+    manipulation_suspected: true,
+    manipulation_confidence: 0.9,
+    tells: ["cloned texture"],
+    screenshot_or_watermark: true,
+    screenshot_watermark_reason: "app UI chrome",
+  };
+  const merged = mergeAuthenticityReread(original, reread);
+  assertEquals(merged.authenticity?.manipulation_confidence, 0.9);
+  assertEquals(merged.authenticity?.screenshot_or_watermark, true);
+  assertEquals(merged.authenticity?.tells.length, 1); // deduped
 });
