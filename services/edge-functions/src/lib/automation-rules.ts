@@ -19,8 +19,11 @@ export const MAX_COUPON_PCT = 70;
 
 export type AutomationTrigger =
   | { type: "days_listed_gt"; days: number; cooldown_days: number }
-  // No view history exists locally, so this means "zero recorded views and
-  // listed more than N days" — the honest reading of the cumulative counter.
+  // US-2155: this means what it says — no views in the LAST N days, read from
+  // the listing_metrics time-series (US-565). It used to test the CUMULATIVE
+  // listings.views counter, which meant a listing with 500 lifetime views and
+  // zero recent traffic could never fire the rule. See hasViewsWithin below for
+  // the windowing semantics and the no-metrics fallback.
   | { type: "no_views_in_days"; days: number; cooldown_days: number }
   | {
     type: "watchers_lt_after_days";
@@ -261,10 +264,35 @@ export function normalizeAutomationInput(
 
 // ── Evaluation ──────────────────────────────────────────────────
 
+/**
+ * One windowed traffic reading from listing_metrics (US-565).
+ *
+ * `views` is NOT a per-day count: eBay's traffic report returns a TRAILING
+ * window total (getTrafficReport pulls the last 7 days), so a row stamped on
+ * date D means "views in the 7 days ending D". Consecutive rows therefore
+ * overlap heavily — see hasViewsWithin for why that makes MAX, not SUM, the
+ * only meaningful aggregate.
+ */
+export interface ViewWindow {
+  daysAgo: number;
+  views: number;
+}
+
 /** Everything a rule can look at for one active listing. */
 export interface AutomationFacts {
   ageDays: number;
+  /** Cumulative lifetime views (listings.views). Only the fallback path. */
   views: number;
+  /**
+   * How long ago the performance sync last ran for this listing
+   * (listings.last_metrics_synced_at), or null if it never has. This is the
+   * disambiguator that makes "no metrics rows" readable: the sync stamps EVERY
+   * active listing, but only writes a listing_metrics row when eBay actually
+   * reported engagement.
+   */
+  metricsSyncedDaysAgo: number | null;
+  /** listing_metrics readings for this listing, newest first. */
+  recentViewWindows: ViewWindow[];
   watchers: number;
   // Scope-filter fields (US-143 vocabulary).
   brand: string | null;
@@ -278,6 +306,33 @@ export interface AutomationFacts {
   daysInStatus: number | null;
 }
 
+/**
+ * Did this listing get any views inside the last `days` days? (US-2155)
+ *
+ * Three cases, in order:
+ *
+ *  1. No trustworthy recent sync — never synced, or the last sync predates the
+ *     window — so we have no evidence about the window at all. Fall back to the
+ *     cumulative counter, which is exactly the pre-US-2155 behaviour. Sellers
+ *     who never connected performance sync see no change.
+ *  2. Synced, but no listing_metrics rows land inside the window. eBay OMITS
+ *     listings with no engagement from the traffic report, and the sync only
+ *     writes a row when eBay reported some — so for a listing we know was
+ *     synced, absence IS the zero. No views.
+ *  3. Rows inside the window: each is a trailing-window TOTAL, so the same view
+ *     is counted by every row whose window covers it. MAX is the correct
+ *     aggregate (SUM would multiply-count roughly 7x). Any non-zero reading
+ *     means the listing got traffic, so the rule must not fire.
+ */
+export function hasViewsWithin(f: AutomationFacts, days: number): boolean {
+  if (f.metricsSyncedDaysAgo == null || f.metricsSyncedDaysAgo > days) {
+    return f.views > 0;
+  }
+  const inWindow = f.recentViewWindows.filter((w) => w.daysAgo <= days);
+  if (inWindow.length === 0) return false;
+  return inWindow.some((w) => w.views > 0);
+}
+
 export function triggerMatches(
   t: AutomationTrigger,
   f: AutomationFacts,
@@ -286,7 +341,7 @@ export function triggerMatches(
     case "days_listed_gt":
       return f.ageDays > t.days;
     case "no_views_in_days":
-      return f.views <= 0 && f.ageDays > t.days;
+      return f.ageDays > t.days && !hasViewsWithin(f, t.days);
     case "watchers_lt_after_days":
       return f.ageDays >= t.days && f.watchers < t.watchers;
   }

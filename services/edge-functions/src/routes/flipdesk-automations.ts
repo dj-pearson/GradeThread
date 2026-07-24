@@ -27,6 +27,7 @@ import {
   type PlannedAction,
   scopeMatches,
   triggerMatches,
+  type ViewWindow,
 } from "../lib/automation-rules.ts";
 
 // Price-drop and promo scheduler (US-150). User-defined rules over active
@@ -70,6 +71,7 @@ interface AutomationListingRow {
   listed_at: string;
   watchers: number | null;
   views: number | null;
+  last_metrics_synced_at: string | null;
   platform_offer_id: string | null;
   platform_listing_id: string | null;
   promo_rate_pct: number | null;
@@ -97,11 +99,18 @@ function daysSince(iso: string | null): number {
   return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
 }
 
-function listingFacts(l: AutomationListingRow): AutomationFacts {
+function listingFacts(
+  l: AutomationListingRow,
+  viewWindows: Map<string, ViewWindow[]>,
+): AutomationFacts {
   const item = l.inventory_items;
   return {
     ageDays: daysSince(l.listed_at),
     views: l.views ?? 0,
+    metricsSyncedDaysAgo: l.last_metrics_synced_at
+      ? daysSince(l.last_metrics_synced_at)
+      : null,
+    recentViewWindows: viewWindows.get(l.id) ?? [],
     watchers: l.watchers ?? 0,
     brand: item.brand,
     category: item.item_category ?? item.garment_category,
@@ -121,7 +130,7 @@ async function loadOwnerListings(
   const { data, error } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, listing_price, listed_at, watchers, views, platform_offer_id, platform_listing_id, promo_rate_pct, " +
+      "id, inventory_item_id, listing_price, listed_at, watchers, views, last_metrics_synced_at, platform_offer_id, platform_listing_id, promo_rate_pct, " +
         "inventory_items!inner(user_id, title, brand, size, item_category, garment_category, acquired_price, target_price, status, grade_value, updated_at, exclude_from_automations, sources(name))",
     )
     .eq("platform", "ebay")
@@ -133,6 +142,62 @@ async function loadOwnerListings(
     return [];
   }
   return (data ?? []) as unknown as AutomationListingRow[];
+}
+
+/**
+ * US-2155: per-listing traffic readings for the no_views_in_days trigger.
+ *
+ * Only fetched when at least one active rule actually asks for it (see
+ * maxViewWindowDays) — the common all-aging ruleset pays nothing. The lookback
+ * is the widest window any rule needs, so one query serves every rule.
+ */
+async function loadViewWindows(
+  ownerId: string,
+  listingIds: string[],
+  lookbackDays: number,
+): Promise<Map<string, ViewWindow[]>> {
+  const map = new Map<string, ViewWindow[]>();
+  if (listingIds.length === 0) return map;
+  const since = new Date(Date.now() - lookbackDays * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const { data, error } = await supabaseAdmin
+    .from("listing_metrics")
+    .select("listing_id, metric_date, views")
+    .eq("user_id", ownerId)
+    .in("listing_id", listingIds)
+    .gte("metric_date", since)
+    .order("metric_date", { ascending: false });
+  if (error) {
+    // Fail open: an empty map degrades to the lifetime-counter fallback rather
+    // than silently firing price drops on listings we know nothing about.
+    console.error("[automations] listing_metrics query failed:", error.message);
+    return map;
+  }
+  for (
+    const row of (data ?? []) as Array<
+      { listing_id: string; metric_date: string; views: number | null }
+    >
+  ) {
+    const list = map.get(row.listing_id) ?? [];
+    list.push({
+      daysAgo: daysSince(row.metric_date),
+      views: row.views ?? 0,
+    });
+    map.set(row.listing_id, list);
+  }
+  return map;
+}
+
+/** Widest no_views_in_days window across the active rules, or 0 if none use it. */
+function maxViewWindowDays(rules: AutomationRuleRow[]): number {
+  let max = 0;
+  for (const r of rules) {
+    if (r.trigger_json.type === "no_views_in_days") {
+      max = Math.max(max, r.trigger_json.days);
+    }
+  }
+  return max;
 }
 
 /** Latest action timestamp per "<ruleId>:<listingId>" — the cooldown anchor. */
@@ -218,14 +283,18 @@ async function evaluateRules(
     planned: PlannedAction;
   }> = [];
   if (rules.length === 0 || listings.length === 0) return matches;
-  const lastAction = await loadLastActionMap(
-    ownerId,
-    listings.map((l) => l.id),
-  );
+  const listingIds = listings.map((l) => l.id);
+  const lookbackDays = maxViewWindowDays(rules);
+  const [lastAction, viewWindows] = await Promise.all([
+    loadLastActionMap(ownerId, listingIds),
+    lookbackDays > 0
+      ? loadViewWindows(ownerId, listingIds, lookbackDays)
+      : Promise.resolve(new Map<string, ViewWindow[]>()),
+  ]);
   const now = new Date();
   for (const listing of listings) {
     if (listing.inventory_items.exclude_from_automations) continue;
-    const facts = listingFacts(listing);
+    const facts = listingFacts(listing, viewWindows);
     for (const rule of rules) {
       if (!scopeMatches(rule.scope_json, facts)) continue;
       if (!triggerMatches(rule.trigger_json, facts)) continue;
