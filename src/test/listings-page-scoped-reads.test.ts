@@ -84,6 +84,42 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
     expect(block).not.toContain(".range(");
   });
 
+  describe("the quality-score read (US-2170)", () => {
+    const block = queryBlock(src, '"item_listing_quality"');
+
+    it("scopes to the page and chunks", () => {
+      expect(block).toContain('from("listings")');
+      expect(block).toContain('.in("id", chunk)');
+      expect(block).toContain("fetchInChunks");
+      expect(block).toContain("pageListingIds");
+    });
+
+    it("keys by LISTING id, not item id", () => {
+      // items_full lateral-joins ONE listing per item and exposes it as
+      // listing_id; every other listing-derived cell in the row (price, status,
+      // days listed) comes from that same row. Scoring a different listing than
+      // the one the row displays would put two listings' facts on one line.
+      expect(block).toContain("pageListingIds");
+      expect(block).not.toContain('.in("inventory_item_id"');
+    });
+
+    it("falls back to an empty map instead of taking the query down", () => {
+      // If this ever runs against a database without 00476's column, PostgREST
+      // answers 42703. An empty map means "nothing scored" — which is true —
+      // whereas an unhandled error would blank the whole table.
+      expect(block).toContain("catch");
+      expect(block).toContain("return {}");
+    });
+
+    it("reuses the shared chip and mapping rather than re-deriving a score", () => {
+      // The weights live server-side (lib/listing-quality-score.ts). A second
+      // client-side derivation would drift from the number the server persists.
+      expect(src).toContain("QualityScoreChip");
+      expect(src).toContain("scoreMapFromRows");
+      expect(src).not.toMatch(/function\s+\w*[sS]coreBand/);
+    });
+  });
+
   it("the five page-scoped reads sit below pageRowIds", () => {
     // Hook order is load-bearing here: these queries close over pageRowIds, so
     // they must be declared after it. Moving them back above would make the ids

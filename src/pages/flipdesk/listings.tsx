@@ -119,6 +119,13 @@ import { downloadItemsCsv } from "@/lib/items-csv";
 // US-2168: the per-page detail reads are chunked — at pageSize 200 a bare .in()
 // would put ~7.4KB of UUIDs in the query string.
 import { fetchInChunks } from "@/lib/supabase-batch";
+// US-2170: the quality chip + its persisted-column mapping, shared with the
+// AutoLister drafts cockpit so there is ONE scoring presentation, not two.
+import {
+  QualityScoreChip,
+  type QualityScoreSummary,
+} from "@/components/flipdesk/quality-score-chip";
+import { scoreMapFromRows, type QualityScoreRow } from "@/pages/flipdesk/draft-quality";
 import { type TabId, statusParamToTab } from "@/pages/flipdesk/inventory-tabs";
 import {
   useEbayConnection,
@@ -1112,6 +1119,54 @@ export function FlipdeskListingsPage() {
         });
       }
       return map;
+    },
+  });
+
+  // US-2170: the Listing Quality Score, on the surface where listings are
+  // actually managed.
+  //
+  // The score has been computed, persisted (listings.quality_score, 00476) and
+  // unit-tested since US-1897 — and rendered in exactly ONE place, the AutoLister
+  // drafts cockpit. The "one 0-100 number per listing" was invisible to anyone
+  // working the inventory table.
+  //
+  // Keyed by LISTING id, not item id: items_full lateral-joins one listing per
+  // item (most recent by listed_at) and exposes it as listing_id, and every other
+  // listing-derived cell in this row — price, status, days listed — comes from
+  // that same row. Scoring a different listing than the one the row displays
+  // would put two listings' facts in one line.
+  //
+  // The error→empty-map fallback is deliberate and copied from the drafts
+  // cockpit: if this ever runs against a database where the column is missing,
+  // PostgREST answers 42703 and would take the WHOLE query down. An empty map
+  // just means every row reads "not scored", which is exactly what it would be.
+  const pageListingIds = useMemo(
+    () =>
+      pageRows
+        .map((r) => r.listing_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    [pageRows],
+  );
+  const { data: qualityByListing = {} } = useQuery({
+    queryKey: ["item_listing_quality", user?.id, pageListingIds],
+    enabled: !!user && (isDrafts || isActive) && pageListingIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Record<string, QualityScoreSummary>> => {
+      try {
+        const rows = await fetchInChunks<QualityScoreRow>(
+          pageListingIds,
+          async (chunk) => {
+            const { data, error } = await supabase
+              .from("listings")
+              .select("id, quality_score, quality_blocked")
+              .in("id", chunk);
+            return { data: data as unknown[] | null, error };
+          },
+        );
+        return scoreMapFromRows(rows);
+      } catch {
+        return {};
+      }
     },
   });
 
@@ -2360,6 +2415,17 @@ export function FlipdeskListingsPage() {
                       {(isDrafts || isActive) && (
                         <TableHead className="w-28">Platforms</TableHead>
                       )}
+                      {/* US-2170: the Listing Quality Score, next to the other
+                          listing-health columns. Not sortable yet — see the
+                          comment on the quality query for why that needs the
+                          items_full view to expose the column. */}
+                      {(isDrafts || isActive) && (
+                        <TableHead className="w-20 text-center">
+                          <span title="Listing Quality Score — 0-100 across every ranking lever">
+                            Quality
+                          </span>
+                        </TableHead>
+                      )}
                       {!isSold && !isActive && (
                         <TableHead className="w-16 text-right">Age</TableHead>
                       )}
@@ -2845,6 +2911,21 @@ export function FlipdeskListingsPage() {
                                   ),
                                 )}
                               </div>
+                            </TableCell>
+                          )}
+                          {/* US-2170: quality chip. Renders an em dash for an
+                              unscored listing — never a 0, which would read as a
+                              confident "this is terrible" for a listing nobody
+                              has run a publish check on. */}
+                          {(isDrafts || isActive) && (
+                            <TableCell className="text-center">
+                              <QualityScoreChip
+                                score={
+                                  it.listing_id
+                                    ? qualityByListing[it.listing_id]
+                                    : undefined
+                                }
+                              />
                             </TableCell>
                           )}
                           {!isSold && !isActive && (

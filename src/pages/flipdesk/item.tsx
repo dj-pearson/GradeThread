@@ -31,6 +31,7 @@ import {
   useEbayReviseListing,
   useEbaySetPromotion,
   useEbayStartSale,
+  useListingQuality,
 } from "@/hooks/use-ebay";
 import {
   deriveListingOrigin,
@@ -40,6 +41,10 @@ import {
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { FlipdeskComposerPage } from "@/pages/flipdesk/composer";
 import { ListingAlertMarkers } from "@/components/flipdesk/listing-alert-markers";
+import {
+  QualityScoreBreakdown,
+  QualityScoreChip,
+} from "@/components/flipdesk/quality-score-chip";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { GradeOutcomeCard } from "@/components/flipdesk/grade-outcome-card";
@@ -177,6 +182,11 @@ export function FlipdeskItemPage() {
           eBay) because both mean the same garment can still be bought right
           now. */}
       <ListingAlertsSection itemId={item.id} />
+
+      {/* US-2170: the quality score WITH its breakdown — which lever is weak and
+          what fixing it is worth. The listings table shows the number; this is
+          where a seller can act on it. */}
+      <ListingQualityCard itemId={item.id} />
 
       {/* eBay-NATIVE listings can't be revised through GradeThread — this notes
           that + links to eBay. GradeThread-published listings are edited and
@@ -354,6 +364,40 @@ function ListingAlertsSection({ itemId }: { itemId: string }) {
         />
       ))}
     </div>
+  );
+}
+
+// US-2170: the Listing Quality Score with its per-component breakdown.
+//
+// The listings table shows the NUMBER (read cheaply from the persisted
+// quality_score column, page-scoped). This card shows the BREAKDOWN, which only
+// the /listings/validate response carries — the components, their weights, and
+// the ranked fixes. A score with no breakdown is a grade with no feedback.
+//
+// Renders nothing when there is no score. An item with no eBay category yet
+// genuinely has no score, and an empty card would be noise on every fresh item.
+function ListingQualityCard({ itemId }: { itemId: string }) {
+  const { data: quality } = useListingQuality(itemId);
+  if (!quality) return null;
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 pt-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">Listing quality</span>
+          <QualityScoreChip score={quality} />
+          {quality.weightCounted < 100 && (
+            // Say so when the score covers only part of the rubric — otherwise a
+            // partial score reads as a full one, and a seller optimises against
+            // a number that was never measuring everything.
+            <span className="text-xs text-muted-foreground">
+              scored on {quality.weightCounted}% of the checks
+            </span>
+          )}
+        </div>
+        <QualityScoreBreakdown score={quality} />
+      </CardContent>
+    </Card>
   );
 }
 
