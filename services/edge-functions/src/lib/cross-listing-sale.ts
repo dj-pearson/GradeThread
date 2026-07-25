@@ -22,14 +22,29 @@ export type DelistMethod =
   | "ebay_api" // withdrawOffer (Sell Inventory API)
   | "shopify_api" // productDelete (Admin GraphQL)
   | "depop_api" // deleteDepopProduct (SKU-addressed)
+  | "etsy_api" // setEtsyListingState → 'inactive' (US-2164; 404 = already gone)
   | "extension" // Poshmark/Mercari/Grailed — no server write API; queued for
   // the GradeThread Lister browser extension (delist_requested_at)
-  | "unsupported"; // unknown platform — local row ended, no upstream call
+  //
+  // US-2165: 'unsupported' NO LONGER means "quietly end the local row". A
+  // platform with no delist channel leaves the listing live on its
+  // marketplace, so cross-listings.ts now stamps a durable
+  // platform_fields.delist_unresolved marker and notifies the seller. Adding a
+  // platform to CROSS_LISTING_PLATFORMS without a delist path therefore fails
+  // LOUDLY instead of silently overselling.
+  | "unsupported";
 
 const API_DELIST: Record<string, DelistMethod> = {
   ebay: "ebay_api",
   shopify: "shopify_api",
   depop: "depop_api",
+  // US-2164: Etsy has a real delist API and the adapter already used it for a
+  // manual end — auto-end was the one path that skipped it, so an Etsy sibling
+  // stayed live and purchasable after the garment sold elsewhere.
+  etsy: "etsy_api",
+  // whatnot is deliberately ABSENT: its listing path is still 501 pending
+  // US-1662, so there is nothing to call. It resolves to 'unsupported' and now
+  // gets the US-2165 marker rather than a silent local end.
 };
 
 // Marketplaces ended through the GradeThread Lister extension (US-716) rather

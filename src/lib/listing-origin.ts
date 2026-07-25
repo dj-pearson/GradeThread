@@ -46,6 +46,25 @@ export interface SyncDriftMarker {
   detected_at?: string;
 }
 
+// US-2165: stamped by autoEndCrossListings when a sibling sale could NOT end a
+// listing on its marketplace — an unsupported platform, a dropped connection, or
+// a rejected delist call. Unlike sync_drift this is NOT informational: the
+// listing is still live and purchasable, so the same garment can sell twice
+// until the seller ends it there.
+export interface DelistUnresolvedMarker {
+  platform: string;
+  reason: string;
+  detected_at?: string;
+}
+
+// US-1290: stamped on BOTH listings when the same physical garment appears to
+// have sold on more than one channel. We never auto-pick a winner — the seller
+// has to cancel one order.
+export interface OversellConflictMarker {
+  conflicting_listing_id: string;
+  detected_at?: string;
+}
+
 /** Human label for a drifted eBay-owned field. */
 export function driftFieldLabel(field: string): string {
   switch (field) {

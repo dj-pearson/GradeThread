@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2162",
+  "nextId": "US-2179",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4153,6 +4153,260 @@
         "FlipDesk sidebar entries drop from ~24 to ~14 with no feature removed"
       ],
       "notes": "[P2][FlipDesk/Nav] Found during the 2026-07-24 integration review. Follows the pattern already proven by US-958 (inventory ?mode=) and US-963 (reconcile ?tab=). Price Suggestions currently sits in the Grading group while the other three pricing surfaces sit under FlipDesk. Blocked on US-2159 for the Pricing merge.",
+      "passes": false
+    },
+    {
+      "id": "US-2162",
+      "priority": 77,
+      "title": "End Listing on a non-eBay listing ends it only locally — the listing stays live and purchasable",
+      "description": "As a reseller cross-listing beyond eBay, I want End to actually end the listing on its own marketplace, so FlipDesk never tells me an item is ended while buyers can still buy it.",
+      "acceptanceCriteria": [
+        "endListing() in src/pages/flipdesk/listings.tsx branches on the LISTING'S platform, not on whether an eBay connection exists",
+        "A non-eBay listing is ended through its own adapter (MarketplaceAdapter.end) — never by a direct listings.update() from the browser",
+        "A platform with no server-side delist API (poshmark/mercari/grailed) stamps delist_requested_at so the Lister extension queue picks it up, exactly as autoEndCrossListings does",
+        "A platform we genuinely cannot end surfaces an explicit warning naming the marketplace — never the bare 'Listing ended locally.' toast",
+        "The 409 fallback path can no longer reach a silent local-only write: every branch either ends upstream, queues, or warns",
+        "A test covers: Shopify listing + eBay connection present → the eBay price/end endpoint is NOT called with a Shopify listing id"
+      ],
+      "notes": "[P1][FlipDesk/Listings] Found during the 2026-07-25 listings-management deep dive. listings.tsx:1382 gates on `ebayConnection` rather than the row's platform; the eBay endpoint 409s at flipdesk-ebay.ts:4747 (no platform_offer_id on a non-eBay row), the catch falls through to a direct listings.update({listing_status:'ended'}) and toasts 'Listing ended locally.' Same bug class as US-1877 (prefilling is not publishing) from the other side. Oversell hazard.",
+      "passes": false
+    },
+    {
+      "id": "US-2163",
+      "priority": 78,
+      "title": "Bulk price drop writes local-only for non-eBay listings and makes N sequential browser calls",
+      "description": "As a reseller running a markdown across a selection, I want the new price to reach every listing's marketplace in one batched server call, so my local prices never diverge from the live ones and 200 listings don't mean 200 round trips.",
+      "acceptanceCriteria": [
+        "bulkPriceDrop() posts ONE request to a platform-agnostic server endpoint instead of looping per listing from the browser",
+        "The server dispatches through resolveAdapter()/updateListing per row, reusing the 25-per-call chunking already in /listings/bulk-price-quantity",
+        "A listing whose marketplace could not be repriced is reported as FAILED, not as 'updated locally only' — the local listing_price is not advanced for it",
+        "Per-row success/failure comes back structured and the UI shows which listings failed and why",
+        "Progress is reported while the batch runs and the dialog is cancellable",
+        "A test asserts a mixed eBay + Shopify selection reprices both upstream and reports per-platform outcomes"
+      ],
+      "notes": "[P1][FlipDesk/Listings] 2026-07-25 deep dive. listings.tsx:1420 loops one HTTP call per selected listing under setBusy() with no progress or cancel; the 409 path (non-eBay rows) silently writes the local listing_price and reports it as `remoteSkipped` → toast '(N updated locally only)'. A diverged local price then poisons margin/ROI math. The server already has the batched, adapter-driven path at flipdesk-ebay.ts:4802 (/listings/bulk-price-quantity) and 4948 (/listings/bulk-edit) — this story wires the UI to it. Depends on US-2165 for the route move.",
+      "passes": false
+    },
+    {
+      "id": "US-2164",
+      "priority": 79,
+      "title": "Etsy and Whatnot siblings never auto-end when the item sells elsewhere — silent oversell",
+      "description": "As a reseller cross-listed on Etsy, I want my Etsy listing pulled when the garment sells on another channel, so the same physical item can't be sold twice.",
+      "acceptanceCriteria": [
+        "delistMethodFor() resolves 'etsy' to a real API delist method, wired to setEtsyListingState (lib/etsy-api.ts) to inactivate the listing",
+        "autoEndCrossListings() calls the Etsy delist before marking the local row ended, matching the ebay/shopify/depop branches",
+        "The Etsy delist stays behind isEtsyEnabled() — a disabled connector degrades to the US-2165 explicit-unsupported path, never to a silent success",
+        "Whatnot is either wired the same way or explicitly recorded as unsupported-with-a-marker under US-1662, with the choice stated in the code comment",
+        "A cross-listing-sale test asserts an Etsy sibling is delisted upstream on a sibling sale, and that a disabled Etsy connector produces a marker rather than a clean 'ended'"
+      ],
+      "notes": "[P1][FlipDesk/CrossListing] 2026-07-25 deep dive. API_DELIST (lib/cross-listing-sale.ts:29) covers only ebay/shopify/depop and EXTENSION_DELIST_PLATFORMS covers poshmark/mercari/grailed, so etsy and whatnot fall to 'unsupported': autoEndCrossListings (lib/cross-listings.ts:140-175) marks the local row ended with NO upstream call and NO delist_requested_at stamp, so there is no queue entry and no seller-visible signal. Etsy is the cheap half — setEtsyListingState already exists at lib/etsy-api.ts:342. IMPLEMENTED 2026-07-25: etsy → \"etsy_api\" in API_DELIST; an etsy_api arm in the new attemptUpstreamDelist() dispatch calls setEtsyListingState(...,\"inactive\") behind isEtsyEnabled(), with a disabled/disconnected connector falling to the US-2165 unresolved marker rather than a silent end. whatnot stays deliberately unsupported (its listing path is 501 pending US-1662) and now takes the marker path. Tests: delistMethodFor(etsy) flipped to etsy_api, plus a new guard that every CROSS_LISTING_PLATFORMS entry has a delist channel or is a declared KNOWN_UNSUPPORTED gap. NOT verified locally (no Deno runtime).",
+      "passes": false
+    },
+    {
+      "id": "US-2165",
+      "priority": 80,
+      "title": "An 'unsupported' delist silently reports success — it must leave a durable marker",
+      "description": "As a reseller, I want any listing FlipDesk could not end upstream to stay visibly unresolved, so a marketplace we don't automate never looks handled when it isn't.",
+      "acceptanceCriteria": [
+        "A delistMethodFor() result of 'unsupported' stamps a durable marker on the listing (platform_fields, following the US-1290 oversell_conflict shape) instead of a clean listing_status:'ended'",
+        "The marker fires one in-app notice naming the marketplace and the listing, idempotent against a duplicate order webhook or re-sync",
+        "The marker drives a badge on the listing card / row, like sync_drift and oversell_conflict already do",
+        "autoEndCrossListings' return count distinguishes ended-upstream from ended-locally-only so callers can't over-report",
+        "A test asserts an unknown platform produces a marker + notice and is NOT counted as ended"
+      ],
+      "notes": "[P1][FlipDesk/CrossListing] 2026-07-25 deep dive. The `unsupported` arm of lib/cross-listings.ts treats an unknown platform as job-done. This is the generalized guard behind US-2164: even once Etsy is wired, the next platform added to CROSS_LISTING_PLATFORMS without a delist path must fail loudly rather than silently. IMPLEMENTED 2026-07-25. Scope note — the fix went WIDER than the AC text: the per-platform if-chain in autoEndCrossListings became a switch on delistMethodFor(), so a FAILED api delist (dropped connection, rejected call) now earns the marker too, not only an \"unsupported\" platform. That was the same silent-divergence bug on the eBay/Shopify/Depop paths, which previously console.warn-ed and marked the row ended. Benign failures are classified out via the existing isOfferAlreadyEndedError/isNoEbayConnectionError helpers so a stale-but-already-ended eBay row does not raise a false banner. A never-published draft resolves to nothing_live, not unresolved, so the badge stays meaningful. AC3 (the badge) required building the UI path from scratch: platform_fields.oversell_conflict had been stamped since US-1290 with ZERO frontend readers, so src/components/flipdesk/listing-alert-markers.tsx now renders BOTH markers and closes that gap too. Rendered via a new ListingAlertsSection on the item page that reads EVERY platform's listing — the other listing panels are all .eq(platform,\"ebay\") and would have hidden the Etsy case entirely. Frontend verified: tsc -b, eslint, 2587 vitest tests green. Edge NOT verified locally (no Deno runtime).",
+      "passes": false
+    },
+    {
+      "id": "US-2166",
+      "priority": 81,
+      "title": "Platform-agnostic listing operations live under /api/flipdesk/ebay and half of them hardcode eBay",
+      "description": "As a reseller on more than one marketplace, I want price, revise and end to work on any listing through its own adapter, so the operations I can perform don't depend on which namespace a route happened to be written in.",
+      "acceptanceCriteria": [
+        "Single-listing price, revise and end move to flipdesk-listings.ts and dispatch through resolveAdapter()/updateListing()/end()",
+        "The hardcoded `platform: \"ebay\"` in the ebayOriginWriteLock calls is replaced by the row's real platform, so origin derivation is correct for non-eBay rows",
+        "The eBay-specific pieces (offer ids, markdown Sale overlays, promotions, aspects) stay in flipdesk-ebay.ts — only the platform-agnostic lifecycle moves",
+        "The old /api/flipdesk/ebay/listings/* paths keep responding (delegating to the new handlers) so shipped iOS/Android clients and the extension don't break",
+        "/listings/bulk-edit moves alongside them — it is already adapter-driven and only its mount point is wrong",
+        "Every moved route has a tenant-isolation_test.ts case at its new path"
+      ],
+      "notes": "[P2][FlipDesk/Listings] 2026-07-25 deep dive. /listings/:id/price (flipdesk-ebay.ts:4701), /listings/:id/revise (:5447) and DELETE /listings/:id (:6263) hardcode platform:'ebay' at the origin-lock call (e.g. :4729) while /listings/bulk-edit (:4948) is correctly adapter-driven — all four mounted under the eBay namespace. Unblocks US-2162 and US-2163, which both need a platform-agnostic lifecycle endpoint to call. Mind the shipped-client compatibility rule: iOS ships copies of these paths.",
+      "passes": false
+    },
+    {
+      "id": "US-2167",
+      "priority": 82,
+      "title": "useItemsFull loads the tenant's entire inventory, every column, on 11 surfaces",
+      "description": "As a reseller with a real catalog, I want FlipDesk pages to fetch only the rows and columns they render, so the app doesn't slow to a crawl as my inventory grows.",
+      "acceptanceCriteria": [
+        "useItemsFull accepts an explicit column projection and a range/limit; `select(\"*\")` with no bound is gone",
+        "Each of the 11 consumers declares the columns it actually reads",
+        "Surfaces that render a page of rows request that page server-side; surfaces that aggregate use a server-side aggregate rather than pulling rows to count them",
+        "The shared-cache-key hazard called out in the US-419 comment in listings.tsx is preserved: a narrower projection can never win a cache entry a wider consumer depends on",
+        "A guard test fails if an unbounded select on items_full is reintroduced"
+      ],
+      "notes": "[P1][FlipDesk/Perf] 2026-07-25 deep dive. src/hooks/use-items-full.ts:52 is `.select(\"*\").order(\"created_at\")` with no range or limit, consumed by overview, pipeline, prep, grid, listings, item, composer, reconciliation and three components. Overlaps US-2023 (inventory.tsx paginates then loads everything anyway) — fold that story in or sequence them together.",
+      "passes": false
+    },
+    {
+      "id": "US-2168",
+      "priority": 83,
+      "title": "The listings table fires six unbounded reads, then filters and paginates client-side",
+      "description": "As a reseller opening my listings, I want the table to load a page of rows from the server, so opening the page doesn't download my whole catalog and every photo row I own.",
+      "acceptanceCriteria": [
+        "The cover-photo query stops reading every item_photos row for the tenant — covers come from a server-side per-item lowest-sort_order projection (view, RPC, or a join on the page's item ids)",
+        "The four secondary `listings` reads are scoped to the item ids on the current page rather than the whole tenant",
+        "Search, tab filtering and sort execute server-side so the client never needs the full set to render a page",
+        "Tab counts keep coming from the existing grouped count (useInventoryStatusCounts), not from loaded rows",
+        "Row-count parity is asserted against the current client-side behaviour so the migration can't silently change what a tab shows"
+      ],
+      "notes": "[P1][FlipDesk/Perf] 2026-07-25 deep dive. listings.tsx issues items_full (all rows) + listings ×4 (:708, :749, :786, :853) + item_photos (:817). The item_photos read is the worst: no filter or limit, so it pulls EVERY photo row for the tenant to pick one cover per item — a 500-item seller with 8 photos each transfers ~4,000 rows to render 50 thumbnails. Depends on US-2167.",
+      "passes": false
+    },
+    {
+      "id": "US-2169",
+      "priority": 84,
+      "title": "No max_rows contract on any FlipDesk read — an over-cap seller could be shown a silently truncated catalog",
+      "description": "As a reseller past whatever row cap PostgREST enforces, I want to be told my view is truncated, so I never make pricing or sourcing decisions on a quietly incomplete inventory.",
+      "acceptanceCriteria": [
+        "The self-hosted PostgREST db-max-rows value in prod is established and recorded in vault/10-ops",
+        "Reads that could exceed it either paginate explicitly or request one row past their cap and surface a 'showing N of more' state",
+        "No FlipDesk surface can silently render a truncated set as if it were complete",
+        "The chosen cap is asserted in config so a future infra change can't move it unnoticed"
+      ],
+      "notes": "[P2][FlipDesk/Perf] 2026-07-25 deep dive. Nothing in supabase/config.toml or docker-compose.coolify.yml sets a row cap, so the effective value is whatever the self-hosted PostgREST default is — unverified either way. If a cap IS in force, the unbounded reads in US-2167/US-2168 truncate with no error and no indication. Verify before assuming this is benign; the fix is cheap either way.",
+      "passes": false
+    },
+    {
+      "id": "US-2170",
+      "priority": 85,
+      "title": "Listing Quality Score is built and tested but surfaced on exactly one page",
+      "description": "As a reseller, I want each listing's quality score wherever I manage listings, so the one number that aggregates every ranking lever actually guides what I fix next.",
+      "acceptanceCriteria": [
+        "The quality score appears as a sortable column on the main listings/inventory table",
+        "The score appears on the item page with its factor breakdown, so the seller can see WHICH lever is weak",
+        "The Active tab can sort or filter by score to surface the weakest live listings",
+        "Scores are fetched for the visible page only — this must not reintroduce an unbounded read (see US-2168)",
+        "The existing QualityScoreChip component is reused; no second scoring implementation is added"
+      ],
+      "notes": "[P2][FlipDesk/Listings] 2026-07-25 deep dive. lib/listing-quality-score.ts is real and covered by listing-quality-score_test.ts, and src/components/flipdesk/quality-score-chip.tsx exists — but the only consumer is src/pages/flipdesk/autolister-drafts.tsx:783. This is the US-1897 'one 0-100 number per listing' and it is hidden in one corner. Highest visible-value-per-hour item on the 2026-07-25 list.",
+      "passes": false
+    },
+    {
+      "id": "US-2171",
+      "priority": 86,
+      "title": "Repricing applies one suggestion per click and never shows the rules that generate them",
+      "description": "As a reseller with dozens of repricing nudges, I want to review, filter and apply them in bulk and see the rules behind them, so acting on my whole queue isn't dozens of individual clicks.",
+      "acceptanceCriteria": [
+        "Multi-select + Apply selected + Apply all on the repricing queue",
+        "Filter by reason code (UNDERPRICED / OVERPRICED / STALE) and sort by suggested delta",
+        "The queue paginates rather than rendering every suggestion at once",
+        "The existing rules endpoints (/rules, /rules/actions, /rules/run) get a front end on this page instead of being server-only",
+        "A bulk apply is reversible via the US-2172 undo mechanism"
+      ],
+      "notes": "[P2][FlipDesk/Pricing] 2026-07-25 deep dive. src/pages/flipdesk/repricing.tsx applies one suggestion per click (:113) with no select-all, no filter, no sort, no pagination and no undo. Rules already exist server-side at flipdesk-pricing.ts:1105-1201 with zero frontend. Note US-2161 folds this page into a consolidated Pricing route and US-2159 reconciles the two price-suggestion engines — sequence accordingly.",
+      "passes": false
+    },
+    {
+      "id": "US-2172",
+      "priority": 87,
+      "title": "No undo on any bulk listing action — a 200-listing markdown is irreversible",
+      "description": "As a reseller who just bulk-dropped prices on the wrong selection, I want to undo the batch, so one mis-click doesn't mean repricing 200 listings by hand.",
+      "acceptanceCriteria": [
+        "A bulk action records the prior value per affected listing and returns an undo handle",
+        "Undo is offered in the success toast for a bounded window and re-pushes the restored values upstream through the adapters — not just locally",
+        "Undo reports per-row outcomes: a listing that sold or was ended between the action and the undo is skipped and named",
+        "Actions that genuinely cannot be undone (a published listing, a withdrawn offer) say so instead of offering a button that silently no-ops",
+        "Covers the bulk paths that exist today: price drop, bulk edit, bulk publish, archive, delete"
+      ],
+      "notes": "[P2][FlipDesk/Listings] 2026-07-25 deep dive. grep for undo/bulkUndo/undo_token across src and services/edge-functions returns only dialog copy — nothing implements it. US-1348 specified 'multi-select batch + undo'; the batch half shipped and the undo half did not. Depends on US-2163/US-2166 landing the server-side batch path, which is where the prior values can be captured atomically.",
+      "passes": false
+    },
+    {
+      "id": "US-2173",
+      "priority": 88,
+      "title": "listings.tsx is 3,581 lines in one component — the highest-traffic surface is the hardest to change",
+      "description": "As a developer, I want the listings surface split into coherent modules, so a change to one column or one action doesn't mean reading three and a half thousand lines.",
+      "acceptanceCriteria": [
+        "Column definitions, tab predicates, the query layer and the mutation handlers each move to their own module",
+        "Every mutation handler becomes a testable unit that does not require rendering the page",
+        "The virtualized table becomes its own component with the US-733 threshold behaviour preserved",
+        "No behaviour change: the existing tests plus the ones added by US-2178 pass unmodified",
+        "The US-419 cache-key comment and the US-1489 effect-dependency comment survive the move — both encode non-obvious constraints"
+      ],
+      "notes": "[P3][FlipDesk/Listings] 2026-07-25 deep dive. src/pages/flipdesk/listings.tsx holds LISTINGS_COLUMNS, the TABS predicates, six useQuery blocks, ~10 mutation handlers and the virtualizer in one file. Do this AFTER US-2162/US-2163/US-2168 so the refactor moves already-correct code rather than carrying the bugs across.",
+      "passes": false
+    },
+    {
+      "id": "US-2174",
+      "priority": 89,
+      "title": "15-minute staleTime means a sold listing can show as active for a quarter hour",
+      "description": "As a reseller watching my active listings, I want a listing that sold to stop showing as active promptly, so I don't relist or reprice something that's already gone.",
+      "acceptanceCriteria": [
+        "The Active tab refreshes on a window appropriate to how fast listing state changes, not the 15-minute inventory-wide default",
+        "A marketplace event that changes listing state invalidates the affected query rather than waiting for staleness",
+        "The refresh does not reintroduce an unbounded read (see US-2168) and does not poll when the tab is hidden",
+        "The reasoning behind the chosen window is recorded in the code, replacing the current US-735 comment"
+      ],
+      "notes": "[P2][FlipDesk/Listings] 2026-07-25 deep dive. listings.tsx:671 sets a 15-min staleTime justified by 'mutations invalidate items_full explicitly' — but a sale on eBay is not a local mutation, so nothing invalidates until the 6-hourly performance sync or a manual action. Coordinate with the marketplace-events poller (jobs-marketplace-events.ts).",
+      "passes": false
+    },
+    {
+      "id": "US-2175",
+      "priority": 90,
+      "title": "cross-push has zero tenant-isolation test cases — the seven-platform fan-out route is unguarded by tests",
+      "description": "As the operator of a multi-tenant service, I want the route that writes sibling listing rows across every marketplace covered by the isolation suite, so a regression in its ownership checks is caught by CI.",
+      "acceptanceCriteria": [
+        "tenant-isolation_test.ts covers POST /api/flipdesk/listings/cross-push: user B cannot cross-push user A's listing_id",
+        "The multi-platform fan-out shape and the own-platform shape are covered separately — they take different branches (sibling insert vs. publish the source row directly)",
+        "Each case asserts the RESPONSE BODY carries no draft_id and no per-platform results map, not just a denied status",
+        "The new cases gate only on TEST_USER_A_LISTING_ID, which is already seeded and in REQUIRED_RESOURCE_IDS, so they cannot land in the silently-skipped group US-2039 documents",
+        "Note for the record: steering the sibling lookup via draft_id and reading another tenant's platform_fields are NOT separately reachable over HTTP — both sit behind the same ownership check, so they are covered structurally rather than by their own case"
+      ],
+      "notes": "[P1][Security/TenantIsolation] 2026-07-25 deep dive. `grep -c cross-push services/edge-functions/src/tests/tenant-isolation_test.ts` returns 0. extension-writeback, delist-confirm, pending-delists and DELETE /item/:id are all covered; cross-push — the fan-out that inserts and updates listings rows for seven platforms — is not. The route's own ownership checks read correct on inspection (flipdesk-listings.ts:183-198, plus the US-1638 .eq(user_id) scoping at :296 and :312); this story is the missing CI guard, per the every-new-route rule in the tenant-isolation skill. IMPLEMENTED 2026-07-25: two cases added to tenant-isolation_test.ts (multi-platform fan-out + own-platform branch), each asserting the response body carries no draft_id/results. Gated on TEST_USER_A_LISTING_ID (already seeded + REQUIRED). NOT yet verified locally — no Deno runtime in the session that wrote it, so the deno lane is CI-verified only.",
+      "passes": false
+    },
+    {
+      "id": "US-2176",
+      "priority": 91,
+      "title": "listings.is_active is a redundant second source of truth that defaults to true",
+      "description": "As a developer, I want one authoritative answer to 'is this listing live', so guards and queries stop needing defensive comments explaining why they can't trust a column.",
+      "acceptanceCriteria": [
+        "is_active is either a generated column derived from listing_status or kept in lockstep by a trigger — not independently writable",
+        "A never-published draft is no longer born is_active = true",
+        "The defensive double-filter in the storefront query and the eight-line 'don't trust is_active' comment in the delete guard are simplified to match",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the SAME commit, self-record footer",
+        "A backfill corrects existing rows where is_active and listing_status disagree, and its row count is logged"
+      ],
+      "notes": "[P2][FlipDesk/Schema] 2026-07-25 deep dive. 00002_inventory_financial.sql:58 declares `is_active boolean NOT NULL DEFAULT true`, so an ordinary never-published draft is is_active=true. flipdesk-listings.ts:666-694 carries an eight-line comment on why the delete guard cannot trust it, and content-public.ts:1438-1439 defensively filters on both columns. Load the `migrations` skill before starting — enum/column changes plus a backfill.",
+      "passes": false
+    },
+    {
+      "id": "US-2177",
+      "priority": 92,
+      "title": "listings has grown to ~52 columns across 41 ALTER TABLE migrations",
+      "description": "As a developer, I want the listings table's per-platform and per-integration fields organized, so every read of a listing doesn't pay for every feature we ever shipped.",
+      "acceptanceCriteria": [
+        "The columns are inventoried and classified: core lifecycle, eBay-specific, cross-listing, metrics, and dead",
+        "Genuinely dead columns are dropped; single-platform fields are assessed for a move into platform_fields",
+        "No caller reads a column by `select(\"*\")` on listings after the change",
+        "Any migration follows the US-1108 triple"
+      ],
+      "notes": "[P3][FlipDesk/Schema] 2026-07-25 deep dive. 11 base columns in 00002_inventory_financial.sql plus 41 added by ALTER TABLE across the migration set. Not urgent on its own — it is the reason the reads in US-2167/US-2168 are expensive, so measure after those land and only cut what is provably dead.",
+      "passes": false
+    },
+    {
+      "id": "US-2178",
+      "priority": 93,
+      "title": "The 3,581-line listings page has two tests; the actions that can cost a sale have none",
+      "description": "As a developer changing the listings surface, I want its behaviour covered by tests, so I find out from CI rather than from a seller that End or a bulk price drop broke.",
+      "acceptanceCriteria": [
+        "End, publish, bulk price drop, archive and delete each have a test asserting which endpoint is called for which platform, and what happens on each failure mode",
+        "Tab predicate and filter/sort behaviour is covered at the unit level",
+        "The platform-dispatch regressions from US-2162 and US-2163 are locked in by tests that fail against today's code",
+        "Tests run in the existing vitest lane with no new harness"
+      ],
+      "notes": "[P2][FlipDesk/Listings] 2026-07-25 deep dive. src/pages/flipdesk/__tests__/ contains only draft-quality.test.ts and status-param-to-tab.test.ts. The edge side is well covered (538 deno tests, ~40 listings-related), so this gap is frontend-specific — and it is where the US-2162/US-2163 divergence bugs live. Write the failing tests as part of those stories; this story covers the rest.",
       "passes": false
     }
   ]

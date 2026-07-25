@@ -39,6 +39,7 @@ import {
 } from "@/lib/listing-origin";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { FlipdeskComposerPage } from "@/pages/flipdesk/composer";
+import { ListingAlertMarkers } from "@/components/flipdesk/listing-alert-markers";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { GradeOutcomeCard } from "@/components/flipdesk/grade-outcome-card";
@@ -171,6 +172,12 @@ export function FlipdeskItemPage() {
           (gated on the share_sale_outcomes opt-in + low-n suppression). */}
       <GradeOutcomeCard item={item} />
 
+      {/* US-2165 / US-1290: a listing we couldn't end, or an apparent double
+          sale. Rendered ABOVE everything else and across EVERY platform (not just
+          eBay) because both mean the same garment can still be bought right
+          now. */}
+      <ListingAlertsSection itemId={item.id} />
+
       {/* eBay-NATIVE listings can't be revised through GradeThread — this notes
           that + links to eBay. GradeThread-published listings are edited and
           pushed inline by the canvas "Save & sync to eBay" button below. */}
@@ -293,6 +300,60 @@ function EbayNativeNotice({ itemId }: { itemId: string }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// US-2165 (AC3) + US-1290 (AC3): surface the oversell-risk markers that
+// autoEndCrossListings stamps into listings.platform_fields.
+//
+// Every OTHER listing panel on this page is eBay-only (they query
+// .eq("platform","ebay") and bail without an eBay connection). That is precisely
+// wrong for these two markers: the platform most likely to carry an unresolved
+// delist is the one whose auto-end was never wired — Etsy, before US-2164 — and a
+// seller with no eBay connection at all would have seen nothing. So this reads
+// EVERY platform's listing for the item, and renders one banner per flagged row.
+//
+// RLS on listings is owner-scoped through inventory_items, so the plain read
+// returns only this user's rows.
+function ListingAlertsSection({ itemId }: { itemId: string }) {
+  interface FlaggedListingRow {
+    id: string;
+    platform: string;
+    listing_url: string | null;
+    platform_fields: Record<string, unknown> | null;
+  }
+
+  const { data: flagged = [] } = useQuery({
+    queryKey: ["item_listing_alerts", itemId],
+    queryFn: async (): Promise<FlaggedListingRow[]> => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select("id, platform, listing_url, platform_fields")
+        .eq("inventory_item_id", itemId);
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as FlaggedListingRow[];
+      // Filter client-side: `platform_fields ? 'key'` isn't expressible through
+      // the supabase-js builder, and an item has a handful of listings at most.
+      return rows.filter((r) => {
+        const pf = r.platform_fields ?? {};
+        return Boolean(pf.delist_unresolved) || Boolean(pf.oversell_conflict);
+      });
+    },
+  });
+
+  if (flagged.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      {flagged.map((row) => (
+        <ListingAlertMarkers
+          key={row.id}
+          platformFields={row.platform_fields}
+          platform={row.platform}
+          listingUrl={row.listing_url}
+        />
+      ))}
+    </div>
   );
 }
 

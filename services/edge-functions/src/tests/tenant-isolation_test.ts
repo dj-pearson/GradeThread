@@ -292,6 +292,73 @@ Deno.test({
 });
 
 Deno.test({
+  // US-2175: cross-push is the WIDEST write in the listings module — one call
+  // fans a source draft out into a listings row per platform (seven of them),
+  // starts a cross-listing group by stamping draft_id, and then asks each
+  // adapter to publish for real. A successful cross-tenant call would put A's
+  // garment live on marketplaces under B's connections.
+  //
+  // The route loads the draft and compares inventory_items.user_id to the
+  // caller's owner id before any write (flipdesk-listings.ts), so B gets the
+  // same 404 as a nonexistent listing. This case is the CI guard that was
+  // missing: every other route in the module had one and the fan-out did not.
+  name: "B cannot cross-push A's listing to other marketplaces",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/cross-push`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        listing_id: id,
+        platforms: ["shopify", "poshmark"],
+        prices: { shopify: 1.0, poshmark: 1.0 },
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      draft_id?: string;
+      results?: Record<string, unknown>;
+    };
+    assertDenied(res.status, "POST cross-push (A's listing)");
+    // Belt and braces on the BODY, not just the status: the success shape
+    // returns the group's draft_id and a per-platform results map. Either one
+    // coming back would mean the fan-out ran far enough to touch A's group
+    // even if the status looked like a denial.
+    assert(
+      body.draft_id === undefined,
+      `cross-push leaked A's cross-listing group id: ${body.draft_id}`,
+    );
+    assert(
+      body.results === undefined,
+      "cross-push returned a per-platform results map for A's listing",
+    );
+  },
+});
+
+Deno.test({
+  // US-2175: the same boundary for the SINGLE-platform shape. Pushing to the
+  // draft's own platform takes a different branch (publish the source row
+  // directly rather than mint a sibling), so it needs its own case — the
+  // sibling-insert branch being scoped says nothing about this one.
+  name: "B cannot cross-push A's listing to the draft's own platform",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/cross-push`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_id: id, platforms: ["ebay"] }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { draft_id?: string };
+    assertDenied(res.status, "POST cross-push (A's listing, own platform)");
+    assert(
+      body.draft_id === undefined,
+      `cross-push leaked A's cross-listing group id: ${body.draft_id}`,
+    );
+  },
+});
+
+Deno.test({
   // US-1978 (AC2): DELETE offer is DESTRUCTIVE and irreversible — on a published
   // offer eBay ends the live listing as a side effect. B must not be able to
   // delete A's offer artifacts (or, via the liveness read, learn whether one
