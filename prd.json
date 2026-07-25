@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2155",
+  "nextId": "US-2162",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4045,6 +4045,115 @@
         "Reuses the existing per-image prompt (label/photo image_type) — no PER_IMAGE_PROMPT_VERSION bump; pure selector/merge logic unit-tested in grading-zoom_test.ts."
       ],
       "notes": "Applies multimodal/crop_tool.ipynb. Defect zoom = US-1035/US-1296. Future option: ungate the label re-read onto all grades (product/pricing decision) or an agentic model-requested zoom (conflicts with forced structured outputs)."
+    },
+    {
+      "id": "US-2155",
+      "priority": 70,
+      "title": "Automations: no_views_in_days tests LIFETIME views, so it never fires on a listing that once had traffic",
+      "description": "As a reseller, I want the \"no views in N days\" automation to mean what it says — no views in the LAST N days — so an aged listing that got traffic months ago still qualifies for a price drop.",
+      "acceptanceCriteria": [
+        "evaluateTrigger no_views_in_days reads a windowed view total from listing_metrics (metric_date >= today - N), not the cumulative listings.views_total",
+        "ListingFacts carries viewsInWindow (or equivalent) sourced from listing_metrics; the automation runner populates it per rule window",
+        "A listing with 500 lifetime views and 0 views in the last N days FIRES the rule; a listing with views inside the window does NOT",
+        "A listing with no listing_metrics rows at all falls back to the lifetime reading so behaviour is unchanged for sellers who never synced performance",
+        "The stale \"No view history exists locally\" comment in automation-rules.ts is removed",
+        "automation-rules_test.ts covers: lifetime-views-but-none-in-window, views-in-window, and the no-metrics fallback"
+      ],
+      "notes": "[P1][FlipDesk/Automations] Found during the 2026-07-24 integration review. automation-rules.ts:288 evaluates f.views <= 0 against the cumulative counter. The per-day data it needs has existed since US-565 — POST /sync/performance writes listing_metrics rows plus listings.views_total/impressions_7d/click_through_rate/view_trend_7d. The comment at automation-rules.ts:22-23 claiming no local view history is stale.",
+      "passes": false
+    },
+    {
+      "id": "US-2156",
+      "priority": 71,
+      "title": "Automations trigger/action vocabulary is too narrow to be the cross-surface glue",
+      "description": "As a reseller, I want automations that react to sales, offers, returns, compliance violations and grades — not just listing age — so FlipDesk automates the whole pipeline rather than only lowering prices on old stock.",
+      "acceptanceCriteria": [
+        "New triggers land with wire-shape validation + evaluator + tests: offer_received, return_opened, compliance_violation, grade_completed, item_status_changed, comp_price_moved",
+        "New actions land with the same: relist, crosslist_to(platform), send_offer_to_watchers, advance_status, notify",
+        "Every new trigger sources its facts from data the system already stores (best_offers, returns, listings.compliance_violation_count, grade_reports, inventory_items.status, comps)",
+        "send_offer_to_watchers respects the US-1967 negotiation-scope capability gate and is hidden/disabled when the scope is unlicensed",
+        "The automations UI exposes each new trigger/action with the existing FilterBuilder scope",
+        "Existing three triggers and four actions keep their current behaviour and stored rules keep validating"
+      ],
+      "notes": "[P2][FlipDesk/Automations] Found during the 2026-07-24 integration review. Today automation-rules.ts has 3 triggers (all aging-based) and 4 actions (all price/promo). Automations is the layer where cross-surface integration actually happens, so this is the highest-leverage investment for making the surfaces work together.",
+      "passes": false
+    },
+    {
+      "id": "US-2157",
+      "priority": 72,
+      "title": "eBay opt-in programs are fully wired in the edge and have ZERO frontend",
+      "description": "As a reseller, I want to see and toggle my eBay program enrollment (Out-of-Stock Control, Promoted Listings, Seller Hub) from Marketplaces so I do not have to leave for the eBay portal.",
+      "acceptanceCriteria": [
+        "The eBay card on /dashboard/flipdesk/marketplaces lists each program from GET /api/flipdesk/ebay/programs with its opted-in state",
+        "Opt in / opt out call POST and DELETE /programs/:program and invalidate the programs query on success",
+        "Errors surface as sonner toasts; the control disables while the mutation is in flight",
+        "A disconnected eBay connection renders the section as unavailable rather than erroring"
+      ],
+      "notes": "[P2][FlipDesk/eBay] Found during the 2026-07-24 integration review. GET/POST/DELETE /programs exist at flipdesk-ebay.ts:3974+ and are tenant-scoped, but grep finds no frontend consumer at all — the endpoints have never been callable from the product.",
+      "passes": false
+    },
+    {
+      "id": "US-2158",
+      "priority": 73,
+      "title": "eBay compliance: sellers see violation COUNTS with no way to see which listings or why",
+      "description": "As a reseller, I want to open the actual eBay listing violations — which listings, and the reasons eBay gave — so Listing Health is diagnosable instead of a count plus a blind bulk-fix button.",
+      "acceptanceCriteria": [
+        "GET /api/flipdesk/ebay/compliance/violations is consumed: each summary row in ebay-listing-health-card.tsx expands to the per-listing detail for that compliance type",
+        "Each violation shows the item title (or SKU), the eBay listing id, and the reasons eBay returned",
+        "A per-listing fix applies that one listing recommendations and revises it, instead of only the existing all-or-nothing bulk apply",
+        "A violation with no aspectRecommendations renders read-only with a deep link to the eBay listing rather than a fix button that would no-op",
+        "useListingComplianceFlags selects platform_listing_id and the item title so eBay listing ids can be matched back to local rows",
+        "Detail is fetched lazily per compliance type — expanding is what triggers the call, not rendering the card"
+      ],
+      "notes": "[P2][FlipDesk/eBay] Found during the 2026-07-24 integration review; scope CORRECTED after reading the card — POST /compliance/apply-recommendations/:id is already wired as a bulk action (useApplyComplianceRecommendations + useEbayReviseListing in ebay-listing-health-card.tsx), so the fix action is NOT missing. What is genuinely unused is GET /compliance/violations (flipdesk-ebay.ts:946): nothing in src/ references it, so a seller sees \"3 listings with compliance issues\" and cannot see which three or why.",
+      "passes": false
+    },
+    {
+      "id": "US-2159",
+      "priority": 74,
+      "title": "Two independent price-suggestion engines that can disagree",
+      "description": "As a reseller, I want one answer to \"what should this cost\" — so Price Suggestions and Repricing stop being two screens that compute different numbers from different data.",
+      "acceptanceCriteria": [
+        "src/pages/price-suggestions.tsx no longer computes suggestions client-side from raw Supabase rows",
+        "Both surfaces read the server engine at /api/flipdesk/pricing/suggestions (comp-driven, with reason codes)",
+        "Any heuristic unique to the client-side page is either ported into the server engine or explicitly dropped with a note saying which and why",
+        "Apply/dismiss go through the existing /pricing/suggestions/:id/apply and /dismiss endpoints from both surfaces",
+        "No behavioural regression for a seller with zero comps — the no-comps reason code still renders"
+      ],
+      "notes": "[P2][FlipDesk/Pricing] Found during the 2026-07-24 integration review. price-suggestions.tsx computes suggestions in the browser from items/listings/sales/gradeReports; repricing.tsx calls the server comp engine via use-repricing.ts. Same question, two answers, two nav entries in two different sidebar groups. Precondition for the US-2161 Pricing tab merge.",
+      "passes": false
+    },
+    {
+      "id": "US-2160",
+      "priority": 75,
+      "title": "eBay Sell Logistics: the ship step is the one pipeline step that leaves FlipDesk",
+      "description": "As a reseller, I want to rate-shop and buy an eBay shipping label in FlipDesk, so the ship step stays in the app and the real postage cost lands in Expenses instead of being typed from memory.",
+      "acceptanceCriteria": [
+        "A lib/ebay-logistics.ts wraps POST /sell/logistics/v1/shipping_quote and POST /sell/logistics/v1/shipment (plus shipment cancel + label download)",
+        "Buying a label records the chosen rate as the sale shipping cost so Expenses/Finances stop relying on manual entry",
+        "The purchased tracking number flows into the existing createShippingFulfillment path rather than duplicating it",
+        "Every new route is tenant-scoped per US-268 and has a tenant-isolation_test.ts case",
+        "Sellers without the required scope get the same capability-gated treatment as negotiation (US-1967) rather than a raw 403",
+        "Post-sale UI exposes rate options, purchase, and label reprint"
+      ],
+      "notes": "[P2][FlipDesk/eBay] Found during the 2026-07-24 integration review. The Sell Logistics API is the only materially missing eBay family — Media API is already tracked as US-1980 and negotiation is deliberately unlicensed per US-1967. Today createShippingFulfillment (flipdesk-ebay.ts:6145) only stamps a tracking number the seller bought elsewhere.",
+      "passes": false
+    },
+    {
+      "id": "US-2161",
+      "priority": 76,
+      "title": "FlipDesk nav carries ~24 entries; three groups are tabs wearing page costumes",
+      "description": "As a reseller, I want fewer, denser FlipDesk destinations so the sidebar stops being a directory of every feature we shipped.",
+      "acceptanceCriteria": [
+        "Pricing: Repricing + Bulk pricing + Price Suggestions + Automations become one route with in-page tabs (?tab=)",
+        "Analytics: Listing Performance + Community Insights fold into the existing analytics tab set",
+        "Sourcing: ScoutAI + Buy Decision + Sources + Buyer Demand become one route with in-page tabs",
+        "Old routes redirect to the canonical route + ?tab= so deep links, the command palette and flipdesk-search keep working",
+        "The US-1121 nav-contract comment in sidebar.tsx is updated to describe the new redirects",
+        "FlipDesk sidebar entries drop from ~24 to ~14 with no feature removed"
+      ],
+      "notes": "[P2][FlipDesk/Nav] Found during the 2026-07-24 integration review. Follows the pattern already proven by US-958 (inventory ?mode=) and US-963 (reconcile ?tab=). Price Suggestions currently sits in the Grading group while the other three pricing surfaces sit under FlipDesk. Blocked on US-2159 for the Pricing merge.",
+      "passes": false
     }
   ]
 }

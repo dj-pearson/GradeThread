@@ -1,5 +1,15 @@
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Loader2, RefreshCw, Wand2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardCheck,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Wand2,
+} from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -15,7 +25,9 @@ import {
   useSyncListingHealth,
   useListingComplianceFlags,
   useApplyComplianceRecommendations,
+  useEbayListingViolations,
   useEbayReviseListing,
+  type ListingComplianceFlag,
 } from "@/hooks/use-ebay";
 import { useState } from "react";
 
@@ -35,6 +47,151 @@ function typeLabel(t: string): string {
   return TYPE_LABEL[t] ?? t.replace(/_/g, " ").toLowerCase();
 }
 
+// US-2158: the per-listing breakdown behind one summary count.
+//
+// eBay keys violations by ITS listing id, so each one is matched back to the
+// local listings row through platform_listing_id — that row id is what the fix
+// endpoints take. A violation we can't match (an eBay listing FlipDesk doesn't
+// manage) still renders: it's real, the seller should see it, it just can't be
+// fixed from here.
+function ViolationDetail({
+  complianceType,
+  flags,
+  busy,
+  onFixed,
+}: {
+  complianceType: string;
+  flags: ListingComplianceFlag[];
+  busy: boolean;
+  onFixed: () => void;
+}) {
+  const { data, isLoading, isError } = useEbayListingViolations(
+    complianceType,
+    true,
+  );
+  const applyRecs = useApplyComplianceRecommendations();
+  const revise = useEbayReviseListing();
+  const [fixingId, setFixingId] = useState<string | null>(null);
+
+  const byEbayId = new Map(
+    flags
+      .filter((f) => f.platform_listing_id)
+      .map((f) => [f.platform_listing_id as string, f]),
+  );
+
+  async function fixOne(flag: ListingComplianceFlag) {
+    setFixingId(flag.id);
+    try {
+      const r = await applyRecs.mutateAsync(flag.id);
+      if (r.applied > 0) {
+        await revise.mutateAsync({
+          listingId: flag.id,
+          patch: { resync_ebay_fields: true },
+        });
+        toast.success(
+          `Applied ${r.applied} item specific${r.applied === 1 ? "" : "s"} and revised the listing.`,
+        );
+        onFixed();
+      } else {
+        toast.info("eBay had no recommendations to apply for this listing.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not fix this listing.");
+    } finally {
+      setFixingId(null);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <p className="py-2 pl-5 text-sm text-muted-foreground">
+        Loading violations…
+      </p>
+    );
+  }
+  if (isError || data?.access === false) {
+    return (
+      <p className="py-2 pl-5 text-sm text-muted-foreground">
+        Reconnect eBay to see the details for these violations.
+      </p>
+    );
+  }
+
+  const violations = data?.violations ?? [];
+  if (violations.length === 0) {
+    return (
+      <p className="py-2 pl-5 text-sm text-muted-foreground">
+        eBay returned no detail for this violation type.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="space-y-2 py-2 pl-5">
+      {violations.map((v, i) => {
+        const flag = v.listingId ? byEbayId.get(v.listingId) : undefined;
+        const title = flag?.inventory_items?.title ?? v.sku ?? v.listingId;
+        const canFix = !!flag && v.aspectRecommendations.length > 0;
+        const url =
+          flag?.listing_url ??
+          (v.listingId ? `https://www.ebay.com/itm/${v.listingId}` : null);
+        return (
+          <li
+            key={`${v.listingId ?? v.sku ?? "unknown"}-${i}`}
+            className="rounded-md border p-2 text-sm"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate font-medium">{title || "Unknown listing"}</p>
+                {v.reasons.length > 0 && (
+                  <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
+                    {v.reasons.map((r, ri) => (
+                      <li key={ri}>{r}</li>
+                    ))}
+                  </ul>
+                )}
+                {v.aspectRecommendations.length > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    eBay suggests:{" "}
+                    {v.aspectRecommendations.map((a) => a.name).join(", ")}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-shrink-0 items-center gap-1">
+                {canFix && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || fixingId === flag.id}
+                    onClick={() => fixOne(flag)}
+                  >
+                    {fixingId === flag.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Wand2 className="h-3.5 w-3.5" />
+                    )}
+                    <span className="ml-1">Fix</span>
+                  </Button>
+                )}
+                {url && (
+                  <Button size="sm" variant="ghost" asChild>
+                    <a href={url} target="_blank" rel="noreferrer noopener">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span className="sr-only">
+                        Open {title || "listing"} on eBay
+                      </span>
+                    </a>
+                  </Button>
+                )}
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function EbayListingHealthCard() {
   const { data: connection } = useEbayConnection();
   const connected = !!connection;
@@ -46,6 +203,9 @@ export function EbayListingHealthCard() {
   const applyRecs = useApplyComplianceRecommendations();
   const revise = useEbayReviseListing();
   const [fixing, setFixing] = useState(false);
+  // US-2158: which summary row is open. One at a time — each expansion is a live
+  // eBay round-trip, so opening all of them at once would fan out needlessly.
+  const [expandedType, setExpandedType] = useState<string | null>(null);
 
   function recheck() {
     sync.mutate(undefined, {
@@ -146,16 +306,42 @@ export function EbayListingHealthCard() {
             </div>
             <ul className="space-y-1.5">
               {summaries.map((s) => (
-                <li
-                  key={s.complianceType}
-                  className="flex items-center justify-between gap-3 text-sm"
-                >
-                  <span className="text-muted-foreground">
-                    {typeLabel(s.complianceType)}
-                  </span>
-                  <Badge variant="outline" className="tabular-nums">
-                    {s.listingCount}
-                  </Badge>
+                <li key={s.complianceType}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedType((prev) =>
+                        prev === s.complianceType ? null : s.complianceType,
+                      )
+                    }
+                    aria-expanded={expandedType === s.complianceType}
+                    className="flex w-full items-center justify-between gap-3 rounded-md py-1 text-left text-sm transition-colors hover:text-foreground"
+                  >
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <ChevronRight
+                        className={cn(
+                          "h-3.5 w-3.5 transition-transform",
+                          expandedType === s.complianceType && "rotate-90",
+                        )}
+                      />
+                      {typeLabel(s.complianceType)}
+                    </span>
+                    <Badge variant="outline" className="tabular-nums">
+                      {s.listingCount}
+                    </Badge>
+                  </button>
+                  {expandedType === s.complianceType && (
+                    <ViolationDetail
+                      complianceType={s.complianceType}
+                      flags={flags}
+                      busy={fixing}
+                      onFixed={() => {
+                        sync.mutate(undefined, {
+                          onSuccess: () => void refetchFlags(),
+                        });
+                      }}
+                    />
+                  )}
                 </li>
               ))}
             </ul>

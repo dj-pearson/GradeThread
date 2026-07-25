@@ -17,6 +17,11 @@ function facts(overrides: Partial<AutomationFacts> = {}): AutomationFacts {
   return {
     ageDays: 0,
     views: 0,
+    // Default to the pre-US-2155 world: no performance sync has ever run, so
+    // no_views_in_days falls back to the cumulative `views` counter. Tests that
+    // exercise the windowed path opt in by setting these two.
+    metricsSyncedDaysAgo: null,
+    recentViewWindows: [],
     watchers: 0,
     brand: null,
     category: null,
@@ -120,6 +125,70 @@ Deno.test("no_views_in_days needs zero views AND the age", () => {
   assert(triggerMatches(t, facts({ ageDays: 15, views: 0 })));
   assert(!triggerMatches(t, facts({ ageDays: 15, views: 3 })));
   assert(!triggerMatches(t, facts({ ageDays: 10, views: 0 })));
+});
+
+// US-2155: the trigger reads the listing_metrics window, not the lifetime
+// counter. The bug these cover: a listing with plenty of historical traffic and
+// none lately could never fire the rule.
+Deno.test("no_views_in_days fires on lifetime views with none in the window", () => {
+  const t = { type: "no_views_in_days", days: 14, cooldown_days: 7 } as const;
+  // 500 lifetime views, synced yesterday, and eBay reported no engagement in
+  // the window (so the sync wrote no rows) — this MUST fire.
+  assert(
+    triggerMatches(
+      t,
+      facts({
+        ageDays: 60,
+        views: 500,
+        metricsSyncedDaysAgo: 1,
+        recentViewWindows: [],
+      }),
+    ),
+  );
+});
+
+Deno.test("no_views_in_days does not fire when a window reading is non-zero", () => {
+  const t = { type: "no_views_in_days", days: 14, cooldown_days: 7 } as const;
+  // Zero lifetime views recorded on the snapshot column, but the time-series
+  // says the listing got traffic 3 days ago — the window wins.
+  assert(
+    !triggerMatches(
+      t,
+      facts({
+        ageDays: 60,
+        views: 0,
+        metricsSyncedDaysAgo: 1,
+        recentViewWindows: [{ daysAgo: 3, views: 4 }, { daysAgo: 9, views: 0 }],
+      }),
+    ),
+  );
+  // A reading OUTSIDE the window is ignored.
+  assert(
+    triggerMatches(
+      t,
+      facts({
+        ageDays: 60,
+        views: 0,
+        metricsSyncedDaysAgo: 1,
+        recentViewWindows: [{ daysAgo: 30, views: 12 }],
+      }),
+    ),
+  );
+});
+
+Deno.test("no_views_in_days falls back to lifetime views without a recent sync", () => {
+  const t = { type: "no_views_in_days", days: 14, cooldown_days: 7 } as const;
+  // Never synced → unchanged pre-US-2155 behaviour.
+  assert(triggerMatches(t, facts({ ageDays: 60, views: 0 })));
+  assert(!triggerMatches(t, facts({ ageDays: 60, views: 9 })));
+  // Synced, but the sync predates the window → we know nothing about the last
+  // 14 days, so fall back rather than assume silence means zero.
+  assert(
+    !triggerMatches(
+      t,
+      facts({ ageDays: 60, views: 9, metricsSyncedDaysAgo: 40 }),
+    ),
+  );
 });
 
 Deno.test("watchers_lt_after_days", () => {

@@ -273,6 +273,12 @@ export interface ListingComplianceFlag {
   inventory_item_id: string;
   compliance_violation_count: number;
   compliance_types: string[] | null;
+  // US-2158: eBay returns violations keyed by ITS listing id, so the detail view
+  // needs this to match a violation back to the local row the fix acts on. The
+  // title is what makes the row readable — a bare eBay id names nothing.
+  platform_listing_id: string | null;
+  listing_url: string | null;
+  inventory_items: { title: string | null } | null;
 }
 export function useListingComplianceFlags() {
   const user = useAuthStore((s) => s.user);
@@ -284,11 +290,60 @@ export function useListingComplianceFlags() {
       const { data, error } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, compliance_violation_count, compliance_types",
+          "id, inventory_item_id, compliance_violation_count, compliance_types, " +
+            "platform_listing_id, listing_url, inventory_items(title)",
         )
         .gt("compliance_violation_count", 0);
       if (error) throw error;
       return (data ?? []) as unknown as ListingComplianceFlag[];
+    },
+  });
+}
+
+// US-2158: the per-listing violation DETAIL behind the summary counts. Until
+// this, GET /compliance/violations had no caller at all — a seller saw "3
+// listings with compliance issues" and had no way to learn which three or why.
+//
+// Fetched per compliance type and only when a summary row is expanded: each
+// call is a live eBay round-trip, so loading every type up front would spend
+// several on data nobody asked to see.
+export interface EbayAspectRecommendation {
+  name: string;
+  values: string[];
+}
+export interface EbayListingViolation {
+  listingId: string | null;
+  sku: string | null;
+  offerId: string | null;
+  complianceType: string;
+  reasons: string[];
+  aspectRecommendations: EbayAspectRecommendation[];
+}
+
+export function useEbayListingViolations(
+  complianceType: string,
+  enabled: boolean,
+) {
+  const tenantKey = useEbayTenantKey();
+  return useQuery({
+    queryKey: ["ebay_listing_violations", tenantKey, complianceType],
+    enabled,
+    staleTime: 10 * 60_000,
+    queryFn: async (): Promise<{
+      access: boolean;
+      violations?: EbayListingViolation[];
+    }> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/compliance/violations?type=${
+          encodeURIComponent(complianceType)
+        }`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not load eBay listing violations.");
+      }
+      return json as { access: boolean; violations?: EbayListingViolation[] };
     },
   });
 }
@@ -2567,6 +2622,105 @@ export function useMigrateEbayListings() {
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
       void qc.invalidateQueries({ queryKey: ["inventory"] });
       void qc.invalidateQueries({ queryKey: ["item"] });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+// ── US-2157: eBay seller programs (opt-in/opt-out) ───────────────────
+//
+// The routes (GET/POST/DELETE /programs) shipped with US-1979 but never got a
+// frontend, so the only way a seller could change these was eBay Seller Hub.
+//
+// The one that matters is OUT_OF_STOCK_CONTROL. eBay ENDS a multi-quantity
+// listing the moment quantity hits 0; for evergreen clothing (the same tee in
+// eight sizes, restocked continuously) that loses the item id, the watchers,
+// the search standing and the sales history. Opted in, the listing stays live
+// at qty 0 and keeps all of it.
+//
+// It stays an explicit opt-in and this UI never decides for the seller: for a
+// single-quantity thrift item — most of FlipDesk — eBay's default is CORRECT,
+// and a blanket opt-in would leave sold-out one-offs sitting live. The copy
+// below has to carry that trade-off, not just the upside.
+
+/** Slug in the route path ←→ what the seller is actually turning on. */
+export const EBAY_PROGRAMS = [
+  {
+    slug: "out-of-stock",
+    apiName: "OUT_OF_STOCK_CONTROL",
+    label: "Out-of-stock control",
+    description:
+      "Keep a listing live at zero quantity instead of letting eBay end it — so restocked items keep their item id, watchers and sales history. Leave off for one-of-a-kind items, or they stay listed after they sell.",
+  },
+  {
+    slug: "selling-policy-management",
+    apiName: "SELLING_POLICY_MANAGEMENT",
+    label: "Business policy management",
+    description:
+      "Required for FlipDesk to attach your shipping, payment and return policies when it publishes. Turn this off and publishing falls back to whatever eBay defaults your account has.",
+  },
+] as const;
+
+export type EbayProgramSlug = (typeof EBAY_PROGRAMS)[number]["slug"];
+
+export interface EbayPrograms {
+  programs: string[];
+  out_of_stock: boolean;
+}
+
+export function useEbayPrograms(enabled = true) {
+  const tenantKey = useEbayTenantKey();
+  return useQuery({
+    queryKey: ["ebay_programs", tenantKey],
+    enabled,
+    staleTime: 30 * 60_000,
+    queryFn: async (): Promise<EbayPrograms> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/programs`, {
+        headers: await ebayHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not load your eBay programs.");
+      }
+      return json as EbayPrograms;
+    },
+  });
+}
+
+/**
+ * Opt in / out of a program. The edge treats "already in the state you asked
+ * for" as success, so a double-click is harmless rather than an error toast.
+ */
+export function useSetEbayProgram() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      vars: { slug: EbayProgramSlug; optIn: boolean },
+    ): Promise<{ ok: boolean }> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/programs/${vars.slug}`,
+        {
+          method: vars.optIn ? "POST" : "DELETE",
+          headers: await ebayHeaders(),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          json.error ||
+            (vars.optIn
+              ? "eBay rejected the opt-in."
+              : "eBay rejected the opt-out."),
+        );
+      }
+      return json as { ok: boolean };
+    },
+    onSuccess: (_d, vars) => {
+      const program = EBAY_PROGRAMS.find((p) => p.slug === vars.slug);
+      toast.success(
+        `${program?.label ?? "Program"} ${vars.optIn ? "turned on" : "turned off"}.`,
+      );
+      void qc.invalidateQueries({ queryKey: ["ebay_programs"] });
     },
     onError: (e) => toast.error(e.message),
   });
