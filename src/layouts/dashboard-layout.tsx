@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/dashboard/sidebar";
 import { Header } from "@/components/dashboard/header";
 import { RouteErrorBoundary } from "@/components/error-boundary";
 import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
+import { useRealtimeListingState } from "@/hooks/use-realtime-listing-state";
 import { useCheckoutReconciler } from "@/hooks/use-checkout-reconciler";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
 import { ShortcutsHelp } from "@/components/dashboard/shortcuts-help";
@@ -19,6 +20,11 @@ import { SupportChatWidget } from "@/components/support/support-chat-widget";
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
   useRealtimeSubmissions();
+  // US-2174: a sale or status change on a MARKETPLACE is not a local mutation,
+  // so nothing invalidated the inventory cache and a sold listing could show as
+  // Active until its staleness window expired. Mounted once here — per-page
+  // would open a channel per FlipDesk route.
+  useRealtimeListingState();
   // Keep the billing summary + header plan badge reconciling after a Stripe
   // checkout, even if the user navigates off the billing page (US-797).
   useCheckoutReconciler();

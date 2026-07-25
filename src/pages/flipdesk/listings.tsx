@@ -119,6 +119,8 @@ import { downloadItemsCsv } from "@/lib/items-csv";
 // US-2168: the per-page detail reads are chunked — at pageSize 200 a bare .in()
 // would put ~7.4KB of UUIDs in the query string.
 import { fetchInChunks } from "@/lib/supabase-batch";
+// US-2174: gate the Active tab's backstop poll on tab visibility (US-576).
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 // US-2170: the quality chip + its persisted-column mapping, shared with the
 // AutoLister drafts cockpit so there is ONE scoring presentation, not two.
 import {
@@ -638,6 +640,8 @@ export function FlipdeskListingsPage() {
   const isSold = tab === "sold";
   const isActive = tab === "active";
   const isDrafts = tab === "drafts";
+  // US-2174: a hidden tab must not poll.
+  const visible = useDocumentVisible();
   const isShipped = tab === "shipped";
   const selectable = isToList || isSold || isActive || isDrafts;
 
@@ -687,9 +691,28 @@ export function FlipdeskListingsPage() {
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["items_full", "listings", user?.id],
     enabled: !!user,
-    // 15-min freshness — mutations invalidate items_full explicitly, so a
-    // longer window only skips redundant passive refetches (US-735).
-    staleTime: 15 * 60 * 1000,
+    // US-2174 (replaces the US-735 reasoning).
+    //
+    // The old 15-minute window was justified by "mutations invalidate items_full
+    // explicitly, so a longer window only skips redundant refetches". That holds
+    // for changes WE make — but a sale on eBay is not a local mutation. Nothing
+    // invalidated anything, so a sold listing could show as Active for a quarter
+    // of an hour: long enough to reprice or relist something already gone.
+    //
+    // Three things now keep this fresh, in order of how quickly they act:
+    //   1. local mutations invalidate ["items_full"] as before;
+    //   2. useRealtimeListingState (dashboard layout) invalidates on a
+    //      sale/status notification — near-instant, and the reason the interval
+    //      below can stay slow rather than becoming a busy poll;
+    //   3. this interval, as the backstop for anything that notifies nobody.
+    //
+    // The ACTIVE tab is the one where staleness costs money, so only it polls.
+    // Everywhere else keeps the long window — a drafted item does not change
+    // underneath the seller.
+    staleTime: isActive ? 60 * 1000 : 15 * 60 * 1000,
+    // Gated on visibility (US-576 pattern): a backgrounded tab stops polling
+    // entirely, and refetchOnWindowFocus covers the return.
+    refetchInterval: isActive && visible ? 2 * 60 * 1000 : false,
     queryFn: async (): Promise<ItemFullRow[]> => {
       const { data, error } = await (
         supabase.from as unknown as (
