@@ -119,11 +119,19 @@ import { downloadItemsCsv } from "@/lib/items-csv";
 import { type TabId, statusParamToTab } from "@/pages/flipdesk/inventory-tabs";
 import {
   useEbayConnection,
-  useEbayEndListing,
-  useEbayUpdateListingPrice,
   usePublishToEbay,
   useSyncEbayListings,
 } from "@/hooks/use-ebay";
+// US-2162/US-2163/US-2166: price and end go through the PLATFORM-AGNOSTIC
+// lifecycle, not the eBay-namespaced routes. The eBay hooks branched on whether
+// an eBay connection existed rather than on the listing's own platform, so every
+// non-eBay row fell into a local-only write that left the marketplace untouched.
+import {
+  useBulkEndListings,
+  useBulkListingPrice,
+  useEndListing,
+  useUpdateListingPrice,
+} from "@/hooks/use-listing-lifecycle";
 import { useDeleteItem } from "@/hooks/use-items-full";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import {
@@ -538,8 +546,10 @@ export function FlipdeskListingsPage() {
   );
   const { data: ebayConnection } = useEbayConnection();
   const syncEbay = useSyncEbayListings();
-  const updatePrice = useEbayUpdateListingPrice();
-  const endListingApi = useEbayEndListing();
+  const updatePrice = useUpdateListingPrice();
+  const endListingApi = useEndListing();
+  const bulkPrice = useBulkListingPrice();
+  const bulkEnd = useBulkEndListings();
   const deleteItemApi = useDeleteItem();
   const publishApi = usePublishToEbay();
   const [bulkPublishProgress, setBulkPublishProgress] = useState<{
@@ -1244,10 +1254,16 @@ export function FlipdeskListingsPage() {
     }
   }
 
-  // Inline price edit on the Active tab. Calls eBay's Sell API when the
-  // listing has a platform_offer_id, then writes through to local state.
-  // Falls back to local-only when no eBay connection or no offer_id is
-  // available (e.g. listings manually marked via MarkListedDialog).
+  // Inline price edit on the Active tab. US-2163: ONE platform-agnostic call
+  // that reprices the listing on whatever marketplace it actually lives on.
+  //
+  // The old shape branched on `ebayConnection` rather than the listing's
+  // platform, so a Shopify/Etsy/Depop row hit eBay's endpoint, got a 409 (no
+  // offer id), and fell through to a direct listings.update() — leaving a local
+  // price no buyer could see. There is deliberately NO local-write fallback
+  // here now: the server writes the row itself when (and only when) the
+  // marketplace accepted the change, and reports `pushed:false` for a draft that
+  // was never live. A failure is a failure.
   async function updateListingPrice(it: ItemFullRow, raw: string) {
     if (!it.listing_id) {
       toast.error("No listing record for this item.");
@@ -1265,27 +1281,11 @@ export function FlipdeskListingsPage() {
       ),
     );
     try {
-      if (ebayConnection) {
-        try {
-          await updatePrice.mutateAsync({
-            listingId: it.listing_id,
-            price: next,
-          });
-          // Server already wrote-through to listings.listing_price.
-          toast.success("Price updated on eBay.");
-          return;
-        } catch (err) {
-          const e = err as Error & { status?: number };
-          // 409 = no platform_offer_id → fall through to local-only update.
-          if (e.status !== 409) throw e;
-        }
-      }
-      const { error } = await supabase
-        .from("listings")
-        .update({ listing_price: next } as never)
-        .eq("id", it.listing_id);
-      if (error) throw error;
-      toast.success("Price updated.");
+      const res = await updatePrice.mutateAsync({
+        listingId: it.listing_id,
+        price: next,
+      });
+      toast.success(res.pushed ? "Price updated on the marketplace." : "Price updated.");
     } catch (err) {
       qc.setQueryData(["items_full", user?.id], prev);
       toast.error(
@@ -1379,41 +1379,45 @@ export function FlipdeskListingsPage() {
     await patchItemColumn(it, "condition_notes", value, { notes: value }, "Notes");
   }
 
+  // US-2162: end the listing on ITS OWN marketplace.
+  //
+  // This used to branch on `ebayConnection`, call eBay's endpoint for every row
+  // whatever its platform, and on the resulting 409 write listing_status:'ended'
+  // straight to the table — then tell the seller "Listing ended locally." while
+  // the Shopify/Etsy/Depop listing stayed live and purchasable. That is the
+  // oversell hazard, stated as a success message.
+  //
+  // The server now owns the whole decision: it marks the row ended only when the
+  // listing is genuinely not live, and returns an error otherwise. So there is no
+  // client-side fallback, and the toast reports what actually happened rather
+  // than what we hoped happened.
   async function endListing(it: ItemFullRow) {
     if (!it.listing_id) {
       toast.error("No listing record for this item.");
       return;
     }
     try {
-      if (ebayConnection) {
-        try {
-          await endListingApi.mutateAsync({ listingId: it.listing_id });
-          await qc.invalidateQueries({ queryKey: ["items_full"] });
-          toast.success("Listing ended on eBay.");
-          return;
-        } catch (err) {
-          const e = err as Error & { status?: number };
-          if (e.status !== 409) throw e;
-          // 409 → fall through to local-only end.
-        }
-      }
-      const { error: lErr } = await supabase
-        .from("listings")
-        .update({ listing_status: "ended", is_active: false } as never)
-        .eq("id", it.listing_id);
-      if (lErr) throw lErr;
-      // Move the item back to drafted so it can be relisted.
-      const { error: iErr } = await supabase
-        .from("inventory_items")
-        .update({ status: "drafted" } as never)
-        .eq("id", it.id);
-      if (iErr) throw iErr;
+      const res = await endListingApi.mutateAsync({ listingId: it.listing_id });
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success("Listing ended locally.");
+      if (res.already_ended) {
+        toast.success("That listing was already ended.");
+      } else if (res.ended_upstream) {
+        toast.success("Listing ended on the marketplace.");
+      } else {
+        // Nothing was live to end — an unpublished draft, or the marketplace
+        // reported it already gone. Distinct from the old "ended locally",
+        // which meant "we couldn't reach the marketplace".
+        toast.success(res.note ?? "Listing ended.");
+      }
     } catch (err) {
-      toast.error(
-        `End failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const e = err as Error & { status?: number; code?: string };
+      if (e.code === "unsupported_platform" || e.code === "not_connected") {
+        // The listing is STILL LIVE. Say so plainly and for long enough to read
+        // — this is the case that costs a seller a double sale.
+        toast.error(e.message, { duration: 12_000 });
+        return;
+      }
+      toast.error(`End failed: ${e.message}`);
     }
   }
 
@@ -1421,58 +1425,53 @@ export function FlipdeskListingsPage() {
     if (selected.size === 0) return;
     const pct = Number(bulkDropPct);
     if (!Number.isFinite(pct) || pct <= 0) return;
-    setBusy(true);
-    const errors: { message: string }[] = [];
-    let done = 0;
-    let remoteSkipped = 0;
-    for (const id of selected) {
-      const it = items.find((i) => i.id === id);
-      if (!it || !it.listing_id || it.list_price == null) continue;
-      const next = Number((it.list_price * (1 - pct / 100)).toFixed(2));
-      try {
-        let usedEbay = false;
-        if (ebayConnection) {
-          try {
-            await updatePrice.mutateAsync({
-              listingId: it.listing_id,
-              price: next,
-            });
-            usedEbay = true;
-          } catch (err) {
-            const e = err as Error & { status?: number };
-            if (e.status === 409) remoteSkipped += 1;
-            else throw e;
-          }
-        }
-        if (!usedEbay) {
-          const { error } = await supabase
-            .from("listings")
-            .update({ listing_price: next } as never)
-            .eq("id", it.listing_id);
-          if (error) throw error;
-        }
-        done++;
-      } catch (err) {
-        errors.push({
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
+    // US-2163: ONE request for the whole selection.
+    //
+    // This was a browser loop firing one HTTP call per selected listing — 200
+    // listings meant 200 round trips under a blocking spinner with no cancel,
+    // and it would have tripped the 30-req/60s rate limit on
+    // /api/flipdesk/listings/* somewhere around the 30th row. Worse, its 409
+    // branch wrote the local price for every non-eBay row and reported it as
+    // "(N updated locally only)" — a number the marketplace never saw, which
+    // then fed margin and ROI.
+    //
+    // The percentage is applied SERVER-side to each row's own current price, so
+    // the result can't be computed from a stale render.
+    const listingIds = Array.from(selected)
+      .map((id) => items.find((i) => i.id === id)?.listing_id)
+      .filter((id): id is string => Boolean(id));
+    if (listingIds.length === 0) {
+      toast.error("None of the selected items have a listing to reprice.");
+      return;
     }
-    setBusy(false);
-    setSelected(new Set());
-    await qc.invalidateQueries({ queryKey: ["items_full"] });
-    if (errors.length === 0) {
-      const localNote = remoteSkipped > 0
-        ? ` (${remoteSkipped} updated locally only)`
-        : "";
-      toast.success(
-        `Dropped price ${pct}% on ${done} listing${done === 1 ? "" : "s"}${localNote}.`,
+
+    setBusy(true);
+    try {
+      const res = await bulkPrice.mutateAsync({ listingIds, dropPct: pct });
+      setSelected(new Set());
+      if (res.failed === 0) {
+        toast.success(
+          `Dropped price ${pct}% on ${res.succeeded} listing${
+            res.succeeded === 1 ? "" : "s"
+          }.`,
+        );
+      } else {
+        // Name the first real reason rather than a bare count — "3 failed" with
+        // no cause is what sends a seller to support.
+        const firstError = res.results.find((r) => !r.ok)?.error;
+        toast.warning(
+          `Dropped ${res.succeeded}, ${res.failed} failed.${
+            firstError ? ` First: ${firstError}` : ""
+          }`,
+          { duration: 12_000 },
+        );
+      }
+    } catch (err) {
+      toast.error(
+        `Bulk reprice failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-    } else {
-      toast.warning(
-        `Dropped ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
-        { duration: 12_000 },
-      );
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1569,61 +1568,45 @@ export function FlipdeskListingsPage() {
     }
   }
 
+  // US-2162: end the whole selection in ONE request, each listing on its own
+  // marketplace. Previously a per-listing loop whose 409 branch wrote
+  // listing_status:'ended' locally and reported "(N ended locally only)" — those
+  // listings stayed live. Past ~30 selected rows the loop also tripped the
+  // 30-req/60s rate limit on /api/flipdesk/listings/*, so a large bulk end
+  // silently half-finished.
   async function bulkEndListings() {
     if (selected.size === 0) return;
-    setBusy(true);
-    const errors: { message: string }[] = [];
-    let done = 0;
-    let remoteSkipped = 0;
-    for (const id of selected) {
-      const it = items.find((i) => i.id === id);
-      if (!it || !it.listing_id) continue;
-      try {
-        let usedEbay = false;
-        if (ebayConnection) {
-          try {
-            await endListingApi.mutateAsync({ listingId: it.listing_id });
-            usedEbay = true;
-          } catch (err) {
-            const e = err as Error & { status?: number };
-            if (e.status === 409) remoteSkipped += 1;
-            else throw e;
-          }
-        }
-        if (!usedEbay) {
-          const { error: lErr } = await supabase
-            .from("listings")
-            .update({ listing_status: "ended", is_active: false } as never)
-            .eq("id", it.listing_id);
-          if (lErr) throw lErr;
-          const { error: iErr } = await supabase
-            .from("inventory_items")
-            .update({ status: "drafted" } as never)
-            .eq("id", it.id);
-          if (iErr) throw iErr;
-        }
-        done++;
-      } catch (err) {
-        errors.push({
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
+    const listingIds = Array.from(selected)
+      .map((id) => items.find((i) => i.id === id)?.listing_id)
+      .filter((id): id is string => Boolean(id));
+    if (listingIds.length === 0) {
+      toast.error("None of the selected items have a listing to end.");
+      return;
     }
-    setBusy(false);
-    setSelected(new Set());
-    await qc.invalidateQueries({ queryKey: ["items_full"] });
-    if (errors.length === 0) {
-      const localNote = remoteSkipped > 0
-        ? ` (${remoteSkipped} ended locally only)`
-        : "";
-      toast.success(
-        `Ended ${done} listing${done === 1 ? "" : "s"}${localNote}.`,
+
+    setBusy(true);
+    try {
+      const res = await bulkEnd.mutateAsync({ listingIds });
+      setSelected(new Set());
+      if (res.failed === 0) {
+        toast.success(`Ended ${res.succeeded} listing${res.succeeded === 1 ? "" : "s"}.`);
+      } else {
+        // A failed end means the listing is STILL LIVE — surface the reason and
+        // leave it up long enough to act on.
+        const firstError = res.results.find((r) => !r.ok)?.error;
+        toast.warning(
+          `Ended ${res.succeeded}, ${res.failed} still live.${
+            firstError ? ` First: ${firstError}` : ""
+          }`,
+          { duration: 14_000 },
+        );
+      }
+    } catch (err) {
+      toast.error(
+        `Bulk end failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-    } else {
-      toast.warning(
-        `Ended ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
-        { duration: 12_000 },
-      );
+    } finally {
+      setBusy(false);
     }
   }
 

@@ -194,7 +194,7 @@ export async function autoEndCrossListings(
       const names = [...unresolvedPlatforms].sort();
       const which = names.length === 1
         ? `its ${names[0]} listing`
-        : `its listings on ${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+        : `its listings on ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
       void notifyUser(ownerId, {
         type: "system",
         title: names.length === 1
