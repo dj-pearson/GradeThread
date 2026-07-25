@@ -145,13 +145,27 @@ export function useBulkListingPrice() {
   return useMutation<
     BulkPriceResponse,
     Error & { status?: number },
-    { listingIds: string[]; price?: number; dropPct?: number }
+    {
+      listingIds?: string[];
+      price?: number;
+      dropPct?: number;
+      /**
+       * US-2172: per-row prices — the shape undo uses. Each row goes back to
+       * its OWN former price, which no single shared price or percentage can
+       * express. When present, the ids come from these entries.
+       */
+      items?: Array<{ listingId: string; price: number }>;
+    }
   >({
-    mutationFn: async ({ listingIds, price, dropPct }) => {
+    mutationFn: async ({ listingIds, price, dropPct, items }) => {
       const res = await edgeFetch("/api/flipdesk/listings/bulk-price", {
         method: "POST",
         json: {
-          listing_ids: listingIds,
+          ...(items
+            ? {
+              items: items.map((i) => ({ listing_id: i.listingId, price: i.price })),
+            }
+            : { listing_ids: listingIds ?? [] }),
           ...(price !== undefined ? { price } : {}),
           ...(dropPct !== undefined ? { drop_pct: dropPct } : {}),
         },
@@ -160,6 +174,29 @@ export function useBulkListingPrice() {
     },
     onSuccess: invalidate,
   });
+}
+
+/**
+ * US-2172: the rows a bulk reprice can be rolled back to.
+ *
+ * Only rows that actually SUCCEEDED and have a known previous price are
+ * reversible. A row whose marketplace refused never changed, so "undoing" it
+ * would push a price nobody asked for; a row with no previous_price can't be
+ * restored to anything meaningful. Both are filtered out rather than guessed at.
+ */
+export function undoableFrom(
+  res: BulkPriceResponse,
+): Array<{ listingId: string; price: number }> {
+  return res.results
+    .filter(
+      (r): r is BulkPriceRowResult & { previous_price: number } =>
+        r.ok &&
+        typeof r.previous_price === "number" &&
+        r.previous_price > 0 &&
+        // No-op rows are not worth a round trip.
+        r.previous_price !== r.price,
+    )
+    .map((r) => ({ listingId: r.listing_id, price: r.previous_price }));
 }
 
 /**

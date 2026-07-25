@@ -137,6 +137,7 @@ import {
 // an eBay connection existed rather than on the listing's own platform, so every
 // non-eBay row fell into a local-only write that left the marketplace untouched.
 import {
+  undoableFrom,
   useBulkEndListings,
   useBulkListingPrice,
   useEndListing,
@@ -1541,11 +1542,54 @@ export function FlipdeskListingsPage() {
     try {
       const res = await bulkPrice.mutateAsync({ listingIds, dropPct: pct });
       setSelected(new Set());
+
+      // US-2172: undo. A markdown across a large selection is the single most
+      // expensive mis-click on this page, and it was irreversible — the seller's
+      // only recovery was to reprice every listing by hand.
+      //
+      // Only rows that actually succeeded and have a known prior price are
+      // offered: a row the marketplace refused never changed, so "undoing" it
+      // would push a price nobody asked for.
+      const undoable = undoableFrom(res);
+      const undoAction = undoable.length > 0
+        ? {
+          label: "Undo",
+          onClick: () => {
+            void (async () => {
+              try {
+                const back = await bulkPrice.mutateAsync({ items: undoable });
+                if (back.failed === 0) {
+                  toast.success(
+                    `Restored ${back.succeeded} price${back.succeeded === 1 ? "" : "s"}.`,
+                  );
+                } else {
+                  // Undo is a real marketplace push and can fail too. Say which
+                  // rows didn't come back rather than implying a clean revert.
+                  const firstError = back.results.find((r) => !r.ok)?.error;
+                  toast.warning(
+                    `Restored ${back.succeeded}, ${back.failed} couldn't be put back.${
+                      firstError ? ` First: ${firstError}` : ""
+                    }`,
+                    { duration: 12_000 },
+                  );
+                }
+              } catch (err) {
+                toast.error(
+                  `Undo failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            })();
+          },
+        }
+        : undefined;
+
       if (res.failed === 0) {
         toast.success(
           `Dropped price ${pct}% on ${res.succeeded} listing${
             res.succeeded === 1 ? "" : "s"
           }.`,
+          // Longer than a default toast: undo is only useful while it's on screen.
+          { duration: 15_000, action: undoAction },
         );
       } else {
         // Name the first real reason rather than a bare count — "3 failed" with
@@ -1555,7 +1599,7 @@ export function FlipdeskListingsPage() {
           `Dropped ${res.succeeded}, ${res.failed} failed.${
             firstError ? ` First: ${firstError}` : ""
           }`,
-          { duration: 12_000 },
+          { duration: 15_000, action: undoAction },
         );
       }
     } catch (err) {

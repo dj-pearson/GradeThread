@@ -29,6 +29,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 const {
+  undoableFrom,
   useBulkEndListings,
   useBulkListingPrice,
   useEndListing,
@@ -244,5 +245,123 @@ describe("useBulkEndListings", () => {
 
     expect(res.failed).toBe(1);
     expect(res.results.find((r) => !r.ok)?.error).toContain("still live");
+  });
+});
+
+describe("undoableFrom (US-2172)", () => {
+  type Row = {
+    listing_id: string;
+    ok: boolean;
+    price?: number;
+    previous_price?: number | null;
+    pushed?: boolean;
+    error?: string;
+  };
+  const res = (results: Row[]) => ({
+    ok: true as const,
+    total: results.length,
+    succeeded: results.filter((r) => r.ok).length,
+    failed: results.filter((r) => !r.ok).length,
+    results,
+  });
+
+  it("returns each row's own former price", () => {
+    // The whole reason undo needs the per-row shape: these two go back to
+    // DIFFERENT numbers. A single shared price could not express this.
+    expect(
+      undoableFrom(
+        res([
+          { listing_id: "a", ok: true, price: 9, previous_price: 10 },
+          { listing_id: "b", ok: true, price: 45, previous_price: 50 },
+        ]),
+      ),
+    ).toEqual([
+      { listingId: "a", price: 10 },
+      { listingId: "b", price: 50 },
+    ]);
+  });
+
+  it("excludes rows the marketplace refused", () => {
+    // A failed row never changed. Pushing its previous_price would send a price
+    // nobody asked for, to a listing that is already correct.
+    expect(
+      undoableFrom(
+        res([
+          { listing_id: "a", ok: true, price: 9, previous_price: 10 },
+          { listing_id: "b", ok: false, previous_price: 50, error: "Shopify refused." },
+        ]),
+      ),
+    ).toEqual([{ listingId: "a", price: 10 }]);
+  });
+
+  it("excludes rows with no known previous price", () => {
+    // Nothing to restore to. Guessing would be worse than not offering undo.
+    expect(
+      undoableFrom(
+        res([
+          { listing_id: "a", ok: true, price: 9, previous_price: null },
+          { listing_id: "b", ok: true, price: 9 },
+        ]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("excludes no-op rows", () => {
+    // Price unchanged — a round trip that would achieve nothing.
+    expect(
+      undoableFrom(
+        res([{ listing_id: "a", ok: true, price: 10, previous_price: 10 }]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("excludes a non-positive previous price", () => {
+    // listing_price is NOT NULL and non-negative in the schema, but a 0 would
+    // be rejected by the endpoint's own validation — filter it here rather than
+    // sending a request guaranteed to 400.
+    expect(
+      undoableFrom(
+        res([{ listing_id: "a", ok: true, price: 9, previous_price: 0 }]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("returns nothing when the whole batch failed, so no undo is offered", () => {
+    expect(
+      undoableFrom(
+        res([
+          { listing_id: "a", ok: false, error: "boom" },
+          { listing_id: "b", ok: false, error: "boom" },
+        ]),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("useBulkListingPrice per-row shape (US-2172)", () => {
+  it("sends items and omits listing_ids", async () => {
+    edgeFetch.mockResolvedValue(
+      jsonResponse({ ok: true, total: 2, succeeded: 2, failed: 0, results: [] }),
+    );
+    const hook = useBulkListingPrice() as unknown as MutationLike<
+      { items: Array<{ listingId: string; price: number }> },
+      unknown
+    >;
+    await hook.mutationFn({
+      items: [
+        { listingId: "a", price: 10 },
+        { listingId: "b", price: 50 },
+      ],
+    });
+
+    expect(edgeFetch).toHaveBeenCalledTimes(1);
+    expect(lastJson()).toEqual({
+      items: [
+        { listing_id: "a", price: 10 },
+        { listing_id: "b", price: 50 },
+      ],
+    });
+    // Sending both would let the two disagree; the server derives ids from items.
+    expect(lastJson()).not.toHaveProperty("listing_ids");
   });
 });

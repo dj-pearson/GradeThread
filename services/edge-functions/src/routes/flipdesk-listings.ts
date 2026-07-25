@@ -1173,25 +1173,62 @@ flipdeskListingsRoutes.post("/bulk-price", async (c) => {
   const gate = await requireFlipdesk(c, { feature: "bulkActions", userId: ownerId });
   if (gate) return gate;
 
-  let body: { listing_ids?: unknown; price?: unknown; drop_pct?: unknown };
+  let body: {
+    listing_ids?: unknown;
+    price?: unknown;
+    drop_pct?: unknown;
+    items?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON body." }, 400);
   }
 
-  const ids = Array.isArray(body.listing_ids)
+  // US-2172: the third shape — a PER-ROW price. This is what makes a bulk
+  // reprice reversible: the response already returns each row's previous_price,
+  // so undo is the same endpoint called back with those pairs. A single shared
+  // price or percentage cannot express "put each of these 200 listings back to
+  // its own former number".
+  const perRow = new Map<string, number>();
+  if (body.items !== undefined) {
+    if (!Array.isArray(body.items)) {
+      return c.json({ error: "items must be an array." }, 400);
+    }
+    for (const raw of body.items) {
+      const entry = raw as { listing_id?: unknown; price?: unknown } | null;
+      const id = typeof entry?.listing_id === "string" ? entry.listing_id : "";
+      const price = Number(entry?.price);
+      if (!id) return c.json({ error: "Each item needs a listing_id." }, 400);
+      if (!Number.isFinite(price) || price <= 0) {
+        return c.json(
+          { error: `Each item needs a positive price (listing ${id}).` },
+          400,
+        );
+      }
+      perRow.set(id, price);
+    }
+    if (perRow.size === 0) return c.json({ error: "items was empty." }, 400);
+  }
+
+  // With `items`, the id list comes from the entries themselves — a caller
+  // shouldn't have to send the same ids twice and risk the two disagreeing.
+  const ids = perRow.size > 0
+    ? [...perRow.keys()]
+    : Array.isArray(body.listing_ids)
     ? [...new Set(body.listing_ids.filter((x): x is string => typeof x === "string"))]
     : [];
-  if (ids.length === 0) return c.json({ error: "listing_ids is required." }, 400);
+  if (ids.length === 0) {
+    return c.json({ error: "listing_ids or items is required." }, 400);
+  }
   if (ids.length > MAX_BULK_EDIT_ITEMS) {
     return c.json({ error: `Too many listings (max ${MAX_BULK_EDIT_ITEMS}).` }, 400);
   }
 
   const explicitPrice = body.price === undefined ? null : Number(body.price);
   const dropPct = body.drop_pct === undefined ? null : Number(body.drop_pct);
-  if (explicitPrice === null && dropPct === null) {
-    return c.json({ error: "Provide either price or drop_pct." }, 400);
+  if (perRow.size === 0 && explicitPrice === null && dropPct === null) {
+    return c.json({ error: "Provide items, price, or drop_pct." }, 400);
   }
   if (explicitPrice !== null && (!Number.isFinite(explicitPrice) || explicitPrice <= 0)) {
     return c.json({ error: "price must be a positive number." }, 400);
@@ -1230,7 +1267,12 @@ flipdeskListingsRoutes.post("/bulk-price", async (c) => {
     }
 
     let next: number;
-    if (explicitPrice !== null) {
+    const rowPrice = perRow.get(id);
+    if (rowPrice !== undefined) {
+      // US-2172: per-row price (the undo shape) wins — it is the most specific
+      // instruction the caller gave.
+      next = rowPrice;
+    } else if (explicitPrice !== null) {
       next = explicitPrice;
     } else {
       const current = row.listing_price;
