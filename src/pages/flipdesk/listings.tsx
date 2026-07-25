@@ -116,6 +116,9 @@ import {
   type FilterQuery,
 } from "@/lib/item-filter";
 import { downloadItemsCsv } from "@/lib/items-csv";
+// US-2168: the per-page detail reads are chunked — at pageSize 200 a bare .in()
+// would put ~7.4KB of UUIDs in the query string.
+import { fetchInChunks } from "@/lib/supabase-batch";
 import { type TabId, statusParamToTab } from "@/pages/flipdesk/inventory-tabs";
 import {
   useEbayConnection,
@@ -707,179 +710,6 @@ export function FlipdeskListingsPage() {
   // of each view recomputing the totals.
   const { data: statusCounts } = useInventoryStatusCounts();
 
-  // US-149: which marketplaces each item is listed on (draft/active/sold rows
-  // across the cross-listing group) — drives the Platforms column chips.
-  const { data: platformsByItem } = useQuery({
-    queryKey: ["item_listing_platforms", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<Map<string, PlatformChip[]>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select(
-          "id, inventory_item_id, platform, listing_status, listing_origin, platform_listing_id, batch_id, synced_to_ebay_at",
-        )
-        .in("listing_status", ["draft", "active", "sold"]);
-      if (error) throw error;
-      const map = new Map<string, PlatformChip[]>();
-      for (const row of (data ?? []) as Array<{
-        id: string;
-        inventory_item_id: string;
-        platform: ListingPlatform;
-        listing_status: string;
-        listing_origin: string | null;
-        platform_listing_id: string | null;
-        batch_id: string | null;
-        synced_to_ebay_at: string | null;
-      }>) {
-        const arr = map.get(row.inventory_item_id) ?? [];
-        arr.push({
-          id: row.id,
-          platform: row.platform,
-          status: row.listing_status,
-          origin: deriveListingOrigin(row),
-        });
-        map.set(row.inventory_item_id, arr);
-      }
-      return map;
-    },
-  });
-
-  // US-1568 AC3: the listing-level draft metadata the AutoLister cockpit shows
-  // (price + "estimated" badge, aspect_review count, batch link, scheduled-drop
-  // date) that ISN'T on the items_full view. Mirror the platformsByItem pattern:
-  // a secondary `listings` read keyed by inventory_item_id, only when the Drafts
-  // tab is active. RLS scopes it to the caller's own listings.
-  const { data: draftMetaByItem } = useQuery({
-    queryKey: ["item_draft_meta", user?.id],
-    enabled: !!user && isDrafts,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<Map<string, DraftMeta>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select(
-          "inventory_item_id, listing_price, price_is_estimated, price_comp_source, aspect_review, batch_id, scheduled_publish_at",
-        )
-        .eq("listing_status", "draft")
-        .not("batch_id", "is", null);
-      if (error) throw error;
-      const map = new Map<string, DraftMeta>();
-      for (const row of (data ?? []) as DraftMetaRow[]) {
-        // One draft per item in practice; if several, the first (any) is fine.
-        if (!map.has(row.inventory_item_id)) {
-          map.set(row.inventory_item_id, {
-            listingPrice: row.listing_price,
-            priceIsEstimated: row.price_is_estimated === true,
-            priceCompSource: row.price_comp_source ?? null,
-            aspectCount: Array.isArray(row.aspect_review) ? row.aspect_review.length : 0,
-            batchId: row.batch_id ?? null,
-            scheduledPublishAt: row.scheduled_publish_at ?? null,
-          });
-        }
-      }
-      return map;
-    },
-  });
-
-  // Per-item "needs attention" reason for eBay listings the sync (or an end)
-  // moved back to Drafts because eBay no longer shows them active — ended, sold
-  // out, or removed for a policy issue. The edge stores the reason in
-  // listings.publish_error; we surface it as a warning on the Drafts row so the
-  // seller knows why it reappeared and can review + relist. Lightweight direct
-  // read (RLS-scoped) rather than widening the items_full view.
-  const { data: publishIssuesByItem } = useQuery({
-    queryKey: ["items_full", "listings", "publish_issues", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<Map<string, string>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select("inventory_item_id, publish_error")
-        .eq("platform", "ebay")
-        .not("publish_error", "is", null);
-      if (error) throw error;
-      const map = new Map<string, string>();
-      for (const row of (data ?? []) as Array<{
-        inventory_item_id: string | null;
-        publish_error: string | null;
-      }>) {
-        if (row.inventory_item_id && row.publish_error) {
-          map.set(row.inventory_item_id, row.publish_error);
-        }
-      }
-      return map;
-    },
-  });
-
-  // Cover photo per item for the row thumbnail (parity with iOS, which shows the
-  // main photo in the inventory grid). The cover = the LOWEST sort_order photo
-  // per item (same rule as iOS SyncEngine.primaryPhotos); the URL prefers the
-  // generated thumbnail via itemPhotoThumb(). RLS on item_photos is owner-scoped
-  // through inventory_items, so one unfiltered read returns only this user's
-  // photos — no giant id-list needed. Ordered ascending, first row per item wins.
-  const { data: coverByItem } = useQuery({
-    queryKey: ["items_full", "listings", "covers", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<
-      Map<string, { thumbnail_url: string | null; photo_url: string | null }>
-    > => {
-      const { data, error } = await supabase
-        .from("item_photos")
-        .select("inventory_item_id, thumbnail_url, photo_url, sort_order")
-        .order("sort_order", { ascending: true });
-      if (error) throw error;
-      const map = new Map<
-        string,
-        { thumbnail_url: string | null; photo_url: string | null }
-      >();
-      for (const row of (data ?? []) as Array<{
-        inventory_item_id: string | null;
-        thumbnail_url: string | null;
-        photo_url: string | null;
-      }>) {
-        // First (lowest sort_order) row per item is the cover.
-        if (row.inventory_item_id && !map.has(row.inventory_item_id)) {
-          map.set(row.inventory_item_id, {
-            thumbnail_url: row.thumbnail_url,
-            photo_url: row.photo_url,
-          });
-        }
-      }
-      return map;
-    },
-  });
-
-  // US-151: per-item analytics metrics (impressions / CTR) for the Active tab.
-  // Views/watchers already come through items_full; impressions + CTR live only
-  // on the new listings columns, so pull them in a lightweight map rather than
-  // widening the items_full view.
-  const { data: metricsByItem } = useQuery({
-    queryKey: ["item_listing_metrics", user?.id],
-    enabled: !!user && isActive,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<Map<string, { impressions: number; ctr: number | null }>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select("inventory_item_id, impressions_7d, click_through_rate")
-        .eq("platform", "ebay")
-        .eq("listing_status", "active");
-      if (error) throw error;
-      const map = new Map<string, { impressions: number; ctr: number | null }>();
-      for (const row of (data ?? []) as Array<{
-        inventory_item_id: string;
-        impressions_7d: number | null;
-        click_through_rate: number | null;
-      }>) {
-        map.set(row.inventory_item_id, {
-          impressions: row.impressions_7d ?? 0,
-          ctr: row.click_through_rate,
-        });
-      }
-      return map;
-    },
-  });
-
   const tabCounts = useMemo(() => {
     const counts: Record<TabId, number> = {
       all: 0,
@@ -1078,6 +908,213 @@ export function FlipdeskListingsPage() {
   const pageRows = filtered.slice(pageStart, pageStart + pageSize);
 
   const pageRowIds = useMemo(() => pageRows.map((r) => r.id), [pageRows]);
+
+  // ── US-2168: per-row detail, scoped to the VISIBLE PAGE ──────────────────
+  //
+  // These five reads decorate rendered rows (platform chips, draft metadata,
+  // publish errors, cover thumbnails, impressions/CTR). Every one of them used
+  // to fetch the WHOLE TENANT and then get looked up by id during render.
+  //
+  // The cover query was the worst of it: no filter and no limit on item_photos,
+  // so a 500-item seller with 8 photos each transferred ~4,000 rows to draw 50
+  // thumbnails. The other four pulled every listing row the seller owned.
+  //
+  // They now key on pageRowIds, so the cost tracks what is on screen rather than
+  // what is in the account. They are declared HERE, below pageRows, because that
+  // is where those ids exist — hooks run in order, so this position is load-
+  // bearing, not stylistic.
+  //
+  // Safe to page-scope because all five are consumed ONLY inside the row render.
+  // None feeds filtering, sorting or the tab counts (those come from
+  // useInventoryStatusCounts, a server-side grouped count). If one ever starts
+  // feeding a filter, it has to go back to a full-set read or the filter will
+  // silently only see the current page.
+  //
+  // Reads are CHUNKED: at pageSize 200 a bare .in() would put ~7.4KB of UUIDs in
+  // the query string and risk a URL-length rejection at the proxy.
+
+  // US-149: which marketplaces each item is listed on (draft/active/sold rows
+  // across the cross-listing group) — drives the Platforms column chips.
+  const { data: platformsByItem } = useQuery({
+    queryKey: ["item_listing_platforms", user?.id, pageRowIds],
+    enabled: !!user && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, PlatformChip[]>> => {
+      const rows = await fetchInChunks<{
+        id: string;
+        inventory_item_id: string;
+        platform: ListingPlatform;
+        listing_status: string;
+        listing_origin: string | null;
+        platform_listing_id: string | null;
+        batch_id: string | null;
+        synced_to_ebay_at: string | null;
+      }>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select(
+            "id, inventory_item_id, platform, listing_status, listing_origin, platform_listing_id, batch_id, synced_to_ebay_at",
+          )
+          .in("inventory_item_id", chunk)
+          .in("listing_status", ["draft", "active", "sold"]);
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<string, PlatformChip[]>();
+      for (const row of rows) {
+        const arr = map.get(row.inventory_item_id) ?? [];
+        arr.push({
+          id: row.id,
+          platform: row.platform,
+          status: row.listing_status,
+          origin: deriveListingOrigin(row),
+        });
+        map.set(row.inventory_item_id, arr);
+      }
+      return map;
+    },
+  });
+
+  // US-1568 AC3: the listing-level draft metadata the AutoLister cockpit shows
+  // (price + "estimated" badge, aspect_review count, batch link, scheduled-drop
+  // date) that ISN'T on the items_full view. RLS scopes it to the caller's own
+  // listings; pageRowIds scopes it to what's rendered.
+  const { data: draftMetaByItem } = useQuery({
+    queryKey: ["item_draft_meta", user?.id, pageRowIds],
+    enabled: !!user && isDrafts && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, DraftMeta>> => {
+      const rows = await fetchInChunks<DraftMetaRow>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select(
+            "inventory_item_id, listing_price, price_is_estimated, price_comp_source, aspect_review, batch_id, scheduled_publish_at",
+          )
+          .in("inventory_item_id", chunk)
+          .eq("listing_status", "draft")
+          .not("batch_id", "is", null);
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<string, DraftMeta>();
+      for (const row of rows) {
+        // One draft per item in practice; if several, the first (any) is fine.
+        if (!map.has(row.inventory_item_id)) {
+          map.set(row.inventory_item_id, {
+            listingPrice: row.listing_price,
+            priceIsEstimated: row.price_is_estimated === true,
+            priceCompSource: row.price_comp_source ?? null,
+            aspectCount: Array.isArray(row.aspect_review) ? row.aspect_review.length : 0,
+            batchId: row.batch_id ?? null,
+            scheduledPublishAt: row.scheduled_publish_at ?? null,
+          });
+        }
+      }
+      return map;
+    },
+  });
+
+  // Per-item "needs attention" reason for eBay listings the sync (or an end)
+  // moved back to Drafts because eBay no longer shows them active — ended, sold
+  // out, or removed for a policy issue. The edge stores the reason in
+  // listings.publish_error; we surface it as a warning on the Drafts row.
+  const { data: publishIssuesByItem } = useQuery({
+    queryKey: ["items_full", "listings", "publish_issues", user?.id, pageRowIds],
+    enabled: !!user && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, string>> => {
+      const rows = await fetchInChunks<{
+        inventory_item_id: string | null;
+        publish_error: string | null;
+      }>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select("inventory_item_id, publish_error")
+          .in("inventory_item_id", chunk)
+          .eq("platform", "ebay")
+          .not("publish_error", "is", null);
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<string, string>();
+      for (const row of rows) {
+        if (row.inventory_item_id && row.publish_error) {
+          map.set(row.inventory_item_id, row.publish_error);
+        }
+      }
+      return map;
+    },
+  });
+
+  // Cover photo per item for the row thumbnail (parity with iOS). The cover =
+  // the LOWEST sort_order photo per item (same rule as iOS SyncEngine
+  // .primaryPhotos); the URL prefers the generated thumbnail via itemPhotoThumb().
+  // Ordered ascending, first row per item wins.
+  const { data: coverByItem } = useQuery({
+    queryKey: ["items_full", "listings", "covers", user?.id, pageRowIds],
+    enabled: !!user && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<
+      Map<string, { thumbnail_url: string | null; photo_url: string | null }>
+    > => {
+      const rows = await fetchInChunks<{
+        inventory_item_id: string | null;
+        thumbnail_url: string | null;
+        photo_url: string | null;
+      }>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("item_photos")
+          .select("inventory_item_id, thumbnail_url, photo_url, sort_order")
+          .in("inventory_item_id", chunk)
+          .order("sort_order", { ascending: true });
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<
+        string,
+        { thumbnail_url: string | null; photo_url: string | null }
+      >();
+      for (const row of rows) {
+        // First (lowest sort_order) row per item is the cover. Chunking preserves
+        // this: each chunk is ordered, and an item's photos never span chunks
+        // because chunking is BY ITEM ID.
+        if (row.inventory_item_id && !map.has(row.inventory_item_id)) {
+          map.set(row.inventory_item_id, {
+            thumbnail_url: row.thumbnail_url,
+            photo_url: row.photo_url,
+          });
+        }
+      }
+      return map;
+    },
+  });
+
+  // US-151: per-item analytics metrics (impressions / CTR) for the Active tab.
+  const { data: metricsByItem } = useQuery({
+    queryKey: ["item_listing_metrics", user?.id, pageRowIds],
+    enabled: !!user && isActive && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, { impressions: number; ctr: number | null }>> => {
+      const rows = await fetchInChunks<{
+        inventory_item_id: string;
+        impressions_7d: number | null;
+        click_through_rate: number | null;
+      }>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select("inventory_item_id, impressions_7d, click_through_rate")
+          .in("inventory_item_id", chunk)
+          .eq("platform", "ebay")
+          .eq("listing_status", "active");
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<string, { impressions: number; ctr: number | null }>();
+      for (const row of rows) {
+        map.set(row.inventory_item_id, {
+          impressions: row.impressions_7d ?? 0,
+          ctr: row.click_through_rate,
+        });
+      }
+      return map;
+    },
+  });
+
   const allOnPageSelected =
     pageRowIds.length > 0 && pageRowIds.every((id) => selected.has(id));
 
