@@ -203,3 +203,59 @@ Deno.test("bundling contract: generation bills ONE action per item (no reserve i
     "lib/ai-listing.ts must not reserve AI actions — the caller bills one per item",
   );
 });
+
+// ── Part 3: the monthly rollover predicate (US-2179) ────────────────
+//
+// reserve_ai_action (00087) rolls the counter over LAZILY — nothing zeroes
+// users.ai_actions_used_this_month at midnight on the 1st. Every reader has to
+// apply the same rule or it reports a seller pinned at their cap into the new
+// month. This is the one TS mirror of that SQL predicate; three readers share it
+// (plan-gate readUsage, flipdesk-ai checkQuota, the billing-summary meter).
+
+const { aiActionsRolledOver, effectiveAiActionsUsed } = await import(
+  "../lib/ai-metering.ts"
+);
+
+Deno.test("aiActionsRolledOver: a boundary in a prior month has rolled over", () => {
+  const now = new Date(Date.UTC(2026, 6, 3)); // 2026-07-03
+  assert(aiActionsRolledOver(new Date(Date.UTC(2026, 5, 28)).toISOString(), now));
+  // Prior YEAR too — the month index alone would say June(5) < July(6) is the
+  // only case and miss a December-to-January crossing.
+  assert(aiActionsRolledOver(new Date(Date.UTC(2025, 11, 31)).toISOString(), now));
+});
+
+Deno.test("aiActionsRolledOver: same calendar month has NOT rolled over", () => {
+  const now = new Date(Date.UTC(2026, 6, 30));
+  assertEquals(
+    aiActionsRolledOver(new Date(Date.UTC(2026, 6, 1)).toISOString(), now),
+    false,
+  );
+});
+
+Deno.test("aiActionsRolledOver: a LATER month has not rolled over", () => {
+  // A future boundary must not read as rolled over — that would hand a fresh
+  // allowance out on every request.
+  const now = new Date(Date.UTC(2026, 6, 3));
+  assertEquals(
+    aiActionsRolledOver(new Date(Date.UTC(2026, 7, 1)).toISOString(), now),
+    false,
+  );
+});
+
+Deno.test("aiActionsRolledOver: null / unparseable boundary fails CLOSED", () => {
+  const now = new Date(Date.UTC(2026, 6, 3));
+  // Never-stamped or garbage must NOT read as rolled over, or a broken column
+  // becomes unlimited free AI actions.
+  assertEquals(aiActionsRolledOver(null, now), false);
+  assertEquals(aiActionsRolledOver(undefined, now), false);
+  assertEquals(aiActionsRolledOver("not-a-date", now), false);
+});
+
+Deno.test("effectiveAiActionsUsed: zeroes a stale counter, keeps a current one", () => {
+  const now = new Date(Date.UTC(2026, 6, 3));
+  const lastMonth = new Date(Date.UTC(2026, 5, 20)).toISOString();
+  const thisMonth = new Date(Date.UTC(2026, 6, 1)).toISOString();
+  assertEquals(effectiveAiActionsUsed(750, lastMonth, now), 0);
+  assertEquals(effectiveAiActionsUsed(750, thisMonth, now), 750);
+  assertEquals(effectiveAiActionsUsed(null, thisMonth, now), 0);
+});

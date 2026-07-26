@@ -7,6 +7,7 @@ import { captureServer } from "../lib/posthog.ts";
 import { emitEvent } from "../lib/user-events.ts";
 import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 import { getBuyerPriceIds, getFlipdeskPriceIds } from "../lib/pricing-config.ts";
+import { effectiveAiActionsUsed } from "../lib/ai-metering.ts";
 import { API_OVERAGE_PACKS, isApiOveragePackKey } from "../lib/api-overage-packs.ts";
 import { appstoreSubscriptionBlocksStripe } from "../lib/appstore/precedence.ts";
 import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
@@ -1151,7 +1152,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
       "flipdesk_plan, flipdesk_interval, subscription_status, " +
         "flipdesk_period_end, flipdesk_pause_until, flipdesk_cancel_at_period_end, " +
         "trial_ends_at, grade_credit_balance, grades_used_this_month, grade_reset_at, " +
-        "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, flipdesk_subscription_id, " +
+        "ai_actions_used_this_month, ai_actions_reset_at, ai_action_limit, stripe_customer_id, flipdesk_subscription_id, " +
         "pending_flipdesk_plan, pending_flipdesk_interval, pending_effective_at, " +
         "usage_alert_thresholds, last_warning_at, billing_source, appstore_product_id, " +
         "buyer_plan, buyer_interval, buyer_subscription_status, buyer_period_end, buyer_cancel_at_period_end",
@@ -1181,6 +1182,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
     grades_used_this_month: number | null;
     grade_reset_at: string | null;
     ai_actions_used_this_month: number | null;
+    ai_actions_reset_at: string | null;
     ai_action_limit: number | null;
     usage_alert_thresholds: number[] | null;
     last_warning_at: Record<string, string> | null;
@@ -1293,7 +1295,15 @@ paymentRoutes.get("/billing-summary", async (c) => {
     usage: {
       active_listings: activeListingsResult.count ?? 0,
       marketplaces_connected: marketplacesResult.count ?? 0,
-      ai_actions_used_this_month: u.ai_actions_used_this_month,
+      // US-2179: apply the lazy monthly rollover, exactly as the grades counter
+      // above already did. reserve_ai_action only zeroes the column the next time
+      // it runs, so reading it raw showed a seller who ended last month at their
+      // cap as still 25/25 on the 1st — which drove the usage meter to 100% and
+      // fired the at-cap upgrade toast for an allowance that had already reset.
+      ai_actions_used_this_month: effectiveAiActionsUsed(
+        u.ai_actions_used_this_month,
+        u.ai_actions_reset_at,
+      ),
       ai_action_limit: u.ai_action_limit,
     },
     // Soft-upgrade-trigger config (US-209). thresholds default to [80] when the

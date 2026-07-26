@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { resyncItemListedStatus } from "../lib/active-listings.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { notifyPayoutImported } from "../lib/selling-activity-notify.ts";
 import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
@@ -274,17 +275,27 @@ async function handleShopifyProductUpdate(
 
   const { data: rows } = await supabaseAdmin
     .from("listings")
-    .select("id, inventory_items!inner(user_id)")
+    .select("id, inventory_item_id, inventory_items!inner(user_id)")
     .eq("platform", "shopify")
     .eq("platform_listing_id", productId)
     .eq("inventory_items.user_id", userId)
     .eq("is_active", true);
-  const ids = ((rows ?? []) as Array<{ id: string }>).map((r) => r.id);
+  const matched = (rows ?? []) as Array<{
+    id: string;
+    inventory_item_id: string | null;
+  }>;
+  const ids = matched.map((r) => r.id);
   if (ids.length === 0) return;
   await supabaseAdmin
     .from("listings")
     .update({ listing_status: "ended", is_active: false })
     .in("id", ids);
+  // US-2179: release each item's activeListings slot once nothing is live for it.
+  // Ending only the listing row left the item 'listed' forever, holding a cap
+  // slot for a listing Shopify had already archived or deleted.
+  for (const itemId of new Set(matched.map((r) => r.inventory_item_id))) {
+    await resyncItemListedStatus(itemId, userId);
+  }
 }
 
 // ── Mandatory Shopify privacy/compliance webhooks (GDPR/CCPA) ─────────

@@ -28,6 +28,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { getPlanMatrix } from "./pricing-config.ts";
 import type { FlipdeskPlan, PlanConfig } from "./pricing-config.ts";
 import { effectivePlanFor } from "./grade-pricing.ts";
+import { effectiveAiActionsUsed } from "./ai-metering.ts";
 
 // ── Minimal structural DB surface (so the tools are unit-testable) ──
 //
@@ -361,6 +362,8 @@ interface PlanUserSlice {
   grades_used_this_month: number | string | null;
   grade_reset_at: string | null;
   ai_actions_used_this_month: number | string | null;
+  // US-2179: the lazy monthly rollover boundary for the AI-action counter.
+  ai_actions_reset_at: string | null;
 }
 
 export async function getMyPlanAndLimits(
@@ -373,7 +376,7 @@ export async function getMyPlanAndLimits(
   const { data, error } = await db
     .from("users")
     .select(
-      "flipdesk_plan, subscription_status, trial_ends_at, past_due_since, grades_used_this_month, grade_reset_at, ai_actions_used_this_month",
+      "flipdesk_plan, subscription_status, trial_ends_at, past_due_since, grades_used_this_month, grade_reset_at, ai_actions_used_this_month, ai_actions_reset_at",
     )
     .eq("id", ownerId)
     .maybeSingle();
@@ -418,7 +421,15 @@ export async function getMyPlanAndLimits(
     usage: {
       activeListings,
       gradesUsedThisMonth: gradesUsed,
-      aiActionsUsedThisMonth: num(u.ai_actions_used_this_month),
+      // US-2179: same lazy monthly rollover the grade counter above honors —
+      // otherwise the assistant tells a seller who ended last month at their cap
+      // that they are still at it on the 1st, and offers an upgrade they don't
+      // need. reserve_ai_action only zeroes the column the next time it runs.
+      aiActionsUsedThisMonth: effectiveAiActionsUsed(
+        num(u.ai_actions_used_this_month),
+        u.ai_actions_reset_at,
+        now,
+      ),
     },
   };
 }

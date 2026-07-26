@@ -37,7 +37,9 @@ import {
 } from "../lib/ai-reconcile.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { effectiveAiCap, requireFlipdesk } from "../lib/plan-gate.ts";
+import { getPlanMatrix } from "../lib/pricing-config.ts";
 import {
+  effectiveAiActionsUsed,
   QUOTA_EXHAUSTED_MESSAGE,
   refundAiAction,
   reserveAiActionSafe,
@@ -69,21 +71,18 @@ export const flipdeskAiRoutes = new Hono<{
 // FlipDesk tier. MUST mirror PLAN_MATRIX.aiActionsPerMonth in plan-gate.ts
 // (asserted by grade-pricing/plan-gate tests). Exported so AutoLister batch
 // generation (flipdesk-autolister.ts) shares the exact same per-plan budget.
+//
+// US-2179: this is now the COMPILED FALLBACK, not the live source. checkQuota
+// reads getPlanMatrix() (the operator-editable pricing_plans row) and only lands
+// here when that row is missing or unreadable — same precedence plan-gate uses
+// via FALLBACK_MATRIX. Keep the numbers in lockstep with FALLBACK_MATRIX;
+// ai-quota_test.ts asserts it.
 export const AI_ACTION_LIMITS: Record<string, number> = {
   free: 25,
   starter: 200,
   pro: 750,
   business: 2000,
 };
-
-// True when `resetAt` falls in a calendar month before `now`.
-function isPriorMonth(resetAt: Date, now: Date): boolean {
-  if (resetAt.getUTCFullYear() < now.getUTCFullYear()) return true;
-  return (
-    resetAt.getUTCFullYear() === now.getUTCFullYear() &&
-    resetAt.getUTCMonth() < now.getUTCMonth()
-  );
-}
 
 type QuotaResult =
   | { ok: true; limit: number; used: number }
@@ -100,13 +99,21 @@ export async function checkQuota(
   const { data: user, error } = await supabaseAdmin
     .from("users")
     .select(
-      "flipdesk_plan, subscription_status, trial_ends_at, ai_enrichment_enabled, ai_actions_used_this_month, ai_actions_reset_at, ai_action_limit"
+      "role, flipdesk_plan, subscription_status, trial_ends_at, past_due_since, ai_enrichment_enabled, ai_actions_used_this_month, ai_actions_reset_at, ai_action_limit"
     )
     .eq("id", ownerId)
     .single();
 
   if (error || !user) {
     return { ok: false, status: 404, body: { error: "User not found" } };
+  }
+  // US-2179: the platform owner bypasses the cap, matching requireFlipdesk's
+  // super_admin short-circuit and grade-billing's. Without this the owner was
+  // the one account gated by plan on the AI routes while being ungated
+  // everywhere else. Scoped strictly to 'super_admin' — 'admin'/'reviewer'
+  // accounts stay on their plan's allowance. -1 = unlimited.
+  if (user.role === "super_admin") {
+    return { ok: true, limit: -1, used: user.ai_actions_used_this_month ?? 0 };
   }
   if (!user.ai_enrichment_enabled) {
     return {
@@ -125,17 +132,37 @@ export async function checkQuota(
   // self-cap (users.ai_action_limit) — min(planLimit, userLimit). The old code
   // read the deprecated `plan` column (capping every paid tier at Free) and
   // selected ai_action_limit but never applied it.
+  //
+  // US-2179: two parity fixes with requireFlipdesk, which resolves the same
+  // question for every non-AI capacity:
+  //   • past_due_since is now passed, so a subscription past the dunning grace
+  //     window drops to Free caps here too. Omitting it made effectivePlanFor
+  //     fail OPEN (its documented no-anchor behavior) and kept full paid AI
+  //     allowances for delinquent accounts on every route below.
+  //   • the cap comes from getPlanMatrix() — the operator-editable, DB-backed
+  //     matrix (US-587) — instead of the compiled AI_ACTION_LIMITS table. Admin
+  //     edits to aiActionsPerMonth silently did not apply to AI actions, and
+  //     because this `limit` is what gets handed to reserve_ai_action, the
+  //     AUTHORITATIVE enforcement point was being fed the stale number.
   const effectivePlan = effectivePlanFor(
     user.flipdesk_plan,
     user.subscription_status,
     user.trial_ends_at,
+    new Date(),
+    user.past_due_since,
   );
-  const planLimit = AI_ACTION_LIMITS[effectivePlan] ?? AI_ACTION_LIMITS.free!;
+  const matrix = await getPlanMatrix();
+  const planConfig = matrix[effectivePlan as keyof typeof matrix];
+  const planLimit = planConfig?.aiActionsPerMonth ??
+    AI_ACTION_LIMITS[effectivePlan] ?? AI_ACTION_LIMITS.free!;
   const limit = effectiveAiCap(planLimit, user.ai_action_limit ?? null);
-  let used = user.ai_actions_used_this_month ?? 0;
-  if (isPriorMonth(new Date(user.ai_actions_reset_at), new Date())) {
-    used = 0;
-  }
+  // US-2179: the rollover predicate now lives in ai-metering.ts, shared with
+  // plan-gate's readUsage and the billing-summary meter (it used to be a local
+  // isPriorMonth here and simply absent in the other two readers).
+  const used = effectiveAiActionsUsed(
+    user.ai_actions_used_this_month,
+    user.ai_actions_reset_at,
+  );
   if (limit !== -1 && used + pending >= limit) {
     return {
       ok: false,

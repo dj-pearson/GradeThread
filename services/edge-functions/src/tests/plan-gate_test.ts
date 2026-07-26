@@ -37,6 +37,8 @@ function user(overrides: Partial<PlanGateUser> = {}): PlanGateUser {
     trial_ends_at: null,
     past_due_since: null,
     ai_actions_used_this_month: 0,
+    // Future boundary by default → no AI rollover either (US-2179).
+    ai_actions_reset_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
     ai_action_limit: null,
     grades_used_this_month: 0,
     // Future boundary by default → no rollover, used count taken as-is.
@@ -507,4 +509,96 @@ Deno.test("featureAllowedForUser: super_admin bypasses; unknown user fails close
     await featureAllowedForUser("u1", "scheduledActions", loadUserDep(null)),
     false,
   );
+});
+
+// ── AI-action cap: self-cap + monthly rollover (US-2179) ─────────
+//
+// Both were latent bugs in the aiActions capacity path: getLimit ignored the
+// seller's self-cap (users.ai_action_limit) despite a comment claiming the min()
+// happened there, and readCurrentUsage returned the raw counter with no rollover.
+// Nothing routed aiActions through requireFlipdesk yet, so neither ever fired —
+// they were a trap set for the first caller.
+
+Deno.test("getLimit: aiActions honors the seller's self-cap (min of plan and self)", () => {
+  const pro = __testing.PLAN_MATRIX.pro;
+  // No self-cap → the plan's cap.
+  assertEquals(
+    __testing.getLimit(pro, "aiActions", { ai_action_limit: null }),
+    pro.aiActionsPerMonth,
+  );
+  // A self-cap BELOW the plan wins.
+  assertEquals(__testing.getLimit(pro, "aiActions", { ai_action_limit: 50 }), 50);
+  // A self-cap ABOVE the plan cannot buy extra allowance.
+  assertEquals(
+    __testing.getLimit(pro, "aiActions", { ai_action_limit: 99_999 }),
+    pro.aiActionsPerMonth,
+  );
+  // Plan-shopping call (no user) must ignore self-caps entirely, or we'd
+  // recommend an upgrade because the seller throttled themselves.
+  assertEquals(__testing.getLimit(pro, "aiActions"), pro.aiActionsPerMonth);
+});
+
+Deno.test("getLimit: aiActions self-cap does not apply to other capacities", () => {
+  const pro = __testing.PLAN_MATRIX.pro;
+  assertEquals(
+    __testing.getLimit(pro, "activeListings", { ai_action_limit: 1 }),
+    pro.activeListingCap,
+  );
+});
+
+Deno.test("requireFlipdesk: aiActions at the self-cap returns 402 with the self-cap as the limit", async () => {
+  const { ctx } = fakeCtx();
+  const u = user({ flipdesk_plan: "pro", ai_action_limit: 10 });
+  const resp = await requireFlipdesk(
+    ctx,
+    { capacity: { kind: "aiActions" } },
+    deps(u, 10),
+  );
+  assert(resp, "expected a 402 at the self-cap, not a pass");
+  assertEquals(resp.status, 402);
+  const body = await bodyOf(resp);
+  assertEquals(body.error, "CAP_REACHED");
+  // The reported limit is the SELF-cap, not Pro's 750 — otherwise the upgrade
+  // dialog would tell the seller to buy capacity they already have.
+  assertEquals(body.limit, 10);
+});
+
+Deno.test("readCurrentUsage: aiActions rolls over a counter from a prior month", async () => {
+  const priorMonth = new Date(Date.UTC(2000, 0, 15)).toISOString();
+  const used = await __testing.readCurrentUsage("u1", "aiActions", {
+    flipdesk_plan: "pro",
+    ai_actions_used_this_month: 750,
+    ai_actions_reset_at: priorMonth,
+    ai_action_limit: null,
+    grades_used_this_month: 0,
+    grade_reset_at: new Date(Date.now() + 86_400_000).toISOString(),
+  });
+  // Last month's 750 must not spend this month's allowance.
+  assertEquals(used, 0);
+});
+
+Deno.test("readCurrentUsage: aiActions keeps an in-month counter", async () => {
+  const used = await __testing.readCurrentUsage("u1", "aiActions", {
+    flipdesk_plan: "pro",
+    ai_actions_used_this_month: 42,
+    ai_actions_reset_at: new Date().toISOString(),
+    ai_action_limit: null,
+    grades_used_this_month: 0,
+    grade_reset_at: new Date(Date.now() + 86_400_000).toISOString(),
+  });
+  assertEquals(used, 42);
+});
+
+Deno.test("readCurrentUsage: aiActions with a null reset boundary keeps the counter", async () => {
+  // A never-stamped boundary must NOT read as "rolled over" — that would hand
+  // out a fresh allowance every request.
+  const used = await __testing.readCurrentUsage("u1", "aiActions", {
+    flipdesk_plan: "pro",
+    ai_actions_used_this_month: 7,
+    ai_actions_reset_at: null,
+    ai_action_limit: null,
+    grades_used_this_month: 0,
+    grade_reset_at: new Date(Date.now() + 86_400_000).toISOString(),
+  });
+  assertEquals(used, 7);
 });

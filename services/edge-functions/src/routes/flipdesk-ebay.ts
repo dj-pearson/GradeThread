@@ -222,6 +222,10 @@ import {
 } from "../lib/sync-precedence.ts";
 import { resolveAdapter } from "../lib/marketplace-adapters/index.ts";
 import {
+  itemHasActiveListing,
+  resyncItemListedStatus,
+} from "../lib/active-listings.ts";
+import {
   MAX_BULK_EDIT_ITEMS,
   normalizeBulkEdit,
   processBulkEdit,
@@ -3380,6 +3384,14 @@ async function doListingsPull(
         continue;
       }
 
+      // US-2179: the eBay listing ended, but a cross-listed item may still be
+      // live on another marketplace. Regressing it to 'drafted' then would free
+      // an activeListings cap slot the seller is still using and hide a live
+      // listing in the Drafts tab. The eBay row is already is_active=false by
+      // here (the pendingListing upsert above flushed it), so this check sees
+      // only the OTHER platforms.
+      if (await itemHasActiveListing(itemId, userId)) continue;
+
       // Forward-safe: only regress an item that's still sitting in 'listed'.
       // .select() returns the row only when the update actually applied, so the
       // notification fires once on the real transition, not on every re-sync.
@@ -6396,14 +6408,12 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
     .from("listings")
     .update({ listing_status: "ended", is_active: false })
     .eq("id", listingId);
-  // Move the item back to drafted so the user can relist if they want.
-  if (row.listing.inventory_item_id) {
-    await supabaseAdmin
-      .from("inventory_items")
-      .update({ status: "drafted" })
-      .eq("id", row.listing.inventory_item_id)
-      .eq("user_id", userId);
-  }
+  // Move the item back to drafted so the user can relist if they want — but only
+  // once nothing is live anywhere (US-2179). Ending the eBay listing of an item
+  // that is still live on a cross-listed channel used to mark it a draft, which
+  // both freed an activeListings slot the seller was still using and hid a
+  // selling listing in the Drafts tab.
+  await resyncItemListedStatus(row.listing.inventory_item_id, userId);
 
   return c.json({ ok: true, listing_id: listingId, ended_on_ebay: endedOnEbay, note });
 });

@@ -16,6 +16,7 @@ import {
 import { filterListablePhotos } from "../lib/item-photo-storage.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { featureAllowedForUser, requireFlipdesk } from "../lib/plan-gate.ts";
+import { resyncItemListedStatus } from "../lib/active-listings.ts";
 import {
   type AutomationAction,
   type AutomationFacts,
@@ -449,10 +450,14 @@ async function applyMatch(
       .update({ listing_status: "ended", is_active: false })
       .eq("id", listing.id);
     // Back to drafted so the user can relist — same as the manual end-early.
-    const { error: itemErr } = await supabaseAdmin
-      .from("inventory_items")
-      .update({ status: "drafted" })
-      .eq("id", listing.inventory_item_id);
+    // US-2179: only once nothing is live anywhere, so ending the eBay listing of
+    // a cross-listed item neither frees an activeListings cap slot the seller is
+    // still using nor files a still-selling item under Drafts. Also tenant-scopes
+    // the item write, which the bare .eq("id", …) here did not (US-268).
+    const itemErr = await resyncItemListedStatus(
+      listing.inventory_item_id,
+      ownerId,
+    );
     // US-1454: don't record a successful action if the local writes failed — the
     // eBay offer is already withdrawn, so a false "applied" hides the desync.
     if (!endListingWritesApplied(endErr, itemErr)) {
