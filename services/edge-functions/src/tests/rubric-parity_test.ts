@@ -59,6 +59,15 @@ Deno.test("rubricForKey falls back to clothing for null/unknown keys", () => {
 Deno.test("NON_CLOTHING_RUBRIC_KEYS are all defined rubrics and exclude clothing", () => {
   for (const key of NON_CLOTHING_RUBRIC_KEYS) {
     assert(RUBRICS[key], `NON_CLOTHING_RUBRIC_KEYS names "${key}" but RUBRICS has no such rubric`);
-    assert(key !== "clothing", "clothing must not be in NON_CLOTHING_RUBRIC_KEYS");
+    // Widened to `string` deliberately. NON_CLOTHING_RUBRIC_KEYS is declared
+    // `as const`, so its element type is the literal union
+    // "sports_cards" | "watches" | "shoes" — against which `key !== "clothing"`
+    // is provably always true, and Deno's type-check rejects it as TS2367.
+    // Deleting the assertion would lose the guard the moment that declaration
+    // widens (e.g. to string[]), so keep the runtime check and widen the operand.
+    assert(
+      (key as string) !== "clothing",
+      "clothing must not be in NON_CLOTHING_RUBRIC_KEYS",
+    );
   }
 });
