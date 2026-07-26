@@ -116,14 +116,35 @@ import {
   type FilterQuery,
 } from "@/lib/item-filter";
 import { downloadItemsCsv } from "@/lib/items-csv";
+// US-2168: the per-page detail reads are chunked — at pageSize 200 a bare .in()
+// would put ~7.4KB of UUIDs in the query string.
+import { fetchInChunks } from "@/lib/supabase-batch";
+// US-2174: gate the Active tab's backstop poll on tab visibility (US-576).
+import { useDocumentVisible } from "@/hooks/use-document-visible";
+// US-2170: the quality chip + its persisted-column mapping, shared with the
+// AutoLister drafts cockpit so there is ONE scoring presentation, not two.
+import {
+  QualityScoreChip,
+  type QualityScoreSummary,
+} from "@/components/flipdesk/quality-score-chip";
+import { scoreMapFromRows, type QualityScoreRow } from "@/pages/flipdesk/draft-quality";
 import { type TabId, statusParamToTab } from "@/pages/flipdesk/inventory-tabs";
 import {
   useEbayConnection,
-  useEbayEndListing,
-  useEbayUpdateListingPrice,
   usePublishToEbay,
   useSyncEbayListings,
 } from "@/hooks/use-ebay";
+// US-2162/US-2163/US-2166: price and end go through the PLATFORM-AGNOSTIC
+// lifecycle, not the eBay-namespaced routes. The eBay hooks branched on whether
+// an eBay connection existed rather than on the listing's own platform, so every
+// non-eBay row fell into a local-only write that left the marketplace untouched.
+import {
+  undoableFrom,
+  useBulkEndListings,
+  useBulkListingPrice,
+  useEndListing,
+  useUpdateListingPrice,
+} from "@/hooks/use-listing-lifecycle";
 import { useDeleteItem } from "@/hooks/use-items-full";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import {
@@ -538,8 +559,10 @@ export function FlipdeskListingsPage() {
   );
   const { data: ebayConnection } = useEbayConnection();
   const syncEbay = useSyncEbayListings();
-  const updatePrice = useEbayUpdateListingPrice();
-  const endListingApi = useEbayEndListing();
+  const updatePrice = useUpdateListingPrice();
+  const endListingApi = useEndListing();
+  const bulkPrice = useBulkListingPrice();
+  const bulkEnd = useBulkEndListings();
   const deleteItemApi = useDeleteItem();
   const publishApi = usePublishToEbay();
   const [bulkPublishProgress, setBulkPublishProgress] = useState<{
@@ -617,6 +640,8 @@ export function FlipdeskListingsPage() {
   const isSold = tab === "sold";
   const isActive = tab === "active";
   const isDrafts = tab === "drafts";
+  // US-2174: a hidden tab must not poll.
+  const visible = useDocumentVisible();
   const isShipped = tab === "shipped";
   const selectable = isToList || isSold || isActive || isDrafts;
 
@@ -666,9 +691,28 @@ export function FlipdeskListingsPage() {
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["items_full", "listings", user?.id],
     enabled: !!user,
-    // 15-min freshness — mutations invalidate items_full explicitly, so a
-    // longer window only skips redundant passive refetches (US-735).
-    staleTime: 15 * 60 * 1000,
+    // US-2174 (replaces the US-735 reasoning).
+    //
+    // The old 15-minute window was justified by "mutations invalidate items_full
+    // explicitly, so a longer window only skips redundant refetches". That holds
+    // for changes WE make — but a sale on eBay is not a local mutation. Nothing
+    // invalidated anything, so a sold listing could show as Active for a quarter
+    // of an hour: long enough to reprice or relist something already gone.
+    //
+    // Three things now keep this fresh, in order of how quickly they act:
+    //   1. local mutations invalidate ["items_full"] as before;
+    //   2. useRealtimeListingState (dashboard layout) invalidates on a
+    //      sale/status notification — near-instant, and the reason the interval
+    //      below can stay slow rather than becoming a busy poll;
+    //   3. this interval, as the backstop for anything that notifies nobody.
+    //
+    // The ACTIVE tab is the one where staleness costs money, so only it polls.
+    // Everywhere else keeps the long window — a drafted item does not change
+    // underneath the seller.
+    staleTime: isActive ? 60 * 1000 : 15 * 60 * 1000,
+    // Gated on visibility (US-576 pattern): a backgrounded tab stops polling
+    // entirely, and refetchOnWindowFocus covers the return.
+    refetchInterval: isActive && visible ? 2 * 60 * 1000 : false,
     queryFn: async (): Promise<ItemFullRow[]> => {
       const { data, error } = await (
         supabase.from as unknown as (
@@ -696,179 +740,6 @@ export function FlipdeskListingsPage() {
   // existing items_full invalidations refresh it after status changes) instead
   // of each view recomputing the totals.
   const { data: statusCounts } = useInventoryStatusCounts();
-
-  // US-149: which marketplaces each item is listed on (draft/active/sold rows
-  // across the cross-listing group) — drives the Platforms column chips.
-  const { data: platformsByItem } = useQuery({
-    queryKey: ["item_listing_platforms", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<Map<string, PlatformChip[]>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select(
-          "id, inventory_item_id, platform, listing_status, listing_origin, platform_listing_id, batch_id, synced_to_ebay_at",
-        )
-        .in("listing_status", ["draft", "active", "sold"]);
-      if (error) throw error;
-      const map = new Map<string, PlatformChip[]>();
-      for (const row of (data ?? []) as Array<{
-        id: string;
-        inventory_item_id: string;
-        platform: ListingPlatform;
-        listing_status: string;
-        listing_origin: string | null;
-        platform_listing_id: string | null;
-        batch_id: string | null;
-        synced_to_ebay_at: string | null;
-      }>) {
-        const arr = map.get(row.inventory_item_id) ?? [];
-        arr.push({
-          id: row.id,
-          platform: row.platform,
-          status: row.listing_status,
-          origin: deriveListingOrigin(row),
-        });
-        map.set(row.inventory_item_id, arr);
-      }
-      return map;
-    },
-  });
-
-  // US-1568 AC3: the listing-level draft metadata the AutoLister cockpit shows
-  // (price + "estimated" badge, aspect_review count, batch link, scheduled-drop
-  // date) that ISN'T on the items_full view. Mirror the platformsByItem pattern:
-  // a secondary `listings` read keyed by inventory_item_id, only when the Drafts
-  // tab is active. RLS scopes it to the caller's own listings.
-  const { data: draftMetaByItem } = useQuery({
-    queryKey: ["item_draft_meta", user?.id],
-    enabled: !!user && isDrafts,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<Map<string, DraftMeta>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select(
-          "inventory_item_id, listing_price, price_is_estimated, price_comp_source, aspect_review, batch_id, scheduled_publish_at",
-        )
-        .eq("listing_status", "draft")
-        .not("batch_id", "is", null);
-      if (error) throw error;
-      const map = new Map<string, DraftMeta>();
-      for (const row of (data ?? []) as DraftMetaRow[]) {
-        // One draft per item in practice; if several, the first (any) is fine.
-        if (!map.has(row.inventory_item_id)) {
-          map.set(row.inventory_item_id, {
-            listingPrice: row.listing_price,
-            priceIsEstimated: row.price_is_estimated === true,
-            priceCompSource: row.price_comp_source ?? null,
-            aspectCount: Array.isArray(row.aspect_review) ? row.aspect_review.length : 0,
-            batchId: row.batch_id ?? null,
-            scheduledPublishAt: row.scheduled_publish_at ?? null,
-          });
-        }
-      }
-      return map;
-    },
-  });
-
-  // Per-item "needs attention" reason for eBay listings the sync (or an end)
-  // moved back to Drafts because eBay no longer shows them active — ended, sold
-  // out, or removed for a policy issue. The edge stores the reason in
-  // listings.publish_error; we surface it as a warning on the Drafts row so the
-  // seller knows why it reappeared and can review + relist. Lightweight direct
-  // read (RLS-scoped) rather than widening the items_full view.
-  const { data: publishIssuesByItem } = useQuery({
-    queryKey: ["items_full", "listings", "publish_issues", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<Map<string, string>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select("inventory_item_id, publish_error")
-        .eq("platform", "ebay")
-        .not("publish_error", "is", null);
-      if (error) throw error;
-      const map = new Map<string, string>();
-      for (const row of (data ?? []) as Array<{
-        inventory_item_id: string | null;
-        publish_error: string | null;
-      }>) {
-        if (row.inventory_item_id && row.publish_error) {
-          map.set(row.inventory_item_id, row.publish_error);
-        }
-      }
-      return map;
-    },
-  });
-
-  // Cover photo per item for the row thumbnail (parity with iOS, which shows the
-  // main photo in the inventory grid). The cover = the LOWEST sort_order photo
-  // per item (same rule as iOS SyncEngine.primaryPhotos); the URL prefers the
-  // generated thumbnail via itemPhotoThumb(). RLS on item_photos is owner-scoped
-  // through inventory_items, so one unfiltered read returns only this user's
-  // photos — no giant id-list needed. Ordered ascending, first row per item wins.
-  const { data: coverByItem } = useQuery({
-    queryKey: ["items_full", "listings", "covers", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<
-      Map<string, { thumbnail_url: string | null; photo_url: string | null }>
-    > => {
-      const { data, error } = await supabase
-        .from("item_photos")
-        .select("inventory_item_id, thumbnail_url, photo_url, sort_order")
-        .order("sort_order", { ascending: true });
-      if (error) throw error;
-      const map = new Map<
-        string,
-        { thumbnail_url: string | null; photo_url: string | null }
-      >();
-      for (const row of (data ?? []) as Array<{
-        inventory_item_id: string | null;
-        thumbnail_url: string | null;
-        photo_url: string | null;
-      }>) {
-        // First (lowest sort_order) row per item is the cover.
-        if (row.inventory_item_id && !map.has(row.inventory_item_id)) {
-          map.set(row.inventory_item_id, {
-            thumbnail_url: row.thumbnail_url,
-            photo_url: row.photo_url,
-          });
-        }
-      }
-      return map;
-    },
-  });
-
-  // US-151: per-item analytics metrics (impressions / CTR) for the Active tab.
-  // Views/watchers already come through items_full; impressions + CTR live only
-  // on the new listings columns, so pull them in a lightweight map rather than
-  // widening the items_full view.
-  const { data: metricsByItem } = useQuery({
-    queryKey: ["item_listing_metrics", user?.id],
-    enabled: !!user && isActive,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<Map<string, { impressions: number; ctr: number | null }>> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select("inventory_item_id, impressions_7d, click_through_rate")
-        .eq("platform", "ebay")
-        .eq("listing_status", "active");
-      if (error) throw error;
-      const map = new Map<string, { impressions: number; ctr: number | null }>();
-      for (const row of (data ?? []) as Array<{
-        inventory_item_id: string;
-        impressions_7d: number | null;
-        click_through_rate: number | null;
-      }>) {
-        map.set(row.inventory_item_id, {
-          impressions: row.impressions_7d ?? 0,
-          ctr: row.click_through_rate,
-        });
-      }
-      return map;
-    },
-  });
 
   const tabCounts = useMemo(() => {
     const counts: Record<TabId, number> = {
@@ -1068,6 +939,261 @@ export function FlipdeskListingsPage() {
   const pageRows = filtered.slice(pageStart, pageStart + pageSize);
 
   const pageRowIds = useMemo(() => pageRows.map((r) => r.id), [pageRows]);
+
+  // ── US-2168: per-row detail, scoped to the VISIBLE PAGE ──────────────────
+  //
+  // These five reads decorate rendered rows (platform chips, draft metadata,
+  // publish errors, cover thumbnails, impressions/CTR). Every one of them used
+  // to fetch the WHOLE TENANT and then get looked up by id during render.
+  //
+  // The cover query was the worst of it: no filter and no limit on item_photos,
+  // so a 500-item seller with 8 photos each transferred ~4,000 rows to draw 50
+  // thumbnails. The other four pulled every listing row the seller owned.
+  //
+  // They now key on pageRowIds, so the cost tracks what is on screen rather than
+  // what is in the account. They are declared HERE, below pageRows, because that
+  // is where those ids exist — hooks run in order, so this position is load-
+  // bearing, not stylistic.
+  //
+  // Safe to page-scope because all five are consumed ONLY inside the row render.
+  // None feeds filtering, sorting or the tab counts (those come from
+  // useInventoryStatusCounts, a server-side grouped count). If one ever starts
+  // feeding a filter, it has to go back to a full-set read or the filter will
+  // silently only see the current page.
+  //
+  // Reads are CHUNKED: at pageSize 200 a bare .in() would put ~7.4KB of UUIDs in
+  // the query string and risk a URL-length rejection at the proxy.
+
+  // US-149: which marketplaces each item is listed on (draft/active/sold rows
+  // across the cross-listing group) — drives the Platforms column chips.
+  const { data: platformsByItem } = useQuery({
+    queryKey: ["item_listing_platforms", user?.id, pageRowIds],
+    enabled: !!user && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, PlatformChip[]>> => {
+      const rows = await fetchInChunks<{
+        id: string;
+        inventory_item_id: string;
+        platform: ListingPlatform;
+        listing_status: string;
+        listing_origin: string | null;
+        platform_listing_id: string | null;
+        batch_id: string | null;
+        synced_to_ebay_at: string | null;
+      }>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select(
+            "id, inventory_item_id, platform, listing_status, listing_origin, platform_listing_id, batch_id, synced_to_ebay_at",
+          )
+          .in("inventory_item_id", chunk)
+          .in("listing_status", ["draft", "active", "sold"]);
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<string, PlatformChip[]>();
+      for (const row of rows) {
+        const arr = map.get(row.inventory_item_id) ?? [];
+        arr.push({
+          id: row.id,
+          platform: row.platform,
+          status: row.listing_status,
+          origin: deriveListingOrigin(row),
+        });
+        map.set(row.inventory_item_id, arr);
+      }
+      return map;
+    },
+  });
+
+  // US-1568 AC3: the listing-level draft metadata the AutoLister cockpit shows
+  // (price + "estimated" badge, aspect_review count, batch link, scheduled-drop
+  // date) that ISN'T on the items_full view. RLS scopes it to the caller's own
+  // listings; pageRowIds scopes it to what's rendered.
+  const { data: draftMetaByItem } = useQuery({
+    queryKey: ["item_draft_meta", user?.id, pageRowIds],
+    enabled: !!user && isDrafts && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, DraftMeta>> => {
+      const rows = await fetchInChunks<DraftMetaRow>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select(
+            "inventory_item_id, listing_price, price_is_estimated, price_comp_source, aspect_review, batch_id, scheduled_publish_at",
+          )
+          .in("inventory_item_id", chunk)
+          .eq("listing_status", "draft")
+          .not("batch_id", "is", null);
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<string, DraftMeta>();
+      for (const row of rows) {
+        // One draft per item in practice; if several, the first (any) is fine.
+        if (!map.has(row.inventory_item_id)) {
+          map.set(row.inventory_item_id, {
+            listingPrice: row.listing_price,
+            priceIsEstimated: row.price_is_estimated === true,
+            priceCompSource: row.price_comp_source ?? null,
+            aspectCount: Array.isArray(row.aspect_review) ? row.aspect_review.length : 0,
+            batchId: row.batch_id ?? null,
+            scheduledPublishAt: row.scheduled_publish_at ?? null,
+          });
+        }
+      }
+      return map;
+    },
+  });
+
+  // Per-item "needs attention" reason for eBay listings the sync (or an end)
+  // moved back to Drafts because eBay no longer shows them active — ended, sold
+  // out, or removed for a policy issue. The edge stores the reason in
+  // listings.publish_error; we surface it as a warning on the Drafts row.
+  const { data: publishIssuesByItem } = useQuery({
+    queryKey: ["items_full", "listings", "publish_issues", user?.id, pageRowIds],
+    enabled: !!user && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, string>> => {
+      const rows = await fetchInChunks<{
+        inventory_item_id: string | null;
+        publish_error: string | null;
+      }>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select("inventory_item_id, publish_error")
+          .in("inventory_item_id", chunk)
+          .eq("platform", "ebay")
+          .not("publish_error", "is", null);
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<string, string>();
+      for (const row of rows) {
+        if (row.inventory_item_id && row.publish_error) {
+          map.set(row.inventory_item_id, row.publish_error);
+        }
+      }
+      return map;
+    },
+  });
+
+  // Cover photo per item for the row thumbnail (parity with iOS). The cover =
+  // the LOWEST sort_order photo per item (same rule as iOS SyncEngine
+  // .primaryPhotos); the URL prefers the generated thumbnail via itemPhotoThumb().
+  // Ordered ascending, first row per item wins.
+  const { data: coverByItem } = useQuery({
+    queryKey: ["items_full", "listings", "covers", user?.id, pageRowIds],
+    enabled: !!user && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<
+      Map<string, { thumbnail_url: string | null; photo_url: string | null }>
+    > => {
+      const rows = await fetchInChunks<{
+        inventory_item_id: string | null;
+        thumbnail_url: string | null;
+        photo_url: string | null;
+      }>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("item_photos")
+          .select("inventory_item_id, thumbnail_url, photo_url, sort_order")
+          .in("inventory_item_id", chunk)
+          .order("sort_order", { ascending: true });
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<
+        string,
+        { thumbnail_url: string | null; photo_url: string | null }
+      >();
+      for (const row of rows) {
+        // First (lowest sort_order) row per item is the cover. Chunking preserves
+        // this: each chunk is ordered, and an item's photos never span chunks
+        // because chunking is BY ITEM ID.
+        if (row.inventory_item_id && !map.has(row.inventory_item_id)) {
+          map.set(row.inventory_item_id, {
+            thumbnail_url: row.thumbnail_url,
+            photo_url: row.photo_url,
+          });
+        }
+      }
+      return map;
+    },
+  });
+
+  // US-151: per-item analytics metrics (impressions / CTR) for the Active tab.
+  const { data: metricsByItem } = useQuery({
+    queryKey: ["item_listing_metrics", user?.id, pageRowIds],
+    enabled: !!user && isActive && pageRowIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, { impressions: number; ctr: number | null }>> => {
+      const rows = await fetchInChunks<{
+        inventory_item_id: string;
+        impressions_7d: number | null;
+        click_through_rate: number | null;
+      }>(pageRowIds, async (chunk) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select("inventory_item_id, impressions_7d, click_through_rate")
+          .in("inventory_item_id", chunk)
+          .eq("platform", "ebay")
+          .eq("listing_status", "active");
+        return { data: data as unknown[] | null, error };
+      });
+      const map = new Map<string, { impressions: number; ctr: number | null }>();
+      for (const row of rows) {
+        map.set(row.inventory_item_id, {
+          impressions: row.impressions_7d ?? 0,
+          ctr: row.click_through_rate,
+        });
+      }
+      return map;
+    },
+  });
+
+  // US-2170: the Listing Quality Score, on the surface where listings are
+  // actually managed.
+  //
+  // The score has been computed, persisted (listings.quality_score, 00476) and
+  // unit-tested since US-1897 — and rendered in exactly ONE place, the AutoLister
+  // drafts cockpit. The "one 0-100 number per listing" was invisible to anyone
+  // working the inventory table.
+  //
+  // Keyed by LISTING id, not item id: items_full lateral-joins one listing per
+  // item (most recent by listed_at) and exposes it as listing_id, and every other
+  // listing-derived cell in this row — price, status, days listed — comes from
+  // that same row. Scoring a different listing than the one the row displays
+  // would put two listings' facts in one line.
+  //
+  // The error→empty-map fallback is deliberate and copied from the drafts
+  // cockpit: if this ever runs against a database where the column is missing,
+  // PostgREST answers 42703 and would take the WHOLE query down. An empty map
+  // just means every row reads "not scored", which is exactly what it would be.
+  const pageListingIds = useMemo(
+    () =>
+      pageRows
+        .map((r) => r.listing_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    [pageRows],
+  );
+  const { data: qualityByListing = {} } = useQuery({
+    queryKey: ["item_listing_quality", user?.id, pageListingIds],
+    enabled: !!user && (isDrafts || isActive) && pageListingIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Record<string, QualityScoreSummary>> => {
+      try {
+        const rows = await fetchInChunks<QualityScoreRow>(
+          pageListingIds,
+          async (chunk) => {
+            const { data, error } = await supabase
+              .from("listings")
+              .select("id, quality_score, quality_blocked")
+              .in("id", chunk);
+            return { data: data as unknown[] | null, error };
+          },
+        );
+        return scoreMapFromRows(rows);
+      } catch {
+        return {};
+      }
+    },
+  });
+
   const allOnPageSelected =
     pageRowIds.length > 0 && pageRowIds.every((id) => selected.has(id));
 
@@ -1244,10 +1370,16 @@ export function FlipdeskListingsPage() {
     }
   }
 
-  // Inline price edit on the Active tab. Calls eBay's Sell API when the
-  // listing has a platform_offer_id, then writes through to local state.
-  // Falls back to local-only when no eBay connection or no offer_id is
-  // available (e.g. listings manually marked via MarkListedDialog).
+  // Inline price edit on the Active tab. US-2163: ONE platform-agnostic call
+  // that reprices the listing on whatever marketplace it actually lives on.
+  //
+  // The old shape branched on `ebayConnection` rather than the listing's
+  // platform, so a Shopify/Etsy/Depop row hit eBay's endpoint, got a 409 (no
+  // offer id), and fell through to a direct listings.update() — leaving a local
+  // price no buyer could see. There is deliberately NO local-write fallback
+  // here now: the server writes the row itself when (and only when) the
+  // marketplace accepted the change, and reports `pushed:false` for a draft that
+  // was never live. A failure is a failure.
   async function updateListingPrice(it: ItemFullRow, raw: string) {
     if (!it.listing_id) {
       toast.error("No listing record for this item.");
@@ -1265,27 +1397,11 @@ export function FlipdeskListingsPage() {
       ),
     );
     try {
-      if (ebayConnection) {
-        try {
-          await updatePrice.mutateAsync({
-            listingId: it.listing_id,
-            price: next,
-          });
-          // Server already wrote-through to listings.listing_price.
-          toast.success("Price updated on eBay.");
-          return;
-        } catch (err) {
-          const e = err as Error & { status?: number };
-          // 409 = no platform_offer_id → fall through to local-only update.
-          if (e.status !== 409) throw e;
-        }
-      }
-      const { error } = await supabase
-        .from("listings")
-        .update({ listing_price: next } as never)
-        .eq("id", it.listing_id);
-      if (error) throw error;
-      toast.success("Price updated.");
+      const res = await updatePrice.mutateAsync({
+        listingId: it.listing_id,
+        price: next,
+      });
+      toast.success(res.pushed ? "Price updated on the marketplace." : "Price updated.");
     } catch (err) {
       qc.setQueryData(["items_full", user?.id], prev);
       toast.error(
@@ -1379,41 +1495,45 @@ export function FlipdeskListingsPage() {
     await patchItemColumn(it, "condition_notes", value, { notes: value }, "Notes");
   }
 
+  // US-2162: end the listing on ITS OWN marketplace.
+  //
+  // This used to branch on `ebayConnection`, call eBay's endpoint for every row
+  // whatever its platform, and on the resulting 409 write listing_status:'ended'
+  // straight to the table — then tell the seller "Listing ended locally." while
+  // the Shopify/Etsy/Depop listing stayed live and purchasable. That is the
+  // oversell hazard, stated as a success message.
+  //
+  // The server now owns the whole decision: it marks the row ended only when the
+  // listing is genuinely not live, and returns an error otherwise. So there is no
+  // client-side fallback, and the toast reports what actually happened rather
+  // than what we hoped happened.
   async function endListing(it: ItemFullRow) {
     if (!it.listing_id) {
       toast.error("No listing record for this item.");
       return;
     }
     try {
-      if (ebayConnection) {
-        try {
-          await endListingApi.mutateAsync({ listingId: it.listing_id });
-          await qc.invalidateQueries({ queryKey: ["items_full"] });
-          toast.success("Listing ended on eBay.");
-          return;
-        } catch (err) {
-          const e = err as Error & { status?: number };
-          if (e.status !== 409) throw e;
-          // 409 → fall through to local-only end.
-        }
-      }
-      const { error: lErr } = await supabase
-        .from("listings")
-        .update({ listing_status: "ended", is_active: false } as never)
-        .eq("id", it.listing_id);
-      if (lErr) throw lErr;
-      // Move the item back to drafted so it can be relisted.
-      const { error: iErr } = await supabase
-        .from("inventory_items")
-        .update({ status: "drafted" } as never)
-        .eq("id", it.id);
-      if (iErr) throw iErr;
+      const res = await endListingApi.mutateAsync({ listingId: it.listing_id });
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success("Listing ended locally.");
+      if (res.already_ended) {
+        toast.success("That listing was already ended.");
+      } else if (res.ended_upstream) {
+        toast.success("Listing ended on the marketplace.");
+      } else {
+        // Nothing was live to end — an unpublished draft, or the marketplace
+        // reported it already gone. Distinct from the old "ended locally",
+        // which meant "we couldn't reach the marketplace".
+        toast.success(res.note ?? "Listing ended.");
+      }
     } catch (err) {
-      toast.error(
-        `End failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const e = err as Error & { status?: number; code?: string };
+      if (e.code === "unsupported_platform" || e.code === "not_connected") {
+        // The listing is STILL LIVE. Say so plainly and for long enough to read
+        // — this is the case that costs a seller a double sale.
+        toast.error(e.message, { duration: 12_000 });
+        return;
+      }
+      toast.error(`End failed: ${e.message}`);
     }
   }
 
@@ -1421,58 +1541,96 @@ export function FlipdeskListingsPage() {
     if (selected.size === 0) return;
     const pct = Number(bulkDropPct);
     if (!Number.isFinite(pct) || pct <= 0) return;
-    setBusy(true);
-    const errors: { message: string }[] = [];
-    let done = 0;
-    let remoteSkipped = 0;
-    for (const id of selected) {
-      const it = items.find((i) => i.id === id);
-      if (!it || !it.listing_id || it.list_price == null) continue;
-      const next = Number((it.list_price * (1 - pct / 100)).toFixed(2));
-      try {
-        let usedEbay = false;
-        if (ebayConnection) {
-          try {
-            await updatePrice.mutateAsync({
-              listingId: it.listing_id,
-              price: next,
-            });
-            usedEbay = true;
-          } catch (err) {
-            const e = err as Error & { status?: number };
-            if (e.status === 409) remoteSkipped += 1;
-            else throw e;
-          }
-        }
-        if (!usedEbay) {
-          const { error } = await supabase
-            .from("listings")
-            .update({ listing_price: next } as never)
-            .eq("id", it.listing_id);
-          if (error) throw error;
-        }
-        done++;
-      } catch (err) {
-        errors.push({
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
+    // US-2163: ONE request for the whole selection.
+    //
+    // This was a browser loop firing one HTTP call per selected listing — 200
+    // listings meant 200 round trips under a blocking spinner with no cancel,
+    // and it would have tripped the 30-req/60s rate limit on
+    // /api/flipdesk/listings/* somewhere around the 30th row. Worse, its 409
+    // branch wrote the local price for every non-eBay row and reported it as
+    // "(N updated locally only)" — a number the marketplace never saw, which
+    // then fed margin and ROI.
+    //
+    // The percentage is applied SERVER-side to each row's own current price, so
+    // the result can't be computed from a stale render.
+    const listingIds = Array.from(selected)
+      .map((id) => items.find((i) => i.id === id)?.listing_id)
+      .filter((id): id is string => Boolean(id));
+    if (listingIds.length === 0) {
+      toast.error("None of the selected items have a listing to reprice.");
+      return;
     }
-    setBusy(false);
-    setSelected(new Set());
-    await qc.invalidateQueries({ queryKey: ["items_full"] });
-    if (errors.length === 0) {
-      const localNote = remoteSkipped > 0
-        ? ` (${remoteSkipped} updated locally only)`
-        : "";
-      toast.success(
-        `Dropped price ${pct}% on ${done} listing${done === 1 ? "" : "s"}${localNote}.`,
+
+    setBusy(true);
+    try {
+      const res = await bulkPrice.mutateAsync({ listingIds, dropPct: pct });
+      setSelected(new Set());
+
+      // US-2172: undo. A markdown across a large selection is the single most
+      // expensive mis-click on this page, and it was irreversible — the seller's
+      // only recovery was to reprice every listing by hand.
+      //
+      // Only rows that actually succeeded and have a known prior price are
+      // offered: a row the marketplace refused never changed, so "undoing" it
+      // would push a price nobody asked for.
+      const undoable = undoableFrom(res);
+      const undoAction = undoable.length > 0
+        ? {
+          label: "Undo",
+          onClick: () => {
+            void (async () => {
+              try {
+                const back = await bulkPrice.mutateAsync({ items: undoable });
+                if (back.failed === 0) {
+                  toast.success(
+                    `Restored ${back.succeeded} price${back.succeeded === 1 ? "" : "s"}.`,
+                  );
+                } else {
+                  // Undo is a real marketplace push and can fail too. Say which
+                  // rows didn't come back rather than implying a clean revert.
+                  const firstError = back.results.find((r) => !r.ok)?.error;
+                  toast.warning(
+                    `Restored ${back.succeeded}, ${back.failed} couldn't be put back.${
+                      firstError ? ` First: ${firstError}` : ""
+                    }`,
+                    { duration: 12_000 },
+                  );
+                }
+              } catch (err) {
+                toast.error(
+                  `Undo failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            })();
+          },
+        }
+        : undefined;
+
+      if (res.failed === 0) {
+        toast.success(
+          `Dropped price ${pct}% on ${res.succeeded} listing${
+            res.succeeded === 1 ? "" : "s"
+          }.`,
+          // Longer than a default toast: undo is only useful while it's on screen.
+          { duration: 15_000, action: undoAction },
+        );
+      } else {
+        // Name the first real reason rather than a bare count — "3 failed" with
+        // no cause is what sends a seller to support.
+        const firstError = res.results.find((r) => !r.ok)?.error;
+        toast.warning(
+          `Dropped ${res.succeeded}, ${res.failed} failed.${
+            firstError ? ` First: ${firstError}` : ""
+          }`,
+          { duration: 15_000, action: undoAction },
+        );
+      }
+    } catch (err) {
+      toast.error(
+        `Bulk reprice failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-    } else {
-      toast.warning(
-        `Dropped ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
-        { duration: 12_000 },
-      );
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1569,61 +1727,45 @@ export function FlipdeskListingsPage() {
     }
   }
 
+  // US-2162: end the whole selection in ONE request, each listing on its own
+  // marketplace. Previously a per-listing loop whose 409 branch wrote
+  // listing_status:'ended' locally and reported "(N ended locally only)" — those
+  // listings stayed live. Past ~30 selected rows the loop also tripped the
+  // 30-req/60s rate limit on /api/flipdesk/listings/*, so a large bulk end
+  // silently half-finished.
   async function bulkEndListings() {
     if (selected.size === 0) return;
-    setBusy(true);
-    const errors: { message: string }[] = [];
-    let done = 0;
-    let remoteSkipped = 0;
-    for (const id of selected) {
-      const it = items.find((i) => i.id === id);
-      if (!it || !it.listing_id) continue;
-      try {
-        let usedEbay = false;
-        if (ebayConnection) {
-          try {
-            await endListingApi.mutateAsync({ listingId: it.listing_id });
-            usedEbay = true;
-          } catch (err) {
-            const e = err as Error & { status?: number };
-            if (e.status === 409) remoteSkipped += 1;
-            else throw e;
-          }
-        }
-        if (!usedEbay) {
-          const { error: lErr } = await supabase
-            .from("listings")
-            .update({ listing_status: "ended", is_active: false } as never)
-            .eq("id", it.listing_id);
-          if (lErr) throw lErr;
-          const { error: iErr } = await supabase
-            .from("inventory_items")
-            .update({ status: "drafted" } as never)
-            .eq("id", it.id);
-          if (iErr) throw iErr;
-        }
-        done++;
-      } catch (err) {
-        errors.push({
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
+    const listingIds = Array.from(selected)
+      .map((id) => items.find((i) => i.id === id)?.listing_id)
+      .filter((id): id is string => Boolean(id));
+    if (listingIds.length === 0) {
+      toast.error("None of the selected items have a listing to end.");
+      return;
     }
-    setBusy(false);
-    setSelected(new Set());
-    await qc.invalidateQueries({ queryKey: ["items_full"] });
-    if (errors.length === 0) {
-      const localNote = remoteSkipped > 0
-        ? ` (${remoteSkipped} ended locally only)`
-        : "";
-      toast.success(
-        `Ended ${done} listing${done === 1 ? "" : "s"}${localNote}.`,
+
+    setBusy(true);
+    try {
+      const res = await bulkEnd.mutateAsync({ listingIds });
+      setSelected(new Set());
+      if (res.failed === 0) {
+        toast.success(`Ended ${res.succeeded} listing${res.succeeded === 1 ? "" : "s"}.`);
+      } else {
+        // A failed end means the listing is STILL LIVE — surface the reason and
+        // leave it up long enough to act on.
+        const firstError = res.results.find((r) => !r.ok)?.error;
+        toast.warning(
+          `Ended ${res.succeeded}, ${res.failed} still live.${
+            firstError ? ` First: ${firstError}` : ""
+          }`,
+          { duration: 14_000 },
+        );
+      }
+    } catch (err) {
+      toast.error(
+        `Bulk end failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-    } else {
-      toast.warning(
-        `Ended ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
-        { duration: 12_000 },
-      );
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -2340,6 +2482,17 @@ export function FlipdeskListingsPage() {
                       {(isDrafts || isActive) && (
                         <TableHead className="w-28">Platforms</TableHead>
                       )}
+                      {/* US-2170: the Listing Quality Score, next to the other
+                          listing-health columns. Not sortable yet — see the
+                          comment on the quality query for why that needs the
+                          items_full view to expose the column. */}
+                      {(isDrafts || isActive) && (
+                        <TableHead className="w-20 text-center">
+                          <span title="Listing Quality Score — 0-100 across every ranking lever">
+                            Quality
+                          </span>
+                        </TableHead>
+                      )}
                       {!isSold && !isActive && (
                         <TableHead className="w-16 text-right">Age</TableHead>
                       )}
@@ -2825,6 +2978,21 @@ export function FlipdeskListingsPage() {
                                   ),
                                 )}
                               </div>
+                            </TableCell>
+                          )}
+                          {/* US-2170: quality chip. Renders an em dash for an
+                              unscored listing — never a 0, which would read as a
+                              confident "this is terrible" for a listing nobody
+                              has run a publish check on. */}
+                          {(isDrafts || isActive) && (
+                            <TableCell className="text-center">
+                              <QualityScoreChip
+                                score={
+                                  it.listing_id
+                                    ? qualityByListing[it.listing_id]
+                                    : undefined
+                                }
+                              />
                             </TableCell>
                           )}
                           {!isSold && !isActive && (

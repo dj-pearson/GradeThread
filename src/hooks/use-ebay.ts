@@ -4,6 +4,10 @@ import { supabase } from "@/lib/supabase";
 import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
+// US-2170: the score shape the /listings/validate response already carries. The
+// component file owns it because that is where it is rendered; the edge's
+// lib/listing-quality-score.ts is the authority for how it is COMPUTED.
+import type { ListingQualityScore } from "@/components/flipdesk/quality-score-chip";
 
 // US-1933: tenant partition for eBay query keys — the active workspace owner
 // (or the user for a solo account). Every eBay query keys on this so a workspace
@@ -1381,6 +1385,13 @@ export interface ValidatePublishResponse {
   photoNudge?: string | null;
   recommendedCoverage?: AspectCoverage;
   summary?: PublishSummary;
+  // US-2170: the full Listing Quality Score — score, per-component breakdown and
+  // ranked fixes. The edge has returned this since US-1897 (scoreAndPersist on
+  // the validate response); it was simply never declared here, so every caller
+  // dropped it on the floor. Only `score` and `blocked` are persisted to
+  // listings.quality_score, so this response is the ONLY source of the
+  // breakdown — the part that tells a seller which fix is worth the most.
+  qualityScore?: ListingQualityScore;
 }
 
 export interface PublishResponse {
@@ -1436,6 +1447,41 @@ export function useRecommendedCoverage(itemId: string | null | undefined) {
       if (!res.ok) return null;
       const json = (await res.json().catch(() => ({}))) as ValidatePublishResponse;
       return json.recommendedCoverage ?? null;
+    },
+  });
+}
+
+/**
+ * US-2170: the full Listing Quality Score for ONE item, including the
+ * per-component breakdown and the ranked list of highest-value fixes.
+ *
+ * Mirrors useRecommendedCoverage — same endpoint, same read-only shape, a
+ * different field off the response. The listings TABLE reads the persisted
+ * score column instead (cheap, page-scoped, no preflight per row); this hook is
+ * for the item page, where one seller is looking at one listing and the
+ * breakdown is the whole point.
+ *
+ * Returns null rather than throwing when preflight can't run — an item with no
+ * eBay category yet has no score, and that is a normal state, not an error.
+ */
+export function useListingQuality(itemId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["listing-quality", itemId],
+    enabled: !!itemId,
+    staleTime: 60_000,
+    retry: 1,
+    queryFn: async (): Promise<ListingQualityScore | null> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/validate`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ inventory_item_id: itemId }),
+        },
+      );
+      if (!res.ok) return null;
+      const json = (await res.json().catch(() => ({}))) as ValidatePublishResponse;
+      return json.qualityScore ?? null;
     },
   });
 }

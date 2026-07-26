@@ -21,6 +21,14 @@ import { withAiAction } from "../lib/ai-metering.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import { recordRelist } from "../lib/passport-relist.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+import { ebayOriginWriteLock } from "../lib/sync-precedence.ts";
+import {
+  isNoEbayConnectionError,
+  isOfferAlreadyEndedError,
+  updateOfferPrice,
+} from "../lib/ebay-client.ts";
+import { MAX_BULK_EDIT_ITEMS } from "../lib/bulk-listing-edit.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
 
 // Multi-marketplace cross-listing dispatch (US-149 + US-564).
 //
@@ -748,4 +756,727 @@ flipdeskListingsRoutes.delete("/item/:id", async (c) => {
     return c.json({ error: "Delete failed. Please try again." }, 500);
   }
   return c.json({ ok: true, item_id: itemId });
+});
+
+// ── US-2166: the PLATFORM-AGNOSTIC listing lifecycle ──────────────────────
+//
+// Price and End used to exist only as /api/flipdesk/ebay/listings/:id/{price},
+// DELETE /api/flipdesk/ebay/listings/:id — and both hardcoded `platform: "ebay"`
+// when deriving the row's provenance. The frontend consequence (US-2162 /
+// US-2163) was severe: those endpoints 409 on a non-eBay row (no
+// platform_offer_id), the UI caught the 409 and wrote the local `listings` row
+// directly, and the seller was told "Listing ended locally." / "(N updated
+// locally only)" while the listing stayed LIVE and purchasable on Shopify, Etsy
+// or Depop. A local row diverged from the marketplace is the same oversell class
+// US-1877 and US-2165 close from their own directions.
+//
+// These routes dispatch on the row's REAL platform:
+//   • eBay      → the cheap targeted eBay calls (updateOfferPrice / the offer
+//                 withdraw), preserving the behaviour the eBay routes have today
+//                 rather than paying for a full re-publish to change a price.
+//   • any other → that platform's adapter (updateListing / delist).
+//
+// The eBay-namespaced routes are deliberately LEFT IN PLACE: shipped iOS and
+// Android builds and the browser extension call those paths, and a client we
+// can't redeploy must keep working (see the US-2166 story note).
+//
+// SECURITY (US-268): every handler resolves the listing through
+// loadOwnedListing, which filters on inventory_items.user_id. An id from the
+// request never reaches a write without that check.
+
+interface OwnedListingRow {
+  id: string;
+  inventory_item_id: string | null;
+  platform: string | null;
+  listing_price: number | null;
+  listing_status: string | null;
+  listing_url: string | null;
+  platform_offer_id: string | null;
+  platform_listing_id: string | null;
+  listing_origin: string | null;
+  batch_id: string | null;
+  synced_to_ebay_at: string | null;
+  marketplace_connection_id: string | null;
+}
+
+// Owner-verified listing load (US-268 rule 2 — ownership via the parent item).
+// Selects the columns the agnostic lifecycle needs, INCLUDING `platform`, whose
+// absence from the eBay loader is what let the origin lock be computed against a
+// hardcoded "ebay" for every row.
+async function loadOwnedListing(
+  listingId: string,
+  ownerId: string,
+): Promise<OwnedListingRow | null> {
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, inventory_item_id, platform, listing_price, listing_status, listing_url, " +
+        "platform_offer_id, platform_listing_id, listing_origin, batch_id, " +
+        "synced_to_ebay_at, marketplace_connection_id, inventory_items!inner(user_id)",
+    )
+    .eq("id", listingId)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as unknown as OwnedListingRow & {
+    inventory_items: { user_id: string };
+  };
+  if (row.inventory_items.user_id !== ownerId) return null;
+  return row;
+}
+
+// Was this row ever actually published to its marketplace? Mirrors the liveness
+// test in DELETE /item/:id — deliberately NOT the denormalized `is_active` flag,
+// which defaults to TRUE on every row so an ordinary never-published draft looks
+// live (US-2176 tracks removing that trap).
+function wasPublishedUpstream(row: OwnedListingRow): boolean {
+  return Boolean(
+    row.platform_offer_id || row.platform_listing_id || row.synced_to_ebay_at,
+  );
+}
+
+// The 409 an eBay-ORIGINATED listing gets for any write to a field eBay owns
+// (US-1976). Computed against the row's real platform, so a Shopify row is never
+// mislabelled as eBay-owned.
+function originLockResponse(
+  row: OwnedListingRow,
+  fields: string[],
+): { locked: true; body: Record<string, unknown> } | { locked: false } {
+  const lock = ebayOriginWriteLock(
+    {
+      listing_origin: row.listing_origin,
+      platform: row.platform,
+      platform_listing_id: row.platform_listing_id,
+      batch_id: row.batch_id,
+      synced_to_ebay_at: row.synced_to_ebay_at,
+    },
+    fields,
+  );
+  if (!lock.locked) return { locked: false };
+  return {
+    locked: true,
+    body: {
+      error:
+        "This listing was created on eBay, so eBay owns it. Change it on eBay — " +
+        "edits here would be overwritten on the next sync.",
+      locked_fields: lock.lockedFields,
+    },
+  };
+}
+
+/** Human marketplace name for an error message. */
+function platformName(platform: string | null): string {
+  return platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : "This marketplace";
+}
+
+// Status codes the lifecycle handlers can return, as a literal union (the
+// LoadListingResult convention in flipdesk-ebay.ts) so no handler has to cast a
+// bare number into c.json's status parameter.
+type LifecycleStatus = 409 | 500 | 501 | 502;
+interface LifecycleFailure {
+  status: LifecycleStatus;
+  error: string;
+}
+
+// Collapse an adapter's numeric status into the codes this surface returns.
+// Explicit rather than a cast: an adapter is free to hand back anything, and
+// asserting `as 502` over a 400 would put a lie in the type system.
+function adapterStatus(status: number): 409 | 501 | 502 {
+  if (status === 501) return 501; // capability not wired for this platform
+  if (status === 409) return 409; // conflicting state (not connected, no id)
+  return 502; // the marketplace refused
+}
+
+// Push a new price to the row's marketplace. Returns null on success, or the
+// error to surface.
+//
+// ORDERING (this is the whole correctness property): callers push FIRST and
+// write listings.listing_price only after this returns null. There is therefore
+// no window in which the local price is ahead of the marketplace, and no
+// rollback that could itself fail and strand the divergence.
+//
+// That ordering is safe because every adapter takes the price from its INPUT
+// when it is > 0 (shopify.ts / etsy.ts / depop.ts all read
+// `price > 0 ? price : row.listing_price`) and this function is only ever called
+// with a validated positive price — so none of them read the not-yet-written
+// column. If an adapter ever starts sourcing the price from the row, this
+// ordering has to be revisited.
+async function pushPriceUpstream(
+  ownerId: string,
+  row: OwnedListingRow,
+  price: number,
+): Promise<LifecycleFailure | null> {
+  if (row.platform === "ebay") {
+    if (!row.platform_offer_id) {
+      return {
+        status: 409,
+        error:
+          "This listing has no eBay offer id. Sync from eBay or republish to enable price updates.",
+      };
+    }
+    try {
+      // US-1507: price the offer via the listing's own connection (null → primary).
+      await updateOfferPrice(
+        ownerId,
+        row.platform_offer_id,
+        price,
+        "USD",
+        row.marketplace_connection_id ?? undefined,
+      );
+      return null;
+    } catch (err) {
+      console.error("[flipdesk-listings] updateOfferPrice failed:", err);
+      return { status: 502, error: "eBay rejected the price update." };
+    }
+  }
+
+  const adapter = resolveAdapter(row.platform);
+  if (!adapter) {
+    return {
+      status: 501,
+      error: `${platformName(row.platform)} isn't a supported marketplace.`,
+    };
+  }
+  if (!row.inventory_item_id) {
+    return { status: 409, error: "This listing has no linked inventory item." };
+  }
+  try {
+    const res = await adapter.updateListing({
+      ownerId,
+      inventoryItemId: row.inventory_item_id,
+      listingRowId: row.id,
+      price,
+    });
+    if (res.ok) return null;
+    return { status: adapterStatus(res.status), error: res.error };
+  } catch (err) {
+    // An adapter that throws rather than returning a typed failure must not be
+    // mistaken for success — that is exactly how the local price used to drift.
+    console.error("[flipdesk-listings] adapter updateListing threw:", err);
+    return {
+      status: 502,
+      error: `${platformName(row.platform)} rejected the price update.`,
+    };
+  }
+}
+
+// POST /:id/price — reprice ONE listing on its own marketplace.
+flipdeskListingsRoutes.post("/:id/price", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+  if (!listingId) return c.json({ error: "listing id is required." }, 400);
+
+  let body: { price?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const price = Number(body.price);
+  if (!Number.isFinite(price) || price <= 0) {
+    return c.json({ error: "price must be a positive number." }, 400);
+  }
+
+  const row = await loadOwnedListing(listingId, ownerId);
+  if (!row) return c.json({ error: "Listing not found." }, 404);
+
+  const lock = originLockResponse(row, ["listing_price"]);
+  if (lock.locked) return c.json(lock.body, 409);
+
+  // A draft that was never published has no marketplace to push to — just record
+  // the price. This is the ONE legitimate local-only write, and it is local-only
+  // because nothing is live, not because a remote call failed.
+  if (!wasPublishedUpstream(row)) {
+    const { error } = await supabaseAdmin
+      .from("listings")
+      .update({ listing_price: price })
+      .eq("id", listingId);
+    if (error) return c.json({ error: "Could not save the price." }, 500);
+    return c.json({ ok: true, listing_id: listingId, price, pushed: false });
+  }
+
+  // Push FIRST. A failure returns here without ever having touched the local
+  // row, so the seller's price keeps matching the live listing — no rollback to
+  // get wrong, and no window where the two disagree.
+  const failure = await pushPriceUpstream(ownerId, row, price);
+  if (failure) return c.json({ error: failure.error }, failure.status);
+
+  const { error: writeErr } = await supabaseAdmin
+    .from("listings")
+    .update({ listing_price: price })
+    .eq("id", listingId);
+  if (writeErr) {
+    // The marketplace HAS the new price; only our copy is stale. Report it
+    // rather than claiming success, but say which way round the mismatch is —
+    // "retry" would otherwise re-push a price that is already live.
+    console.error("[flipdesk-listings] price pushed but local write failed:", writeErr.message);
+    return c.json(
+      {
+        error:
+          "The new price is live on the marketplace, but we couldn't update our copy. " +
+          "It'll correct on the next sync.",
+      },
+      500,
+    );
+  }
+
+  // US-1504: mirror the live price onto the item's target_price so the canvas
+  // "price not pushed" badge doesn't invert after a reprice.
+  if (row.inventory_item_id) {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ target_price: price })
+      .eq("id", row.inventory_item_id)
+      .eq("user_id", ownerId);
+  }
+
+  return c.json({ ok: true, listing_id: listingId, price, pushed: true });
+});
+
+// POST /:id/end — end ONE listing on its own marketplace.
+//
+// The contract that matters: the local row is marked ended ONLY when the listing
+// is genuinely not live any more. A failed delist returns an error and leaves the
+// row active, because telling a seller an item is ended while buyers can still
+// buy it is worse than telling them the end failed.
+flipdeskListingsRoutes.post("/:id/end", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+  if (!listingId) return c.json({ error: "listing id is required." }, 400);
+
+  const row = await loadOwnedListing(listingId, ownerId);
+  if (!row) return c.json({ error: "Listing not found." }, 404);
+
+  if (row.listing_status === "ended" || row.listing_status === "sold") {
+    return c.json({ ok: true, listing_id: listingId, already_ended: true });
+  }
+
+  // Nothing was ever published — end it locally and move the item back to a
+  // draft so it can be relisted.
+  if (!wasPublishedUpstream(row)) {
+    await endLocally(listingId, row.inventory_item_id, ownerId);
+    return c.json({ ok: true, listing_id: listingId, ended_upstream: false });
+  }
+
+  const adapter = resolveAdapter(row.platform);
+  if (!adapter) {
+    return c.json(
+      {
+        error:
+          `${platformName(row.platform)} listings can't be ended from GradeThread. ` +
+          "End it on that marketplace, then mark it ended here.",
+        code: "unsupported_platform",
+      },
+      501,
+    );
+  }
+
+  try {
+    const res = await adapter.delist({
+      ownerId,
+      listingRowId: row.id,
+      platformOfferId: row.platform_offer_id,
+      platformListingId: row.platform_listing_id,
+    });
+    if (!res.ok) {
+      return c.json(
+        { error: res.error, code: "delist_failed" },
+        adapterStatus(res.status),
+      );
+    }
+  } catch (err) {
+    // eBay's adapter delist throws rather than returning a typed failure, so the
+    // same three-way classification the manual eBay end route uses (US-1506 /
+    // US-1978) applies here.
+    if (isOfferAlreadyEndedError(err)) {
+      // Already not live upstream — reconciling locally is correct, not a lie.
+      await endLocally(listingId, row.inventory_item_id, ownerId);
+      return c.json({
+        ok: true,
+        listing_id: listingId,
+        ended_upstream: false,
+        note: "The listing was already not live on the marketplace.",
+      });
+    }
+    if (isNoEbayConnectionError(err)) {
+      return c.json(
+        {
+          error:
+            "Your eBay account isn't connected, so we couldn't end this live listing " +
+            "on eBay. Reconnect eBay in Marketplaces, then end it again.",
+          code: "not_connected",
+        },
+        409,
+      );
+    }
+    console.error("[flipdesk-listings] delist threw:", err);
+    return c.json(
+      {
+        error:
+          `${platformName(row.platform)} couldn't end this listing just now. ` +
+          "It's still live — try again in a moment.",
+        code: "delist_failed",
+      },
+      502,
+    );
+  }
+
+  await endLocally(listingId, row.inventory_item_id, ownerId);
+  return c.json({ ok: true, listing_id: listingId, ended_upstream: true });
+});
+
+// Reconcile the local rows after a confirmed end: the listing stops being live
+// and the item returns to 'drafted' so it can be relisted. Tenant-scoped on the
+// item write; the listing id is already owner-verified by the caller.
+async function endLocally(
+  listingId: string,
+  inventoryItemId: string | null,
+  ownerId: string,
+): Promise<void> {
+  const { error: lErr } = await supabaseAdmin
+    .from("listings")
+    .update({ listing_status: "ended", is_active: false })
+    .eq("id", listingId);
+  if (lErr) {
+    console.error("[flipdesk-listings] end: listing update failed:", lErr.message);
+  }
+  if (inventoryItemId) {
+    const { error: iErr } = await supabaseAdmin
+      .from("inventory_items")
+      .update({ status: "drafted" })
+      .eq("id", inventoryItemId)
+      .eq("user_id", ownerId);
+    if (iErr) {
+      console.error("[flipdesk-listings] end: item status update failed:", iErr.message);
+    }
+  }
+}
+
+// POST /bulk-price — US-2163: reprice a SELECTION in one request.
+//
+// Replaces a browser loop that fired one HTTP call per selected listing (200
+// listings = 200 round trips under a blocking spinner with no cancel), and whose
+// 409 branch quietly wrote the local price for every non-eBay row and reported it
+// as "updated locally only".
+//
+// Two shapes, because the UI needs both: an explicit `price` for every id, or a
+// `drop_pct` the SERVER applies to each row's current price. drop_pct is computed
+// server-side deliberately — the client would otherwise have to hold a price per
+// row and could send a figure derived from a stale render.
+//
+// Per-row results come back structured. A row whose marketplace refused is
+// reported FAILED with its reason, and its local price is left alone; there is no
+// "succeeded locally" state, because that state is what made the numbers lie.
+flipdeskListingsRoutes.post("/bulk-price", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  // Bulk multi-listing actions are a Pro+ feature (US-208), same gate as
+  // /listings/bulk-edit.
+  const gate = await requireFlipdesk(c, { feature: "bulkActions", userId: ownerId });
+  if (gate) return gate;
+
+  let body: {
+    listing_ids?: unknown;
+    price?: unknown;
+    drop_pct?: unknown;
+    items?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+
+  // US-2172: the third shape — a PER-ROW price. This is what makes a bulk
+  // reprice reversible: the response already returns each row's previous_price,
+  // so undo is the same endpoint called back with those pairs. A single shared
+  // price or percentage cannot express "put each of these 200 listings back to
+  // its own former number".
+  const perRow = new Map<string, number>();
+  if (body.items !== undefined) {
+    if (!Array.isArray(body.items)) {
+      return c.json({ error: "items must be an array." }, 400);
+    }
+    for (const raw of body.items) {
+      const entry = raw as { listing_id?: unknown; price?: unknown } | null;
+      const id = typeof entry?.listing_id === "string" ? entry.listing_id : "";
+      const price = Number(entry?.price);
+      if (!id) return c.json({ error: "Each item needs a listing_id." }, 400);
+      if (!Number.isFinite(price) || price <= 0) {
+        return c.json(
+          { error: `Each item needs a positive price (listing ${id}).` },
+          400,
+        );
+      }
+      perRow.set(id, price);
+    }
+    if (perRow.size === 0) return c.json({ error: "items was empty." }, 400);
+  }
+
+  // With `items`, the id list comes from the entries themselves — a caller
+  // shouldn't have to send the same ids twice and risk the two disagreeing.
+  const ids = perRow.size > 0
+    ? [...perRow.keys()]
+    : Array.isArray(body.listing_ids)
+    ? [...new Set(body.listing_ids.filter((x): x is string => typeof x === "string"))]
+    : [];
+  if (ids.length === 0) {
+    return c.json({ error: "listing_ids or items is required." }, 400);
+  }
+  if (ids.length > MAX_BULK_EDIT_ITEMS) {
+    return c.json({ error: `Too many listings (max ${MAX_BULK_EDIT_ITEMS}).` }, 400);
+  }
+
+  const explicitPrice = body.price === undefined ? null : Number(body.price);
+  const dropPct = body.drop_pct === undefined ? null : Number(body.drop_pct);
+  if (perRow.size === 0 && explicitPrice === null && dropPct === null) {
+    return c.json({ error: "Provide items, price, or drop_pct." }, 400);
+  }
+  if (explicitPrice !== null && (!Number.isFinite(explicitPrice) || explicitPrice <= 0)) {
+    return c.json({ error: "price must be a positive number." }, 400);
+  }
+  if (dropPct !== null && (!Number.isFinite(dropPct) || dropPct <= 0 || dropPct >= 100)) {
+    return c.json({ error: "drop_pct must be between 0 and 100." }, 400);
+  }
+
+  interface RowResult {
+    listing_id: string;
+    ok: boolean;
+    price?: number;
+    previous_price?: number | null;
+    pushed?: boolean;
+    error?: string;
+  }
+  const results: RowResult[] = [];
+
+  // Sequential on purpose: each row can hit a marketplace API, and the eBay
+  // per-offer calls are rate-limited. Bounded by MAX_BULK_EDIT_ITEMS.
+  for (const id of ids) {
+    const row = await loadOwnedListing(id, ownerId);
+    if (!row) {
+      results.push({ listing_id: id, ok: false, error: "Listing not found." });
+      continue;
+    }
+
+    const lock = originLockResponse(row, ["listing_price"]);
+    if (lock.locked) {
+      results.push({
+        listing_id: id,
+        ok: false,
+        error: "eBay owns this listing's price — reprice it on eBay.",
+      });
+      continue;
+    }
+
+    let next: number;
+    const rowPrice = perRow.get(id);
+    if (rowPrice !== undefined) {
+      // US-2172: per-row price (the undo shape) wins — it is the most specific
+      // instruction the caller gave.
+      next = rowPrice;
+    } else if (explicitPrice !== null) {
+      next = explicitPrice;
+    } else {
+      const current = row.listing_price;
+      if (current == null || current <= 0) {
+        results.push({
+          listing_id: id,
+          ok: false,
+          error: "No current price to apply a percentage drop to.",
+        });
+        continue;
+      }
+      next = Number((current * (1 - dropPct! / 100)).toFixed(2));
+      if (next <= 0) {
+        results.push({
+          listing_id: id,
+          ok: false,
+          error: "That drop would take the price to zero.",
+        });
+        continue;
+      }
+    }
+
+    const previous = row.listing_price;
+
+    // A never-published draft has no marketplace to push to — the local write IS
+    // the whole operation, and saying so (pushed:false) is not the same as
+    // claiming a live listing was repriced.
+    if (!wasPublishedUpstream(row)) {
+      const { error: draftErr } = await supabaseAdmin
+        .from("listings")
+        .update({ listing_price: next })
+        .eq("id", id);
+      if (draftErr) {
+        results.push({ listing_id: id, ok: false, error: "Could not save the price." });
+        continue;
+      }
+      results.push({
+        listing_id: id,
+        ok: true,
+        price: next,
+        previous_price: previous,
+        pushed: false,
+      });
+      continue;
+    }
+
+    // Push FIRST, then record — same ordering as the single-listing route, so a
+    // refused row keeps the price the marketplace actually has.
+    const failure = await pushPriceUpstream(ownerId, row, next);
+    if (failure) {
+      results.push({ listing_id: id, ok: false, error: failure.error });
+      continue;
+    }
+
+    const { error: writeErr } = await supabaseAdmin
+      .from("listings")
+      .update({ listing_price: next })
+      .eq("id", id);
+    if (writeErr) {
+      console.error("[flipdesk-listings] bulk price pushed but local write failed:", writeErr.message);
+      results.push({
+        listing_id: id,
+        ok: false,
+        error: "Price is live on the marketplace but our copy didn't update.",
+      });
+      continue;
+    }
+
+    if (row.inventory_item_id) {
+      await supabaseAdmin
+        .from("inventory_items")
+        .update({ target_price: next })
+        .eq("id", row.inventory_item_id)
+        .eq("user_id", ownerId);
+    }
+    results.push({
+      listing_id: id,
+      ok: true,
+      price: next,
+      previous_price: previous,
+      pushed: true,
+    });
+  }
+
+  const succeeded = results.filter((r) => r.ok).length;
+  return c.json({
+    ok: true,
+    total: results.length,
+    succeeded,
+    failed: results.length - succeeded,
+    results,
+  });
+});
+
+// POST /bulk-end — US-2162: end a SELECTION, each on its own marketplace.
+//
+// Same story as /bulk-price: the browser looped one call per listing and, on the
+// 409 that every non-eBay row produced, wrote listing_status:'ended' locally and
+// reported "(N ended locally only)". Those listings stayed live. At selection
+// sizes past ~30 the loop also tripped this router's rate limit, so a large bulk
+// end silently half-finished.
+//
+// Per-row results, and a row that could NOT be ended upstream is reported FAILED
+// with its local status untouched — an item that is still for sale must keep
+// looking like it is still for sale.
+flipdeskListingsRoutes.post("/bulk-end", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const gate = await requireFlipdesk(c, { feature: "bulkActions", userId: ownerId });
+  if (gate) return gate;
+
+  let body: { listing_ids?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const ids = Array.isArray(body.listing_ids)
+    ? [...new Set(body.listing_ids.filter((x): x is string => typeof x === "string"))]
+    : [];
+  if (ids.length === 0) return c.json({ error: "listing_ids is required." }, 400);
+  if (ids.length > MAX_BULK_EDIT_ITEMS) {
+    return c.json({ error: `Too many listings (max ${MAX_BULK_EDIT_ITEMS}).` }, 400);
+  }
+
+  interface EndRowResult {
+    listing_id: string;
+    ok: boolean;
+    ended_upstream?: boolean;
+    already_ended?: boolean;
+    error?: string;
+  }
+  const results: EndRowResult[] = [];
+
+  for (const id of ids) {
+    const row = await loadOwnedListing(id, ownerId);
+    if (!row) {
+      results.push({ listing_id: id, ok: false, error: "Listing not found." });
+      continue;
+    }
+    if (row.listing_status === "ended" || row.listing_status === "sold") {
+      results.push({ listing_id: id, ok: true, already_ended: true });
+      continue;
+    }
+    if (!wasPublishedUpstream(row)) {
+      await endLocally(id, row.inventory_item_id, ownerId);
+      results.push({ listing_id: id, ok: true, ended_upstream: false });
+      continue;
+    }
+
+    const adapter = resolveAdapter(row.platform);
+    if (!adapter) {
+      results.push({
+        listing_id: id,
+        ok: false,
+        error: `${platformName(row.platform)} listings can't be ended from GradeThread.`,
+      });
+      continue;
+    }
+
+    try {
+      const res = await adapter.delist({
+        ownerId,
+        listingRowId: row.id,
+        platformOfferId: row.platform_offer_id,
+        platformListingId: row.platform_listing_id,
+      });
+      if (!res.ok) {
+        results.push({ listing_id: id, ok: false, error: res.error });
+        continue;
+      }
+    } catch (err) {
+      if (isOfferAlreadyEndedError(err)) {
+        await endLocally(id, row.inventory_item_id, ownerId);
+        results.push({ listing_id: id, ok: true, ended_upstream: false });
+        continue;
+      }
+      if (isNoEbayConnectionError(err)) {
+        results.push({
+          listing_id: id,
+          ok: false,
+          error: "Your eBay account isn't connected — the listing is still live.",
+        });
+        continue;
+      }
+      console.error("[flipdesk-listings] bulk-end delist threw:", err);
+      results.push({
+        listing_id: id,
+        ok: false,
+        error: `${platformName(row.platform)} couldn't end this listing — it's still live.`,
+      });
+      continue;
+    }
+
+    await endLocally(id, row.inventory_item_id, ownerId);
+    results.push({ listing_id: id, ok: true, ended_upstream: true });
+  }
+
+  const succeeded = results.filter((r) => r.ok).length;
+  return c.json({
+    ok: true,
+    total: results.length,
+    succeeded,
+    failed: results.length - succeeded,
+    results,
+  });
 });

@@ -78,8 +78,8 @@ Deno.test("a null item_title survives as null, not the string 'null'", () => {
 });
 
 Deno.test("only the API-less platforms are in the extension delist set", () => {
-  // eBay/Shopify/Depop are ended via their own APIs by autoEndCrossListings —
-  // if one leaked into this list the popup would ask the seller to hand-end a
-  // listing the server already closed.
+  // eBay/Shopify/Depop/Etsy are ended via their own APIs by autoEndCrossListings
+  // (Etsy as of US-2164) — if one leaked into this list the popup would ask the
+  // seller to hand-end a listing the server already closed.
   assertEquals([...EXTENSION_DELIST_PLATFORMS].sort(), ["grailed", "mercari", "poshmark"]);
 });

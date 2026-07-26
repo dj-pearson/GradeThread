@@ -292,6 +292,159 @@ Deno.test({
 });
 
 Deno.test({
+  // US-2175: cross-push is the WIDEST write in the listings module — one call
+  // fans a source draft out into a listings row per platform (seven of them),
+  // starts a cross-listing group by stamping draft_id, and then asks each
+  // adapter to publish for real. A successful cross-tenant call would put A's
+  // garment live on marketplaces under B's connections.
+  //
+  // The route loads the draft and compares inventory_items.user_id to the
+  // caller's owner id before any write (flipdesk-listings.ts), so B gets the
+  // same 404 as a nonexistent listing. This case is the CI guard that was
+  // missing: every other route in the module had one and the fan-out did not.
+  name: "B cannot cross-push A's listing to other marketplaces",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/cross-push`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        listing_id: id,
+        platforms: ["shopify", "poshmark"],
+        prices: { shopify: 1.0, poshmark: 1.0 },
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      draft_id?: string;
+      results?: Record<string, unknown>;
+    };
+    assertDenied(res.status, "POST cross-push (A's listing)");
+    // Belt and braces on the BODY, not just the status: the success shape
+    // returns the group's draft_id and a per-platform results map. Either one
+    // coming back would mean the fan-out ran far enough to touch A's group
+    // even if the status looked like a denial.
+    assert(
+      body.draft_id === undefined,
+      `cross-push leaked A's cross-listing group id: ${body.draft_id}`,
+    );
+    assert(
+      body.results === undefined,
+      "cross-push returned a per-platform results map for A's listing",
+    );
+  },
+});
+
+Deno.test({
+  // US-2175: the same boundary for the SINGLE-platform shape. Pushing to the
+  // draft's own platform takes a different branch (publish the source row
+  // directly rather than mint a sibling), so it needs its own case — the
+  // sibling-insert branch being scoped says nothing about this one.
+  name: "B cannot cross-push A's listing to the draft's own platform",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/cross-push`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_id: id, platforms: ["ebay"] }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { draft_id?: string };
+    assertDenied(res.status, "POST cross-push (A's listing, own platform)");
+    assert(
+      body.draft_id === undefined,
+      `cross-push leaked A's cross-listing group id: ${body.draft_id}`,
+    );
+  },
+});
+
+Deno.test({
+  // US-2166: the platform-agnostic reprice. Unlike the eBay-namespaced route it
+  // replaces, this one dispatches on the row's own platform and will happily call
+  // Shopify/Etsy/Depop — so a cross-tenant call would reprice A's live listing on
+  // whichever marketplace it sits on, under A's own connection.
+  name: "B cannot reprice A's listing via the agnostic lifecycle route",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/${id}/price`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ price: 1.0 }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST listings/:id/price");
+  },
+});
+
+Deno.test({
+  // US-2166 / US-2162: ending a listing is destructive and outward-facing — it
+  // withdraws a live marketplace offer and moves the item back to a draft. B must
+  // not be able to pull A's listing off sale.
+  name: "B cannot end A's listing via the agnostic lifecycle route",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/${id}/end`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST listings/:id/end");
+  },
+});
+
+Deno.test({
+  // US-2163: bulk-price takes a LIST of ids, which is the shape most likely to be
+  // probed — a caller can mix their own id with a victim's and see whether the
+  // response reveals or repriced the foreign one. Each row is loaded
+  // owner-verified, so A's id must come back as a per-row failure and must never
+  // report a price or a push.
+  //
+  // NOTE the assertion target: this route returns 200 with per-row results (a
+  // partial-success shape), so a bare status check would pass while leaking. The
+  // isolation property lives in the ROW, not the status.
+  name: "B cannot reprice A's listing through bulk-price",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/bulk-price`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [aId], drop_pct: 90 }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      results?: Array<{
+        listing_id: string;
+        ok: boolean;
+        price?: number;
+        previous_price?: number | null;
+        pushed?: boolean;
+      }>;
+    };
+    // A plan gate (402) or an auth denial is also a pass — B never reached A's row.
+    if (DENIED.has(res.status) || res.status === 402) return;
+    assertEquals(res.status, 200, "bulk-price should return 200 with per-row results");
+    const row = (body.results ?? []).find((r) => r.listing_id === aId);
+    assert(
+      !row || row.ok === false,
+      `bulk-price repriced A's listing ${aId} for user B — cross-tenant write`,
+    );
+    assert(
+      !row?.pushed,
+      `bulk-price pushed a price to A's marketplace listing ${aId} for user B`,
+    );
+    assert(
+      row?.previous_price === undefined,
+      `bulk-price leaked A's current price to user B`,
+    );
+  },
+});
+
+Deno.test({
   // US-1978 (AC2): DELETE offer is DESTRUCTIVE and irreversible — on a published
   // offer eBay ends the live listing as a side effect. B must not be able to
   // delete A's offer artifacts (or, via the liveness read, learn whether one
