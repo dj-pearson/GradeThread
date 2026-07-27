@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { CHART_PALETTE } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -312,10 +313,10 @@ export function AdminDashboardPage() {
                   <Line
                     type="monotone"
                     dataKey="count"
-                    stroke="#0F3460"
+                    stroke={CHART_PALETTE.navy}
                     strokeWidth={2}
                     dot={false}
-                    activeDot={{ r: 4, fill: "#0F3460" }}
+                    activeDot={{ r: 4, fill: CHART_PALETTE.navy }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -359,10 +360,10 @@ export function AdminDashboardPage() {
                   <Line
                     type="monotone"
                     dataKey="revenue"
-                    stroke="#16a34a"
+                    stroke={CHART_PALETTE.emerald}
                     strokeWidth={2}
                     dot={false}
-                    activeDot={{ r: 4, fill: "#16a34a" }}
+                    activeDot={{ r: 4, fill: CHART_PALETTE.emerald }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -403,10 +404,10 @@ export function AdminDashboardPage() {
                   <Line
                     type="monotone"
                     dataKey="count"
-                    stroke="#E94560"
+                    stroke={CHART_PALETTE.red}
                     strokeWidth={2}
                     dot={false}
-                    activeDot={{ r: 4, fill: "#E94560" }}
+                    activeDot={{ r: 4, fill: CHART_PALETTE.red }}
                   />
                 </LineChart>
               </ResponsiveContainer>

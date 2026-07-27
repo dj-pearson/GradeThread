@@ -4598,7 +4598,7 @@
     {
       "id": "US-2193",
       "priority": 2523,
-      "passes": false,
+      "passes": true,
       "title": "ui: consolidate score/severity reds + shared CHART_PALETTE",
       "description": "As a user, I want one consistent brand red and consistent chart series colors, so the same data reads the same everywhere.",
       "acceptanceCriteria": [

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { GRADE_TIERS } from "@/lib/constants";
+import { CHART_PALETTE, GRADE_TIERS } from "@/lib/constants";
 import type { SubmissionRow, GradeReportRow, GarmentType } from "@/types/database";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,16 +22,23 @@ import {
 } from "recharts";
 
 const TIER_COLORS: Record<string, string> = {
-  NWT: "#16a34a",
-  NWOT: "#22c55e",
-  Excellent: "#3b82f6",
-  "Very Good": "#6366f1",
-  Good: "#8b5cf6",
-  Fair: "#f59e0b",
-  Poor: "#ef4444",
+  NWT: CHART_PALETTE.emerald,
+  NWOT: CHART_PALETTE.green,
+  Excellent: CHART_PALETTE.blue,
+  "Very Good": CHART_PALETTE.indigo,
+  Good: CHART_PALETTE.violet,
+  Fair: CHART_PALETTE.amber,
+  Poor: CHART_PALETTE.red,
 };
 
-const PIE_COLORS = ["#0F3460", "#E94560", "#3b82f6", "#22c55e", "#f59e0b", "#8b5cf6"];
+const PIE_COLORS = [
+  CHART_PALETTE.navy,
+  CHART_PALETTE.red,
+  CHART_PALETTE.blue,
+  CHART_PALETTE.green,
+  CHART_PALETTE.amber,
+  CHART_PALETTE.violet,
+];
 
 function formatGarmentType(type: string): string {
   return type.charAt(0).toUpperCase() + type.slice(1);
@@ -71,7 +78,7 @@ function processChartData(
   const gradeDistribution = GRADE_TIERS.map((tier) => ({
     tier: tier as string,
     count: tierCounts[tier] ?? 0,
-    fill: TIER_COLORS[tier] ?? "#94a3b8",
+    fill: TIER_COLORS[tier] ?? CHART_PALETTE.slate,
   }));
 
   // Average grade over time (last 30 days, weekly buckets)
@@ -279,9 +286,9 @@ export function GradeCharts() {
               <Line
                 type="monotone"
                 dataKey="average"
-                stroke="#0F3460"
+                stroke={CHART_PALETTE.navy}
                 strokeWidth={2}
-                dot={{ r: 4, fill: "#0F3460" }}
+                dot={{ r: 4, fill: CHART_PALETTE.navy }}
                 activeDot={{ r: 6 }}
                 connectNulls={false}
               />

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import type { FinAgingBracket, FinStaleItem } from "@/lib/finances-dashboard";
+import { CHART_PALETTE } from "@/lib/constants";
 import {
   Card,
   CardContent,
@@ -31,10 +32,10 @@ import {
 
 // Colours keyed by the server-provided bracket label.
 const BRACKET_COLORS: Record<string, string> = {
-  "0-14 days": "#22c55e",
-  "15-30 days": "#3b82f6",
-  "31-60 days": "#f59e0b",
-  "60+ days": "#E94560",
+  "0-14 days": CHART_PALETTE.green,
+  "15-30 days": CHART_PALETTE.blue,
+  "31-60 days": CHART_PALETTE.amber,
+  "60+ days": CHART_PALETTE.red,
 };
 
 const TOOLTIP_STYLE = {
@@ -74,7 +75,7 @@ export function InventoryAging({
     () =>
       brackets.map((b) => ({
         label: b.label,
-        color: BRACKET_COLORS[b.label] ?? "#0F3460",
+        color: BRACKET_COLORS[b.label] ?? CHART_PALETTE.navy,
         count: b.count,
         value: b.value,
         pctOfValue: totalValue > 0 ? (b.value / totalValue) * 100 : 0,
@@ -203,7 +204,7 @@ export function InventoryAging({
 
       {/* Stale inventory flag */}
       {staleItemsTotal > 0 && (
-        <Card className="lg:col-span-2 border-[#E94560]/40">
+        <Card className="lg:col-span-2 border-brand-red/40">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
               <CardTitle className="text-base">Consider Repricing</CardTitle>
@@ -212,7 +213,7 @@ export function InventoryAging({
                 held 60+ days — repricing may help them move.
               </CardDescription>
             </div>
-            <AlertTriangle className="h-4 w-4 text-[#E94560]" />
+            <AlertTriangle className="h-4 w-4 text-brand-red-text" />
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto rounded-md border">
@@ -239,7 +240,7 @@ export function InventoryAging({
                       <TableCell className="capitalize text-muted-foreground">
                         {item.status}
                       </TableCell>
-                      <TableCell className="text-right font-medium text-[#E94560]">
+                      <TableCell className="text-right font-medium text-brand-red-text">
                         {item.age}
                       </TableCell>
                       <TableCell className="text-right">

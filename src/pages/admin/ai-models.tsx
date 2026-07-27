@@ -36,6 +36,7 @@ import { GradingCanaryPanel } from "@/components/admin/grading-canary-panel";
 import { GradingAccuracyPanel } from "@/components/admin/grading-accuracy-panel";
 import { ListingPromptPerformancePanel } from "@/components/admin/listing-prompt-performance-panel";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { CHART_PALETTE } from "@/lib/constants";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import {
   Dialog,
@@ -1233,10 +1234,10 @@ export function AdminAiModelsPage() {
                         }}
                       />
                       <Legend />
-                      <Bar yAxisId="left" dataKey="agreementRate" name="Agreement Rate" fill="#0F3460" radius={[4, 4, 0, 0]} />
-                      <Line yAxisId="right" dataKey="mae" name="MAE" stroke="#E94560" strokeWidth={2} dot={{ fill: "#E94560", r: 4 }} />
+                      <Bar yAxisId="left" dataKey="agreementRate" name="Agreement Rate" fill={CHART_PALETTE.navy} radius={[4, 4, 0, 0]} />
+                      <Line yAxisId="right" dataKey="mae" name="MAE" stroke={CHART_PALETTE.red} strokeWidth={2} dot={{ fill: CHART_PALETTE.red, r: 4 }} />
                       {/* Threshold reference line */}
-                      <Line yAxisId="left" dataKey="threshold" name="Threshold" stroke="#f59e0b" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+                      <Line yAxisId="left" dataKey="threshold" name="Threshold" stroke={CHART_PALETTE.amber} strokeWidth={1} strokeDasharray="5 5" dot={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>

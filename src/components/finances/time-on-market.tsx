@@ -20,6 +20,7 @@ import {
 import { ClickableRow } from "@/components/clickable-row";
 import { Clock, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CHART_PALETTE } from "@/lib/constants";
 import {
   BarChart,
   Bar,
@@ -201,7 +202,7 @@ export function TimeOnMarket({
                     <Bar
                       dataKey="count"
                       name="Items Sold"
-                      fill="#0F3460"
+                      fill={CHART_PALETTE.navy}
                       radius={[4, 4, 0, 0]}
                     />
                   </BarChart>

@@ -9,6 +9,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { CHART_PALETTE } from "@/lib/constants";
 import {
   LineChart,
   Line,
@@ -208,7 +209,7 @@ export function GrowthDashboardPage() {
                       type="monotone"
                       dataKey="delivered"
                       name="Messages delivered"
-                      stroke="#0F3460"
+                      stroke={CHART_PALETTE.navy}
                       strokeWidth={2}
                       dot={false}
                     />
@@ -216,7 +217,7 @@ export function GrowthDashboardPage() {
                       type="monotone"
                       dataKey="dismissals"
                       name="Announcement dismissals"
-                      stroke="#E94560"
+                      stroke={CHART_PALETTE.red}
                       strokeWidth={2}
                       dot={false}
                     />

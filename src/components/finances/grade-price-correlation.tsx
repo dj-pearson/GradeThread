@@ -4,6 +4,7 @@ import type {
   FinTierStat,
   FinCategoryTier,
 } from "@/lib/finances-dashboard";
+import { CHART_PALETTE } from "@/lib/constants";
 import {
   Card,
   CardContent,
@@ -187,9 +188,9 @@ export function GradePriceCorrelation({
               <Scatter
                 name="Sold items"
                 data={points}
-                fill="#0F3460"
+                fill={CHART_PALETTE.navy}
                 fillOpacity={0.65}
-                line={{ stroke: "#E94560", strokeWidth: 2 }}
+                line={{ stroke: CHART_PALETTE.red, strokeWidth: 2 }}
                 lineType="fitting"
               />
             </ScatterChart>
@@ -200,7 +201,7 @@ export function GradePriceCorrelation({
       {/* Insight */}
       {insight && (
         <div className="lg:col-span-2 flex items-start gap-3 rounded-lg border bg-muted/40 p-4">
-          <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#E94560]" />
+          <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-brand-red-text" />
           <p className="text-sm">{insight}</p>
         </div>
       )}

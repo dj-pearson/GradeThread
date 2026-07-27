@@ -41,6 +41,7 @@ import {
   YAxis,
 } from "recharts";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { CHART_PALETTE } from "@/lib/constants";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { PageHeader } from "@/components/ui/page-header";
 import { useAuth } from "@/hooks/use-auth";
@@ -271,10 +272,10 @@ export function GrowthReferralsPage() {
                         <YAxis allowDecimals={false} fontSize={11} stroke="currentColor" className="text-muted-foreground" />
                         <Tooltip />
                         <Legend />
-                        <Area type="monotone" dataKey="clicks" name="Clicks" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.15} strokeWidth={2} />
-                        <Area type="monotone" dataKey="signups" name="Signups" stroke="#0F3460" fill="#0F3460" fillOpacity={0.15} strokeWidth={2} />
-                        <Area type="monotone" dataKey="qualified" name="Qualified" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.15} strokeWidth={2} />
-                        <Area type="monotone" dataKey="granted" name="Granted" stroke="#E94560" fill="#E94560" fillOpacity={0.15} strokeWidth={2} />
+                        <Area type="monotone" dataKey="clicks" name="Clicks" stroke={CHART_PALETTE.slate} fill={CHART_PALETTE.slate} fillOpacity={0.15} strokeWidth={2} />
+                        <Area type="monotone" dataKey="signups" name="Signups" stroke={CHART_PALETTE.navy} fill={CHART_PALETTE.navy} fillOpacity={0.15} strokeWidth={2} />
+                        <Area type="monotone" dataKey="qualified" name="Qualified" stroke={CHART_PALETTE.amber} fill={CHART_PALETTE.amber} fillOpacity={0.15} strokeWidth={2} />
+                        <Area type="monotone" dataKey="granted" name="Granted" stroke={CHART_PALETTE.red} fill={CHART_PALETTE.red} fillOpacity={0.15} strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </CardContent>

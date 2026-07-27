@@ -38,6 +38,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useEbayConnection } from "@/hooks/use-ebay";
 import { usePerformanceSuggestions } from "@/hooks/use-repricing";
 import { cn } from "@/lib/utils";
+import { CHART_PALETTE } from "@/lib/constants";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -582,7 +583,7 @@ function Sparkline({
         <polyline
           points={points}
           fill="none"
-          stroke={rising ? "#0F3460" : "#94a3b8"}
+          stroke={rising ? CHART_PALETTE.navy : CHART_PALETTE.slate}
           strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"

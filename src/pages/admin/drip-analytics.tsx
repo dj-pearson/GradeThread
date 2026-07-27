@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { CHART_PALETTE } from "@/lib/constants";
 import {
   Card,
   CardContent,
@@ -405,10 +406,10 @@ export function AdminDripAnalyticsPage() {
                   />
                   <Tooltip contentStyle={TOOLTIP_STYLE} />
                   <Legend />
-                  <Bar dataKey="sent" fill="#0F3460" name="Sent" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="opened" fill="#3b82f6" name="Opened" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="clicked" fill="#f59e0b" name="Clicked" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="converted" fill="#16a34a" name="Converted" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="sent" fill={CHART_PALETTE.navy} name="Sent" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="opened" fill={CHART_PALETTE.blue} name="Opened" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="clicked" fill={CHART_PALETTE.amber} name="Clicked" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="converted" fill={CHART_PALETTE.emerald} name="Converted" radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -469,10 +470,10 @@ export function AdminDripAnalyticsPage() {
                     <Line
                       type="monotone"
                       dataKey="rate"
-                      stroke="#E94560"
+                      stroke={CHART_PALETTE.red}
                       strokeWidth={2}
                       dot={false}
-                      activeDot={{ r: 4, fill: "#E94560" }}
+                      activeDot={{ r: 4, fill: CHART_PALETTE.red }}
                     />
                   </LineChart>
                 </ResponsiveContainer>

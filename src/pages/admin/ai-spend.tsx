@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { CHART_PALETTE } from "@/lib/constants";
 import {
   Card,
   CardContent,
@@ -371,7 +372,7 @@ export function AdminAiSpendPage() {
                         : [num(Number(value)), "Calls"]
                     }
                   />
-                  <Bar dataKey="cost" name="cost" fill="#E94560" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="cost" name="cost" fill={CHART_PALETTE.red} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

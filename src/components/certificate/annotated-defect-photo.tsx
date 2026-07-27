@@ -1,4 +1,5 @@
 import type { PublicImageDefectAnnotations } from "@/types/database";
+import { BRAND_RED } from "@/lib/constants";
 
 // US-1287: PSA-style defect callouts on the public certificate. The grader
 // stores a normalized [x,y,w,h] bbox per localized defect (migration 00313
@@ -11,12 +12,12 @@ import type { PublicImageDefectAnnotations } from "@/types/database";
 // Severity tones mirror the disclosure compositor (annotated-photo.tsx,
 // vault/20-domain/brand-design-system.md §3B): crimson for major, amber for moderate, gold for minor.
 const SEVERITY_COLOR: Record<string, string> = {
-  major: "#F03D5F",
+  major: BRAND_RED,
   moderate: "#F59E0B",
   minor: "#EAB308",
 };
 
-const DEFAULT_SEVERITY_COLOR = "#F03D5F";
+const DEFAULT_SEVERITY_COLOR = BRAND_RED;
 
 function severityColor(severity: string): string {
   return SEVERITY_COLOR[severity] ?? DEFAULT_SEVERITY_COLOR;

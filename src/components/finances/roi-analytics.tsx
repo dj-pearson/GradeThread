@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { FinRoiGroup, FinItemRoi } from "@/lib/finances-dashboard";
+import { CHART_PALETTE } from "@/lib/constants";
 import {
   Card,
   CardContent,
@@ -29,7 +30,13 @@ import {
   Cell,
 } from "recharts";
 
-const BAR_COLORS = ["#0F3460", "#3b82f6", "#6366f1", "#8b5cf6", "#a78bfa"];
+const BAR_COLORS = [
+  CHART_PALETTE.navy,
+  CHART_PALETTE.blue,
+  CHART_PALETTE.indigo,
+  CHART_PALETTE.violet,
+  CHART_PALETTE.violetLight,
+];
 
 const TOOLTIP_STYLE = {
   backgroundColor: "hsl(var(--card))",
@@ -144,7 +151,7 @@ function RoiTable({
                   fill={
                     entry.roi >= 0
                       ? BAR_COLORS[index % BAR_COLORS.length]
-                      : "#E94560"
+                      : CHART_PALETTE.red
                   }
                 />
               ))}

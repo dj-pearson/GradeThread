@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { ArrowDownLeft, ArrowUpRight, BarChart3, List } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CHART_PALETTE } from "@/lib/constants";
 import {
   BarChart,
   Bar,
@@ -29,9 +30,9 @@ import {
 type ViewMode = "chart" | "table";
 
 const COLORS = {
-  inflow: "#22c55e",
-  outflow: "#E94560",
-  balance: "#0F3460",
+  inflow: CHART_PALETTE.green,
+  outflow: CHART_PALETTE.red,
+  balance: CHART_PALETTE.navy,
 };
 
 const TOOLTIP_STYLE = {

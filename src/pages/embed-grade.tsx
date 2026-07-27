@@ -17,16 +17,16 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { History, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { GRADE_FACTORS } from "@/lib/constants";
+import { GRADE_FACTORS, SCORE_STOP } from "@/lib/constants";
 import { safeEmbedUrl } from "@/lib/return-to";
 import type { PublicGradeReportRow, SubmissionRow } from "@/types/database";
 
 const BRAND_NAVY = "#0F3460";
 
 function scoreColor(score: number): string {
-  if (score > 7) return "#10B981"; // emerald
-  if (score >= 5) return "#F59E0B"; // amber
-  return "#F03D5F"; // crimson
+  if (score > 7) return SCORE_STOP.high; // emerald
+  if (score >= 5) return SCORE_STOP.mid; // amber
+  return SCORE_STOP.low; // AA-safe brand red
 }
 
 const FACTOR_KEYS = [

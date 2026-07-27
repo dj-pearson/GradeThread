@@ -881,6 +881,65 @@ export function getTierBadgeClasses(score: number): string {
   return "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800";
 }
 
+// ─── Brand + chart color hexes (US-2193) ─────────────────────────
+// Raw HEX values for non-Tailwind surfaces — SVG, canvas, and Recharts
+// fill/stroke props, where a class name can't be used. In JSX prefer the
+// Tailwind utilities (`bg-brand-navy`, `text-brand-red-text`); reach for these
+// only where a literal hex is required.
+
+// Canonical brand red. This is the US-439 AA-safe value (#cc1f3d, deepened from
+// the old vibrant #f03d5f / #E94560) so white-on-red clears AA. It intentionally
+// differs from the legacy #E94560/#F03D5F reds that had drifted across the app.
+// NOTE: for red TEXT in JSX use the theme-inverting `text-brand-red-text`
+// utility — never this hex as a text color on a light surface.
+export const BRAND_RED = "#cc1f3d";
+
+// Brand navy — chart/SVG primary (matches `--color-brand-navy` intent for
+// data surfaces; the vivid #0F3460 reads better on charts than the deepened UI
+// navy #0c1e36).
+export const BRAND_NAVY = "#0F3460";
+
+// Score / severity stop hexes — the HEX equivalents of getScoreColor's Tailwind
+// stops, for SVG/canvas/Recharts contexts (score bars, defect callouts). Keep
+// in lockstep with getScoreColor: emerald > 7, amber 5–7, brand red < 5.
+export const SCORE_STOP = {
+  high: "#10b981", // emerald (tailwind emerald-500) — score > 7
+  mid: "#f59e0b", // amber (tailwind amber-500) — 5 <= score <= 7
+  low: BRAND_RED, // AA-safe brand red — score < 5
+} as const;
+
+// Shared categorical palette for Recharts. Charts previously each hardcoded
+// their own hexes (#0F3460, #E94560, #16a34a, #f59e0b, #3b82f6, #94a3b8, …);
+// this consolidates them into one accessible, stably-named ramp so every chart
+// reads as one system. `navy`/`red` are the brand anchors; the rest are a fixed
+// categorical ramp. Order is stable — index into CHART_SERIES so the Nth series
+// is the same color in every chart.
+export const CHART_PALETTE = {
+  navy: BRAND_NAVY, // #0F3460 — brand primary / default single series
+  red: BRAND_RED, // #cc1f3d — brand accent / negative
+  emerald: "#16a34a", // positive / revenue / success
+  green: "#22c55e", // secondary positive
+  amber: "#f59e0b", // warning / pending / mid
+  blue: "#3b82f6", // categorical
+  indigo: "#6366f1", // categorical
+  violet: "#8b5cf6", // categorical
+  violetLight: "#a78bfa", // categorical (ramp tail)
+  slate: "#94a3b8", // muted / baseline / comparison
+} as const;
+
+// Stable-ordered categorical series — index into this for multi-series charts
+// so series N is the same color across every chart.
+export const CHART_SERIES = [
+  CHART_PALETTE.navy,
+  CHART_PALETTE.red,
+  CHART_PALETTE.emerald,
+  CHART_PALETTE.amber,
+  CHART_PALETTE.blue,
+  CHART_PALETTE.indigo,
+  CHART_PALETTE.violet,
+  CHART_PALETTE.slate,
+] as const;
+
 // ─── FlipDesk ────────────────────────────────────────────────────
 
 // Pipeline columns in display order with the next-action hint.

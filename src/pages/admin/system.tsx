@@ -6,7 +6,7 @@ import type {
   AdminSystemMetrics,
   AdminRevenueMetrics,
 } from "@/lib/admin-aggregates";
-import { FLIPDESK_PLANS, GRADETHREAD_TIERS, type FlipdeskPlanKey } from "@/lib/constants";
+import { CHART_PALETTE, FLIPDESK_PLANS, GRADETHREAD_TIERS, type FlipdeskPlanKey } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
@@ -56,9 +56,9 @@ const TOOLTIP_STYLE = {
 // Authoritative FlipDesk paid tiers (the real subscription model, post US-201).
 const FLIPDESK_PAID_PLAN_ORDER: FlipdeskPlanKey[] = ["starter", "pro", "business"];
 const PLAN_COLORS: Record<string, string> = {
-  starter: "#0F3460",
-  pro: "#E94560",
-  business: "#16a34a",
+  starter: CHART_PALETTE.navy,
+  pro: CHART_PALETTE.red,
+  business: CHART_PALETTE.emerald,
 };
 
 // ─── Health check types ─────────────────────────────────────────
@@ -191,7 +191,7 @@ function buildSystemData(
   const planDistribution = FLIPDESK_PAID_PLAN_ORDER.map((key) => ({
     name: FLIPDESK_PLANS[key].name,
     value: planAgg[key] ?? 0,
-    color: PLAN_COLORS[key] ?? "#94a3b8",
+    color: PLAN_COLORS[key] ?? CHART_PALETTE.slate,
   }));
 
   // MRR = sum over active subscriptions of their monthly price (yearly / 12),
@@ -583,8 +583,8 @@ export function AdminSystemPage() {
                     ]}
                   />
                   <Legend />
-                  <Bar dataKey="submissions" fill="#0F3460" name="Submissions" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="uniqueUsers" fill="#E94560" name="Unique Users" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="submissions" fill={CHART_PALETTE.navy} name="Submissions" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="uniqueUsers" fill={CHART_PALETTE.red} name="Unique Users" radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -624,10 +624,10 @@ export function AdminSystemPage() {
                   <Line
                     type="monotone"
                     dataKey="uniqueUsers"
-                    stroke="#0F3460"
+                    stroke={CHART_PALETTE.navy}
                     strokeWidth={2}
                     dot={false}
-                    activeDot={{ r: 4, fill: "#0F3460" }}
+                    activeDot={{ r: 4, fill: CHART_PALETTE.navy }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -679,7 +679,7 @@ export function AdminSystemPage() {
                   }}
                   labelFormatter={(label) => `Date: ${String(label)}`}
                 />
-                <Bar dataKey="failedRate" fill="#ef4444" name="failedRate" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="failedRate" fill={CHART_PALETTE.red} name="failedRate" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
             {/* Summary */}
@@ -880,7 +880,7 @@ export function AdminSystemPage() {
                       }}
                       labelFormatter={(label) => `Date: ${String(label)}`}
                     />
-                    <Bar dataKey="costUsd" fill="#0F3460" name="costUsd" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="costUsd" fill={CHART_PALETTE.navy} name="costUsd" radius={[2, 2, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>

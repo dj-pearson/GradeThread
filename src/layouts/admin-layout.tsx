@@ -236,7 +236,7 @@ const contentNavItems = [
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
     isActive
-      ? "bg-brand-red/20 text-[#fb5e78]"
+      ? "bg-brand-red/20 text-brand-red-text"
       : "text-white/70 hover:bg-white/10 hover:text-white"
   }`;
 
