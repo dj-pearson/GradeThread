@@ -2486,7 +2486,9 @@ export async function adminCancelPublishBatch(
     .eq("batch_id", batchId)
     .in("status", ["pending", "running"]);
   const ids = (openJobs ?? []).map((j) => (j as { id: string }).id);
-  for (const id of ids) await markPublishJobFailed(id, reason);
+  // US-2204: mark the cancelled jobs failed concurrently rather than one-by-one
+  // (bounded to a single batch's still-open jobs).
+  await Promise.all(ids.map((id) => markPublishJobFailed(id, reason)));
   await finalizePublishBatch(batchId);
   return { ok: true, cancelled: ids.length };
 }
