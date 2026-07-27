@@ -598,7 +598,9 @@ export function CertificatePage() {
             <Shield className="h-5 w-5" />
             <div>
               <h1 className="text-lg font-bold sm:text-xl">
-                Verified Grade Certificate
+                {submission?.title
+                  ? `${submission.title} — Grade ${gradeReport.overall_score.toFixed(1)} Certificate`
+                  : `Grade ${gradeReport.overall_score.toFixed(1)} Certificate`}
               </h1>
               {certNumber && (
                 <p className="font-mono text-xs text-white/70">
@@ -625,7 +627,7 @@ export function CertificatePage() {
       </div>
 
       {/* Main content */}
-      <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+      <main className="mx-auto max-w-3xl space-y-6 px-6 py-8">
         {/* US-433: visible breadcrumb matching the BreadcrumbList JSON-LD.
             Hidden on print to keep the certificate PDF clean. */}
         <Breadcrumbs items={breadcrumbTrail} className="print:hidden" />
@@ -1393,7 +1395,7 @@ export function CertificatePage() {
             — The Standard for Clothing Condition Grading
           </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

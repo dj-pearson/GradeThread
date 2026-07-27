@@ -291,7 +291,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               type="button"
               onClick={() => toggleGroup(group.title!)}
               aria-expanded={!isCollapsed}
-              className="flex w-full items-center justify-between rounded-md px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/40 transition-colors hover:text-white/70"
+              className="flex w-full items-center justify-between rounded-md px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/70 transition-colors hover:text-white/90"
             >
               {group.title}
               <ChevronDown
@@ -317,7 +317,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                       type="button"
                       onClick={() => toggleGroup(key)}
                       aria-expanded={!sgCollapsed}
-                      className="flex w-full items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[0.7rem] font-medium uppercase tracking-wide text-white/35 transition-colors hover:text-white/60"
+                      className="flex w-full items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[0.7rem] font-medium uppercase tracking-wide text-white/70 transition-colors hover:text-white/90"
                     >
                       {sg.title}
                       <ChevronDown

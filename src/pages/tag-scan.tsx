@@ -74,7 +74,7 @@ export function TagScanPage() {
   }, [code, navigate]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-6 py-12">
+    <main className="flex min-h-screen items-center justify-center bg-background px-6 py-12">
       <SEO title="Garment Passport Tag" noindex />
       <Card className="w-full max-w-md">
         <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
@@ -118,6 +118,6 @@ export function TagScanPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </main>
   );
 }

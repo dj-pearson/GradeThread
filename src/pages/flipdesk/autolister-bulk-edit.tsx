@@ -1455,6 +1455,7 @@ export function FlipdeskAutolisterBulkEditPage() {
             />
           </div>
           <select
+            aria-label="Find and replace scope"
             value={findScope}
             onChange={(e) =>
               setFindScope(e.target.value as "title" | "description" | "both")
@@ -1772,6 +1773,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                   </td>
                   <td className="p-2">
                     <select
+                      aria-label="Condition"
                       value={r.condition}
                       onChange={(e) => patchRow(r.id, { condition: e.target.value })}
                       className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm"
@@ -1809,6 +1811,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                   </td>
                   <td className="p-2">
                     <select
+                      aria-label="Department"
                       value={r.department}
                       onChange={(e) => patchRow(r.id, { department: e.target.value })}
                       className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm"

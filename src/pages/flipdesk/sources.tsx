@@ -383,8 +383,9 @@ function SourceEditDialog({
 
         <div className="space-y-4">
           <div className="space-y-1">
-            <Label>Name *</Label>
+            <Label htmlFor="source-name">Name *</Label>
             <Input
+              id="source-name"
               value={draft.name}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               placeholder="e.g. Goodwill SE 14th"
@@ -392,14 +393,14 @@ function SourceEditDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label>Type</Label>
+            <Label htmlFor="source-type">Type</Label>
             <Select
               value={draft.source_type}
               onValueChange={(v) =>
                 setDraft({ ...draft, source_type: v as FlipdeskSourceType })
               }
             >
-              <SelectTrigger>
+              <SelectTrigger id="source-type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -412,16 +413,18 @@ function SourceEditDialog({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Location</Label>
+            <Label htmlFor="source-location">Location</Label>
             <Input
+              id="source-location"
               value={draft.location}
               onChange={(e) => setDraft({ ...draft, location: e.target.value })}
               placeholder="Address, URL, or city"
             />
           </div>
           <div className="space-y-1">
-            <Label>Notes</Label>
+            <Label htmlFor="source-notes">Notes</Label>
             <Textarea
+              id="source-notes"
               value={draft.notes}
               onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
               rows={3}

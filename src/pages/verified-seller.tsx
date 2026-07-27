@@ -317,7 +317,7 @@ export function VerifiedSellerPage() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+      <main className="mx-auto max-w-3xl space-y-6 px-6 py-8">
         {/* Stats */}
         <div className="grid grid-cols-2 gap-4">
           <Card>
@@ -420,7 +420,7 @@ export function VerifiedSellerPage() {
             </Link>
           </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

@@ -4676,7 +4676,7 @@
     {
       "id": "US-2199",
       "priority": 2529,
-      "passes": false,
+      "passes": true,
       "title": "a11y: label associations, sidebar contrast, main landmarks, cert h1",
       "description": "As an assistive-tech user, I want properly labeled controls, sufficient contrast, and landmarks on public pages, so I can navigate and understand content.",
       "acceptanceCriteria": [

@@ -79,7 +79,7 @@ export function TrustProfilePage() {
   const memberSince = profile.memberSince ? new Date(profile.memberSince).getFullYear() : null;
 
   return (
-    <div className="mx-auto max-w-lg py-10">
+    <main className="mx-auto max-w-lg py-10">
       <SEO
         title={`${profile.displayName} — GradeThread buyer`}
         description={`${profile.displayName}'s GradeThread buyer Trust Score profile.`}
@@ -123,6 +123,6 @@ export function TrustProfilePage() {
         Trust Scores reward honest post-sale grade confirmations on GradeThread.{" "}
         <Link to="/" className="underline">Learn more</Link>
       </p>
-    </div>
+    </main>
   );
 }

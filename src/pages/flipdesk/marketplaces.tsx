@@ -376,8 +376,11 @@ function EbayPoliciesDialog({
               const options = policies.filter((p) => p.policy_type === kind.type);
               return (
                 <div key={kind.type} className="space-y-1">
-                  <Label className="text-xs">{kind.label}</Label>
+                  <Label htmlFor={`policy-${kind.key}`} className="text-xs">
+                    {kind.label}
+                  </Label>
                   <select
+                    id={`policy-${kind.key}`}
                     value={selection[kind.key] ?? ""}
                     onChange={(e) =>
                       setSelection((prev) => ({

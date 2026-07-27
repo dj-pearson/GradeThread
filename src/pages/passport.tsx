@@ -360,7 +360,7 @@ export function PassportPage() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-2xl space-y-6 px-6 py-8">
+      <main className="mx-auto max-w-2xl space-y-6 px-6 py-8">
         <Breadcrumbs items={breadcrumbTrail} />
 
         {/* Garment summary */}
@@ -571,7 +571,7 @@ export function PassportPage() {
           Participants are shown as pseudonymous labels only — GradeThread never
           exposes personal information on a public passport.
         </p>
-      </div>
+      </main>
     </div>
   );
 }
