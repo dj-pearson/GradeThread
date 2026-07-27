@@ -62,11 +62,15 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
       const categoryBit = p.primary_keyword
         ? `<category>${escape(p.primary_keyword)}</category>\n  `
         : "";
+      // US-2206: attribute the item to its author byline (falls back to the
+      // brand). The dc: namespace is already declared on the channel.
+      const creator = escape((p.author ?? "").trim() || "GradeThread Team");
       return `<item>
   <title>${escape(p.title)}</title>
   <link>${escape(link)}</link>
   <guid isPermaLink="true">${escape(link)}</guid>
   <pubDate>${pubDate}</pubDate>
+  <dc:creator>${creator}</dc:creator>
   ${categoryBit}<description>${escape(p.excerpt ?? "")}</description>
   ${mediaBits}
 </item>`;

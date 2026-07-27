@@ -95,6 +95,9 @@ export interface PublicPostListItem {
   reading_time_min: number | null;
   published_at: string;
   updated_at: string;
+  // US-2206: author byline for the RSS <dc:creator> (optional; absent on
+  // legacy payloads).
+  author?: string | null;
 }
 
 export interface BlogFaq {

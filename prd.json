@@ -4776,7 +4776,7 @@
         "The gallery image[] change is mirrored in the SPA certificateLd() so the SSR<->SPA byte-parity test still holds",
         "RSS items add <dc:creator>/author and a <category> per post tag once the public posts list endpoint (content-public) returns author + tags"
       ],
-      "notes": "Split from US-2195 (audit 2026-07-26 SEO). Blocked on: stable cert image URL source; SPA parity mirror; content-public list payload adding author+tags."
+      "notes": "Split from US-2195 (audit 2026-07-26 SEO). Blocked on: stable cert image URL source; SPA parity mirror; content-public list payload adding author+tags. PARTIAL: RSS <dc:creator> now emitted from the post author byline (falls back to \"GradeThread Team\") — added  to the public posts LIST projection + PublicPostListItem (additive, deno+tsc clean). STILL DEFERRED: per-tag <category> (needs a blog_post_tags fetch on the shared cached list endpoint) and the cert/passport gallery image[] JSON-LD (blocked on stable non-signed image URLs + SSR/SPA parity)."
     }
   ]
 }

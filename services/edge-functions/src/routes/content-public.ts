@@ -131,7 +131,8 @@ const POST_COLUMNS =
   "hero_image_width, hero_image_height, inline_images";
 const LIST_COLUMNS =
   "id, slug, title, excerpt, product_focus, hero_image_url, primary_keyword, " +
-  "reading_time_min, published_at, updated_at";
+  // US-2206: author byline for the RSS <dc:creator> (text column, US-304).
+  "reading_time_min, published_at, updated_at, author";
 
 // US-874: public author-entity projection (Person JSON-LD + author page). The
 // `same_as` array feeds Person.sameAs; nothing private (created_at, id) leaks.
@@ -157,6 +158,7 @@ interface BlogListRow {
   reading_time_min: number | null;
   published_at: string | null;
   updated_at: string | null;
+  author: string | null;
 }
 interface BlogFullRow extends BlogListRow {
   body_html: string | null;
@@ -164,7 +166,7 @@ interface BlogFullRow extends BlogListRow {
   seo_description: string | null;
   secondary_keywords: string[] | null;
   jsonld: unknown;
-  author: unknown;
+  // author (byline text) is inherited from BlogListRow as string | null.
   author_id: string | null;
   key_takeaways: unknown;
   faqs: unknown;
