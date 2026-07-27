@@ -16,6 +16,17 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   useEbayCancellations,
   useEbayConnection,
@@ -96,23 +107,21 @@ function EmptyRow({ text }: { text: string }) {
 
 function DisputesCard() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const { data: disputes = [], isLoading } = useEbayPaymentDisputes();
   const resolve = useEbayResolveDispute();
   const [busy, setBusy] = useState<string | null>(null);
+  // The dispute currently being contested (drives the note dialog), plus its note.
+  const [contestFor, setContestFor] = useState<EbayPaymentDispute | null>(null);
+  const [contestNote, setContestNote] = useState("");
 
-  async function act(d: EbayPaymentDispute, action: "accept" | "contest") {
+  async function runResolve(
+    d: EbayPaymentDispute,
+    action: "accept" | "contest",
+    note: string | undefined,
+  ) {
     setBusy(`${d.paymentDisputeId}:${action}`);
     try {
-      let note: string | undefined;
-      if (action === "contest") {
-        note = window.prompt(
-          "Add a short note for eBay explaining why you're contesting:",
-        ) ?? undefined;
-        if (note === undefined) {
-          setBusy(null);
-          return;
-        }
-      }
       await resolve.mutateAsync({
         disputeId: d.paymentDisputeId,
         action,
@@ -128,6 +137,32 @@ function DisputesCard() {
     } finally {
       setBusy(null);
     }
+  }
+
+  async function acceptDispute(d: EbayPaymentDispute) {
+    const amount =
+      d.amount != null ? ` ${d.currency ?? "$"} ${d.amount.toFixed(2)}` : "";
+    const ok = await confirm({
+      title: "Accept dispute and refund the buyer?",
+      description: `This refunds the buyer${amount} on eBay immediately and closes the dispute. This can't be undone.`,
+      confirmLabel: "Accept & refund",
+      destructive: true,
+    });
+    if (!ok) return;
+    await runResolve(d, "accept", undefined);
+  }
+
+  function openContest(d: EbayPaymentDispute) {
+    setContestNote("");
+    setContestFor(d);
+  }
+
+  async function submitContest() {
+    const d = contestFor;
+    if (!d) return;
+    const note = contestNote.trim() || undefined;
+    setContestFor(null);
+    await runResolve(d, "contest", note);
   }
 
   return (
@@ -183,7 +218,7 @@ function DisputesCard() {
                     size="sm"
                     variant="outline"
                     disabled={!!busy}
-                    onClick={() => act(d, "contest")}
+                    onClick={() => openContest(d)}
                   >
                     {busy === `${d.paymentDisputeId}:contest` ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -196,7 +231,7 @@ function DisputesCard() {
                     size="sm"
                     variant="destructive"
                     disabled={!!busy}
-                    onClick={() => act(d, "accept")}
+                    onClick={() => acceptDispute(d)}
                   >
                     {busy === `${d.paymentDisputeId}:accept` ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -211,6 +246,39 @@ function DisputesCard() {
           })
         )}
       </CardContent>
+
+      <Dialog
+        open={!!contestFor}
+        onOpenChange={(open) => {
+          if (!open) setContestFor(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Contest payment dispute</DialogTitle>
+            <DialogDescription>
+              Add a short note for eBay explaining why you're contesting this
+              dispute. It's sent to eBay with your response.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="contest-note">Note to eBay</Label>
+            <Textarea
+              id="contest-note"
+              value={contestNote}
+              onChange={(e) => setContestNote(e.target.value)}
+              placeholder="e.g. Tracking confirms the item was delivered and signed for on 2026-07-20."
+              rows={4}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContestFor(null)}>
+              Cancel
+            </Button>
+            <Button onClick={submitContest}>Contest dispute</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -269,12 +337,22 @@ function EvidenceUploader({
 
 function ReturnsCard() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const { data: returns = [], isLoading } = useEbayReturns();
   const decide = useEbayDecideReturn();
   const refund = useEbayRefundReturn();
   const [busy, setBusy] = useState<string | null>(null);
 
   async function decideReturn(r: EbayReturn, decision: "approve" | "decline") {
+    if (decision === "approve") {
+      const ok = await confirm({
+        title: "Approve this return?",
+        description:
+          "This approves the buyer's return request on eBay — they'll be able to send the item back for a refund.",
+        confirmLabel: "Approve return",
+      });
+      if (!ok) return;
+    }
     setBusy(`${r.returnId}:${decision}`);
     try {
       await decide.mutateAsync({
@@ -292,6 +370,14 @@ function ReturnsCard() {
   }
 
   async function refundReturn(r: EbayReturn) {
+    const ok = await confirm({
+      title: "Issue a refund for this return?",
+      description:
+        "This issues a refund to the buyer on eBay immediately. This can't be undone.",
+      confirmLabel: "Issue refund",
+      destructive: true,
+    });
+    if (!ok) return;
     setBusy(`${r.returnId}:refund`);
     try {
       await refund.mutateAsync({ returnId: r.returnId, orderId: r.orderId ?? undefined });
@@ -386,11 +472,22 @@ function ReturnsCard() {
 
 function CancellationsCard() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const { data: cancellations = [], isLoading } = useEbayCancellations();
   const decide = useEbayDecideCancellation();
   const [busy, setBusy] = useState<string | null>(null);
 
   async function act(ca: EbayCancellation, action: "approve" | "reject") {
+    if (action === "approve") {
+      const ok = await confirm({
+        title: "Approve cancellation and cancel the order?",
+        description:
+          "This cancels the order on eBay and refunds the buyer. This can't be undone.",
+        confirmLabel: "Approve & cancel",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     setBusy(`${ca.cancelId}:${action}`);
     try {
       await decide.mutateAsync({

@@ -14,10 +14,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import {
   useRepricingSuggestions,
@@ -56,11 +58,24 @@ function money(cents: number): string {
 }
 
 function SuggestionRow({ s }: { s: RepriceSuggestion }) {
+  const confirm = useConfirm();
   const apply = useApplyReprice();
   const dismiss = useDismissReprice();
   const meta = REASON_META[s.reason_code] ?? REASON_META.OK;
   const Icon = meta.icon;
   const up = s.suggested_price_cents >= s.current_price_cents;
+
+  async function onApply() {
+    const ok = await confirm({
+      title: "Apply this new price?",
+      description: `Reprice "${s.inventory_items?.title ?? "this item"}" from ${money(
+        s.current_price_cents,
+      )} to ${money(s.suggested_price_cents)}. This updates the live eBay listing.`,
+      confirmLabel: "Apply new price",
+    });
+    if (!ok) return;
+    apply.mutate(s.id);
+  }
 
   return (
     <Card>
@@ -110,7 +125,7 @@ function SuggestionRow({ s }: { s: RepriceSuggestion }) {
         <div className="flex flex-shrink-0 gap-2">
           <Button
             size="sm"
-            onClick={() => apply.mutate(s.id)}
+            onClick={onApply}
             disabled={apply.isPending}
           >
             {apply.isPending ? (
@@ -123,7 +138,11 @@ function SuggestionRow({ s }: { s: RepriceSuggestion }) {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => dismiss.mutate(s.id)}
+            onClick={() =>
+              dismiss.mutate(s.id, {
+                onSuccess: () => toast.success("Suggestion dismissed."),
+              })
+            }
             disabled={dismiss.isPending}
           >
             <X className="h-4 w-4" />

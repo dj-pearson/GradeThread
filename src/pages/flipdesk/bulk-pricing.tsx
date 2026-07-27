@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Select,
   SelectContent,
@@ -36,6 +37,7 @@ type PriceMode = "none" | "set" | "reduce";
 // US-1046 clean surface: select active eBay listings and update price and/or
 // quantity in one bulk call.
 export function FlipdeskBulkPricingPage() {
+  const confirm = useConfirm();
   const { data: connection, isLoading: connLoading } = useEbayConnection();
   const connected = !!connection;
 
@@ -88,8 +90,12 @@ export function FlipdeskBulkPricingPage() {
 
   const qtyNum = qtyValue.trim() === "" ? undefined : Number(qtyValue);
   const priceNum = priceValue.trim() === "" ? undefined : Number(priceValue);
+  // A reduce percent outside 1–99 would drive computed prices to $0 or below, so
+  // it never counts as an active (appliable) price change.
+  const percentInvalid = priceMode === "reduce" && priceNum != null &&
+    Number.isFinite(priceNum) && (priceNum < 1 || priceNum > 99);
   const priceActive = priceMode !== "none" && priceNum != null &&
-    Number.isFinite(priceNum) && priceNum > 0;
+    Number.isFinite(priceNum) && priceNum > 0 && !percentInvalid;
   const qtyActive = qtyNum != null && Number.isInteger(qtyNum) && qtyNum >= 0;
   const canApply = selected.size > 0 && (priceActive || qtyActive) && !bulk.isPending;
 
@@ -111,6 +117,21 @@ export function FlipdeskBulkPricingPage() {
       updates.push({ listing_id: row.id, price, quantity });
     }
     if (updates.length === 0) return;
+
+    const priceOp = !priceActive || priceNum == null
+      ? null
+      : priceMode === "set"
+        ? `set the price to $${priceNum.toFixed(2)}`
+        : `reduce the price by ${priceNum}%`;
+    const qtyOp = qtyActive ? `set quantity to ${qtyNum}` : null;
+    const op = [priceOp, qtyOp].filter(Boolean).join(" and ");
+    const ok = await confirm({
+      title: `Apply changes to ${updates.length} listing${updates.length === 1 ? "" : "s"}?`,
+      description: `This will ${op} on ${updates.length} live eBay listing${updates.length === 1 ? "" : "s"} immediately.`,
+      confirmLabel: "Apply changes",
+    });
+    if (!ok) return;
+
     try {
       const res = await bulk.mutateAsync({ updates });
       const failed = res.results.filter((r) => !r.ok);
@@ -191,11 +212,23 @@ export function FlipdeskBulkPricingPage() {
                 <Input
                   type="number"
                   min={priceMode === "set" ? 0.01 : 1}
+                  max={priceMode === "reduce" ? 99 : undefined}
                   step={priceMode === "set" ? 0.5 : 1}
                   value={priceValue}
-                  onChange={(e) => setPriceValue(e.target.value)}
+                  onChange={(e) => {
+                    let v = e.target.value;
+                    // A reduce >99% would produce a $0/negative price — clamp it.
+                    if (priceMode === "reduce" && v !== "" && Number(v) > 99) v = "99";
+                    setPriceValue(v);
+                  }}
                   className="w-32"
+                  aria-invalid={percentInvalid || undefined}
                 />
+                {percentInvalid && (
+                  <p className="text-xs text-destructive">
+                    Enter a percentage between 1 and 99.
+                  </p>
+                )}
               </div>
             )}
             <div className="space-y-1">

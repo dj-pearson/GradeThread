@@ -4482,7 +4482,7 @@
     {
       "id": "US-2184",
       "priority": 2504,
-      "passes": false,
+      "passes": true,
       "title": "ux: confirm dialogs on irreversible money actions",
       "description": "As a reseller, I want a confirmation summary before irreversible marketplace/money actions, so one misclick can't re-price or refund at scale.",
       "acceptanceCriteria": [
@@ -4586,7 +4586,7 @@
     {
       "id": "US-2192",
       "priority": 2522,
-      "passes": false,
+      "passes": true,
       "title": "ux: validate bulk-pricing reduce% to prevent negative prices",
       "description": "As a reseller, I want percent inputs clamped, so a 'reduce by %' over 100 can't set negative prices.",
       "acceptanceCriteria": [

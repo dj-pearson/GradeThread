@@ -142,7 +142,10 @@ function DecisionCard({
 
           <Button
             type="button"
-            disabled={buy.isPending}
+            // Also disable once the add succeeds so a second click can't create a
+            // duplicate inventory record. (buy.mutate surfaces failures via the
+            // hook's onError toast.)
+            disabled={buy.isPending || buy.isSuccess}
             onClick={() =>
               buy.mutate({
                 title: result.matchedTitle || keyword.trim() || "Scout item",
