@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -401,6 +402,7 @@ function SegmentDialog({
 
 export function GrowthSegmentsPage() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Segment | null>(null);
 
@@ -475,8 +477,9 @@ export function GrowthSegmentsPage() {
                     variant="ghost"
                     size="sm"
                     className="text-destructive"
-                    onClick={() => {
-                      if (confirm(`Delete segment "${s.name}"?`)) del.mutate(s.id);
+                    onClick={async () => {
+                      const ok = await confirm({ title: `Delete segment "${s.name}"?`, confirmLabel: "Delete", destructive: true });
+                      if (ok) del.mutate(s.id);
                     }}
                   >
                     <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete

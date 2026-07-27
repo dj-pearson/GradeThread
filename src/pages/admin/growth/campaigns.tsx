@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Table,
   TableBody,
@@ -214,6 +215,7 @@ function ComposeDialog({
 
 export function GrowthCampaignsPage() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const [composeOpen, setComposeOpen] = useState(false);
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [pendingSendId, setPendingSendId] = useState<string | null>(null);
@@ -355,8 +357,9 @@ export function GrowthCampaignsPage() {
                             size="sm"
                             className="mr-1"
                             disabled={sendingId === c.id}
-                            onClick={() => {
-                              if (confirm(`Send "${c.name}" now?`)) void doSend(c.id);
+                            onClick={async () => {
+                              const ok = await confirm({ title: `Send "${c.name}" now?`, confirmLabel: "Send" });
+                              if (ok) void doSend(c.id);
                             }}
                           >
                             <Send className="mr-1 h-3.5 w-3.5" /> Send
@@ -368,7 +371,10 @@ export function GrowthCampaignsPage() {
                             variant="ghost"
                             className="text-destructive"
                             disabled={del.isPending}
-                            onClick={() => { if (confirm(`Delete "${c.name}"?`)) del.mutate(c.id); }}
+                            onClick={async () => {
+                              const ok = await confirm({ title: `Delete "${c.name}"?`, confirmLabel: "Delete", destructive: true });
+                              if (ok) del.mutate(c.id);
+                            }}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>

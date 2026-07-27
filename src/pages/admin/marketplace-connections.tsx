@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -142,6 +143,7 @@ export function AdminMarketplaceConnectionsPage() {
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === "super_admin";
   const qc = useQueryClient();
+  const confirm = useConfirm();
 
   const [healthFilter, setHealthFilter] = useState<Health | "all">("all");
   const [page, setPage] = useState(1);
@@ -210,13 +212,16 @@ export function AdminMarketplaceConnectionsPage() {
       },
     );
 
-  const flagReconnect = (conn: ConnectionRow) => {
+  const flagReconnect = async (conn: ConnectionRow) => {
     const label = MARKETPLACE_LABELS[conn.marketplace] ?? conn.marketplace;
-    if (
-      !confirm(
-        `Flag this ${label} connection and notify the seller to reconnect? Their listings keep syncing until the token expires.`,
-      )
-    ) {
+    const ok = await confirm({
+      title: `Flag this ${label} connection?`,
+      description:
+        "Notifies the seller to reconnect. Their listings keep syncing until the token expires.",
+      confirmLabel: "Flag connection",
+      destructive: true,
+    });
+    if (!ok) {
       return;
     }
     run(

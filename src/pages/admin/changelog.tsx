@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Plus, Sparkles, Trash2 } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { PageHeader } from "@/components/ui/page-header";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -90,6 +91,7 @@ function draftToInput(d: Draft): ChangelogInput {
 // "what's new" section (published entries, audience-gated). Auto-capture drafts
 // entries from recently published blog posts for human-light curation.
 export function ChangelogPage() {
+  const confirm = useConfirm();
   const { data: entries, isLoading } = useChangelogEntries();
   const create = useCreateChangelogEntry();
   const update = useUpdateChangelogEntry();
@@ -323,10 +325,14 @@ export function ChangelogPage() {
                 <Button
                   variant="ghost"
                   className="text-destructive hover:text-destructive"
-                  onClick={() => {
-                    if (
-                      confirm(`Delete "${active.title}"? This cannot be undone.`)
-                    ) {
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: `Delete "${active.title}"?`,
+                      description: "This cannot be undone.",
+                      confirmLabel: "Delete",
+                      destructive: true,
+                    });
+                    if (ok) {
                       remove.mutate(active.id, { onSuccess: startNew });
                     }
                   }}

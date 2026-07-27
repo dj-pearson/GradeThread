@@ -49,6 +49,7 @@ import { edgeAuthHeaders, edgeFetch } from "@/lib/edge-fetch";
 import { signOut, signOutEverywhere, signOutOtherSessions } from "@/lib/auth";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { FieldError } from "@/components/ui/form-feedback";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { MfaCard } from "@/components/settings/mfa-card";
 import { PushNotificationsCard } from "@/components/settings/push-notifications-card";
 
@@ -1229,8 +1230,17 @@ export function SettingsPage() {
 // listener picks up the sign-out and routes the user back to /login.
 function SignOutAllCard() {
   const [busy, setBusy] = useState(false);
+  const confirm = useConfirm();
 
   async function handleSignOutAll() {
+    const ok = await confirm({
+      title: "Sign out of all devices?",
+      description:
+        "This ends every active session, including this one — you'll need to sign in again on each device.",
+      confirmLabel: "Sign out everywhere",
+      destructive: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await signOutEverywhere();

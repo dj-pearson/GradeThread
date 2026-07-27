@@ -41,6 +41,7 @@ import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { useAuth } from "@/hooks/use-auth";
 import { AlertTriangle, Tag, Plus, Trash2, Pencil, Pause, Play } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface AdminCoupon {
   id: string;
@@ -280,6 +281,7 @@ function EditCouponDialog({
 
 export function AdminCouponsPage() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === "super_admin";
   const [createOpen, setCreateOpen] = useState(false);
@@ -460,8 +462,14 @@ export function AdminCouponsPage() {
                           size="sm"
                           className="text-destructive"
                           disabled={working}
-                          onClick={() => {
-                            if (confirm(`Archive coupon ${c.id}? New redemptions will be blocked.`)) {
+                          onClick={async () => {
+                            const ok = await confirm({
+                              title: `Archive coupon ${c.id}?`,
+                              description: "New redemptions will be blocked.",
+                              confirmLabel: "Archive",
+                              destructive: true,
+                            });
+                            if (ok) {
                               archiveCoupon(c.id);
                             }
                           }}

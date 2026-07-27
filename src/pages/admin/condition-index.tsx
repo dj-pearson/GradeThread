@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Table,
   TableBody,
@@ -210,6 +211,7 @@ function SeedDialog({
 
 export function AdminConditionIndexPage() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editSeed, setEditSeed] = useState<ConditionIndexSeed | null>(null);
   const [working, setWorking] = useState(false);
@@ -272,7 +274,13 @@ export function AdminConditionIndexPage() {
   };
 
   const deleteSeed = async (seed: ConditionIndexSeed) => {
-    if (!confirm(`Delete "${seed.label}"? This removes it from the catalog.`)) return;
+    const ok = await confirm({
+      title: `Delete "${seed.label}"?`,
+      description: "This removes it from the catalog.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     setWorking(true);
     try {
       const res = await edgeFetch(`/api/admin/condition-index/${seed.id}`, {

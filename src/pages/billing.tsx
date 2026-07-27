@@ -54,6 +54,7 @@ import {
   Calendar,
   ExternalLink,
   Info,
+  Loader2,
   MoreVertical,
   Pause,
   Play,
@@ -363,7 +364,11 @@ export function BillingPage() {
             }
             disabled={resume.isPending}
           >
-            <Play className="mr-2 h-4 w-4" />
+            {resume.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="mr-2 h-4 w-4" />
+            )}
             Resume now
           </Button>
         </div>
@@ -386,6 +391,9 @@ export function BillingPage() {
             onClick={() => undoDowngrade.mutate()}
             disabled={undoDowngrade.isPending}
           >
+            {undoDowngrade.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
             Undo downgrade
           </Button>
         </div>
@@ -410,6 +418,9 @@ export function BillingPage() {
             }
             disabled={uncancel.isPending}
           >
+            {uncancel.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
             Undo cancel
           </Button>
         </div>

@@ -24,6 +24,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -75,6 +86,24 @@ export function InventoryAddPage() {
   const [conditionNotes, setConditionNotes] = useState("");
 
   const isValid = title.trim().length > 0 && acquiredPrice.trim().length > 0;
+
+  // US-2201: warn before navigating away from a partially-filled form. Blocks
+  // in-app navigation (Back, Cancel, sidebar) and page unload while any field
+  // holds user input — but not while submitting, so the success navigation is
+  // not trapped behind the guard. acquiredDate is excluded: it defaults to
+  // today and isn't a signal that the user started entering data.
+  const isDirty =
+    !submitting &&
+    (title.trim().length > 0 ||
+      brand.trim().length > 0 ||
+      garmentType.length > 0 ||
+      garmentCategory.length > 0 ||
+      size.trim().length > 0 ||
+      color.trim().length > 0 ||
+      acquiredPrice.trim().length > 0 ||
+      acquiredSource.length > 0 ||
+      conditionNotes.trim().length > 0);
+  const guard = useNavigationGuard(isDirty);
 
   async function handleSubmit(e: React.FormEvent, submitForGrading: boolean) {
     e.preventDefault();
@@ -360,6 +389,31 @@ export function InventoryAddPage() {
           </Button>
         </div>
       </form>
+
+      <AlertDialog
+        open={guard.blocked}
+        onOpenChange={(open) => {
+          if (!open) guard.cancelLeave();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard this item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You've started filling out this item but haven't saved it. If you
+              leave now, the details you entered will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={guard.cancelLeave}>
+              Keep editing
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={guard.confirmLeave}>
+              Leave and discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

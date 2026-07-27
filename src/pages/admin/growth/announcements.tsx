@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/ui/page-header";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -206,6 +207,7 @@ function EditorDialog({
 
 export function GrowthAnnouncementsPage() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Announcement | null>(null);
 
@@ -282,7 +284,10 @@ export function GrowthAnnouncementsPage() {
                     size="sm"
                     className="text-destructive"
                     disabled={del.isPending}
-                    onClick={() => { if (confirm(`Delete "${a.title}"?`)) del.mutate(a.id); }}
+                    onClick={async () => {
+                      const ok = await confirm({ title: `Delete "${a.title}"?`, confirmLabel: "Delete", destructive: true });
+                      if (ok) del.mutate(a.id);
+                    }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>

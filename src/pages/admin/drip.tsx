@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -175,6 +176,7 @@ function describeDelay(step: DripStep): string {
 
 export function AdminDripBuilderPage() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === "super_admin";
 
@@ -483,10 +485,15 @@ export function AdminDripBuilderPage() {
             variant="destructive"
             size="sm"
             disabled={!isSuperAdmin || working || status === "killed"}
-            onClick={() => {
-              if (confirm("Kill this campaign? This stops ALL sends and disables the linked feature flag.")) {
-                changeStatus("kill");
-              }
+            onClick={async () => {
+              const ok = await confirm({
+                title: "Kill this campaign?",
+                description:
+                  "This stops ALL sends and disables the linked feature flag.",
+                confirmLabel: "Kill campaign",
+                destructive: true,
+              });
+              if (ok) changeStatus("kill");
             }}
           >
             <XCircle className="h-4 w-4" /> Kill

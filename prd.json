@@ -4703,7 +4703,7 @@
     {
       "id": "US-2201",
       "priority": 2541,
-      "passes": false,
+      "passes": true,
       "title": "ux: standardize confirm() + unsaved-changes/sign-out guards",
       "description": "As a user, I want consistent styled confirmations and protection from losing work, so destructive/navigation actions feel coherent.",
       "acceptanceCriteria": [
