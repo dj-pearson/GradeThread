@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -122,6 +123,8 @@ export function AdminCompliancePage() {
   const navigate = useNavigate();
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  // US-2197: pause the 60s poll while the tab is backgrounded.
+  const visible = useDocumentVisible();
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === "super_admin";
 
@@ -148,7 +151,7 @@ export function AdminCompliancePage() {
       return (json.requests ?? []) as DataRequest[];
     },
     staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: visible ? 60 * 1000 : false,
   });
 
   const detailQuery = useQuery({

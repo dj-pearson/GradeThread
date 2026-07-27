@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -216,6 +217,8 @@ function ComposeDialog({
 export function GrowthCampaignsPage() {
   const qc = useQueryClient();
   const confirm = useConfirm();
+  // US-2197: don't poll every 15s while the tab is backgrounded.
+  const visible = useDocumentVisible();
   const [composeOpen, setComposeOpen] = useState(false);
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [pendingSendId, setPendingSendId] = useState<string | null>(null);
@@ -229,7 +232,7 @@ export function GrowthCampaignsPage() {
       if (!res.ok) throw new Error(json.error || "Failed to load campaigns");
       return json;
     },
-    refetchInterval: 15_000,
+    refetchInterval: visible ? 15_000 : false,
   });
 
   const { data: segData } = useQuery({

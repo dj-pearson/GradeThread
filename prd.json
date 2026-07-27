@@ -4651,7 +4651,7 @@
     {
       "id": "US-2197",
       "priority": 2527,
-      "passes": false,
+      "passes": true,
       "title": "perf: visibility-gate admin polling",
       "description": "As an operator, I want background admin tabs to stop polling, so a parked tab doesn't hammer endpoints every minute.",
       "acceptanceCriteria": [

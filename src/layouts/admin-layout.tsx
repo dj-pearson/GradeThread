@@ -61,6 +61,7 @@ import { Search } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { AdminMfaGate } from "@/components/admin/admin-mfa-gate";
 import { StepUpHost } from "@/components/admin/step-up-host";
 import { AdminNotificationBell } from "@/components/admin/admin-notification-bell";
@@ -434,6 +435,9 @@ export function AdminLayout() {
   ]);
 
   const isSuperAdmin = profile?.role === "super_admin";
+  // US-2197: pause the nav badge polls while the tab is backgrounded so a parked
+  // admin tab doesn't hit these 7 endpoints every minute indefinitely.
+  const visible = useDocumentVisible();
 
   // US-775: pending human-review count for the nav badge (light poll, 60s stale).
   const { data: reviewCount } = useQuery({
@@ -444,7 +448,7 @@ export function AdminLayout() {
       return res.ok ? Number(json.count ?? 0) : 0;
     },
     staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: visible ? 60 * 1000 : false,
   });
 
   // US-839: escalated support conversations awaiting a human, for the nav badge.
@@ -456,7 +460,7 @@ export function AdminLayout() {
       return res.ok ? (json.conversations?.length ?? 0) : 0;
     },
     staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: visible ? 60 * 1000 : false,
   });
 
   // US-900: open/pending support tickets, for the Support Tickets nav badge.
@@ -468,7 +472,7 @@ export function AdminLayout() {
       return res.ok ? Number(json.open_count ?? 0) : 0;
     },
     staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: visible ? 60 * 1000 : false,
   });
 
   // US-881: count of background jobs with consecutive failures, for the
@@ -481,7 +485,7 @@ export function AdminLayout() {
       return res.ok ? Number(json.failing_count ?? 0) : 0;
     },
     staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: visible ? 60 * 1000 : false,
   });
 
   // US-906: unacknowledged critical ops events, for the Activity Feed nav badge.
@@ -493,7 +497,7 @@ export function AdminLayout() {
       return res.ok ? Number(json.critical_unacked ?? 0) : 0;
     },
     staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: visible ? 60 * 1000 : false,
   });
 
   // US-898: open conflicts + unmatched orphans + stuck runs, for the Marketplace
@@ -506,7 +510,7 @@ export function AdminLayout() {
       return res.ok ? Number(json.total ?? 0) : 0;
     },
     staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: visible ? 60 * 1000 : false,
   });
 
   // US-903: open (received/processing) data-subject requests, for the Compliance
@@ -519,7 +523,7 @@ export function AdminLayout() {
       return res.ok ? Number(json.open_count ?? 0) : 0;
     },
     staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000,
+    refetchInterval: visible ? 60 * 1000 : false,
   });
 
   const counts: AdminNavCounts = {

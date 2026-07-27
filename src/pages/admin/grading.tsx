@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { GRADE_FACTORS } from "@/lib/constants";
 import {
@@ -178,6 +179,8 @@ function draftsFromScores(scores: FactorScores): Record<string, string> {
 export function AdminGradingQueuePage() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();
+  // US-2197: pause the 30s queue poll while the tab is backgrounded.
+  const visible = useDocumentVisible();
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -221,7 +224,7 @@ export function AdminGradingQueuePage() {
     },
     // The queue is operator-shared; refresh often so claim locks stay fresh.
     staleTime: 15 * 1000,
-    refetchInterval: 30 * 1000,
+    refetchInterval: visible ? 30 * 1000 : false,
   });
 
   const items = useMemo(() => data?.data ?? [], [data]);
