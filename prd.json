@@ -4664,7 +4664,7 @@
     {
       "id": "US-2198",
       "priority": 2528,
-      "passes": false,
+      "passes": true,
       "title": "perf: consistent image lazy-loading + intrinsic dimensions",
       "description": "As a user, I want off-screen images deferred and sized, so pages load faster with less layout shift.",
       "acceptanceCriteria": [

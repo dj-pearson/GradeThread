@@ -2597,6 +2597,8 @@ export function FlipdeskListingsPage() {
                                   src={itemPhotoThumb(cover)}
                                   alt=""
                                   loading="lazy"
+                                  width={40}
+                                  height={40}
                                   className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-border"
                                 />
                               ) : (
