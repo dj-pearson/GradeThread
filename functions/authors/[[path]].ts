@@ -112,7 +112,12 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
         "The people behind the GradeThread condition-grading standard, blog, and Condition Index.",
       canonicalUrl: canonical,
       ogType: "website",
-      ogImage: `${siteUrl(env)}/logo_icon_512.png`,
+      // US-2195: was logo_icon_512.png — a 512 square that crops badly on a
+      // summary_large_image card (same defect class as US-2099). Use the
+      // 1200x630 default OG asset.
+      ogImage: `${siteUrl(env)}/og-image.png`,
+      ogImageWidth: 1200,
+      ogImageHeight: 630,
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
       jsonLd: [breadcrumbListLd(breadcrumbItems)],
@@ -208,7 +213,10 @@ async function renderAuthor(env: PagesEnv, slug: string): Promise<Response> {
       description,
       canonicalUrl: canonical,
       ogType: "profile",
-      ogImage: author.avatar_url ?? `${siteUrl(env)}/logo_icon_512.png`,
+      // US-2195: keep the author's own avatar when present; otherwise fall back
+      // to the 1200x630 default OG asset rather than the 512 square logo, which
+      // crops badly on a summary_large_image card.
+      ogImage: author.avatar_url ?? `${siteUrl(env)}/og-image.png`,
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
       jsonLd: [

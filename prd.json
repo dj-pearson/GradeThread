@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2206",
+  "nextId": "US-2207",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4624,7 +4624,7 @@
     {
       "id": "US-2195",
       "priority": 2525,
-      "passes": false,
+      "passes": true,
       "title": "seo: fix passport/author OG images + enrich cert/passport/RSS structured data",
       "description": "As a sharer/crawler, I want valid OG images and richer structured data on marquee pages, so cards render and entities are machine-readable.",
       "acceptanceCriteria": [
@@ -4633,7 +4633,7 @@
         "cert/passport Product JSON-LD image[] includes the full ordered gallery, not just hero",
         "functions/rss.xml.ts adds <category> per tag + dc:creator/author and fixes hardcoded enclosure length=0"
       ],
-      "notes": "Audit 2026-07-26 SEO (MED)."
+      "notes": "Audit 2026-07-26 SEO (MED). Split: passport OG fallback + author OG + RSS category/enclosure DONE. Deferred gallery-LD and RSS author/per-tag-category (needs stable image URLs + SPA parity + API payload change) -> US-2206."
     },
     {
       "id": "US-2196",
@@ -4764,6 +4764,19 @@
         "Skip-link <main tabIndex=-1 outline-none> targets get a visible focus treatment"
       ],
       "notes": "Audit 2026-07-26 a11y (LOW). WCAG 2.4.7 / 4.1.2."
+    },
+    {
+      "id": "US-2206",
+      "priority": 2526.5,
+      "passes": false,
+      "title": "seo: cert/passport gallery in Product JSON-LD + RSS author/tags (needs plumbing)",
+      "description": "As a crawler, I want the full cert/passport photo gallery and post author/tags in structured data, so image search and feeds are richer — done safely without expiring URLs or breaking SSR/SPA parity.",
+      "acceptanceCriteria": [
+        "cert/passport Product JSON-LD image[] includes the full ordered gallery using STABLE (non-signed, non-expiring) image URLs, not the short-TTL signed gallery URLs",
+        "The gallery image[] change is mirrored in the SPA certificateLd() so the SSR<->SPA byte-parity test still holds",
+        "RSS items add <dc:creator>/author and a <category> per post tag once the public posts list endpoint (content-public) returns author + tags"
+      ],
+      "notes": "Split from US-2195 (audit 2026-07-26 SEO). Blocked on: stable cert image URL source; SPA parity mirror; content-public list payload adding author+tags."
     }
   ]
 }

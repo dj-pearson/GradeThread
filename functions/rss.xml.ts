@@ -16,6 +16,16 @@ interface IndexResponse {
   posts: PublicPostListItem[];
 }
 
+/** Best-effort image MIME from a URL extension; null when unknown. */
+function rssImageMime(url: string): string | null {
+  if (/\.png($|\?)/i.test(url)) return "image/png";
+  if (/\.jpe?g($|\?)/i.test(url)) return "image/jpeg";
+  if (/\.webp($|\?)/i.test(url)) return "image/webp";
+  if (/\.gif($|\?)/i.test(url)) return "image/gif";
+  if (/\.avif($|\?)/i.test(url)) return "image/avif";
+  return null;
+}
+
 export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
   // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
   // null when it could not reach the API — so a transient failure can never
@@ -38,17 +48,26 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     .map((p) => {
       const link = `${base}/blog/${p.slug}`;
       const pubDate = new Date(p.published_at).toUTCString();
+      // US-2195: drop the old <enclosure length="0" type="image/png"> — the
+      // hardcoded zero length and PNG type were wrong for non-PNG heroes.
+      // media:thumbnail/media:content need no length and carry a derived type.
+      const heroType = p.hero_image_url ? rssImageMime(p.hero_image_url) : null;
       const mediaBits = p.hero_image_url
-        ? `<enclosure url="${escape(p.hero_image_url)}" type="image/png" length="0" />
-  <media:thumbnail url="${escape(p.hero_image_url)}" />
-  <media:content url="${escape(p.hero_image_url)}" medium="image" />`
+        ? `<media:thumbnail url="${escape(p.hero_image_url)}" />
+  <media:content url="${escape(p.hero_image_url)}" medium="image"${
+            heroType ? ` type="${heroType}"` : ""
+          } />`
+        : "";
+      // US-2195: surface the post's primary keyword as a feed <category>.
+      const categoryBit = p.primary_keyword
+        ? `<category>${escape(p.primary_keyword)}</category>\n  `
         : "";
       return `<item>
   <title>${escape(p.title)}</title>
   <link>${escape(link)}</link>
   <guid isPermaLink="true">${escape(link)}</guid>
   <pubDate>${pubDate}</pubDate>
-  <description>${escape(p.excerpt ?? "")}</description>
+  ${categoryBit}<description>${escape(p.excerpt ?? "")}</description>
   ${mediaBits}
 </item>`;
     })

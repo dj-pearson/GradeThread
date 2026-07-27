@@ -114,7 +114,13 @@ async function renderPassport(context: Ctx): Promise<Response> {
   const description =
     `Provenance and condition history for ${name}: a confidence-scored, ` +
     `pseudonymous timeline of grades, listings, sales, and ownership on GradeThread.`;
-  const ogImage = latest ? `${base}/og/cert/${encodeURIComponent(strOf(latest.payload.certificate) ?? "")}` : null;
+  // US-2195: only use the /og/cert card when the latest grade actually carries
+  // a certificate id — otherwise `/og/cert/` (empty id) 404s and unfurls a
+  // broken card. Fall back to the 1200x630 default OG asset.
+  const latestCertId = latest ? (strOf(latest.payload.certificate) ?? "") : "";
+  const ogImage = latestCertId
+    ? `${base}/og/cert/${encodeURIComponent(latestCertId)}`
+    : `${base}/og-image.png`;
 
   const breadcrumbItems = [
     { name: "GradeThread", url: `${base}/` },
@@ -212,6 +218,9 @@ async function renderPassport(context: Ctx): Promise<Response> {
       description,
       canonicalUrl: canonical,
       ogImage,
+      // US-2195: both branches (/og/cert card and og-image.png) are 1200x630.
+      ogImageWidth: 1200,
+      ogImageHeight: 630,
       twitterSite: twitterSiteHandle(env),
       ogType: "product",
       jsonLd: [productLd, breadcrumbLd],
