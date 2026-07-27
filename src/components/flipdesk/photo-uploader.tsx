@@ -506,6 +506,9 @@ export function PhotoUploader({
       <PhotoEditorDialog
         open={editingPhoto != null}
         src={editingPhoto?.photo_url ?? ""}
+        // Grading evidence keeps the tone it was graded from — see the prop's
+        // note on PhotoEditorDialog. Geometry edits stay available.
+        allowToneEdits={!editingPhoto?.used_for_grading}
         onClose={() => setEditingPhoto(null)}
         onSave={saveEdit}
       />

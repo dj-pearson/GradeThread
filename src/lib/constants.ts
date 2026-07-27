@@ -1240,6 +1240,19 @@ export function isNonListablePhotoType(t?: string | null): boolean {
   return (NON_LISTABLE_PHOTO_TYPES as readonly string[]).includes(t ?? "");
 }
 
+// US-979 / US-1638 mirror of the edge's SENSITIVE_ITEM_PHOTO_TYPES
+// (services/edge-functions/src/lib/item-photo-storage.ts). These close-ups can
+// carry PII — serials, receipts, certificate numbers — so their originals live
+// in the PRIVATE submission-images bucket, not the public item-photos one.
+// Background removal already refuses them; the photo editor refuses them too,
+// because writing an edited copy back would have to choose a bucket and the
+// public one would publish the PII.
+export const SENSITIVE_PHOTO_TYPES = ["tag", "tag_2", "certificate"] as const;
+
+export function isSensitivePhotoType(t?: string | null): boolean {
+  return (SENSITIVE_PHOTO_TYPES as readonly string[]).includes(t ?? "");
+}
+
 export const LISTING_STATUSES = [
   "draft",
   "active",

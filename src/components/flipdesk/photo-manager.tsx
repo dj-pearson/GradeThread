@@ -15,7 +15,15 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Trash2, Pencil, Wand2, Loader2, Star } from "lucide-react";
+import {
+  GripVertical,
+  Trash2,
+  Pencil,
+  Wand2,
+  Loader2,
+  Star,
+  SunMedium,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -30,9 +38,11 @@ import {
   FLIPDESK_PHOTO_TYPES,
   PHOTO_TYPE_LABELS,
   isNonListablePhotoType,
+  isSensitivePhotoType,
 } from "@/lib/constants";
 import { firstPhotoNudge } from "@/lib/photo-standards";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
+import { BulkToneDialog } from "@/components/flipdesk/bulk-tone-dialog";
 import { useRemoveBackground, useRemoveBgCapability } from "@/hooks/use-remove-bg";
 import { itemPhotoThumb } from "@/lib/images";
 import { persistRetag, persistDelete } from "@/lib/photo-mutations";
@@ -114,6 +124,7 @@ export function PhotoManager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
+  const [toneMatchOpen, setToneMatchOpen] = useState(false);
   const [removingBgId, setRemovingBgId] = useState<string | null>(null);
   const removeBg = useRemoveBackground();
   // US-1114: only offer server-backed background removal when it's configured,
@@ -237,6 +248,60 @@ export function PhotoManager({
   );
   const heroNudge = firstPhotoNudge(listableOrder);
 
+  // Photos eligible for bulk tone matching. Grading evidence is excluded so a
+  // tone pass can't quietly re-expose a photo the grade was read from; sensitive
+  // close-ups are excluded because they can't be written back at all; and a photo
+  // with no storage_path has nowhere to save to.
+  const toneMatchable = order.filter(
+    (p) =>
+      !p.used_for_grading &&
+      !isSensitivePhotoType(p.photo_type) &&
+      p.storage_path != null,
+  );
+
+  /**
+   * Write edited pixels back over a photo. Shared by the single-photo editor and
+   * bulk tone matching so both stay consistent about cache-busting and thumbnails.
+   *
+   * A re-encode busts photo_url but the pre-generated thumbnail still holds the
+   * OLD pixels — and itemPhotoThumb() prefers thumbnail_url, so every gallery and
+   * cover would keep showing the stale image while zoom and eBay (which read
+   * photo_url) showed the new one. Drop the stale thumbnail so those surfaces
+   * fall back to the cache-busted photo_url, and best-effort remove the orphan.
+   */
+  async function persistPhotoBlob(photo: ItemPhotoRow, blob: Blob) {
+    const path = photo.storage_path;
+    if (!path) throw new Error("This photo has no storage path.");
+    // Defence in depth — the editor is not offered for these types at all. Their
+    // originals live in the PRIVATE bucket, and this function writes to the
+    // public one, so an edited tag or certificate would be republished as a
+    // public URL carrying exactly the PII the private bucket exists to hold.
+    if (isSensitivePhotoType(photo.photo_type)) {
+      throw new Error("Label, tag, and certificate photos can't be edited.");
+    }
+    const { error: upErr } = await supabase.storage
+      .from("item-photos")
+      .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+    if (upErr) throw upErr;
+    photosDirtyRef.current = true;
+    if (photo.thumbnail_storage_path) {
+      void supabase.storage
+        .from("item-photos")
+        .remove([photo.thumbnail_storage_path]);
+    }
+    const { data: pub } = supabase.storage
+      .from("item-photos")
+      .getPublicUrl(path);
+    await supabase
+      .from("item_photos")
+      .update({
+        photo_url: `${pub.publicUrl}?v=${Date.now()}`,
+        thumbnail_url: null,
+        thumbnail_storage_path: null,
+      } as never)
+      .eq("id", photo.id);
+  }
+
   async function retag(photo: ItemPhotoRow, photoType: FlipdeskPhotoType) {
     photosDirtyRef.current = true;
     try {
@@ -277,9 +342,22 @@ export function PhotoManager({
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
-        Drag to reorder. The first photo is the listing's main image.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Drag to reorder. The first photo is the listing's main image.
+        </p>
+        {toneMatchable.length >= 2 && (
+          <button
+            type="button"
+            onClick={() => setToneMatchOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Even out colour and brightness across all of this item's photos"
+          >
+            <SunMedium className="h-3.5 w-3.5" />
+            Match tone
+          </button>
+        )}
+      </div>
       {heroNudge && (
         <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:flex-row sm:items-center sm:justify-between dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
           <span>{heroNudge.message}</span>
@@ -348,41 +426,34 @@ export function PhotoManager({
       <PhotoEditorDialog
         open={editingPhoto != null}
         src={editingPhoto?.photo_url ?? ""}
+        // A photo that fed a grade keeps the tone it was graded from — see the
+        // prop's own note. Geometry edits stay available.
+        allowToneEdits={!editingPhoto?.used_for_grading}
         onClose={() => setEditingPhoto(null)}
         onSave={async (blob) => {
           if (!editingPhoto) return;
-          const path = editingPhoto.storage_path;
-          if (!path) {
-            toast.error("This photo has no storage path; can't save edits.");
+          try {
+            await persistPhotoBlob(editingPhoto, blob);
+          } catch (err) {
+            toast.error(
+              `Couldn't save the edit: ${err instanceof Error ? err.message : String(err)}`,
+            );
             return;
           }
-          const { error: upErr } = await supabase.storage
-            .from("item-photos")
-            .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
-          if (upErr) throw upErr;
-          photosDirtyRef.current = true;
-          // A rotate/edit re-encodes the FULL image and busts photo_url, but the
-          // pre-generated thumbnail still holds the OLD orientation — and
-          // itemPhotoThumb() prefers thumbnail_url, so every gallery/cover kept
-          // showing the un-rotated image while zoom + eBay (which read photo_url)
-          // were correct. Drop the stale thumbnail so those surfaces fall back to
-          // the cache-busted, rotated photo_url. Best-effort remove the orphan.
-          const oldThumb = editingPhoto.thumbnail_storage_path;
-          if (oldThumb) {
-            void supabase.storage.from("item-photos").remove([oldThumb]);
-          }
-          const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
-          await supabase
-            .from("item_photos")
-            .update({
-              photo_url: `${pub.publicUrl}?v=${Date.now()}`,
-              thumbnail_url: null,
-              thumbnail_storage_path: null,
-            } as never)
-            .eq("id", editingPhoto.id);
           await invalidatePhotos();
           toast.success("Photo updated.");
           setEditingPhoto(null);
+        }}
+      />
+
+      <BulkToneDialog
+        open={toneMatchOpen}
+        photos={toneMatchable}
+        onClose={() => setToneMatchOpen(false)}
+        onSavePhoto={persistPhotoBlob}
+        onDone={async () => {
+          await invalidatePhotos();
+          toast.success("Photo tone matched across the set.");
         }}
       />
     </div>
@@ -419,6 +490,7 @@ function SortablePhoto({
 
   // A photo sent for grading can't be deleted while a grade is in flight.
   const deleteBlocked = photo.used_for_grading && gradingInFlight;
+  const sensitive = isSensitivePhotoType(photo.photo_type);
 
   return (
     <div
@@ -474,7 +546,7 @@ function SortablePhoto({
               />
             </button>
           )}
-          {photo.photo_type !== "flatlay" && removeBgEnabled && (
+          {photo.photo_type !== "flatlay" && removeBgEnabled && !sensitive && (
             <button
               type="button"
               onClick={() => onRemoveBg(photo)}
@@ -490,14 +562,19 @@ function SortablePhoto({
               )}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => onEdit(photo)}
-            className="rounded bg-background/80 p-1 text-muted-foreground hover:text-foreground"
-            aria-label="Edit photo"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+          {/* Sensitive close-ups (tag / certificate) are never editable — their
+              originals live in the private bucket and an edited copy would have
+              to be written back to the public one. */}
+          {!sensitive && (
+            <button
+              type="button"
+              onClick={() => onEdit(photo)}
+              className="rounded bg-background/80 p-1 text-muted-foreground hover:text-foreground"
+              aria-label="Edit photo"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
       {/* US-1571: capture guidance for the MeasureCard frame, surfaced right

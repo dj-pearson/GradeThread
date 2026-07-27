@@ -106,7 +106,13 @@ export function FlipdeskItemPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    // max-w-4xl (896px) capped this page to ~55% of the content area on a 1920px
+    // screen, so the composer's two columns sat in a narrow ribbon of dead space.
+    // 100rem fills a 1080p desktop edge-to-edge and only starts capping on
+    // ultrawide, where unbounded cards would stretch past a comfortable read.
+    // The composer itself is container-queried, so it lays itself out to whatever
+    // width it actually receives here.
+    <div className="mx-auto max-w-[100rem] space-y-6">
       <div className="flex items-center gap-3">
         <Button
           variant="ghost"

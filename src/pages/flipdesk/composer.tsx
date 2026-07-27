@@ -1645,7 +1645,12 @@ export function FlipdeskComposerPage({
   );
 
   return (
-    <div className="space-y-6">
+    // @container: this editor renders at three very different widths — the full
+    // item page (wide), the quick-look sheet (max-w-2xl / 672px), and the item
+    // detail dialog. Viewport breakpoints can't tell those apart, so `lg:` was
+    // splitting the 672px sheet into two ~320px columns on any desktop screen.
+    // Container queries below size the layout to the width actually granted.
+    <div className="@container space-y-6">
       {showHeader && (
         <div className="flex items-center gap-3">
           <Button
@@ -1786,7 +1791,10 @@ export function FlipdeskComposerPage({
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* Two columns once the container itself clears 56rem — so the sheet stays
+          single-column and the full page splits, instead of both keying off the
+          viewport. */}
+      <div className="grid gap-6 @4xl:grid-cols-2">
         {/* ── Editor column ───────────────────────────────────────── */}
         <div className="space-y-6">
           {/* Storage & SKU — item-level logistics (parity with the iOS canvas).
@@ -3015,7 +3023,10 @@ export function FlipdeskComposerPage({
         </div>
 
         {/* ── Preview column ──────────────────────────────────────── */}
-        <div className="lg:sticky lg:top-4 lg:self-start">
+        {/* Sticks only when it's actually beside the editor (same @4xl threshold
+            as the two-column split) — a stuck preview in one-column flow would
+            just cover the fields below it. */}
+        <div className="@4xl:sticky @4xl:top-4 @4xl:self-start">
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
