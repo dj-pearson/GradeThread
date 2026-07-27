@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2180",
+  "nextId": "US-2206",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4424,6 +4424,346 @@
       ],
       "notes": "[P2][FlipDesk/Listings] 2026-07-25 deep dive. src/pages/flipdesk/__tests__/ contains only draft-quality.test.ts and status-param-to-tab.test.ts. The edge side is well covered (538 deno tests, ~40 listings-related), so this gap is frontend-specific — and it is where the US-2162/US-2163 divergence bugs live. Write the failing tests as part of those stories; this story covers the rest.",
       "passes": false
+    },
+    {
+      "id": "US-2180",
+      "priority": 2500,
+      "passes": false,
+      "title": "a11y: accessible ClickableRow for cursor-pointer table rows/cards",
+      "description": "As a keyboard/screen-reader user, I want navigable list rows I can reach and activate, so I can use the app without a mouse.",
+      "acceptanceCriteria": [
+        "Add a shared ClickableRow (and clickable-card) primitive: role=button, tabIndex=0, onKeyDown Enter/Space, correct focus ring; prefer a real <Link>/<button> in the primary cell where feasible",
+        "Replace cursor-pointer+onClick TableRow/tr across user tables (submissions.tsx:609/737, inventory.tsx:515, flipdesk/listings.tsx:2544, flipdesk/sources.tsx:238, finances/time-on-market.tsx:329) and admin tables (admin/submissions, users, disputes, claims, reviews, support, support-tickets, compliance, knowledge-base, audit-log, ai-models, raw <tr> in newsletter:461 and content/authors:71)",
+        "Replace clickable <Card onClick> without keyboard support in admin/passport-integrity:390, admin/safety-signals:331, admin/reliability:310",
+        "autolister-drafts.tsx:753 aria-selected row becomes keyboard-focusable/selectable",
+        "axe test covers the new primitive; no keyboard-trap regressions"
+      ],
+      "notes": "WCAG 2.1.1 / 4.1.2. Audit 2026-07-26 a11y."
+    },
+    {
+      "id": "US-2181",
+      "priority": 2501,
+      "passes": false,
+      "title": "a11y: shared accessible SearchInput (aria-label) for placeholder-only filters",
+      "description": "As a screen-reader user, I want search/filter inputs to have an accessible name, so I know what each field does after typing.",
+      "acceptanceCriteria": [
+        "Add a shared search-box component that always carries an accessible name (aria-label or visually-hidden label) with the leading Search icon marked decorative",
+        "Replace placeholder-only inputs across flipdesk (listings:1988/2097, grid:441, pipeline:566, reconcile:1037, autolister-drafts:627, ebay-sku-match:1052), ~15 admin toolbars (submissions, users, disputes, reviews, audit-log, waitlist, ...), and verified-directory:186",
+        "shadcn <Select> filters get aria-label on SelectTrigger where named only by disappearing placeholder (inventory.tsx:329/351/373)"
+      ],
+      "notes": "WCAG 3.3.2 / 4.1.2. Audit 2026-07-26 a11y."
+    },
+    {
+      "id": "US-2182",
+      "priority": 2502,
+      "passes": false,
+      "title": "ui: adopt shared PageHeader across admin/flipdesk/content/buyer pages",
+      "description": "As a user, I want consistent page titles/subtitles/action alignment across the app, so it feels like one polished product.",
+      "acceptanceCriteria": [
+        "Migrate hand-rolled <h1 className='text-2xl font-bold'> headers to the shared PageHeader (title/subtitle/actions) across admin/*, flipdesk/*, content/*, buyer/* pages",
+        "No visual regression on the ~13 pages already using PageHeader",
+        "Single <h1> per page preserved"
+      ],
+      "notes": "Audit 2026-07-26 UI. Highest-leverage consistency win (~105 pages hand-roll)."
+    },
+    {
+      "id": "US-2183",
+      "priority": 2503,
+      "passes": false,
+      "title": "ui: replace bare full-page spinners with content-shaped skeletons",
+      "description": "As a user, I want loading states that mirror the final layout, so pages don't blank-then-pop with layout shift.",
+      "acceptanceCriteria": [
+        "Replace centered ring-spinner full-page/section loaders with matching skeletons from components/ui/skeletons.tsx across ~20 pages (content/analytics, blog-editor, content-settings, social-editor, api-keys, buyer/billing, buyer/settings, admin/ai-models, auth-confirm, ...)",
+        "flipdesk/inventory.tsx view-mode Suspense fallback uses a table/rows skeleton (or keeps prior view mounted) instead of a full-surface spinner",
+        "Reserve the ring spinner for inline button-busy states; retire ad-hoc local LoadingSkeleton in submissions.tsx in favor of TableLoadingSkeleton"
+      ],
+      "notes": "Audit 2026-07-26 UI."
+    },
+    {
+      "id": "US-2184",
+      "priority": 2504,
+      "passes": false,
+      "title": "ux: confirm dialogs on irreversible money actions",
+      "description": "As a reseller, I want a confirmation summary before irreversible marketplace/money actions, so one misclick can't re-price or refund at scale.",
+      "acceptanceCriteria": [
+        "flipdesk/bulk-pricing.tsx apply gates behind an AlertDialog summarizing count + computed change before bulk.mutateAsync",
+        "flipdesk/post-sale.tsx accept&refund / refund / approve&cancel / approve wrap in confirm dialogs",
+        "flipdesk/repricing.tsx apply confirms old->new price and surfaces success/error toast",
+        "Uses the existing app confirm({...}) AlertDialog helper"
+      ],
+      "notes": "Audit 2026-07-26 UX (HIGH)."
+    },
+    {
+      "id": "US-2185",
+      "priority": 2505,
+      "passes": false,
+      "title": "ux: fix false empty-states on query error + guard remaining useQuery paths",
+      "description": "As a user, I want a failed load to show an error+retry, not a fake 'no data' empty state, so I don't think my data vanished.",
+      "acceptanceCriteria": [
+        "team.tsx (membersQuery/invitesQuery) and flipdesk/grid.tsx render ErrorState/retry on isError instead of empty state (parity with US-1636 dashboard/submissions fix)",
+        "team.tsx MFA-policy load failure surfaces an error instead of defaulting to 'Not required'",
+        "Sweep remaining primary list useQuery render paths for missing isError handling; add a lint/test guard where practical"
+      ],
+      "notes": "Audit 2026-07-26 UX (HIGH). Recurrence of US-1636."
+    },
+    {
+      "id": "US-2186",
+      "priority": 2506,
+      "passes": false,
+      "title": "seo: complete og:image metadata on edge-SSR pages",
+      "description": "As a sharer, I want rich, accessible social cards on certificates/blog/sellers/passports, so links unfurl fast and correctly everywhere.",
+      "acceptanceCriteria": [
+        "functions/_shared/blog-render.ts renderLayout emits og:image:width/height/type/secure_url and og:image:alt + twitter:image:alt",
+        "ogImageAlt threaded through LayoutInput with page-appropriate defaults for cert, blog, verified-seller, passport, authors, condition/value/durability",
+        "Parity with SPA <SEO> and prerender head-builder.ts which already emit these"
+      ],
+      "notes": "Audit 2026-07-26 SEO (HIGH). Highest-share surfaces have weakest cards."
+    },
+    {
+      "id": "US-2187",
+      "priority": 2507,
+      "passes": false,
+      "title": "seo/geo: feed real aggregate data into prerendered body",
+      "description": "As an AI crawler, I want the citable figures/lists present in crawlable HTML, so GEO surfaces can be quoted and indexed.",
+      "acceptanceCriteria": [
+        "verified-directory (top-N sellers), referral-leaderboard (rows), and data-report pages carry their aggregate figures/lists in the prerendered body via the build-time seed mechanism (like durability-report's resolvePrerenderSeed)",
+        "No fabricated data; seeds sourced from the same aggregates the SPA renders"
+      ],
+      "notes": "Audit 2026-07-26 SEO (HIGH). createRoot (not hydrate) means crawler sees only the shell today."
+    },
+    {
+      "id": "US-2188",
+      "priority": 2508,
+      "passes": false,
+      "title": "perf: paginate/project useItemsFull to bound FlipDesk reads",
+      "description": "As a seller with a large inventory, I want list views to load a bounded page, so routes don't download+hold my whole catalog in memory.",
+      "acceptanceCriteria": [
+        "hooks/use-items-full.ts stops doing unbounded select('*'); provides a projected lightweight list query (id + display columns) with pagination/range",
+        "Full rows fetched only for the detail canvas that needs them",
+        "Six+ consumers (pipeline, prep, overview, composer, item, reconciliation) updated to the bounded/projected query without behavior regressions"
+      ],
+      "notes": "Audit 2026-07-26 perf (HIGH)."
+    },
+    {
+      "id": "US-2189",
+      "priority": 2509,
+      "passes": false,
+      "title": "perf: virtualize the Kanban pipeline board",
+      "description": "As a seller with many items, I want the Kanban board to stay responsive, so drag and scroll don't choke on a huge DOM.",
+      "acceptanceCriteria": [
+        "flipdesk/pipeline.tsx virtualizes columns or caps rendered cards per column with load-more",
+        "Drag-and-drop (@dnd-kit) still works with virtualization",
+        "Pairs with US-2188 bounded fetch"
+      ],
+      "notes": "Audit 2026-07-26 perf (HIGH). Kanban is the un-windowed outlier vs table/grid."
+    },
+    {
+      "id": "US-2190",
+      "priority": 2520,
+      "passes": false,
+      "title": "ux: destructive-action confirms + double-submit guards",
+      "description": "As a user, I want confirmations and disabled-in-flight buttons on destructive/duplicating actions, so I don't delete or duplicate by misclick.",
+      "acceptanceCriteria": [
+        "Confirm dialogs on flipdesk/expenses.tsx delete (+ success toast), fit/body-profiles.tsx delete, team.tsx revoke-invitation, flipdesk/grid.tsx Discard (when staged.size large)",
+        "flipdesk/scout-buy.tsx buy button disables on isSuccess and surfaces mutation error; flipdesk/repricing dismiss surfaces error",
+        "team.tsx role/resend/revoke actions track pending id, disable + spinner"
+      ],
+      "notes": "Audit 2026-07-26 UX (MED)."
+    },
+    {
+      "id": "US-2191",
+      "priority": 2521,
+      "passes": false,
+      "title": "ux: replace window.prompt with dialogs + team clipboard/reliability polish",
+      "description": "As a user, I want styled, validated inputs instead of raw browser prompts, and honest copy feedback, so flows feel finished and trustworthy.",
+      "acceptanceCriteria": [
+        "flipdesk/post-sale.tsx dispute note uses a Dialog+Textarea (validation/length) instead of window.prompt",
+        "content/blog-list.tsx new-post title uses a shadcn dialog input instead of window.prompt",
+        "team.tsx invite-copy uses hardened copyInviteLink helper (try/catch, real success/failure) instead of unguarded navigator.clipboard.writeText"
+      ],
+      "notes": "Audit 2026-07-26 UX (MED)."
+    },
+    {
+      "id": "US-2192",
+      "priority": 2522,
+      "passes": false,
+      "title": "ux: validate bulk-pricing reduce% to prevent negative prices",
+      "description": "As a reseller, I want percent inputs clamped, so a 'reduce by %' over 100 can't set negative prices.",
+      "acceptanceCriteria": [
+        "flipdesk/bulk-pricing.tsx clamps reduce% to 1-99 (or validates computed price against a floor) with inline feedback",
+        "targetPrice/priceActive validation checks the computed result, not just raw percent > 0"
+      ],
+      "notes": "Audit 2026-07-26 UX (MED)."
+    },
+    {
+      "id": "US-2193",
+      "priority": 2523,
+      "passes": false,
+      "title": "ui: consolidate score/severity reds + shared CHART_PALETTE",
+      "description": "As a user, I want one consistent brand red and consistent chart series colors, so the same data reads the same everywhere.",
+      "acceptanceCriteria": [
+        "Score/severity red unified to the documented AA-safe brand red; retire #F03D5F (embed-grade:29, annotated-defect-photo:14/19) and #fb5e78 (admin-layout:238)",
+        "Add a CHART_PALETTE constant (brand navy/red + fixed categorical ramp) in lib/constants.ts and consume it in all Recharts fill/stroke; verify dark-mode contrast",
+        "Score/emerald/amber stops defined as shared constants"
+      ],
+      "notes": "Audit 2026-07-26 UI (MED)."
+    },
+    {
+      "id": "US-2194",
+      "priority": 2524,
+      "passes": false,
+      "title": "ui: broaden EmptyState adoption + centralize badge colors",
+      "description": "As a user, I want polished empty states and consistent status/plan badges, so empty and populated views feel equally finished.",
+      "acceptanceCriteria": [
+        "Route list/table empties through EmptyState (icon+title+description+CTA), incl. submissions disputes sub-table:719",
+        "Centralize plan/role badge classes next to getStatusBadgeClasses in constants.ts, keyed off the canonical plan enum (fixes admin/users.tsx:37-49 uncolored-badge drift)",
+        "Replace one-off local skeletons with TableLoadingSkeleton matched to the real table"
+      ],
+      "notes": "Audit 2026-07-26 UI (MED)."
+    },
+    {
+      "id": "US-2195",
+      "priority": 2525,
+      "passes": false,
+      "title": "seo: fix passport/author OG images + enrich cert/passport/RSS structured data",
+      "description": "As a sharer/crawler, I want valid OG images and richer structured data on marquee pages, so cards render and entities are machine-readable.",
+      "acceptanceCriteria": [
+        "functions/passport/[slug].ts:117 falls back to a default social card when certificate id is absent (no /og/cert/ empty-id URL)",
+        "functions/authors/[[path]].ts uses a 1200x630 OG image for summary_large_image (not the 512 square logo) — same fix class as US-2099",
+        "cert/passport Product JSON-LD image[] includes the full ordered gallery, not just hero",
+        "functions/rss.xml.ts adds <category> per tag + dc:creator/author and fixes hardcoded enclosure length=0"
+      ],
+      "notes": "Audit 2026-07-26 SEO (MED)."
+    },
+    {
+      "id": "US-2196",
+      "priority": 2526,
+      "passes": false,
+      "title": "perf: server-side grade sorting (denormalize overall_score)",
+      "description": "As a user sorting submissions by grade, I want DB-side ORDER BY+LIMIT, so sort doesn't load and sort my whole history client-side.",
+      "acceptanceCriteria": [
+        "overall_score denormalized onto submissions (or a sortable view) with backfill + trigger/maintained-on-write",
+        "submissions.tsx grade-sort path uses server-side order+pagination instead of orderIdsByScore/pageSlice",
+        "Migration follows the US-1108 triple (idempotent / EXPECTED_SCHEMA_VERSION bump same commit / self-record footer)"
+      ],
+      "notes": "Audit 2026-07-26 perf (MED). Touches migrations skill + grading-engine (rounding) — load both."
+    },
+    {
+      "id": "US-2197",
+      "priority": 2527,
+      "passes": false,
+      "title": "perf: visibility-gate admin polling",
+      "description": "As an operator, I want background admin tabs to stop polling, so a parked tab doesn't hammer endpoints every minute.",
+      "acceptanceCriteria": [
+        "admin-layout.tsx 7 refetchInterval queries gate on document visibility via the existing use-document-visible hook",
+        "Also gate campaigns.tsx (15s), grading.tsx / compliance.tsx (30-60s) polling",
+        "No refetch-storm regression when returning to the tab"
+      ],
+      "notes": "Audit 2026-07-26 perf (MED)."
+    },
+    {
+      "id": "US-2198",
+      "priority": 2528,
+      "passes": false,
+      "title": "perf: consistent image lazy-loading + intrinsic dimensions",
+      "description": "As a user, I want off-screen images deferred and sized, so pages load faster with less layout shift.",
+      "acceptanceCriteria": [
+        "Route listing/grading imagery through responsive-image.tsx (or add loading='lazy' + intrinsic width/height) across the ~24 <img> sites missing them, esp. grid/kanban cards, moderation, disputes, reconcile",
+        "No CLS regression; decorative thumbs keep empty alt"
+      ],
+      "notes": "Audit 2026-07-26 perf (MED)."
+    },
+    {
+      "id": "US-2199",
+      "priority": 2529,
+      "passes": false,
+      "title": "a11y: label associations, sidebar contrast, main landmarks, cert h1",
+      "description": "As an assistive-tech user, I want properly labeled controls, sufficient contrast, and landmarks on public pages, so I can navigate and understand content.",
+      "acceptanceCriteria": [
+        "Add htmlFor/id pairs in flipdesk/sources.tsx dialog and marketplaces.tsx policy select; aria-label the unlabeled native selects in autolister-bulk-edit (1454/1771/1808)",
+        "Raise sidebar section-header contrast (sidebar.tsx:294 text-white/40, :320 text-white/35) to >=~text-white/60 to pass AA",
+        "Add <main> landmark to standalone SPA public pages (certificate, verified-seller, verified-directory, referral-leaderboard, trust-profile, passport, tag-scan)",
+        "certificate.tsx h1 carries item+grade (not the static 'Verified Grade Certificate'); add h2/h3 structure to flat public content pages"
+      ],
+      "notes": "Audit 2026-07-26 a11y + SEO (MED). WCAG 1.3.1/1.4.3/3.3.2."
+    },
+    {
+      "id": "US-2200",
+      "priority": 2540,
+      "passes": false,
+      "title": "security: defense-in-depth tenant filter + robust bearer stripping",
+      "description": "As the platform, I want belt-and-suspenders tenant scoping and safe token parsing, so future refactors can't turn a gated read into a leak.",
+      "acceptanceCriteria": [
+        "flipdesk-grading.ts:251 item_photos coverage query adds an explicit tenant constraint (defense-in-depth; not a leak today)",
+        "middleware/auth.ts:25 uses authHeader.slice(7) instead of .replace('Bearer ', '')",
+        "tenant-isolation_test.ts unaffected/green"
+      ],
+      "notes": "Audit 2026-07-26 security (LOW). Load tenant-isolation skill."
+    },
+    {
+      "id": "US-2201",
+      "priority": 2541,
+      "passes": false,
+      "title": "ux: standardize confirm() + unsaved-changes/sign-out guards",
+      "description": "As a user, I want consistent styled confirmations and protection from losing work, so destructive/navigation actions feel coherent.",
+      "acceptanceCriteria": [
+        "Replace native confirm() with the app AlertDialog helper across admin growth (announcements:285, campaigns:356/368, segments:480), condition-index:274, changelog:325, coupons:461",
+        "inventory-add.tsx prompts on dirty navigation (reuse useNavigationGuard) for Back/Cancel",
+        "settings.tsx 'sign out of all devices' adds a confirm step; billing.tsx resume/undo buttons show Loader2 while pending"
+      ],
+      "notes": "Audit 2026-07-26 UX (LOW)."
+    },
+    {
+      "id": "US-2202",
+      "priority": 2542,
+      "passes": false,
+      "title": "ui: shared Meter component + branded auth transitions + content polish",
+      "description": "As a user, I want one meter style, branded auth screens, and a finished content module, so minor surfaces match the app's quality.",
+      "acceptanceCriteria": [
+        "Extract a <Meter value> component (track+fill+optional score color) and reuse for data-bound bars (dashboard grades-used, landing, flipdesk listings/pipeline/community-insights, admin analytics/task-board)",
+        "auth-callback.tsx / auth-confirm.tsx loading screens show logo + 'Signing you in...' copy",
+        "content/* pages adopt PageHeader + skeletons (rolls up with US-2182/2183)"
+      ],
+      "notes": "Audit 2026-07-26 UI (LOW)."
+    },
+    {
+      "id": "US-2203",
+      "priority": 2543,
+      "passes": false,
+      "title": "seo: merge stored blog jsonld + sitemap/llms.txt cleanup",
+      "description": "As the platform, I want structured-data overrides that can't drop required fields and a clean sitemap/llms map, so E-E-A-T and discovery stay intact.",
+      "acceptanceCriteria": [
+        "functions/blog/[[path]].ts merges stored post.jsonld onto the computed base instead of replacing it (publisher/author/speakable/about preserved)",
+        "Reconcile or retire orphaned functions/sitemap-static.xml.ts; verify sitemap index references every intended child",
+        "llms.txt adds the human /sitemap page and /llms-full.txt prominence"
+      ],
+      "notes": "Audit 2026-07-26 SEO (LOW)."
+    },
+    {
+      "id": "US-2204",
+      "priority": 2544,
+      "passes": false,
+      "title": "perf: column-projection pass on hot tables + parallelize publish-fail loop",
+      "description": "As the platform, I want lean queries on hot paths, so we transfer and hold less data.",
+      "acceptanceCriteria": [
+        "Replace select('*') with explicit column projection on hot reads (items_full/inventory_items, listings, submissions, grade_reports; csv export selects only exported columns)",
+        "flipdesk-autolister.ts:2489 markPublishJobFailed loop uses Promise.all/batched concurrency",
+        "Skip count-only select('*', {head:true}) false positives"
+      ],
+      "notes": "Audit 2026-07-26 perf (LOW)."
+    },
+    {
+      "id": "US-2205",
+      "priority": 2545,
+      "passes": false,
+      "title": "a11y: label icon-only controls + command-palette focus rings",
+      "description": "As a keyboard/AT user, I want every icon-only control named and every focusable input to show focus, so nothing is a mystery button.",
+      "acceptanceCriteria": [
+        "Add aria-label/sr-only to icon-only controls: billing.tsx:270 MoreVertical trigger, inventory-detail.tsx:664/1114, submission-detail.tsx:699, price-suggestions.tsx:389",
+        "Add focus-visible:ring replacement to outline-none inputs: flipdesk/command-palette.tsx:633, admin/command-palette.tsx:190, autolister.tsx:3837 select",
+        "Skip-link <main tabIndex=-1 outline-none> targets get a visible focus treatment"
+      ],
+      "notes": "Audit 2026-07-26 a11y (LOW). WCAG 2.4.7 / 4.1.2."
     }
   ]
 }
