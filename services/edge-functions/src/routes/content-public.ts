@@ -423,6 +423,30 @@ contentPublicRoutes.get("/posts", async (c) => {
   const nextCursor =
     rows.length === limit ? rows[rows.length - 1]?.published_at : null;
 
+  // US-2206: attach each post's tags so the RSS feed can emit <category> per
+  // tag. One grouped query over the page's ids (post_id is indexed) — cheap and
+  // the endpoint is cached; other consumers ignore the additive field.
+  const postIds = rows.map((r) => r.id);
+  const tagsByPost = new Map<string, string[]>();
+  if (postIds.length > 0) {
+    const { data: tagRows } = await supabaseAdmin
+      .from("blog_post_tags")
+      .select("post_id, tag")
+      .in("post_id", postIds);
+    for (const tr of (tagRows ?? []) as Array<{
+      post_id: string;
+      tag: string;
+    }>) {
+      const arr = tagsByPost.get(tr.post_id) ?? [];
+      arr.push(tr.tag);
+      tagsByPost.set(tr.post_id, arr);
+    }
+  }
+  const postsWithTags = rows.map((r) => ({
+    ...r,
+    tags: tagsByPost.get(r.id) ?? [],
+  }));
+
   // The TOTAL is what lets the hub render a finite, crawlable "page N of M"
   // trail instead of guessing. Only computed when paging by offset, so the
   // common cursor path pays nothing for it.
@@ -437,7 +461,7 @@ contentPublicRoutes.get("/posts", async (c) => {
     total = typeof count === "number" ? count : null;
   }
 
-  return c.json({ posts: rows, next_cursor: nextCursor, total });
+  return c.json({ posts: postsWithTags, next_cursor: nextCursor, total });
 });
 
 // ── GET /posts/:slug ──────────────────────────────────────

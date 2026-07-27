@@ -98,6 +98,9 @@ export interface PublicPostListItem {
   // US-2206: author byline for the RSS <dc:creator> (optional; absent on
   // legacy payloads).
   author?: string | null;
+  // US-2206: editorial tags for RSS <category> (optional; absent on legacy
+  // payloads).
+  tags?: string[] | null;
 }
 
 export interface BlogFaq {

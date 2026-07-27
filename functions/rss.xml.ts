@@ -58,10 +58,18 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
             heroType ? ` type="${heroType}"` : ""
           } />`
         : "";
-      // US-2195: surface the post's primary keyword as a feed <category>.
-      const categoryBit = p.primary_keyword
-        ? `<category>${escape(p.primary_keyword)}</category>\n  `
-        : "";
+      // US-2195/US-2206: surface each editorial tag as a feed <category>,
+      // falling back to the primary keyword when a post carries no tags.
+      const categories =
+        p.tags && p.tags.length > 0
+          ? p.tags
+          : p.primary_keyword
+            ? [p.primary_keyword]
+            : [];
+      const categoryBit = categories
+        .map((cat) => `<category>${escape(cat)}</category>`)
+        .join("\n  ")
+        .concat(categories.length ? "\n  " : "");
       // US-2206: attribute the item to its author byline (falls back to the
       // brand). The dc: namespace is already declared on the channel.
       const creator = escape((p.author ?? "").trim() || "GradeThread Team");
