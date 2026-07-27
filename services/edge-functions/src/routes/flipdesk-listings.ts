@@ -29,6 +29,10 @@ import {
 } from "../lib/ebay-client.ts";
 import { MAX_BULK_EDIT_ITEMS } from "../lib/bulk-listing-edit.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import {
+  markItemListed,
+  resyncItemListedStatus,
+} from "../lib/active-listings.ts";
 
 // Multi-marketplace cross-listing dispatch (US-149 + US-564).
 //
@@ -58,7 +62,13 @@ interface SourceDraftRow {
   listing_description: string | null;
   primary_photo_id: string | null;
   badge_enabled: boolean;
-  inventory_items: { user_id: string; target_price: number | null };
+  inventory_items: {
+    user_id: string;
+    target_price: number | null;
+    // US-2179: needed to size the activeListings cap delta (see the gate in
+    // /cross-push) — an item already live somewhere doesn't consume a new slot.
+    status: string | null;
+  };
 }
 
 interface PlatformPushResult {
@@ -193,7 +203,7 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
     .select(
       "id, inventory_item_id, platform, draft_id, listing_price, listing_title, " +
         "listing_description, primary_photo_id, badge_enabled, " +
-        "inventory_items!inner(user_id, target_price)",
+        "inventory_items!inner(user_id, target_price, status)",
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -205,6 +215,22 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
     return c.json({ error: "Listing not found." }, 404);
   }
   const draft = maybeDraft;
+
+  // US-2179: enforce the active-listing cap here too. Cross-push publishes to
+  // real marketplaces, so it consumes a cap slot exactly like the eBay push
+  // (flipdesk-ebay /listings/push) — but it never checked, which is how a Free
+  // account could put unlimited items live on Depop/Etsy/Shopify/Whatnot. Same
+  // delta rule as the eBay gate: an item already live somewhere occupies its
+  // slot already, so a fan-out to a SECOND channel adds nothing to the count
+  // (the cap counts live ITEMS, not listing rows).
+  const capGate = await requireFlipdesk(c, {
+    capacity: {
+      kind: "activeListings",
+      delta: draft.inventory_items.status === "listed" ? 0 : 1,
+    },
+    userId: ownerId,
+  });
+  if (capGate) return capGate;
 
   // The group key is the source draft's own id; the source row points at
   // itself so every member of the group (including the source) is found with
@@ -391,6 +417,15 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
     results[platform] = toPushResult(res, rowId, price);
   }
 
+  // US-2179: one successful publish anywhere makes the item live, so advance it
+  // to 'listed' — once for the whole fan-out. Previously only the eBay paths did
+  // this, so a Depop/Etsy/Shopify/Whatnot listing was invisible to both the
+  // activeListings cap and the usage meter. If every platform failed the item
+  // stays a draft, matching what actually happened.
+  if (Object.values(results).some((r) => r?.ok)) {
+    await markItemListed(draft.inventory_item_id, ownerId);
+  }
+
   return c.json({ ok: true, draft_id: groupId, results });
 });
 
@@ -460,15 +495,36 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
   // Verify the caller owns the item (US-268).
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, user_id, target_price")
+    .select("id, user_id, target_price, status")
     .eq("id", itemId)
     .maybeSingle();
   if (itemErr) return c.json({ error: "Could not load the item." }, 500);
   const item = itemRow as
-    | { id: string; user_id: string; target_price: number | null }
+    | {
+      id: string;
+      user_id: string;
+      target_price: number | null;
+      status: string | null;
+    }
     | null;
   if (!item || item.user_id !== ownerId) {
     return c.json({ error: "Item not found." }, 404);
+  }
+
+  // US-2179: a CONFIRMED publish on an extension platform (Poshmark/Mercari/
+  // Grailed) is a live listing and consumes an activeListings slot, so gate it
+  // like every other publish. Only when `published` — a prefill that stays a
+  // draft costs nothing, which is exactly the US-1877 distinction, so a seller
+  // at their cap can still prep drafts and publish them after upgrading.
+  if (published) {
+    const capGate = await requireFlipdesk(c, {
+      capacity: {
+        kind: "activeListings",
+        delta: item.status === "listed" ? 0 : 1,
+      },
+      userId: ownerId,
+    });
+    if (capGate) return capGate;
   }
 
   // Join to the item's cross-list group (the eBay base draft), if any.
@@ -534,6 +590,8 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     if (upErr) {
       return c.json({ error: "Could not update the cross-listing." }, 500);
     }
+    // US-2179: count a confirmed extension publish against the cap.
+    if (published) await markItemListed(itemId, ownerId);
     return c.json({
       ok: true,
       listing_id: existing.id,
@@ -568,6 +626,8 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
   if (insErr || !created) {
     return c.json({ error: "Could not record the cross-listing." }, 500);
   }
+  // US-2179: count a confirmed extension publish against the cap.
+  if (published) await markItemListed(itemId, ownerId);
   return c.json({
     ok: true,
     listing_id: (created as { id: string }).id,
@@ -621,11 +681,15 @@ flipdeskListingsRoutes.post("/delist-confirm", async (c) => {
 
   const { data, error } = await supabaseAdmin
     .from("listings")
-    .select("id, inventory_items!inner(user_id)")
+    .select("id, inventory_item_id, inventory_items!inner(user_id)")
     .eq("id", listingId)
     .maybeSingle();
   if (error) return c.json({ error: "Could not load the listing." }, 500);
-  const row = data as { id: string; inventory_items: { user_id: string } } | null;
+  const row = data as {
+    id: string;
+    inventory_item_id: string | null;
+    inventory_items: { user_id: string };
+  } | null;
   if (!row || row.inventory_items.user_id !== ownerId) {
     return c.json({ error: "Listing not found." }, 404);
   }
@@ -639,6 +703,11 @@ flipdeskListingsRoutes.post("/delist-confirm", async (c) => {
     })
     .eq("id", listingId);
   if (upErr) return c.json({ error: "Could not confirm the delist." }, 500);
+  // US-2179: release the item's activeListings slot once nothing is live. This
+  // route never touched the item status, so an item whose only listing was an
+  // extension sibling would have stayed 'listed' forever — holding a cap slot
+  // the seller had already given up.
+  await resyncItemListedStatus(row.inventory_item_id, ownerId);
   return c.json({ ok: true, listing_id: listingId });
 });
 
@@ -1127,6 +1196,11 @@ flipdeskListingsRoutes.post("/:id/end", async (c) => {
 // Reconcile the local rows after a confirmed end: the listing stops being live
 // and the item returns to 'drafted' so it can be relisted. Tenant-scoped on the
 // item write; the listing id is already owner-verified by the caller.
+//
+// US-2179: the item only goes back to 'drafted' once NOTHING is live anywhere.
+// The old unconditional revert meant ending the Depop listing of an item still
+// live on eBay marked the whole item a draft — freeing an activeListings cap
+// slot the seller was still using, and showing a selling item in the Drafts tab.
 async function endLocally(
   listingId: string,
   inventoryItemId: string | null,
@@ -1138,17 +1212,11 @@ async function endLocally(
     .eq("id", listingId);
   if (lErr) {
     console.error("[flipdesk-listings] end: listing update failed:", lErr.message);
+    // The row is still marked live, so the resync below would (correctly) keep
+    // the item 'listed'. Bail rather than imply the end reconciled cleanly.
+    return;
   }
-  if (inventoryItemId) {
-    const { error: iErr } = await supabaseAdmin
-      .from("inventory_items")
-      .update({ status: "drafted" })
-      .eq("id", inventoryItemId)
-      .eq("user_id", ownerId);
-    if (iErr) {
-      console.error("[flipdesk-listings] end: item status update failed:", iErr.message);
-    }
-  }
+  await resyncItemListedStatus(inventoryItemId, ownerId);
 }
 
 // POST /bulk-price — US-2163: reprice a SELECTION in one request.

@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { resyncItemListedStatus } from "../lib/active-listings.ts";
 import { ingestPaidOrdersSince } from "../lib/shopify-orders.ts";
 import {
   buildConsentUrl,
@@ -273,7 +274,9 @@ flipdeskShopifyRoutes.post("/listings/pull", async (c) => {
   // 1 ── status refresh of active Shopify listings ──────────────────
   const { data: activeRows } = await supabaseAdmin
     .from("listings")
-    .select("id, platform_listing_id, inventory_items!inner(user_id)")
+    .select(
+      "id, platform_listing_id, inventory_item_id, inventory_items!inner(user_id)",
+    )
     .eq("platform", "shopify")
     .eq("is_active", true)
     .eq("inventory_items.user_id", userId)
@@ -283,6 +286,7 @@ flipdeskShopifyRoutes.post("/listings/pull", async (c) => {
     const row of (activeRows ?? []) as unknown as Array<{
       id: string;
       platform_listing_id: string | null;
+      inventory_item_id: string | null;
     }>
   ) {
     if (!row.platform_listing_id) continue;
@@ -303,6 +307,11 @@ flipdeskShopifyRoutes.post("/listings/pull", async (c) => {
           .from("listings")
           .update({ listing_status: "ended", is_active: false })
           .eq("id", row.id);
+        // US-2179: release the item's activeListings slot once nothing is live.
+        // This sync only ever ended the listing row, so an item whose Shopify
+        // listing disappeared stayed 'listed' indefinitely — permanently holding
+        // a cap slot the seller no longer had a listing for.
+        await resyncItemListedStatus(row.inventory_item_id, userId);
         ended++;
       }
     } catch (err) {

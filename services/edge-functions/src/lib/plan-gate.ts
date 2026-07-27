@@ -18,35 +18,46 @@
 // Hard caps at 100% return 402 PAYMENT_REQUIRED with a body the frontend
 // (US-210) uses to render the UpgradeRequiredDialog.
 //
-// MIGRATION (follow-up to US-208):
-// The following routes still read the legacy users.plan column with their
-// own per-file limit tables instead of calling requireFlipdesk(). They keep
-// working because users.plan is preserved through US-225, but each should
-// be migrated:
+// ENFORCEMENT INDEX (verified US-2179; the legacy users.plan migration this
+// block used to track is DONE — api-keys.ts, api-v1.ts and flipdesk-grading.ts
+// all resolve from users.flipdesk_plan now):
 //
-//   • routes/flipdesk-ai.ts       — checkQuota → requireFlipdesk({ capacity: { kind: 'aiActions' } })
-//   • routes/flipdesk-grading.ts  — planLimit() → requireFlipdesk({ capacity: { kind: 'includedGrades' } })
-//                                   (note: this should fall through to credits via /grade/submit precedence, not block)
-//   • routes/api-keys.ts          — Professional/Enterprise check → requireFlipdesk({ feature: 'apiAccess' })
-//   • routes/api-v1.ts            — PLAN_LIMITS → requireFlipdesk({ capacity: { kind: 'includedGrades' } })
-//
-// Now wired (kept here as the enforcement index):
-//   • listing-publish (eBay + AutoLister)  → { capacity: { kind: 'activeListings' } }
-//   • marketplace connect (eBay/Shopify/Depop) → { capacity: { kind: 'marketplaces' } }
+//   • listing-publish (eBay push + AutoLister + cross-push + extension-writeback)
+//                                      → { capacity: { kind: 'activeListings' } }
+//   • marketplace connect (eBay/Shopify/Depop/Etsy/Whatnot) → { capacity: { kind: 'marketplaces' } }
 //   • bulk actions (AI bulk-extract, eBay bulk-edit + bulk-price-quantity) → { feature: 'bulkActions' }
 //   • scheduled actions (automation rules create/update/run + the hourly cron,
 //     via featureAllowedForUser so a downgrade stops running rules) → { feature: 'scheduledActions' }
 //   • reconciliation endpoints         → { feature: 'reconciliation' }
-//   • sub-account invite               → { feature: 'subAccounts' }
+//   • sub-account invite               → { capacity: { kind: 'teamSeats' } } + { feature: 'subAccounts' }
 //   • api key create                   → { feature: 'apiAccess' }
+//   • comp pulls / autolister / demand / forecast / equity → their feature flags
+//
+// TWO CAPACITIES ARE ENFORCED ELSEWHERE, BY DESIGN — requireFlipdesk resolves
+// their limits (getLimit) for display and downgrade previews, but is NOT the
+// gate:
+//   • aiActions      → routes/flipdesk-ai.ts checkQuota() resolves the cap and
+//     lib/ai-metering.ts reserve_ai_action ENFORCES it atomically (a CAS, so
+//     concurrent requests can't race past the cap the way a check-then-act gate
+//     can). checkQuota mirrors this file's plan resolution exactly — effective
+//     plan incl. the dunning grace window, the operator-editable matrix, the
+//     super_admin bypass, and the self-cap.
+//   • includedGrades → lib/grade-billing.ts runPaymentPrecedence. Grades must
+//     fall THROUGH an exhausted monthly bundle to credits/checkout rather than
+//     hard-block, which is the opposite of a 402 cap.
 //
 // Note: `autoRelist` is a plan flag with NO distinct server code path — the
 // automation engine's end_listing action (→ item back to 'drafted' for manual
 // relist) is the closest behavior and is already covered by scheduledActions.
 // `prioritySupport` is an SLA/routing attribute, not a runtime gate.
+//
+// A new endpoint that puts an item live, connects a marketplace, or ends a
+// listing is checked by src/tests/plan-gate-coverage_test.ts — the drift test
+// that fails CI when enforcement is forgotten (the ai-metering-coverage pattern).
 
 import type { Context } from "hono";
 import { supabaseAdmin } from "./supabase.ts";
+import { effectiveAiActionsUsed } from "./ai-metering.ts";
 import { effectivePlanFor } from "./grade-pricing.ts";
 import {
   FALLBACK_MATRIX,
@@ -107,6 +118,9 @@ export interface PlanGateUser {
   // loses paid caps.
   past_due_since: string | null;
   ai_actions_used_this_month: number;
+  // US-2179: the lazy monthly rollover boundary for the AI-action counter (the
+  // authority is reserve_ai_action; nothing zeroes the column on the 1st).
+  ai_actions_reset_at: string | null;
   ai_action_limit: number | null;
   grades_used_this_month: number;
   // US-393: when the included-grade counter rolls over (Free users never get an
@@ -130,7 +144,7 @@ const defaultDeps: PlanGateDeps = {
     const { data, error } = await supabaseAdmin
       .from("users")
       .select(
-        "role, flipdesk_plan, subscription_status, trial_ends_at, past_due_since, ai_actions_used_this_month, ai_action_limit, grades_used_this_month, grade_reset_at",
+        "role, flipdesk_plan, subscription_status, trial_ends_at, past_due_since, ai_actions_used_this_month, ai_actions_reset_at, ai_action_limit, grades_used_this_month, grade_reset_at",
       )
       .eq("id", userId)
       .single();
@@ -208,7 +222,11 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
   if (opts.capacity) {
     const delta = opts.capacity.delta ?? 1;
     const used = await deps.readUsage(userId, opts.capacity.kind, user);
-    const limit = getLimit(plan, opts.capacity.kind);
+    // US-2179: `user` is passed so the aiActions cap honors the seller's own
+    // self-cap (users.ai_action_limit). readCurrentUsage's comment claimed the
+    // min() happened "in getLimit" — it never did, so a self-cap set here was
+    // silently ignored while flipdesk-ai's checkQuota applied it.
+    const limit = getLimit(plan, opts.capacity.kind, user);
 
     if (limit === -1) return null; // Unlimited.
 
@@ -270,10 +288,26 @@ export async function featureAllowedForUser(
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-function getLimit(plan: PlanConfig, kind: CapacityKind): number {
+/**
+ * The cap for `kind` under `plan`.
+ *
+ * `user` is optional because requiredPlanForCapacity asks a plan-shopping
+ * question ("which tier would cover N?") where a per-user self-cap must NOT
+ * apply — recommending an upgrade because the seller throttled themselves would
+ * be nonsense. When a user IS supplied (the enforcement path), the aiActions cap
+ * becomes min(plan, self-cap) per US-224.
+ */
+function getLimit(
+  plan: PlanConfig,
+  kind: CapacityKind,
+  user?: Pick<UserSlice, "ai_action_limit">,
+): number {
   switch (kind) {
     case "activeListings": return plan.activeListingCap;
-    case "aiActions": return plan.aiActionsPerMonth;
+    case "aiActions":
+      return user
+        ? effectiveAiCap(plan.aiActionsPerMonth, user.ai_action_limit ?? null)
+        : plan.aiActionsPerMonth;
     case "marketplaces": return plan.marketplacesCap;
     case "includedGrades": return plan.includedStandardGradesPerMonth;
     case "teamSeats": return plan.teamSeatCap;
@@ -283,6 +317,8 @@ function getLimit(plan: PlanConfig, kind: CapacityKind): number {
 interface UserSlice {
   flipdesk_plan: FlipdeskPlan;
   ai_actions_used_this_month: number;
+  // US-2179: the lazy monthly rollover boundary for AI actions.
+  ai_actions_reset_at: string | null;
   ai_action_limit: number | null;
   grades_used_this_month: number;
   // US-393: the clock-based monthly reset boundary for included grades.
@@ -309,10 +345,17 @@ async function readCurrentUsage(
     }
 
     case "aiActions": {
-      // User-set self-cap (US-224) is enforced via min(plan_limit, user_limit).
-      // We return the larger of "what the plan says" since the cap is computed
-      // in getLimit, not here.
-      return user.ai_actions_used_this_month;
+      // The self-cap (US-224) is applied to the LIMIT in getLimit; this side
+      // only reports usage.
+      //
+      // US-2179: honor the lazy monthly rollover. reserve_ai_action rolls the
+      // counter over when it next runs, so nothing zeroes the column on the 1st
+      // — reading it raw reported a user who finished last month at their cap as
+      // still at their cap in the new month.
+      return effectiveAiActionsUsed(
+        user.ai_actions_used_this_month,
+        user.ai_actions_reset_at,
+      );
     }
 
     case "marketplaces": {

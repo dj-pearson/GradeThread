@@ -5,8 +5,10 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/plan-gate.ts
+  - services/edge-functions/src/lib/active-listings.ts
+  - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - src/lib/constants.ts
-reviewed: 2026-07-19
+reviewed: 2026-07-26
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
@@ -27,6 +29,57 @@ endpoint that forgets simply has no limits.
 
 Returning the Response directly matters: the gate does not throw, so a handler
 that ignores the return value proceeds past a limit it was told to enforce.
+
+Since US-2179 the rule has teeth: `plan-gate-coverage_test.ts` walks
+`src/routes/` and fails CI when a route puts an item live, connects a
+marketplace, or ends a listing without the matching enforcement. It exists
+because the rule was silently broken for every non-eBay channel — see below.
+
+## Two capacities are enforced outside the gate
+
+`requireFlipdesk` resolves all five caps, but it is only the *gate* for three.
+Reading `getLimit` as the enforcement point for the other two is the trap:
+
+| Capacity | Enforced by | Why not the gate |
+|---|---|---|
+| `aiActions` | `reserve_ai_action` (CAS) via `lib/ai-metering.ts`, cap resolved by `checkQuota` | A check-then-act gate races: concurrent requests at the boundary collectively overshoot. The CAS refuses inside one statement |
+| `includedGrades` | `runPaymentPrecedence` in `lib/grade-billing.ts` | An exhausted monthly bundle must fall THROUGH to credits/checkout, not 402. Blocking would refuse a grade the seller can pay for |
+
+The cost of that split is drift: every one of those paths has to re-derive the
+effective plan the same way the gate does. `checkQuota` did not, and paid for it
+twice — a `past_due` account past the dunning grace window kept full paid AI
+allowances (the omitted `past_due_since` made `effectivePlanFor` fail open), and
+the cap came from a compiled table rather than the operator-editable matrix, so
+admin edits silently did nothing. Both fixed in US-2179; both are the kind of bug
+a second copy of plan resolution will keep producing.
+
+## What the caps count
+
+`activeListings` counts **items** — `inventory_items.status = 'listed'` — not
+listing rows. One live item is one slot no matter how many marketplaces it is
+cross-listed to, and the plan numbers were sized for that. Switching the basis to
+`listings` rows would silently re-scale every cap: an item live on eBay + Depop +
+Poshmark would start consuming 3 of Free's 25.
+
+That basis is only correct if every channel maintains the item status, and until
+US-2179 only the eBay publish paths did. Cross-push (Depop/Etsy/Shopify/Whatnot)
+and extension-writeback (Poshmark/Mercari/Grailed) created live listings while
+leaving the item in `drafted`, so those listings were **neither capped nor
+counted** — a Free account could put unlimited items live off-eBay, and the usage
+meter read 0. The lifecycle now lives in `lib/active-listings.ts`
+(`markItemListed` / `resyncItemListedStatus`), and the release side matters as
+much as the publish side: a route that ends a listing without reconciling the
+item leaves the slot consumed forever, which shrinks the seller's usable cap with
+no error anywhere.
+
+**Not backfilled, deliberately.** US-2179 fixed the write paths, not history.
+Items already live off-eBay stay in `drafted` until something re-publishes or ends
+them, so they remain uncounted. That means no seller's usage meter jumps
+retroactively and nobody is abruptly over their cap — the enforcement tightens
+going forward instead. If the residual undercount ever needs closing, it is a
+one-off backfill (`inventory_items.status = 'listed'` where an active non-eBay
+`listings` row exists) and it WILL push some existing accounts over their cap on
+the next publish, which is a pricing/comms decision before it is a migration.
 
 ## The response protocol
 

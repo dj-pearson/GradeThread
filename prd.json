@@ -2,9 +2,25 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2179",
+  "nextId": "US-2180",
   "archive": "prd.archive.json",
   "userStories": [
+    {
+      "id": "US-2179",
+      "priority": -99000,
+      "passes": true,
+      "title": "Usage + limits audit: count every gated action and gate every counted one",
+      "description": "As a seller on a paid plan, we want every action that consumes an allotment to actually count against it and to be refused at the threshold, so caps are honest in both directions — no unlimited off-eBay listing on Free, and no cap slot held by a listing that no longer exists.",
+      "acceptanceCriteria": [
+        "activeListings is enforced and counted on EVERY channel: cross-push (depop/etsy/shopify/whatnot) and extension-writeback (poshmark/mercari/grailed) gate the cap and mark the item listed, not just the eBay publish paths",
+        "Ending one channel releases the item cap slot only when NOTHING is live anywhere (lib/active-listings.ts resyncItemListedStatus), replacing the unconditional revert-to-drafted in the end/bulk-end/automation/shopify-sync/shopify-webhook paths",
+        "checkQuota resolves the plan exactly as requireFlipdesk does: past_due_since honored (a past-due account past the dunning grace window drops to Free AI caps), cap read from the operator-editable getPlanMatrix() instead of the compiled table, super_admin bypass",
+        "The aiActions capacity path honors the user self-cap (effectiveAiCap) and the lazy monthly rollover; the rollover predicate is shared by all three readers (plan-gate, checkQuota, billing summary) instead of being duplicated or absent",
+        "plan-gate-coverage_test.ts fails CI when a new route puts an item live, connects a marketplace, or ends a listing without enforcement — and pins the item-status counting basis",
+        "The plan-gate enforcement index reflects reality (the legacy users.plan migration is done) and the vault contract records the counting basis and the two out-of-gate capacities"
+      ],
+      "notes": "[P0][FlipDesk/Billing] Audit of usage metering + gated thresholds. Root cause of the cap hole: the activeListings cap counts inventory_items.status=listed, and only the eBay publish paths ever wrote that status — every other marketplace created a live listing while leaving the item drafted, so it was neither capped nor shown in the usage meter. The sold side was already handled for non-eBay channels (depop/etsy/shopify-orders), which is what made the missing listed transition an oversight rather than a design choice. Counting listings ROWS instead was rejected: one cross-listed item owns one row per platform, so it would silently re-scale every existing cap."
+    },
     {
       "id": "US-1299",
       "priority": -98701,
