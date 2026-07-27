@@ -7,6 +7,7 @@ import com.gradethread.app.platform.applock.AppLock
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.auth.AuthRepository
 import com.gradethread.app.platform.workspace.WorkspaceScope
+import com.gradethread.app.sync.ConnectivityMonitor
 import com.gradethread.app.sync.SyncTrigger
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +52,11 @@ class GradeThreadApp : Application(), Configuration.Provider {
         // so Room was never populated and every screen rendered empty.
         syncTrigger.observeForeground()
         syncTrigger.observeSignIn(authRepository)
+        // Reconnect. Each of these also flushes the offline mutation queue,
+        // which until now was written to and never drained — see SyncTrigger's
+        // note. Reconnect matters most for the queue: a seller working through a
+        // dead spot never backgrounds the app, so no foreground event fires.
+        syncTrigger.observeConnectivity(ConnectivityMonitor(this))
     }
 
     /** Lives as long as the process — these observers never unsubscribe. */

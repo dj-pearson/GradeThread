@@ -119,6 +119,17 @@ interface SaleDao {
     @Query("SELECT * FROM sales ORDER BY saleDate DESC")
     suspend fun all(): List<SaleEntity>
 
+    /**
+     * US-1363/US-1371: reactive backing for Money + the sales list.
+     *
+     * Deliberately UNFILTERED by status: the rollups exclude non-completed
+     * sales themselves (via `SalePnL.isCompleted`), while the sales list must
+     * SHOW refunded and cancelled orders. Filtering here would make the list
+     * silently lie about what happened.
+     */
+    @Query("SELECT * FROM sales ORDER BY saleDate DESC")
+    fun observeAll(): kotlinx.coroutines.flow.Flow<List<SaleEntity>>
+
     @Query("SELECT id FROM sales")
     suspend fun allIds(): List<String>
 
@@ -139,6 +150,13 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM expenses ORDER BY spentOn DESC")
     suspend fun all(): List<ExpenseEntity>
+
+    /** US-1363/US-1364: reactive backing for the cash-flow panel + list. */
+    @Query("SELECT * FROM expenses ORDER BY spentOn DESC")
+    fun observeAll(): kotlinx.coroutines.flow.Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses WHERE id = :id")
+    suspend fun byId(id: String): ExpenseEntity?
 
     @Query("SELECT id FROM expenses")
     suspend fun allIds(): List<String>
@@ -182,6 +200,10 @@ interface SourceDao {
 
     @Query("SELECT * FROM sources ORDER BY name")
     suspend fun all(): List<SourceEntity>
+
+    /** US-1363: reactive backing for the ROI-by-source panel. */
+    @Query("SELECT * FROM sources ORDER BY name")
+    fun observeAll(): kotlinx.coroutines.flow.Flow<List<SourceEntity>>
 
     @Query("DELETE FROM sources")
     suspend fun clearAll()

@@ -155,11 +155,37 @@ fun AppShell(
     }
 }
 
-/** The section graph — placeholder screens until the feature stories land. */
+/**
+ * The section graph.
+ *
+ * Home / Money / Settings were `SectionPlaceholder`s until US-1370 / US-1363 /
+ * US-1383 landed — the first, third and fifth things a seller could tap. Only
+ * `ADD` and `capture/autolister` remain placeholders (AutoLister is US-1359).
+ */
 @Composable
 private fun ShellNavHost(navController: NavHostController) {
+    /** Switch to a root section, preserving that section's own back stack. */
+    fun toSection(section: ShellSection) {
+        navController.navigate(section.route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
     NavHost(navController = navController, startDestination = ShellSection.HOME.route) {
-        composable(ShellSection.HOME.route) { SectionPlaceholder("Home") }
+        // US-1370: the home dashboard replaces the placeholder.
+        composable(ShellSection.HOME.route) {
+            com.gradethread.app.home.HomeScreen(
+                onAddItem = { navController.navigate("capture/photos") },
+                onSnap = { navController.navigate(ShellRoutes.SNAP) },
+                onOpenInventory = { toSection(ShellSection.INVENTORY) },
+                onOpenMoney = { toSection(ShellSection.MONEY) },
+                onOpenGrades = { navController.navigate(ShellRoutes.GRADES) },
+                onOpenMarketplaces = { toSection(ShellSection.MARKETPLACES) },
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+            )
+        }
         // Registered for deep links (US-1314 AddItem); the bar's Add button
         // opens the method sheet instead of navigating here.
         composable(ShellSection.ADD.route) { SectionPlaceholder("Add an item") }
@@ -176,12 +202,32 @@ private fun ShellNavHost(navController: NavHostController) {
                 },
             )
         }
-        composable(ShellSection.MONEY.route) { SectionPlaceholder("Money") }
+        // US-1363/US-1364: the Money dashboard replaces the placeholder.
+        composable(ShellSection.MONEY.route) {
+            com.gradethread.app.money.MoneyScreen(
+                onOpenSales = { navController.navigate(ShellRoutes.SALES) },
+            )
+        }
+        // US-1371: the sales list with per-item P&L.
+        composable(ShellRoutes.SALES) {
+            com.gradethread.app.money.SalesScreen(
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+            )
+        }
         // US-1350: eBay connections replace the placeholder.
         composable(ShellSection.MARKETPLACES.route) {
             com.gradethread.app.marketplaces.MarketplacesScreen()
         }
-        composable(ShellRoutes.SETTINGS) { SectionPlaceholder("Settings") }
+        // US-1383: settings replace the placeholder — including the app's only
+        // route to signing out.
+        composable(ShellRoutes.SETTINGS) {
+            com.gradethread.app.settings.SettingsScreen(
+                onOpenMarketplaces = { toSection(ShellSection.MARKETPLACES) },
+                // The credit top-up lives in the grading flow; Tools is the
+                // stable surface that reaches it without an item in hand.
+                onOpenCredits = { navController.navigate(ShellRoutes.TOOLS) },
+            )
+        }
         // US-1349: global search replaces the placeholder.
         composable(ShellRoutes.SEARCH) {
             com.gradethread.app.inventory.GlobalSearchScreen(

@@ -278,6 +278,16 @@ object SyncRows {
         @SerialName("grading_cost") val gradingCost: Double? = null,
         @SerialName("other_costs") val otherCosts: Double? = null,
         @SerialName("net_profit") val netProfit: Double? = null,
+        /**
+         * 00111: `completed` | `cancelled` | `refunded` | `pending`.
+         *
+         * NOT optional-by-accident. This column was missing from the decoder,
+         * so every pulled sale took [SaleEntity]'s `completed` default and a
+         * refunded order counted as revenue in every rollup — the exact thing
+         * 00111 says all metrics MUST exclude. Absent (legacy row) still means
+         * completed; see `SalePnL.isCompleted`.
+         */
+        val status: String? = null,
         @SerialName("buyer_username") val buyerUsername: String? = null,
         @SerialName("platform_order_id") val platformOrderId: String? = null,
         @SerialName("payout_reference") val payoutReference: String? = null,
@@ -306,6 +316,9 @@ object SyncRows {
             // cost basis (which lives on inventory_items.acquired_price), so
             // recomputing it here from sale fields alone would be wrong.
             netProfit = row.netProfit,
+            // Blank/absent → completed, matching the legacy-row rule the
+            // rollups apply. Never silently dropped: see RemoteSaleRow.status.
+            status = row.status?.takeIf { it.isNotBlank() } ?: "completed",
             buyerUsername = row.buyerUsername,
             platformOrderId = row.platformOrderId,
             payoutReference = row.payoutReference,
