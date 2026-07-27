@@ -295,6 +295,9 @@ async function renderCertificate(context: Ctx): Promise<Response> {
       description,
       canonicalUrl: canonical,
       ogImage,
+      // US-2186: /og/cert/:id is a fixed 1200x630 PNG card.
+      ogImageWidth: 1200,
+      ogImageHeight: 630,
       twitterSite: twitterSiteHandle(env),
       // US-425: og:type=product matches the Product primary entity (and the SPA).
       ogType: "product",

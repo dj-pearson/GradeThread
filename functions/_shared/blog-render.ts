@@ -291,6 +291,15 @@ interface LayoutInput {
   description: string;
   canonicalUrl: string;
   ogImage?: string | null;
+  // US-2186: richer social-card metadata. alt defaults to the page title;
+  // type/secureUrl are derived from ogImage when omitted; width/height are
+  // emitted only when provided (pass 1200x630 for the fixed /og/* cards and the
+  // static og-image.png so unfurlers don't have to pre-fetch to size the card).
+  ogImageAlt?: string | null;
+  ogImageWidth?: number | null;
+  ogImageHeight?: number | null;
+  ogImageType?: string | null;
+  ogImageSecureUrl?: string | null;
   jsonLd?: unknown[];
   bodyHtml: string;
   noindex?: boolean;
@@ -466,6 +475,59 @@ export function renderLayout(input: LayoutInput): string {
     .join("");
   const robots = input.robots ?? (input.noindex ? "noindex, nofollow" : "index, follow");
   const ogType = input.ogType ?? "article";
+  // US-2186: derive the remaining og:image sub-properties so callers only have
+  // to pass the URL (+ dimensions for fixed-size cards). Missing alt/type/
+  // secure_url degrade card quality and accessibility on the highest-share
+  // surfaces (certs, blog, sellers, passports).
+  const ogImageAlt = input.ogImage
+    ? (input.ogImageAlt ?? input.title)
+    : null;
+  const ogImageType =
+    input.ogImageType ??
+    (input.ogImage
+      ? /\.png($|\?)/i.test(input.ogImage) || input.ogImage.includes("/og/")
+        ? "image/png"
+        : /\.jpe?g($|\?)/i.test(input.ogImage)
+          ? "image/jpeg"
+          : /\.webp($|\?)/i.test(input.ogImage)
+            ? "image/webp"
+            : null
+      : null);
+  const ogImageSecureUrl =
+    input.ogImageSecureUrl ??
+    (input.ogImage && input.ogImage.startsWith("https://") ? input.ogImage : null);
+  const ogImageMeta = input.ogImage
+    ? [
+        `<meta property="og:image" content="${escape(input.ogImage)}">`,
+        ogImageSecureUrl
+          ? `<meta property="og:image:secure_url" content="${escape(ogImageSecureUrl)}">`
+          : "",
+        ogImageType
+          ? `<meta property="og:image:type" content="${escape(ogImageType)}">`
+          : "",
+        input.ogImageWidth
+          ? `<meta property="og:image:width" content="${input.ogImageWidth}">`
+          : "",
+        input.ogImageHeight
+          ? `<meta property="og:image:height" content="${input.ogImageHeight}">`
+          : "",
+        ogImageAlt
+          ? `<meta property="og:image:alt" content="${escape(ogImageAlt)}">`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "";
+  const twitterImageMeta = input.ogImage
+    ? [
+        `<meta name="twitter:image" content="${escape(input.ogImage)}">`,
+        ogImageAlt
+          ? `<meta name="twitter:image:alt" content="${escape(ogImageAlt)}">`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -490,11 +552,11 @@ ${(input.alternates ?? [])
 <meta property="og:description" content="${escape(input.description)}">
 <meta property="og:url" content="${escape(input.canonicalUrl)}">
 <meta property="og:site_name" content="GradeThread">
-${input.ogImage ? `<meta property="og:image" content="${escape(input.ogImage)}">` : ""}
+${ogImageMeta}
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escape(input.title)}">
 <meta name="twitter:description" content="${escape(input.description)}">
-${input.ogImage ? `<meta name="twitter:image" content="${escape(input.ogImage)}">` : ""}
+${twitterImageMeta}
 ${input.twitterSite ? `<meta name="twitter:site" content="${escape(input.twitterSite)}">` : ""}
 ${ogType === "article" ? renderArticleMetaTags(input.articleMeta) : ""}
 <style>${BASE_STYLES}</style>

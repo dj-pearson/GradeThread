@@ -304,6 +304,9 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
       description,
       canonicalUrl: canonical,
       ogImage,
+      // US-2186: /og/verified/:handle is a fixed 1200x630 PNG card.
+      ogImageWidth: 1200,
+      ogImageHeight: 630,
       twitterSite: twitterSiteHandle(env),
       jsonLd: listingsLd
         ? [profileLd, breadcrumbLd, listingsLd]

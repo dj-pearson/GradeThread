@@ -267,6 +267,9 @@ async function renderIndex(env: PagesEnv, page = 1): Promise<Response> {
       // AC5 named only the tag page, but the hub and the post-page fallback had
       // the identical defect — same class, fixed together.
       ogImage: `${siteUrl(env)}/og-image.png`,
+      // US-2186: og-image.png is a 1200x630 asset.
+      ogImageWidth: 1200,
+      ogImageHeight: 630,
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
       jsonLd,
@@ -469,6 +472,9 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       // renders a branded 1200x630 PNG via Satori (workers-og). The static
       // logo is the last-ditch fallback if the OG worker errors.
       ogImage: `${siteUrl(env)}/og/blog/${encodeURIComponent(post.slug)}`,
+      // US-2186: /og/blog/:slug is a fixed 1200x630 PNG card.
+      ogImageWidth: 1200,
+      ogImageHeight: 630,
       // US-872: article:* OG tags for Pinterest (and other) rich pins.
       articleMeta: {
         publishedTime: post.published_at,
@@ -618,6 +624,9 @@ async function renderTag(env: PagesEnv, tag: string, page = 1): Promise<Response
       // summary_large_image card, which unfurls badly cropped. Use the shared
       // default OG asset, which is sized for the card.
       ogImage: `${siteUrl(env)}/og-image.png`,
+      // US-2186: og-image.png is a 1200x630 asset.
+      ogImageWidth: 1200,
+      ogImageHeight: 630,
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
       // Tag archives are noindex,follow. They were 138 of the ~892 URLs in the

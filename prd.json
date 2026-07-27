@@ -4509,7 +4509,7 @@
     {
       "id": "US-2186",
       "priority": 2506,
-      "passes": false,
+      "passes": true,
       "title": "seo: complete og:image metadata on edge-SSR pages",
       "description": "As a sharer, I want rich, accessible social cards on certificates/blog/sellers/passports, so links unfurl fast and correctly everywhere.",
       "acceptanceCriteria": [
