@@ -59,7 +59,6 @@ import {
   getScoreColor,
 } from "@/lib/constants";
 import type { SubmissionRow, GradeReportRow, DisputeRow } from "@/types/database";
-import { orderIdsByScore, pageSlice, reorderByIds } from "@/lib/list-sort";
 
 const PAGE_SIZE = 20;
 
@@ -262,51 +261,38 @@ export function SubmissionsPage() {
         );
       };
 
-      // ── Grade sort (US-1651): the sort key lives in grade_reports, so a single
-      // paged query would only reorder the page in view. Order across the WHOLE
-      // result set here (nulls last) using bedrock queries — prod-safe, no
-      // embedded foreign-table `.order()` (which diverges local↔prod PostgREST).
+      // ── Grade sort (US-2196): overall_score is denormalized onto submissions
+      // (migration 00494) and kept current by a trigger from the ACTIVE
+      // grade_report (superseded_at IS NULL), so we order + paginate
+      // SERVER-SIDE instead of loading every id and sorting in JS. A
+      // direct-column `.order()` (NOT an embedded foreign-table order) is
+      // prod-PostgREST-safe. Ungraded rows sort last in both directions.
       if (sortField === "overall_score") {
-        let idQuery = supabase
+        let scoreQuery = supabase
           .from("submissions")
-          .select("id, status")
+          .select("*", { count: "exact" })
           .is("superseded_at", null);
-        if (statusFilter !== "all") idQuery = idQuery.eq("status", statusFilter);
-        if (garmentTypeFilter !== "all") idQuery = idQuery.eq("garment_type", garmentTypeFilter);
-        const { data: idRows, error: idErr } = await idQuery;
-        if (idErr) throw idErr;
-        const all = (idRows ?? []) as Array<Pick<SubmissionRow, "id" | "status">>;
-
-        // Scores for the completed submissions across the full set.
-        const scoreMap = await fetchGradeMap(
-          all.filter((s) => s.status === "completed").map((s) => s.id)
-        );
-        const scoreById: Record<string, number | null | undefined> = {};
-        for (const s of all) scoreById[s.id] = scoreMap[s.id]?.overall_score;
-
-        const orderedIds = orderIdsByScore(
-          all.map((s) => s.id),
-          scoreById,
-          sortDirection
-        );
-        const totalCount = orderedIds.length;
-        const pageIds = pageSlice(orderedIds, page, PAGE_SIZE);
-        if (pageIds.length === 0) return { submissions: [], totalCount };
-
-        // Materialize the page's full rows, then restore the global order.
-        const { data: pageRows, error } = await supabase
-          .from("submissions")
-          .select("*")
-          .in("id", pageIds);
+        if (statusFilter !== "all")
+          scoreQuery = scoreQuery.eq("status", statusFilter);
+        if (garmentTypeFilter !== "all")
+          scoreQuery = scoreQuery.eq("garment_type", garmentTypeFilter);
+        scoreQuery = scoreQuery
+          .order("overall_score", {
+            ascending: sortDirection === "asc",
+            nullsFirst: false,
+          })
+          .order("created_at", { ascending: false })
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+        const { data: pageRows, error, count } = await scoreQuery;
         if (error) throw error;
-        const byId = new Map(
-          (pageRows ?? []).map((s) => [(s as SubmissionRow).id, s as SubmissionRow])
-        );
-        const merged: SubmissionWithGrade[] = reorderByIds(pageIds, byId).map((s) => ({
+        const rows = (pageRows ?? []) as SubmissionRow[];
+        // Grade tier/score for display on the page's rows only.
+        const scoreMap = await fetchGradeMap(rows.map((s) => s.id));
+        const merged: SubmissionWithGrade[] = rows.map((s) => ({
           ...s,
           grade_report: scoreMap[s.id] ?? null,
         }));
-        return { submissions: merged, totalCount };
+        return { submissions: merged, totalCount: count ?? 0 };
       }
 
       // ── Default sort (created_at): a single paged, server-ordered query. ──

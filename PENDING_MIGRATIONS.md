@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00494_submissions_overall_score.sql (US-2196 server-side grade sort, 2026-07-27)
+
+**Apply AFTER 00493.** Adds `submissions.overall_score numeric(3,1)`, a
+`sync_submission_overall_score()` trigger on `grade_reports` (after
+insert/delete/update of `overall_score`,`superseded_at`) that copies the ACTIVE
+report's score (`superseded_at IS NULL`) onto the submission, a one-time
+backfill, and `idx_submissions_overall_score`. Run `NOTIFY pgrst, 'reload
+schema';` after applying.
+
+**⚠️ CLIENT READS THE NEW COLUMN — apply-order matters.** The SPA in this commit
+sorts the submissions list with `.order("overall_score")` on the `submissions`
+table (`src/pages/submissions.tsx`). Cloudflare Pages auto-deploys the frontend
+on push, so if this pushes BEFORE the SQL is applied, sorting the submissions
+list by grade throws `column submissions.overall_score does not exist` (the page
+shows the ErrorState). Apply the SQL to prod FIRST, then push. Default sort
+(created_at) and all other views are unaffected.
+
+**Why:** the old grade-sort loaded every matching submission id + score and
+sorted/paginated in JS (O(n) per sort) because the key lived in `grade_reports`;
+this denormalization lets Postgres `ORDER BY ... LIMIT`. It COPIES the already
+1-decimal-rounded value — no re-computation, so the weighted-overall rounding
+lockstep is untouched (grading-engine contract).
+
+**Risk: LOW–MEDIUM.** One additive column + one trigger + a backfill; idempotent
+and re-run safe. The trigger correctness (active-report selection) was NOT
+exercised against a live DB in this environment (no Docker) — spot-check after
+apply: `select overall_score from submissions where id = <a graded submission>`
+should match its active grade_report, and a retake should update it.
+
+
 ## ⏳ HELD: 00493_dispute_one_grade_per_report.sql (US-2153 one grade dispute per report, 2026-07-23)
 
 **Apply AFTER 00492.** Deletes any pre-existing duplicate GRADE disputes

@@ -4638,7 +4638,7 @@
     {
       "id": "US-2196",
       "priority": 2526,
-      "passes": false,
+      "passes": true,
       "title": "perf: server-side grade sorting (denormalize overall_score)",
       "description": "As a user sorting submissions by grade, I want DB-side ORDER BY+LIMIT, so sort doesn't load and sort my whole history client-side.",
       "acceptanceCriteria": [
@@ -4646,7 +4646,7 @@
         "submissions.tsx grade-sort path uses server-side order+pagination instead of orderIdsByScore/pageSlice",
         "Migration follows the US-1108 triple (idempotent / EXPECTED_SCHEMA_VERSION bump same commit / self-record footer)"
       ],
-      "notes": "Audit 2026-07-26 perf (MED). Touches migrations skill + grading-engine (rounding) — load both. DEFERRED (needs DB migration + db verify lane): requires denormalizing overall_score onto submissions (idempotent migration + EXPECTED_SCHEMA_VERSION bump + self-record footer), a grading-write-path sync to keep it current, and backfill. The db verify lane needs Docker (UNAVAILABLE in this env), so the migration cannot be proven to apply on a fresh schema. Current US-1651 client-sort is deliberately prod-safe (avoids embedded foreign-table .order() that diverges local vs prod PostgREST). Do NOT ship an unverified schema change straight to main."
+      "notes": "Audit 2026-07-26 perf (MED). Touches migrations skill + grading-engine (rounding) — load both. DEFERRED (needs DB migration + db verify lane): requires denormalizing overall_score onto submissions (idempotent migration + EXPECTED_SCHEMA_VERSION bump + self-record footer), a grading-write-path sync to keep it current, and backfill. The db verify lane needs Docker (UNAVAILABLE in this env), so the migration cannot be proven to apply on a fresh schema. Current US-1651 client-sort is deliberately prod-safe (avoids embedded foreign-table .order() that diverges local vs prod PostgREST). Do NOT ship an unverified schema change straight to main. IMPLEMENTED + HELD (not pushed): migration 00494 denormalizes overall_score onto submissions via a trigger from the active grade_report + backfill + index; EXPECTED_SCHEMA_VERSION bumped to 00494; manifest regenerated; submissions.tsx grade-sort now orders/paginates server-side. Per the held-migration rule this commit is LOCAL ONLY — apply the SQL to prod (see PENDING_MIGRATIONS.md) BEFORE pushing, because the SPA reads submissions.overall_score. Trigger not runtime-tested (no Docker) — spot-check after apply. tsc + build + schema-version test + list-sort test all green."
     },
     {
       "id": "US-2197",
