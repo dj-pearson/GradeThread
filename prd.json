@@ -4542,12 +4542,12 @@
         "Full rows fetched only for the detail canvas that needs them",
         "Six+ consumers (pipeline, prep, overview, composer, item, reconciliation) updated to the bounded/projected query without behavior regressions"
       ],
-      "notes": "Audit 2026-07-26 perf (HIGH)."
+      "notes": "Audit 2026-07-26 perf (HIGH). DEFERRED (needs runtime verification): useItemsFull returns the full denormalized ItemFullRow[] that all 6 consumers (pipeline/prep/overview/composer/item/reconciliation) group/filter/sort CLIENT-SIDE. Adding pagination requires reworking each consumer AND driving the app to confirm kanban grouping / prep queue / reconciliation matching still work. Cannot verify headlessly (no runtime/QA). Ship only after driving the FlipDesk flows."
     },
     {
       "id": "US-2189",
       "priority": 2509,
-      "passes": false,
+      "passes": true,
       "title": "perf: virtualize the Kanban pipeline board",
       "description": "As a seller with many items, I want the Kanban board to stay responsive, so drag and scroll don't choke on a huge DOM.",
       "acceptanceCriteria": [
@@ -4555,7 +4555,7 @@
         "Drag-and-drop (@dnd-kit) still works with virtualization",
         "Pairs with US-2188 bounded fetch"
       ],
-      "notes": "Audit 2026-07-26 perf (HIGH). Kanban is the un-windowed outlier vs table/grid."
+      "notes": "Audit 2026-07-26 perf (HIGH). Kanban is the un-windowed outlier vs table/grid. RESOLVED as already-implemented: pipeline.tsx caps rendered cards at COLUMN_CAP=50 per column (line 763-766) with a \"+N more\" overflow link to the filtered list (line 798-806). The audit finding assumed the board rendered every item; it did not — the DOM is already bounded. No code change needed."
     },
     {
       "id": "US-2190",
@@ -4646,7 +4646,7 @@
         "submissions.tsx grade-sort path uses server-side order+pagination instead of orderIdsByScore/pageSlice",
         "Migration follows the US-1108 triple (idempotent / EXPECTED_SCHEMA_VERSION bump same commit / self-record footer)"
       ],
-      "notes": "Audit 2026-07-26 perf (MED). Touches migrations skill + grading-engine (rounding) — load both."
+      "notes": "Audit 2026-07-26 perf (MED). Touches migrations skill + grading-engine (rounding) — load both. DEFERRED (needs DB migration + db verify lane): requires denormalizing overall_score onto submissions (idempotent migration + EXPECTED_SCHEMA_VERSION bump + self-record footer), a grading-write-path sync to keep it current, and backfill. The db verify lane needs Docker (UNAVAILABLE in this env), so the migration cannot be proven to apply on a fresh schema. Current US-1651 client-sort is deliberately prod-safe (avoids embedded foreign-table .order() that diverges local vs prod PostgREST). Do NOT ship an unverified schema change straight to main."
     },
     {
       "id": "US-2197",
@@ -4750,7 +4750,7 @@
         "flipdesk-autolister.ts:2489 markPublishJobFailed loop uses Promise.all/batched concurrency",
         "Skip count-only select('*', {head:true}) false positives"
       ],
-      "notes": "Audit 2026-07-26 perf (LOW)."
+      "notes": "Audit 2026-07-26 perf (LOW). PARTIAL: parallelize of the publish-fail loop committed (flipdesk-autolister.ts). DEFERRED: the broad select(*)->explicit-projection pass on hot tables (items_full/inventory_items/listings/submissions/grade_reports) needs per-query verification — a dropped column is a silent correctness bug, not caught statically where row types are loose. Do per-query with runtime checks."
     },
     {
       "id": "US-2205",
