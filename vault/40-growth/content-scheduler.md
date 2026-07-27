@@ -4,7 +4,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-07-27
 tags: [content, scheduling]
 summary: How scheduled posts are queued, fired and recovered when a run is missed.
 ---
@@ -38,6 +38,13 @@ tick, in order:
    scheduled-post processor — no separate cron needed.
 3. **Pick a surface** — `blog` if today's blog count < `post_cadence_per_day_blog`,
    else `social` if under `post_cadence_per_day_social`, else skip ("cadence met").
+   A day's slot is consumed by a post the scheduler **authored** today, published
+   or not (deduped by id, `failed` generations excluded). Counting only
+   *published* posts starved the second surface whenever the first one's
+   `auto_publish_*` flag was off: with `auto_publish_blog=false` the blog count
+   stayed 0 forever, so every tick picked `blog` and social was never generated
+   at all — the exact configuration the rollout below asks for. It also made an
+   hourly cron author a blog article every hour instead of once a day.
 4. **Pick a product** — whichever of `gradethread`/`flipdesk` has fewer posts in
    the last 14 days (keeps the two balanced).
 5. **Refill the topic bank** — if the chosen (surface, product) slice has fewer
@@ -58,6 +65,15 @@ tick, in order:
 
 If `auto_publish_*` is **off**, the tick stops at step 6/7 and leaves a `draft`
 for a human to publish from the dashboard.
+
+> **Social publishing has a hard precondition (US-2104):** if every
+> `make_webhook_social` / `_long` / `_short` is unset there is nowhere to fan out
+> to, so **no** social path will mark a post `published` — the tick leaves it a
+> draft, due scheduled posts stay `scheduled`, and the manual publish button
+> returns `422 social_webhook_unconfigured`. `auto_publish_social=true` on its
+> own publishes nothing; set a webhook in Content Settings first. A *configured*
+> webhook that fails still publishes — that payload is logged, dead-lettered and
+> replayable.
 
 Other endpoints on the same router (same auth):
 - `POST /api/content/scheduler/test` — `{ok:true,ts}` ping to validate secret + URL.
@@ -138,9 +154,11 @@ Do this in order; each step is reversible from **Content Settings**.
    `max_auto_publishes_per_week=10`. The tick now generates **drafts only**.
 3. **Review a few generated drafts** in Blog/Social lists. Confirm voice, claims,
    and that the safety gate isn't over-/under-holding.
-4. **Turn on social autopilot first** (lower stakes), keep blog manual. Drop
-   social cadence to `1`/day for the first week. Watch
-   `/admin/content/analytics` → Autopilot + Recent activity + Webhook success.
+4. **Set a social webhook, then turn on social autopilot first** (lower stakes),
+   keep blog manual. The webhook is not optional — without one the tick
+   deliberately refuses to publish (see the callout above). Drop social cadence
+   to `1`/day for the first week. Watch `/admin/content/analytics` → Autopilot +
+   Recent activity + Webhook success.
 5. **Turn on blog autopilot** once social looks good. Keep the weekly ceiling low
    (e.g. `7`) until you trust it.
 6. **Tune up** cadence/ceiling gradually. Everything is a number field in

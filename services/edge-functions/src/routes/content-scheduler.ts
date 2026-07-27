@@ -148,34 +148,79 @@ async function loadSettings(): Promise<SettingsRow | null> {
   return (data as SettingsRow | null) ?? null;
 }
 
-// Count posts published today per (surface, product_focus). We use
+// Count today's used cadence slots per (surface, product_focus). We use
 // the user's day in UTC for simplicity; if scheduling around a
 // specific timezone matters later, add a tz column to settings.
-async function publishedTodayCounts(): Promise<Map<string, number>> {
+//
+// A slot is used by a post PUBLISHED today **or** by one the scheduler
+// AUTHORED today. Counting only publishes starves the second surface whenever
+// the first one's auto_publish_* flag is off — which is exactly the state the
+// documented rollout asks for ("turn on social autopilot first, keep blog
+// manual", vault/40-growth/content-scheduler.md). With auto_publish_blog=false
+// the blog draft never publishes, blogToday stays 0 forever, the surface pick
+// below chooses "blog" on every single tick, and the social surface never gets
+// a slot at all — no social post is ever generated, let alone auto-published.
+// It also meant an hourly cron authored a fresh blog article (and burned a
+// topic + an AI call) every hour instead of once a day.
+//
+// Deduped by post id so an auto-published post — authored AND published in the
+// same tick — still consumes exactly one slot, keeping behaviour identical to
+// the previous logic once auto-publish is on. 'failed' generations don't count:
+// nothing was produced, so the slot is still open.
+async function slotsUsedTodayCounts(): Promise<Map<string, number>> {
   const since = new Date();
   since.setUTCHours(0, 0, 0, 0);
   const isoSince = since.toISOString();
-  const counts = new Map<string, number>();
 
-  const [{ data: blog }, { data: social }] = await Promise.all([
+  const [
+    { data: blogPub },
+    { data: socialPub },
+    { data: blogMade },
+    { data: socialMade },
+  ] = await Promise.all([
     supabaseAdmin
       .from("blog_posts")
-      .select("product_focus")
+      .select("id, product_focus")
       .eq("status", "published")
       .gte("published_at", isoSince),
     supabaseAdmin
       .from("social_posts")
-      .select("product_focus")
+      .select("id, product_focus")
       .eq("status", "published")
       .gte("published_at", isoSince),
+    supabaseAdmin
+      .from("blog_posts")
+      .select("id, product_focus")
+      .eq("generated_by", "ai")
+      .neq("status", "failed")
+      .gte("created_at", isoSince),
+    supabaseAdmin
+      .from("social_posts")
+      .select("id, product_focus")
+      .eq("generated_by", "ai")
+      .neq("status", "failed")
+      .gte("created_at", isoSince),
   ]);
 
-  for (const row of blog ?? []) {
-    const k = `blog:${row.product_focus}`;
-    counts.set(k, (counts.get(k) ?? 0) + 1);
-  }
-  for (const row of social ?? []) {
-    const k = `social:${row.product_focus}`;
+  return tallySlots([
+    ...(blogPub ?? []).map((r) => ({ surface: "blog" as const, ...r })),
+    ...(blogMade ?? []).map((r) => ({ surface: "blog" as const, ...r })),
+    ...(socialPub ?? []).map((r) => ({ surface: "social" as const, ...r })),
+    ...(socialMade ?? []).map((r) => ({ surface: "social" as const, ...r })),
+  ]);
+}
+
+// Pure tally (unit-tested): fold rows into `surface:product_focus` counts,
+// counting each post id at most once.
+export function tallySlots(
+  rows: Array<{ surface: Surface; id: string; product_focus: string }>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    const k = `${row.surface}:${row.product_focus}`;
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
   return counts;
@@ -207,14 +252,20 @@ async function aiPublishedLast7Days(): Promise<number> {
 // "Which product needs the next slot?" — picks whichever (gt vs fd)
 // has fewer rows in the last 14 days for this surface so the two
 // products stay balanced over time. Defaults to gradethread on ties.
+//
+// Counts AUTHORED, not published, for the same reason as slotsUsedTodayCounts:
+// with auto-publish off nothing is ever published, every window is empty, and
+// the tie-break would hand every slot to gradethread forever — the two products
+// would drift apart precisely while the engine runs in draft-only mode.
 async function pickProductFocus(surface: Surface): Promise<Product> {
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const table = surface === "blog" ? "blog_posts" : "social_posts";
   const { data } = await supabaseAdmin
     .from(table)
     .select("product_focus")
-    .eq("status", "published")
-    .gte("published_at", since);
+    .eq("generated_by", "ai")
+    .neq("status", "failed")
+    .gte("created_at", since);
   let gt = 0, fd = 0;
   for (const row of data ?? []) {
     if (row.product_focus === "flipdesk") fd++;
@@ -857,6 +908,29 @@ async function runSocialTick(
     };
   }
 
+  // US-2104 AC3, third path. The guard was wired into the manual publish route
+  // and the scheduled-queue drain but NOT here — the AI-creation path, which is
+  // both unattended and the one that runs on every tick. With every
+  // make_webhook_social* unset it would flip a freshly generated post straight
+  // to 'published' (terminal) while the fan-out skipped with attempts:0, no
+  // webhook log and no dead letter: one silently lost post per tick, forever,
+  // with the engine reporting success. Leave it a draft instead — it is
+  // publishable by hand the moment a destination exists.
+  if (!(await hasAnySocialWebhookConfigured())) {
+    console.warn(
+      `[scheduler] generated social post ${draft.id} but NO social webhook is ` +
+        `configured (make_webhook_social / _long / _short all unset) — leaving it ` +
+        `as a draft rather than marking it published with nothing sent.`,
+    );
+    return {
+      surface: "social",
+      product_focus: product,
+      post_id: draft.id,
+      status: "draft",
+      reason: "no social webhook configured — left as draft",
+    };
+  }
+
   // US-486 safety/claims review before the autonomous publish — ADVISORY as of
   // 2026-07 (see blog path). A non-pass verdict no longer holds the post: it
   // publishes and is tagged safety_status='flagged' for after-the-fact review.
@@ -1027,7 +1101,7 @@ contentSchedulerRoutes.post("/tick", async (c) => {
   // scheduled_for. Counts toward today's cadence below.
   const publishedScheduled = await publishDueScheduledPosts(settings);
 
-  const today = await publishedTodayCounts();
+  const today = await slotsUsedTodayCounts();
 
   // Decide which surface (if any) is due for a slot.
   let surface: Surface | null = body.force_surface ?? null;
