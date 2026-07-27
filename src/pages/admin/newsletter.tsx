@@ -52,6 +52,7 @@ import {
   Star,
   Clock,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // ── Types (mirror the /api/admin/newsletter console payloads) ────────────────
 
@@ -436,9 +437,11 @@ export function AdminNewsletterConsolePage() {
           {issues.isLoading ? (
             <Skeleton className="h-40 w-full" />
           ) : (issues.data ?? []).length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              No issues yet. Use “Build next issue now” to scaffold a draft.
-            </p>
+            <EmptyState
+              icon={Send}
+              title="No issues yet"
+              description="Use “Build next issue now” to scaffold a draft."
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

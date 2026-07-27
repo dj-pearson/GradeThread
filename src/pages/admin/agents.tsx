@@ -51,6 +51,7 @@ import {
   Check,
   X,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -354,9 +355,11 @@ export function AdminAgentsPage() {
             )
             : agents.length === 0
             ? (
-              <p className="p-8 text-center text-sm text-muted-foreground">
-                No agents registered yet.
-              </p>
+              <EmptyState
+                icon={Bot}
+                title="No agents registered yet"
+                description="Registered agents will appear here once they're configured."
+              />
             )
             : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

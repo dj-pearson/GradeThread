@@ -718,10 +718,11 @@ export function SubmissionsPage() {
           ) : disputesLoading ? (
             <LoadingSkeleton />
           ) : myDisputes.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No disputes filed. If you disagree with a grade, you can dispute it
-              from the submission detail page within 7 days.
-            </p>
+            <EmptyState
+              icon={Flag}
+              title="No disputes filed"
+              description="If you disagree with a grade, you can dispute it from the submission detail page within 7 days."
+            />
           ) : (
             <div className="overflow-x-auto">
               <Table>

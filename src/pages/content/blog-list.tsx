@@ -24,7 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Sparkles, ExternalLink, Trash2, Loader2 } from "lucide-react";
+import { Plus, Sparkles, ExternalLink, Trash2, Loader2, FileText } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   CONTENT_PRODUCTS,
   CONTENT_STATUSES,
@@ -190,8 +191,20 @@ export function BlogListPage() {
         </Card>
       ) : posts.length === 0 ? (
         <Card>
-          <CardContent className="flex h-32 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-            <span>No posts yet.</span>
+          <CardContent className="p-0">
+            <EmptyState
+              icon={FileText}
+              title="No posts yet"
+              description="Create your first blog post to get started."
+              action={{
+                label: "New post",
+                icon: Plus,
+                onClick: () => {
+                  setNewTitle("");
+                  setNewPostOpen(true);
+                },
+              }}
+            />
           </CardContent>
         </Card>
       ) : (

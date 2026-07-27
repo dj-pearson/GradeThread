@@ -4611,7 +4611,7 @@
     {
       "id": "US-2194",
       "priority": 2524,
-      "passes": false,
+      "passes": true,
       "title": "ui: broaden EmptyState adoption + centralize badge colors",
       "description": "As a user, I want polished empty states and consistent status/plan badges, so empty and populated views feel equally finished.",
       "acceptanceCriteria": [

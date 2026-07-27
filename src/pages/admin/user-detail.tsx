@@ -11,7 +11,7 @@ import type {
   UserPlan,
   UserRole,
 } from "@/types/database";
-import { PLANS } from "@/lib/constants";
+import { PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -85,20 +85,6 @@ const STATUS_COLORS: Record<string, string> = {
   completed: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
   failed: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
   disputed: "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
-};
-
-const PLAN_COLORS: Record<string, string> = {
-  free: "bg-muted text-muted-foreground",
-  starter: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
-  professional: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
-  enterprise: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
-};
-
-const ROLE_COLORS: Record<string, string> = {
-  user: "bg-muted text-muted-foreground",
-  reviewer: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
-  admin: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
-  super_admin: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
 };
 
 // US-1564: message templates come from GET /api/admin/messages/templates —
@@ -558,7 +544,7 @@ export function AdminUserDetailPage() {
               <div className="flex items-center gap-2 text-sm">
                 <CreditCard className="h-4 w-4 text-muted-foreground" />
                 <span className="text-muted-foreground">Plan:</span>
-                <Badge variant="secondary" className={PLAN_COLORS[targetUser.plan] ?? ""}>
+                <Badge variant="secondary" className={getPlanBadgeClasses(targetUser.plan)}>
                   {PLANS[targetUser.plan]?.name ?? targetUser.plan}
                 </Badge>
                 {isSuspended && (
@@ -568,7 +554,7 @@ export function AdminUserDetailPage() {
               <div className="flex items-center gap-2 text-sm">
                 <Shield className="h-4 w-4 text-muted-foreground" />
                 <span className="text-muted-foreground">Role:</span>
-                <Badge variant="secondary" className={ROLE_COLORS[targetUser.role] ?? ""}>
+                <Badge variant="secondary" className={getRoleBadgeClasses(targetUser.role)}>
                   {formatRole(targetUser.role)}
                 </Badge>
               </div>

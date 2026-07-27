@@ -847,6 +847,47 @@ export function getStatusBadgeClasses(status: string): string {
   return tone ? STATUS_TONE_CLASSES[tone] : "";
 }
 
+// ─── Plan + role badge colors ────────────────────────────────────
+// Single source of truth for the soft plan/role pills in the admin/billing
+// surfaces (previously hand-maintained per page, where an unlisted key fell
+// through to no color at all). Every unknown key resolves to a neutral pill via
+// the helpers below, so a badge is NEVER left uncolored.
+
+// Neutral fallback shared by both helpers.
+const NEUTRAL_BADGE_CLASSES = "bg-muted text-muted-foreground";
+
+// Keyed off the canonical FlipDesk plan set (free/starter/pro/business) AND the
+// legacy UserPlan keys (professional/enterprise) still stored on users.plan, so
+// both spellings of the paid tiers pick up the same color while the sets
+// coexist (US-202). pro ≡ professional (blue), business ≡ enterprise (amber).
+const PLAN_BADGE_CLASSES: Record<string, string> = {
+  free: NEUTRAL_BADGE_CLASSES,
+  starter: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  pro: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  professional: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  business: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
+  enterprise: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
+};
+
+// Keyed off the UserRole set (user/reviewer/admin/super_admin).
+const ROLE_BADGE_CLASSES: Record<string, string> = {
+  user: NEUTRAL_BADGE_CLASSES,
+  reviewer: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  admin: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
+  super_admin: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
+};
+
+// Soft pill classes for a plan badge. Unknown/diverged keys → neutral (never
+// uncolored).
+export function getPlanBadgeClasses(plan: string): string {
+  return PLAN_BADGE_CLASSES[plan] ?? NEUTRAL_BADGE_CLASSES;
+}
+
+// Soft pill classes for a role badge. Unknown roles → neutral (never uncolored).
+export function getRoleBadgeClasses(role: string): string {
+  return ROLE_BADGE_CLASSES[role] ?? NEUTRAL_BADGE_CLASSES;
+}
+
 // ─── Grade-score color tokens ────────────────────────────────────
 // Single source for grade-score coloring across the app — vault/20-domain/brand-design-system.md §3B
 // refreshed media kit: Emerald Mint (>7), Amber Gold (5–7), AA-safe brand red

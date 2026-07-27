@@ -8,6 +8,7 @@ import {
   TrendingUp,
   AlertTriangle,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Card,
   CardContent,
@@ -264,10 +265,11 @@ export function AdminKeywordResearchPage() {
               <Skeleton className="h-10 w-full" />
             </div>
           ) : keywords.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No keywords yet. Click <span className="font-medium">Refresh now</span> to ingest from
-              the Google Ads keyword planner.
-            </p>
+            <EmptyState
+              icon={Search}
+              title="No keywords yet"
+              description="Click “Refresh now” to ingest keywords from the Google Ads keyword planner."
+            />
           ) : (
             <div className="space-y-6">
               {grouped.map(([groupTheme, items]) => (

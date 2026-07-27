@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import type { UserRow } from "@/types/database";
 import { fetchAdminUserListStats } from "@/lib/admin-aggregates";
-import { PLANS } from "@/lib/constants";
+import { PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -35,20 +35,6 @@ import { toast } from "sonner";
 function asString(v: unknown, fallback: string): string {
   return typeof v === "string" ? v : fallback;
 }
-
-const ROLE_COLORS: Record<string, string> = {
-  user: "bg-muted text-muted-foreground",
-  reviewer: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
-  admin: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
-  super_admin: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
-};
-
-const PLAN_COLORS: Record<string, string> = {
-  free: "bg-muted text-muted-foreground",
-  starter: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
-  professional: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
-  enterprise: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
-};
 
 function formatRole(role: string): string {
   if (role === "super_admin") return "Super Admin";
@@ -462,7 +448,7 @@ export function AdminUsersPage() {
                       <TableCell>
                         <Badge
                           variant="secondary"
-                          className={PLAN_COLORS[user.plan] ?? ""}
+                          className={getPlanBadgeClasses(user.plan)}
                         >
                           {PLANS[user.plan]?.name ?? user.plan}
                         </Badge>
@@ -470,7 +456,7 @@ export function AdminUsersPage() {
                       <TableCell>
                         <Badge
                           variant="secondary"
-                          className={ROLE_COLORS[user.role] ?? ""}
+                          className={getRoleBadgeClasses(user.role)}
                         >
                           {formatRole(user.role)}
                         </Badge>

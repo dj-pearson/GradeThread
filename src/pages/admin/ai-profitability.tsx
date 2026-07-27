@@ -27,7 +27,9 @@ import {
   AlertTriangle,
   TrendingUp,
   TrendingDown,
+  Cpu,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // ── API payload types (mirror the ai_profitability RPC, migration 00240) ──
 
@@ -303,9 +305,11 @@ export function AdminAiProfitabilityPage() {
               ))}
             </div>
           ) : (data?.features.length ?? 0) === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              No AI features configured.
-            </p>
+            <EmptyState
+              icon={Cpu}
+              title="No AI features configured"
+              description="Configured AI features and their profitability will appear here."
+            />
           ) : (
             <Table>
               <TableHeader>
