@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useMeasurementPrefs } from "@/stores/measurement-prefs";
@@ -57,6 +58,7 @@ export function BodyProfilesPage() {
   const userId = useAuthStore((s) => s.user?.id) ?? null;
   const { unit, setUnit } = useMeasurementPrefs();
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -121,7 +123,15 @@ export function BodyProfilesPage() {
     }
   }
 
-  async function remove(id: string) {
+  async function remove(id: string, name: string) {
+    const ok = await confirm({
+      title: `Delete "${name}"?`,
+      description:
+        "This permanently removes this measurement profile. This can't be undone.",
+      confirmLabel: "Delete profile",
+      destructive: true,
+    });
+    if (!ok) return;
     const { error } = await supabase.from("body_profiles").delete().eq("id", id);
     if (error) {
       toast.error("Couldn't delete that profile.");
@@ -208,7 +218,7 @@ export function BodyProfilesPage() {
                       size="sm"
                       variant="ghost"
                       aria-label={`Delete ${p.name}`}
-                      onClick={() => remove(p.id)}
+                      onClick={() => remove(p.id, p.name)}
                     >
                       <Trash2 className="h-4 w-4 text-brand-red" />
                     </Button>

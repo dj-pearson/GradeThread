@@ -44,6 +44,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ErrorState } from "@/components/ui/error-state";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { InviteMemberDialog } from "@/components/team/invite-member-dialog";
 import {
   ASSIGNABLE_WORKSPACE_ROLES,
@@ -64,6 +66,11 @@ export function TeamPage() {
   const { user, profile } = useAuth();
   const { workspaceOwnerId, role, can, isPersonal, isOwner } = useWorkspace();
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
+  // Tracks the single in-flight member/invitation action so its control can
+  // disable + spin while the mutation runs (US-2190). Keyed `action:id`, e.g.
+  // "role:<memberId>", "remove:<memberId>", "revoke:<inviteId>".
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [lastInvite, setLastInvite] = useState<
     | { inviteUrl: string; emailSent: boolean }
@@ -147,50 +154,73 @@ export function TeamPage() {
   // of a direct workspace_members RLS write from the browser.
   async function updateRole(memberId: string, newRole: WorkspaceRole) {
     if (!workspaceOwnerId) return;
-    const res = await edgeFetch(`/api/workspace/members/${memberId}/role`, {
-      method: "PATCH",
-      json: { role: newRole },
-    });
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    if (!res.ok) {
-      toast.error(data.error ?? "Couldn't update that member's role.");
-      return;
+    setPendingAction(`role:${memberId}`);
+    try {
+      const res = await edgeFetch(`/api/workspace/members/${memberId}/role`, {
+        method: "PATCH",
+        json: { role: newRole },
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't update that member's role.");
+        return;
+      }
+      toast.success("Role updated");
+      queryClient.invalidateQueries({ queryKey: ["workspace-members", workspaceOwnerId] });
+    } finally {
+      setPendingAction((p) => (p === `role:${memberId}` ? null : p));
     }
-    toast.success("Role updated");
-    queryClient.invalidateQueries({ queryKey: ["workspace-members", workspaceOwnerId] });
   }
 
   async function removeMember(memberId: string) {
     if (!workspaceOwnerId) return;
-    const res = await edgeFetch(`/api/workspace/members/${memberId}/remove`, {
-      method: "POST",
-    });
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    if (!res.ok) {
-      toast.error(data.error ?? "Couldn't remove that member.");
-      return;
+    setPendingAction(`remove:${memberId}`);
+    try {
+      const res = await edgeFetch(`/api/workspace/members/${memberId}/remove`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't remove that member.");
+        return;
+      }
+      toast.success("Member removed");
+      queryClient.invalidateQueries({ queryKey: ["workspace-members", workspaceOwnerId] });
+    } finally {
+      setPendingAction((p) => (p === `remove:${memberId}` ? null : p));
     }
-    toast.success("Member removed");
-    queryClient.invalidateQueries({ queryKey: ["workspace-members", workspaceOwnerId] });
   }
 
   async function revokeInvitation(id: string) {
-    const { error } = await supabase
-      .from("workspace_invitations")
-      .update({ revoked_at: new Date().toISOString() } as never)
-      .eq("id", id);
-    if (error) {
-      toast.error(error.message);
-      return;
+    const ok = await confirm({
+      title: "Revoke this invitation?",
+      description:
+        "The invite link stops working immediately. You can send a fresh invitation later if needed.",
+      confirmLabel: "Revoke invitation",
+      destructive: true,
+    });
+    if (!ok) return;
+    setPendingAction(`revoke:${id}`);
+    try {
+      const { error } = await supabase
+        .from("workspace_invitations")
+        .update({ revoked_at: new Date().toISOString() } as never)
+        .eq("id", id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      toast.success("Invitation revoked");
+      queryClient.invalidateQueries({ queryKey: ["workspace-invitations", workspaceOwnerId] });
+    } finally {
+      setPendingAction((p) => (p === `revoke:${id}` ? null : p));
     }
-    toast.success("Invitation revoked");
-    queryClient.invalidateQueries({ queryKey: ["workspace-invitations", workspaceOwnerId] });
   }
 
-  async function copyInviteLink(token: string) {
-    const url = `${window.location.origin}/accept-invite?token=${token}`;
-    // clipboard.writeText throws in denied-permission / insecure-origin contexts
-    // — guard it so the page doesn't crash on an unhandled rejection (US-798).
+  // clipboard.writeText throws in denied-permission / insecure-origin contexts
+  // — guard it so the page doesn't crash on an unhandled rejection (US-798) and
+  // so the toast reflects real success/failure (US-2191).
+  async function copyInviteUrl(url: string) {
     try {
       await navigator.clipboard.writeText(url);
       toast.success("Invite link copied");
@@ -199,24 +229,34 @@ export function TeamPage() {
     }
   }
 
+  async function copyInviteLink(token: string) {
+    const url = `${window.location.origin}/accept-invite?token=${token}`;
+    await copyInviteUrl(url);
+  }
+
   async function resendInvitation(id: string) {
-    const res = await edgeFetch(`/api/workspace/invitations/${id}/resend`, {
-      method: "POST",
-    });
-    const data = (await res.json().catch(() => ({}))) as {
-      email_sent?: boolean;
-      error?: string;
-    };
-    if (!res.ok) {
-      toast.error(data.error || "Could not resend invitation");
-      return;
-    }
-    if (data.email_sent) {
-      toast.success("Invitation email resent");
-    } else {
-      toast.warning(
-        "Email service failed — share the invite link manually for now",
-      );
+    setPendingAction(`resend:${id}`);
+    try {
+      const res = await edgeFetch(`/api/workspace/invitations/${id}/resend`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        email_sent?: boolean;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(data.error || "Could not resend invitation");
+        return;
+      }
+      if (data.email_sent) {
+        toast.success("Invitation email resent");
+      } else {
+        toast.warning(
+          "Email service failed — share the invite link manually for now",
+        );
+      }
+    } finally {
+      setPendingAction((p) => (p === `resend:${id}` ? null : p));
     }
   }
 
@@ -272,10 +312,7 @@ export function TeamPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                navigator.clipboard.writeText(lastInvite.inviteUrl);
-                toast.success("Copied");
-              }}
+              onClick={() => copyInviteUrl(lastInvite.inviteUrl)}
             >
               <Copy className="mr-2 h-4 w-4" /> Copy
             </Button>
@@ -295,6 +332,14 @@ export function TeamPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {membersQuery.isError ? (
+            <ErrorState
+              title="Couldn't load team members"
+              description="Something went wrong while loading your workspace members."
+              onRetry={() => membersQuery.refetch()}
+              retrying={membersQuery.isFetching}
+            />
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -339,21 +384,27 @@ export function TeamPage() {
                   </TableCell>
                   <TableCell>
                     {canManage ? (
-                      <Select
-                        value={m.role}
-                        onValueChange={(v) => updateRole(m.member_id, v as WorkspaceRole)}
-                      >
-                        <SelectTrigger className="w-44">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ASSIGNABLE_WORKSPACE_ROLES.map((r) => (
-                            <SelectItem key={r} value={r}>
-                              {WORKSPACE_ROLE_LABEL[r]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={m.role}
+                          onValueChange={(v) => updateRole(m.member_id, v as WorkspaceRole)}
+                          disabled={pendingAction === `role:${m.member_id}`}
+                        >
+                          <SelectTrigger className="w-44">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ASSIGNABLE_WORKSPACE_ROLES.map((r) => (
+                              <SelectItem key={r} value={r}>
+                                {WORKSPACE_ROLE_LABEL[r]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {pendingAction === `role:${m.member_id}` && (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        )}
+                      </div>
                     ) : (
                       <Badge variant="secondary">
                         {WORKSPACE_ROLE_LABEL[m.role]}
@@ -369,9 +420,14 @@ export function TeamPage() {
                         variant="ghost"
                         size="icon"
                         onClick={() => setRemoveMemberId(m.member_id)}
+                        disabled={pendingAction === `remove:${m.member_id}`}
                         aria-label="Remove member"
                       >
-                        <Trash2 className="h-4 w-4 text-destructive" />
+                        {pendingAction === `remove:${m.member_id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        )}
                       </Button>
                     )}
                   </TableCell>
@@ -386,12 +442,13 @@ export function TeamPage() {
               )}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
 
       {isOwner && <WorkspaceMfaPolicyCard ownerId={workspaceOwnerId} />}
 
-      {canManage && invites.length > 0 && (
+      {canManage && (invites.length > 0 || invitesQuery.isError) && (
         <Card>
           <CardHeader>
             <CardTitle>Pending invitations</CardTitle>
@@ -401,6 +458,14 @@ export function TeamPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {invitesQuery.isError ? (
+              <ErrorState
+                title="Couldn't load pending invitations"
+                description="Something went wrong while loading your workspace invitations."
+                onRetry={() => invitesQuery.refetch()}
+                retrying={invitesQuery.isFetching}
+              />
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -428,9 +493,14 @@ export function TeamPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => resendInvitation(inv.id)}
+                          disabled={pendingAction === `resend:${inv.id}`}
                           title="Resend invitation email"
                         >
-                          <Send className="mr-1 h-3.5 w-3.5" />
+                          {pendingAction === `resend:${inv.id}` ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Send className="mr-1 h-3.5 w-3.5" />
+                          )}
                           Resend
                         </Button>
                         <Button
@@ -445,9 +515,14 @@ export function TeamPage() {
                           variant="ghost"
                           size="icon"
                           onClick={() => revokeInvitation(inv.id)}
+                          disabled={pendingAction === `revoke:${inv.id}`}
                           aria-label="Revoke invitation"
                         >
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                          {pendingAction === `revoke:${inv.id}` ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          )}
                         </Button>
                       </div>
                     </TableCell>
@@ -455,6 +530,7 @@ export function TeamPage() {
                 ))}
               </TableBody>
             </Table>
+            )}
           </CardContent>
         </Card>
       )}
@@ -525,17 +601,30 @@ function WorkspaceMfaPolicyCard({ ownerId }: { ownerId: string | null }) {
   const [value, setValue] = useState<string>("off");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // US-2185: a failed GET must not silently render "Not required" — that reads
+  // as an explicit, safe setting when the real policy is unknown. Surface a
+  // retryable error instead of defaulting to off.
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let active = true;
     (async () => {
       setLoading(true);
+      setLoadError(false);
       try {
         const res = await edgeFetch("/api/workspace/mfa-policy", { method: "GET" });
         const data = (await res.json().catch(() => ({}))) as {
           required_role?: string | null;
         };
-        if (active && res.ok) setValue(data.required_role ?? "off");
+        if (!active) return;
+        if (res.ok) {
+          setValue(data.required_role ?? "off");
+        } else {
+          setLoadError(true);
+        }
+      } catch {
+        if (active) setLoadError(true);
       } finally {
         if (active) setLoading(false);
       }
@@ -543,7 +632,7 @@ function WorkspaceMfaPolicyCard({ ownerId }: { ownerId: string | null }) {
     return () => {
       active = false;
     };
-  }, [ownerId]);
+  }, [ownerId, reloadKey]);
 
   async function save(next: string) {
     const prev = value;
@@ -589,25 +678,37 @@ function WorkspaceMfaPolicyCard({ ownerId }: { ownerId: string | null }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        <div className="flex items-center gap-3">
-          <Select value={value} onValueChange={save} disabled={loading || saving}>
-            <SelectTrigger className="w-64">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MFA_POLICY_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {(loading || saving) && (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          )}
-        </div>
-        {activeHint && (
-          <p className="text-xs text-muted-foreground">{activeHint}</p>
+        {loadError ? (
+          <ErrorState
+            className="py-6"
+            title="Couldn't load the 2FA requirement"
+            description="We couldn't load your current policy, so it isn't shown to avoid implying it's off."
+            onRetry={() => setReloadKey((k) => k + 1)}
+            retrying={loading}
+          />
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <Select value={value} onValueChange={save} disabled={loading || saving}>
+                <SelectTrigger className="w-64">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MFA_POLICY_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {(loading || saving) && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+            {activeHint && (
+              <p className="text-xs text-muted-foreground">{activeHint}</p>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

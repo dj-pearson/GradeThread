@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/card";
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
@@ -164,6 +166,7 @@ interface EditLog {
 export function FlipdeskGridPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
+  const confirm = useConfirm();
   // US-958: search lives in the URL (`?q=`) so it carries across view-mode
   // switches (shared with the table + kanban views).
   const [search, setSearch] = useUrlParamState("q", "");
@@ -180,7 +183,8 @@ export function FlipdeskGridPage() {
   // slim column projection is ever loaded, with a grouped exact count for the
   // total — so a 5k+ item account stays responsive instead of transferring the
   // entire wide view on every render. Search is pushed to the server too.
-  const { data, isLoading, isPlaceholderData } = useQuery({
+  const { data, isLoading, isError, isPlaceholderData, refetch, isFetching } =
+    useQuery({
     queryKey: ["items_full", "grid", user?.id, page, search.trim()],
     enabled: !!user,
     // 15-min freshness — mutations invalidate items_full explicitly (US-735).
@@ -366,7 +370,18 @@ export function FlipdeskGridPage() {
     toast.info(`Pasted ${grid.length} row${grid.length === 1 ? "" : "s"}.`);
   }
 
-  function discardAll() {
+  async function discardAll() {
+    // Confirm before wiping a non-trivial batch of unsaved edits — a stray
+    // click here would otherwise silently destroy the whole staging buffer.
+    if (staged.size > 3) {
+      const ok = await confirm({
+        title: "Discard unsaved changes?",
+        description: `You have edits across ${staged.size} rows that haven't been saved. Discarding can't be undone.`,
+        confirmLabel: "Discard changes",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     setStaged(new Map());
     setHistory([]);
   }
@@ -462,6 +477,13 @@ export function FlipdeskGridPage() {
         <CardContent className="px-0">
           {isLoading ? (
             <TableLoadingSkeleton rows={10} columns={8} />
+          ) : isError ? (
+            <ErrorState
+              title="Couldn't load your inventory"
+              description="Something went wrong while loading these items."
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
           ) : pageRows.length === 0 ? (
             search.trim() ? (
               <EmptyState

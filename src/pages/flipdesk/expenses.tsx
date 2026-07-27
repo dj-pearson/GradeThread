@@ -39,6 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -66,6 +67,7 @@ function monthLabel(key: string): string {
 export function FlipdeskExpensesPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
+  const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const { data: expenses = [], isLoading } = useQuery({
@@ -97,6 +99,14 @@ export function FlipdeskExpensesPage() {
   );
 
   async function remove(id: string) {
+    const ok = await confirm({
+      title: "Delete this expense?",
+      description:
+        "This permanently removes the logged expense. This can't be undone.",
+      confirmLabel: "Delete expense",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       const { error } = await supabase
         .from("flipdesk_expenses")
@@ -104,6 +114,7 @@ export function FlipdeskExpensesPage() {
         .eq("id", id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["expenses"] });
+      toast.success("Expense deleted.");
     } catch (err) {
       toast.error(
         `Delete failed: ${err instanceof Error ? err.message : String(err)}`,

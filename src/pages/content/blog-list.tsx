@@ -6,6 +6,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
 import {
   Select,
@@ -14,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Sparkles, ExternalLink, Trash2 } from "lucide-react";
+import { Plus, Sparkles, ExternalLink, Trash2, Loader2 } from "lucide-react";
 import {
   CONTENT_PRODUCTS,
   CONTENT_STATUSES,
@@ -41,14 +51,18 @@ export function BlogListPage() {
   const del = useDeleteBlogPost();
   const tick = useSchedulerTick();
   const navigate = useNavigate();
+  const [newPostOpen, setNewPostOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
 
-  const newPost = async () => {
-    const title = window.prompt("Working title?");
-    if (!title?.trim()) return;
+  const createPost = async () => {
+    const title = newTitle.trim();
+    if (!title) return;
     const post = await create.mutateAsync({
-      title: title.trim(),
+      title,
       product_focus: (product as ContentProduct) || "both",
     });
+    setNewPostOpen(false);
+    setNewTitle("");
     navigate(`/admin/content/blog/editor/${post.id}`);
   };
 
@@ -68,12 +82,63 @@ export function BlogListPage() {
               <Sparkles className="mr-2 h-4 w-4" />
               {tick.isPending ? "Generating…" : "Generate next"}
             </Button>
-            <Button onClick={newPost} disabled={create.isPending}>
+            <Button
+              onClick={() => {
+                setNewTitle("");
+                setNewPostOpen(true);
+              }}
+              disabled={create.isPending}
+            >
               <Plus className="mr-2 h-4 w-4" /> New post
             </Button>
           </>
         }
       />
+
+      <Dialog open={newPostOpen} onOpenChange={setNewPostOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New post</DialogTitle>
+            <DialogDescription>
+              Give the post a working title. You can refine it in the editor.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label htmlFor="new-post-title">Working title</Label>
+            <Input
+              id="new-post-title"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newTitle.trim() && !create.isPending) {
+                  e.preventDefault();
+                  void createPost();
+                }
+              }}
+              placeholder="e.g. How to grade a vintage denim jacket"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setNewPostOpen(false)}
+              disabled={create.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void createPost()}
+              disabled={!newTitle.trim() || create.isPending}
+            >
+              {create.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Create post
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex gap-2">
         <Select value={status} onValueChange={setStatus}>

@@ -4496,7 +4496,7 @@
     {
       "id": "US-2185",
       "priority": 2505,
-      "passes": false,
+      "passes": true,
       "title": "ux: fix false empty-states on query error + guard remaining useQuery paths",
       "description": "As a user, I want a failed load to show an error+retry, not a fake 'no data' empty state, so I don't think my data vanished.",
       "acceptanceCriteria": [
@@ -4560,7 +4560,7 @@
     {
       "id": "US-2190",
       "priority": 2520,
-      "passes": false,
+      "passes": true,
       "title": "ux: destructive-action confirms + double-submit guards",
       "description": "As a user, I want confirmations and disabled-in-flight buttons on destructive/duplicating actions, so I don't delete or duplicate by misclick.",
       "acceptanceCriteria": [
@@ -4573,7 +4573,7 @@
     {
       "id": "US-2191",
       "priority": 2521,
-      "passes": false,
+      "passes": true,
       "title": "ux: replace window.prompt with dialogs + team clipboard/reliability polish",
       "description": "As a user, I want styled, validated inputs instead of raw browser prompts, and honest copy feedback, so flows feel finished and trustworthy.",
       "acceptanceCriteria": [
