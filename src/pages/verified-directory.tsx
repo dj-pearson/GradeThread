@@ -113,11 +113,15 @@ function SellerCard({ seller, rank }: { seller: DirectorySeller; rank: number })
 }
 
 export function VerifiedDirectoryPage() {
-  const [sellers, setSellers] = useState<DirectorySeller[] | null>(
-    () =>
-      resolvePrerenderSeed<{ sellers: DirectorySeller[] }>(SEED_KEY)?.sellers ??
-      null,
-  );
+  const [sellers, setSellers] = useState<DirectorySeller[] | null>(() => {
+    const seeded = resolvePrerenderSeed<{ sellers: DirectorySeller[] }>(
+      SEED_KEY,
+    )?.sellers;
+    // Only seed a NON-EMPTY list — an empty seed would render the EmptyState
+    // <h3> right under the page <h1> in the prerendered HTML (heading-outline
+    // skip). Empty directory = nothing to seed for GEO; skeleton until fetch.
+    return seeded && seeded.length > 0 ? seeded : null;
+  });
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("volume");
   const [query, setQuery] = useState("");

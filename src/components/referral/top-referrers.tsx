@@ -46,12 +46,17 @@ interface TopReferrersProps {
 // Self-contained public leaderboard list. Fetches the anonymous feed directly so
 // it works on both the authed referrals page and the public /leaderboard page.
 export function TopReferrers({ limit, className, seedKey }: TopReferrersProps) {
-  const [rows, setRows] = useState<LeaderboardReferrer[] | null>(() =>
-    seedKey
-      ? (resolvePrerenderSeed<{ referrers: LeaderboardReferrer[] }>(seedKey)
-          ?.referrers ?? null)
-      : null,
-  );
+  const [rows, setRows] = useState<LeaderboardReferrer[] | null>(() => {
+    if (!seedKey) return null;
+    const seeded = resolvePrerenderSeed<{ referrers: LeaderboardReferrer[] }>(
+      seedKey,
+    )?.referrers;
+    // Only seed a NON-EMPTY list. An empty seed would render the EmptyState
+    // (an <h3>) directly under the page <h1> in the prerendered HTML, skipping
+    // a heading level (heading-outline guard). An empty leaderboard has nothing
+    // to seed for GEO anyway — fall back to the skeleton until the client fetch.
+    return seeded && seeded.length > 0 ? seeded : null;
+  });
   const [error, setError] = useState(false);
   // US-1131: bump to re-run the fetch from the standardized ErrorState retry.
   const [attempt, setAttempt] = useState(0);
