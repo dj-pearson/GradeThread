@@ -247,11 +247,20 @@ async function buildValidation(
     itemMap.set(row.id, row);
   }
 
-  // Photo coverage — one query covering all items.
-  const { data: photosRaw } = await supabaseAdmin
-    .from("item_photos")
-    .select("inventory_item_id, photo_type")
-    .in("inventory_item_id", itemIds);
+  // Photo coverage — one query covering all items. US-2200: scope to items the
+  // caller actually owns (verified via itemMap.user_id === ownerId) rather than
+  // the raw request ids. Defense-in-depth: results are only consumed inside the
+  // ownership-gated branch below, but this keeps item_photos reads tenant-scoped
+  // via the owner-verified parent so a future refactor can't leak foreign rows.
+  const ownedItemIds = itemIds.filter(
+    (id) => itemMap.get(id)?.user_id === ownerId,
+  );
+  const { data: photosRaw } = ownedItemIds.length
+    ? await supabaseAdmin
+        .from("item_photos")
+        .select("inventory_item_id, photo_type")
+        .in("inventory_item_id", ownedItemIds)
+    : { data: [] as Array<{ inventory_item_id: string; photo_type: string }> };
   const photoTypesByItem = new Map<string, Set<string>>();
   for (const p of (photosRaw ?? []) as Array<{
     inventory_item_id: string;

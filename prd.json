@@ -4690,7 +4690,7 @@
     {
       "id": "US-2200",
       "priority": 2540,
-      "passes": false,
+      "passes": true,
       "title": "security: defense-in-depth tenant filter + robust bearer stripping",
       "description": "As the platform, I want belt-and-suspenders tenant scoping and safe token parsing, so future refactors can't turn a gated read into a leak.",
       "acceptanceCriteria": [

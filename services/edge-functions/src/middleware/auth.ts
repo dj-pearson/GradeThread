@@ -22,7 +22,9 @@ export const authMiddleware = createMiddleware<AuthEnv>(async (c, next) => {
     return c.json({ error: "Missing or invalid Authorization header" }, 401);
   }
 
-  const token = authHeader.replace("Bearer ", "");
+  // US-2200: strip exactly the checked "Bearer " prefix (7 chars) rather than
+  // .replace(), which would replace the first occurrence anywhere in the token.
+  const token = authHeader.slice(7);
 
   const { data, error } = await supabaseAdmin.auth.getUser(token);
 
