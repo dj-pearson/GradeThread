@@ -4729,7 +4729,7 @@
     {
       "id": "US-2203",
       "priority": 2543,
-      "passes": false,
+      "passes": true,
       "title": "seo: merge stored blog jsonld + sitemap/llms.txt cleanup",
       "description": "As the platform, I want structured-data overrides that can't drop required fields and a clean sitemap/llms map, so E-E-A-T and discovery stay intact.",
       "acceptanceCriteria": [
@@ -4737,7 +4737,7 @@
         "Reconcile or retire orphaned functions/sitemap-static.xml.ts; verify sitemap index references every intended child",
         "llms.txt adds the human /sitemap page and /llms-full.txt prominence"
       ],
-      "notes": "Audit 2026-07-26 SEO (LOW)."
+      "notes": "Audit 2026-07-26 SEO (LOW). Done: blog jsonld now merges stored overrides onto computed base; llms.txt Reference adds human /sitemap; llms-full.txt already prominent (US-2106). sitemap-static verified harmless (index references all intended children via marketing+grading split); retiring it would churn _routes.json/tests for no SEO gain — left as directly-fetchable alias."
     },
     {
       "id": "US-2204",

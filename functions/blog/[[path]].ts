@@ -428,8 +428,13 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   const speakable = speakableSpec(post);
   const aboutTerms = glossaryAboutLd(glossaryTerms, siteUrl(env));
 
-  // Article schema — prefer model-supplied jsonld if present, else build one.
-  const articleLd = post.jsonld ?? {
+  // Article schema — always build the full computed node, then let a
+  // model-supplied jsonld override individual fields on top of it. US-2203:
+  // previously `post.jsonld ?? {...}` REPLACED the computed node outright, so a
+  // partial stored blob could silently drop publisher/author/speakable/about
+  // (all E-E-A-T signals). Merging keeps those required fields present while
+  // still honoring editor overrides.
+  const computedArticleLd: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: post.title,
@@ -449,6 +454,13 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
     ...(speakable ? { speakable } : {}),
     ...(aboutTerms.length ? { about: aboutTerms } : {}),
   };
+  const storedArticleLd =
+    post.jsonld && typeof post.jsonld === "object" && !Array.isArray(post.jsonld)
+      ? (post.jsonld as Record<string, unknown>)
+      : null;
+  const articleLd = storedArticleLd
+    ? { ...computedArticleLd, ...storedArticleLd }
+    : computedArticleLd;
 
   // Breadcrumb: GradeThread › Blog › <post> (US-299) — same trail as the
   // visible <nav> above so the structured data and on-page links match (US-433).

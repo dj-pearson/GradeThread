@@ -336,7 +336,17 @@ export function buildLlmsSections(opts: {
   }
   sections.push({
     heading: "Reference",
-    links: [{ title: "Sitemap", url: "/sitemap.xml", note: "All indexable URLs." }],
+    links: [
+      // US-2203: also surface the human HTML sitemap — one in-site hop to every
+      // public page, so an engine that prefers a crawlable index over the XML
+      // feed can still reach the long tail.
+      {
+        title: "Site map",
+        url: "/sitemap",
+        note: "Human-readable index linking every public page.",
+      },
+      { title: "Sitemap (XML)", url: "/sitemap.xml", note: "All indexable URLs." },
+    ],
   });
   if (legal.length) sections.push({ heading: "Legal", links: legal });
   return sections;
