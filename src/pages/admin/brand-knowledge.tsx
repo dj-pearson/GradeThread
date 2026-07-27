@@ -250,8 +250,12 @@ export function AdminBrandKnowledgePage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search
+                aria-hidden="true"
+                className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground"
+              />
               <Input
+                aria-label="Search brands"
                 className="pl-8"
                 placeholder="Search brands…"
                 value={search}

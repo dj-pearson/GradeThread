@@ -1035,6 +1035,7 @@ function LinkPicker({
           </button>
         )}
         <Input
+          aria-label="Search items to reconcile"
           placeholder="Search title / brand / SKU…"
           value={q}
           onChange={(e) => setQ(e.target.value)}

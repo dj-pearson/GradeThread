@@ -623,9 +623,13 @@ export function FlipdeskAutolisterDraftsPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative w-full max-w-xs">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Search
+                  aria-hidden="true"
+                  className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
+                />
                 <Input
                   ref={searchRef}
+                  aria-label="Search drafts"
                   placeholder="Search drafts by title…  ( / )"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}

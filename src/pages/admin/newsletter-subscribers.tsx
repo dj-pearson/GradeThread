@@ -182,6 +182,7 @@ export function AdminNewsletterSubscribersPage() {
               }}
             >
               <Input
+                aria-label="Search subscribers"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search email…"

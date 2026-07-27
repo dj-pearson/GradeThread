@@ -61,7 +61,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Scale,
-  Search,
   ArrowUpDown,
   Eye,
   Check,
@@ -72,6 +71,7 @@ import {
   ImageIcon,
   AlertTriangle,
 } from "lucide-react";
+import { SearchInput } from "@/components/search-input";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 
@@ -676,18 +676,15 @@ export function AdminDisputesPage() {
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search title, email, reason..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                className="pl-9"
-              />
-            </div>
+            <SearchInput
+              label="Search disputes"
+              placeholder="Search title, email, reason..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+            />
 
             {/* Status filter */}
             <Select

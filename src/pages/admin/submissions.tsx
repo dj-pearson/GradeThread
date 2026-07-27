@@ -59,6 +59,7 @@ import {
   AlertTriangle,
   Loader2,
 } from "lucide-react";
+import { SearchInput } from "@/components/search-input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "sonner";
 
@@ -424,18 +425,16 @@ export function AdminSubmissionsPage() {
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {/* Search */}
-            <div className="relative sm:col-span-2 lg:col-span-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search title, email..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                className="pl-9"
-              />
-            </div>
+            <SearchInput
+              label="Search submissions"
+              placeholder="Search title, email..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              containerClassName="sm:col-span-2 lg:col-span-1"
+            />
 
             {/* Status filter */}
             <Select

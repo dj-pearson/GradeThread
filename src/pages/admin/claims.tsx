@@ -2,7 +2,6 @@ import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ShieldCheck,
-  Search,
   Eye,
   Check,
   X,
@@ -10,10 +9,10 @@ import {
   ExternalLink,
   AlertTriangle,
 } from "lucide-react";
+import { SearchInput } from "@/components/search-input";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -240,15 +239,12 @@ export function AdminClaimsPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search email, certificate, reason…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+            <SearchInput
+              label="Search claims"
+              placeholder="Search email, certificate, reason…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
               <SelectTrigger>
                 <SelectValue placeholder="All Statuses" />

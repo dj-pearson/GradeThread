@@ -327,7 +327,7 @@ export function InventoryPage() {
                   setPage(0);
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Status">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -349,7 +349,7 @@ export function InventoryPage() {
                   setPage(0);
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Garment type">
                   <SelectValue placeholder="Garment Type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -371,7 +371,7 @@ export function InventoryPage() {
                   setPage(0);
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Brand">
                   <SelectValue placeholder="Brand" />
                 </SelectTrigger>
                 <SelectContent>

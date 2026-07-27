@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
 import {
-  Search,
   ChevronLeft,
   ChevronRight,
   Pencil,
@@ -37,6 +36,7 @@ import {
   CalendarClock,
   Trash2,
 } from "lucide-react";
+import { SearchInput } from "@/components/search-input";
 import {
   Card,
   CardContent,
@@ -58,7 +58,6 @@ import {
 } from "@/components/ui/sheet";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -1984,15 +1983,14 @@ export function FlipdeskListingsPage() {
           state are shared, so the sheet round-trips with the URL filter and the
           desktop surface (US-958 unified state). */}
       <div className="flex items-center gap-2 md:hidden">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search title, brand, SKU…"
-            className="w-full pl-9"
-          />
-        </div>
+        <SearchInput
+          label="Search listings"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search title, brand, SKU…"
+          containerClassName="flex-1"
+          className="w-full"
+        />
         <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
           <SheetTrigger asChild>
             <Button
@@ -2090,15 +2088,13 @@ export function FlipdeskListingsPage() {
       </div>
 
       <div className="hidden flex-wrap items-center gap-2 md:flex">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search title, brand, SKU…"
-            className="w-64 pl-9"
-          />
-        </div>
+        <SearchInput
+          label="Search listings"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search title, brand, SKU…"
+          className="w-64"
+        />
         {isToList && (
           <Select
             value={sortPreset}

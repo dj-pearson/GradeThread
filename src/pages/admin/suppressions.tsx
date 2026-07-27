@@ -144,6 +144,7 @@ export function AdminSuppressionsPage() {
             }}
           >
             <Input
+              aria-label="Search suppressions"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search email…"

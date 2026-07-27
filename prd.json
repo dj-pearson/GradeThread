@@ -4443,7 +4443,7 @@
     {
       "id": "US-2181",
       "priority": 2501,
-      "passes": false,
+      "passes": true,
       "title": "a11y: shared accessible SearchInput (aria-label) for placeholder-only filters",
       "description": "As a screen-reader user, I want search/filter inputs to have an accessible name, so I know what each field does after typing.",
       "acceptanceCriteria": [

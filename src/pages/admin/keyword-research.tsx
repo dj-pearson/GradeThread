@@ -219,8 +219,12 @@ export function AdminKeywordResearchPage() {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative min-w-56 flex-1">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search
+                aria-hidden="true"
+                className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
+              />
               <Input
+                aria-label="Search keyword"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search keyword…"

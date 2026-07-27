@@ -298,6 +298,7 @@ export function AdminWaitlistPage() {
             <CardTitle>Entries</CardTitle>
             <div className="flex flex-wrap items-center gap-2">
               <Input
+                aria-label="Search waitlist"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search email…"

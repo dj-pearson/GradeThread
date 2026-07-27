@@ -202,8 +202,12 @@ export function AdminCategoryMapPage() {
 
       <div className="flex flex-wrap gap-3">
         <div className="relative w-64">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search
+            aria-hidden="true"
+            className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
+          />
           <Input
+            aria-label="Search garment / category"
             className="pl-8"
             placeholder="Search garment / category…"
             value={search}

@@ -1050,6 +1050,7 @@ function LinkItemDialog({
 
         <div className="space-y-3">
           <Input
+            aria-label="Search items"
             placeholder="Search items by title or SKU…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}

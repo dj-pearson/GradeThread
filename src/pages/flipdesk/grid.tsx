@@ -15,6 +15,7 @@ import {
   Loader2,
   Undo2,
 } from "lucide-react";
+import { SearchInput } from "@/components/search-input";
 import {
   Card,
   CardContent,
@@ -25,7 +26,6 @@ import {
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
@@ -436,15 +436,13 @@ export function FlipdeskGridPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search title, brand, SKU…"
-            className="w-64 pl-9"
-          />
-        </div>
+        <SearchInput
+          label="Search inventory"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search title, brand, SKU…"
+          className="w-64"
+        />
         {history.length > 0 && (
           <Button variant="ghost" size="sm" onClick={undo}>
             <Undo2 className="mr-2 h-4 w-4" />

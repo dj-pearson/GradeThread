@@ -16,7 +16,6 @@ import {
 import {
   LayoutGrid,
   Filter,
-  Search,
   Plus,
   Upload,
   Tag,
@@ -32,6 +31,7 @@ import {
   ListChecks,
   Award,
 } from "lucide-react";
+import { SearchInput } from "@/components/search-input";
 import { toast } from "sonner";
 import {
   Card,
@@ -561,15 +561,13 @@ export function FlipdeskPipelinePage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search title, brand, SKU…"
-            className="w-64 pl-9"
-          />
-        </div>
+        <SearchInput
+          label="Search items"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search title, brand, SKU…"
+          className="w-64"
+        />
         <Select
           value={categoryFilter}
           onValueChange={(v) => setCategoryFilter(v as ItemCategory | "all")}

@@ -338,8 +338,12 @@ export function AdminAuditLogPage() {
       <Card>
         <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
           <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            />
             <Input
+              aria-label="Search audit log"
               className="pl-8"
               placeholder="Search action, target or details…"
               value={searchInput}

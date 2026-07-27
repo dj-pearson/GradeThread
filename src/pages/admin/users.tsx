@@ -26,7 +26,8 @@ import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Users, Search, Loader2, Crosshair } from "lucide-react";
+import { Users, Loader2, Crosshair } from "lucide-react";
+import { SearchInput } from "@/components/search-input";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { AdminSavedViews } from "@/components/admin/admin-saved-views";
 import { toast } from "sonner";
@@ -281,18 +282,16 @@ export function AdminUsersPage() {
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {/* Search */}
-            <div className="relative sm:col-span-2 lg:col-span-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search name or email..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                className="pl-9"
-              />
-            </div>
+            <SearchInput
+              label="Search users"
+              placeholder="Search name or email..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              containerClassName="sm:col-span-2 lg:col-span-1"
+            />
 
             {/* Plan filter */}
             <Select

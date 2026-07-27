@@ -279,6 +279,7 @@ export function AdminTaskBoardPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         <Input
+          aria-label="Search tasks"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search tasks…"
