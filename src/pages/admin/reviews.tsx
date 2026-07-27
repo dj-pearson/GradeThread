@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -620,10 +621,11 @@ export function AdminReviewsPage() {
                   </TableRow>
                 ) : (
                   paginated.map((item) => (
-                    <TableRow
+                    <ClickableRow
                       key={item.report_id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => openReview(item)}
+                      className="hover:bg-muted/50"
+                      onActivate={() => openReview(item)}
+                      activateLabel={`Review ${item.title ?? "submission"}`}
                     >
                       <TableCell className="font-medium max-w-[200px] truncate">
                         {item.title ?? "—"}
@@ -676,7 +678,7 @@ export function AdminReviewsPage() {
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                   ))
                 )}
               </TableBody>

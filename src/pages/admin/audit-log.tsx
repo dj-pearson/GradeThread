@@ -35,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import {
   AlertTriangle,
   ChevronDown,
@@ -531,10 +532,14 @@ export function AdminAuditLogPage() {
                       const isSystem = !log.admin_user_id;
                       return (
                         <Fragment key={log.id}>
-                          <TableRow
-                            className="cursor-pointer"
-                            onClick={() =>
+                          <ClickableRow
+                            onActivate={() =>
                               setExpandedId(isExpanded ? null : log.id)
+                            }
+                            activateLabel={
+                              isExpanded
+                                ? "Collapse entry details"
+                                : "Expand entry details"
                             }
                           >
                             <TableCell>
@@ -597,7 +602,7 @@ export function AdminAuditLogPage() {
                             <TableCell className="max-w-[160px] truncate font-mono text-xs text-muted-foreground">
                               {log.target_id ?? "—"}
                             </TableCell>
-                          </TableRow>
+                          </ClickableRow>
                           {isExpanded && (
                             <TableRow>
                               <TableCell colSpan={6} className="bg-muted/40">

@@ -328,7 +328,19 @@ export function AdminSafetySignalsPage() {
       ) : (
         <div className="space-y-2">
           {signals.map((sig) => (
-            <Card key={sig.id} className="cursor-pointer transition-colors hover:border-brand-red/40" onClick={() => { setSelected(sig); setReason(""); }}>
+            <Card
+              key={sig.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`View ${TYPE_LABEL[sig.signalType]} signal`}
+              className="cursor-pointer transition-colors hover:border-brand-red/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              onClick={() => { setSelected(sig); setReason(""); }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                setSelected(sig); setReason("");
+              }}
+            >
               <CardContent className="flex items-center justify-between gap-4 p-4">
                 <div className="min-w-0 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">

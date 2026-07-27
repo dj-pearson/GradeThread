@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import {
   Sheet,
   SheetContent,
@@ -308,10 +309,10 @@ export function AdminSupportTicketsPage() {
                 </TableHeader>
                 <TableBody>
                   {tickets.map((t) => (
-                    <TableRow
+                    <ClickableRow
                       key={t.id}
-                      className="cursor-pointer"
-                      onClick={() => openTicket(t.id)}
+                      onActivate={() => openTicket(t.id)}
+                      activateLabel={`Open ticket ${t.subject}`}
                     >
                       <TableCell className="max-w-xs">
                         <div className="truncate font-medium">{t.subject}</div>
@@ -336,7 +337,7 @@ export function AdminSupportTicketsPage() {
                       <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                         {relativeTime(t.last_message_at)}
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                   ))}
                 </TableBody>
               </Table>

@@ -70,10 +70,19 @@ export function AuthorsPage() {
                   {authors.map((a) => (
                     <tr
                       key={a.id}
-                      className={`cursor-pointer border-b hover:bg-muted/50 ${
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Edit ${a.name}`}
+                      className={`cursor-pointer border-b hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
                         a.id === selectedId ? "bg-muted/50" : ""
                       }`}
                       onClick={() => setSelectedId(a.id)}
+                      onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        setSelectedId(a.id);
+                      }}
                     >
                       <td className="p-3">
                         <div className="font-medium">{a.name}</div>

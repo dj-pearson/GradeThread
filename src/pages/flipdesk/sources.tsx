@@ -31,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import {
   Dialog,
   DialogContent,
@@ -235,10 +236,10 @@ export function FlipdeskSourcesPage() {
               </TableHeader>
               <TableBody>
                 {sources.map((s) => (
-                  <TableRow
+                  <ClickableRow
                     key={s.id}
-                    className="cursor-pointer hover:bg-muted/30"
-                    onClick={() =>
+                    className="hover:bg-muted/30"
+                    onActivate={() =>
                       setEditing({
                         id: s.id,
                         name: s.name,
@@ -247,6 +248,7 @@ export function FlipdeskSourcesPage() {
                         notes: s.notes ?? "",
                       })
                     }
+                    activateLabel={`Edit ${s.name}`}
                   >
                     <TableCell className="font-medium">{s.name}</TableCell>
                     <TableCell>
@@ -291,7 +293,7 @@ export function FlipdeskSourcesPage() {
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </TableCell>
-                  </TableRow>
+                  </ClickableRow>
                 ))}
               </TableBody>
             </Table>

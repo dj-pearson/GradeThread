@@ -31,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -297,10 +298,11 @@ export function AdminClaimsPage() {
                   </TableRow>
                 ) : (
                   filtered.map((item) => (
-                    <TableRow
+                    <ClickableRow
                       key={item.claim.id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => openDetail(item)}
+                      className="hover:bg-muted/50"
+                      onActivate={() => openDetail(item)}
+                      activateLabel={`View claim from ${item.claim.claimant_name ?? item.claim.claimant_email}`}
                     >
                       <TableCell className="max-w-[170px] truncate">
                         {item.claim.claimant_name ?? item.claim.claimant_email}
@@ -332,7 +334,7 @@ export function AdminClaimsPage() {
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                   ))
                 )}
               </TableBody>

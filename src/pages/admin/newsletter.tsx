@@ -460,8 +460,16 @@ export function AdminNewsletterConsolePage() {
                   {(issues.data ?? []).map((i) => (
                     <tr
                       key={i.id}
-                      className="cursor-pointer border-b last:border-0 hover:bg-muted/40"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open ${i.title || "Untitled"}`}
+                      className="cursor-pointer border-b last:border-0 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                       onClick={() => setSelectedId(i.id)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        setSelectedId(i.id);
+                      }}
                     >
                       <td className="py-2 pr-3">
                         <div className="font-medium">{i.title || "Untitled"}</div>

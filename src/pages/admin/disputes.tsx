@@ -38,6 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -764,10 +765,11 @@ export function AdminDisputesPage() {
                   </TableRow>
                 ) : (
                   paginated.map((item) => (
-                    <TableRow
+                    <ClickableRow
                       key={item.dispute.id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => openDetail(item)}
+                      className="hover:bg-muted/50"
+                      onActivate={() => openDetail(item)}
+                      activateLabel={`View dispute for ${item.submission.title}`}
                     >
                       <TableCell className="max-w-[150px] truncate">
                         <div>
@@ -822,7 +824,7 @@ export function AdminDisputesPage() {
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                   ))
                 )}
               </TableBody>

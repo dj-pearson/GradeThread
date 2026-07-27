@@ -309,8 +309,18 @@ export function AdminReliabilityPage() {
           studies.map((s) => (
             <Card
               key={s.id}
-              className={selected?.id === s.id ? "border-primary" : "cursor-pointer"}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open study ${s.name}`}
+              className={`focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                selected?.id === s.id ? "border-primary" : "cursor-pointer"
+              }`}
               onClick={() => openStudy(s)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                openStudy(s);
+              }}
             >
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-2">

@@ -43,6 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { csvBlob, downloadBlob } from "@/lib/download";
@@ -606,12 +607,13 @@ export function SubmissionsPage() {
                   </TableHeader>
                   <TableBody>
                     {submissions.map((sub) => (
-                      <TableRow
+                      <ClickableRow
                         key={sub.id}
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() =>
+                        className="hover:bg-muted/50"
+                        onActivate={() =>
                           navigate(`/dashboard/submissions/${sub.id}`)
                         }
+                        activateLabel={`View submission ${sub.title}`}
                       >
                         <TableCell className="font-medium">
                           {sub.title}
@@ -651,7 +653,7 @@ export function SubmissionsPage() {
                         <TableCell className="text-muted-foreground">
                           {new Date(sub.created_at).toLocaleDateString()}
                         </TableCell>
-                      </TableRow>
+                      </ClickableRow>
                     ))}
                   </TableBody>
                 </Table>
@@ -733,42 +735,52 @@ export function SubmissionsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {myDisputes.map((d) => (
-                    <TableRow
-                      key={d.id}
-                      className={
-                        d.submission_id ? "cursor-pointer hover:bg-muted/50" : ""
-                      }
-                      onClick={() => {
-                        if (d.submission_id) {
-                          navigate(`/dashboard/submissions/${d.submission_id}`);
+                  {myDisputes.map((d) => {
+                    const cells = (
+                      <>
+                        <TableCell className="font-medium">
+                          {d.submission_title ?? "Unknown"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              getDisputeStatusBadgeClasses(d.status)
+                            )}
+                          >
+                            {formatLabel(d.status)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                          {d.reason}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {new Date(d.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                          {d.resolution_notes ?? "—"}
+                        </TableCell>
+                      </>
+                    );
+                    return d.submission_id ? (
+                      <ClickableRow
+                        key={d.id}
+                        className="hover:bg-muted/50"
+                        onActivate={() =>
+                          navigate(
+                            `/dashboard/submissions/${d.submission_id}`
+                          )
                         }
-                      }}
-                    >
-                      <TableCell className="font-medium">
-                        {d.submission_title ?? "Unknown"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            getDisputeStatusBadgeClasses(d.status)
-                          )}
-                        >
-                          {formatLabel(d.status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate text-muted-foreground">
-                        {d.reason}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {new Date(d.created_at).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate text-muted-foreground">
-                        {d.resolution_notes ?? "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        activateLabel={`View submission ${
+                          d.submission_title ?? "dispute"
+                        }`}
+                      >
+                        {cells}
+                      </ClickableRow>
+                    ) : (
+                      <TableRow key={d.id}>{cells}</TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

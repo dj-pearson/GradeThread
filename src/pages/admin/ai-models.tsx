@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1452,10 +1453,11 @@ export function AdminAiModelsPage() {
                   </TableRow>
                 ) : (
                   paginated.map((version) => (
-                    <TableRow
+                    <ClickableRow
                       key={version.id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => openView(version)}
+                      className="hover:bg-muted/50"
+                      onActivate={() => openView(version)}
+                      activateLabel={`View ${version.version_name}`}
                     >
                       <TableCell className="font-medium max-w-[200px] truncate">
                         {version.version_name}
@@ -1546,7 +1548,7 @@ export function AdminAiModelsPage() {
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                   ))
                 )}
               </TableBody>

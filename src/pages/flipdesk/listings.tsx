@@ -76,6 +76,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2541,12 +2542,12 @@ export function FlipdeskListingsPage() {
                         it.buyer_id != null &&
                         (buyerCounts.get(it.buyer_id) ?? 0) > 1;
                       return (
-                        <TableRow
+                        <ClickableRow
                           key={it.id}
                           ref={measureRef}
                           data-index={vIndex}
                           className={cn(
-                            "cursor-pointer hover:bg-muted/30",
+                            "hover:bg-muted/30",
                             isSel && "bg-brand-navy/5",
                           )}
                           // One editor for every tab. This used to send Drafts to
@@ -2555,9 +2556,10 @@ export function FlipdeskListingsPage() {
                           // how a listed item ended up unable to save (eBay
                           // rejecting the revision for a missing required
                           // specific the seller had no way to fill).
-                          onClick={() =>
+                          onActivate={() =>
                             navigate(`/dashboard/flipdesk/items/${it.id}/draft`)
                           }
+                          activateLabel={`Open ${it.item_title ?? it.listing_title ?? "item"}`}
                         >
                           {selectable && (
                             <TableCell
@@ -3197,7 +3199,7 @@ export function FlipdeskListingsPage() {
                               )}
                             </div>
                           </TableCell>
-                        </TableRow>
+                        </ClickableRow>
                       );
                     })}
                     {virtualize && vPadBottom > 0 && (

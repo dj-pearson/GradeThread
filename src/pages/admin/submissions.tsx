@@ -27,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -579,10 +580,11 @@ export function AdminSubmissionsPage() {
                     const overdue = isOverdueSLA(s);
 
                     return (
-                      <TableRow
+                      <ClickableRow
                         key={s.id}
-                        className={`cursor-pointer hover:bg-muted/50 ${overdue ? "bg-red-50/50 dark:bg-red-950/50" : ""}`}
-                        onClick={() => navigate(`/dashboard/submissions/${s.id}`)}
+                        className={`hover:bg-muted/50 ${overdue ? "bg-red-50/50 dark:bg-red-950/50" : ""}`}
+                        onActivate={() => navigate(`/dashboard/submissions/${s.id}`)}
+                        activateLabel={`View submission ${s.title}`}
                       >
                         <TableCell className="font-medium max-w-[200px] truncate">
                           {s.title}
@@ -675,7 +677,7 @@ export function AdminSubmissionsPage() {
                             )}
                           </div>
                         </TableCell>
-                      </TableRow>
+                      </ClickableRow>
                     );
                   })
                 )}
@@ -734,10 +736,11 @@ export function AdminSubmissionsPage() {
               </TableHeader>
               <TableBody>
                 {failedSubmissions.map((item) => (
-                  <TableRow
+                  <ClickableRow
                     key={item.submission.id}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => navigate(`/dashboard/submissions/${item.submission.id}`)}
+                    className="hover:bg-muted/50"
+                    onActivate={() => navigate(`/dashboard/submissions/${item.submission.id}`)}
+                    activateLabel={`View submission ${item.submission.title}`}
                   >
                     <TableCell className="font-medium">
                       {item.submission.title}
@@ -769,7 +772,7 @@ export function AdminSubmissionsPage() {
                         </Button>
                       </div>
                     </TableCell>
-                  </TableRow>
+                  </ClickableRow>
                 ))}
               </TableBody>
             </Table>

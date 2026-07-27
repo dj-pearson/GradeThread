@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import {
   Sheet,
   SheetContent,
@@ -308,10 +309,10 @@ export function AdminSupportPage() {
                 </TableHeader>
                 <TableBody>
                   {conversations.map((conv) => (
-                    <TableRow
+                    <ClickableRow
                       key={conv.id}
-                      className="cursor-pointer"
-                      onClick={() => openThread(conv.id)}
+                      onActivate={() => openThread(conv.id)}
+                      activateLabel={`Open ${conv.subject || "conversation"}`}
                     >
                       <TableCell className="max-w-md">
                         <div className="font-medium">
@@ -344,7 +345,7 @@ export function AdminSupportPage() {
                           Open
                         </Button>
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                   ))}
                 </TableBody>
               </Table>

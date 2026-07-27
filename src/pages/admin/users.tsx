@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -433,10 +434,11 @@ export function AdminUsersPage() {
                   </TableRow>
                 ) : (
                   paginated.map((user) => (
-                    <TableRow
+                    <ClickableRow
                       key={user.id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => navigate(`/admin/users/${user.id}`)}
+                      className="hover:bg-muted/50"
+                      onActivate={() => navigate(`/admin/users/${user.id}`)}
+                      activateLabel={`View ${user.email}`}
                     >
                       <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
                         <input
@@ -483,7 +485,7 @@ export function AdminUsersPage() {
                       <TableCell className="text-muted-foreground">
                         {formatDate(user.last_active)}
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                   ))
                 )}
               </TableBody>

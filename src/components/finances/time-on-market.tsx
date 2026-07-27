@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { Clock, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -326,12 +327,12 @@ export function TimeOnMarket({
               </TableHeader>
               <TableBody>
                 {slowMoving.map((item) => (
-                  <TableRow
+                  <ClickableRow
                     key={item.id}
-                    className="cursor-pointer"
-                    onClick={() =>
+                    onActivate={() =>
                       navigate(`/dashboard/inventory/${item.id}`)
                     }
+                    activateLabel={`View ${item.title}`}
                   >
                     <TableCell className="font-medium">
                       {item.title}
@@ -359,7 +360,7 @@ export function TimeOnMarket({
                         {formatLabel(item.status)}
                       </Badge>
                     </TableCell>
-                  </TableRow>
+                  </ClickableRow>
                 ))}
               </TableBody>
             </Table>

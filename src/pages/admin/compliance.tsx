@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import {
   Sheet,
   SheetContent,
@@ -396,10 +397,10 @@ export function AdminCompliancePage() {
                 </TableHeader>
                 <TableBody>
                   {requests.map((r) => (
-                    <TableRow
+                    <ClickableRow
                       key={r.id}
-                      className="cursor-pointer"
-                      onClick={() => open(r.id)}
+                      onActivate={() => open(r.id)}
+                      activateLabel={`View request from ${r.user_email ?? r.user_id.slice(0, 8)}`}
                     >
                       <TableCell className="text-sm">
                         {r.user_email ?? r.user_id.slice(0, 8)}
@@ -412,7 +413,7 @@ export function AdminCompliancePage() {
                       <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                         {fmtDate(r.requested_at)}
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                   ))}
                 </TableBody>
               </Table>

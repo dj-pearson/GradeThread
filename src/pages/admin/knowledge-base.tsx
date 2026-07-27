@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import {
   Sheet,
   SheetContent,
@@ -390,10 +391,10 @@ export function AdminKnowledgeBasePage() {
                 </TableHeader>
                 <TableBody>
                   {articles.map((a) => (
-                    <TableRow
+                    <ClickableRow
                       key={a.id}
-                      className="cursor-pointer"
-                      onClick={() => openEdit(a.id)}
+                      onActivate={() => openEdit(a.id)}
+                      activateLabel={`Edit ${a.title}`}
                     >
                       <TableCell className="max-w-md">
                         <div className="font-medium">{a.title}</div>
@@ -441,7 +442,7 @@ export function AdminKnowledgeBasePage() {
                           Edit
                         </Button>
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                   ))}
                 </TableBody>
               </Table>

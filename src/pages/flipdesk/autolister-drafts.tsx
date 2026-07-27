@@ -43,6 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { toast } from "sonner";
 import { useBulkPublish } from "@/hooks/use-autolister";
 import { useBulkAspectCoverage, useEbayConnection } from "@/hooks/use-ebay";
@@ -750,15 +751,16 @@ export function FlipdeskAutolisterDraftsPage() {
                     const isEditing = editingId === d.id;
                     return (
                     <Fragment key={d.id}>
-                    <TableRow
+                    <ClickableRow
                       ref={(node) => {
                         rowRefs.current[d.id] = node;
                       }}
                       aria-selected={isActive}
                       data-active={isActive || undefined}
-                      onClick={() => setActiveIndex(idx)}
+                      onActivate={() => setActiveIndex(idx)}
+                      activateLabel={`Select draft ${titleFor(d)}`}
                       className={cn(
-                        "cursor-pointer scroll-mt-16",
+                        "scroll-mt-16",
                         isActive &&
                           "bg-accent/60 outline outline-2 -outline-offset-2 outline-primary",
                         isSelected && "bg-emerald-500/5",
@@ -1012,7 +1014,7 @@ export function FlipdeskAutolisterDraftsPage() {
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </ClickableRow>
                     {isEditing && (
                       <TableRow data-draft-editor className="bg-muted/40 hover:bg-muted/40">
                         <TableCell colSpan={12} className="py-3">

@@ -4428,7 +4428,7 @@
     {
       "id": "US-2180",
       "priority": 2500,
-      "passes": false,
+      "passes": true,
       "title": "a11y: accessible ClickableRow for cursor-pointer table rows/cards",
       "description": "As a keyboard/screen-reader user, I want navigable list rows I can reach and activate, so I can use the app without a mouse.",
       "acceptanceCriteria": [

@@ -36,6 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ClickableRow } from "@/components/clickable-row";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabase";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -512,12 +513,13 @@ export function InventoryPage() {
                   </TableHeader>
                   <TableBody>
                     {items.map((item) => (
-                      <TableRow
+                      <ClickableRow
                         key={item.id}
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() =>
+                        className="hover:bg-muted/50"
+                        onActivate={() =>
                           navigate(`/dashboard/inventory/${item.id}`)
                         }
+                        activateLabel={`View ${item.title}`}
                       >
                         <TableCell className="font-medium">
                           {item.title}
@@ -538,7 +540,7 @@ export function InventoryPage() {
                             calcDaysListed(item.id, item.status, listingsByItem, saleByItem)
                           )}
                         </TableCell>
-                      </TableRow>
+                      </ClickableRow>
                     ))}
                   </TableBody>
                 </Table>
