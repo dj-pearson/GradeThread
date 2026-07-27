@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 import {
   Dialog,
   DialogContent,
@@ -257,9 +258,9 @@ export function ApiKeysPage() {
   // upgrade gate at a user who actually has API access (US-796).
   if (planLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
+      <LoadingRegion label="Loading API keys" className="space-y-6">
+        <TableLoadingSkeleton rows={5} columns={4} className="rounded-lg border" />
+      </LoadingRegion>
     );
   }
 

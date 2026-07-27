@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { InventoryView } from "@/components/flipdesk/inventory-view-switcher";
+import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 
 // US-958: one route — /dashboard/flipdesk/inventory — hosts every Inventory
 // shape (Triage table / Spreadsheet grid / Kanban pipeline / Prep) as a
@@ -55,9 +56,9 @@ export function FlipdeskInventoryPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center py-24">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-        </div>
+        <LoadingRegion label="Loading inventory" className="space-y-4">
+          <TableLoadingSkeleton rows={8} columns={6} className="rounded-lg border" />
+        </LoadingRegion>
       }
     >
       <View />

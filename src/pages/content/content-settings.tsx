@@ -36,9 +36,9 @@ export function ContentSettingsPage() {
 
   if (isLoading || !draft) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
+      <LoadingRegion label="Loading content settings" className="space-y-6">
+        <SkeletonRows rows={6} className="space-y-4" />
+      </LoadingRegion>
     );
   }
 

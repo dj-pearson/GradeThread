@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PageHeader } from "@/components/ui/page-header";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ChipInput } from "@/components/buyer/chip-input";
@@ -93,9 +94,12 @@ export function BuyerSettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
+      <LoadingRegion
+        label="Loading shopping preferences"
+        className="mx-auto max-w-2xl space-y-6"
+      >
+        <SkeletonRows rows={6} className="space-y-4" />
+      </LoadingRegion>
     );
   }
 

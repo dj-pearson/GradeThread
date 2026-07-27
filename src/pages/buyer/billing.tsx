@@ -5,6 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import {
+  LoadingRegion,
+  MetricCardSkeleton,
+  SkeletonRows,
+} from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
 import {
   BUYER_PLANS,
@@ -55,9 +60,17 @@ export function BuyerBillingPage() {
 
   if (isLoading || !summary) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
+      <LoadingRegion
+        label="Loading billing"
+        className="mx-auto max-w-4xl space-y-6"
+      >
+        <SkeletonRows rows={2} className="space-y-4" />
+        <div className="grid gap-4 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <MetricCardSkeleton key={i} />
+          ))}
+        </div>
+      </LoadingRegion>
     );
   }
 

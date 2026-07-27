@@ -6,6 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import {
+  LoadingRegion,
+  MetricCardSkeleton,
+  TableLoadingSkeleton,
+} from "@/components/ui/skeletons";
+import {
   useContentSettings,
   useContentStats,
   useSendContentDigest,
@@ -27,9 +32,14 @@ export function ContentAnalyticsPage() {
 
   if (isLoading || !stats) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
+      <LoadingRegion label="Loading content analytics" className="space-y-6">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <MetricCardSkeleton key={i} />
+          ))}
+        </div>
+        <TableLoadingSkeleton rows={4} columns={4} className="rounded-lg border" />
+      </LoadingRegion>
     );
   }
 

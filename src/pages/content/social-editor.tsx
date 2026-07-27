@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Select,
@@ -52,9 +53,9 @@ export function SocialEditorPage() {
   if (!id) return null;
   if (isLoading || !post) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
+      <LoadingRegion label="Loading social post" className="space-y-6">
+        <SkeletonRows rows={6} className="space-y-4" />
+      </LoadingRegion>
     );
   }
   return (
@@ -585,7 +586,9 @@ function PlatformVariantsSection({ postId }: { postId: string }) {
           <CardTitle className="text-base">Platform variants</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <LoadingRegion label="Loading platform variants">
+            <SkeletonRows rows={3} className="space-y-4" />
+          </LoadingRegion>
         </CardContent>
       </Card>
     );

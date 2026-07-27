@@ -4469,7 +4469,7 @@
     {
       "id": "US-2183",
       "priority": 2503,
-      "passes": false,
+      "passes": true,
       "title": "ui: replace bare full-page spinners with content-shaped skeletons",
       "description": "As a user, I want loading states that mirror the final layout, so pages don't blank-then-pop with layout shift.",
       "acceptanceCriteria": [
