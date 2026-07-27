@@ -16,3 +16,13 @@
 # nothing failed to signal it. eol=lf overrides core.autocrlf on checkout.
 *.mjs text eol=lf
 *.cjs text eol=lf
+
+# The Gradle wrapper has no extension, so `*.sh` above never covered it. It also
+# needs its EXECUTABLE BIT set in the index (100755) — it was committed 100644,
+# which made `./gradlew assembleDebug` die with "Permission denied" (exit 126) as
+# the FIRST step of Android CI. That lane therefore never once compiled the
+# module: the job failed before Gradle started, on every push since it was added.
+# Both halves matter, and the mode is not something .gitattributes can enforce —
+# if you ever re-add this file, check `git ls-files -s android/gradlew` says
+# 100755.
+gradlew text eol=lf
