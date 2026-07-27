@@ -109,12 +109,15 @@ export function AuthCallbackPage() {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center">
+    <div className="flex h-screen items-center justify-center bg-background px-4">
       <div className="text-center">
+        <img
+          src="/logo_primary.png"
+          alt="GradeThread"
+          className="mx-auto mb-8 h-10"
+        />
         <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-        <p className="mt-4 text-sm text-muted-foreground">
-          Completing sign in...
-        </p>
+        <p className="mt-4 text-sm text-muted-foreground">Signing you in…</p>
       </div>
     </div>
   );

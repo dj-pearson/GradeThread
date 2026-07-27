@@ -4716,7 +4716,7 @@
     {
       "id": "US-2202",
       "priority": 2542,
-      "passes": false,
+      "passes": true,
       "title": "ui: shared Meter component + branded auth transitions + content polish",
       "description": "As a user, I want one meter style, branded auth screens, and a finished content module, so minor surfaces match the app's quality.",
       "acceptanceCriteria": [

@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Meter } from "@/components/ui/meter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -296,14 +297,14 @@ export function AdminAnalyticsPage() {
                         )}
                       </div>
                     </div>
-                    <div className="h-7 w-full overflow-hidden rounded bg-muted">
-                      <div
-                        className="flex h-full items-center rounded bg-brand-navy px-2 text-xs font-medium text-white transition-all"
-                        style={{ width: `${Math.max(ofTop, 2)}%` }}
-                      >
-                        {ofTop >= 8 ? `${ofTop}%` : ""}
-                      </div>
-                    </div>
+                    <Meter
+                      value={Math.max(ofTop, 2)}
+                      className="h-7 w-full overflow-hidden rounded bg-muted"
+                      barClassName="flex items-center rounded bg-brand-navy px-2 text-xs font-medium text-white transition-all"
+                      aria-label={`${step.label}: ${ofTop}% of top of funnel`}
+                    >
+                      {ofTop >= 8 ? `${ofTop}%` : ""}
+                    </Meter>
                     {idx > 0 && dropped > 0 && (
                       <div className="mt-1 flex items-center gap-1 text-xs text-brand-red-text">
                         <TrendingDown className="h-3 w-3" />

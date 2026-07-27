@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Meter } from "@/components/ui/meter";
 import {
   BarChart3,
   FileText,
@@ -557,12 +558,12 @@ export function DashboardPage() {
               {gradesUsed} <span className="text-sm font-normal text-muted-foreground">/ {gradesLimit}</span>
             </div>
             {typeof gradesLimit === "number" && (
-              <div className="mt-2 h-2 rounded-full bg-secondary">
-                <div
-                  className="h-full rounded-full bg-brand-navy transition-all"
-                  style={{ width: `${Math.min(gradesPercent, 100)}%` }}
-                />
-              </div>
+              <Meter
+                value={Math.min(gradesPercent, 100)}
+                className="mt-2"
+                barClassName="transition-all"
+                aria-label="Grades used"
+              />
             )}
           </CardContent>
         </Card>
