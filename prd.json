@@ -4522,7 +4522,7 @@
     {
       "id": "US-2187",
       "priority": 2507,
-      "passes": false,
+      "passes": true,
       "title": "seo/geo: feed real aggregate data into prerendered body",
       "description": "As an AI crawler, I want the citable figures/lists present in crawlable HTML, so GEO surfaces can be quoted and indexed.",
       "acceptanceCriteria": [

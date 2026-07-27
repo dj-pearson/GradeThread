@@ -5,6 +5,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { edgeApiUrl } from "@/lib/edge-api";
+import {
+  resolvePrerenderSeed,
+  seedDomId,
+  escapeJsonForScript,
+} from "@/lib/seo/prerender-seed";
 import { cn } from "@/lib/utils";
 
 // One row from /api/content/public/referral-leaderboard.json (US-864). PII-free:
@@ -31,12 +36,22 @@ interface TopReferrersProps {
   // Cap how many rows to render (the feed itself returns up to 100).
   limit?: number;
   className?: string;
+  // US-2187: when set (only the public /leaderboard passes it), seed the rows
+  // from the build-time prerender so the ranked list lands in the crawlable
+  // HTML, and bake an inline JSON <script> the live SPA reads at mount. The
+  // authed referrals page omits it (that page isn't prerendered).
+  seedKey?: string;
 }
 
 // Self-contained public leaderboard list. Fetches the anonymous feed directly so
 // it works on both the authed referrals page and the public /leaderboard page.
-export function TopReferrers({ limit, className }: TopReferrersProps) {
-  const [rows, setRows] = useState<LeaderboardReferrer[] | null>(null);
+export function TopReferrers({ limit, className, seedKey }: TopReferrersProps) {
+  const [rows, setRows] = useState<LeaderboardReferrer[] | null>(() =>
+    seedKey
+      ? (resolvePrerenderSeed<{ referrers: LeaderboardReferrer[] }>(seedKey)
+          ?.referrers ?? null)
+      : null,
+  );
   const [error, setError] = useState(false);
   // US-1131: bump to re-run the fetch from the standardized ErrorState retry.
   const [attempt, setAttempt] = useState(0);
@@ -100,6 +115,17 @@ export function TopReferrers({ limit, className }: TopReferrersProps) {
   const shown = limit ? rows.slice(0, limit) : rows;
   return (
     <div className={cn("space-y-2", className)}>
+      {/* US-2187: bake the ranked rows so crawlers/AI engines read them and the
+          live SPA can seed from the same payload. */}
+      {seedKey && rows.length > 0 && (
+        <script
+          type="application/json"
+          id={seedDomId(seedKey)}
+          dangerouslySetInnerHTML={{
+            __html: escapeJsonForScript({ referrers: rows }),
+          }}
+        />
+      )}
       {shown.map((r, i) => (
         <div
           key={`${r.display_name}-${i}`}

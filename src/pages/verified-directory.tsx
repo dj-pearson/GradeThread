@@ -9,7 +9,18 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { edgeApiUrl } from "@/lib/edge-api";
+import {
+  resolvePrerenderSeed,
+  seedDomId,
+  escapeJsonForScript,
+} from "@/lib/seo/prerender-seed";
 import { cn } from "@/lib/utils";
+
+// US-2187: build-time seed key. The directory list hydrates client-side, so
+// without a seed the crawlable HTML (and AI answer engines, which don't run JS)
+// see only the shell. scripts/prerender.mjs fetches sellers.json at build and
+// this key lets the SSR render the ranked list into the static HTML.
+const SEED_KEY = "verified-directory";
 
 // One row from /api/content/public/sellers.json — the same public projection
 // the sitemap reads, extended (US-863) with the headline trust stats the
@@ -102,7 +113,11 @@ function SellerCard({ seller, rank }: { seller: DirectorySeller; rank: number })
 }
 
 export function VerifiedDirectoryPage() {
-  const [sellers, setSellers] = useState<DirectorySeller[] | null>(null);
+  const [sellers, setSellers] = useState<DirectorySeller[] | null>(
+    () =>
+      resolvePrerenderSeed<{ sellers: DirectorySeller[] }>(SEED_KEY)?.sellers ??
+      null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("volume");
   const [query, setQuery] = useState("");
@@ -176,6 +191,17 @@ export function VerifiedDirectoryPage() {
       </div>
 
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+        {/* US-2187: bake the ranked list the prerender fetched so crawlers/AI
+            engines read the figures, and the live SPA can seed from it. */}
+        {sellers && sellers.length > 0 && (
+          <script
+            type="application/json"
+            id={seedDomId(SEED_KEY)}
+            dangerouslySetInnerHTML={{
+              __html: escapeJsonForScript({ sellers }),
+            }}
+          />
+        )}
         {/* Controls */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-xs">

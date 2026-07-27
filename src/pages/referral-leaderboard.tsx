@@ -36,7 +36,7 @@ export function ReferralLeaderboardPage() {
       </div>
 
       <div className="mx-auto max-w-2xl space-y-6 px-6 py-8">
-        <TopReferrers />
+        <TopReferrers seedKey="referral-leaderboard" />
 
         <div className="pt-2 text-center">
           <p className="text-sm text-muted-foreground">

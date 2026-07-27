@@ -254,6 +254,11 @@ try {
   const SEEDED_REPORTS = [
     { key: "resale-condition-report", path: "/api/grading/public/resale-condition-report" },
     { key: "durability-report", path: "/api/grading/public/durability-report" },
+    // US-2187: the seller directory and referral leaderboard also hydrate their
+    // list client-side — seed them so the ranked rows land in the crawlable HTML
+    // (and AI answer engines that don't run JS can cite the figures).
+    { key: "verified-directory", path: "/api/content/public/sellers.json" },
+    { key: "referral-leaderboard", path: "/api/content/public/referral-leaderboard.json" },
   ];
   for (const { key, path } of SEEDED_REPORTS) {
     try {
