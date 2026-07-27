@@ -1,8 +1,10 @@
 package com.gradethread.app.sync
 
+import com.gradethread.app.money.SalePnL
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -112,6 +114,40 @@ class SyncRowsTest {
             obj("""{"id":"S1","inventory_item_id":"I1","sale_price":100.0,"platform_fees":10.0}"""),
         )!!
         assertNull(row.netProfit)
+    }
+
+    @Test
+    fun saleStatusIsCarriedFromTheServer() {
+        // REGRESSION: `status` was missing from the decoder, so every pulled
+        // sale took SaleEntity's `completed` default. A refunded order then
+        // counted as revenue and profit in the Money/Home/Analytics rollups —
+        // exactly what migration 00111 says all metrics MUST exclude.
+        val refunded = SyncRows.decodeSaleRow(
+            obj("""{"id":"S1","inventory_item_id":"I1","sale_price":100.0,"status":"refunded"}"""),
+        )!!
+        assertEquals("refunded", refunded.status)
+
+        val cancelled = SyncRows.decodeSaleRow(
+            obj("""{"id":"S2","inventory_item_id":"I1","status":"cancelled"}"""),
+        )!!
+        assertEquals("cancelled", cancelled.status)
+        assertFalse(SalePnL.isCompleted(cancelled))
+    }
+
+    @Test
+    fun aLegacySaleWithNoStatusReadsAsCompleted() {
+        // Rows predating 00111 carry no status; treating them as anything but
+        // completed would erase historical revenue.
+        val legacy = SyncRows.decodeSaleRow(
+            obj("""{"id":"S1","inventory_item_id":"I1","sale_price":10.0}"""),
+        )!!
+        assertEquals("completed", legacy.status)
+        assertTrue(SalePnL.isCompleted(legacy))
+
+        val blank = SyncRows.decodeSaleRow(
+            obj("""{"id":"S2","inventory_item_id":"I1","status":""}"""),
+        )!!
+        assertEquals("completed", blank.status)
     }
 
     @Test

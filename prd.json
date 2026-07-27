@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2207",
+  "nextId": "US-2208",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -468,7 +468,7 @@
     {
       "id": "US-1363",
       "priority": -98637,
-      "passes": false,
+      "passes": true,
       "title": "Money dashboard (KPIs + charts, cash flow, aging, ROI, P&L)",
       "description": "As a seller, I can see my profit/revenue KPIs, trends, cash flow, inventory aging, ROI by source, and per-item P&L — all computed offline from the local cache.",
       "acceptanceCriteria": [
@@ -476,19 +476,19 @@
         "Only completed sales count toward rollups (US-00111 parity); currency locale-aware",
         "Charts respect reduced motion; rollups unit-tested without I/O"
       ],
-      "notes": "[P1][Android/Money] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Money] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [2026-07-27] Implemented: money/{Money,SalePnL,MoneyRollup,MoneyAnalyticsRollup,SourceRoiRollup,DashboardRollup,DashboardTrend}.kt (pure rollups) + MoneyScreen/MoneyViewModel. 83 pure unit tests, no I/O. DEVIATION FROM AC1: charts are Compose Canvas (ui/components/Charts.kt), not Vico — three shapes at ~40 lines each did not justify a chart engine on a module already carrying the US-2150 APK-size problem. AC2/AC3 met: only completed sales count (via SalePnL.isCompleted, 00111), currency is locale-aware (Money.format), charts are static so there is no motion to gate."
     },
     {
       "id": "US-1364",
       "priority": -98636,
-      "passes": false,
+      "passes": true,
       "title": "Expenses CRUD",
       "description": "As a seller, I can record and edit business expenses that feed my P&L.",
       "acceptanceCriteria": [
         "Add/edit expense (amount, category, date, optional item/listing attribution) stored locally + synced (mirrors ExpenseStore/US-750)",
         "Offline create queues a mutation"
       ],
-      "notes": "[P2][Android/Money] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Money] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [2026-07-27] Implemented: money/{ExpenseDraft,ExpenseRepository,ExpenseFormSheet}.kt + the expenses section of MoneyScreen. AC1 add/edit with category/amount/date/note and optional item attribution; AC2 offline create/delete queue as CREATE_EXPENSE/DELETE_EXPENSE and now actually REPLAY (see the mutation-replay fix). spent_on is sent as a local YYYY-MM-DD because the column is a DATE."
     },
     {
       "id": "US-1365",
@@ -559,19 +559,19 @@
     {
       "id": "US-1370",
       "priority": -98630,
-      "passes": false,
+      "passes": true,
       "title": "Home dashboard (snapshot, sparkline, quick actions, activation checklist)",
       "description": "As a seller, I want a glanceable home: inventory value, active listings, recent money, aging nudges, quick actions, and a setup checklist.",
       "acceptanceCriteria": [
         "Snapshot KPIs + 14-day revenue sparkline (memoized, rebuilt only on data change) + aging-stock nudges; all from local rollups (mirrors DashboardRollup)",
         "Quick actions: Add item, Snap to Value, Scout, Prospect; post-signup activation checklist (mirrors US-647)"
       ],
-      "notes": "[P1][Android/Dashboard] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | US-1341 built the certified-grades list at ShellRoutes.GRADES with GradesList.summarize() ready for a card (total / pending-review / average, certified-only). Add the dashboard card here — that is the outstanding half of US-1341 AC2."
+      "notes": "[P1][Android/Dashboard] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | US-1341 built the certified-grades list at ShellRoutes.GRADES with GradesList.summarize() ready for a card (total / pending-review / average, certified-only). Add the dashboard card here — that is the outstanding half of US-1341 AC2. | [2026-07-27] Implemented: home/{HomeScreen,HomeViewModel,ActivationState,ActivationChecklist}.kt. AC1 snapshot KPIs + 14-day sparkline + aging nudges, all from local rollups memoized in the ViewModel combine (rebuilt on data change, not per recomposition). AC2 partial: Add item and Snap to Value are wired; Scout and Prospect are deliberately ABSENT because US-1374 has no implementation and a button opening a placeholder teaches sellers the app is broken. Activation checklist persists its dismissal to DataStore; the notifications step opens system settings rather than firing a runtime permission request, because push DELIVERY (US-1378) does not exist yet and prompting for it would be asking under false pretences. Also closes the outstanding half of US-1341 AC2 (certified-grades card)."
     },
     {
       "id": "US-1371",
       "priority": -98629,
-      "passes": false,
+      "passes": true,
       "title": "Sales view + per-item P&L",
       "description": "As a seller, I can browse my sales and see realized profit per item.",
       "acceptanceCriteria": [
@@ -579,7 +579,7 @@
         "Sales list is reactive (Room Flow), sorted by date, with completed/refunded/cancelled status reflected",
         "Per-item P&L matches the Money rollup math; only completed sales count toward totals"
       ],
-      "notes": "[P2][Android/Money] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Money] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [2026-07-27] Implemented: money/{SalesRollup,SalesViewModel,SalesScreen}.kt, reachable from Money. AC2 reactive over Room ordered by saleDate DESC with completed/refunded/cancelled/pending reflected; AC1/AC3 per-sale realized P&L through the shared SalePnL, and the parity requirement is a TEST — SalesRollupTest asserts row-for-row equality against MoneyAnalyticsRollup.itemProfitRows rather than against hardcoded numbers, so the two surfaces cannot drift."
     },
     {
       "id": "US-1372",
@@ -1854,7 +1854,7 @@
         "Decide explicitly whether Android is on the launch plan. If it is, the remaining work is essentially the whole app."
       ],
       "priority": 1991,
-      "notes": "[P1][Android/Backlog-integrity] Found 2026-07-18 by the cross-platform parity deep dive. This is the same class as US-1996 (archived stories marked passes:true that were explicitly DEFERRED) but larger and on a platform nobody is looking at. The state is more misleading than a plain stub would be: sophisticated offline-sync infrastructure attached to zero features reads as 'nearly done' to anyone who opens the project and sees the hard parts solved. NOT verified: whether the 50 OPEN Android stories are correctly open — only the passing ones were falsified.",
+      "notes": "[P1][Android/Backlog-integrity] Found 2026-07-18 by the cross-platform parity deep dive. This is the same class as US-1996 (archived stories marked passes:true that were explicitly DEFERRED) but larger and on a platform nobody is looking at. The state is more misleading than a plain stub would be: sophisticated offline-sync infrastructure attached to zero features reads as 'nearly done' to anyone who opens the project and sees the hard parts solved. NOT verified: whether the 50 OPEN Android stories are correctly open — only the passing ones were falsified. | [2026-07-27] AC1 DONE: audited the whole US-1378..1396 block, not just the verified subset — 14 stories re-opened as never-implemented (1378/1379/1380/1381/1382/1384/1385/1386/1387/1388/1389/1390/1392/1393) and 2 re-opened as partial (1391 has no signing config; 1395 has no androidTest/E2E). US-1383 was falsely passing and is now genuinely implemented. AC2 DONE: android/README.md no longer claims iOS parity, the package map lists only packages that contain code, and a Status section names what is and is not built. AC3 DONE: the table in that README is the re-baseline. AC4 (is Android on the launch plan?) is STILL OPEN — that is a product decision, not an engineering one.",
       "id": "US-2015",
       "passes": false,
       "dependsOn": []
@@ -4777,6 +4777,224 @@
         "RSS items add <dc:creator>/author and a <category> per post tag once the public posts list endpoint (content-public) returns author + tags"
       ],
       "notes": "Split from US-2195 (audit 2026-07-26 SEO). Blocked on: stable cert image URL source; SPA parity mirror; content-public list payload adding author+tags. PARTIAL: RSS <dc:creator> now emitted from the post author byline (falls back to \"GradeThread Team\") — added the author byline column to the public posts LIST projection + PublicPostListItem (additive, deno+tsc clean). STILL DEFERRED: per-tag <category> (needs a blog_post_tags fetch on the shared cached list endpoint) and the cert/passport gallery image[] JSON-LD (blocked on stable non-signed image URLs + SSR/SPA parity). RSS per-tag <category> now also emitted: the public /posts list endpoint attaches each post editorial tags (one grouped blog_post_tags query over the page ids; additive, cached), threaded through PublicPostListItem; rss.xml.ts emits a <category> per tag, falling back to primary_keyword. Only the cert/passport gallery image[] JSON-LD remains (blocked on stable non-signed image URLs). NOTE: committed LOCALLY atop the held US-2196 migration commit; ships when that batch is pushed."
+    },
+    {
+      "id": "US-1378",
+      "priority": -98622,
+      "passes": false,
+      "title": "FCM push: channels, registration, deep-link routing, action buttons",
+      "description": "As a seller, I get real-time push for sales, payouts, grades, offers, messages, listing ends, support replies, and token-expiry — with inline actions.",
+      "acceptanceCriteria": [
+        "FirebaseMessagingService handles token (POST /api/notifications/register with platform=android) + messages; POST_NOTIFICATIONS runtime permission (deferred to a money moment)",
+        "Notification channels per type; taps deep-link via PendingIntent to the right screen (mirrors NotificationDelegate/DeepLinkRouter)",
+        "Inline actions (accept offer, counter w/ text input, mark shipped, reply, reconnect) run via a receiver/Worker off-main (mirrors NotificationActionPlan)",
+        "token.expiring uses a high-priority/time-sensitive channel; token cleared on sign-out"
+      ],
+      "notes": "[P1][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: zero Firebase/FirebaseMessaging references and no messaging service in the manifest."
+    },
+    {
+      "id": "US-1379",
+      "priority": -98621,
+      "passes": false,
+      "title": "WorkManager background refresh + new-sale/new-grade notifications",
+      "description": "As a seller, the app opportunistically syncs in the background and notifies me of new sales/grades.",
+      "acceptanceCriteria": [
+        "PeriodicWorkRequest (~30 min flex) runs SyncEngine.sync(); user toggle in Settings cancels/enables it (mirrors BackgroundRefreshService)",
+        "Detects new sales/grades vs a stored baseline and posts local notifications deep-linking to the item (mirrors NewSale/NewGradeNotifier)",
+        "Respects battery/network constraints; reschedules after reboot"
+      ],
+      "notes": "[P2][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: no PeriodicWorkRequest anywhere; WorkManager is used only for one-shot photo uploads, and no notification is ever posted."
+    },
+    {
+      "id": "US-1380",
+      "priority": -98620,
+      "passes": false,
+      "title": "Glance home-screen widgets (seller snapshot)",
+      "description": "As a seller, I get a home-screen widget showing active listings, sold-today, and pending payout.",
+      "acceptanceCriteria": [
+        "Glance widget (small/medium) renders a snapshot written to a shared DataStore by the sync layer (pure rollup, no network/DB at render) — mirrors WidgetSnapshotPublisher",
+        "Taps deep-link (Marketplaces/Money); refresh coalesced (~30s min) via WorkManager; snapshot cleared on sign-out",
+        "TalkBack labels composed from snapshot fields (mirrors US-1222)"
+      ],
+      "notes": "[P2][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: zero Glance references and no AppWidgetProvider/appwidget metadata in the manifest."
+    },
+    {
+      "id": "US-1381",
+      "priority": -98619,
+      "passes": false,
+      "title": "App Shortcuts + Assistant App Actions",
+      "description": "As a seller, I can launch Snap-to-Value / Add-item and ask \"what sold today\" via shortcuts/Assistant.",
+      "acceptanceCriteria": [
+        "Static + dynamic app shortcuts for Snap-to-Value and Add-item, routed through the deep-link pipeline (mirrors the navigation App Intents)",
+        "\"What sold today\" answers from the shared DataStore snapshot without auth/network (mirrors WhatSoldTodayIntent); Assistant App Actions optional"
+      ],
+      "notes": "[P3][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: no shortcuts.xml, no ShortcutManager, no App Actions capability file."
+    },
+    {
+      "id": "US-1382",
+      "priority": -98618,
+      "passes": false,
+      "title": "Android share target → intake handoff",
+      "description": "As a seller, I can share 1–8 photos from any app into a new GradeThread intake.",
+      "acceptanceCriteria": [
+        "A share-target Activity (SEND/SEND_MULTIPLE, images) lets the user assign photos to slots; batch written to a Room intake inbox (mirrors ShareExtension + App Group inbox)",
+        "On next foreground the app drains the inbox into PhotoIntake; empty/failed decode tells the user (mirrors US-1181); stale batches swept"
+      ],
+      "notes": "[P2][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: the manifest declares no ACTION_SEND intent filter, so the app is not a share target at all."
+    },
+    {
+      "id": "US-1384",
+      "priority": -98616,
+      "passes": false,
+      "title": "Onboarding flow",
+      "description": "As a new user, I get a first-run welcome, pick a use case that routes my first action, select a plan, and grant permissions.",
+      "acceptanceCriteria": [
+        "Welcome carousel shown once; use-case selection drives the first-action routing (mirrors OnboardingState/US-747)",
+        "Plan-selection step + activation checklist (push permission, eBay connect)",
+        "Permission requests via ActivityResult; state persisted"
+      ],
+      "notes": "[P1][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: no onboarding code of any kind (zero matches for onboarding); there is no welcome carousel, use-case step or plan step."
+    },
+    {
+      "id": "US-1385",
+      "priority": -98615,
+      "passes": false,
+      "title": "Referrals",
+      "description": "As a user, I can view and share my referral link and redeem codes.",
+      "acceptanceCriteria": [
+        "Referral status/links from the referral endpoints; share via ACTION_SEND; copy code (mirrors Referrals)",
+        "Referral code/link load from the endpoint; share uses ACTION_SEND and copy confirms via TalkBack",
+        "Redemption state (pending/credited) is reflected; locked/empty states handled"
+      ],
+      "notes": "[P3][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: no referral code (zero matches); nothing calls the referral endpoints."
+    },
+    {
+      "id": "US-1386",
+      "priority": -98614,
+      "passes": false,
+      "title": "Support tickets (+ support.reply deep link)",
+      "description": "As a user, I can create support tickets and read agent replies in-app.",
+      "acceptanceCriteria": [
+        "Ticket list + detail with threaded replies; create + fetch via the support endpoints (mirrors SupportTickets)",
+        "A support.reply push deep-links to the referenced thread (mirrors US-1136)"
+      ],
+      "notes": "[P2][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: no support-ticket code; the only greps that hit were supportingText on text fields."
+    },
+    {
+      "id": "US-1387",
+      "priority": -98613,
+      "passes": false,
+      "title": "Feedback / bug report",
+      "description": "As a user, I can send feedback or a bug report from within the app.",
+      "acceptanceCriteria": [
+        "Feedback sheet (category + text) posts to the edge; confirmation shown (mirrors FeedbackSheet)",
+        "Category picker + text input validate before submit; submission shows a confirmation and clears the form",
+        "Send failures surface a retryable error; the sheet is dismissible without losing typed text mid-flow"
+      ],
+      "notes": "[P3][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: no feedback sheet; the only greps that hit were HapticFeedback."
+    },
+    {
+      "id": "US-1388",
+      "priority": -98612,
+      "passes": false,
+      "title": "Team / workspaces switcher",
+      "description": "As a workspace member, I can switch between my personal and shared workspaces, re-scoping the app.",
+      "acceptanceCriteria": [
+        "Workspace list + switcher; switching re-scopes cache, re-homes Realtime, and re-pulls (drives the US-1323 path) — mirrors WorkspaceContext/Team",
+        "Active workspace reflected across surfaces"
+      ],
+      "notes": "[P2][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: WorkspaceScope exists and headers are scoped, but there is no workspace LIST or SWITCHER UI and nothing calls SessionScope.switchWorkspace."
+    },
+    {
+      "id": "US-1389",
+      "priority": -98611,
+      "passes": false,
+      "title": "CSV / Sheets import",
+      "description": "As a seller migrating in, I can import inventory from CSV/Sheets.",
+      "acceptanceCriteria": [
+        "Import flow mirroring the iOS US-667 import (column mapping → rows → items)",
+        "User maps spreadsheet columns to item fields; a preview shows parsed rows before commit",
+        "Imported rows create items (queued offline if needed) and report per-row failures; duplicate SKUs follow the merge rule"
+      ],
+      "notes": "[P3][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: no CSV/Sheets import; no column-mapping or preview surface exists."
+    },
+    {
+      "id": "US-1390",
+      "priority": -98610,
+      "passes": false,
+      "title": "State restoration: config change, process death, multi-window/foldable",
+      "description": "As a user, my place in the app survives rotation, process death, and split-screen/foldable transitions.",
+      "acceptanceCriteria": [
+        "rememberSaveable / SavedStateHandle restore the resting section + open item across config change and process death (mirrors the @SceneStorage approach in US-1157)",
+        "Adaptive layout keeps selection across compact↔expanded transitions without crashing"
+      ],
+      "notes": "[P2][Android/Platform] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: zero rememberSaveable and zero SavedStateHandle in the whole module. Capture drafts survive process death via Room (US-1324), but no other screen restores state."
+    },
+    {
+      "id": "US-1392",
+      "priority": -98608,
+      "passes": false,
+      "title": "Release workflow → Play Console (AAB via Fastlane supply)",
+      "description": "As the team, I want a release workflow that builds a signed AAB and uploads to the Play Console internal/beta/production tracks.",
+      "acceptanceCriteria": [
+        "android-release.yml: secrets from Infisical, bundleRelease (signed AAB), upload via Fastlane supply to internal → beta → production (conditional)",
+        "Metadata/screenshots managed via supply; versionCode = CI run number",
+        "Play Console app record + SKU catalog mirrored from APP_STORE_SUBMISSION.md (dependency)"
+      ],
+      "notes": "[P1][Android/Release] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: no android/fastlane directory and no release workflow; nothing builds or uploads an AAB."
+    },
+    {
+      "id": "US-1393",
+      "priority": -98607,
+      "passes": false,
+      "title": "Localization (string resources, locale selector, pseudolocale)",
+      "description": "As an international user, I want a fully externalized, translatable UI with a locale override.",
+      "acceptanceCriteria": [
+        "All UI text via stringResource(R.string.*) (no bare literals); a lint check fails on hardcoded UI strings in scoped dirs (mirrors no-bare-strings)",
+        "Plurals via <plurals>; currency/date locale-aware; in-app locale selector (AppCompatDelegate.setApplicationLocales) persisted",
+        "A pseudolocale variant for clipping QA"
+      ],
+      "notes": "[P2][Android/Release] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | [Re-opened 2026-07-27 by the US-2015 Android audit] Marked passes:true with NO implementing code. Verified against the tree: no values-* locale directories, no <plurals>, no locale selector, and UI strings are bare literals throughout."
+    },
+    {
+      "id": "US-1391",
+      "priority": -98609,
+      "passes": false,
+      "title": "Gradle build, signing config & Android CI workflow",
+      "description": "As the team, I want reproducible debug/release builds, a signing config, and CI that builds + tests every PR.",
+      "acceptanceCriteria": [
+        "Gradle KTS with release signing (keystore from CI secret), debug/release buildTypes, versionName + CI-driven versionCode",
+        ".github/workflows/android-ci.yml: build + unit tests + Android Lint on PR/main; a no-ungated-Log lint mirroring the iOS print guard",
+        "Widget + share-target targets build in CI"
+      ],
+      "notes": "[P1][Android/Release] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | RE-OPENED PARTIAL: the Gradle build and .github/workflows/android-ci.yml are real and green, but there is NO signing config (no signingConfig/storeFile in app/build.gradle.kts), so no releasable artifact can be produced."
+    },
+    {
+      "id": "US-1395",
+      "priority": -98605,
+      "passes": false,
+      "title": "Test suite: sync/conflict/billing unit + critical-flow E2E",
+      "description": "As the team, I want the same test posture as iOS so the port’s correctness-critical logic is guarded.",
+      "acceptanceCriteria": [
+        "Unit tests: ConflictResolver (all strategies + eBay-origin), drop-safe cursor, mutation ordering, reconciliation protection, terminal-error classification, Money/Analytics/Dashboard rollups, plan-gate parsing",
+        "Compose UI + critical-flow E2E on an emulator (sign-in + validation, paywall renders Play products and purchases via test SKU, capture→grade→draft with a mocked grading path)",
+        "Billing exercised with a fake BillingClient; CI runs the unit + a non-blocking instrumented lane"
+      ],
+      "notes": "[P1][Android/Release] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | RE-OPENED PARTIAL: the unit suite is real and substantial (70+ test files covering sync, conflict, billing, grading, money), but there is NO app/src/androidTest directory, so the critical-flow E2E half of this story does not exist."
+    },
+    {
+      "id": "US-2207",
+      "title": "DeleteReconciler has no production caller — server-side deletions never reach Android",
+      "description": "As a seller, an item I delete on the web or on iOS also disappears from my Android device.",
+      "acceptanceCriteria": [
+        "DeleteReconciler.reconcile is invoked from the sync path (after a drained pull), not only from DeleteReconcilerTest",
+        "Locally-created rows whose CREATE is still queued, and local-only photo captures, are protected from pruning (the protections the class already implements)",
+        "A test asserts the production call site exists, so this cannot silently regress to being uncalled again"
+      ],
+      "priority": 1990,
+      "passes": false,
+      "dependsOn": [],
+      "notes": "[P1][Android/Sync] Found 2026-07-27 while fixing the mutation-queue drain. Same class as US-2151 and the drain gap: DeleteReconciler is complete and unit-tested (create-before-edit protection, local-only photo protection, dirty-row protection) but grep finds NO production caller — only DeleteReconcilerTest. So a pull only ever ADDS and UPDATES rows: anything deleted on another client stays on the Android device forever, and the seller works from an inventory containing items they already got rid of. Deliberately NOT bundled into the replay fix: reconciliation PRUNES local rows, so it wants its own change with its own review rather than riding along with an unrelated one."
     }
   ]
 }

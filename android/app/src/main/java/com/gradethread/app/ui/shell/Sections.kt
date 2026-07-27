@@ -45,6 +45,9 @@ object ShellRoutes {
 
     /** US-1341: the certified-grades history, reached from [TOOLS]. */
     const val GRADES = "grades"
+
+    /** US-1371: the sales list, reached from [ShellSection.MONEY]. */
+    const val SALES = "sales"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */

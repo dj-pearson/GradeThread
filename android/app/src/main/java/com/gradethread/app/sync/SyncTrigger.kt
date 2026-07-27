@@ -18,13 +18,59 @@ import javax.inject.Singleton
  * Three triggers, per the acceptance criteria: sign-in, app foreground, and
  * an explicit pull-to-refresh. All funnel through [SyncService.pull], which
  * is single-flight, so overlapping triggers coalesce rather than racing.
+ *
+ * Each of those triggers also DRAINS the mutation queue ([MutationReplayer]).
+ * The order is deliberate — flush before pull:
+ *
+ *  - flushing first means a locally-created row reaches the server BEFORE the
+ *    pull that would otherwise not find it. Pull-then-flush leaves a window in
+ *    which the server's view of an item is older than the device's;
+ *  - it is also the ordering [DeleteReconciler] will need when it finally gets a
+ *    caller (it has none today — see the story filed for that): reconciling
+ *    against a half-flushed queue would prune rows the server has simply not
+ *    been told about yet.
+ *
+ * A flush failure never blocks the pull: queued rows are retried by design, and
+ * refusing to refresh because an unrelated edit can't send would be a strictly
+ * worse outcome for the seller.
  */
 @Singleton
-class SyncTrigger @Inject constructor(private val service: SyncService) {
+class SyncTrigger @Inject constructor(
+    private val service: SyncService,
+    private val replayer: MutationReplayer,
+) {
 
     // Application-scoped: a pull started on foreground must not die because
     // the screen that happened to be visible went away mid-flight.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Register the reconnect trigger. Call once, from Application.onCreate.
+     *
+     * Foreground alone is not enough for the queue: the case the offline queue
+     * exists FOR is a seller who keeps working while the signal drops and comes
+     * back — the app never left the foreground, so no foreground event ever
+     * fires, and without this the flush waits for a backgrounding that may be
+     * hours away.
+     *
+     * Coalesced through [ConnectivityDebouncer] because walking between Wi-Fi
+     * and cell flaps `onAvailable` several times a second, and each flap would
+     * otherwise kick a full flush+pull (US-997).
+     */
+    fun observeConnectivity(monitor: ConnectivityMonitor) {
+        val debouncer = ConnectivityDebouncer(scope) { runCatching { runPull("reconnect") } }
+        monitor.start()
+        scope.launch {
+            // Drop the replayed current value: a cold start that is already
+            // online would otherwise fire a third pull on top of
+            // foreground + sign-in. Only a TRANSITION to online is news.
+            var wasOnline = monitor.online.value
+            monitor.online.collect { online ->
+                if (online && !wasOnline) debouncer.trigger()
+                wasOnline = online
+            }
+        }
+    }
 
     /** Register the foreground trigger. Call once, from Application.onCreate. */
     fun observeForeground() {
@@ -81,6 +127,7 @@ class SyncTrigger @Inject constructor(private val service: SyncService) {
     }
 
     private suspend fun runPull(reason: String): SyncCoordinator.Outcome? {
+        flushQueue(reason)
         val outcome = service.pull()
         if (outcome == null) {
             // Signed out — not an error, just nothing to scope a pull to.
@@ -102,5 +149,37 @@ class SyncTrigger @Inject constructor(private val service: SyncService) {
             )
         }
         return outcome
+    }
+
+    /**
+     * Replay whatever the queue is holding.
+     *
+     * Deliberately swallows: [MutationReplayer.replay] already routes per-row
+     * failures through the queue's retry/stuck bookkeeping, so anything
+     * reaching here is a whole-drain failure (signed out, database unavailable)
+     * that the next trigger retries anyway. Letting it propagate would abort
+     * the pull, which is the one part of this that still works offline-to-online.
+     */
+    private suspend fun flushQueue(reason: String) {
+        val result = runCatching { replayer.replay() }
+            .onFailure { error ->
+                Telemetry.breadcrumb("Mutation flush failed: ${error.message}", "sync")
+            }
+            .getOrNull()
+            ?: return
+        // Only report a drain that actually did something — a no-op flush on
+        // every foreground would drown the useful signal.
+        if (result.succeeded == 0 && result.markedStuck == 0 && result.transientFailures == 0) return
+        Telemetry.event(
+            "android_mutation_flush",
+            mapOf(
+                "reason" to reason,
+                "succeeded" to result.succeeded,
+                "transient" to result.transientFailures,
+                "stuck" to result.markedStuck,
+                "deferred" to result.deferred,
+                "skipped_stuck" to result.skippedStuck,
+            ),
+        )
     }
 }
