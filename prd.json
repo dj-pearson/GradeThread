@@ -4755,7 +4755,7 @@
     {
       "id": "US-2205",
       "priority": 2545,
-      "passes": false,
+      "passes": true,
       "title": "a11y: label icon-only controls + command-palette focus rings",
       "description": "As a keyboard/AT user, I want every icon-only control named and every focusable input to show focus, so nothing is a mystery button.",
       "acceptanceCriteria": [

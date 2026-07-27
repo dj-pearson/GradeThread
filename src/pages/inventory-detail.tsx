@@ -663,6 +663,7 @@ export function InventoryDetailPage() {
         <div className="flex items-center gap-4">
           <Link
             to="/dashboard/inventory"
+            aria-label="Back to inventory"
             className="inline-flex items-center justify-center rounded-md border p-2 hover:bg-muted"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -1115,6 +1116,7 @@ export function InventoryDetailPage() {
                           href={safeHref(listing.listing_url) ?? undefined}
                           target="_blank"
                           rel="noopener noreferrer"
+                          aria-label="Open marketplace listing"
                         >
                           <ExternalLink className="h-4 w-4" />
                         </a>

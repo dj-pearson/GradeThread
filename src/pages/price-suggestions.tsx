@@ -388,6 +388,7 @@ export function PriceSuggestionsPage() {
                       <TableCell>
                         <Link
                           to={`/dashboard/inventory/${item.id}`}
+                          aria-label={`View ${item.title ?? "item"}`}
                           className="inline-flex items-center text-sm text-brand-navy hover:underline dark:text-foreground"
                         >
                           <ArrowRight className="h-4 w-4" />

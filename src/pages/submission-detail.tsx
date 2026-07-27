@@ -698,6 +698,7 @@ export function SubmissionDetailPage() {
         <div className="flex items-center gap-4">
           <Link
             to="/dashboard/submissions"
+            aria-label="Back to submissions"
             className="inline-flex items-center justify-center rounded-md border p-2 hover:bg-muted"
           >
             <ArrowLeft className="h-4 w-4" />

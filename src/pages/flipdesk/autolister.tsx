@@ -3834,7 +3834,7 @@ export function FlipdeskAutolisterPage() {
                             setPhotoRole(g.id, pid, e.target.value as PhotoRole)
                           }
                           aria-label="Photo role"
-                          className="absolute inset-x-0 bottom-0 w-full cursor-pointer border-0 bg-black/60 py-0.5 text-center text-[10px] text-white outline-none"
+                          className="absolute inset-x-0 bottom-0 w-full cursor-pointer border-0 bg-black/60 py-0.5 text-center text-[10px] text-white outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                         >
                           {/* US-1551: the full photo-type vocabulary (same as
                               the photo manager / iOS), grouped for scanning.

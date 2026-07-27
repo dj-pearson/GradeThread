@@ -630,7 +630,7 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search items, submissions, sources, actions…"
-            className="h-12 flex-1 bg-transparent text-sm outline-none"
+            className="h-12 flex-1 rounded-sm bg-transparent text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             // US-441: expose the combobox pattern. The input owns the listbox
             // below; aria-activedescendant points at the arrow-key-active row so
             // a screen reader announces it without moving DOM focus off the

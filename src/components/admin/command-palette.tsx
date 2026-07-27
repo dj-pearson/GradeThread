@@ -187,7 +187,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Search users, submissions, certificates, listings, sales, tickets, runbooks…"
-            className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="h-12 w-full rounded-sm bg-transparent text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             aria-label="Global admin search"
           />
         </div>
