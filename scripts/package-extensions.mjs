@@ -91,7 +91,7 @@ const EXTENSIONS = [
       // strict_min_version), and the manifest wins. Kept in sync with it so the
       // two can never disagree; background scripts are read from the manifest's
       // own background.scripts rather than restated here (see firefoxManifest).
-      geckoId: "extension@gradethread.com",
+      geckoId: "unified@gradethread.com",
       // Firefox data-consent (mzl.la/firefox-builtin-data-consent): the condition
       // read transmits the listing's page content (image URLs + title/brand/price)
       // to the grading endpoint on user action. Nothing is persisted server-side
@@ -305,11 +305,31 @@ function firefoxManifest(manifest, firefox) {
   return m;
 }
 
-// Exported so the Firefox transform can be asserted on its ACTUAL OUTPUT rather
-// than re-described in a test (extension-unified/test/background-deps.test.cjs).
+// Chrome (MV3) runs the background as a SERVICE WORKER and reads
+// `background.service_worker`; it does NOT recognise `background.scripts`, which
+// is the Firefox event-page half. Shipping that key to Chrome triggers a
+// "'background.scripts' requires manifest version of 2 or lower" load warning
+// (visible on every unpacked load, and noise on the store listing).
+//
+// The source manifest must keep BOTH keys — Firefox reads `scripts`, and
+// extension-unified/test/background-deps.test.cjs enforces the service_worker +
+// scripts pair as the single source of truth. So, exactly as firefoxManifest()
+// strips `service_worker` for the Firefox build, strip `scripts` here for the
+// Chrome build. DERIVE by deletion (never restate the Chrome background), so this
+// can never drift from the manifest.
+function chromeManifest(manifest) {
+  const m = JSON.parse(JSON.stringify(manifest));
+  if (m.background && Array.isArray(m.background.scripts)) {
+    delete m.background.scripts;
+  }
+  return m;
+}
+
+// Exported so the transforms can be asserted on their ACTUAL OUTPUT rather than
+// re-described in a test (extension-unified/test/background-deps.test.cjs).
 // A guard that restates the expected values has the same blind spot as the bug it
 // is guarding against.
-export { EXTENSIONS, firefoxManifest };
+export { EXTENSIONS, firefoxManifest, chromeManifest };
 
 // ── run ───────────────────────────────────────────────────────────────────────
 // Guarded so importing this module for tests has no side effects (no zip writes,
@@ -345,8 +365,15 @@ for (const ext of EXTENSIONS) {
   const files = collectFiles(absDir);
   const toPosix = (abs) => relative(absDir, abs).split(sep).join("/");
 
-  // Chrome: ship the manifest verbatim.
-  const chromeEntries = files.map((f) => ({ name: toPosix(f), data: readFileSync(f) }));
+  // Chrome: ship every file as-is EXCEPT the manifest, which drops the Firefox-only
+  // background.scripts key (chromeManifest) so Chrome MV3 loads without the
+  // "'background.scripts' requires manifest version of 2 or lower" warning.
+  const chromeManifestJson = JSON.stringify(chromeManifest(manifest), null, 2) + "\n";
+  const chromeEntries = files.map((f) =>
+    toPosix(f) === "manifest.json"
+      ? { name: "manifest.json", data: Buffer.from(chromeManifestJson, "utf8") }
+      : { name: toPosix(f), data: readFileSync(f) },
+  );
   const chromeZip = zip(chromeEntries);
   const chromePath = join(outDir, `${ext.name}-v${manifest.version}-chrome.zip`);
   writeFileSync(chromePath, chromeZip);

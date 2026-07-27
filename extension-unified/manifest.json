@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "GradeThread: Grade & List",
-  "version": "0.3.5",
-  "description": "AI condition reads while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted \u2014 plus cross-listing for FlipDesk sellers.",
+  "version": "0.3.7",
+  "description": "Get an AI-powered condition read on a pre-owned clothing listing before you buy \u2014 plus one-click cross-listing for FlipDesk sellers.",
   "permissions": [
     "storage",
     "activeTab",
@@ -23,8 +23,11 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "extension@gradethread.com",
-      "strict_min_version": "109.0"
+      "id": "unified@gradethread.com",
+      "strict_min_version": "140.0"
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
     }
   },
   "background": {

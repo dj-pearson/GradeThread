@@ -1437,6 +1437,13 @@ export interface ItemPhotoRow {
   // the photo is withheld from public/marketplace surfaces; the audited unhide
   // endpoint flips it back. Default false.
   is_hidden: boolean;
+  // US-2208 (migration 00495): non-destructive editing. `original_storage_path`
+  // holds the pristine pre-edit file, copied aside once on the first save; NULL
+  // means the photo has never been edited and `storage_path` IS the original.
+  // `edit_recipe` is the geometry + tone that derived the current image — see
+  // PhotoEditRecipe in src/lib/photo-edit-recipe.ts.
+  original_storage_path: string | null;
+  edit_recipe: unknown | null;
 }
 
 // US-889: reusable moderation queue row for listings + item_photos. Operator-only

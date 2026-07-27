@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2208",
+  "nextId": "US-2209",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4995,6 +4995,23 @@
       "passes": false,
       "dependsOn": [],
       "notes": "[P1][Android/Sync] Found 2026-07-27 while fixing the mutation-queue drain. Same class as US-2151 and the drain gap: DeleteReconciler is complete and unit-tested (create-before-edit protection, local-only photo protection, dirty-row protection) but grep finds NO production caller — only DeleteReconcilerTest. So a pull only ever ADDS and UPDATES rows: anything deleted on another client stays on the Android device forever, and the seller works from an inventory containing items they already got rid of. Deliberately NOT bundled into the replay fix: reconciliation PRUNES local rows, so it wants its own change with its own review rather than riding along with an unrelated one."
+    },
+    {
+      "id": "US-2208",
+      "title": "Non-destructive listing photo edits (preserve original + revert)",
+      "description": "The photo editor overwrote item_photos.storage_path in place, so a saved brightness/crop was permanent and the pristine upload was destroyed. Preserve the original once on first edit, record the edit recipe, reopen the editor from the original with sliders seeded, and offer Revert to original.",
+      "acceptanceCriteria": [
+        "Migration 00495 adds item_photos.original_storage_path + edit_recipe (nullable, no backfill); EXPECTED_SCHEMA_VERSION bumped in the same commit with the self-record footer.",
+        "The first saved edit copies the pristine file to an originals/ subfolder under the same {userId}/ prefix and records original_storage_path; subsequent edits do NOT overwrite it.",
+        "If preserving the original fails, the edit is aborted rather than destroying the original.",
+        "Reopening the editor on an edited photo loads the ORIGINAL and seeds rotation, straighten, crop, aspect and the five tone sliders from edit_recipe, so repeat edits never compound tone or JPEG re-encoding.",
+        "A Revert to original action restores the pre-edit image, clears edit_recipe, and busts the cached photo_url + thumbnail.",
+        "Deleting a photo also removes its preserved original, so storage does not accumulate orphans.",
+        "Bulk tone matching goes through the same preserve-then-write path and records its recipe."
+      ],
+      "priority": "medium",
+      "passes": false,
+      "notes": "Follow-on from the composer photo-enhancement work (editor sliders/auto/zoom/cut-out + bulk tone match + container-query composer layout). Recipe shape and parser live in src/lib/photo-edit-recipe.ts; storage round-trips in src/lib/photo-mutations.ts."
     }
   ]
 }

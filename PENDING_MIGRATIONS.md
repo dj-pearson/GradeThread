@@ -1,5 +1,39 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00495_item_photo_edit_originals.sql (US-2208 non-destructive photo editing, 2026-07-27)
+
+**Apply AFTER 00494.** Adds two nullable columns to `item_photos`:
+`original_storage_path text` (the pristine pre-edit original, copied aside once
+on first edit) and `edit_recipe jsonb` (the geometry + tone that produced the
+current image). No backfill — NULL already means "never edited". Run
+`NOTIFY pgrst, 'reload schema';` after applying.
+
+**⚠️ CLIENT READS AND WRITES BOTH NEW COLUMNS — apply-order matters.** The SPA in
+this commit selects `item_photos.*` (so PostgREST returns whatever exists — a
+missing column is tolerated on READ), but the photo editor's save path
+**writes** `original_storage_path` and `edit_recipe`
+(`src/lib/photo-mutations.ts` → `persistPhotoEdit`). Cloudflare Pages
+auto-deploys the frontend on push, so if this pushes BEFORE the SQL is applied,
+**every photo edit and every bulk tone-match fails** with
+`column item_photos.original_storage_path does not exist`, and the "Revert to
+original" control never appears. Apply the SQL to prod FIRST, then push. Upload,
+reorder, retag and delete are unaffected.
+
+**Why:** the editor overwrote `storage_path` in place, so a saved brightness or
+crop was permanent and the original upload was destroyed. Preserving the
+original also lets a re-edit start from the pristine file instead of compounding
+tone and JPEG re-encoding on each pass.
+
+**Risk: LOW.** Two additive nullable columns plus two `comment on column`
+statements; no trigger, no index, no data migration. Idempotent and re-run safe.
+The storage side is client-driven (a `copy()` into an `originals/` subfolder
+under the same `{userId}/…` prefix, so the per-user-folder RLS on
+`item-photos` still matches on segment 1). Not exercised against a live DB in
+this environment (no Docker) — after apply, spot-check that editing a photo
+once sets `original_storage_path`, that editing it twice does NOT change that
+value, and that "Revert to original" restores the pre-edit image.
+
+
 ## ⏳ HELD: 00494_submissions_overall_score.sql (US-2196 server-side grade sort, 2026-07-27)
 
 **Apply AFTER 00493.** Adds `submissions.overall_score numeric(3,1)`, a

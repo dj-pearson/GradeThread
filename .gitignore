@@ -97,6 +97,10 @@ services/edge-functions/deno.lock
 
 # Ralph per-iteration transient state (regenerated each loop)
 scripts/ralph/current-story.json
+# Ralph SDK-runner state: resume session ids + the per-story cost log. Both are
+# per-machine runtime records, not shared repo state.
+scripts/ralph/sessions.json
+scripts/ralph/costs.jsonl
 supabase/.temp/cli-latest
 
 # Python lint script bytecode

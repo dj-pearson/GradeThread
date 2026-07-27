@@ -1,8 +1,13 @@
 # Ralph — start / stop / kill
 
 Ralph is the autonomous loop that implements `prd.json` user stories one per
-iteration (`ralph.sh`, launched via `run.mjs`). This folder holds everything you
-need to run and control it. Commands below are run from the **repo root**.
+iteration. This folder holds everything you need to run and control it. Commands
+below are run from the **repo root**.
+
+> **`npm run ralph` now runs `run-sdk.mjs` — the Claude Agent SDK runner.** The
+> old shell path (`run.mjs` → `ralph.sh` → `claude --print`) is still there as
+> `npm run ralph:sh`. See [Which runner?](#which-runner) — behavior is the same,
+> observability and safety are not.
 
 ## TL;DR
 
@@ -35,10 +40,30 @@ is editing the same files — you'll get conflicts.
 *between* iterations, so it waits for the stuck one (which `ralph.sh` will itself
 auto-kill at `RALPH_ITER_TIMEOUT`, default 40 min, then retry).
 
+## Which runner?
+
+| | `npm run ralph` (SDK, default) | `npm run ralph:sh` (legacy shell) |
+|---|---|---|
+| Implementation | `run-sdk.mjs` → `@anthropic-ai/claude-agent-sdk` | `run.mjs` → `ralph.sh` → `claude --print` |
+| Why an iteration ended | Structured: `success` / `error_max_turns` / `error_max_budget_usd` / timeout, plus `stop_reason` | One exit code + a grep for `STORY_DONE` |
+| Permissions | `canUseTool` gate — allows everything except `git push`, `rm -rf`, destructive git, and `--no-verify` | `--dangerously-skip-permissions` (all or nothing) |
+| Cost | Per-story `$` + tokens printed each iteration and appended to `costs.jsonl` | Not reported |
+| Retry after a timeout | Resumes the story's session (context kept) | Restarts the story cold |
+| Needs `jq` / Git Bash | No — pure Node | Yes |
+| Runs `amp` instead of Claude | No | Yes (`--tool amp`) |
+
+Both share `CLAUDE.md`, `current-story.json`, `progress.txt`, the `STOP` flag, and
+the stop/kill/rescue scripts. Story selection and the `passes:true` flip are
+identical (the SDK runner ports the `jq` expressions to JS and unit-tests them in
+`run-sdk.test.mjs` — the `dependsOn` deadlock is a regression test now).
+
+SDK-runner-only env vars: `RALPH_MAX_TURNS`, `RALPH_MAX_BUDGET_USD` (hard per-iteration
+caps, surfaced as `error_max_turns` / `error_max_budget_usd`), and `RALPH_NO_RESUME=1`
+to force every retry to start cold.
+
 ## Start
 
-- **`npm run ralph -- 200`** — run up to 200 iterations. `run.mjs` finds Git Bash
-  and execs `ralph.sh`. Each iteration:
+- **`npm run ralph -- 200`** — run up to 200 iterations. Each iteration:
   1. **`ralph.sh` selects the story** (highest-priority *eligible* `passes:false`
      story — see `dependsOn` below) with `jq` and writes just that one object to
      `current-story.json` (~1.5 KB).
@@ -107,8 +132,12 @@ interactive Claude session or VS Code.
 
 | File | Purpose |
 |---|---|
-| `run.mjs` | Cross-platform launcher (`npm run ralph` → finds Git Bash → `ralph.sh`). |
-| `ralph.sh` | The loop: per-iteration timeout, graceful-stop check, stray-build sweep. |
+| `run-sdk.mjs` | **The loop (default).** Agent SDK runner: story selection, `canUseTool` gate, structured outcomes, cost accounting, session resume. |
+| `run-sdk.test.mjs` | Unit tests for story selection + model tiering (incl. the `dependsOn` deadlock regression). |
+| `run.mjs` | Legacy launcher (`npm run ralph:sh` → finds Git Bash → `ralph.sh`). |
+| `ralph.sh` | Legacy loop: per-iteration timeout, graceful-stop check, stray-build sweep. Also the only path that can drive `amp`. |
+| `sessions.json` | storyId → session id, so a timed-out story resumes instead of restarting (git-ignored). |
+| `costs.jsonl` | Append-only per-story cost/token/outcome log written by the SDK runner (git-ignored). |
 | `CLAUDE.md` | The agent prompt (static; reads `current-story.json`, implements + verifies). |
 | `current-story.json` | The one story the harness selected this iteration (git-ignored, regenerated each loop). |
 | `LEARNINGS.md` | Small curated gotchas playbook read every iteration (cheap persistent memory). |

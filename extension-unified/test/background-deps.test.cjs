@@ -124,7 +124,7 @@ for (const [api, why] of [
 (async () => {
   const { pathToFileURL } = require("node:url");
   const pkgPath = path.resolve(dir, "..", "scripts", "package-extensions.mjs");
-  const { EXTENSIONS, firefoxManifest } = await import(pathToFileURL(pkgPath).href);
+  const { EXTENSIONS, firefoxManifest, chromeManifest } = await import(pathToFileURL(pkgPath).href);
 
   const entry = EXTENSIONS.find((e) => e.dir === "extension-unified");
   assert.ok(entry, "package-extensions.mjs must still ship the extension-unified folder");
@@ -148,6 +148,24 @@ for (const [api, why] of [
   assert.ok(
     !ff.background.service_worker,
     "the Firefox variant must not keep background.service_worker alongside scripts",
+  );
+
+  // ── the SHIPPED Chrome manifest strips background.scripts ──────────────────
+  // Chrome MV3 reads background.service_worker and does NOT recognise
+  // background.scripts (the Firefox event-page half the source manifest must
+  // keep). Shipping it to Chrome warns "'background.scripts' requires manifest
+  // version of 2 or lower" on every unpacked load. The Chrome build must strip it
+  // — and keep service_worker — the mirror of the Firefox transform above.
+  const chrome = chromeManifest(manifest);
+  assert.ok(
+    !chrome.background.scripts,
+    "the SHIPPED Chrome manifest must NOT carry background.scripts — Chrome MV3 " +
+      "does not recognise it and warns on load. chromeManifest() must strip it.",
+  );
+  assert.strictEqual(
+    chrome.background.service_worker,
+    "background.js",
+    "the Chrome manifest must keep background.service_worker (the MV3 background).",
   );
 
   const shipped = (ff.browser_specific_settings || {}).gecko || {};

@@ -1,12 +1,13 @@
-# Store submission kit — GradeThread unified extension v0.3.5
+# Store submission kit — GradeThread unified extension v0.3.7
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v0.3.5-chrome.zip` · `dist-ext/gradethread-v0.3.5-firefox.zip`.
+`dist-ext/gradethread-v0.3.7-chrome.zip` · `dist-ext/gradethread-v0.3.7-firefox.zip`.
 
 ## Shared fields
 
 - **Name / Title:** `GradeThread: Grade & List`  (≤30 chars for AMO)
-- **Summary (125 chars):** `AI condition reads while you shop eBay, Poshmark, Grailed, Mercari, Depop & Vinted — plus cross-listing for FlipDesk sellers.`
+- **Summary (125 chars):** `Get an AI-powered condition read on a pre-owned clothing listing before you buy — plus one-click cross-listing for FlipDesk sellers.`
+  - ⚠️ Do NOT enumerate marketplace brand names (eBay, Poshmark, Grailed, Mercari, Depop, Vinted) in the summary or description. Chrome rejected the 0.3.5 submission for "excessive keywords" (ref: Yellow Argon, 2026‑07‑16) citing exactly that list. Describe the extension functionally; the supported sites are declared by the `content_scripts` match patterns, not by keyword lists in the copy.
 - **Homepage:** `https://gradethread.com`
 - **Support email:** `support@gradethread.com`
 - **Support site:** `https://gradethread.com`
@@ -19,22 +20,22 @@ Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
 ## Description (paste into both; first 250 chars carry the pitch)
 
 ```
-GradeThread gives you an independent, AI-powered condition read on any pre-owned clothing listing — before you buy — and, for resellers, one-click cross-listing to your other marketplaces.
+GradeThread gives you an independent, AI-powered condition read on a pre-owned clothing listing before you buy — and, for resellers, one-click cross-listing to your other marketplaces.
 
-SHOP SMARTER — free, no account needed
-Open a listing on eBay, Poshmark, Grailed, Mercari, Depop, or Vinted and click "Get condition read." GradeThread's AI reads the listing photos and gives you:
+FOR SHOPPERS — free, no account needed
+Open a clothing listing on a supported resale site and click "Get condition read." GradeThread's AI reads the photos already on the page and returns:
 • A 1–10 condition score with a confidence level
-• A flag when the seller may be over-grading the item
-• Condition-adjusted price fairness
-• Which photos to ask the seller for before you buy
+• A heads-up when the seller's stated condition may be optimistic
+• A sense of whether the asking price fits the condition
+• Which extra photos to request before you buy
 
-SELL FASTER — for FlipDesk sellers
-Cross-post your FlipDesk drafts to Poshmark, Mercari, and Grailed. The new-listing form is prefilled in your OWN logged-in browser tab — you just review and click List.
+FOR FLIPDESK SELLERS
+Send a draft from FlipDesk and the extension opens the destination site's new-listing form in your own logged-in tab, already filled in. You review the details and click List — GradeThread never signs in to the marketplace for you.
 
 YOUR SESSIONS STAY YOURS
-No "cookies" permission and no access to your marketplace accounts. Condition Check sends only the public listing photos already on the page to GradeThread's grading service; nothing is stored on our servers, and your recent reads stay on your device. Cross-listing runs entirely in your browser — GradeThread never sees your marketplace password or cookies.
+This extension does not request a "cookies" permission and cannot read your marketplace accounts. Condition reads send only the public listing photos already visible on the page to GradeThread's grading service; results are not kept on our servers, and your recent reads stay on your device. Cross-listing runs entirely in your browser.
 
-Buyer research is free for everyone. Seller cross-listing unlocks with an active FlipDesk plan at gradethread.com.
+Buyer research is free. Seller cross-listing unlocks with an active FlipDesk plan at gradethread.com.
 ```
 
 ## Chrome Web Store — extras
@@ -47,7 +48,9 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 **Permission justifications** (Privacy practices tab):
 - `storage` — Store the user's settings (auto-run, per-site toggles), local "recent reads" history, and the signed sign-in token, on the device.
 - `activeTab` — Read the active tab's host so the popup can show a per-site enable/disable toggle for the marketplace the user is on.
-- `alarms` — Time out a cross-listing job that never completes (e.g. the marketplace page fails to load), so the user gets a clear "timed out — list manually" message instead of a spinner that never resolves. Chrome suspends the extension's background worker after ~30s of inactivity, which cancels ordinary in-page timers; an alarm is the only mechanism that survives to report the failure. Not used for scheduling, polling, or any background network activity.
+- `alarms` — Two local, no-network uses, both for the seller cross-listing (Lister) feature:
+  1. **A one-shot timeout per cross-listing job.** If the marketplace's new-listing page never finishes loading, an alarm fires at that job's deadline so the user sees a clear "timed out — list manually" message instead of a spinner that never resolves. Chrome suspends the background service worker after ~30s of inactivity, which cancels ordinary `setTimeout` timers; an alarm is the only timer that survives the suspension to report the failure.
+  2. **One periodic sweep (every 5 minutes), running entirely on the device.** It drops finished cross-listing jobs once their result grace-window has passed and expires abandoned tab "watches" (US-1877) so a forgotten tab can't capture whatever the seller browses to later. It makes no network requests, polls no server, and collects nothing — it is purely local state cleanup. The single periodic alarm costs one alarm total rather than one per job.
 - Host `https://gradethread.com/*` and `https://*.gradethread.com/*` — Two uses, and the second is the one that needs stating plainly:
   1. Call GradeThread's own API (`functions.gradethread.com`) to grade a listing the user asked us to read, and to fetch that account's entitlements.
   2. **Inject a content script into gradethread.com pages** (`gt-bridge.js`). It is a message relay: the GradeThread web app posts a cross-listing request, the script forwards it to the extension's background, and posts the reply back. It exists because Firefox has no `externally_connectable`, so this is the only cross-browser way for our own site to talk to our own extension. It reads nothing from the page — no page content, no credentials, no cookies — and forwards only our own message envelope.
@@ -105,11 +108,20 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v0.3.5)
+## Version / release notes (v0.3.7)
 
 ```
-First unified release. One add-on now does both jobs:
-• Condition Check (all users, free): AI condition read on eBay, Poshmark, Grailed, Mercari, Depop & Vinted listings — score, over-grading flag, price fairness, and photo-request hints.
-• Lister (FlipDesk sellers): one-click cross-posting of drafts to Poshmark, Mercari & Grailed, prefilled in your own logged-in tab.
-Role-aware popup, versioned Lister consent, and full Firefox support.
+Listing and in-product copy clarified — no functional changes.
+Firefox: raised the minimum to Firefox 140 (Android 142) so the browser's built-in
+data-collection consent screen is shown, resolving the AMO validation warnings about
+data_collection_permissions on older versions.
+The extension does both jobs behind one role-aware popup:
+• Condition Check (all users, free): an AI condition read on a supported resale listing — score, over-grading flag, price fairness, and photo-request hints.
+• Lister (FlipDesk sellers): one-click cross-posting of drafts into a supported marketplace's new-listing form, prefilled in your own logged-in tab.
+Versioned Lister consent and full Firefox support.
 ```
+
+> Firefox floor is 140.0 (desktop) / 142.0 (Android): the versions that support
+> `browser_specific_settings.gecko.data_collection_permissions`. The Firefox add-on
+> id is `unified@gradethread.com` (must match the AMO listing). Chrome ignores
+> `browser_specific_settings` entirely, so these change only the Firefox build.

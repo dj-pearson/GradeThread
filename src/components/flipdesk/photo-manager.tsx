@@ -1,4 +1,10 @@
-import { type MutableRefObject, useEffect, useRef, useState } from "react";
+import {
+  type MutableRefObject,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -45,7 +51,16 @@ import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { BulkToneDialog } from "@/components/flipdesk/bulk-tone-dialog";
 import { useRemoveBackground, useRemoveBgCapability } from "@/hooks/use-remove-bg";
 import { itemPhotoThumb } from "@/lib/images";
-import { persistRetag, persistDelete } from "@/lib/photo-mutations";
+import {
+  persistRetag,
+  persistDelete,
+  persistPhotoEdit,
+  revertPhotoEdit,
+} from "@/lib/photo-mutations";
+import {
+  parseEditRecipe,
+  type PhotoEditRecipe,
+} from "@/lib/photo-edit-recipe";
 import { useEbayReviseListing } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
 import type {
@@ -252,55 +267,65 @@ export function PhotoManager({
   // tone pass can't quietly re-expose a photo the grade was read from; sensitive
   // close-ups are excluded because they can't be written back at all; and a photo
   // with no storage_path has nowhere to save to.
-  const toneMatchable = order.filter(
-    (p) =>
-      !p.used_for_grading &&
-      !isSensitivePhotoType(p.photo_type) &&
-      p.storage_path != null,
+  //
+  // Memoized because this array is a PROP of BulkToneDialog and one of its load
+  // effect's dependencies. A fresh identity on every parent render would restart
+  // the dialog's fetch-and-analyse pass mid-review — the same trap EMPTY_PHOTOS
+  // guards against above.
+  const toneMatchable = useMemo(
+    () =>
+      order.filter(
+        (p) =>
+          !p.used_for_grading &&
+          !isSensitivePhotoType(p.photo_type) &&
+          p.storage_path != null,
+      ),
+    [order],
   );
 
   /**
    * Write edited pixels back over a photo. Shared by the single-photo editor and
-   * bulk tone matching so both stay consistent about cache-busting and thumbnails.
-   *
-   * A re-encode busts photo_url but the pre-generated thumbnail still holds the
-   * OLD pixels — and itemPhotoThumb() prefers thumbnail_url, so every gallery and
-   * cover would keep showing the stale image while zoom and eBay (which read
-   * photo_url) showed the new one. Drop the stale thumbnail so those surfaces
-   * fall back to the cache-busted photo_url, and best-effort remove the orphan.
+   * bulk tone matching so both preserve the original identically (US-2208) and
+   * stay consistent about cache-busting and thumbnails.
    */
-  async function persistPhotoBlob(photo: ItemPhotoRow, blob: Blob) {
-    const path = photo.storage_path;
-    if (!path) throw new Error("This photo has no storage path.");
+  async function persistPhotoBlob(
+    photo: ItemPhotoRow,
+    blob: Blob,
+    recipe: PhotoEditRecipe | null,
+  ) {
     // Defence in depth — the editor is not offered for these types at all. Their
-    // originals live in the PRIVATE bucket, and this function writes to the
-    // public one, so an edited tag or certificate would be republished as a
-    // public URL carrying exactly the PII the private bucket exists to hold.
+    // originals live in the PRIVATE bucket, and this path writes to the public
+    // one, so an edited tag or certificate would be republished as a public URL
+    // carrying exactly the PII the private bucket exists to hold.
     if (isSensitivePhotoType(photo.photo_type)) {
       throw new Error("Label, tag, and certificate photos can't be edited.");
     }
-    const { error: upErr } = await supabase.storage
-      .from("item-photos")
-      .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
-    if (upErr) throw upErr;
+    await persistPhotoEdit(supabase, photo, blob, recipe);
     photosDirtyRef.current = true;
-    if (photo.thumbnail_storage_path) {
-      void supabase.storage
-        .from("item-photos")
-        .remove([photo.thumbnail_storage_path]);
-    }
-    const { data: pub } = supabase.storage
-      .from("item-photos")
-      .getPublicUrl(path);
-    await supabase
-      .from("item_photos")
-      .update({
-        photo_url: `${pub.publicUrl}?v=${Date.now()}`,
-        thumbnail_url: null,
-        thumbnail_storage_path: null,
-      } as never)
-      .eq("id", photo.id);
   }
+
+  /** Restore a photo's preserved pre-edit original. */
+  async function revertPhoto(photo: ItemPhotoRow) {
+    await revertPhotoEdit(supabase, photo);
+    photosDirtyRef.current = true;
+    await invalidatePhotos();
+  }
+
+  // US-2208 invariant: the editor may only render from the ORIGINAL when a
+  // recipe fully describes how the current image was derived from it. Bulk tone
+  // matching writes a null recipe precisely because it composes on top of
+  // whatever edit was already there — so without this guard, opening the editor
+  // after a tone match would load the uncropped original and silently discard
+  // the seller's crop. No recipe → edit the current image, as before.
+  const editingRecipe = editingPhoto
+    ? parseEditRecipe(editingPhoto.edit_recipe)
+    : null;
+  const editingOriginalUrl =
+    editingPhoto?.original_storage_path && editingRecipe
+      ? supabase.storage
+          .from("item-photos")
+          .getPublicUrl(editingPhoto.original_storage_path).data.publicUrl
+      : null;
 
   async function retag(photo: ItemPhotoRow, photoType: FlipdeskPhotoType) {
     photosDirtyRef.current = true;
@@ -426,14 +451,30 @@ export function PhotoManager({
       <PhotoEditorDialog
         open={editingPhoto != null}
         src={editingPhoto?.photo_url ?? ""}
+        // US-2208: re-edit from the pristine original with the previous recipe
+        // replayed, so tone and JPEG generations never compound.
+        originalSrc={editingOriginalUrl}
+        initialRecipe={editingRecipe}
+        // Offered whenever an original was preserved — including after a bulk
+        // tone match, which leaves no recipe but still has something to undo.
+        onRevert={
+          editingPhoto?.original_storage_path
+            ? async () => {
+                if (!editingPhoto) return;
+                await revertPhoto(editingPhoto);
+                toast.success("Photo restored to the original.");
+                setEditingPhoto(null);
+              }
+            : undefined
+        }
         // A photo that fed a grade keeps the tone it was graded from — see the
         // prop's own note. Geometry edits stay available.
         allowToneEdits={!editingPhoto?.used_for_grading}
         onClose={() => setEditingPhoto(null)}
-        onSave={async (blob) => {
+        onSave={async (blob, recipe) => {
           if (!editingPhoto) return;
           try {
-            await persistPhotoBlob(editingPhoto, blob);
+            await persistPhotoBlob(editingPhoto, blob, recipe);
           } catch (err) {
             toast.error(
               `Couldn't save the edit: ${err instanceof Error ? err.message : String(err)}`,

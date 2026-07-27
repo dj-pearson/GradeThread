@@ -13,6 +13,7 @@ import {
   Maximize,
   Eraser,
   Lock,
+  History,
 } from "lucide-react";
 import {
   Dialog,
@@ -30,6 +31,10 @@ import {
   isNeutral,
   type Adjustments,
 } from "@/lib/image-adjustments";
+import {
+  buildEditRecipe,
+  type PhotoEditRecipe,
+} from "@/lib/photo-edit-recipe";
 import { cn } from "@/lib/utils";
 
 type Rect = { x: number; y: number; w: number; h: number }; // all 0-1 normalized
@@ -69,9 +74,21 @@ interface Props {
   open: boolean;
   /** Supabase public URL of the photo to edit. */
   src: string;
+  /**
+   * US-2208: public URL of the preserved PRE-EDIT original, when this photo has
+   * been edited before. Supplying it makes a re-edit lossless — the editor
+   * renders from the pristine file with `initialRecipe` replayed into the
+   * controls, instead of stacking tone and another JPEG generation onto an
+   * already-edited image every time the seller nudges a slider.
+   */
+  originalSrc?: string | null;
+  /** The recipe that produced the current image, replayed into the controls. */
+  initialRecipe?: PhotoEditRecipe | null;
+  /** Restore the preserved original. Shown only when there is an edit to undo. */
+  onRevert?: () => Promise<void>;
   onClose: () => void;
   /** Receives the edited image as a JPEG Blob. Must close the dialog on success. */
-  onSave: (blob: Blob) => Promise<void>;
+  onSave: (blob: Blob, recipe: PhotoEditRecipe) => Promise<void>;
   /**
    * When false, the tonal tools (brightness/contrast/saturation/warmth/sharpness,
    * Auto, and background removal) are withheld — geometry-only editing.
@@ -96,6 +113,9 @@ interface Props {
 export function PhotoEditorDialog({
   open,
   src,
+  originalSrc,
+  initialRecipe,
+  onRevert,
   onClose,
   onSave,
   allowToneEdits = true,
@@ -129,6 +149,9 @@ export function PhotoEditorDialog({
   // The pristine fetched bytes, so "Reset" can undo a background removal.
   const originalBlobRef = useRef<Blob | null>(null);
   const rafRef = useRef<number | null>(null);
+  const recipeRef = useRef(initialRecipe);
+  recipeRef.current = initialRecipe;
+  const [reverting, setReverting] = useState(false);
 
   const toneLocked = !allowToneEdits;
 
@@ -165,24 +188,42 @@ export function PhotoEditorDialog({
     if (!open || !src) return;
     let cancelled = false;
 
-    setRotation(0);
-    setFine(0);
-    setCropMode(false);
-    setAspect(null);
-    setCrop(FULL_CROP);
-    setAdj(NEUTRAL_ADJUSTMENTS);
+    // US-2208: when a preserved original exists, edit THAT and replay the saved
+    // recipe. Editing the already-edited file instead would re-encode a lossy
+    // JPEG and compound tone on tone with every visit.
+    const editingOriginal = !!originalSrc;
+    const loadFrom = originalSrc || src;
+    // Read through the ref: `initialRecipe` is parsed from a jsonb column, so
+    // it is a fresh object on every parent render. As a dependency it would
+    // restart this fetch continuously; as a ref it stays a one-shot seed and no
+    // call site has to remember to memoize it.
+    const seed = editingOriginal ? recipeRef.current : null;
+
+    setRotation(seed?.rotation ?? 0);
+    setFine(seed?.fine ?? 0);
+    setCropMode(seed?.crop != null);
+    setAspect(seed?.aspect ?? null);
+    setCrop(seed?.crop ?? FULL_CROP);
+    setAdj(seed?.adjustments ?? NEUTRAL_ADJUSTMENTS);
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setSaving(false);
+    // The cut-out is recorded but not replayed — re-running segmentation is
+    // seconds of work nobody asked for. Start from "not removed" and tell the
+    // seller it was, so re-applying stays a deliberate single click.
     setBgRemoved(false);
     setBgBusy(false);
-    setNotice(null);
+    setNotice(
+      seed?.bgRemoved
+        ? "This photo had its background removed. Editing from the original — click Cut out to reapply it."
+        : null,
+    );
     setFatal(false);
     setLoading(true);
 
     void (async () => {
       try {
-        const res = await fetch(src);
+        const res = await fetch(loadFrom);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
         if (cancelled) return;
@@ -202,7 +243,7 @@ export function PhotoEditorDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, src, loadBitmaps]);
+  }, [open, src, originalSrc, loadBitmaps]);
 
   // Release the decoded bitmaps when the dialog closes — each one pins its full
   // pixel buffer, and a 12MP photo is ~48MB held until GC gets around to it.
@@ -499,6 +540,11 @@ export function PhotoEditorDialog({
   }
 
   // ── Save ──────────────────────────────────────────────────────────
+  /** Whether the crop is a real crop rather than the untouched default frame. */
+  function croppedRect(): { x: number; y: number; w: number; h: number } | null {
+    return cropMode && (crop.w < 0.99 || crop.h < 0.99) ? { ...crop } : null;
+  }
+
   async function handleSave() {
     const full = fullBitmapRef.current;
     if (!full) return;
@@ -540,13 +586,41 @@ export function PhotoEditorDialog({
           0.92,
         ),
       );
-      await onSave(blob);
+      // The recipe describes how this output was derived FROM THE ORIGINAL, so
+      // reopening can replay it rather than re-editing an edited file.
+      await onSave(
+        blob,
+        buildEditRecipe({
+          rotation,
+          fine,
+          crop: croppedRect(),
+          aspect,
+          adjustments: adj,
+          // Sticky across a re-edit: the seller sees the cut-out already applied
+          // in the image they opened, so not carrying the flag would quietly
+          // drop it from the record on the next save.
+          bgRemoved: bgRemoved || recipeRef.current?.bgRemoved === true,
+          editedAt: new Date().toISOString(),
+        }),
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  const busy = saving || bgBusy;
+  async function handleRevert() {
+    if (!onRevert) return;
+    setReverting(true);
+    try {
+      await onRevert();
+    } catch {
+      setNotice("Couldn't revert this photo. Nothing was changed.");
+    } finally {
+      setReverting(false);
+    }
+  }
+
+  const busy = saving || bgBusy || reverting;
   const dirty =
     rotation !== 0 || fine !== 0 || !isNeutral(adj) || bgRemoved || cropMode;
 
@@ -906,9 +980,31 @@ export function PhotoEditorDialog({
               </Button>
             )}
 
+            {/* US-2208: discard the SAVED edit, not just this session's — only
+                offered when a preserved original exists to restore. */}
+            {onRevert && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-full text-xs text-muted-foreground"
+                onClick={handleRevert}
+                disabled={busy || loading}
+              >
+                {reverting ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <History className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Revert to original photo
+              </Button>
+            )}
+
             <p className="text-xs leading-snug text-muted-foreground">
-              Edits apply to the saved photo. eBay doesn't allow added borders,
-              text, or watermarks — these tools only adjust the image itself.
+              {originalSrc
+                ? "Editing from your original photo, so repeat edits never stack up. "
+                : ""}
+              eBay doesn't allow added borders, text, or watermarks — these tools
+              only adjust the image itself.
             </p>
           </div>
         </div>

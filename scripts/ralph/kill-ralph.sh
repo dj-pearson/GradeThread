@@ -19,12 +19,15 @@ case "$(uname -s)" in
     powershell.exe -NoProfile -ExecutionPolicy Bypass -Command - <<'PS'
 $ErrorActionPreference = 'SilentlyContinue'
 $rules = @(
+  @{ Name='node.exe';   Rx='ralph[\\/]run-sdk\.mjs';     Label='ralph runner (run-sdk.mjs)' },
   @{ Name='node.exe';   Rx='ralph[\\/]run\.mjs';         Label='ralph runner (run.mjs)' },
   @{ Name='bash.exe';   Rx='ralph[\\/]ralph\.sh';        Label='ralph loop (ralph.sh)' },
   @{ Name='node.exe';   Rx='ralph[\\/]ralph\.sh';        Label='ralph loop (node)' },
   @{ Name='node.exe';   Rx='scripts[\\/]prerender\.mjs'; Label='prerender (build child)' },
   @{ Name='node.exe';   Rx='build-lock\.mjs';            Label='build-lock' },
-  @{ Name='claude.exe'; Rx='--print';                    Label='ralph agent (claude --print)' }
+  @{ Name='claude.exe'; Rx='--print';                    Label='ralph agent (claude --print)' },
+  @{ Name='claude.exe'; Rx='--input-format[= ]stream-json'; Label='ralph agent (SDK child)' },
+  @{ Name='node.exe';   Rx='--input-format[= ]stream-json'; Label='ralph agent (SDK child, node)' }
 )
 $killed = 0
 foreach ($r in $rules) {
@@ -45,7 +48,7 @@ PS
   *)
     # Linux/macOS: match the full command line; exclude this script's own pid.
     self=$$
-    patterns=( 'ralph/run\.mjs' 'ralph/ralph\.sh' 'scripts/prerender\.mjs' 'build-lock\.mjs' 'claude .*--print' )
+    patterns=( 'ralph/run-sdk\.mjs' 'ralph/run\.mjs' 'ralph/ralph\.sh' 'scripts/prerender\.mjs' 'build-lock\.mjs' 'claude .*--print' '--input-format[= ]stream-json' )
     killed=0
     for pat in "${patterns[@]}"; do
       for pid in $(pgrep -f "$pat" 2>/dev/null); do

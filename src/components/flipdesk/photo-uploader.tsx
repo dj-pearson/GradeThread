@@ -23,6 +23,11 @@ import { nextUploadSortOrder } from "@/lib/photo-order";
 import { compressImage } from "@/lib/image-utils";
 import { normalizeToImageFile } from "@/lib/media-intake";
 import { itemPhotoThumb } from "@/lib/images";
+import { persistPhotoEdit, revertPhotoEdit } from "@/lib/photo-mutations";
+import {
+  parseEditRecipe,
+  type PhotoEditRecipe,
+} from "@/lib/photo-edit-recipe";
 import { cn } from "@/lib/utils";
 import type {
   ItemPhotoRow,
@@ -362,41 +367,47 @@ export function PhotoUploader({
 
   const requiredFilled = requiredTypes.every((t) => byType(t).length > 0);
 
-  async function saveEdit(blob: Blob) {
-    if (!editingPhoto) return;
-    const path = editingPhoto.storage_path;
-    if (!path) {
-      toast.error("This photo has no storage path; can't save edits.");
-      return;
-    }
-    const { error: upErr } = await supabase.storage
-      .from("item-photos")
-      .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
-    if (upErr) throw upErr;
-    // Drop the stale thumbnail — it still holds the pre-rotation orientation and
-    // itemPhotoThumb() prefers it over photo_url, so galleries showed the old
-    // image while zoom + eBay were correct. Nulling it falls the thumbnail
-    // surfaces back to the cache-busted, rotated photo_url. Best-effort orphan
-    // cleanup. (Mirrors the same fix in photo-manager.tsx.)
-    const oldThumb = editingPhoto.thumbnail_storage_path;
-    if (oldThumb) {
-      void supabase.storage.from("item-photos").remove([oldThumb]);
-    }
-    const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
-    const { error: dbErr } = await supabase
-      .from("item_photos")
-      .update({
-        photo_url: `${pub.publicUrl}?v=${Date.now()}`,
-        thumbnail_url: null,
-        thumbnail_storage_path: null,
-      } as never)
-      .eq("id", editingPhoto.id);
-    if (dbErr) throw dbErr;
+  // See the matching note in photo-manager: rendering from the original is only
+  // safe when a recipe fully describes the current image.
+  const editingRecipe = editingPhoto
+    ? parseEditRecipe(editingPhoto.edit_recipe)
+    : null;
+  const editingOriginalUrl =
+    editingPhoto?.original_storage_path && editingRecipe
+      ? supabase.storage
+          .from("item-photos")
+          .getPublicUrl(editingPhoto.original_storage_path).data.publicUrl
+      : null;
+
+  async function refreshAfterPhotoWrite() {
     await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
     // A rotate/edit changes the cover image; refresh the Listings cover too.
     await qc.invalidateQueries({ queryKey: ["items_full"] });
     onChange?.();
+  }
+
+  // US-2208: shared with PhotoManager via photo-mutations, so an edit made here
+  // preserves the original and records its recipe exactly as one made there.
+  async function saveEdit(blob: Blob, recipe: PhotoEditRecipe) {
+    if (!editingPhoto) return;
+    try {
+      await persistPhotoEdit(supabase, editingPhoto, blob, recipe);
+    } catch (err) {
+      toast.error(
+        `Couldn't save the edit: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    await refreshAfterPhotoWrite();
     toast.success("Photo updated.");
+    setEditingPhoto(null);
+  }
+
+  async function revertEdit() {
+    if (!editingPhoto) return;
+    await revertPhotoEdit(supabase, editingPhoto);
+    await refreshAfterPhotoWrite();
+    toast.success("Photo restored to the original.");
     setEditingPhoto(null);
   }
 
@@ -506,6 +517,9 @@ export function PhotoUploader({
       <PhotoEditorDialog
         open={editingPhoto != null}
         src={editingPhoto?.photo_url ?? ""}
+        originalSrc={editingOriginalUrl}
+        initialRecipe={editingRecipe}
+        onRevert={editingPhoto?.original_storage_path ? revertEdit : undefined}
         // Grading evidence keeps the tone it was graded from — see the prop's
         // note on PhotoEditorDialog. Geometry edits stay available.
         allowToneEdits={!editingPhoto?.used_for_grading}
