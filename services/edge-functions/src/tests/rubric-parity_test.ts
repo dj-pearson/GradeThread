@@ -59,6 +59,8 @@ Deno.test("rubricForKey falls back to clothing for null/unknown keys", () => {
 Deno.test("NON_CLOTHING_RUBRIC_KEYS are all defined rubrics and exclude clothing", () => {
   for (const key of NON_CLOTHING_RUBRIC_KEYS) {
     assert(RUBRICS[key], `NON_CLOTHING_RUBRIC_KEYS names "${key}" but RUBRICS has no such rubric`);
-    assert(key !== "clothing", "clothing must not be in NON_CLOTHING_RUBRIC_KEYS");
+    // String() so this stays a runtime guard even though the key's type already
+    // excludes "clothing" (a bare `key !== "clothing"` is TS2367 dead code).
+    assert(String(key) !== "clothing", "clothing must not be in NON_CLOTHING_RUBRIC_KEYS");
   }
 });
