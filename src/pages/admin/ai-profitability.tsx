@@ -11,6 +11,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Table,
   TableBody,
@@ -172,31 +173,30 @@ export function AdminAiProfitabilityPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Scale className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">AI Profitability</h1>
-            <p className="text-sm text-muted-foreground">
-              Cost-per-action, gross margin and model-routing per AI feature —
-              with modeled monthly spend vs revenue.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {PERIODS.map((p) => (
-            <Button
-              key={p.key}
-              size="sm"
-              variant={period === p.key ? "default" : "outline"}
-              onClick={() => setPeriod(p.key)}
-            >
-              {p.label}
-            </Button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        icon={Scale}
+        title="AI Profitability"
+        subtitle={
+          <>
+            Cost-per-action, gross margin and model-routing per AI feature —
+            with modeled monthly spend vs revenue.
+          </>
+        }
+        actions={
+          <>
+            {PERIODS.map((p) => (
+              <Button
+                key={p.key}
+                size="sm"
+                variant={period === p.key ? "default" : "outline"}
+                onClick={() => setPeriod(p.key)}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </>
+        }
+      />
 
       {isError && (
         <Card className="border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40">

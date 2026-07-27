@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-881 — Operations console: background jobs & scheduler.
 //
@@ -187,38 +188,38 @@ export function AdminOpsJobsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Server className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Background Jobs</h1>
-            <p className="text-sm text-muted-foreground">
-              Every scheduled job: last run, outcome, success rate &amp; next due. Run any
-              <code className="mx-1">/api/jobs/*</code> cron on demand.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {(data?.failing_count ?? 0) > 0 && (
-            <Badge variant="destructive">
-              {data!.failing_count} failing
-            </Badge>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void jobsQuery.refetch()}
-            disabled={jobsQuery.isFetching}
-          >
-            {jobsQuery.isFetching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
+      <PageHeader
+        title="Background Jobs"
+        subtitle={
+          <>
+            Every scheduled job: last run, outcome, success rate &amp; next due. Run any
+            <code className="mx-1">/api/jobs/*</code> cron on demand.
+          </>
+        }
+        icon={Server}
+        actions={
+          <div className="flex items-center gap-3">
+            {(data?.failing_count ?? 0) > 0 && (
+              <Badge variant="destructive">
+                {data!.failing_count} failing
+              </Badge>
             )}
-            Refresh
-          </Button>
-        </div>
-      </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void jobsQuery.refetch()}
+              disabled={jobsQuery.isFetching}
+            >
+              {jobsQuery.isFetching ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Refresh
+            </Button>
+          </div>
+        }
+      />
 
       <Card>
         <CardHeader>

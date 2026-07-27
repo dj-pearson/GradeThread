@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -86,29 +87,23 @@ export function FlipdeskCommunityInsightsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-            <Users className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Community Insights</h1>
-            <p className="text-sm text-muted-foreground">
-              Anonymized market signal from across the GradeThread reseller community.
-            </p>
-          </div>
-        </div>
-        <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All time</SelectItem>
-            <SelectItem value="12mo">Last 12 months</SelectItem>
-            <SelectItem value="90d">Last 90 days</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <PageHeader
+        icon={Users}
+        title="Community Insights"
+        subtitle="Anonymized market signal from across the GradeThread reseller community."
+        actions={
+          <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="12mo">Last 12 months</SelectItem>
+              <SelectItem value="90d">Last 90 days</SelectItem>
+            </SelectContent>
+          </Select>
+        }
+      />
 
       {(() => {
         const minSellers = data?.meta.minSellers ?? MIN_COHORT_SELLERS;

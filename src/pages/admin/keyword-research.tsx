@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SEO } from "@/components/seo";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import { edgeFetch } from "@/lib/edge-fetch";
 
@@ -165,28 +166,26 @@ export function AdminKeywordResearchPage() {
     <div className="space-y-6">
       <SEO title="Keyword Research — Admin" noindex />
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-primary/10 p-2">
-            <TrendingUp className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Keyword Research</h1>
-            <p className="text-sm text-muted-foreground">
-              Real demand data — search volume, competition &amp; CPC — from the Google Ads keyword
-              planner. Grounds ad copy, SEO and ASO in measured intent.
-            </p>
-          </div>
-        </div>
-        <Button onClick={() => ingest.mutate()} disabled={ingest.isPending}>
-          {ingest.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 h-4 w-4" />
-          )}
-          Refresh now
-        </Button>
-      </div>
+      <PageHeader
+        icon={TrendingUp}
+        title="Keyword Research"
+        subtitle={
+          <>
+            Real demand data — search volume, competition &amp; CPC — from the Google Ads keyword
+            planner. Grounds ad copy, SEO and ASO in measured intent.
+          </>
+        }
+        actions={
+          <Button onClick={() => ingest.mutate()} disabled={ingest.isPending}>
+            {ingest.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Refresh now
+          </Button>
+        }
+      />
 
       {data && !data.configured && (
         <Card className="border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">

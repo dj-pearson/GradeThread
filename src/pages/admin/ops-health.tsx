@@ -25,6 +25,7 @@ import {
   Database,
   HardDrive,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-883 — Operations console: system health & infrastructure dashboard.
 //
@@ -167,41 +168,36 @@ export function AdminOpsHealthPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Activity className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">System Health</h1>
-            <p className="text-sm text-muted-foreground">
-              Live infrastructure dashboard — DB &amp; storage usage, queue/DLQ depths, recent
-              job failures. Spot a problem before customers do.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {data && (
-            <Badge
-              className={cn("capitalize", overallStyle.text, overallStyle.bg, "border", overallStyle.ring)}
-              variant="outline"
-            >
-              {overall}
-            </Badge>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void healthQuery.refetch()}
-            disabled={healthQuery.isFetching}
-          >
-            {healthQuery.isFetching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
+      <PageHeader
+        title="System Health"
+        subtitle="Live infrastructure dashboard — DB &amp; storage usage, queue/DLQ depths, recent job failures. Spot a problem before customers do."
+        icon={Activity}
+        actions={
+          <div className="flex items-center gap-3">
+            {data && (
+              <Badge
+                className={cn("capitalize", overallStyle.text, overallStyle.bg, "border", overallStyle.ring)}
+                variant="outline"
+              >
+                {overall}
+              </Badge>
             )}
-            Refresh
-          </Button>
-        </div>
-      </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void healthQuery.refetch()}
+              disabled={healthQuery.isFetching}
+            >
+              {healthQuery.isFetching ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Refresh
+            </Button>
+          </div>
+        }
+      />
 
       {healthQuery.isLoading ? (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

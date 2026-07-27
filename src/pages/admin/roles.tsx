@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { PageHeader } from "@/components/ui/page-header";
 import { useAuth } from "@/hooks/use-auth";
 import { AlertTriangle, KeyRound, ShieldCheck, UserCog } from "lucide-react";
 
@@ -243,15 +244,17 @@ export function AdminRolesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Roles &amp; Permissions</h1>
-        <p className="text-muted-foreground">
-          Scope-based admin permissions on top of the fixed roles.{" "}
-          {isSuperAdmin
-            ? "Edits apply across the fleet within ~60s — no deploy."
-            : "Read-only for your role (super-admin required to edit)."}
-        </p>
-      </div>
+      <PageHeader
+        title={<>Roles &amp; Permissions</>}
+        subtitle={
+          <>
+            Scope-based admin permissions on top of the fixed roles.{" "}
+            {isSuperAdmin
+              ? "Edits apply across the fleet within ~60s — no deploy."
+              : "Read-only for your role (super-admin required to edit)."}
+          </>
+        }
+      />
 
       <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

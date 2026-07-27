@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -107,40 +108,38 @@ export function AdminTasksPage() {
   return (
     <div className="space-y-6">
       <SEO title="Tasks" noindex />
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-            <ListChecks className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Tasks</h1>
-            <p className="text-sm text-muted-foreground">
-              Break setup guides into trackable steps. Each project opens as a
-              kanban board.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 pr-2">
-            <Switch
-              id="show-archived"
-              checked={showArchived}
-              onCheckedChange={setShowArchived}
-            />
-            <Label htmlFor="show-archived" className="text-sm font-normal">
-              Show archived
-            </Label>
-          </div>
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import from Markdown
-          </Button>
-          <Button onClick={() => setNewOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Project
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={ListChecks}
+        title="Tasks"
+        subtitle={
+          <>
+            Break setup guides into trackable steps. Each project opens as a
+            kanban board.
+          </>
+        }
+        actions={
+          <>
+            <div className="flex items-center gap-2 pr-2">
+              <Switch
+                id="show-archived"
+                checked={showArchived}
+                onCheckedChange={setShowArchived}
+              />
+              <Label htmlFor="show-archived" className="text-sm font-normal">
+                Show archived
+              </Label>
+            </div>
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import from Markdown
+            </Button>
+            <Button onClick={() => setNewOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Project
+            </Button>
+          </>
+        }
+      />
 
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

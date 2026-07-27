@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import {
   useBuyerPurchases,
@@ -113,14 +114,10 @@ export function BuyerCoveragePage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight">Purchase Guarantee</h1>
-        <p className="text-sm text-muted-foreground">
-          If a graded item arrives materially worse than its certificate says,
-          you're covered. Coverage is applied automatically to eligible
-          purchases — nothing to activate.
-        </p>
-      </div>
+      <PageHeader
+        title="Purchase Guarantee"
+        subtitle="If a graded item arrives materially worse than its certificate says, you're covered. Coverage is applied automatically to eligible purchases — nothing to activate."
+      />
 
       {isLoading ? (
         <div className="flex justify-center py-16">

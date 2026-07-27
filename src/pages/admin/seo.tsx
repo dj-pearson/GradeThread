@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
+import { PageHeader } from "@/components/ui/page-header";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 // US-309: Admin SEO health dashboard. Reads GSC summary (US-308), shows
@@ -138,29 +139,24 @@ export function AdminSeoPage() {
     <div className="space-y-6">
       <SEO title="SEO Health" noindex />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <TrendingUp className="h-6 w-6 text-brand-red-text" />
-            SEO Health
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Search Console performance, IndexNow submissions, and crawler
-            verification — for platform-level monitoring.
-          </p>
-        </div>
-        <Button
-          onClick={() => sync.mutate()}
-          disabled={sync.isPending}
-        >
-          {sync.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 h-4 w-4" />
-          )}
-          Sync GSC now
-        </Button>
-      </div>
+      <PageHeader
+        title="SEO Health"
+        subtitle="Search Console performance, IndexNow submissions, and crawler verification — for platform-level monitoring."
+        icon={TrendingUp}
+        actions={
+          <Button
+            onClick={() => sync.mutate()}
+            disabled={sync.isPending}
+          >
+            {sync.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Sync GSC now
+          </Button>
+        }
+      />
 
       {summary.data && !summary.data.configured && (
         <Card className="border-amber-500/40 bg-amber-500/5 p-4">

@@ -10,6 +10,7 @@ import { FLIPDESK_PLANS, GRADETHREAD_TIERS, type FlipdeskPlanKey } from "@/lib/c
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Wrench,
   RefreshCw,
@@ -347,34 +348,33 @@ export function AdminSystemPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Wrench className="h-6 w-6 text-brand-red-text" />
-          <h1 className="text-2xl font-bold">System Health</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground">
-            Last refresh: {lastRefresh.toLocaleTimeString()}
-          </span>
-          <button
-            onClick={() => void refetch()}
-            disabled={isFetching}
-            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"
-          >
-            {isFetching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-            Refresh
-          </button>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <RefreshCw className="h-3 w-3" />
-            <span>Auto-refreshes every 30s</span>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="System Health"
+        icon={Wrench}
+        actions={
+          <>
+            <span className="text-xs text-muted-foreground">
+              Last refresh: {lastRefresh.toLocaleTimeString()}
+            </span>
+            <button
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"
+            >
+              {isFetching ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Refresh
+            </button>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <RefreshCw className="h-3 w-3" />
+              <span>Auto-refreshes every 30s</span>
+            </div>
+          </>
+        }
+      />
 
       {/* Health indicators */}
       {isLoading ? (

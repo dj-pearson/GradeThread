@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPurchases, type PurchaseWithCaptures } from "@/hooks/use-buyer-purchases";
 import { useBuyerRewards } from "@/hooks/use-buyer-rewards";
@@ -481,14 +482,11 @@ export function BuyerRewardsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center gap-2">
-        <Gift className="h-5 w-5 text-primary" />
-        <h1 className="text-2xl font-bold">Rewards</h1>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        Link an item you bought to its GradeThread grade, then snap arrival photos to confirm it
-        matched — and earn rewards.
-      </p>
+      <PageHeader
+        title="Rewards"
+        subtitle="Link an item you bought to its GradeThread grade, then snap arrival photos to confirm it matched — and earn rewards."
+        icon={Gift}
+      />
 
       {/* US-1813: reward-credit balance. Credits spend on authenticity / video
           grades once your monthly allowance is used up. */}

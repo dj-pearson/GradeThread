@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   MailCheck,
   Users,
@@ -188,42 +189,37 @@ export function AdminNewsletterAnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header + period selector */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <MailCheck className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Newsletter Health</h1>
-            <p className="text-sm text-muted-foreground">
-              Opens, clicks, bounces, complaints, unsubscribes, and list growth.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {PERIOD_LABELS.map((pl) => (
+      <PageHeader
+        title="Newsletter Health"
+        subtitle="Opens, clicks, bounces, complaints, unsubscribes, and list growth."
+        icon={MailCheck}
+        actions={
+          <>
+            {PERIOD_LABELS.map((pl) => (
+              <Button
+                key={pl.key}
+                size="sm"
+                variant={period === pl.key ? "default" : "outline"}
+                onClick={() => setPeriod(pl.key)}
+              >
+                {pl.label}
+              </Button>
+            ))}
             <Button
-              key={pl.key}
               size="sm"
-              variant={period === pl.key ? "default" : "outline"}
-              onClick={() => setPeriod(pl.key)}
+              variant="outline"
+              onClick={() => void refetch()}
+              disabled={isFetching}
             >
-              {pl.label}
+              {isFetching ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
             </Button>
-          ))}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void refetch()}
-            disabled={isFetching}
-          >
-            {isFetching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Definitions note (AC6) */}
       <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">

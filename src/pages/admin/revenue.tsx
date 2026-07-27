@@ -33,6 +33,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
+import { PageHeader } from "@/components/ui/page-header";
 
 // ── API payload types (mirror the revenue_dashboard RPC, migration 00215) ──
 
@@ -243,41 +244,37 @@ export function AdminRevenuePage() {
   return (
     <div className="space-y-6">
       {/* Header + period selector */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <DollarSign className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Revenue &amp; MRR</h1>
-            <p className="text-sm text-muted-foreground">
-              Recurring revenue, plan mix, MRR movement, and credit-pack sales.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {PERIOD_LABELS.map((p) => (
+      <PageHeader
+        title="Revenue &amp; MRR"
+        subtitle="Recurring revenue, plan mix, MRR movement, and credit-pack sales."
+        icon={DollarSign}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {PERIOD_LABELS.map((p) => (
+              <Button
+                key={p.key}
+                size="sm"
+                variant={period === p.key ? "default" : "outline"}
+                onClick={() => setPeriod(p.key)}
+              >
+                {p.label}
+              </Button>
+            ))}
             <Button
-              key={p.key}
               size="sm"
-              variant={period === p.key ? "default" : "outline"}
-              onClick={() => setPeriod(p.key)}
+              variant="outline"
+              onClick={() => void refetch()}
+              disabled={isFetching}
             >
-              {p.label}
+              {isFetching ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
             </Button>
-          ))}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void refetch()}
-            disabled={isFetching}
-          >
-            {isFetching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {period === "custom" && (
         <Card>

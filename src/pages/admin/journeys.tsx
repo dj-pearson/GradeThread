@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Table,
   TableBody,
@@ -134,26 +135,26 @@ export function AdminJourneysPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Mailbox className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Lifecycle Journeys</h1>
-            <p className="text-sm text-muted-foreground">
-              Automated email series triggered by user state — welcome,
-              trial-ending nurture, and win-back. Enable each one to start sending.
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void journeys.refetch()}
-        >
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Lifecycle Journeys"
+        subtitle={
+          <>
+            Automated email series triggered by user state — welcome,
+            trial-ending nurture, and win-back. Enable each one to start sending.
+          </>
+        }
+        icon={Mailbox}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void journeys.refetch()}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+        }
+      />
 
       {data && !data.killSwitchEnabled && (
         <Card className="border-amber-500/40 bg-amber-50/50">

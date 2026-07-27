@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -254,17 +255,11 @@ export function AdminReliabilityPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <BarChart3 className="h-6 w-6" />
-          Inter-rater reliability
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Run blind multi-rater studies to measure the human-vs-human grading
-          baseline, then compare the AI against it. Reviewers never see the AI
-          grade or one another's scores.
-        </p>
-      </div>
+      <PageHeader
+        title="Inter-rater reliability"
+        subtitle="Run blind multi-rater studies to measure the human-vs-human grading baseline, then compare the AI against it. Reviewers never see the AI grade or one another's scores."
+        icon={BarChart3}
+      />
 
       {/* Create */}
       <Card>

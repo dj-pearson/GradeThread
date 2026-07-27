@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -65,13 +66,10 @@ export function FlipdeskOffersPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Offers & Messages</h1>
-        <p className="text-sm text-muted-foreground">
-          Respond to buyer Best Offers, send offers to interested buyers, and
-          reply to buyer messages — all on your live eBay listings.
-        </p>
-      </div>
+      <PageHeader
+        title="Offers & Messages"
+        subtitle="Respond to buyer Best Offers, send offers to interested buyers, and reply to buyer messages — all on your live eBay listings."
+      />
       <BestOffersCard />
       <SendOfferCard />
       <MessagesCard />

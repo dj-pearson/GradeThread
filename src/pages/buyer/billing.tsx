@@ -4,6 +4,7 @@ import { Check, Crown, Loader2, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import {
   BUYER_PLANS,
@@ -68,12 +69,10 @@ export function BuyerBillingPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Buyer plan &amp; billing</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage your buyer subscription and see your monthly usage.
-        </p>
-      </div>
+      <PageHeader
+        title="Buyer plan & billing"
+        subtitle="Manage your buyer subscription and see your monthly usage."
+      />
 
       {/* Current plan */}
       <Card>

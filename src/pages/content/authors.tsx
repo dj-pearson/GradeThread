@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { PageHeader } from "@/components/ui/page-header";
 import { Plus, Trash2, ExternalLink } from "lucide-react";
 import {
   useBlogAuthors,
@@ -38,18 +39,15 @@ export function AuthorsPage() {
   return (
     <div className="space-y-4">
       <SEO title="Authors" noindex />
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Authors</h1>
-          <p className="text-sm text-muted-foreground">
-            Named authors with bio pages + Person structured data for E-E-A-T.
-            Link a post to an author in the blog editor.
-          </p>
-        </div>
-        <Button onClick={newAuthor} disabled={create.isPending}>
-          <Plus className="mr-2 h-4 w-4" /> New author
-        </Button>
-      </div>
+      <PageHeader
+        title="Authors"
+        subtitle="Named authors with bio pages + Person structured data for E-E-A-T. Link a post to an author in the blog editor."
+        actions={
+          <Button onClick={newAuthor} disabled={create.isPending}>
+            <Plus className="mr-2 h-4 w-4" /> New author
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
         <Card>

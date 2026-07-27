@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -695,34 +696,30 @@ export function FlipdeskAutomationsPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold">Automations</h1>
-          <p className="text-muted-foreground">
-            Schedule price drops, promo rates, or end-listings for stale
-            inventory — rules run hourly. Prices never drop below cost plus
-            your margin floor.
-          </p>
-        </div>
-        <div className="flex flex-shrink-0 gap-2">
-          <Button
-            variant="outline"
-            onClick={() => run.mutate()}
-            disabled={run.isPending || rules.every((r) => !r.is_active)}
-          >
-            {run.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="mr-2 h-4 w-4" />
-            )}
-            Run now
-          </Button>
-          <Button onClick={openCreate}>
-            <Plus className="mr-2 h-4 w-4" />
-            New rule
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Automations"
+        subtitle="Schedule price drops, promo rates, or end-listings for stale inventory — rules run hourly. Prices never drop below cost plus your margin floor."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => run.mutate()}
+              disabled={run.isPending || rules.every((r) => !r.is_active)}
+            >
+              {run.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-2 h-4 w-4" />
+              )}
+              Run now
+            </Button>
+            <Button onClick={openCreate}>
+              <Plus className="mr-2 h-4 w-4" />
+              New rule
+            </Button>
+          </>
+        }
+      />
 
       {isLoading ? (
         <div className="space-y-3">

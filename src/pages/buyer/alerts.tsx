@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { ChipInput } from "@/components/buyer/chip-input";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
@@ -275,10 +276,7 @@ export function BuyerAlertsPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex items-center gap-2">
-        <BellRing className="h-5 w-5 text-primary" />
-        <h1 className="text-2xl font-bold">Watchlist &amp; Alerts</h1>
-      </div>
+      <PageHeader title="Watchlist & Alerts" icon={BellRing} />
 
       {/* Delivery / digest (US-1803 frequency, capped by plan US-1800). */}
       <Card>

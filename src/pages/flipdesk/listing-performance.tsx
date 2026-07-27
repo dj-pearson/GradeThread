@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 import {
   Table,
@@ -254,21 +255,16 @@ export function FlipdeskListingPerformancePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Listing Performance
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Views, watchers and impressions per active eBay listing. Spot duds
-            before they age out.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <RefreshCw className="h-3.5 w-3.5" />
-          Synced {relativeTime(lastSynced)} · auto every 6h
-        </div>
-      </div>
+      <PageHeader
+        title="Listing Performance"
+        subtitle="Views, watchers and impressions per active eBay listing. Spot duds before they age out."
+        actions={
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <RefreshCw className="h-3.5 w-3.5" />
+            Synced {relativeTime(lastSynced)} · auto every 6h
+          </div>
+        }
+      />
 
       {accessDenied && (
         <Card className="border-brand-red/40 bg-brand-red/5">

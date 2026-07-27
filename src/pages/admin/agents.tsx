@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -233,31 +234,27 @@ export function AdminAgentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Bot className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Mission Control</h1>
-            <p className="text-sm text-muted-foreground">
-              Supervise the agent fleet — status, transcripts, and the proposal inbox.
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void agentsQuery.refetch();
-            void pauseQuery.refetch();
-          }}
-          disabled={agentsQuery.isFetching}
-        >
-          {agentsQuery.isFetching
-            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            : <RefreshCw className="h-3.5 w-3.5" />}
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        icon={Bot}
+        title="Mission Control"
+        subtitle="Supervise the agent fleet — status, transcripts, and the proposal inbox."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void agentsQuery.refetch();
+              void pauseQuery.refetch();
+            }}
+            disabled={agentsQuery.isFetching}
+          >
+            {agentsQuery.isFetching
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Global kill switch */}
       <Card className={globallyPaused ? "border-destructive" : undefined}>

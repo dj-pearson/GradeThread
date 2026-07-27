@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 
 // US-1822: buyer guarantee claims-pool ops dashboard. Read-only — cap/term edits
@@ -89,17 +90,17 @@ export function AdminGuaranteePoolPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <PiggyBank className="h-5 w-5 text-primary" />
-          <h1 className="text-2xl font-bold">Guarantee Pool</h1>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/admin/ops/settings">
-            <Settings className="mr-1 h-4 w-4" /> Adjust caps
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        icon={PiggyBank}
+        title="Guarantee Pool"
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/ops/settings">
+              <Settings className="mr-1 h-4 w-4" /> Adjust caps
+            </Link>
+          </Button>
+        }
+      />
 
       {data.throttled && (
         <div className="flex items-center gap-2 rounded-md border border-brand-red/40 bg-brand-red/10 p-3 text-sm text-brand-red">

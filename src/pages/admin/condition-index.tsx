@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Table,
   TableBody,
@@ -341,35 +342,37 @@ export function AdminConditionIndexPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Condition Index</h1>
-          <p className="text-muted-foreground">
+      <PageHeader
+        title="Condition Index"
+        subtitle={
+          <>
             Curate the public Condition Index catalog. Each entry is refreshed from
             live eBay comps; entries below {threshold} total comps never publish
             (US-622).
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={refreshAll}
-            disabled={refreshingAll || working}
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${refreshingAll ? "animate-spin" : ""}`} />
-            {refreshingAll ? "Refreshing…" : "Refresh all"}
-          </Button>
-          <Button
-            onClick={() => {
-              setEditSeed(null);
-              setDialogOpen(true);
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            New entry
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={refreshAll}
+              disabled={refreshingAll || working}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${refreshingAll ? "animate-spin" : ""}`} />
+              {refreshingAll ? "Refreshing…" : "Refresh all"}
+            </Button>
+            <Button
+              onClick={() => {
+                setEditSeed(null);
+                setDialogOpen(true);
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New entry
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">

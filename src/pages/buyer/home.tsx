@@ -3,6 +3,7 @@ import { Bell, Chrome, Gift, Leaf, ScanLine, Share2, ShieldCheck, Shirt } from "
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { useAuthStore } from "@/stores/auth-store";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
@@ -120,15 +121,17 @@ export function BuyerHomePage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold">Welcome, {firstName}</h1>
-        <p className="text-sm text-muted-foreground">
-          You're on the{" "}
-          <span className="font-medium text-foreground">{BUYER_PLANS[ent.plan].name}</span>{" "}
-          buyer plan{ent.fromSellerPlan ? " — included with your seller plan" : ""}. Buy
-          secondhand with confidence — condition, not just claims.
-        </p>
-      </header>
+      <PageHeader
+        title={`Welcome, ${firstName}`}
+        subtitle={
+          <>
+            You're on the{" "}
+            <span className="font-medium text-foreground">{BUYER_PLANS[ent.plan].name}</span>{" "}
+            buyer plan{ent.fromSellerPlan ? " — included with your seller plan" : ""}. Buy
+            secondhand with confidence — condition, not just claims.
+          </>
+        }
+      />
 
       <TrustLevelCard />
 

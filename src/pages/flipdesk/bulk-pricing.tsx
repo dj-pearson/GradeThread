@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Loader2, Tags } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -157,13 +158,10 @@ export function FlipdeskBulkPricingPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Bulk pricing</h1>
-        <p className="text-sm text-muted-foreground">
-          Select active eBay listings and update their price and/or quantity in
-          one go. Changes push straight to eBay.
-        </p>
-      </div>
+      <PageHeader
+        title="Bulk pricing"
+        subtitle="Select active eBay listings and update their price and/or quantity in one go. Changes push straight to eBay."
+      />
 
       <Card>
         <CardHeader>

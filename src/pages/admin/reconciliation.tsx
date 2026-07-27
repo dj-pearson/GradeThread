@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { AdminSavedViews } from "@/components/admin/admin-saved-views";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Card,
   CardContent,
@@ -181,38 +182,37 @@ export function AdminReconciliationPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Scale className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Stripe Reconciliation &amp; Dunning</h1>
-            <p className="text-sm text-muted-foreground">
-              Past-due accounts, failed invoices, and Stripe-vs-DB divergences —
-              with re-sync, dunning, and resolve actions.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {data?.lastScanAt && (
-            <span className="text-xs text-muted-foreground">
-              Last scan: {fmtDate(data.lastScanAt)}
-            </span>
-          )}
-          <AdminSavedViews
-            surface="reconciliation"
-            currentFilter={{}}
-            onApply={() => setOffset(0)}
-          />
-          <Button size="sm" variant="outline" onClick={() => void refetch()} disabled={isFetching}>
-            {isFetching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCcw className="h-3.5 w-3.5" />
+      <PageHeader
+        title={<>Stripe Reconciliation &amp; Dunning</>}
+        subtitle={
+          <>
+            Past-due accounts, failed invoices, and Stripe-vs-DB divergences —
+            with re-sync, dunning, and resolve actions.
+          </>
+        }
+        icon={Scale}
+        actions={
+          <>
+            {data?.lastScanAt && (
+              <span className="text-xs text-muted-foreground">
+                Last scan: {fmtDate(data.lastScanAt)}
+              </span>
             )}
-          </Button>
-        </div>
-      </div>
+            <AdminSavedViews
+              surface="reconciliation"
+              currentFilter={{}}
+              onApply={() => setOffset(0)}
+            />
+            <Button size="sm" variant="outline" onClick={() => void refetch()} disabled={isFetching}>
+              {isFetching ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <Card>

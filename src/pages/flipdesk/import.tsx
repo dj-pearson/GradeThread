@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -488,18 +489,11 @@ export function FlipdeskImportPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-          <Upload className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Import from spreadsheet</h1>
-          <p className="text-sm text-muted-foreground">
-            Paste your Google Sheets data below. We'll auto-detect columns and
-            you confirm the mapping before import.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={Upload}
+        title="Import from spreadsheet"
+        subtitle="Paste your Google Sheets data below. We'll auto-detect columns and you confirm the mapping before import."
+      />
 
       {/* Step 1: input — upload OR paste */}
       <Card>

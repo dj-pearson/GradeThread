@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { Mailbox, RefreshCw, Search, Download, Loader2 } from "lucide-react";
 
 // US-912: admin view + CSV export of the standalone newsletter subscriber list.
@@ -122,38 +123,38 @@ export function AdminNewsletterSubscribersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Mailbox className="h-6 w-6 text-brand-navy" />
-            Newsletter Subscribers
-          </h1>
-          <p className="text-sm text-muted-foreground">
+      <PageHeader
+        icon={Mailbox}
+        title="Newsletter Subscribers"
+        subtitle={
+          <>
             Standalone leads who signed up for the newsletter (double opt-in). Only{" "}
             <strong>confirmed</strong> subscribers are emailable. Registered users are linked
             by email so they aren't emailed twice.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void subscribers.refetch()}
-            disabled={subscribers.isFetching}
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${subscribers.isFetching ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => void exportCsv()} disabled={exporting}>
-            {exporting ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="mr-2 h-4 w-4" />
-            )}
-            Export CSV
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void subscribers.refetch()}
+              disabled={subscribers.isFetching}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${subscribers.isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => void exportCsv()} disabled={exporting}>
+              {exporting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Export CSV
+            </Button>
+          </>
+        }
+      />
 
       {/* Per-status totals. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

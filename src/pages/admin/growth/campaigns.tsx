@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Table,
   TableBody,
@@ -285,16 +286,18 @@ export function GrowthCampaignsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Campaigns</h1>
-          <p className="text-muted-foreground">
+      <PageHeader
+        title="Campaigns"
+        subtitle={
+          <>
             Broadcast across email, in-app, and push. Sending requires a super-admin
             MFA step-up.
-          </p>
-        </div>
-        <Button onClick={() => setComposeOpen(true)}><Plus className="mr-1 h-4 w-4" /> New campaign</Button>
-      </div>
+          </>
+        }
+        actions={
+          <Button onClick={() => setComposeOpen(true)}><Plus className="mr-1 h-4 w-4" /> New campaign</Button>
+        }
+      />
 
       {isLoading ? (
         <Skeleton className="h-48 w-full" />

@@ -42,6 +42,7 @@ import {
 } from "recharts";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { PageHeader } from "@/components/ui/page-header";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Gift,
@@ -196,14 +197,11 @@ export function GrowthReferralsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Gift className="h-6 w-6 text-brand-red-text" /> Referrals
-        </h1>
-        <p className="text-muted-foreground">
-          Organic acquisition loop. Rewards are paid as grade credits to both parties on approval.
-        </p>
-      </div>
+      <PageHeader
+        title="Referrals"
+        subtitle="Organic acquisition loop. Rewards are paid as grade credits to both parties on approval."
+        icon={Gift}
+      />
 
       {isLoading || !data ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">

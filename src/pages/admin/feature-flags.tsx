@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -438,16 +439,18 @@ export function AdminFeatureFlagsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Feature Flags</h1>
-        <p className="text-muted-foreground">
-          Runtime kill-switches with gradual rollout, plan/user targeting, and
-          scheduling — no redeploy.
-          {isSuperAdmin
-            ? " Edits apply live within ~30s."
-            : " Toggling is available to your role; the targeting editor needs super-admin."}
-        </p>
-      </div>
+      <PageHeader
+        title="Feature Flags"
+        subtitle={
+          <>
+            Runtime kill-switches with gradual rollout, plan/user targeting, and
+            scheduling — no redeploy.
+            {isSuperAdmin
+              ? " Edits apply live within ~30s."
+              : " Toggling is available to your role; the targeting editor needs super-admin."}
+          </>
+        }
+      />
 
       <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

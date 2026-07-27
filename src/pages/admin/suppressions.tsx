@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { MailWarning, RefreshCw, Search, Trash2, Loader2 } from "lucide-react";
 
 // US-914: admin view of the email suppression list + manual false-positive
@@ -108,27 +109,22 @@ export function AdminSuppressionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <MailWarning className="h-6 w-6 text-brand-red" />
-            Email Suppressions
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Addresses that hard-bounced or filed a spam complaint. Every send path skips these to
-            protect sender reputation. Removing a false positive requires re-verifying MFA.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void suppressions.refetch()}
-          disabled={suppressions.isFetching}
-        >
-          <RefreshCw className={`mr-2 h-4 w-4 ${suppressions.isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        icon={MailWarning}
+        title="Email Suppressions"
+        subtitle="Addresses that hard-bounced or filed a spam complaint. Every send path skips these to protect sender reputation. Removing a false positive requires re-verifying MFA."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void suppressions.refetch()}
+            disabled={suppressions.isFetching}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${suppressions.isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader>

@@ -5,6 +5,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Card,
   CardContent,
@@ -430,23 +431,25 @@ export function AdminDripBuilderPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">{c.name}</h1>
-          <p className="text-muted-foreground">
+      <PageHeader
+        title={c.name}
+        subtitle={
+          <>
             Visual drip / journey builder — steps, triggers, delays, branches,
             per-step copy &amp; variants, with preview, test-send, and a
             pause/kill switch.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <StatusBadge status={c.status} />
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock className="h-3.5 w-3.5" /> next tick{" "}
-            {new Date(detail.data!.nextTick).toLocaleString()}
-          </span>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <StatusBadge status={c.status} />
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="h-3.5 w-3.5" /> next tick{" "}
+              {new Date(detail.data!.nextTick).toLocaleString()}
+            </span>
+          </>
+        }
+      />
 
       {/* Campaign controls — destructive, super-admin + step-up gated server-side. */}
       <Card>

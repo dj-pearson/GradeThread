@@ -4456,7 +4456,7 @@
     {
       "id": "US-2182",
       "priority": 2502,
-      "passes": false,
+      "passes": true,
       "title": "ui: adopt shared PageHeader across admin/flipdesk/content/buyer pages",
       "description": "As a user, I want consistent page titles/subtitles/action alignment across the app, so it feels like one polished product.",
       "acceptanceCriteria": [
@@ -4464,7 +4464,7 @@
         "No visual regression on the ~13 pages already using PageHeader",
         "Single <h1> per page preserved"
       ],
-      "notes": "Audit 2026-07-26 UI. Highest-leverage consistency win (~105 pages hand-roll)."
+      "notes": "Audit 2026-07-26 UI. Highest-leverage consistency win (~105 pages hand-roll). Done: 89 pages migrated (admin 57, flipdesk 16, content/buyer 16). Conservative — pages with breadcrumbs/back-links/tabs/inline-badges/filter-toolbars in the header were intentionally skipped (still hand-rolled, safe). A few buyer/admin pages had a leading inline icon lifted to the shared navy tile (matches referrals.tsx precedent) — slight intended visual change."
     },
     {
       "id": "US-2183",

@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-906 — real-time ops activity feed + critical-event alerting.
 //
@@ -227,22 +228,17 @@ export function AdminOpsActivityPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Activity className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Activity Feed</h1>
-            <p className="text-sm text-muted-foreground">
-              Live stream of significant platform events. Critical events route to the configured
-              alert channels.
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => void feed.refetch()} disabled={feed.isFetching}>
-          {feed.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Activity Feed"
+        subtitle="Live stream of significant platform events. Critical events route to the configured alert channels."
+        icon={Activity}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => void feed.refetch()} disabled={feed.isFetching}>
+            {feed.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Unacknowledged critical banner. */}
       {criticalUnacked > 0 && (

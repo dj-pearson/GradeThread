@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertTriangle,
@@ -460,21 +461,18 @@ export function AdminAuthenticityPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Authenticity</h1>
-          <p className="text-sm text-muted-foreground">
-            The brand-authenticity pass: its accuracy gate, the golden set that
-            certifies it, and what reviewers have found.
-          </p>
-        </div>
-        <Button onClick={() => void runEval()} disabled={running}>
-          {running
-            ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            : <CheckCircle2 className="mr-1.5 h-4 w-4" />}
-          Run eval gate
-        </Button>
-      </div>
+      <PageHeader
+        title="Authenticity"
+        subtitle="The brand-authenticity pass: its accuracy gate, the golden set that certifies it, and what reviewers have found."
+        actions={
+          <Button onClick={() => void runEval()} disabled={running}>
+            {running
+              ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              : <CheckCircle2 className="mr-1.5 h-4 w-4" />}
+            Run eval gate
+          </Button>
+        }
+      />
 
       <GateBanner />
 

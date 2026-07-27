@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { SlidersHorizontal, RefreshCw, Loader2, Save, RotateCcw } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-884 — DB-backed system settings registry editor.
 //
@@ -244,31 +245,26 @@ export function AdminSettingsRegistryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <SlidersHorizontal className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Settings Registry</h1>
-            <p className="text-sm text-muted-foreground">
-              Tune platform thresholds &amp; toggles without a deploy. Changes are audited and
-              require a fresh second factor.
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void query.refetch()}
-          disabled={query.isFetching}
-        >
-          {query.isFetching ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" />
-          )}
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Settings Registry"
+        subtitle="Tune platform thresholds &amp; toggles without a deploy. Changes are audited and require a fresh second factor."
+        icon={SlidersHorizontal}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+          >
+            {query.isFetching ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh
+          </Button>
+        }
+      />
 
       {query.isLoading ? (
         <div className="space-y-4">

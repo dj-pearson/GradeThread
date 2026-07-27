@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { PageHeader } from "@/components/ui/page-header";
 import { Layers, Loader2, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -230,15 +231,11 @@ export function AdminBulkPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Layers className="h-6 w-6 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold">Bulk operations</h1>
-          <p className="text-sm text-muted-foreground">
-            Batch credits, suspensions, and regrades — validated, idempotent, audited (max 200 targets per run).
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Bulk operations"
+        subtitle="Batch credits, suspensions, and regrades — validated, idempotent, audited (max 200 targets per run)."
+        icon={Layers}
+      />
 
       <Card>
         <CardHeader>

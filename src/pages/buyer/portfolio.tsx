@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerCloset } from "@/hooks/use-buyer-closet";
 import { useBuyerPortfolioValuation, type ItemValuation } from "@/hooks/use-buyer-portfolio-valuation";
@@ -179,17 +180,17 @@ export function BuyerPortfolioPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Shirt className="h-5 w-5 text-primary" />
-          <h1 className="text-2xl font-bold">Closet Portfolio</h1>
-        </div>
-        {items.length > 0 && (
-          <Button variant="outline" size="sm" onClick={onExport}>
-            <Download className="mr-1.5 h-4 w-4" /> Export (insurance)
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Closet Portfolio"
+        icon={Shirt}
+        actions={
+          items.length > 0 && (
+            <Button variant="outline" size="sm" onClick={onExport}>
+              <Download className="mr-1.5 h-4 w-4" /> Export (insurance)
+            </Button>
+          )
+        }
+      />
 
       {/* US-1826: portfolio valuation summary (estimates, not appraisals). */}
       {totals && totals.itemsValued > 0 && (

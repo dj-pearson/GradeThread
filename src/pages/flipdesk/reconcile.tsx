@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
@@ -571,18 +572,11 @@ export function FlipdeskReconcilePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-          <Layers className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Reconcile</h1>
-          <p className="text-sm text-muted-foreground">
-            Cluster a photo haul into items, match eBay SKUs, and close the loop
-            on payouts &amp; fees — all in one place.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={Layers}
+        title="Reconcile"
+        subtitle="Cluster a photo haul into items, match eBay SKUs, and close the loop on payouts & fees — all in one place."
+      />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

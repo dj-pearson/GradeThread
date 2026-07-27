@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -235,15 +236,11 @@ export function AdminBrandKnowledgePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <BookMarked className="h-6 w-6" /> Brand Knowledge
-        </h1>
-        <p className="text-muted-foreground">
-          Verify and correct the brand/style knowledge that grounds garment
-          identification. Every fact shows its source and confidence.
-        </p>
-      </div>
+      <PageHeader
+        icon={BookMarked}
+        title="Brand Knowledge"
+        subtitle="Verify and correct the brand/style knowledge that grounds garment identification. Every fact shows its source and confidence."
+      />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(280px,340px)_1fr]">
         {/* Brand list */}

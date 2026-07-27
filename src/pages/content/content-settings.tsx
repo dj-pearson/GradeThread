@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { RotateCw } from "lucide-react";
 import {
   useContentSettings,
@@ -47,12 +48,10 @@ export function ContentSettingsPage() {
   return (
     <div className="space-y-6">
       <SEO title="Content Settings" noindex />
-      <div>
-        <h1 className="text-2xl font-bold">Content Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Webhooks, autopilot, cadence, and model defaults.
-        </p>
-      </div>
+      <PageHeader
+        title="Content Settings"
+        subtitle="Webhooks, autopilot, cadence, and model defaults."
+      />
 
       <Card>
         <CardHeader>

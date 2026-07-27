@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -175,23 +176,17 @@ export function FlipdeskSourcesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-            <MapPin className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Sources</h1>
-            <p className="text-sm text-muted-foreground">
-              Where your inventory comes from. Linked to every item.
-            </p>
-          </div>
-        </div>
-        <Button onClick={() => setEditing({ ...EMPTY })}>
-          <Plus className="mr-2 h-4 w-4" />
-          New source
-        </Button>
-      </div>
+      <PageHeader
+        icon={MapPin}
+        title="Sources"
+        subtitle="Where your inventory comes from. Linked to every item."
+        actions={
+          <Button onClick={() => setEditing({ ...EMPTY })}>
+            <Plus className="mr-2 h-4 w-4" />
+            New source
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader>

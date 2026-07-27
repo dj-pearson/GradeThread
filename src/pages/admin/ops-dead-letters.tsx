@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -248,31 +249,31 @@ export function AdminOpsDeadLettersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Inbox className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Dead-Letter Queue</h1>
-            <p className="text-sm text-muted-foreground">
-              Failed webhook deliveries &amp; dead-lettered email across every provider. Inspect,
-              retry, or discard — no SQL.
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void query.refetch()}
-          disabled={query.isFetching}
-        >
-          {query.isFetching ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" />
-          )}
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Dead-Letter Queue"
+        subtitle={
+          <>
+            Failed webhook deliveries &amp; dead-lettered email across every provider. Inspect,
+            retry, or discard — no SQL.
+          </>
+        }
+        icon={Inbox}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+          >
+            {query.isFetching ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader className="gap-3">

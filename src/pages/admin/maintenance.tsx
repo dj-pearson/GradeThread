@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Wrench, RefreshCw, Loader2, Plus, Power, Trash2, CalendarClock } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-887 — maintenance mode + scheduled maintenance windows.
 //
@@ -187,22 +188,17 @@ export function AdminMaintenancePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Wrench className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Maintenance Windows</h1>
-            <p className="text-sm text-muted-foreground">
-              Put the platform or a subsystem into maintenance — now or on a schedule. Admins always
-              bypass enforcement. Changes are audited and require a fresh second factor.
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}>
-          {query.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Maintenance Windows"
+        subtitle="Put the platform or a subsystem into maintenance — now or on a schedule. Admins always bypass enforcement. Changes are audited and require a fresh second factor."
+        icon={Wrench}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}>
+            {query.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Create / schedule */}
       <Card>

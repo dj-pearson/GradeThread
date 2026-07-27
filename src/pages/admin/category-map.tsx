@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { Map, Plus, Pencil, Trash2, Search, Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -184,21 +185,17 @@ export function AdminCategoryMapPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Map className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Category map</h1>
-            <p className="text-sm text-muted-foreground">
-              Garment-type → platform-category mappings that feed listing generation (Poshmark, Mercari, Depop, Grailed).
-            </p>
-          </div>
-        </div>
-        <Button onClick={openAdd}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add mapping
-        </Button>
-      </div>
+      <PageHeader
+        icon={Map}
+        title="Category map"
+        subtitle="Garment-type → platform-category mappings that feed listing generation (Poshmark, Mercari, Depop, Grailed)."
+        actions={
+          <Button onClick={openAdd}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add mapping
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap gap-3">
         <div className="relative w-64">

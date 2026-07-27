@@ -41,6 +41,7 @@ import {
   CheckCircle2,
   Clock,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-584 — admin job/queue monitoring + manual retry/cancel + cron health.
 
@@ -207,21 +208,17 @@ export function AdminJobsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Activity className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Jobs &amp; Queues</h1>
-            <p className="text-sm text-muted-foreground">
-              Monitor grading, sync, AutoLister, publish, email &amp; repricing jobs; retry or cancel stuck work; watch cron health.
-            </p>
+      <PageHeader
+        title="Jobs &amp; Queues"
+        subtitle="Monitor grading, sync, AutoLister, publish, email &amp; repricing jobs; retry or cancel stuck work; watch cron health."
+        icon={Activity}
+        actions={
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <RefreshCw className="h-3 w-3" />
+            <span>Auto-refreshes</span>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <RefreshCw className="h-3 w-3" />
-          <span>Auto-refreshes</span>
-        </div>
-      </div>
+        }
+      />
 
       <Tabs defaultValue="jobs">
         <TabsList>

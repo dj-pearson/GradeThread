@@ -38,6 +38,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { AiBudgetsCard } from "@/components/admin/ai-budgets-card";
+import { PageHeader } from "@/components/ui/page-header";
 
 // ── API payload types (mirror the ai_spend RPC, migration 00218) ──
 
@@ -181,30 +182,25 @@ export function AdminAiSpendPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Coins className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">AI Spend</h1>
-            <p className="text-sm text-muted-foreground">
-              Token usage &amp; estimated Claude cost by model, feature and day.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {PERIODS.map((p) => (
-            <Button
-              key={p.key}
-              size="sm"
-              variant={period === p.key ? "default" : "outline"}
-              onClick={() => setPeriod(p.key)}
-            >
-              {p.label}
-            </Button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        title="AI Spend"
+        subtitle={<>Token usage &amp; estimated Claude cost by model, feature and day.</>}
+        icon={Coins}
+        actions={
+          <>
+            {PERIODS.map((p) => (
+              <Button
+                key={p.key}
+                size="sm"
+                variant={period === p.key ? "default" : "outline"}
+                onClick={() => setPeriod(p.key)}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </>
+        }
+      />
 
       {isError && (
         <Card className="border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40">

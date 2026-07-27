@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
+import { PageHeader } from "@/components/ui/page-header";
 import { SEED_KNOWLEDGE_KEYS } from "@/lib/constants";
 import {
   useKnowledgeDoc,
@@ -33,13 +34,10 @@ export function KnowledgePage() {
   return (
     <div className="space-y-4">
       <SEO title="Knowledge Docs" noindex />
-      <div>
-        <h1 className="text-2xl font-bold">Knowledge</h1>
-        <p className="text-sm text-muted-foreground">
-          Reference docs loaded into every AI prompt. Edit voice, style, and SEO
-          pillars here — changes take effect on the next generation.
-        </p>
-      </div>
+      <PageHeader
+        title="Knowledge"
+        subtitle="Reference docs loaded into every AI prompt. Edit voice, style, and SEO pillars here — changes take effect on the next generation."
+      />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card className="md:col-span-1">

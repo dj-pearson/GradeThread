@@ -40,6 +40,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { useAuth } from "@/hooks/use-auth";
 import { AlertTriangle, Tag, Plus, Trash2, Pencil, Pause, Play } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 interface AdminCoupon {
   id: string;
@@ -365,20 +366,22 @@ export function AdminCouponsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Coupons & Promo Codes</h1>
-          <p className="text-muted-foreground">
+      <PageHeader
+        title="Coupons & Promo Codes"
+        subtitle={
+          <>
             Stripe coupons + active promotion codes.
             {isSuperAdmin ? " Create and archive them right here." : " Read-only for your role."}
-          </p>
-        </div>
-        {isSuperAdmin && (
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-1 h-4 w-4" /> New coupon
-          </Button>
-        )}
-      </div>
+          </>
+        }
+        actions={
+          isSuperAdmin && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" /> New coupon
+            </Button>
+          )
+        }
+      />
 
       {error && (
         <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">

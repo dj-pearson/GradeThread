@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Plus, Sparkles, Trash2 } from "lucide-react";
 import { SEO } from "@/components/seo";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -130,31 +131,33 @@ export function ChangelogPage() {
   return (
     <div className="space-y-4">
       <SEO title="Changelog" noindex />
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">What's New</h1>
-          <p className="text-sm text-muted-foreground">
+      <PageHeader
+        title="What's New"
+        subtitle={
+          <>
             Product changelog powering the public feed and the autonomous
             newsletter. Only <strong>published</strong> entries are sent or shown;
             entries are audience-gated so grading-only users never get
             FlipDesk-only news.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => autoCapture.mutate()}
-            disabled={autoCapture.isPending}
-          >
-            <Sparkles className="mr-2 h-4 w-4" />
-            {autoCapture.isPending ? "Scanning…" : "Auto-capture"}
-          </Button>
-          <Button onClick={startNew}>
-            <Plus className="mr-2 h-4 w-4" />
-            New entry
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => autoCapture.mutate()}
+              disabled={autoCapture.isPending}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              {autoCapture.isPending ? "Scanning…" : "Auto-capture"}
+            </Button>
+            <Button onClick={startNew}>
+              <Plus className="mr-2 h-4 w-4" />
+              New entry
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {/* List */}

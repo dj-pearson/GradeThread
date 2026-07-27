@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -272,17 +273,15 @@ export function AdminAdsPage() {
     <div className="space-y-6">
       <SEO title="Ads — Admin" noindex />
 
-      <div className="flex items-center gap-3">
-        <div className="rounded-lg bg-primary/10 p-2">
-          <Megaphone className="h-6 w-6 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold">Ads</h1>
-          <p className="text-sm text-muted-foreground">
+      <PageHeader
+        icon={Megaphone}
+        title="Ads"
+        subtitle={
+          <>
             Google Ads &amp; Apple Search Ads performance and AI-drafted copy.
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* US-1699: top-level tabs — Command Center (performance) vs Copy Studio. */}
       <Tabs value={view} onValueChange={(v) => setView(v as "command" | "copy")}>

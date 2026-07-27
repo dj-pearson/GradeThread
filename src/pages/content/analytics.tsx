@@ -4,6 +4,7 @@ import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   useContentSettings,
   useContentStats,
@@ -79,24 +80,22 @@ export function ContentAnalyticsPage() {
   return (
     <div className="space-y-6">
       <SEO title="Content Analytics" noindex />
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Content Analytics</h1>
-          <p className="text-sm text-muted-foreground">
-            Health of the content pipeline at a glance. Refreshes every minute.
-          </p>
-        </div>
-        {/* US-880: send the weekly digest email on demand to verify delivery
-            + the tuning recommendations. */}
-        <Button
-          variant="outline"
-          onClick={() => sendDigest.mutate()}
-          disabled={sendDigest.isPending}
-        >
-          <Mail className="mr-2 h-4 w-4" />
-          {sendDigest.isPending ? "Sending…" : "Send weekly digest"}
-        </Button>
-      </div>
+      <PageHeader
+        title="Content Analytics"
+        subtitle="Health of the content pipeline at a glance. Refreshes every minute."
+        actions={
+          /* US-880: send the weekly digest email on demand to verify delivery
+             + the tuning recommendations. */
+          <Button
+            variant="outline"
+            onClick={() => sendDigest.mutate()}
+            disabled={sendDigest.isPending}
+          >
+            <Mail className="mr-2 h-4 w-4" />
+            {sendDigest.isPending ? "Sending…" : "Send weekly digest"}
+          </Button>
+        }
+      />
 
       {/* Headline KPIs */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

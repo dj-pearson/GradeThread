@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -601,13 +602,15 @@ export function AdminMarketplaceOpsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Marketplace Sync &amp; Conflicts</h1>
-        <p className="text-sm text-muted-foreground">
-          Cross-tenant eBay sync runs, cross-source conflicts and orphaned sales — so a
-          reconciliation failure never silently loses a sale or desyncs inventory.
-        </p>
-      </div>
+      <PageHeader
+        title="Marketplace Sync & Conflicts"
+        subtitle={
+          <>
+            Cross-tenant eBay sync runs, cross-source conflicts and orphaned sales — so a
+            reconciliation failure never silently loses a sale or desyncs inventory.
+          </>
+        }
+      />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="space-y-4">
         <TabsList>

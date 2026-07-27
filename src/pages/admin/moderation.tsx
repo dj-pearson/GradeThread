@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -101,16 +102,11 @@ function deriveFlagTypes(
 export function AdminModerationPage() {
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <ShieldAlert className="h-6 w-6 text-brand-red-text" />
-        <div>
-          <h1 className="text-2xl font-bold">Content Moderation</h1>
-          <p className="text-sm text-muted-foreground">
-            Review and take down content across all tenants — flagged grading
-            submissions, marketplace listings, and uploaded item photos.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Content Moderation"
+        subtitle="Review and take down content across all tenants — flagged grading submissions, marketplace listings, and uploaded item photos."
+        icon={ShieldAlert}
+      />
 
       <Tabs defaultValue="submissions">
         <TabsList>

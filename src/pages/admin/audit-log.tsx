@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/ui/page-header";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import {
   Select,
@@ -281,15 +282,11 @@ export function AdminAuditLogPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <ScrollText className="h-6 w-6 text-brand-red-text" />
-        <div>
-          <h1 className="text-2xl font-bold">Audit Log</h1>
-          <p className="text-sm text-muted-foreground">
-            Every administrative action taken on the platform.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={ScrollText}
+        title="Audit Log"
+        subtitle="Every administrative action taken on the platform."
+      />
 
       {/* US-905: anomaly findings raised by the scheduled scan */}
       {anomalies && anomalies.length > 0 && (

@@ -18,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PageHeader } from "@/components/ui/page-header";
 import { Bell, RefreshCw, Loader2 } from "lucide-react";
 import {
   NOTIFICATION_EVENT_CATALOG,
@@ -78,32 +79,32 @@ export function AdminNotificationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Bell className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Notification Catalog</h1>
-            <p className="text-sm text-muted-foreground">
-              Every notifiable event, the preference category that gates it, the
-              channels it supports, and how often it has fired. Users control
-              each category under Settings → Notifications.
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void query.refetch()}
-          disabled={query.isFetching}
-        >
-          {query.isFetching ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" />
-          )}
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Notification Catalog"
+        subtitle={
+          <>
+            Every notifiable event, the preference category that gates it, the
+            channels it supports, and how often it has fired. Users control
+            each category under Settings → Notifications.
+          </>
+        }
+        icon={Bell}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+          >
+            {query.isFetching ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Refresh
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader>

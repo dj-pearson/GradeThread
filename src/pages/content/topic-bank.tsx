@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Dialog,
   DialogContent,
@@ -52,15 +53,10 @@ export function TopicBankPage() {
   return (
     <div className="space-y-4">
       <SEO title="Topic Bank" noindex />
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Topic Bank</h1>
-          <p className="text-sm text-muted-foreground">
-            Queued titles per (surface × product). Refilled by research or by
-            hand.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Topic Bank"
+        subtitle="Queued titles per (surface × product). Refilled by research or by hand."
+      />
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

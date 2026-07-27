@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -151,23 +152,17 @@ export function FlipdeskConsignmentPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-            <Users className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Consignment</h1>
-            <p className="text-sm text-muted-foreground">
-              Manage consignors, splits, intake agreements, and Stripe payouts.
-            </p>
-          </div>
-        </div>
-        <Button onClick={() => setEditing({ ...EMPTY })} disabled={!canManage}>
-          <Plus className="mr-2 h-4 w-4" />
-          New consignor
-        </Button>
-      </div>
+      <PageHeader
+        icon={Users}
+        title="Consignment"
+        subtitle="Manage consignors, splits, intake agreements, and Stripe payouts."
+        actions={
+          <Button onClick={() => setEditing({ ...EMPTY })} disabled={!canManage}>
+            <Plus className="mr-2 h-4 w-4" />
+            New consignor
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>

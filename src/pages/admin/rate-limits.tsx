@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Gauge, ShieldBan } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-890: Trust & Safety rate-limit console. The cross-tenant overview that pairs
 // with the per-user "Limits" section on the user-detail page: who's hammering the
@@ -97,16 +98,11 @@ export function AdminRateLimitsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Gauge className="h-6 w-6" />
-          Rate Limits
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Live rate-limit counters and temporary per-user overrides. Set or lift an
-          override from a user's detail page.
-        </p>
-      </div>
+      <PageHeader
+        title="Rate Limits"
+        subtitle="Live rate-limit counters and temporary per-user overrides. Set or lift an override from a user's detail page."
+        icon={Gauge}
+      />
 
       {/* Active overrides */}
       <Card>

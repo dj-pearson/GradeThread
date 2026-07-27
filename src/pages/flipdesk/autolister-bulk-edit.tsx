@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -1148,31 +1149,33 @@ export function FlipdeskAutolisterBulkEditPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Bulk edit drafts</h1>
-          <p className="text-sm text-muted-foreground">
-            {rows.length} draft{rows.length === 1 ? "" : "s"} in this batch.
-            Edit inline or apply changes to selected rows.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button asChild variant="outline">
-            <Link to={`/dashboard/flipdesk/autolister/queue?batch=${batchId}`}>
-              Back to queue
-              <ArrowRight className="ml-1 h-4 w-4" />
-            </Link>
-          </Button>
-          <Button onClick={saveAll} disabled={saving || dirtyCount === 0}>
-            {saving ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="mr-2 h-4 w-4" />
-            )}
-            Save {dirtyCount > 0 ? `(${dirtyCount})` : ""}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Bulk edit drafts"
+        subtitle={
+          <>
+            {rows.length} draft{rows.length === 1 ? "" : "s"} in this batch. Edit
+            inline or apply changes to selected rows.
+          </>
+        }
+        actions={
+          <>
+            <Button asChild variant="outline">
+              <Link to={`/dashboard/flipdesk/autolister/queue?batch=${batchId}`}>
+                Back to queue
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </Link>
+            </Button>
+            <Button onClick={saveAll} disabled={saving || dirtyCount === 0}>
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Save {dirtyCount > 0 ? `(${dirtyCount})` : ""}
+            </Button>
+          </>
+        }
+      />
 
       {/* Bulk-apply toolbar */}
       <Card className="flex flex-wrap items-end gap-4 p-3">

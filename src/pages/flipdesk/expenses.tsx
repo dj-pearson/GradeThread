@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -112,36 +113,27 @@ export function FlipdeskExpensesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-            <Wallet className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Operating expenses
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Overhead not tied to a single item — supplies, mileage,
-              subscriptions. The real cost of running the operation.
-            </p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => downloadExpensesCsv(expenses)}
-            disabled={expenses.length === 0}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
-          </Button>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add expense
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={Wallet}
+        title="Operating expenses"
+        subtitle="Overhead not tied to a single item — supplies, mileage, subscriptions. The real cost of running the operation."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => downloadExpensesCsv(expenses)}
+              disabled={expenses.length === 0}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add expense
+            </Button>
+          </>
+        }
+      />
 
       {/* Monthly summary */}
       {months.length > 0 && (

@@ -27,6 +27,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1173,17 +1174,11 @@ export function FlipdeskMarketplacesPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-          <Plug className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Marketplaces</h1>
-          <p className="text-sm text-muted-foreground">
-            How FlipDesk talks to the platforms you sell on.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={Plug}
+        title="Marketplaces"
+        subtitle="How FlipDesk talks to the platforms you sell on."
+      />
 
       {/* US-463: a connection deactivated by a permanent token-refresh failure
           (revoked/expired grant) needs explicit re-auth. Show a clear banner

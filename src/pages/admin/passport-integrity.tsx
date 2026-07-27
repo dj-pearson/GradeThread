@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -305,29 +306,23 @@ export function AdminPassportIntegrityPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ShieldCheck className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Passport Integrity</h1>
-            <p className="text-sm text-muted-foreground">
-              Ledger-integrity anomalies — impossible chains, duplicate fingerprints, claim abuse —
-              to keep the Garment Passport trustworthy. Resolving or severing a link requires a fresh
-              second factor.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={runScan} disabled={busy}>
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            Run scan
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}>
-            {query.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Passport Integrity"
+        subtitle="Ledger-integrity anomalies — impossible chains, duplicate fingerprints, claim abuse — to keep the Garment Passport trustworthy. Resolving or severing a link requires a fresh second factor."
+        icon={ShieldCheck}
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={runScan} disabled={busy}>
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Run scan
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}>
+              {query.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Refresh
+            </Button>
+          </>
+        }
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3">

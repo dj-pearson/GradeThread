@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -286,17 +287,17 @@ export function AdminCompliancePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <ShieldCheck className="h-6 w-6 text-brand-red" />
-          Data subject requests
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          GDPR/CCPA export &amp; deletion queue. Exports are delivered via a
-          short-lived signed link; deletions are a staged anonymize/erase that
-          retains financial &amp; audit records.
-        </p>
-      </div>
+      <PageHeader
+        title="Data subject requests"
+        subtitle={
+          <>
+            GDPR/CCPA export &amp; deletion queue. Exports are delivered via a
+            short-lived signed link; deletions are a staged anonymize/erase that
+            retains financial &amp; audit records.
+          </>
+        }
+        icon={ShieldCheck}
+      />
 
       {/* New request */}
       <Card>

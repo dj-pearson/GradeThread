@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Dialog,
   DialogContent,
@@ -239,17 +240,16 @@ export function GrowthAnnouncementsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Megaphone className="h-6 w-6 text-brand-red-text" /> Announcements
-          </h1>
-          <p className="text-muted-foreground">In-app banners — no deploy required.</p>
-        </div>
-        <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
-          <Plus className="mr-1 h-4 w-4" /> New announcement
-        </Button>
-      </div>
+      <PageHeader
+        icon={Megaphone}
+        title="Announcements"
+        subtitle="In-app banners — no deploy required."
+        actions={
+          <Button onClick={() => { setEditing(null); setDialogOpen(true); }}>
+            <Plus className="mr-1 h-4 w-4" /> New announcement
+          </Button>
+        }
+      />
 
       {isLoading ? (
         <Skeleton className="h-40 w-full" />

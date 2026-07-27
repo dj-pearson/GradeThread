@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScrollText, Loader2, Upload, ShieldAlert, Users } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-904: Legal/ToS version manager. Publish a new Terms/Privacy version and
 // (optionally) force re-acceptance; track who is on the current version. All
@@ -153,17 +154,11 @@ export function AdminLegalPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <ScrollText className="h-6 w-6 text-brand-red" />
-          Legal &amp; Terms versions
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Publish a new Terms of Service or Privacy Policy version. Flagging it
-          for re-acceptance prompts every affected user to re-accept on their next
-          visit; every acceptance is recorded for audit.
-        </p>
-      </div>
+      <PageHeader
+        title="Legal &amp; Terms versions"
+        subtitle="Publish a new Terms of Service or Privacy Policy version. Flagging it for re-acceptance prompts every affected user to re-accept on their next visit; every acceptance is recorded for audit."
+        icon={ScrollText}
+      />
 
       {/* Current versions + coverage */}
       {query.isLoading

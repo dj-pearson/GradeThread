@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Sheet,
   SheetContent,
@@ -188,23 +189,19 @@ export function SupportTicketsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <LifeBuoy className="h-6 w-6 text-brand-red" />
-            Support
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Open a request and track our replies — all in one place.
-          </p>
-        </div>
-        {!creating && (
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="mr-1 h-4 w-4" />
-            New ticket
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Support"
+        subtitle="Open a request and track our replies — all in one place."
+        icon={LifeBuoy}
+        actions={
+          !creating && (
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="mr-1 h-4 w-4" />
+              New ticket
+            </Button>
+          )
+        }
+      />
 
       {creating && (
         <Card>

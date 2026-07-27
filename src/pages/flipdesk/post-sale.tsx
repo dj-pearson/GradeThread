@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -62,13 +63,10 @@ export function FlipdeskPostSalePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Returns & Disputes</h1>
-        <p className="text-sm text-muted-foreground">
-          Handle eBay returns, buyer cancellations, and payment disputes before
-          their deadlines — responses are pushed straight to eBay.
-        </p>
-      </div>
+      <PageHeader
+        title="Returns & Disputes"
+        subtitle="Handle eBay returns, buyer cancellations, and payment disputes before their deadlines — responses are pushed straight to eBay."
+      />
       <DisputesCard />
       <ReturnsCard />
       <CancellationsCard />

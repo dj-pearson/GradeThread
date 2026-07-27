@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ChipInput } from "@/components/buyer/chip-input";
@@ -100,14 +101,11 @@ export function BuyerSettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center gap-2">
-        <SlidersHorizontal className="h-5 w-5 text-primary" />
-        <h1 className="text-2xl font-bold">Shopping preferences</h1>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        These personalize your condition alerts, fit predictions, and
-        recommendations across GradeThread.
-      </p>
+      <PageHeader
+        title="Shopping preferences"
+        subtitle="These personalize your condition alerts, fit predictions, and recommendations across GradeThread."
+        icon={SlidersHorizontal}
+      />
 
       <Card>
         <CardHeader>

@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -198,26 +199,19 @@ export function FlipdeskScheduledDropsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-            <CalendarClock className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Scheduled drops</h1>
-            <p className="text-sm text-muted-foreground">
-              Listings queued to go live at peak times. They publish automatically
-              within ~5 minutes of their scheduled time.
-            </p>
-          </div>
-        </div>
-        <Button asChild variant="outline">
-          <Link to="/dashboard/flipdesk/autolister/drafts">
-            <Sparkles className="mr-2 h-4 w-4" />
-            Drafts
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        icon={CalendarClock}
+        title="Scheduled drops"
+        subtitle="Listings queued to go live at peak times. They publish automatically within ~5 minutes of their scheduled time."
+        actions={
+          <Button asChild variant="outline">
+            <Link to="/dashboard/flipdesk/autolister/drafts">
+              <Sparkles className="mr-2 h-4 w-4" />
+              Drafts
+            </Link>
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader>

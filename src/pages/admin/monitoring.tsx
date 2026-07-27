@@ -29,6 +29,7 @@ import {
   LockOpen,
   ExternalLink,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "sonner";
 
 // US-841: admin abuse & usage monitoring dashboard for the AI Support Assistant.
@@ -285,16 +286,11 @@ export function AdminMonitoringPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <ShieldAlert className="h-6 w-6 text-brand-red" />
-          Assistant monitoring
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Abuse signals, per-user usage, lockouts and flagged messages for the AI
-          support assistant.
-        </p>
-      </div>
+      <PageHeader
+        title="Assistant monitoring"
+        subtitle="Abuse signals, per-user usage, lockouts and flagged messages for the AI support assistant."
+        icon={ShieldAlert}
+      />
 
       {/* Active thresholds (US-836) for reference. */}
       <Card>

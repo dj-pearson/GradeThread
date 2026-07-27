@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MarkdownPreview } from "@/components/admin/markdown-preview";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -290,22 +291,17 @@ export function AdminKnowledgeBasePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <BookOpen className="h-6 w-6 text-brand-navy" />
-            Knowledge base
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            The corpus the AI support assistant speaks from. Only published
-            articles are retrievable by the bot.
-          </p>
-        </div>
-        <Button onClick={openNew}>
-          <Plus className="mr-1 h-4 w-4" />
-          New article
-        </Button>
-      </div>
+      <PageHeader
+        icon={BookOpen}
+        title="Knowledge base"
+        subtitle="The corpus the AI support assistant speaks from. Only published articles are retrievable by the bot."
+        actions={
+          <Button onClick={openNew}>
+            <Plus className="mr-1 h-4 w-4" />
+            New article
+          </Button>
+        }
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">

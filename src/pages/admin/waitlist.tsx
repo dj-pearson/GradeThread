@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -187,12 +188,10 @@ export function AdminWaitlistPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Waitlist & Early Access</h1>
-        <p className="text-muted-foreground">
-          Review signups, approve and invite sellers in cohorts, and control the launch gate.
-        </p>
-      </div>
+      <PageHeader
+        title="Waitlist & Early Access"
+        subtitle="Review signups, approve and invite sellers in cohorts, and control the launch gate."
+      />
 
       {error && (
         <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">

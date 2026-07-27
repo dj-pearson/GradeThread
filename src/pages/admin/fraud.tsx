@@ -30,6 +30,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-591: cross-account abuse / fraud dashboard. Read-only aggregate view over
 // four signal families (repeat offenders, velocity / rate-limit abuse,
@@ -152,17 +153,11 @@ export function AdminFraudPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <ShieldAlert className="h-6 w-6 text-brand-red-text" />
-        <div>
-          <h1 className="text-2xl font-bold">Abuse &amp; Fraud</h1>
-          <p className="text-sm text-muted-foreground">
-            Cross-account view of repeat offenders, velocity abuse, duplicate /
-            shared-payment accounts, and chargebacks. Each account links to its
-            per-user actions.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Abuse &amp; Fraud"
+        subtitle="Cross-account view of repeat offenders, velocity abuse, duplicate / shared-payment accounts, and chargebacks. Each account links to its per-user actions."
+        icon={ShieldAlert}
+      />
 
       {isError ? (
         <Card>

@@ -44,6 +44,7 @@ import {
   RefreshCw,
   Send,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 type Health = "healthy" | "expiring" | "error" | "inactive";
 
@@ -239,13 +240,10 @@ export function AdminMarketplaceConnectionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Marketplace Connections</h1>
-        <p className="text-sm text-muted-foreground">
-          Cross-tenant health of every marketplace OAuth connection — token expiry,
-          last refresh error and last sync. Encrypted tokens are never shown.
-        </p>
-      </div>
+      <PageHeader
+        title="Marketplace Connections"
+        subtitle="Cross-tenant health of every marketplace OAuth connection — token expiry, last refresh error and last sync. Encrypted tokens are never shown."
+      />
 
       {/* Health summary cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Sparkles } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   CONTENT_PRODUCTS,
   CONTENT_STATUSES,
@@ -34,22 +35,20 @@ export function SocialListPage() {
   return (
     <div className="space-y-4">
       <SEO title="Social" noindex />
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Social</h1>
-          <p className="text-sm text-muted-foreground">
-            Paired long-format + short-format posts. CTAs drive back to the site.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          disabled={tick.isPending}
-          onClick={() => tick.mutate({ force_surface: "social" })}
-        >
-          <Sparkles className="mr-2 h-4 w-4" />
-          {tick.isPending ? "Generating…" : "Generate next"}
-        </Button>
-      </div>
+      <PageHeader
+        title="Social"
+        subtitle="Paired long-format + short-format posts. CTAs drive back to the site."
+        actions={
+          <Button
+            variant="outline"
+            disabled={tick.isPending}
+            onClick={() => tick.mutate({ force_surface: "social" })}
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            {tick.isPending ? "Generating…" : "Generate next"}
+          </Button>
+        }
+      />
 
       <div className="flex gap-2">
         <Select value={status} onValueChange={setStatus}>

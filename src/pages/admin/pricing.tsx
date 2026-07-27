@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Table,
   TableBody,
@@ -314,15 +315,17 @@ export function AdminPricingPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Plans &amp; Pricing</h1>
-        <p className="text-muted-foreground">
-          FlipDesk plan prices, limits, feature gates, and Stripe price IDs.
-          {isSuperAdmin
-            ? " Edits apply live — no deploy."
-            : " Read-only for your role (super-admin required to edit)."}
-        </p>
-      </div>
+      <PageHeader
+        title="Plans & Pricing"
+        subtitle={
+          <>
+            FlipDesk plan prices, limits, feature gates, and Stripe price IDs.
+            {isSuperAdmin
+              ? " Edits apply live — no deploy."
+              : " Read-only for your role (super-admin required to edit)."}
+          </>
+        }
+      />
 
       {error && (
         <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">

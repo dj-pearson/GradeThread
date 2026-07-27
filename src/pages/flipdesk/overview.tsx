@@ -26,6 +26,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
@@ -245,28 +246,26 @@ export function FlipdeskOverviewPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Overview</h1>
-          <p className="text-sm text-muted-foreground">
-            What's moving, what's stuck, and what's making money.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild>
-            <Link to="/dashboard/flipdesk/import">
-              <Upload className="mr-2 h-4 w-4" />
-              Import
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link to="/dashboard/flipdesk/intake">
-              <Plus className="mr-2 h-4 w-4" />
-              New item
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Overview"
+        subtitle="What's moving, what's stuck, and what's making money."
+        actions={
+          <>
+            <Button variant="outline" asChild>
+              <Link to="/dashboard/flipdesk/import">
+                <Upload className="mr-2 h-4 w-4" />
+                Import
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link to="/dashboard/flipdesk/intake">
+                <Plus className="mr-2 h-4 w-4" />
+                New item
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
       {isError ? (
         <Card>

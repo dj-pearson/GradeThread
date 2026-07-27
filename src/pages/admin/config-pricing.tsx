@@ -32,6 +32,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { useAuth } from "@/hooks/use-auth";
 import { AlertTriangle, Clock, CreditCard, DollarSign, Layers, Pencil } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-885: edit the DB-driven grading-tier prices + credit-pack prices
 // (pricing_config) and per-plan included-grade entitlements (pricing_plans). The
@@ -368,15 +369,17 @@ export function AdminConfigPricingPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Pricing &amp; Tiers</h1>
-        <p className="text-muted-foreground">
-          Grading-tier prices, credit-pack prices, and per-plan included grades.
-          {isSuperAdmin
-            ? " Edits apply live — no deploy."
-            : " Read-only for your role (super-admin required to edit)."}
-        </p>
-      </div>
+      <PageHeader
+        title="Pricing &amp; Tiers"
+        subtitle={
+          <>
+            Grading-tier prices, credit-pack prices, and per-plan included grades.
+            {isSuperAdmin
+              ? " Edits apply live — no deploy."
+              : " Read-only for your role (super-admin required to edit)."}
+          </>
+        }
+      />
 
       <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import { Gift, Loader2, Save, RefreshCw, Tag, DollarSign, ArrowRight } from "lucide-react";
 
 // US-1069 — Incentives: one admin surface for referral & promo economics.
@@ -340,22 +341,22 @@ export function AdminIncentivesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Gift className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Incentives</h1>
-            <p className="text-sm text-muted-foreground">
-              Referral &amp; promo economics in one place. Changes are audited and require a fresh
-              second factor.
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}>
-          {query.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Incentives"
+        subtitle={
+          <>
+            Referral &amp; promo economics in one place. Changes are audited and require a fresh
+            second factor.
+          </>
+        }
+        icon={Gift}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}>
+            {query.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        }
+      />
 
       {query.isLoading ? (
         <div className="space-y-4">

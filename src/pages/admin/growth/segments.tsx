@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Dialog,
   DialogContent,
@@ -430,15 +431,13 @@ export function GrowthSegmentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Audience Segments</h1>
-          <p className="text-muted-foreground">
-            Reusable cohorts for campaigns and announcements.
-          </p>
-        </div>
-        <Button onClick={openNew}><Plus className="mr-1 h-4 w-4" /> New segment</Button>
-      </div>
+      <PageHeader
+        title="Audience Segments"
+        subtitle="Reusable cohorts for campaigns and announcements."
+        actions={
+          <Button onClick={openNew}><Plus className="mr-1 h-4 w-4" /> New segment</Button>
+        }
+      />
 
       {isLoading ? (
         <Skeleton className="h-40 w-full" />

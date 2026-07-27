@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Select,
   SelectContent,
@@ -54,28 +55,25 @@ export function BlogListPage() {
   return (
     <div className="space-y-4">
       <SEO title="Blog" noindex />
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Blog</h1>
-          <p className="text-sm text-muted-foreground">
-            SEO-targeted articles. Generate from the topic bank or write your
-            own.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            disabled={tick.isPending}
-            onClick={() => tick.mutate({ force_surface: "blog" })}
-          >
-            <Sparkles className="mr-2 h-4 w-4" />
-            {tick.isPending ? "Generating…" : "Generate next"}
-          </Button>
-          <Button onClick={newPost} disabled={create.isPending}>
-            <Plus className="mr-2 h-4 w-4" /> New post
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Blog"
+        subtitle="SEO-targeted articles. Generate from the topic bank or write your own."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              disabled={tick.isPending}
+              onClick={() => tick.mutate({ force_surface: "blog" })}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              {tick.isPending ? "Generating…" : "Generate next"}
+            </Button>
+            <Button onClick={newPost} disabled={create.isPending}>
+              <Plus className="mr-2 h-4 w-4" /> New post
+            </Button>
+          </>
+        }
+      />
 
       <div className="flex gap-2">
         <Select value={status} onValueChange={setStatus}>
