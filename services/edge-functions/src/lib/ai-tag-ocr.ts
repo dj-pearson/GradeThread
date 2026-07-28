@@ -20,9 +20,46 @@ import { withRetry } from "./retry.ts";
 // flipdesk_photo_type values that carry a readable brand/size/care label.
 export const TAG_PHOTO_TYPES: ReadonlySet<string> = new Set(["tag", "tag_2"]);
 
+// US-2210: the grading taxonomy (public.image_type) names the same photo
+// "label"/"label_2" where FlipDesk names it "tag"/"tag_2". Two vocabularies for
+// one photograph, both already in prod, so the grading pipeline filters on this
+// set rather than TAG_PHOTO_TYPES.
+export const GRADING_TAG_PHOTO_TYPES: ReadonlySet<string> = new Set([
+  "label",
+  "label_2",
+]);
+
 export interface TagPhoto {
+  /** A fetchable URL, or a `data:image/...;base64,...` URI. */
   url: string;
   type?: string;
+}
+
+type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+
+/**
+ * Build the Anthropic image source for a tag photo. The FlipDesk callers pass
+ * fetchable URLs; the grading pipeline (US-2210) passes the SAME resident
+ * base64 data URIs its per-image pass already holds, so the tag read costs no
+ * extra download and stays inside the pipeline's memory gate. Accepting both
+ * shapes here keeps either caller from having to convert. Pure — exported for
+ * tests.
+ */
+export function tagImageSource(
+  url: string,
+): { type: "base64"; media_type: ImageMediaType; data: string } | {
+  type: "url";
+  url: string;
+} {
+  const match = url.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (match) {
+    return {
+      type: "base64",
+      media_type: match[1] as ImageMediaType,
+      data: match[2],
+    };
+  }
+  return { type: "url", url };
 }
 
 // One read field off the tag, with the verbatim string and a calibrated
@@ -209,7 +246,7 @@ export async function extractTagGroundTruth(
       type: "text",
       text: `Tag photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
     });
-    content.push({ type: "image", source: { type: "url", url: photo.url } });
+    content.push({ type: "image", source: tagImageSource(photo.url) });
   });
   content.push({ type: "text", text: userInstructions() });
 

@@ -84,6 +84,18 @@ import {
   notifyGradingIncomplete,
 } from "./grading-lifecycle-notify.ts";
 import { recordAiUsage, type AiTokenUsage } from "./ai-usage.ts";
+import {
+  extractTagGroundTruth,
+  GRADING_TAG_PHOTO_TYPES,
+  type TagOcrResult,
+} from "./ai-tag-ocr.ts";
+import {
+  acceptedTagFields,
+  buildPersistedTagRead,
+  tagDiscrepancies,
+  tagGroundTruthBlock,
+  tagOcrGradingEnabled,
+} from "./tag-ground-truth.ts";
 import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
 import {
   computeCoverage,
@@ -427,6 +439,12 @@ async function escalateGrade(
   // US-1533: the baseline block the first pass used — escalation grades the
   // same item, so it sees the same trusted reference ("" → unchanged).
   baselineBlock = "",
+  // US-2210: likewise the label transcription. The escalation re-runs the whole
+  // per-image pass on the stronger model but does NOT re-read the tag — a
+  // verbatim transcription does not get truer on a bigger model, and paying for
+  // a second vision call to re-read the same label would be the escalation
+  // spending money to learn what it already knows.
+  tagBlock = "",
 ): Promise<
   {
     perImageResults: PerImageAnalysis[];
@@ -510,6 +528,10 @@ async function escalateGrade(
     model,
     submissionId,
     baselineBlock,
+    // US-1537: escalation stays text-only by design (see the first-pass call).
+    [],
+    false,
+    tagBlock,
   );
   // US-1642: surface whether the ESCALATION dropped an optional image. The
   // caller ORs this into partialSuccess so a defect/detail image that failed to
@@ -1304,6 +1326,24 @@ export async function processSubmission(submissionId: string) {
       ? await getEffectiveTellsForBrand(submission.brand).catch(() => [])
       : [];
 
+    // US-2210: read the garment's OWN label as trusted identity context. Gated
+    // on GRADING_TAG_OCR (default OFF — the composite prompt changes, so it goes
+    // live only after the golden-set eval + canary, exactly like US-1533) AND on
+    // the submission actually having a label photo, so a submission with nothing
+    // to read never pays for a vision call. `label` is a REQUIRED image type, so
+    // in practice this is on for every well-formed submission once the flag is.
+    //
+    // KNOWN COST EDGE: like the authenticity add-on, this runs in parallel with
+    // the per-image pass and therefore BEFORE the image-quality gate — so a
+    // submission that later abstains on an illegible label has already paid for
+    // the read. Sequencing the gate first would serialize the pipeline's hot
+    // path on every grade to save a call on the abstaining minority, which is
+    // the wrong trade; the same reasoning is recorded in fabric-criteria.ts.
+    const tagPhotoTypes = images
+      .map((i) => (i as { image_type: string }).image_type)
+      .filter((t) => GRADING_TAG_PHOTO_TYPES.has(t));
+    const wantTagOcr = tagOcrGradingEnabled() && tagPhotoTypes.length > 0;
+
     // US-1533: trusted garment expectation baseline (flag-gated, default OFF;
     // cache-first with lazy generation). Fetched ONCE before the memory-gated
     // closure so both the per-image calls and the composite share it. Strictly
@@ -1404,12 +1444,33 @@ export async function processSubmission(submissionId: string) {
           })
         : Promise.resolve(null);
 
+      // US-2210: the label transcription runs INSIDE this buffer slot, in
+      // parallel with the per-image pass, over the label photos' already-
+      // resident base64 — so it adds one vision call and ZERO extra downloads,
+      // and stays under the same memory gate that bounds grading concurrency.
+      // Best-effort: a failure resolves to null and the grade proceeds with no
+      // tag block, byte-identical to the feature being off.
+      const tagPromise: Promise<TagOcrResult | null> = wantTagOcr
+        ? extractTagGroundTruth(
+            imageData
+              .filter((img) => GRADING_TAG_PHOTO_TYPES.has(img.imageType))
+              .map((img) => ({ url: img.dataUri, type: img.imageType })),
+          ).catch((err) => {
+            console.error(
+              `[Pipeline] tag OCR failed for submission ${submissionId}:`,
+              err instanceof Error ? err.message : String(err),
+            );
+            return null;
+          })
+        : Promise.resolve(null);
+
       // US-485: allSettled (not all) so one flaky image doesn't fail the whole
       // paid grade. analyzeImage already retries + has a bounded timeout via the
       // Anthropic SDK (getAiMaxRetries / getAiTimeoutMs).
-      const [settled, authenticityAssessment] = await Promise.all([
+      const [settled, authenticityAssessment, tagOcr] = await Promise.all([
         Promise.allSettled(perImagePromises),
         authPromise,
+        tagPromise,
       ]);
       const results: SettledImage[] = settled.map((s, i) => ({
         imageType: imageData[i].imageType,
@@ -1438,12 +1499,42 @@ export async function processSubmission(submissionId: string) {
         }
       }
 
-      return { settledImages: results, authenticityAssessment };
+      return { settledImages: results, authenticityAssessment, tagOcr };
     });
 
     const settledImages: SettledImage[] = bufferResult.settledImages;
     const authenticityAssessment: AuthenticityAssessment | null =
       bufferResult.authenticityAssessment;
+    const tagOcr: TagOcrResult | null = bufferResult.tagOcr;
+
+    // US-2210: keep only reads that cleared TAG_GROUND_TRUTH_MIN_CONFIDENCE — an
+    // illegible label yields no identity rather than a guessed one — then record
+    // where the label and the seller disagree. A disagreement is REPORTED, never
+    // resolved: we neither overwrite the seller's brand with the tag's nor drop
+    // the tag read in favour of the seller's (see tag-ground-truth.ts).
+    const acceptedTag = tagOcr ? acceptedTagFields(tagOcr.fields) : [];
+    const tagMismatches = tagDiscrepancies(acceptedTag, { brand: submission.brand });
+    const tagBlock = tagGroundTruthBlock(acceptedTag);
+    if (tagMismatches.length > 0) {
+      console.warn(
+        `[Pipeline] tag/seller mismatch on submission ${submissionId}: ` +
+          tagMismatches
+            .map((d) => `${d.field} label="${d.read}" seller="${d.declared}"`)
+            .join("; "),
+      );
+      void captureServer("grading-engine", "grading.tag_discrepancy", {
+        submission_id: submissionId,
+        fields: tagMismatches.map((d) => d.field),
+      });
+    }
+    const tagRead = tagOcr && acceptedTag.length > 0
+      ? buildPersistedTagRead(
+        acceptedTag,
+        tagMismatches,
+        tagOcr.model,
+        new Date().toISOString(),
+      )
+      : null;
 
     const { usable, failedRequired, failedOptional } = partitionImageResults(
       settledImages,
@@ -1622,6 +1713,11 @@ export async function processSubmission(submissionId: string) {
       // escalation re-grade below stays text-only by design — it re-runs the
       // whole per-image pass on the stronger model anyway.
       verificationImages,
+      // Live grading always carries the active exemplar block (eval/dry-run
+      // legs are the ones that suppress it).
+      false,
+      // US-2210: trusted label transcription ("" when off / unread).
+      tagBlock,
     );
 
     // US-1066: escalate a low-confidence / high-value first-pass grade to the
@@ -1669,6 +1765,7 @@ export async function processSubmission(submissionId: string) {
             cascade.escalationModel,
             wantForensic,
             baselineBlock,
+            tagBlock,
           );
           if (escalated) {
             perImageResults = escalated.perImageResults;
@@ -2304,6 +2401,21 @@ export async function processSubmission(submissionId: string) {
         // is also stored on its own column for the accuracy join.
         model_version: `${compositeResult.model}|${compositeResult.prompt_version}`,
         prompt_version: compositeResult.prompt_version,
+        // US-2210: the verbatim label transcription this grade was identified
+        // from, with per-field confidences and any seller disagreement. Absent
+        // when the feature is off, there was no label photo, or nothing cleared
+        // the confidence bar. INTERNAL for now — deliberately NOT added to the
+        // public certificate's column allowlist (content-public.ts
+        // CERT_REPORT_COLUMNS): publishing a machine read of someone's tag as
+        // certified identity is a product decision that waits for the eval
+        // numbers, not a side effect of storing it.
+        //
+        // SPREAD, not a plain `tag_read: tagRead`: with the feature off tagRead
+        // is null, and a null-VALUED key still NAMES the column in the PostgREST
+        // payload — which 42703s the whole insert, and with it the paid grade, on
+        // any environment where 00496 has not been applied. Omitting the key
+        // entirely is what makes this commit safe to deploy ahead of the SQL.
+        ...(tagRead ? { tag_read: tagRead } : {}),
         certificate_id: certificateId,
         certificate_number: certificateNumber,
         // US-333: tamper-evident integrity columns (migration 00068).
@@ -2459,6 +2571,32 @@ export async function processSubmission(submissionId: string) {
         submissionId,
         feature: "authenticity",
         usages: [{ phase: "authenticity", usage: authenticityAssessment.usage }],
+      });
+    }
+
+    // US-2210: the tag read is one extra vision call per grade, so it gets its
+    // own feature row rather than being folded into the grading phases — the
+    // point of turning it on is to be able to see what it costs against what it
+    // is worth, and a cost buried inside "per_image" cannot be evaluated.
+    if (tagOcr) {
+      void recordAiUsage({
+        userId: submission.user_id,
+        submissionId,
+        feature: "tag_ocr",
+        usages: [{
+          phase: "tag_ocr",
+          usage: {
+            model: tagOcr.model,
+            // TagOcrResult.tokensIn already SUMS plain input + cache read +
+            // cache creation, so the cache fields are zeroed here rather than
+            // double-counted. extractTagGroundTruth sets no cache_control, so
+            // in practice the whole count is plain input tokens anyway.
+            inputTokens: tagOcr.tokensIn,
+            outputTokens: tagOcr.tokensOut,
+            cacheCreationTokens: 0,
+            cacheReadTokens: 0,
+          },
+        }],
       });
     }
 

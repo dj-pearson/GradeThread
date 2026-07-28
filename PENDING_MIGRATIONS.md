@@ -1,5 +1,37 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00496_grade_reports_tag_read.sql (US-2210 label transcription in grading, 2026-07-28)
+
+**Apply AFTER 00495.** Adds one nullable column, `grade_reports.tag_read jsonb`,
+holding the verbatim care/brand-label transcription a grade was identified from:
+`{fields:[{field,value,confidence}], discrepancies:[{field,read,declared}],
+min_confidence, model, read_at}`. No backfill — NULL already means "no
+label-derived identity". Run `NOTIFY pgrst, 'reload schema';` after applying.
+
+**No client reads or writes this column.** The SPA is untouched by this commit
+and the column is deliberately absent from the public certificate's allowlist
+(`content-public.ts` CERT_REPORT_COLUMNS), so a frontend auto-deploy cannot
+reach it. Unlike 00495, apply order is not urgent for correctness.
+
+**The edge write is double-gated, so pushing before applying is still safe.**
+The pipeline only sets `tag_read` when `GRADING_TAG_OCR` is truthy — the flag
+defaults OFF and must be set deliberately in Coolify. Until then the insert
+never names the column. Do NOT flip that flag before the SQL is applied: the
+grade-report insert would fail on the missing column and take the paid grade
+down with it.
+
+**Why:** grading took brand/size/style from whatever the seller typed at submit,
+even though `lib/ai-tag-ocr.ts` had read those fields verbatim off the garment's
+own label since US-543 — only the AutoLister ever called it. The pipeline now
+runs that read and injects it as trusted context, so the read itself has to be
+retained to stay auditable.
+
+**Risk: LOW.** One additive nullable jsonb column plus a `comment on column`; no
+trigger, no index, no data migration, no view change. Idempotent and re-run safe.
+Not exercised against a live DB in this environment (no Docker). After apply and
+before flipping the flag, confirm the column exists on `grade_reports`.
+
+
 ## ⏳ HELD: 00495_item_photo_edit_originals.sql (US-2208 non-destructive photo editing, 2026-07-27)
 
 **Apply AFTER 00494.** Adds two nullable columns to `item_photos`:
