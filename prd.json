@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2209",
+  "nextId": "US-2226",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5012,6 +5012,321 @@
       "priority": "medium",
       "passes": false,
       "notes": "Follow-on from the composer photo-enhancement work (editor sliders/auto/zoom/cut-out + bulk tone match + container-query composer layout). Recipe shape and parser live in src/lib/photo-edit-recipe.ts; storage round-trips in src/lib/photo-mutations.ts."
+    },
+    {
+      "id": "US-2209",
+      "passes": false,
+      "title": "EPIC: Grading depth — identity, sizing, brand knowledge and product coverage",
+      "description": "As GradeThread, we want the grading pipeline to identify WHAT it is grading as rigorously as it grades CONDITION, and to cover the product categories sellers actually list, because today the two halves of the product are lopsided: the condition engine is deep (5 weighted factors, defect taxonomy with mm tolerances, fabric-aware criteria, confidence caps, shadow/eval/canary lifecycle) while identity is thin (brand and size on a certificate are whatever the seller typed) and coverage is clothing-only (a hat, a tie, a belt and a handbag all have a garment_category and no way to be graded).",
+      "acceptanceCriteria": [
+        "Every child story in this epic names the exact module, table or enum it changes — no story in this epic may be closed on prose alone.",
+        "Identity work does not weaken US-346: label-read fields are server-derived and TRUSTED; seller-typed brand/size stay fenced and untrusted, and neither channel may move a factor score.",
+        "Any change to a grading prompt in this epic goes through the mandated lifecycle (new version name -> shadow -> golden-set eval gate -> canary), never a silent edit.",
+        "Any new rubric added by this epic keeps the three weighted-overall rounding sites in lockstep (ai-grading.ts roundToTenth, human-review.ts computeWeightedOverall, admin/reviews.tsx computeWeightedScore) in the same commit.",
+        "Epic closes only when its children close; it carries no implementation of its own."
+      ],
+      "priority": 1990,
+      "notes": "[P2][Grading/Epic] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Parent for US-2210..US-2225. Scope split six ways: tag identification (2210-2212), sizing (2213-2215), brand styles/models (2216-2217), authenticity evidence + coverage priority (2218-2219), brand breadth (2220-2221), product coverage beyond clothing (2222-2225). DELIBERATELY NOT DUPLICATED: US-2130..2148 already own the visual-authenticity epic (eval gate, golden set, capture quality, decoder cross-checks, tell depth/counterfeit modelling, appeals, accuracy tracking); US-1997 owns non-clothing rubric ACTIVATION for the three rubrics that already exist (sports_cards/watches/shoes) and its Phase-2 notes already scope the factor-set generalization every new rubric here depends on; US-2107 owns publishing measurable tolerances."
+    },
+    {
+      "id": "US-2210",
+      "passes": false,
+      "title": "Grading never runs the tag-OCR ground-truth pass — the brand and size on a certificate are seller-typed, not read off the label",
+      "description": "As a buyer trusting a GradeThread certificate, I want the brand, size, style code and fiber content on it to have been READ off the garment's own label, so that the certificate identifies the item rather than repeating what the seller claimed. Verified today: lib/ai-tag-ocr.ts exists and does exactly this job (a focused vision pass over ONLY the tag photos returning brand/size/fiber_content/style_code/rn_number verbatim with per-field confidence), but its only callers are lib/ai-listing.ts and lib/ai-size-estimate.ts — both FlipDesk AutoLister paths. The grading pipeline never imports it. Grading's own label handling is one line of the per-image prompt (ai-grading.ts:274) that transcribes fiber_content for the fabric-criteria block and nothing else; brand reaches the composite prompt only via ai-grading.ts:1589 as sanitized, fenced, explicitly-untrusted seller text. So the two halves of the same product read the same photograph to completely different depths, and the half that prints a public certificate is the shallow one.",
+      "acceptanceCriteria": [
+        "The grading pipeline runs extractTagGroundTruth over the submission's label/label_2 images and persists the result (brand, size, fiber_content, style_code, rn_number, each with its confidence) on the submission or grade report.",
+        "Read fields enter the composite prompt as TRUSTED server-generated context OUTSIDE the US-346 fence; the seller's own typed brand/title stays inside the fence, and a test asserts the two channels are never merged.",
+        "The composite prompt change ships as a new prompt version through shadow -> golden-set eval gate -> canary, with a distinct version suffix so accuracy-tracking can attribute the tag-grounded era.",
+        "A read below TAG_GROUND_TRUTH_MIN_CONFIDENCE (0.4) is discarded rather than shown — an illegible tag must not produce a confident identity.",
+        "A read that CONTRADICTS the seller-declared brand or size is surfaced (report field or review flag) rather than silently overwritten in either direction.",
+        "Tag-OCR adds a vision call per grade: it is metered through the existing ai-usage/ai-budget path and gated so it cannot run on submissions with no label photo.",
+        "Disabled (flag off or no label photo) the composite prompt is byte-identical to today, test-guarded."
+      ],
+      "priority": 1989,
+      "notes": "[P1][Grading/Identity] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). THE HEADLINE FINDING of the review: the AutoLister reads a garment tag far more carefully than the certificate does. lib/ai-tag-ocr.ts is a finished, tested, metered module (249 lines, ai-tag-ocr_test.ts green) and grading does not call it. Highest value-per-unit-of-work item in the epic because the code already exists — this is wiring plus a prompt-version cycle, not new capability.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2211",
+      "passes": false,
+      "title": "RN/CA numbers are transcribed on every extraction and cross-checked against nothing — brand_knowledge.registered_numbers is dead data",
+      "description": "As GradeThread, we want a transcribed RN number to be CHECKED against the brand it claims, because an RN is the one identity field on a US care label that is issued by a government registry and therefore cannot be faked by typing. Verified: ai-extract.ts:129 and ai-tag-ocr.ts:43 both read rn_number verbatim, and brand_knowledge carries a registered_numbers text[] column (00389) seeded across the brand packs — and grep finds ZERO code that compares one to the other. The column is written by the seeding migrations and read by nothing. That is the cheapest deterministic identity check available to us and it is sitting unused: an RN that resolves to a different manufacturer than the tag's brand name is a strong, checkable signal, and an RN that resolves to the SAME brand is a strong confirmation when the brand tag has been cut off.",
+      "acceptanceCriteria": [
+        "A resolver maps a transcribed RN to the brand_knowledge row(s) whose registered_numbers cover it, handling both singleton values and the range form the column already stores.",
+        "A confirming match raises identity confidence; a contradicting match (RN belongs to a different brand than the tag/seller claims) surfaces as a flagged discrepancy, never as a silent brand rewrite.",
+        "The check is DETERMINISTIC code, not a model call — an unmatched RN yields 'unknown', which must be treated as no information rather than as a negative signal.",
+        "The decoder bar applies: an RN range that is not brand-unique (shared parent, licensee, or contract manufacturer) is recorded as informational and MUST NOT mint a brand — see vault/20-domain/brands/brand-kb-decoder-bar.md, and record any refusal in vault/20-domain/brands/brand-kb-negative-findings.md.",
+        "Seeded registered_numbers rows get a provenance/confidence pass as part of this work — an unverified range that mis-brands an item is worse than no range."
+      ],
+      "priority": 1988,
+      "notes": "[P2][Grading/Identity] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). One of TWO seeded-but-unread columns found by the review (the other is tag_eras, US-2212). Pattern worth naming: the brand-pack epic seeded knowledge faster than the pipeline grew consumers for it, so several columns are audit-clean and inert. Cheapest deterministic identity signal available.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2212",
+      "passes": false,
+      "title": "tag_eras is seeded across the brand KB and read by nothing — no garment can be dated",
+      "description": "As a seller listing vintage, I want the tag generation on my garment to date it, because era is often the single largest multiplier on a piece's value and it is printed on the label. Verified: brand_knowledge.tag_eras (jsonb '[{era, years, description}]', 00389) is seeded across the brand packs and the ONLY code that touches it is plumbing — brand-knowledge.ts:83/103/259 carries it through the pack shape and brand-knowledge.ts:322 selects the column; three brand-normalize.ts comments reference it in prose. No prompt injects it, no comparison uses it, nothing surfaces it. Same failure mode as registered_numbers: a seeded, human-verifiable, high-value fact with no consumer.",
+      "acceptanceCriteria": [
+        "The tag_eras entries for a resolved brand are injected into the grading and/or extraction path as trusted reference context so a transcribed tag can be matched to an era.",
+        "A matched era is persisted and surfaced (report field / listing item-specific), with the matched era's own confidence — a guessed decade is worse than a blank.",
+        "Era is INFORMATIONAL and must not move any condition factor score: a 1990s garment is not graded on a 1990s curve. A test asserts factor scores are unchanged by era presence.",
+        "Era carries into authenticity as a consistency check only (an era-inconsistent tag is a flag, not a verdict), respecting the US-1770 no-auto-authenticate posture.",
+        "Seeded tag_eras rows get the same provenance/confidence pass as the RN work — an unsourced era claim on a public certificate is a liability."
+      ],
+      "priority": 1987,
+      "notes": "[P2][Grading/Identity] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Second seeded-but-unread column. Also the enabling dependency for the vintage/band-tee brand pack (US-2220), where the tag generation IS the identity and the price.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2213",
+      "passes": false,
+      "title": "Sizing charts never reach the grading pipeline or the certificate — a graded garment carries an unverified size",
+      "description": "As a buyer, I want the size on a certificate to have been derived from the garment (label read plus flat measurements against the brand's own chart), so that 'Lululemon 6' means the same thing on every GradeThread certificate. Verified: lib/sizing-charts.ts is 9,071 lines and 170 brands of curated per-brand, per-department, per-category charts — and its only consumers are lib/ai-size-estimate.ts, lib/brand-knowledge.ts and lib/brand-normalize.ts. The grading pipeline imports none of them. Grading DOES accept measurement photos (image_type measurement_chest/waist/length/sleeve/inseam, added 00103) — so the measurement evidence is already in the submission and the chart to interpret it already exists in the repo, and nothing connects them. Meanwhile the certificate prints the size the seller typed.",
+      "acceptanceCriteria": [
+        "The grading pipeline resolves the brand+department+category sizing chart and derives a size from the submission's measurement photos and/or the tag read, persisting it with a confidence.",
+        "A derived size that contradicts the seller-declared size is flagged rather than silently replacing it; the certificate distinguishes a VERIFIED size from a DECLARED one.",
+        "No measurement photos and no legible size tag -> no derived size and no confidence penalty. Absence of evidence must not degrade the condition grade.",
+        "Size derivation must not move any condition factor score, test-guarded.",
+        "The chart is injected as trusted reference context outside the US-346 fence, matching how garment-baselines and fabric-criteria already do it.",
+        "Reuses ai-size-estimate-core.ts rather than forking a second sizing implementation — one sizing engine, two callers."
+      ],
+      "priority": 1986,
+      "notes": "[P1][Grading/Sizing] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). 9,071 lines and 170 brands of curated sizing charts, zero of it reaches a certificate. Measurement photo slots already exist (00103) so the evidence is being collected and thrown away.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2214",
+      "passes": false,
+      "title": "brand_size_charts is seeded for a fraction of the 170 in-code charts — the DB-first resolver mostly falls back to code",
+      "description": "As an operator, I want to fix a wrong size chart in the admin UI instead of shipping a migration, because that is the entire point of the DB-first-with-code-fallback pattern the brand KB was built on. Verified: lib/sizing-charts.ts carries 170 distinct brands; only 26 migrations insert into public.brand_size_charts. So for most brands the resolver falls through to the frozen in-code seed and the admin surface has nothing to edit. Same drift risk the brand KB was designed to end — and it is silent, because the fallback always returns SOMETHING.",
+      "acceptanceCriteria": [
+        "Every in-code SizingChart has a corresponding brand_size_charts row, backfilled by migration or by an idempotent import job.",
+        "A parity test fails when a code chart has no DB row (or the two disagree), so the gap cannot silently reopen — the same drift-guard remedy already used for the rubric fixture and the grading-standard mirror.",
+        "The resolver's fallback path emits an observable signal when it fires, so 'the DB had nothing' is visible rather than invisible.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer.",
+        "Decide and record whether the in-code seed stays as a cold-start fallback or is retired once parity holds — do not leave two live sources of truth with no owner."
+      ],
+      "priority": 1985,
+      "notes": "[P3][Grading/Sizing] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Same drift-guard remedy already used twice in this repo (rubric-factors.json fixture in US-1997, grading-standard mirror in US-2107). Silent because the code fallback always returns something.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2215",
+      "passes": false,
+      "title": "No international size-system conversion, and no plus / petite / tall / big-and-tall charts as first-class",
+      "description": "As a seller listing an EU 42 jacket or a women's 18W, I want the size read off the tag mapped to the system a US buyer searches in, because a size the buyer cannot interpret is functionally an unsized item. Verified: the SizingChart shape (sizing-charts.ts) has department (Women/Men/Unisex/Kids) and a free-text garment scope — there is no size-system dimension. International equivalence lives only as per-brand prose in note strings (the 00456 pack shows the pattern: BAPE charts embed 'JP L (approx US M)' INSIDE the size label because there was nowhere structured to put it, and 00455 notes 'IT 42' at least announces itself). Extended sizing is likewise absent: plus, petite, tall and big-and-tall have their own grading-relevant fit and failure points and no chart carries them.",
+      "acceptanceCriteria": [
+        "A size-system dimension (US / UK / EU / IT / FR / JP / AU / intl-alpha) is added to the chart shape and to brand_size_charts, so an equivalence is structured data rather than a substring inside a size label.",
+        "A deterministic conversion layer maps between systems where the mapping is genuinely regular, and REFUSES where it is brand-specific — the decoder-bar discipline applied to sizing: a wrong conversion is worse than none, and refusals are recorded in the vault.",
+        "Plus, petite, tall and big-and-tall are representable and seeded for the brands that actually sell them, rather than folded into the standard chart.",
+        "Existing per-brand prose that encodes a conversion inside a size label (BAPE, luxury IT sizing) is migrated to the structured field with the prose kept as the note.",
+        "Migration follows the US-1108 triple."
+      ],
+      "priority": 1984,
+      "notes": "[P2][Grading/Sizing] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Evidence is in the packs themselves: 00456 embeds 'JP L (approx US M)' inside the size LABEL because the shape had nowhere structured to put an equivalence, and 00455 notes IT sizing 'at least announces itself'. Both are workarounds for a missing dimension.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2216",
+      "passes": false,
+      "title": "brand_styles covers a fraction of the KB's brands — model-level identity is what sets price and it is mostly missing",
+      "description": "As a seller, I want GradeThread to name the MODEL, not just the brand, because 'Barbour jacket' and 'Barbour Bedale' are different listings at different prices. Verified: 70 migration statements insert into brand_knowledge (about 177 canonical brands) but only 36 insert into brand_styles, and the style rows that exist concentrate on flagship lines. brand_styles already has the right shape for this (style_name, aliases, product_line, department, category, visual_fingerprint, fabric_tech, era, msrp_band, keywords) — it is under-populated, not under-designed. The knock-on is real: without a style row there is no visual_fingerprint for the extractor to disambiguate against, no msrp_band for comping, and no style-level anchor for the condition baseline (see the companion story on garment_baselines).",
+      "acceptanceCriteria": [
+        "Style coverage is prioritized by actual submission and listing volume per brand, not by KB seeding order — name the query that produced the priority list.",
+        "Every new style row carries visual_fingerprint and keywords populated (those are what make a style row usable by the extractor), plus source_url and confidence.",
+        "A golden-harness case per seeded style asserts the style is recoverable from a representative description/photo-derived field set, extending the existing brand-knowledge-golden_test.ts pattern.",
+        "Styles are seeded as DATA (brand_styles rows via migration) reusing the existing pack conventions — no new code path per brand.",
+        "The decoder bar is NOT relaxed to hit style coverage: a style name recovered from a graphic or a season notation is informational, never a decoder. Record refusals in vault/20-domain/brands/brand-kb-negative-findings.md.",
+        "Migrations follow the US-1108 triple."
+      ],
+      "priority": 1983,
+      "notes": "[P2][Grading/Knowledge] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). 70 brand_knowledge inserts vs 36 brand_styles inserts. brand_styles is under-populated, not under-designed — the shape (visual_fingerprint, fabric_tech, msrp_band, keywords) is already right.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2217",
+      "passes": false,
+      "title": "garment_baselines is keyed brand+category, so every Barbour jacket gets the same condition brief",
+      "description": "As a grader, I want the as-manufactured baseline to describe the actual model, because the DESIGN_VS_DEFECT_PRINCIPLE is only as good as the baseline that tells it what the factory state was. Verified: lib/garment-baselines.ts generates and caches an expectation brief per brand + garment category (00341), grounded on the brand KB pack when one exists (BASELINE_GEN_GROUNDED_VERSION v3+grounded, US-1717). It has no style dimension. So a waxed Barbour Bedale (waxed cotton, re-waxing is maintenance not damage, corduroy collar wear is expected) and a Barbour quilted Liddesdale (nylon quilt, snap function and baffle stitching are the failure points) share one brief that must describe both, which means it describes neither. The same collapse applies wherever a brand spans construction types: Patagonia fleece vs shell, Carhartt duck vs flannel, Nike knit vs leather.",
+      "acceptanceCriteria": [
+        "garment_baselines gains an optional style dimension so a brief can be keyed brand+style when a brand_styles row resolves, falling back to brand+category when it does not.",
+        "A style-keyed brief is generated with the brand_styles row's fabric_tech and visual_fingerprint injected as trusted grounded facts, and carries a DISTINCT prompt-version suffix so accuracy-tracking can attribute the style-grounded era.",
+        "briefLooksSafe / BRIEF_INJECTION_TELLS validation applies unchanged to style-keyed briefs before caching — a style-grounded brief is still injected as trusted context.",
+        "With no style match the pipeline is byte-identical to today, test-guarded.",
+        "Migration follows the US-1108 triple, and the unique key stays plain columns (the PostgREST upsert onConflict constraint 00389 already documents)."
+      ],
+      "priority": 1982,
+      "notes": "[P2][Grading/Knowledge] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Depends on US-2216: a style-keyed baseline needs style rows to key on. The Barbour Bedale vs Liddesdale case generalizes to every brand spanning construction types.",
+      "dependsOn": [
+        "US-2209",
+        "US-2216"
+      ]
+    },
+    {
+      "id": "US-2218",
+      "passes": false,
+      "title": "Authentication tells are text-only — there is no known-genuine reference imagery to check a font, stitch or stamp against",
+      "description": "As a reviewer or a grading model, I want a picture of what genuine looks like, because half our tell taxonomy is VISUAL and cannot be verified from prose. Verified: brand-authenticity.ts defines 11 tell categories including stitching, font, stamp, hardware and construction, and CANONICAL_TELLS's own text admits the gap — the Louis Vuitton stamp tell says to 'compare letter spacing/shape to a KNOWN-GENUINE REFERENCE' and no such reference exists anywhere in the system. A tell whose check instruction depends on an artifact we do not have is not a checkable rule. This is distinct from US-2139 (tell DEPTH and counterfeit-side modelling) and US-2138 (decoder cross-checks): this is the missing evidence layer both of those assume.",
+      "acceptanceCriteria": [
+        "A reference-image store exists for tells, with per-image provenance (source, rights, brand, style, tell category) — reference imagery must be licensed or owned, never scraped into a public surface.",
+        "Reference images are private by default and served only through signed URLs, consistent with the submission-images posture; they are NEVER placed in the public item-photos bucket.",
+        "The authenticity pass can present the relevant reference alongside the suspect region for a comparison, and a tell with no reference is explicitly marked as unverifiable-visually rather than silently scored.",
+        "Seller-submitted photos are NEVER promoted into the reference corpus without explicit consent — the few-shot exemplar privacy rule (US-1067) applies with equal force here.",
+        "Absence of a reference widens limitations and lowers confidence; it must not produce a confident verdict from generic reasoning."
+      ],
+      "priority": 1981,
+      "notes": "[P2][Authenticity/Evidence] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Distinct from US-2139 (tell depth + counterfeit-side modelling) and US-2138 (decoder cross-checks) — this is the missing EVIDENCE layer both assume. Self-evident from CANONICAL_TELLS's own text: the LV stamp tell instructs a comparison against a known-genuine reference we do not have.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2219",
+      "passes": false,
+      "title": "Authenticity tell coverage follows brand-pack order, not counterfeit prevalence",
+      "description": "As GradeThread, we want tell coverage driven by what actually gets faked, because an add-on a seller can buy for any brand currently has real depth for three (CANONICAL_TELLS: louisvuitton, coach, gucci) and legacy free-text {tell, detail} rows for the rest, which brand-authenticity.ts coerces to category 'other' with no redFlag and which therefore contribute almost nothing to the verdict. The 37 migrations that mention authentication_tells were written in brand-pack order — luxury first because that pack came first — not from any ranking of counterfeit exposure. Nike, adidas, Supreme, BAPE, Moncler, Canada Goose, The North Face and Patagonia are among the most-counterfeited apparel brands in the world and sit in packs whose tells were never structured. US-2139 fixes the SHAPE and the depth of what we have; this story fixes WHICH BRANDS we invest in next and why.",
+      "acceptanceCriteria": [
+        "A written, sourced prioritization of brands by counterfeit exposure crossed with our own submission volume, recorded in the vault as a decision note rather than in a commit message.",
+        "The top-ranked brands get structured, sourced, verified tells with redFlags — not free-text rows.",
+        "The add-on's purchasability is reconciled with coverage: a brand with no verified tells either cannot be purchased for, or is sold with an explicit stated limitation. Silent degradation to generic reasoning is not acceptable for a paid add-on.",
+        "Coverage is measurable: a query or admin view reports verified-tell count per brand so the gap is visible instead of anecdotal.",
+        "No claim about detection accuracy is published anywhere until the authenticity golden set (US-2131) can support it."
+      ],
+      "priority": 1980,
+      "notes": "[P2][Authenticity/Coverage] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Coverage today follows brand-pack authoring order, which put luxury first. Nike/adidas/Supreme/BAPE/Moncler/Canada Goose/TNF/Patagonia sit in packs whose tells were never structured. Pairs with US-2139 (shape) — this one is about which brands get invested in next.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2220",
+      "passes": false,
+      "title": "Brand KB has no tailoring/formalwear, western, golf, ski/snowboard, swim, scrubs/uniform or vintage-band-tee coverage",
+      "description": "As a seller in a category we do not cover, I want my brand recognized, because an unrecognized brand loses the whole knowledge stack at once — no grounded baseline (garment_baselines falls back to ungrounded v2), no sizing chart, no style disambiguation, no tells. Verified against the 170-brand sizing seed and the ~177-brand brand_knowledge set: whole selling categories are absent. Tailoring and formalwear (suits, sport coats, tuxedos, neckwear, bridal) — nothing beyond Brooks Brothers/Peter Millar as general labels. Western (Ariat, Justin, Lucchese, Stetson) — none. Golf (Titleist, FootJoy, Callaway, Greyson) — none. Ski/snowboard (Burton, Spyder, Volcom, Obermeyer) — none, despite an outdoor-technical tier-2 pack existing. Swim (Speedo, TYR, Vilebrequin, Andie) — none. Scrubs and uniform (Figs, Cherokee, Wonderwink) — none, despite it being one of the highest-volume resale categories. Vintage and band tees — the single most price-sensitive tag-era category in resale, with no coverage at all.",
+      "acceptanceCriteria": [
+        "Each category ships as its own brand pack migration following the existing conventions (brand_knowledge + brand_styles + brand_size_charts + colorways where they apply), with a header note recording what makes the group different — the convention every pack from 00447 onward follows.",
+        "Brand selection within each category is justified by resale volume, and that justification is in the migration header.",
+        "Tailoring's sizing is modelled honestly: chest+length letter suffixes (40R/40L/40S) and drop are the sizing system, not an alpha size — this cannot reuse the tops chart shape unchanged.",
+        "Vintage/band tees are seeded around tag_eras (single-stitch, made-in-USA, Screen Stars / Brockum / Giant tag generations) rather than around style names, because that IS the identity signal in the category — and it lands on the tag_eras consumer this epic builds.",
+        "No decoder is seeded that fails the tag-printed AND regular AND brand-unique bar; refusals are recorded in vault/20-domain/brands/brand-kb-negative-findings.md.",
+        "Each pack carries a content test in the existing per-pack style (see the 25+ *-content_test.ts files) and migrations follow the US-1108 triple."
+      ],
+      "priority": 1979,
+      "notes": "[P2][Knowledge/Breadth] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Whole selling categories absent from a 177-brand KB. Scrubs/uniform and vintage tees are the two highest-volume misses. Tailoring cannot reuse the tops chart shape — 40R/40L/40S plus drop is a different sizing system.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2221",
+      "passes": false,
+      "title": "Headwear, eyewear, jewelry and small-leather-goods brands are absent from the brand KB entirely",
+      "description": "As a seller of accessories, I want the brands in my category to exist in the knowledge base, because the KB is currently apparel-and-footwear shaped even though the item_category enum already has jewelry, bags and accessories (00230) and GARMENT_CATEGORIES already lists hat, bag, belt and scarf. Verified absences: headwear (New Era, Stetson, Kangol, Goorin Bros) — none, despite New Era 59FIFTY being one of the most standardized and most counterfeited items in resale, with a genuinely decoder-shaped size and authenticity system (the batting-terry sweatband, the flag placement, the sizing in 1/8ths). Eyewear (Ray-Ban, Oakley, Persol, Warby Parker) — none, despite eyewear model codes being tag/temple-printed, regular AND brand-unique, which is exactly the decoder bar. Jewelry (Pandora, Tiffany, David Yurman, James Avery) — none. Small leather goods and wallets as a distinct class from handbags — none.",
+      "acceptanceCriteria": [
+        "Headwear, eyewear, jewelry and small-leather-goods packs are seeded with brand_knowledge rows plus the child rows that genuinely apply per category.",
+        "Headwear sizing is modelled in its own units (fitted 1/8ths, S/M/L, adjustable) rather than being forced into an apparel alpha chart.",
+        "Eyewear temple/model codes are evaluated against the decoder bar on their merits and seeded as decoders only where all three tests pass — with the outcome, either way, recorded in the vault.",
+        "Each pack carries a content test and the migrations follow the US-1108 triple.",
+        "This story seeds KNOWLEDGE only; the ability to GRADE these categories is owned by the rubric stories in this epic."
+      ],
+      "priority": 1978,
+      "notes": "[P3][Knowledge/Breadth] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). New Era 59FIFTY and eyewear model codes are the two strongest decoder-bar candidates found in the whole review — both plausibly tag-printed AND regular AND brand-unique. Evaluate on their merits and record the outcome either way per vault/20-domain/brands/brand-kb-decoder-bar.md.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2222",
+      "passes": false,
+      "title": "Category grading criteria cover 8 of 20 garment categories — 12 categories grade with no category guidance at all",
+      "description": "As a seller of a shirt, a coat or a skirt, I want the grader to know what matters on my category, because the ones that do get it are measurably better guided. Verified: ai-grading.ts:320 GARMENT_CATEGORY_CRITERIA has exactly 8 keys (jeans, pants, shorts, jacket, sweater, hoodie, t-shirt, dress) while src/lib/constants.ts GARMENT_CATEGORIES has 20 values. The 12 with no entry — shirt, blouse, coat, skirt, sneakers, boots, sandals, hat, bag, belt, scarf, other — fall through to the generic prompt with only DESIGN_VS_DEFECT_PRINCIPLE. Each of the missing ones has real category-specific signal the model is currently not told to look for: collar and cuff fray and yellowing on shirts, seam slippage and pulls on blouses, lining and shell separation and pilling on wool coats, zipper and hem and lining on skirts, and for footwear the outsole and midsole entirely.",
+      "acceptanceCriteria": [
+        "Every value in GARMENT_CATEGORIES has a criteria entry, or the fallback is made explicit and deliberate for the ones that genuinely have none.",
+        "Each new entry follows the existing voice: what is INTENTIONAL design on this category vs what is genuine wear, since that distinction is the whole point of the block.",
+        "The prompt change ships as a new prompt version through shadow -> golden-set eval gate -> canary, not a silent edit — this changes the per-image prompt for 12 categories at once.",
+        "Golden-set cases exist for the newly-covered categories before activation, tagged so the eval report can slice per category.",
+        "Categories already covered produce byte-identical prompts, test-guarded, so the eval measures only the new coverage."
+      ],
+      "priority": 1977,
+      "notes": "[P2][Grading/Coverage] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). 8 of 20 categories covered. Cheapest coverage win in the epic (prompt data, no schema), but it changes the per-image prompt for 12 categories at once so it needs a real eval cycle and per-category golden cases first.",
+      "dependsOn": [
+        "US-2209"
+      ]
+    },
+    {
+      "id": "US-2223",
+      "passes": false,
+      "title": "Headwear cannot be graded — hats have a garment_category, no rubric, no photo slots and no measurements",
+      "description": "As a seller of hats, I want to grade a cap the way I grade a hoodie, because headwear is a high-volume resale category and today 'hat' is a garment_category value that routes into a clothing rubric which cannot express it. Verified: GARMENT_CATEGORIES includes 'hat'; rubric.ts has clothing, sports_cards, watches and shoes and nothing else; MEASUREMENT_TEMPLATES has top/bottom/dress/outerwear/shoes/watch/generic and nothing else; the required image types are front/back/label. A fitted cap's condition lives in places none of those reach: brim shape and flatness, crown structure and collapse, the sweatband (the first thing to fail and the first thing a buyer inspects), the button and eyelets, embroidery integrity and pulls, and staining at the front panel and sweatband.",
+      "acceptanceCriteria": [
+        "A headwear rubric is added to rubric.ts with its own factors and weights summing to 1.0, plus promptGuidance and defectRouting, mirrored in src/lib/rubrics.ts and pinned by the shared rubric-factors fixture.",
+        "A headwear measurement template is added (fitted size / circumference, crown height, brim length) in the units the category actually uses.",
+        "Headwear-appropriate photo slots exist (crown, brim, sweatband/interior, label) — grading a cap from front/back/label alone cannot see the sweatband, which is where the wear is.",
+        "The weighted-overall computation stays in lockstep across all three rounding sites in the same commit as any factor-set generalization this requires.",
+        "The new rubric's prompts go through shadow -> eval gate -> canary against a headwear golden set that must be bootstrapped first — a rubric with no golden set cannot pass the gate and must not be activated around it.",
+        "Any enum widening (image_type, garment_category) follows the US-1108 triple and the enum caveats in the migrations skill."
+      ],
+      "priority": 1976,
+      "notes": "[P3][Grading/Coverage] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Depends on US-1997 Phase 2 — the factor-set generalization across the three lockstep rounding sites is a prerequisite for ANY new rubric, and US-1997's notes already scope it. Do not build a fourth rubric before that lands.",
+      "dependsOn": [
+        "US-2209",
+        "US-1997"
+      ]
+    },
+    {
+      "id": "US-2224",
+      "passes": false,
+      "title": "Neckwear and small accessories cannot be graded — ties, belts, scarves and gloves have no rubric",
+      "description": "As a seller of accessories, I want ties, belts, scarves and gloves gradeable, because belt and scarf are already garment_category values with nowhere to route and neckwear is not even representable. These share a shape — small, single-construction, few failure modes, and a condition profile the clothing rubric's five factors describe badly. A tie's condition is the blade shape and roll, the tipping and keeper loop, the interlining (a tie that has lost its roll is damaged even with a perfect face), and stains that are effectively permanent on silk. A belt's is the strap creasing and cracking, the buckle and prong and the hole elongation. A scarf's is fringe integrity, pilling and pulls. Odor and cleanliness at 10% and structural integrity at 25% do not carry those.",
+      "acceptanceCriteria": [
+        "An accessories rubric (or a small set of them where the categories genuinely diverge) is added to rubric.ts with factors, weights summing to 1.0, promptGuidance and defectRouting, mirrored in src/lib/rubrics.ts and pinned by the shared fixture.",
+        "Decide and record whether ties/belts/scarves/gloves share one rubric or split — the decision goes in the story notes, not a commit message.",
+        "garment_category is widened to represent neckwear and gloves; the migration follows the US-1108 triple and the enum caveats.",
+        "Measurement templates cover the fields the categories are actually sold on (tie blade width and length, belt length and hole positions, scarf dimensions).",
+        "Prompts go through shadow -> eval gate -> canary against a golden set bootstrapped for these categories.",
+        "Lockstep rule holds across the three rounding sites in the same commit."
+      ],
+      "priority": 1975,
+      "notes": "[P3][Grading/Coverage] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Depends on US-1997 Phase 2, same prerequisite as US-2223. belt and scarf are already garment_category values with nowhere to route; neckwear is not representable at all.",
+      "dependsOn": [
+        "US-2209",
+        "US-1997"
+      ]
+    },
+    {
+      "id": "US-2225",
+      "passes": false,
+      "title": "Handbags and small leather goods cannot be graded — 'bag' routes into the clothing rubric",
+      "description": "As a seller of handbags, I want a bag graded on the things that determine a bag's price, because 'bag' is already a garment_category and item_category has 'bags' (00230), while the only rubric that will accept it grades fabric condition at 30% and odor at 10%. A handbag's condition is corner and edge-paint wear (the single most-inspected area and the most expensive to restore), handle and strap darkening and cracking, hardware plating loss and zipper pull function, interior lining staining and pen marks and odor, structural slouch and base sag, and glazing on the edges. The category also carries the most authenticity weight of anything we touch — the existing tells (louisvuitton, coach, gucci) are ALL bag brands — so grading and the authenticity add-on land on the same item here, and the certificate has to be careful not to let a condition grade read as an authenticity verdict.",
+      "acceptanceCriteria": [
+        "A handbags/leather-goods rubric is added to rubric.ts with factors, weights summing to 1.0, promptGuidance and defectRouting, mirrored in src/lib/rubrics.ts and pinned by the shared fixture.",
+        "Photo slots cover the areas that decide a bag's grade: corners, base, interior, hardware, handles/straps, and the date-code/serial location.",
+        "A condition grade on a bag must NOT read as an authenticity statement anywhere on the certificate or in the buyer writeup — an explicit separation, test-asserted on the rendered copy, given these are the brands the authenticity add-on covers.",
+        "Measurement templates cover bag dimensions (width, height, depth, strap drop).",
+        "Prompts go through shadow -> eval gate -> canary against a bootstrapped handbag golden set.",
+        "Lockstep rule holds across the three rounding sites in the same commit."
+      ],
+      "priority": 1974,
+      "notes": "[P2][Grading/Coverage] [EPIC: Grading Depth US-2209] Filed 2026-07-28 from a deep-dive review of the grading model + grading knowledge base (owner-requested). Depends on US-1997 Phase 2. Highest-value of the three new-rubric stories: handbags carry the most price-per-item and are the exact brands the authenticity add-on covers (louisvuitton/coach/gucci are ALL bag brands), so the condition-vs-authenticity separation on the certificate is a liability requirement, not polish.",
+      "dependsOn": [
+        "US-2209",
+        "US-1997"
+      ]
     }
   ]
 }
