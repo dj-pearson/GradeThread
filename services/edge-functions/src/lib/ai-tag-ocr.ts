@@ -82,6 +82,10 @@ export interface TagGroundTruth {
 
 export interface TagOcrResult {
   fields: TagGroundTruth;
+  /** US-2212: raw era id the model picked, if any. Resolved by tag-era.ts. */
+  eraId?: string;
+  /** US-2212: the model's confidence in that pick. */
+  eraConfidence?: number;
   model: string;
   tokensIn: number;
   tokensOut: number;
@@ -113,6 +117,14 @@ const READ_TAG_TOOL: Anthropic.Tool = {
         type: "string",
         description: "RN# (Registered Identification Number), digits only or 'RN 12345' as printed.",
       },
+      // US-2212: only meaningful when the caller supplied an era reference
+      // block. With no block the instructions never mention it and the model
+      // has no ids to return, so the extra property is inert.
+      tag_era: {
+        type: "string",
+        description:
+          "ONLY if a list of known tag generations was provided AND the label clearly matches exactly one: that generation's id (e.g. 'era_2'). Omit when unsure, ambiguous, or unlisted.",
+      },
       confidence: {
         type: "object",
         description:
@@ -131,7 +143,10 @@ const SYSTEM =
   "not clearly legible on the label, omit it entirely rather than inferring it. " +
   "Read it verbatim and call read_garment_tag.";
 
-function userInstructions(): string {
+// US-2212: `eraBlock` is the brand's known tag generations, rendered by
+// tag-era.ts. Empty string => the returned string is byte-identical to before
+// the era feature existed, which a test pins.
+export function userInstructions(eraBlock = ""): string {
   return [
     "Read the garment tag/label photo(s) and transcribe, verbatim, only what is printed:",
     "- brand (the maker name)",
@@ -140,6 +155,7 @@ function userInstructions(): string {
     "- style code / style number",
     "- RN number (RN#)",
     "Omit any field you cannot read clearly. Give a 0..1 confidence for each field you return.",
+    ...(eraBlock ? ["", eraBlock, ""] : []),
     "Then call read_garment_tag.",
   ].join("\n");
 }
@@ -231,6 +247,10 @@ export function mergeTagGroundTruth(
  */
 export async function extractTagGroundTruth(
   photos: TagPhoto[],
+  // US-2212: the brand's known tag generations, rendered by tag-era.ts. "" (the
+  // default, and what every pre-existing caller passes) leaves the prompt
+  // byte-identical and the model with no ids to return.
+  eraBlock = "",
 ): Promise<TagOcrResult> {
   if (photos.length === 0) {
     throw new Error("extractTagGroundTruth requires at least one tag photo");
@@ -248,7 +268,7 @@ export async function extractTagGroundTruth(
     });
     content.push({ type: "image", source: tagImageSource(photo.url) });
   });
-  content.push({ type: "text", text: userInstructions() });
+  content.push({ type: "text", text: userInstructions(eraBlock) });
 
   const response = await withRetry(
     () =>
@@ -273,9 +293,18 @@ export async function extractTagGroundTruth(
     throw new Error("AI did not return a tag read");
   }
   const fields = normalizeTagOcr(toolUse.input);
+  // US-2212: carried out raw and resolved by tag-era.ts against the SAME list
+  // the block was rendered from — this module never decides what an era means.
+  const rawInput = (toolUse.input ?? {}) as Record<string, unknown>;
+  const rawEra = typeof rawInput.tag_era === "string" ? rawInput.tag_era : undefined;
+  const rawEraConf = (rawInput.confidence &&
+      typeof rawInput.confidence === "object"
+    ? (rawInput.confidence as Record<string, unknown>).tag_era
+    : undefined);
 
   return {
     fields,
+    ...(rawEra ? { eraId: rawEra, eraConfidence: clamp01(rawEraConf) } : {}),
     model,
     tokensIn:
       response.usage.input_tokens +

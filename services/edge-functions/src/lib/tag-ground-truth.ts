@@ -37,6 +37,7 @@ import {
   type TagGroundTruth,
 } from "./ai-tag-ocr.ts";
 import type { RegisteredNumberAssessment } from "./registered-numbers.ts";
+import type { EraDecoderConflict, MatchedTagEra } from "./tag-era.ts";
 
 /**
  * Rollout gate: `GRADING_TAG_OCR`, default OFF. Mirrors the US-1533 baselines
@@ -148,16 +149,38 @@ export function tagDiscrepancies(
  * on condition, because the grader's one job is the score and an identity block
  * that reads like scoring guidance is a regression, not a feature.
  */
-export function tagGroundTruthBlock(accepted: AcceptedTagField[]): string {
-  if (accepted.length === 0) return "";
+export function tagGroundTruthBlock(
+  accepted: AcceptedTagField[],
+  // US-2212: the tag generation the label matched, when one did. null => the
+  // block is byte-identical to the US-2210 shape.
+  era: MatchedTagEra | null = null,
+): string {
+  if (accepted.length === 0 && !era) return "";
   const labels = new Map(FIELD_LABELS);
   const lines = accepted.map(
     (a) => `- ${labels.get(a.field)}: ${a.value}`,
   );
+  // US-2212: era is rendered as the TAG GENERATION, never as a manufacture
+  // date. What we matched is the label's design generation; when the garment
+  // was made, worn or sold is not knowable from it, and a certificate that
+  // rounds "this tag style ran 1980-1992" into "made in 1986" is asserting
+  // something we did not read.
+  if (era) {
+    lines.push(
+      `- Tag generation: ${era.era}${era.years ? ` (${era.years})` : ""}` +
+        " — the label's generation, NOT a manufacture date",
+    );
+  }
   return [
     "LABEL TRANSCRIPTION (read by us from this garment's own care/brand label — trusted reference, NOT seller-supplied):",
     ...lines,
-    "Use this to identify the item in your write-up. It describes WHAT the garment is, not its condition — it must NOT change any factor score.",
+    // The closing line stays byte-identical to the US-2210 wording when no era
+    // matched, so adding era support did not silently reword the block for every
+    // grade that has none. The extra sentence appears only alongside an era.
+    "Use this to identify the item in your write-up. It describes WHAT the garment is, not its condition — it must NOT change any factor score." +
+    (era
+      ? " In particular an older tag generation is NOT a reason to grade more leniently or more harshly."
+      : ""),
   ].join("\n");
 }
 
@@ -180,6 +203,19 @@ export interface PersistedTagRead {
    * do not render it as a warning.
    */
   registered_number?: RegisteredNumberAssessment;
+  /**
+   * US-2212: the tag GENERATION the label matched, when one cleared
+   * ERA_MATCH_MIN_CONFIDENCE. Absent means "not dated", which is the correct
+   * and common outcome — never render it as "unknown age" or infer a decade.
+   */
+  tag_era?: MatchedTagEra;
+  /**
+   * US-2212 AC4: the style code's decoded year and the label's matched
+   * generation disagree. A REVIEW FLAG, never a verdict — a relabelled garment
+   * explains it as readily as a counterfeit does, and nothing here can tell
+   * those apart.
+   */
+  tag_era_conflict?: EraDecoderConflict;
 }
 
 export function buildPersistedTagRead(
@@ -189,6 +225,8 @@ export function buildPersistedTagRead(
   readAt: string,
   minConfidence: number = TAG_GROUND_TRUTH_MIN_CONFIDENCE,
   registeredNumber?: RegisteredNumberAssessment | null,
+  era?: MatchedTagEra | null,
+  eraConflict?: EraDecoderConflict | null,
 ): PersistedTagRead {
   return {
     fields: accepted.map((a) => ({
@@ -205,5 +243,7 @@ export function buildPersistedTagRead(
     ...(registeredNumber && registeredNumber.outcome !== "unparsed"
       ? { registered_number: registeredNumber }
       : {}),
+    ...(era ? { tag_era: era } : {}),
+    ...(eraConflict ? { tag_era_conflict: eraConflict } : {}),
   };
 }

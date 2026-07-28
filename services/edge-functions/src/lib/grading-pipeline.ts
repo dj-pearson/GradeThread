@@ -101,6 +101,21 @@ import {
   getRegisteredNumberIndex,
   type RegisteredNumberAssessment,
 } from "./registered-numbers.ts";
+import {
+  eraDecoderConflict,
+  matchTagEra,
+  normalizeTagEras,
+  tagEraReferenceBlock,
+  type EraDecoderConflict,
+  type MatchedTagEra,
+  type TagEra,
+} from "./tag-era.ts";
+import {
+  decoderSpecsFromPack,
+  resolveBrandKnowledgePack,
+  type BrandKnowledgePack,
+} from "./brand-knowledge.ts";
+import { decodeTagCode } from "./brand-decoders.ts";
 import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
 import {
   computeCoverage,
@@ -1349,6 +1364,28 @@ export async function processSubmission(submissionId: string) {
       .filter((t) => GRADING_TAG_PHOTO_TYPES.has(t));
     const wantTagOcr = tagOcrGradingEnabled() && tagPhotoTypes.length > 0;
 
+    // US-2212: the brand's known tag generations, so the label read can date the
+    // garment. Fetched ONCE here (outside the buffer closure) alongside the other
+    // knowledge lookups, and only when the tag read is going to run at all — a
+    // brand with no seeded eras yields [], the reference block renders "", and
+    // the tag-OCR prompt is byte-identical to US-2210's.
+    let brandTagEras: TagEra[] = [];
+    let brandPack: BrandKnowledgePack | null = null;
+    if (wantTagOcr) {
+      try {
+        brandPack = await resolveBrandKnowledgePack(submission.brand, {
+          category: submission.garment_category,
+        });
+        brandTagEras = normalizeTagEras(brandPack?.tagEras);
+      } catch (err) {
+        console.error(
+          `[Pipeline] tag-era pack resolve failed for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    const eraReferenceBlock = tagEraReferenceBlock(brandTagEras);
+
     // US-1533: trusted garment expectation baseline (flag-gated, default OFF;
     // cache-first with lazy generation). Fetched ONCE before the memory-gated
     // closure so both the per-image calls and the composite share it. Strictly
@@ -1460,6 +1497,7 @@ export async function processSubmission(submissionId: string) {
             imageData
               .filter((img) => GRADING_TAG_PHOTO_TYPES.has(img.imageType))
               .map((img) => ({ url: img.dataUri, type: img.imageType })),
+            eraReferenceBlock,
           ).catch((err) => {
             console.error(
               `[Pipeline] tag OCR failed for submission ${submissionId}:`,
@@ -1519,7 +1557,69 @@ export async function processSubmission(submissionId: string) {
     // the tag read in favour of the seller's (see tag-ground-truth.ts).
     const acceptedTag = tagOcr ? acceptedTagFields(tagOcr.fields) : [];
     const tagMismatches = tagDiscrepancies(acceptedTag, { brand: submission.brand });
-    const tagBlock = tagGroundTruthBlock(acceptedTag);
+
+    // US-2212: resolve the model's era pick back to a SEEDED entry. matchTagEra
+    // returns null for an unknown id, a hallucinated one, or a confidence below
+    // ERA_MATCH_MIN_CONFIDENCE (0.7 — stricter than the 0.4 field bar, because
+    // dating is an inference over a reference list, not a transcription, and a
+    // half-sure decade is a fabricated provenance claim on a public certificate).
+    // So the model cannot introduce an era we did not curate.
+    const matchedEra: MatchedTagEra | null = tagOcr
+      ? matchTagEra(brandTagEras, tagOcr.eraId, tagOcr.eraConfidence)
+      : null;
+    if (matchedEra) {
+      void captureServer("grading-engine", "grading.tag_era_matched", {
+        submission_id: submissionId,
+        era: matchedEra.era,
+        years: matchedEra.years,
+        confidence: matchedEra.confidence,
+      });
+    }
+
+    // US-2212 AC4: the one place an era can be CHECKED rather than recorded.
+    // When the style code decodes to a production year AND the label's design
+    // matched a dated generation, those are two independent readings of the same
+    // garment and they have to agree. A FLAG for review, never a verdict — the
+    // US-1770 no-auto-authenticate posture holds; the innocent explanation
+    // (a relabelled or franken-tagged garment) is at least as likely as the
+    // guilty one, and nothing here can tell them apart.
+    let eraConflict: EraDecoderConflict | null = null;
+    if (matchedEra && brandPack) {
+      try {
+        const styleCode = acceptedTag.find((a) => a.field === "style_code")?.value;
+        if (styleCode) {
+          const decoded = decodeTagCode(
+            brandPack.key,
+            styleCode,
+            decoderSpecsFromPack(brandPack),
+          );
+          const decodedYear = decoded?.year ? Number(decoded.year) : null;
+          eraConflict = eraDecoderConflict(
+            matchedEra,
+            Number.isFinite(decodedYear) ? decodedYear : null,
+            new Date().getUTCFullYear(),
+          );
+          if (eraConflict) {
+            console.warn(
+              `[Pipeline] tag-era conflict on submission ${submissionId}: ${eraConflict.message}`,
+            );
+            void captureServer("grading-engine", "grading.tag_era_conflict", {
+              submission_id: submissionId,
+              decoded_year: eraConflict.decodedYear,
+              era: eraConflict.era,
+              era_years: eraConflict.eraYears,
+            });
+          }
+        }
+      } catch (err) {
+        console.error(
+          `[Pipeline] tag-era decoder cross-check failed for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    const tagBlock = tagGroundTruthBlock(acceptedTag, matchedEra);
     if (tagMismatches.length > 0) {
       console.warn(
         `[Pipeline] tag/seller mismatch on submission ${submissionId}: ` +
@@ -1569,7 +1669,7 @@ export async function processSubmission(submissionId: string) {
       }
     }
 
-    const tagRead = tagOcr && acceptedTag.length > 0
+    const tagRead = tagOcr && (acceptedTag.length > 0 || matchedEra)
       ? buildPersistedTagRead(
         acceptedTag,
         tagMismatches,
@@ -1577,6 +1677,8 @@ export async function processSubmission(submissionId: string) {
         new Date().toISOString(),
         undefined,
         registeredNumber,
+        matchedEra,
+        eraConflict,
       )
       : null;
 

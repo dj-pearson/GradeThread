@@ -6,6 +6,7 @@ source_of_truth: vault
 code_refs:
   - supabase/migrations/00468_handbags_accessories_brand_knowledge.sql
   - services/edge-functions/src/lib/registered-numbers.ts
+  - services/edge-functions/src/lib/tag-era.ts
 reviewed: 2026-07-28
 tags: [brands, sourcing, authentication, contract]
 summary: Facts that look right and are wrong, plus the statutory reason a missing RN on a handbag is correct rather than suspicious.
@@ -80,6 +81,30 @@ Two further rules the checker encodes, both from the corpus:
 - **An RN never mints or rewrites a brand.** It is public, a counterfeit prints
   it too, and the assessment deliberately has no `resolvedBrand` field — a test
   pins the returned key set so one cannot be added by accident.
+
+## tag_eras is two different things in one column
+
+Added 2026-07-28 (US-2212), when the column got its first consumer.
+
+`brand_knowledge.tag_eras` is documented as tag/label generations for dating. In
+practice it holds **220 entries across 32 packs, and only ~174 can date
+anything.** The rest carry `years: "all"`, `"current"` or `"ongoing"` — Nike's
+`style-number` entry, adidas's `article-number` entry, Ralph Lauren's `label`
+entry. Those describe a code FORMAT that has never changed. That is real, useful
+knowledge and it is **not dating evidence**.
+
+Nothing is wrong with the rows; the column simply absorbed both kinds of fact
+because there was nowhere else to put the format notes. But a consumer that
+offers them as datable eras invites a confident *"this is from the all era"*, so
+`tag-era.ts:datingEras()` filters on whether `years` names a year or a decade and
+only the survivors are ever shown or matchable.
+
+**There is no per-entry provenance.** `source_url`, `confidence` and `verified`
+live on the brand ROW, so a single unsourced era inside an otherwise-verified
+brand is indistinguishable from a sourced one. Dating claims are the highest-
+liability content in the KB — era is the price in vintage — so this is the gap to
+close before any era reaches a public certificate. Adding per-entry sourcing
+means a schema change, not a data pass, which is why US-2212 did not close it.
 
 ## A style code is not on a bag — it left with the hangtag
 

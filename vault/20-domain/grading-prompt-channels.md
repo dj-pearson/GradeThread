@@ -9,6 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/garment-baselines.ts
   - services/edge-functions/src/lib/fabric-criteria.ts
   - services/edge-functions/src/lib/tag-ground-truth.ts
+  - services/edge-functions/src/lib/tag-era.ts
 reviewed: 2026-07-28
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
@@ -35,6 +36,7 @@ seller input can reach. Rendered OUTSIDE the fence, before it opens:
 | Fabric criteria | fiber content read off the label photo | US-1534 |
 | Few-shot exemplars | past human-corrected grades | US-1067 |
 | Label transcription | vision pass over the label photo alone | US-2210 |
+| Tag generation (era) | matched against curated `tag_eras` on that same pass | US-2212 |
 
 ## The test for a new block
 
@@ -61,6 +63,18 @@ the generation: `briefLooksSafe` / `BRIEF_INJECTION_TELLS` reject a brief
 carrying scoring directives, our JSON field names, or fence characters before it
 is ever cached (US-1642). A poisoned brief would otherwise be served as trusted
 context on every future grade sharing its key.
+
+## A fourth channel that is deliberately NOT a prompt channel
+
+US-2212 added a check that produces a finding no prompt ever sees: when a style
+code's decoded year contradicts the label's matched tag generation, that conflict
+is persisted for review and is **kept out of the grading prompt entirely**.
+
+The reasoning generalises. Telling a grader "this garment may have been
+relabelled" invites it to move a condition score on an authenticity suspicion,
+which is exactly the coupling the factor weights exist to prevent. Review data
+and prompt context are different destinations, and a signal earning one does not
+earn the other.
 
 ## Trusted does not mean scoring
 
