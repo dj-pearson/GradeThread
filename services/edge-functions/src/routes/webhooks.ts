@@ -92,6 +92,21 @@ webhookRoutes.post("/stripe", async (c) => {
 
   console.log(`[Webhook] ${event.type} (${event.id})`);
 
+  // Test-mode guard: in production, NEVER apply entitlement/money side effects
+  // from a Stripe TEST event. A lingering test-mode webhook endpoint (or a test
+  // signing secret left in STRIPE_WEBHOOK_SECRET) can otherwise flip a real
+  // user's plan and fire a "welcome to <plan>" email off a sandbox subscription
+  // that does not exist under the live keys — which is exactly how a comped
+  // Super Admin got silently reset to `starter`. Ack with 200 so Stripe's test
+  // endpoint stops retrying, and record it so the stray endpoint is visible.
+  if (isProduction() && event.livemode === false) {
+    recordMetric("webhook.testmode_rejected", 1, { provider: "stripe", topic: event.type });
+    console.warn(
+      `[Webhook] rejected TEST-mode ${event.type} (${event.id}) in production — ignoring`,
+    );
+    return c.json({ received: true, ignored: "test_mode_in_production" });
+  }
+
   // Idempotency: the SINGLE authoritative claim before any side effects run.
   // Stripe retries the same event.id for up to 72h, so dedup (not timestamp
   // rejection) is the correct replay defense. (US-277/US-390)
