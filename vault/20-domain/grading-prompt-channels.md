@@ -10,6 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/fabric-criteria.ts
   - services/edge-functions/src/lib/tag-ground-truth.ts
   - services/edge-functions/src/lib/tag-era.ts
+  - services/edge-functions/src/lib/grading-size.ts
 reviewed: 2026-07-28
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
@@ -37,6 +38,7 @@ seller input can reach. Rendered OUTSIDE the fence, before it opens:
 | Few-shot exemplars | past human-corrected grades | US-1067 |
 | Label transcription | vision pass over the label photo alone | US-2210 |
 | Tag generation (era) | matched against curated `tag_eras` on that same pass | US-2212 |
+| Verified size | label read + measurements mapped to the brand's chart | US-2213 |
 
 ## The test for a new block
 
@@ -75,6 +77,23 @@ relabelled" invites it to move a condition score on an authenticity suspicion,
 which is exactly the coupling the factor weights exist to prevent. Review data
 and prompt context are different destinations, and a signal earning one does not
 earn the other.
+
+## A trusted block carries the RESULT, not the reference data
+
+US-2213 could have injected the brand's size chart into the composite alongside
+the baseline and the fabric criteria. It does not, and the distinction is worth
+keeping.
+
+Baselines and fabric criteria belong in the composite because they inform *how a
+factor is judged* — what the factory state was, what this fibre's honest wear
+looks like. A size chart informs none of that. It is reference data for a
+different question, so it goes to the focused size call that asks that question
+(`estimateSize`, where US-1088 already injects it as authoritative reference),
+and what reaches the grading block is one line naming the size **and how it was
+established**.
+
+The general form: a trusted block should carry a conclusion the grader can use,
+not a table it has to reason over. Prompt noise on a paid call is a real cost.
 
 ## Trusted does not mean scoring
 

@@ -116,6 +116,13 @@ import {
   type BrandKnowledgePack,
 } from "./brand-knowledge.ts";
 import { decodeTagCode } from "./brand-decoders.ts";
+import { estimateSize, type SizeEstimate } from "./ai-size-estimate.ts";
+import { isMeasurementPhoto } from "./ai-size-estimate-core.ts";
+import {
+  resolveSizeVerification,
+  sizeVerifyGradingEnabled,
+  type SizeVerification,
+} from "./grading-size.ts";
 import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
 import {
   computeCoverage,
@@ -1364,6 +1371,17 @@ export async function processSubmission(submissionId: string) {
       .filter((t) => GRADING_TAG_PHOTO_TYPES.has(t));
     const wantTagOcr = tagOcrGradingEnabled() && tagPhotoTypes.length > 0;
 
+    // US-2213: derive the size from the flat-lay measurement photos against the
+    // brand's own chart. Gated on GRADING_SIZE_VERIFY (its own flag — a separate
+    // vision call with a separate cost, so an operator can buy one without the
+    // other) AND on the submission actually carrying a measurement photo. Those
+    // slots are OPTIONAL at submit, so most submissions never reach the call at
+    // all and the feature costs nothing on them.
+    const hasMeasurementPhotos = images.some((i) =>
+      isMeasurementPhoto((i as { image_type: string }).image_type)
+    );
+    const wantSizeVerify = sizeVerifyGradingEnabled() && hasMeasurementPhotos;
+
     // US-2212: the brand's known tag generations, so the label read can date the
     // garment. Fetched ONCE here (outside the buffer closure) alongside the other
     // knowledge lookups, and only when the tag read is going to run at all — a
@@ -1507,14 +1525,42 @@ export async function processSubmission(submissionId: string) {
           })
         : Promise.resolve(null);
 
+      // US-2213: the size pass, like the tag read, runs INSIDE this buffer slot
+      // over already-resident base64 — no extra downloads, same memory gate. It
+      // sees the measurement/flat-lay photos plus the front and back for
+      // silhouette; prioritizeMeasurementPhotos (inside estimateSize) puts the
+      // measurement shots first. Best-effort: a failure resolves to null and the
+      // grade proceeds with no verified size.
+      const sizePromise: Promise<SizeEstimate | null> = wantSizeVerify
+        ? estimateSize({
+          photos: imageData
+            .filter((img) =>
+              isMeasurementPhoto(img.imageType) ||
+              img.imageType === "front" ||
+              img.imageType === "back"
+            )
+            .map((img) => ({ url: img.dataUri, type: img.imageType })),
+          brand: submission.brand,
+          category: submission.garment_category,
+        }).catch((err) => {
+          console.error(
+            `[Pipeline] size estimate failed for submission ${submissionId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+          return null;
+        })
+        : Promise.resolve(null);
+
       // US-485: allSettled (not all) so one flaky image doesn't fail the whole
       // paid grade. analyzeImage already retries + has a bounded timeout via the
       // Anthropic SDK (getAiMaxRetries / getAiTimeoutMs).
-      const [settled, authenticityAssessment, tagOcr] = await Promise.all([
-        Promise.allSettled(perImagePromises),
-        authPromise,
-        tagPromise,
-      ]);
+      const [settled, authenticityAssessment, tagOcr, sizeEstimate] = await Promise
+        .all([
+          Promise.allSettled(perImagePromises),
+          authPromise,
+          tagPromise,
+          sizePromise,
+        ]);
       const results: SettledImage[] = settled.map((s, i) => ({
         imageType: imageData[i].imageType,
         result: s.status === "fulfilled" ? s.value : null,
@@ -1542,13 +1588,14 @@ export async function processSubmission(submissionId: string) {
         }
       }
 
-      return { settledImages: results, authenticityAssessment, tagOcr };
+      return { settledImages: results, authenticityAssessment, tagOcr, sizeEstimate };
     });
 
     const settledImages: SettledImage[] = bufferResult.settledImages;
     const authenticityAssessment: AuthenticityAssessment | null =
       bufferResult.authenticityAssessment;
     const tagOcr: TagOcrResult | null = bufferResult.tagOcr;
+    const sizeEstimate: SizeEstimate | null = bufferResult.sizeEstimate;
 
     // US-2210: keep only reads that cleared TAG_GROUND_TRUTH_MIN_CONFIDENCE — an
     // illegible label yields no identity rather than a guessed one — then record
@@ -1619,7 +1666,29 @@ export async function processSubmission(submissionId: string) {
       }
     }
 
-    const tagBlock = tagGroundTruthBlock(acceptedTag, matchedEra);
+    // US-2213: combine the label's size read with the measurement-derived one.
+    // There is no seller-declared size to contradict — `submissions` has no size
+    // column at all — so the comparison is between OUR two readings. When they
+    // disagree the label is shown (a transcription beats an inference) but the
+    // confidence drops to the lower of the two and the disagreement is recorded;
+    // a relabelled garment, a shrunk one and a bad tape read all look the same
+    // from here, so neither reading is treated as the correction.
+    const sizeVerification: SizeVerification | null = resolveSizeVerification(
+      acceptedTag.find((a) => a.field === "size"),
+      sizeEstimate,
+    );
+    if (sizeVerification?.disagreement) {
+      console.warn(
+        `[Pipeline] size disagreement on submission ${submissionId}: ` +
+          `label="${sizeVerification.disagreement.label}" ` +
+          `measurements="${sizeVerification.disagreement.measurements}"`,
+      );
+      void captureServer("grading-engine", "grading.size_disagreement", {
+        submission_id: submissionId,
+      });
+    }
+
+    const tagBlock = tagGroundTruthBlock(acceptedTag, matchedEra, sizeVerification);
     if (tagMismatches.length > 0) {
       console.warn(
         `[Pipeline] tag/seller mismatch on submission ${submissionId}: ` +
@@ -2556,6 +2625,11 @@ export async function processSubmission(submissionId: string) {
         // certified identity is a product decision that waits for the eval
         // numbers, not a side effect of storing it.
         //
+        // US-2213: the verified size and its provenance. Its OWN column, not a
+        // key inside tag_read — a measurement-derived size is not something the
+        // tag said, and 00497's header records why that distinction is worth a
+        // column. Same conditional-spread reasoning as tag_read below.
+        ...(sizeVerification ? { size_verification: sizeVerification } : {}),
         // SPREAD, not a plain `tag_read: tagRead`: with the feature off tagRead
         // is null, and a null-VALUED key still NAMES the column in the PostgREST
         // payload — which 42703s the whole insert, and with it the paid grade, on
@@ -2739,6 +2813,29 @@ export async function processSubmission(submissionId: string) {
             // in practice the whole count is plain input tokens anyway.
             inputTokens: tagOcr.tokensIn,
             outputTokens: tagOcr.tokensOut,
+            cacheCreationTokens: 0,
+            cacheReadTokens: 0,
+          },
+        }],
+      });
+    }
+
+    // US-2213: the size pass is its own vision call, so it gets its own feature
+    // row — the point of turning it on is to weigh what it costs against a
+    // verified size being worth having, and a cost folded into "grading" cannot
+    // be weighed.
+    if (sizeEstimate) {
+      void recordAiUsage({
+        userId: submission.user_id,
+        submissionId,
+        feature: "size_estimate",
+        usages: [{
+          phase: "size_estimate",
+          usage: {
+            model: sizeEstimate.model,
+            // tokensIn already sums plain + cache read + cache creation.
+            inputTokens: sizeEstimate.tokensIn,
+            outputTokens: sizeEstimate.tokensOut,
             cacheCreationTokens: 0,
             cacheReadTokens: 0,
           },

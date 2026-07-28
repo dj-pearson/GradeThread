@@ -1,5 +1,37 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00497_grade_reports_size_verification.sql (US-2213 verified size, 2026-07-28)
+
+**Apply AFTER 00496.** Adds one nullable column,
+`grade_reports.size_verification jsonb`, holding the size a grade was verified
+at and how: `{size, source: label|measurements|label_and_measurements,
+confidence, gender?, rationale?, disagreement?{label,measurements}}`. No
+backfill. Run `NOTIFY pgrst, 'reload schema';` after applying.
+
+**No client reads or writes this column.** The SPA is untouched and the column
+is deliberately absent from the public certificate allowlist
+(`content-public.ts` CERT_REPORT_COLUMNS), so a frontend auto-deploy cannot
+reach it.
+
+**Double-gated, same as 00496, so pushing before applying is safe.** The
+pipeline only sets `size_verification` when `GRADING_SIZE_VERIFY` is truthy —
+its own flag, separate from `GRADING_TAG_OCR`, defaulting OFF — and the insert
+uses a conditional spread, so with the flag off the column is never named in
+the PostgREST payload. Do NOT flip that flag before the SQL is applied: the
+grade-report insert would 42703 and take the paid grade down with it.
+
+**Why a separate column rather than a key inside `tag_read` (00496):** a
+measurement-derived size is not something the tag said. US-2212 had just found
+`brand_knowledge.tag_eras` doing double duty — dating generations and
+never-changed code formats in one column, because there was nowhere else for the
+second kind — and had to filter them apart at read time. Folding size into a
+column named `tag_read` would repeat that in a table we own.
+
+**Risk: LOW.** One additive nullable jsonb column plus a `comment on column`; no
+trigger, no index, no data migration, no view change. Idempotent and re-run
+safe. Not exercised against a live DB here (no Docker).
+
+
 ## ⏳ HELD: 00496_grade_reports_tag_read.sql (US-2210 label transcription in grading, 2026-07-28)
 
 **Apply AFTER 00495.** Adds one nullable column, `grade_reports.tag_read jsonb`,

@@ -38,6 +38,7 @@ import {
 } from "./ai-tag-ocr.ts";
 import type { RegisteredNumberAssessment } from "./registered-numbers.ts";
 import type { EraDecoderConflict, MatchedTagEra } from "./tag-era.ts";
+import { sizeVerificationLine, type SizeVerification } from "./grading-size.ts";
 
 /**
  * Rollout gate: `GRADING_TAG_OCR`, default OFF. Mirrors the US-1533 baselines
@@ -154,17 +155,24 @@ export function tagGroundTruthBlock(
   // US-2212: the tag generation the label matched, when one did. null => the
   // block is byte-identical to the US-2210 shape.
   era: MatchedTagEra | null = null,
+  // US-2213: the size we are willing to stand behind, with its provenance.
+  // null => byte-identical to the US-2210/2212 shape.
+  size: SizeVerification | null = null,
 ): string {
-  if (accepted.length === 0 && !era) return "";
+  if (accepted.length === 0 && !era && !size) return "";
   const labels = new Map(FIELD_LABELS);
-  const lines = accepted.map(
-    (a) => `- ${labels.get(a.field)}: ${a.value}`,
-  );
+  // US-2213: when a size verification exists it SUPERSEDES the raw label read —
+  // it already contains that value plus its provenance, so printing both would
+  // state the size twice and invite the grader to treat them as two facts.
+  const lines = accepted
+    .filter((a) => !(size && a.field === "size"))
+    .map((a) => `- ${labels.get(a.field)}: ${a.value}`);
   // US-2212: era is rendered as the TAG GENERATION, never as a manufacture
   // date. What we matched is the label's design generation; when the garment
   // was made, worn or sold is not knowable from it, and a certificate that
   // rounds "this tag style ran 1980-1992" into "made in 1986" is asserting
   // something we did not read.
+  if (size) lines.push(sizeVerificationLine(size));
   if (era) {
     lines.push(
       `- Tag generation: ${era.era}${era.years ? ` (${era.years})` : ""}` +
@@ -217,6 +225,9 @@ export interface PersistedTagRead {
    */
   tag_era_conflict?: EraDecoderConflict;
 }
+
+/** US-2213: persisted separately from the tag read — see 00497's header. */
+export type PersistedSizeVerification = SizeVerification;
 
 export function buildPersistedTagRead(
   accepted: AcceptedTagField[],

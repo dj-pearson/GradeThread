@@ -11,6 +11,7 @@
 // ai-tag-ocr.ts.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { tagImageSource } from "./ai-tag-ocr.ts";
 import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
@@ -141,7 +142,10 @@ export async function estimateSize(input: {
       type: "text",
       text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
     });
-    content.push({ type: "image", source: { type: "url", url: photo.url } });
+    // US-2213: the same URL/data-URI adapter the tag read uses. FlipDesk passes
+    // signed URLs; the grading pipeline passes the base64 it already holds, so
+    // the size pass costs no extra download. URL callers are unaffected.
+    content.push({ type: "image", source: tagImageSource(photo.url) });
   });
   // Inject the relevant brand/category size chart as an authoritative reference
   // (US-1088 knowledge layer) so the model maps measurements → the brand's own
