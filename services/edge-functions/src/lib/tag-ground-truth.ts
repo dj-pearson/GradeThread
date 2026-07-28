@@ -36,6 +36,7 @@ import {
   type TagField,
   type TagGroundTruth,
 } from "./ai-tag-ocr.ts";
+import type { RegisteredNumberAssessment } from "./registered-numbers.ts";
 
 /**
  * Rollout gate: `GRADING_TAG_OCR`, default OFF. Mirrors the US-1533 baselines
@@ -172,6 +173,13 @@ export interface PersistedTagRead {
   min_confidence: number;
   model: string;
   read_at: string;
+  /**
+   * US-2211: the RN/CA cross-check against brand_knowledge.registered_numbers.
+   * Omitted when no registry number was read. `outcome: "no_reference"` is the
+   * normal case (six brands carry a seeded number) and carries NO information —
+   * do not render it as a warning.
+   */
+  registered_number?: RegisteredNumberAssessment;
 }
 
 export function buildPersistedTagRead(
@@ -180,6 +188,7 @@ export function buildPersistedTagRead(
   model: string,
   readAt: string,
   minConfidence: number = TAG_GROUND_TRUTH_MIN_CONFIDENCE,
+  registeredNumber?: RegisteredNumberAssessment | null,
 ): PersistedTagRead {
   return {
     fields: accepted.map((a) => ({
@@ -191,5 +200,10 @@ export function buildPersistedTagRead(
     min_confidence: minConfidence,
     model,
     read_at: readAt,
+    // Only persist a cross-check that actually ran against something readable —
+    // an "unparsed" verdict on an absent field is noise, not a finding.
+    ...(registeredNumber && registeredNumber.outcome !== "unparsed"
+      ? { registered_number: registeredNumber }
+      : {}),
   };
 }

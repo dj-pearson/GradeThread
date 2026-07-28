@@ -96,6 +96,11 @@ import {
   tagGroundTruthBlock,
   tagOcrGradingEnabled,
 } from "./tag-ground-truth.ts";
+import {
+  assessRegisteredNumber,
+  getRegisteredNumberIndex,
+  type RegisteredNumberAssessment,
+} from "./registered-numbers.ts";
 import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
 import {
   computeCoverage,
@@ -1527,12 +1532,51 @@ export async function processSubmission(submissionId: string) {
         fields: tagMismatches.map((d) => d.field),
       });
     }
+    // US-2211: cross-check the transcribed RN/CA against the brand KB. An RN is
+    // registry-issued, so unlike every other field on the label a seller cannot
+    // type it into existence — which makes it the cheapest DETERMINISTIC identity
+    // signal available, and it had never been compared to anything.
+    //
+    // Best-effort and strictly informational: it can corroborate, it can flag a
+    // contradiction for review, and it can NEVER rewrite the brand. Most reads
+    // return `no_reference` (six brands carry a seeded number today) and that
+    // outcome carries no information in either direction.
+    let registeredNumber: RegisteredNumberAssessment | null = null;
+    const rnRead = acceptedTag.find((a) => a.field === "rn_number");
+    if (rnRead) {
+      try {
+        registeredNumber = assessRegisteredNumber(
+          rnRead.value,
+          submission.brand,
+          await getRegisteredNumberIndex(),
+        );
+        if (registeredNumber.outcome === "contradicts") {
+          console.warn(
+            `[Pipeline] RN cross-check contradicts on submission ${submissionId}: ` +
+              registeredNumber.note,
+          );
+          void captureServer("grading-engine", "grading.rn_contradiction", {
+            submission_id: submissionId,
+            normalized: registeredNumber.normalized,
+            owner_brands: registeredNumber.owners.map((o) => o.brandKey),
+          });
+        }
+      } catch (err) {
+        console.error(
+          `[Pipeline] RN cross-check failed for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
     const tagRead = tagOcr && acceptedTag.length > 0
       ? buildPersistedTagRead(
         acceptedTag,
         tagMismatches,
         tagOcr.model,
         new Date().toISOString(),
+        undefined,
+        registeredNumber,
       )
       : null;
 

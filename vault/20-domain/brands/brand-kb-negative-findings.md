@@ -5,7 +5,8 @@ status: current
 source_of_truth: vault
 code_refs:
   - supabase/migrations/00468_handbags_accessories_brand_knowledge.sql
-reviewed: 2026-07-19
+  - services/edge-functions/src/lib/registered-numbers.ts
+reviewed: 2026-07-28
 tags: [brands, sourcing, authentication, contract]
 summary: Facts that look right and are wrong, plus the statutory reason a missing RN on a handbag is correct rather than suspicious.
 ---
@@ -47,6 +48,38 @@ the handbag pack with a sourced RN, and it has one *because it sells
 ready-to-wear*. **The RN lives where the textile lives. It is not on the bag.**
 
 Absence here must never be read as suspicious.
+
+## The RN cross-check exists, and it will almost always say "no reference"
+
+Added 2026-07-28 (US-2211), because the mechanism and the data will be discovered
+at different times and the gap between them reads like a bug.
+
+`registered-numbers.ts` now compares a transcribed RN/CA against
+`brand_knowledge.registered_numbers` and classifies the result. **Exactly six
+brands in the corpus carry a seeded number** — Alo Yoga, Zara, Urban Outfitters
+(shared), Lucky Brand, and the handbag pack's Marc Jacobs pair. Every other pack
+omitted them deliberately as unsourced.
+
+So the overwhelmingly normal outcome is `no_reference`, and the code models it as
+a **distinct outcome from `contradicts`** for that reason. Collapsing the two —
+treating "we have no reference" as "this RN is wrong" — would turn the emptiest
+column in the KB into a fake fraud signal on almost every graded garment.
+
+The three sections above are why the column is nearly empty, and none of them is
+fixable by trying harder: the FTC register is auth-gated to automation, most
+circulating RNs trace only to eBay listing text (00467 refuses Vineyard Vines'
+and Brooks Brothers' on exactly that ground), and for handbags there is
+**statutorily no RN to find**. Seeding more is a sourcing problem, not a scraping
+one.
+
+Two further rules the checker encodes, both from the corpus:
+
+- **An RN names a registrant, not a brand.** URBN's RN 66170 covers Urban
+  Outfitters, Anthropologie *and* Free People, so a match is `ambiguous` —
+  consistent with the item, unable to pick between siblings.
+- **An RN never mints or rewrites a brand.** It is public, a counterfeit prints
+  it too, and the assessment deliberately has no `resolvedBrand` field — a test
+  pins the returned key set so one cannot be added by accident.
 
 ## A style code is not on a bag — it left with the hangtag
 
