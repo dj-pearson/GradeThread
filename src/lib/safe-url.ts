@@ -11,6 +11,13 @@ const SAFE_SCHEME = /^(https?:|mailto:|tel:)/;
 // Control chars (tab/newline/etc.) and spaces that browsers ignore while
 // resolving a scheme — `java\tscript:alert(1)` executes, so strip these before
 // testing the scheme prefix.
+//
+// eslint no-control-regex is disabled deliberately, and this is the one place it
+// should be: the rule exists because a control character in a pattern is usually
+// a typo, but here matching them IS the security property. Rewriting the class
+// to satisfy the linter (\s, say) would MISS most of it — \s covers whitespace,
+// not \x00-\x08 or \x0e-\x1f, which browsers strip from a scheme just the same.
+// eslint-disable-next-line no-control-regex
 const SCHEME_NOISE = /[\x00-\x20]/g;
 
 /**

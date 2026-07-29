@@ -43,6 +43,14 @@
           <input type="checkbox" id="autoRun" />
           <span>Auto-run on each supported listing</span>
         </label>
+        <label class="pop-toggle">
+          <input type="checkbox" id="scanMode" />
+          <span>Check search results as I browse</span>
+        </label>
+        <p class="pop-hint">
+          Search pages get the seller’s stated condition and a price check only.
+          No photos are read until you open a listing.
+        </p>
         <label class="pop-toggle" id="siteToggleWrap" hidden>
           <input type="checkbox" id="siteEnabled" />
           <span id="siteToggleLabel">Enabled on this site</span>
@@ -63,10 +71,21 @@
       </section>
 
       <section class="pop-section">
-        <h2 class="pop-h2">Recent reads</h2>
+        <div class="pop-tabs" role="tablist">
+          <button type="button" class="pop-tab is-on" id="tabReads" role="tab" aria-selected="true">Recent reads</button>
+          <button type="button" class="pop-tab" id="tabSellers" role="tab" aria-selected="false">By seller</button>
+        </div>
         <ul class="pop-reads" id="reads">
           <li class="pop-empty">No reads yet — open a listing and get a condition read.</li>
         </ul>
+        <ul class="pop-reads" id="sellers" hidden>
+          <li class="pop-empty" id="sellersEmpty"></li>
+        </ul>
+        <button type="button" class="pop-linkbtn" id="openCompare" hidden>Open compare (<span id="compareCount">0</span>)</button>
+        <p class="pop-hint" id="sellersNote" hidden>
+          Worked out from your own reads on this device. Nothing about a seller is
+          ever sent to GradeThread.
+        </p>
       </section>
 
       <!-- Seller tools (only when entitled) -->
@@ -142,6 +161,11 @@
     <!-- Read the ACTUAL versioned Lister selectors config for honest platform
          status (no hand-maintained duplicate). Assigns self.GT_LISTER_SELECTORS. -->
     <script src="lister/selectors.js"></script>
+    <!-- US-2239: the pure seller aggregation, shared with the content script and
+         the worker. Must load BEFORE popup.js, which reads self.GT_CC_SELLER. -->
+    <script src="research/seller-memory.js"></script>
+    <!-- US-2240: the tray key + helpers, shared with the worker and compare.html. -->
+    <script src="research/compare-tray.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

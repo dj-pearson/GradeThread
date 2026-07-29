@@ -51,13 +51,36 @@
   // Dedupe URLs preserving order and cap to `limit` (the endpoint accepts at
   // most 4). Marketplaces repeat the same photo across a main view + a
   // filmstrip; after upgrading to full size many collapse to one URL.
-  function dedupeUrls(urls, limit) {
+  // US-2241: `assetIdPattern` (optional, per adapter) is a regex whose FIRST
+  // capture group is the CDN's stable id for a photo. Without it, the same shot
+  // served at two sizes is two different URLs and survives dedupe — so on a
+  // gallery that emits both a thumbnail strip and a main image, one photo could
+  // occupy two of the four slots and the read lost a quarter of its evidence.
+  // Matching on the asset id collapses those. A pattern that doesn't match (or
+  // is absent, or is malformed) falls back to plain URL identity, so a bad
+  // remote pattern can never make photos vanish.
+  function dedupeUrls(urls, limit, assetIdPattern) {
+    let re = null;
+    if (typeof assetIdPattern === "string" && assetIdPattern) {
+      try {
+        re = new RegExp(assetIdPattern, "i");
+      } catch (_e) {
+        re = null; // malformed remote pattern — degrade to URL identity
+      }
+    }
     const out = [];
     const seen = new Set();
     for (const u of urls || []) {
       if (typeof u !== "string" || !u) continue;
-      if (seen.has(u)) continue;
-      seen.add(u);
+      let identity = u;
+      if (re) {
+        try {
+          const m = re.exec(u);
+          if (m && m[1]) identity = "asset:" + m[1];
+        } catch (_e) { /* keep URL identity */ }
+      }
+      if (seen.has(identity)) continue;
+      seen.add(identity);
       out.push(u);
       if (typeof limit === "number" && out.length >= limit) break;
     }
@@ -80,20 +103,44 @@
     return null;
   }
 
-  // Is `pathname` a detail/item page for this adapter? True when it contains any
-  // of detect.pathIncludes, or matches detect.pathRegex.
-  function isDetailPage(adapter, pathname) {
-    const d = adapter && adapter.detect;
-    if (!d || typeof pathname !== "string") return false;
-    if (Array.isArray(d.pathIncludes) && d.pathIncludes.some((p) => pathname.includes(p))) return true;
-    if (typeof d.pathRegex === "string") {
+  // Does `pathname` match a `detect` block ({ pathIncludes, pathRegex })? Shared
+  // by the detail-page and (US-2237) the search-page test so the two can't drift.
+  function matchesDetect(detect, pathname) {
+    if (!detect || typeof pathname !== "string") return false;
+    if (
+      Array.isArray(detect.pathIncludes) &&
+      detect.pathIncludes.some((p) => pathname.includes(p))
+    ) {
+      return true;
+    }
+    if (typeof detect.pathRegex === "string") {
       try {
-        return new RegExp(d.pathRegex).test(pathname);
+        return new RegExp(detect.pathRegex).test(pathname);
       } catch (_e) {
         return false;
       }
     }
     return false;
+  }
+
+  // Is `pathname` a detail/item page for this adapter? True when it contains any
+  // of detect.pathIncludes, or matches detect.pathRegex.
+  function isDetailPage(adapter, pathname) {
+    return matchesDetect(adapter && adapter.detect, pathname);
+  }
+
+  // US-2237: is `pathname` a SEARCH/browse results page for this adapter? Keyed
+  // on the adapter's separate `search.detect` block, so an adapter with no
+  // search config is simply never scanned (scan mode is opt-in per marketplace,
+  // and an unconfigured one degrades to today's behaviour: nothing).
+  //
+  // A detail page WINS: some marketplaces route a listing under a path that also
+  // contains a browse segment, and rendering a grid of card badges over a single
+  // listing would replace the real read with the weaker one.
+  function isSearchPage(adapter, pathname) {
+    if (!adapter || !adapter.search) return false;
+    if (isDetailPage(adapter, pathname)) return false;
+    return matchesDetect(adapter.search.detect, pathname);
   }
 
   // US-1880: pick the LARGEST candidate from a `srcset` value. The old content
@@ -195,7 +242,9 @@
     pickImageUrl,
     dedupeUrls,
     resolveAdapter,
+    matchesDetect,
     isDetailPage,
+    isSearchPage,
     srcsetLargest,
     isValidConfig,
     compareVersions,

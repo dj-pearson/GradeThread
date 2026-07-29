@@ -16,15 +16,30 @@ import {
   computeResaleConditionReport,
   type ResaleConditionReport,
 } from "../lib/resale-condition.ts";
-import { valueAtGrade, type ValueRange } from "../lib/condition-value.ts";
-import { suggestCategories } from "../lib/ebay-client.ts";
+import { valueAtGrade, valueRangeFromStats, type ValueRange } from "../lib/condition-value.ts";
+import { searchBrowseComps, suggestCategories } from "../lib/ebay-client.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { claimedConditionToGrade, scoreDiscrepancy } from "../lib/condition-discrepancy.ts";
 import { parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
+// US-2237: the scan's decision logic lives in lib/ so it can be type-checked and
+// unit-tested without this file's dependency graph (hono, supabase, the eBay
+// client). The route keeps the I/O; everything imported here is pure.
+import {
+  bucketScanCards,
+  MAX_SCAN_COMP_BUCKETS,
+  parseScanBody,
+  SCAN_DISCLAIMER,
+  type ScanCompStats,
+  scanCardResults,
+} from "../lib/extension-scan.ts";
 import { deriveFraudFlags } from "../lib/fraud-flags.ts";
 import { coverageGapForTitle } from "../lib/coverage-gap.ts";
 import { bearerFromHeader, verifyExtensionToken } from "../lib/extension-token.ts";
 import { resolveExtensionGates } from "../lib/extension-gates.ts";
+import {
+  EXTENSION_MAX_IMAGES_ANON,
+  parseListingImageUrls,
+} from "../lib/extension-image-urls.ts";
 import {
   ANONYMOUS_EXTENSION_ENTITLEMENTS,
   getBuyerEntitlements,
@@ -405,6 +420,14 @@ const SELECTOR_HEALTH_LISTS = new Set([
   "brand",
   "price",
   "condition",
+  // US-2237/US-2239: the newer surfaces fail even more quietly than the gallery.
+  // A broken search grid renders NOTHING (the shopper never asked for a scan, so
+  // there is no error state to show them), and an unresolvable seller just means
+  // the history line never appears — indistinguishable from "you haven't read
+  // this seller twice". Neither would ever be reported by a user, so telemetry is
+  // the only way they surface at all.
+  "search-cards",
+  "seller",
 ]);
 // Mirrors the shipped config's adapter keys. A new marketplace adapter must be
 // added here too — a closed list is the point, so an unknown key is dropped
@@ -710,7 +733,6 @@ publicGradingRoutes.post("/grade-check", async (c) => {
 const EXT_GRADE_PER_IP_PER_HOUR = 20;
 const EXT_GRADE_PER_INSTANCE_PER_HOUR = 40;
 const EXT_GRADE_WINDOW_MS = 60 * 60 * 1000;
-const EXT_GRADE_MAX_URLS = 4;
 const extIpHits = new Map<string, number[]>();
 const extInstanceHits = new Map<string, number[]>();
 
@@ -777,69 +799,14 @@ export function extGradeRateLimited(
  */
 export function parseGradeFromUrlBody(
   body: unknown,
+  maxUrls: number = EXTENSION_MAX_IMAGES_ANON,
 ): { ok: true; urls: string[] } | { ok: false; error: string } {
   const b = (body ?? {}) as { imageUrl?: unknown; imageUrls?: unknown };
-  const raw: unknown[] = Array.isArray(b.imageUrls)
-    ? b.imageUrls
-    : typeof b.imageUrl === "string"
-    ? [b.imageUrl]
-    : [];
-  const urls: string[] = [];
-  for (const u of raw) {
-    if (typeof u !== "string") continue;
-    const trimmed = u.trim();
-    if (!trimmed) continue;
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      return { ok: false, error: "Each image must be a valid URL." };
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return { ok: false, error: "Image URLs must be http(s)." };
-    }
-    urls.push(trimmed);
-    if (urls.length >= EXT_GRADE_MAX_URLS) break;
-  }
-  if (urls.length === 0) {
-    return { ok: false, error: "Provide at least one image URL." };
-  }
-  return { ok: true, urls };
-}
-
-function publicSiteUrl(): string {
-  return (Deno.env.get("PUBLIC_SITE_URL")?.trim() || "https://gradethread.com").replace(/\/$/, "");
-}
-
-// Assign sensible VIEW types to a marketplace listing's scraped gallery photos.
-// The extension can't know which photo is which, so it used to send every URL as
-// "detail" — which tells the composite grader the set is all close-ups with NO
-// primary front/back coverage, so it (correctly, given that framing) docks its
-// own confidence_score. Real galleries conventionally LEAD with the hero/front
-// shot, then a back/alternate view, then close-ups, so typing the first two as
-// front/back gives the grader the primary-angle coverage a listing usually has.
-// A "front"/"back" per-image prompt is also a better fit for a full-garment shot
-// than "detail" (which narrows the model to stitching/hardware). This changes the
-// grader's INPUT framing, not any prompt text and not the post-composite
-// confidence policy — the model still reports whatever confidence it earns. Pure;
-// exported for the edge test. Never emits more types than there are images.
-const GALLERY_VIEW_ORDER = ["front", "back", "detail", "detail_2", "detail_3", "detail_4"];
-export function assignGalleryImageTypes(count: number): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < count; i++) out.push(GALLERY_VIEW_ORDER[i] ?? "detail");
-  return out;
-}
-
-// The "ask the seller for these photos" coverage-gap macro is only worth showing
-// when it would actually help: when the read came back low-confidence OR the
-// listing had too few photos to cover the item. On a confident read of a
-// well-photographed listing, surfacing a full "ask for 7 photos" list reads as
-// "this grade is unreliable" when it isn't — so we suppress it. Pure; exported
-// for the edge test.
-export const COVERAGE_GAP_CONFIDENCE_BAR = 0.75;
-export const COVERAGE_GAP_MIN_IMAGES = 3;
-export function shouldRequestCoveragePhotos(confidence: number, imagesAnalyzed: number): boolean {
-  return confidence < COVERAGE_GAP_CONFIDENCE_BAR || imagesAnalyzed < COVERAGE_GAP_MIN_IMAGES;
+  return parseListingImageUrls(b.imageUrls ?? b.imageUrl, maxUrls, {
+    malformed: "Each image must be a valid URL.",
+    scheme: "Image URLs must be http(s).",
+    empty: "Provide at least one image URL.",
+  });
 }
 
 publicGradingRoutes.post("/grade-from-url", async (c) => {
@@ -860,7 +827,21 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
     }
 
     const body = await c.req.json().catch(() => null);
-    const parsed = parseGradeFromUrlBody(body);
+
+    // US-2241: resolve WHO is calling before parsing, because the photo cap is
+    // now theirs. This block used to sit after the grade — it had to move, not
+    // just get copied, or the grade would run on a 4-photo slice and the tier
+    // would be applied to a decision already made.
+    const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
+    let ent = null;
+    if (verified) {
+      try {
+        ent = await getBuyerEntitlements(verified.userId);
+      } catch { /* entitlement hiccup → treat as anonymous (fail-safe) */ }
+    }
+    const gates = resolveExtensionGates(ent);
+
+    const parsed = parseGradeFromUrlBody(body, gates.maxImages);
     if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
     // Optional garment context from the listing (title/brand) sharpens the grade.
@@ -935,19 +916,10 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
     const fairness = priceFairness(parsePriceCents((body as { price?: unknown })?.price), value);
     const fraudFlagsAll = extensionFraudFlagsEnabled() ? deriveFraudFlags(result.imageAuthenticity) : [];
 
-    // US-1838: authenticate the buyer via the signed extension token → resolve
-    // entitlements → gate the paid VALUE signals by tier. FAIL-SAFE: no/invalid
-    // token (anonymous) unlocks only the free basics (grade + coverage advice)
-    // and gets a signup prompt with funnel attribution. The base objective grade
-    // always returns — it's the hook.
-    const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
-    let ent = null;
-    if (verified) {
-      try {
-        ent = await getBuyerEntitlements(verified.userId);
-      } catch { /* entitlement hiccup → treat as anonymous (fail-safe) */ }
-    }
-    const gates = resolveExtensionGates(ent);
+    // US-1838: the tier gates resolved above decide which paid VALUE signals this
+    // caller sees. FAIL-SAFE: no/invalid token (anonymous) unlocks only the free
+    // basics (grade + coverage advice) and gets a signup prompt with funnel
+    // attribution. The base objective grade always returns — it's the hook.
     const signupPrompt = gates.tier === "anonymous"
       ? {
         message: "Sign in to GradeThread to unlock over-grade, price-fairness & fraud signals.",
@@ -964,6 +936,9 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         factorScores: result.factorScores,
         imagesAnalyzed: result.imagesAnalyzed,
         tier: gates.tier,
+        // US-2241: the extension reads its ceiling from here rather than
+        // hardcoding one, so a tier change takes effect without a store update.
+        maxImages: gates.maxImages,
         discrepancy: gates.discrepancy ? discrepancy : null,
         value: gates.priceFairness ? value : null,
         priceFairness: gates.priceFairness ? fairness : null,
@@ -995,6 +970,160 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
       err instanceof Error ? err.message : String(err),
     );
     return c.json({ error: "Couldn't grade that image right now. Try again later." }, 500);
+  }
+});
+
+// ── Search-page triage scan (US-2237) ────────────────────────────────────
+//
+// The extension's overlay reads ONE listing at a time, after a click, on a
+// detail page. Every buying decision that matters happens a screen earlier — on
+// the search results grid — where it showed nothing at all.
+//
+// This endpoint is what makes a result grid readable WITHOUT a Vision call per
+// card. Grading 24 cards would be 24 Vision calls per scroll; instead it uses
+// only the two signals already printed on the card (the seller's CLAIMED
+// condition and the asking price) and answers a narrower, honest question:
+// "for what the seller SAYS it is, is this price high or low?"
+//
+// COST SHAPE — the reason this is affordable. Cards are bucketed by the
+// conditionId their claimed condition maps to, and comps are fetched ONCE per
+// distinct bucket (capped at MAX_SCAN_COMP_BUCKETS), not once per card. The
+// per-card work after that is the two PURE functions valueRangeFromStats +
+// priceFairness. A 24-card scan costs at most one suggestCategories call plus
+// three eBay Browse calls, and ZERO AI actions.
+//
+// WHAT IT IS NOT: this is not a grade. Nothing here looks at a photo, so the
+// response deliberately carries no overallScore/gradeTier/confidence field for
+// the extension to render — a number on a card that the buyer read as a
+// GradeThread grade would be the worst possible outcome of this feature. The
+// per-card `claimedGrade` is explicitly the SELLER's claim expressed on our
+// scale, and it is named that way all the way to the DOM.
+const SCAN_PER_IP_PER_HOUR = 60;
+const SCAN_PER_INSTANCE_PER_HOUR = 120;
+const SCAN_WINDOW_MS = 60 * 60 * 1000;
+const scanIpHits = new Map<string, number[]>();
+const scanInstanceHits = new Map<string, number[]>();
+
+/**
+ * Rate-limit a scan on both IP and extension instance. Deliberately its OWN
+ * window rather than sharing extGradeRateLimited: a scan costs no Vision call,
+ * so charging it against the 20/hr grade budget would let a few scrolls of a
+ * search page exhaust the buyer's ability to actually grade anything — the
+ * expensive action must not be starved by the cheap one.
+ */
+export function scanRateLimited(
+  ip: string,
+  instanceId: string | null,
+  now: number,
+): { limited: boolean; scope?: "ip" | "instance" } {
+  if (windowLimited(scanIpHits, ip, now, SCAN_PER_IP_PER_HOUR, SCAN_WINDOW_MS)) {
+    return { limited: true, scope: "ip" };
+  }
+  if (
+    instanceId &&
+    windowLimited(scanInstanceHits, instanceId, now, SCAN_PER_INSTANCE_PER_HOUR, SCAN_WINDOW_MS)
+  ) {
+    return { limited: true, scope: "instance" };
+  }
+  return { limited: false };
+}
+
+// POST /scan — per-card claim + price triage for a marketplace SEARCH page.
+// Unauthenticated like /grade-from-url, and cheaper by construction: no Vision
+// call, no AI quota, nothing persisted.
+publicGradingRoutes.post("/scan", async (c) => {
+  try {
+    const ip = clientIpFor(c);
+    const instanceId = c.req.header("x-gt-extension-id")?.trim().slice(0, 64) || null;
+    const gate = scanRateLimited(ip, instanceId, Date.now());
+    if (gate.limited) {
+      return c.json(
+        {
+          error: gate.scope === "instance"
+            ? "This extension has reached its scan limit for now. Try again later."
+            : "You've reached the scan limit for now. Try again later.",
+        },
+        429,
+      );
+    }
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = parseScanBody(body);
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+    const marketplace = typeof (body as { marketplace?: unknown })?.marketplace === "string"
+      ? (body as { marketplace: string }).marketplace.slice(0, 24)
+      : null;
+
+    // One category resolution for the whole grid — every card on a search page
+    // is an answer to the same query, so comping them under different categories
+    // would be noise, not precision.
+    let categoryId: string | undefined;
+    const query = [parsed.brand, parsed.query].filter(Boolean).join(" ").trim();
+    if (query) {
+      try {
+        categoryId = (await suggestCategories(query))[0]?.categoryId;
+      } catch (err) {
+        // Comps are the OPTIONAL half of this response. A category lookup that
+        // fails still leaves every card its claimed-condition read, which is the
+        // signal a shopper can't get anywhere else — so degrade, never 500.
+        console.error(
+          "public-grading /scan categories:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    const statsByKey = new Map<string, ScanCompStats>();
+    if (categoryId) {
+      const buckets = bucketScanCards(parsed.cards, marketplace).slice(0, MAX_SCAN_COMP_BUCKETS);
+      for (const bucket of buckets) {
+        try {
+          const { stats } = await searchBrowseComps({
+            categoryId,
+            q: parsed.query || undefined,
+            brand: parsed.brand || undefined,
+            conditionId: bucket.conditionId,
+            limit: 25,
+          });
+          for (const key of bucket.keys) statsByKey.set(key, stats);
+        } catch (err) {
+          // One bucket's comps failing leaves the OTHER buckets priced and every
+          // card its claimed-condition read. Degrade per bucket, never per page.
+          console.error(
+            "public-grading /scan comps:",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+    }
+
+    return c.json(
+      {
+        estimate: true,
+        // Named so no caller can mistake this for a graded read: the extension
+        // asserts on this field before it will render anything.
+        signal: "claimed-condition-and-price",
+        comped: statsByKey.size > 0,
+        // The band builder is injected so lib/extension-scan.ts can stay free of
+        // the eBay client. This is the real implementation; the unit test passes
+        // its own, which is what makes the decision logic testable at all.
+        cards: scanCardResults(
+          parsed.cards,
+          marketplace,
+          statsByKey,
+          (stats, claimedGrade) =>
+            publicValueFromRange(valueRangeFromStats(stats, claimedGrade, stats.currency)),
+        ),
+        disclaimer: SCAN_DISCLAIMER,
+      },
+      200,
+    );
+  } catch (err) {
+    console.error(
+      "public-grading /scan:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Couldn't scan this page right now. Try again later." }, 500);
   }
 });
 

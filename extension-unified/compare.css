@@ -1,0 +1,139 @@
+/* GradeThread unified extension — compare view (US-2240).
+ *
+ * A full extension page, not the popup, so it can be a real table. Elevation is
+ * declared once (a hairline row rule, no card shadows), and the only colour that
+ * carries meaning is the condition score and the price verdict. */
+
+:root {
+  color-scheme: light dark;
+  --cmp-fg: #1a1a2e;
+  --cmp-muted: #6b6b80;
+  --cmp-bg: #ffffff;
+  --cmp-rule: #e6e6ef;
+  --cmp-navy: #0f3460;
+  --cmp-red: #e94560;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cmp-fg: #f5f5f5;
+    --cmp-muted: #9a9ab0;
+    --cmp-bg: #1a1a2e;
+    --cmp-rule: #2c2c44;
+    --cmp-navy: #cfe0ff;
+  }
+}
+
+body {
+  margin: 0;
+  padding: 0 20px 40px;
+  background: var(--cmp-bg);
+  color: var(--cmp-fg);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.cmp-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 0 14px;
+  border-bottom: 1px solid var(--cmp-rule);
+}
+
+.cmp-logo { width: 28px; height: 28px; }
+.cmp-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.cmp-head-actions { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+
+.cmp-sort { font-size: 12px; color: var(--cmp-muted); display: flex; align-items: center; gap: 6px; }
+.cmp-sort select {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--cmp-rule);
+  background: transparent;
+  color: inherit;
+}
+
+.cmp-linkbtn {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cmp-navy);
+  cursor: pointer;
+}
+.cmp-linkbtn:hover { text-decoration: underline; }
+.cmp-linkbtn:focus-visible { outline: 2px solid var(--cmp-red); outline-offset: 2px; }
+
+.cmp-body { max-width: 1000px; }
+.cmp-empty { margin: 40px 0; color: var(--cmp-muted); max-width: 60ch; }
+.cmp-note { margin: 16px 0 0; font-size: 12px; color: var(--cmp-muted); max-width: 70ch; }
+
+/* Wide content scrolls inside its own container; the page body never does. */
+.cmp-scroll { overflow-x: auto; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.cmp-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cmp-muted);
+  padding: 0 12px 8px 0;
+  white-space: nowrap;
+}
+.cmp-table td {
+  padding: 12px 12px 12px 0;
+  border-top: 1px solid var(--cmp-rule);
+  vertical-align: top;
+}
+
+.cmp-listing { display: flex; gap: 10px; min-width: 260px; }
+.cmp-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; flex: 0 0 auto; }
+.cmp-listing-title { color: inherit; font-weight: 600; text-decoration: none; }
+.cmp-listing-title:hover { text-decoration: underline; }
+.cmp-listing-meta { font-size: 12px; color: var(--cmp-muted); }
+
+.cmp-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.cmp-score {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cmp-score.gt-cc-s-excellent { color: #087443; }
+.cmp-score.gt-cc-s-good { color: #2f8f5b; }
+.cmp-score.gt-cc-s-fair { color: #92400e; }
+.cmp-score.gt-cc-s-poor { color: #b42318; }
+.cmp-score.gt-cc-s-bad { color: #b42318; }
+.cmp-score.gt-cc-s-none { color: var(--cmp-muted); }
+
+.cmp-fair { font-size: 11px; font-weight: 600; margin-top: 2px; }
+.cmp-fair-low { color: #087443; }
+.cmp-fair-fair { color: var(--cmp-muted); }
+.cmp-fair-high { color: #b42318; }
+
+.cmp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  .cmp-score.gt-cc-s-excellent { color: #8fe0ae; }
+  .cmp-score.gt-cc-s-good { color: #7ecfa0; }
+  .cmp-score.gt-cc-s-fair { color: #f5cd7a; }
+  .cmp-score.gt-cc-s-poor,
+  .cmp-score.gt-cc-s-bad { color: #ffb4ae; }
+  .cmp-fair-low { color: #8fe0ae; }
+  .cmp-fair-high { color: #ffb4ae; }
+}

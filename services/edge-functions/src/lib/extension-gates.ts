@@ -6,6 +6,11 @@
 // The base objective grade is always returned (the funnel hook) — gating only
 // hides the paid VALUE layers.
 
+import {
+  EXTENSION_MAX_IMAGES_ANON,
+  EXTENSION_MAX_IMAGES_PAID,
+} from "./extension-image-urls.ts";
+
 export interface GateableEntitlements {
   plan: string;
   // Only the flags this resolver reads (a structural subset of BuyerGateFlags).
@@ -27,8 +32,29 @@ export interface ExtensionGates {
   coverage: boolean;
   /** inline "will it fit me?" (US-1839) — Guard+ entitlement. */
   fit: boolean;
+  /**
+   * US-2241: how many listing photos a grade may analyse.
+   *
+   * The cap was a flat 4 for everyone, which meant a 20-photo listing was judged
+   * on the first four thumbnails — and the four the gallery happens to emit
+   * first are the flattering ones, not the ones showing the cuff wear. More
+   * photos is a straightforwardly better read, and each one costs Vision, so it
+   * is the natural thing for a paid tier to buy.
+   *
+   * Anonymous stays at 4: it is the free hook and the surface with no account to
+   * rate-limit against beyond IP + install id.
+   */
+  maxImages: number;
   tier: string;
 }
+
+// The caps live with the parser that enforces them, so the value and its clamp
+// can never drift apart. Re-exported here because this is where callers resolve
+// them from a tier.
+export {
+  EXTENSION_MAX_IMAGES_ANON,
+  EXTENSION_MAX_IMAGES_PAID,
+} from "./extension-image-urls.ts";
 
 /**
  * Resolve the extension gates for a caller. PURE. Null ent (anonymous / bad
@@ -37,7 +63,15 @@ export interface ExtensionGates {
  */
 export function resolveExtensionGates(ent: GateableEntitlements | null | undefined): ExtensionGates {
   if (!ent) {
-    return { discrepancy: false, priceFairness: false, fraud: false, coverage: true, fit: false, tier: "anonymous" };
+    return {
+      discrepancy: false,
+      priceFairness: false,
+      fraud: false,
+      coverage: true,
+      fit: false,
+      maxImages: EXTENSION_MAX_IMAGES_ANON,
+      tier: "anonymous",
+    };
   }
   return {
     discrepancy: ent.gateFlags?.discrepancyScoring === true,
@@ -45,6 +79,13 @@ export function resolveExtensionGates(ent: GateableEntitlements | null | undefin
     fraud: ent.plan === "connoisseur",
     coverage: true,
     fit: ent.gateFlags?.fitPrediction === true,
+    // Any plan above free earns the deeper read. `plan` is a free-form string
+    // from the entitlements row, so this tests for the ONE value that must not
+    // get it rather than enumerating the paid names — a new plan added later
+    // should inherit the paid behaviour, not silently fall back to 4.
+    maxImages: ent.plan && ent.plan !== "free"
+      ? EXTENSION_MAX_IMAGES_PAID
+      : EXTENSION_MAX_IMAGES_ANON,
     tier: ent.plan,
   };
 }

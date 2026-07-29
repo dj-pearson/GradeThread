@@ -1,7 +1,7 @@
 {
   "_comment": "Remotely-updatable marketplace adapter config for the GradeThread Condition Check extension (US-1756). The extension bundles a copy (extension-condition/selectors.js) and fetches this hosted file to pick up selector fixes WITHOUT a Chrome Web Store / AMO resubmission. When a marketplace changes its listing DOM: fix its adapter below, bump version + lastVerified, deploy the frontend. MERGE SEMANTICS (US-1879): the extension uses this hosted config ONLY when its 'version' is >= the bundled version (dotted-numeric compare, e.g. 2026.07.10 > 2026.07.4); a stale or rolled-back hosted file NEVER downgrades the shipped adapters — the extension keeps the bundle and logs the blocked downgrade. So always bump 'version' when you edit this file, and keep it >= the bundled selectors.js version. This file and extension-condition/selectors.js must stay identical (version + lastVerified + adapters) — the config-sync guard test (extension-condition/test/config-sync.test.cjs, run in verify:web) fails the build otherwise. Served statically by Cloudflare Pages (not in _routes.json include). 'verified:false' adapters are best-effort until confirmed against the live site / production telemetry.",
-  "version": "2026.07.5",
-  "lastVerified": "2026-07-10",
+  "version": "2026.07.8",
+  "lastVerified": "2026-07-29",
   "adapters": {
     "ebay": {
       "label": "eBay",
@@ -57,6 +57,11 @@
         ".x-item-condition-value .ux-textspans",
         "[data-testid='x-item-condition'] .ux-textspans"
       ],
+      "price": [
+        ".x-price-primary .ux-textspans",
+        "[data-testid='x-price-primary'] .ux-textspans",
+        ".x-bin-price__content .ux-textspans"
+      ],
       "itemSpec": {
         "row": ".ux-labels-values",
         "label": ".ux-labels-values__labels",
@@ -65,12 +70,54 @@
           "Brand"
         ]
       },
-      "maxImages": 4,
-      "price": [
-        ".x-price-primary .ux-textspans",
-        "[data-testid='x-price-primary'] .ux-textspans",
-        ".x-bin-price__content .ux-textspans"
-      ]
+      "sellerSelectors": [
+        ".x-sellercard-atf__info__about-seller a",
+        ".x-sellercard-atf__info__about-seller span",
+        "[data-testid='x-sellercard-atf'] a[href*='/usr/']",
+        "a[href*='/usr/']"
+      ],
+      "assetIdPattern": "/g/([^/]+)/",
+      "search": {
+        "detect": {
+          "pathIncludes": [
+            "/sch/",
+            "/b/"
+          ]
+        },
+        "queryParams": [
+          "_nkw"
+        ],
+        "card": [
+          "li.s-item",
+          "li.s-card",
+          "ul.srp-results > li"
+        ],
+        "link": [
+          "a.s-item__link",
+          "a.s-card__link",
+          "a[href*='/itm/']"
+        ],
+        "title": [
+          ".s-item__title",
+          ".s-card__title",
+          "[role='heading']"
+        ],
+        "price": [
+          ".s-item__price",
+          ".s-card__price"
+        ],
+        "condition": [
+          ".SECONDARY_INFO",
+          ".s-item__subtitle",
+          ".s-card__subtitle"
+        ],
+        "image": [
+          ".s-item__image-wrapper img",
+          ".s-card__image img",
+          "img"
+        ]
+      },
+      "maxImages": 4
     },
     "poshmark": {
       "label": "Poshmark",
@@ -110,6 +157,52 @@
         ".listing__brand",
         "a[href*='/brand/']"
       ],
+      "sellerSelectors": [
+        "[data-et-name='seller_username']",
+        ".listing__seller a",
+        "a[href^='/closet/']"
+      ],
+      "assetIdPattern": "/(?:s|m|t|l)_([a-f0-9]{8,})",
+      "search": {
+        "detect": {
+          "pathIncludes": [
+            "/search",
+            "/category/",
+            "/brand/",
+            "/closet/",
+            "/feed"
+          ]
+        },
+        "queryParams": [
+          "query",
+          "q"
+        ],
+        "card": [
+          "[data-et-name='listing']",
+          ".card--small",
+          ".tile"
+        ],
+        "link": [
+          "a.tile__covershot",
+          "a[href*='/listing/']"
+        ],
+        "title": [
+          ".tile__title",
+          "a[href*='/listing/']"
+        ],
+        "price": [
+          "[data-et-name='price']",
+          ".fw--bold",
+          ".p--t--1"
+        ],
+        "condition": [
+          ".condition-tag",
+          "[data-et-name='condition']"
+        ],
+        "image": [
+          "img"
+        ]
+      },
       "maxImages": 4
     },
     "grailed": {
@@ -144,6 +237,49 @@
         ".-designer",
         "p.-designer"
       ],
+      "sellerSelectors": [
+        "[data-testid='Seller']",
+        ".Seller_username",
+        "a[href*='/users/']"
+      ],
+      "search": {
+        "detect": {
+          "pathIncludes": [
+            "/shop",
+            "/designers/",
+            "/categories/"
+          ]
+        },
+        "queryParams": [
+          "query",
+          "q"
+        ],
+        "card": [
+          "[data-testid='feeditem']",
+          ".feed-item",
+          ".Feeditem"
+        ],
+        "link": [
+          "a[href*='/listings/']"
+        ],
+        "title": [
+          ".ListingMetadata-module__designer",
+          ".listing-designer",
+          "p"
+        ],
+        "price": [
+          "[data-testid='Current price']",
+          ".Price",
+          ".listing-price"
+        ],
+        "condition": [
+          "[data-testid='condition']",
+          ".ListingMetadata-module__condition"
+        ],
+        "image": [
+          "img"
+        ]
+      },
       "maxImages": 4
     },
     "mercari": {
@@ -177,6 +313,46 @@
         "[data-testid='ItemBrandName']",
         "a[href*='/brand/']"
       ],
+      "sellerSelectors": [
+        "[data-testid='SellerName']",
+        "a[href*='/u/'] span",
+        "a[href*='/u/']"
+      ],
+      "search": {
+        "detect": {
+          "pathIncludes": [
+            "/search",
+            "/category/",
+            "/brand/"
+          ]
+        },
+        "queryParams": [
+          "keyword",
+          "q"
+        ],
+        "card": [
+          "[data-testid='ItemContainer']",
+          "li[data-testid='ItemCell']",
+          "a[href*='/item/']"
+        ],
+        "link": [
+          "a[href*='/item/']"
+        ],
+        "title": [
+          "[data-testid='ItemName']",
+          "[data-testid='ItemThumbnail']"
+        ],
+        "price": [
+          "[data-testid='ItemPrice']",
+          "[data-testid='ThumbnailPrice']"
+        ],
+        "condition": [
+          "[data-testid='ItemCondition']"
+        ],
+        "image": [
+          "img"
+        ]
+      },
       "maxImages": 4
     },
     "depop": {
@@ -210,6 +386,47 @@
         "a[href*='/brands/']",
         "[data-testid='product__brand']"
       ],
+      "sellerSelectors": [
+        "[data-testid='shopLink']",
+        "a[data-testid='username']",
+        "a[href^='/'][data-testid*='seller']"
+      ],
+      "search": {
+        "detect": {
+          "pathIncludes": [
+            "/search",
+            "/explore",
+            "/category/",
+            "/brands/"
+          ]
+        },
+        "queryParams": [
+          "q",
+          "query"
+        ],
+        "card": [
+          "li[data-testid='product__item']",
+          "a[data-testid='product__item']",
+          "a[href*='/products/']"
+        ],
+        "link": [
+          "a[href*='/products/']"
+        ],
+        "title": [
+          "[data-testid='product__title']",
+          "p"
+        ],
+        "price": [
+          "[data-testid='product__price']",
+          "[aria-label*='price']"
+        ],
+        "condition": [
+          "[data-testid='product__condition']"
+        ],
+        "image": [
+          "img"
+        ]
+      },
       "maxImages": 4
     },
     "vinted": {
@@ -264,6 +481,46 @@
         "[data-testid='item-attributes-brand'] a",
         ".details-list__item a[href*='/brand']"
       ],
+      "sellerSelectors": [
+        "[data-testid='profile-username']",
+        ".details-list__item-value a[href*='/member/']",
+        "a[href*='/member/']"
+      ],
+      "search": {
+        "detect": {
+          "pathIncludes": [
+            "/catalog",
+            "/member/",
+            "/brand/"
+          ]
+        },
+        "queryParams": [
+          "search_text",
+          "q"
+        ],
+        "card": [
+          "[data-testid*='product-item']",
+          ".feed-grid__item",
+          "a[href*='/items/']"
+        ],
+        "link": [
+          "a[href*='/items/']"
+        ],
+        "title": [
+          "[data-testid*='description-title']",
+          ".web_ui__ItemBox__title"
+        ],
+        "price": [
+          "[data-testid*='price-text']",
+          "[data-testid*='description-price']"
+        ],
+        "condition": [
+          "[data-testid*='description-subtitle']"
+        ],
+        "image": [
+          "img"
+        ]
+      },
       "maxImages": 4
     }
   }

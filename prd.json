@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2237",
+  "nextId": "US-2243",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5469,6 +5469,85 @@
       "dependsOn": [
         "US-2156"
       ]
+    },
+    {
+      "id": "US-2237",
+      "passes": true,
+      "title": "Extension scan mode: condition/price triage badges on marketplace search + feed pages",
+      "description": "As a shopper or reseller browsing a marketplace search page, I want a GradeThread signal on every result card without opening each listing, so that I can spot the over-graded and over-priced items before I click.",
+      "acceptanceCriteria": [
+        "extension-unified/research/marketplace.js boot() no longer returns early on non-detail pages: each adapter in research/selectors.js (and the mirrored public/extension/marketplace-selectors.json) gains a 'search' block (detect.pathIncludes, card, cardLink, cardImage, cardTitle, cardPrice, cardCondition selectors) and a search page renders per-card badges instead of nothing",
+        "New endpoint POST /api/grading/public/scan in services/edge-functions/src/routes/public-grading.ts accepts up to 24 cards ({url,title,priceText,conditionText,thumbUrl}) and returns a per-card triage verdict computed WITHOUT a Vision call, reusing claimedConditionToGrade + valueAtGrade + priceFairness; it spends no AI quota and a request with zero Vision-gradeable input still returns 200",
+        "Triage badges are labelled as a claim/price check, never as a GradeThread grade: a card shows only 'claimed <tier>', a price-vs-value verdict, and a photo-count hint; the word 'grade' and any numeric 1.0-10.0 score are absent from card badges (asserted by a test in extension-unified/test/)",
+        "A card badge click runs the existing full Vision read (GT_CC_GRADE) for that one listing and renders the detail overlay inline; no scan page ever triggers a Vision grade implicitly, including when the autoRun setting is on",
+        "/api/grading/public/scan is rate-limited per IP + X-GT-Extension-Id through the same extGradeRateLimited path as /grade-from-url, caps the card array server-side, and returns 429 with the same copy shape when limited",
+        "Scan mode has a popup toggle (default ON) stored in ext.storage.local, honours the existing disabledHosts per-site opt-out, and the SPA epoch guard in marketplace.js invalidates in-flight scan results on navigation exactly as it does grades"
+      ],
+      "dependsOn": [
+        "US-1880"
+      ],
+      "notes": "Implemented 2026-07-29. Deviation from AC5: /scan gets its OWN sliding window (scanRateLimited, 60/hr IP + 120/hr instance) rather than sharing extGradeRateLimited as the AC said — a scan spends no Vision call, and charging it to the 20/hr grade budget would let a few scrolls of a search page exhaust the shopper's ability to grade anything. Same helper, same 429 copy shape. Also: cards whose condition is unreadable are bucketed as Used rather than dropped (only eBay prints a condition on result cards, so dropping them would have made scan mode eBay-only); their claimedGrade stays null so no claim is implied. Side effect: extension-condition/selectors.js was resynced to the shared hosted config, since both bundled copies sync against the same public/extension/marketplace-selectors.json. | Done 2026-07-29 on claude/unified-extension-features-fqm7je. Extension 0.3.7 -> 0.8.0; adapter config 2026.07.5 -> 2026.07.8 (search blocks, sellerSelectors, assetIdPattern) mirrored to public/extension/marketplace-selectors.json and the legacy extension-condition bundle. New edge surfaces: POST /api/grading/public/scan (no Vision, own rate window) and POST /api/flipdesk/scout/appraise-url (plan-gated, tenant-scoped, SSRF-guarded). New pure modules with node guards: scan-format, flip-format, seller-memory, compare-tray, plus depth.test.cjs pinning the client/server photo-cap contract. All 20 extension guards + 2699 vitest tests pass. Edge tests written but NOT run locally (deno.land is blocked by the container network policy, so deno could only lint) — CI is the check. Search-page and seller selectors are best-effort against live DOMs and unverified, per the US-1880 posture."
+    },
+    {
+      "id": "US-2238",
+      "passes": true,
+      "title": "Extension flip mode: sourcing ROI, comps and buy/pass on any marketplace listing for FlipDesk sellers",
+      "description": "As a FlipDesk seller sourcing on eBay/Poshmark/Grailed/Mercari/Depop/Vinted, I want the extension overlay to tell me the condition-adjusted comp range, my margin at the asking price, expected days-to-sell and a buy-or-pass call, so that I can source from any marketplace without leaving the listing.",
+      "acceptanceCriteria": [
+        "New endpoint POST /api/flipdesk/scout/appraise-url in services/edge-functions/src/routes/flipdesk-scout.ts takes listing imageUrls + title + brand + priceCents (no base64 photo) and returns the same shape family as /appraise: shadow grade, ValueRange from valueAtGrade, forecastSellThrough days, and decideBuy verdict from lib/scout-decision.ts",
+        "The new route is gated by requireFlipdesk({feature:'compPulls'}) and reserves/refunds AI quota via reserveAiActionSafe + refundAiAction exactly as /appraise does; a free or lapsed plan gets 402 and the overlay renders an upgrade prompt with no retry",
+        "Every query in the new route is tenant-scoped to c.get('workspaceOwnerId') ?? c.get('userId') per US-268, and services/edge-functions/src/routes/tenant-isolation_test.ts gains a case for /api/flipdesk/scout/appraise-url",
+        "Image URLs are SSRF-guarded through the same helper /api/grading/public/grade-from-url uses before any fetch, and a non-https or private-range URL returns 400 without a network call",
+        "extension-unified renders a Flip panel in the overlay ONLY when GT_GET_CAPABILITIES reports sellerEnabled true; the shadow grade is labelled a private estimate and is never written to grade_reports nor shown as a GradeThread certificate (US-620 posture)",
+        "The Flip panel shows cost basis = listing price, comp range, net margin after a per-platform fee assumption, days-to-sell, and a buy/pass verdict; a thin-comp result (value null) renders 'not enough comps' and never a fabricated range"
+      ],
+      "notes": "Done 2026-07-29 on claude/unified-extension-features-fqm7je. Extension 0.3.7 -> 0.8.0; adapter config 2026.07.5 -> 2026.07.8 (search blocks, sellerSelectors, assetIdPattern) mirrored to public/extension/marketplace-selectors.json and the legacy extension-condition bundle. New edge surfaces: POST /api/grading/public/scan (no Vision, own rate window) and POST /api/flipdesk/scout/appraise-url (plan-gated, tenant-scoped, SSRF-guarded). New pure modules with node guards: scan-format, flip-format, seller-memory, compare-tray, plus depth.test.cjs pinning the client/server photo-cap contract. All 20 extension guards + 2699 vitest tests pass. Edge tests written but NOT run locally (deno.land is blocked by the container network policy, so deno could only lint) — CI is the check. Search-page and seller selectors are best-effort against live DOMs and unverified, per the US-1880 posture. | CORRECTION 2026-07-29: the earlier note claiming no role gate exists on /api/flipdesk/scout/* was WRONG. blockViewerWrites (US-1928) is mounted on /api/flipdesk/* at main.ts:661, after workspaceMiddleware at :629, and refuses every mutating verb for role=viewer across the whole surface — so a viewer already cannot spend the owner's AI quota through scout. US-2242 was filed on that false premise and has been deleted. The viewer cases are now IN tenant-isolation_test.ts for appraise-url, /appraise and /prospect."
+    },
+    {
+      "id": "US-2239",
+      "passes": true,
+      "title": "Extension seller memory: buyer-private pattern across every read of the same marketplace seller",
+      "description": "As a shopper, I want the extension to remember what I found on this seller's other listings, so that a seller who consistently over-grades stops looking like a fresh unknown every time.",
+      "acceptanceCriteria": [
+        "Each adapter in extension-unified/research/selectors.js and public/extension/marketplace-selectors.json gains sellerSelectors, and the content script extracts a seller handle; a listing with no resolvable handle degrades silently and is stored with seller null (never a guessed handle)",
+        "background.js stores the seller handle + marketplace on every recentReads entry and every gradeCacheByKey entry, and exposes GT_CC_GET_SELLER returning {reads, avgOverall, avgClaimedDelta, lastAt} for a given marketplace+handle",
+        "When the buyer has 2+ prior reads of the same seller, the overlay shows one line of history (e.g. 'Your 4 reads of this seller average 1.8 below their claimed condition'); with fewer than 2 it shows nothing rather than a single-sample verdict",
+        "The aggregate is computed ONLY from this install's own reads in ext.storage.local: no seller handle is ever sent to any GradeThread endpoint, and no row is written to reputation_events or buyer_trust_scores (explicitly out of scope per US-2148)",
+        "The popup gains a 'By seller' view grouping recentReads by marketplace+handle, and clearing history clears the seller aggregate in the same action",
+        "Copy is framed as the buyer's own observation, never a public accusation: the string set is centralized in research/condition-format.js and a test asserts no fraud/counterfeit/scam wording appears in the seller-history strings"
+      ],
+      "notes": "Done 2026-07-29 on claude/unified-extension-features-fqm7je. Extension 0.3.7 -> 0.8.0; adapter config 2026.07.5 -> 2026.07.8 (search blocks, sellerSelectors, assetIdPattern) mirrored to public/extension/marketplace-selectors.json and the legacy extension-condition bundle. New edge surfaces: POST /api/grading/public/scan (no Vision, own rate window) and POST /api/flipdesk/scout/appraise-url (plan-gated, tenant-scoped, SSRF-guarded). New pure modules with node guards: scan-format, flip-format, seller-memory, compare-tray, plus depth.test.cjs pinning the client/server photo-cap contract. All 20 extension guards + 2699 vitest tests pass. Edge tests written but NOT run locally (deno.land is blocked by the container network policy, so deno could only lint) — CI is the check. Search-page and seller selectors are best-effort against live DOMs and unverified, per the US-1880 posture."
+    },
+    {
+      "id": "US-2240",
+      "passes": true,
+      "title": "Extension compare tray: pin listings across marketplaces and compare grade, price fairness and coverage side by side",
+      "description": "As a shopper deciding between several listings of the same item, I want to pin the ones I have read and see them side by side, so that I pick on objective condition and value instead of scrolling between tabs.",
+      "acceptanceCriteria": [
+        "The overlay result gains a Pin action that stores the read (url, title, marketplace, overallScore, gradeTier, confidence, priceText, priceFairness verdict, imagesAnalyzed, thumbUrl) in a compareTray key in ext.storage.local, capped at 6 entries with oldest-out eviction",
+        "Pinning spends no quota: it reuses the already-returned grade payload, and pinning a listing that has not been read yet is not offered",
+        "A compare view (new extension-unified/compare.html opened from the popup and from a tray count in the overlay) renders one row per pinned listing with score, tier, confidence, price, fairness verdict and photo count, sortable by score and by price",
+        "Each row links to the original listing with rel='noopener noreferrer' and can be removed individually; a Clear all empties the tray",
+        "The tray works across marketplaces in one comparison (an eBay pin and a Poshmark pin appear in the same table) and survives a browser restart, since it is storage.local not storage.session",
+        "compare.html renders entirely from stored data with no network call, and a pinned entry whose stored overallScore is non-finite renders an em dash rather than NaN (same rule as US-1884)"
+      ],
+      "notes": "Done 2026-07-29 on claude/unified-extension-features-fqm7je. Extension 0.3.7 -> 0.8.0; adapter config 2026.07.5 -> 2026.07.8 (search blocks, sellerSelectors, assetIdPattern) mirrored to public/extension/marketplace-selectors.json and the legacy extension-condition bundle. New edge surfaces: POST /api/grading/public/scan (no Vision, own rate window) and POST /api/flipdesk/scout/appraise-url (plan-gated, tenant-scoped, SSRF-guarded). New pure modules with node guards: scan-format, flip-format, seller-memory, compare-tray, plus depth.test.cjs pinning the client/server photo-cap contract. All 20 extension guards + 2699 vitest tests pass. Edge tests written but NOT run locally (deno.land is blocked by the container network policy, so deno could only lint) — CI is the check. Search-page and seller selectors are best-effort against live DOMs and unverified, per the US-1880 posture."
+    },
+    {
+      "id": "US-2241",
+      "passes": true,
+      "title": "Extension depth: grade the full gallery, keyboard shortcut, right-click grade, options page and action badge",
+      "description": "As a shopper, I want the read to use every photo the listing actually has and the extension to behave like a real browser tool, so that a 20-photo listing is not judged on 4 thumbnails and I can reach the overlay without hunting for a pill.",
+      "acceptanceCriteria": [
+        "EXT_GRADE_MAX_URLS in services/edge-functions/src/routes/public-grading.ts becomes tier-aware via resolveExtensionGates: anonymous stays at 4, an authenticated paid tier accepts up to 8; parseGradeFromUrlBody enforces the resolved cap and a test covers both ceilings",
+        "extension-unified HARD_MAX_URLS and the imageUrls.slice(0,4) in background.js read the same tier ceiling from the capability map instead of a hardcoded 4, and a listing with fewer photos than the cap is unaffected",
+        "Gallery extraction prefers distinct photos over near-duplicates: research/image-utils.js dedupes by upgraded URL AND by CDN asset id where the adapter defines one, so the same photo at two sizes never occupies two of the slots",
+        "manifest.json declares a commands entry (suggested Alt+G) that opens or re-runs the condition read on the active listing tab, and a contextMenus entry on images that grades the clicked image alone",
+        "An options page (options.html declared as options_ui) hosts every setting currently buried in the popup: autoRun, scan mode, selector telemetry, per-site disables with a removable list, and clear-history actions",
+        "The toolbar action badge shows the last read's score on the active listing tab and clears on navigation away; a tab with no read shows no badge",
+        "The new permissions (contextMenus) are added to manifest.json and reflected in the privacy posture section of extension-unified/README.md; test/manifest-hosts.test.cjs still passes and a guard asserts no new host permission was introduced"
+      ],
+      "notes": "Done 2026-07-29 on claude/unified-extension-features-fqm7je. Extension 0.3.7 -> 0.8.0; adapter config 2026.07.5 -> 2026.07.8 (search blocks, sellerSelectors, assetIdPattern) mirrored to public/extension/marketplace-selectors.json and the legacy extension-condition bundle. New edge surfaces: POST /api/grading/public/scan (no Vision, own rate window) and POST /api/flipdesk/scout/appraise-url (plan-gated, tenant-scoped, SSRF-guarded). New pure modules with node guards: scan-format, flip-format, seller-memory, compare-tray, plus depth.test.cjs pinning the client/server photo-cap contract. All 20 extension guards + 2699 vitest tests pass. Edge tests written but NOT run locally (deno.land is blocked by the container network policy, so deno could only lint) — CI is the check. Search-page and seller selectors are best-effort against live DOMs and unverified, per the US-1880 posture."
     }
   ]
 }

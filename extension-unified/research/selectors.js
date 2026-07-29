@@ -26,8 +26,8 @@
 // from telemetry without shipping a new build.
 
 const GT_CC_CONFIG = {
-  version: "2026.07.5",
-  lastVerified: "2026-07-10",
+  version: "2026.07.8",
+  lastVerified: "2026-07-29",
   configUrl: "https://gradethread.com/extension/marketplace-selectors.json",
   adapters: {
     ebay: {
@@ -74,6 +74,31 @@ const GT_CC_CONFIG = {
         value: ".ux-labels-values__values",
         brandLabels: ["Brand"]
       },
+      // US-2237 scan mode: the SEARCH page. `card` finds the result tiles; the
+      // rest are read relative to each tile. eBay is the only adapter whose
+      // cards print a condition, which is why its scan read is the richest.
+      // US-2239: the seller's identity on the listing page, so repeat reads of the
+      // same seller can be recognised. Buyer-private — never sent anywhere.
+      sellerSelectors: [
+        ".x-sellercard-atf__info__about-seller a",
+        ".x-sellercard-atf__info__about-seller span",
+        "[data-testid='x-sellercard-atf'] a[href*='/usr/']",
+        "a[href*='/usr/']"
+      ],
+      // US-2241: eBay serves one photo at many sizes under the same id path
+      // segment (…/images/g/<ID>/s-l1600.jpg). Capture the id so the thumbnail
+      // and the zoom render of one shot collapse to a single slot.
+      assetIdPattern: "/g/([^/]+)/",
+      search: {
+        detect: { pathIncludes: ["/sch/", "/b/"] },
+        queryParams: ["_nkw"],
+        card: ["li.s-item", "li.s-card", "ul.srp-results > li"],
+        link: ["a.s-item__link", "a.s-card__link", "a[href*='/itm/']"],
+        title: [".s-item__title", ".s-card__title", "[role='heading']"],
+        price: [".s-item__price", ".s-card__price"],
+        condition: [".SECONDARY_INFO", ".s-item__subtitle", ".s-card__subtitle"],
+        image: [".s-item__image-wrapper img", ".s-card__image img", "img"]
+      },
       maxImages: 4
     },
 
@@ -98,6 +123,24 @@ const GT_CC_CONFIG = {
       urlUpgrade: { pattern: "/(?:s|m|t)_(?=[^/]*$)", replacement: "/l_", flags: "i" },
       title: ["h1.listing__title", "[data-et-name='listing_title']", "h1"],
       brandSelectors: ["a[data-et-name='brand']", ".listing__brand", "a[href*='/brand/']"],
+      sellerSelectors: [
+        "[data-et-name='seller_username']",
+        ".listing__seller a",
+        "a[href^='/closet/']"
+      ],
+      // The CloudFront filename carries a size prefix (s_/m_/l_) on a stable
+      // hash — capture the hash so two sizes of one photo are one photo.
+      assetIdPattern: "/(?:s|m|t|l)_([a-f0-9]{8,})",
+      search: {
+        detect: { pathIncludes: ["/search", "/category/", "/brand/", "/closet/", "/feed"] },
+        queryParams: ["query", "q"],
+        card: ["[data-et-name='listing']", ".card--small", ".tile"],
+        link: ["a.tile__covershot", "a[href*='/listing/']"],
+        title: [".tile__title", "a[href*='/listing/']"],
+        price: ["[data-et-name='price']", ".fw--bold", ".p--t--1"],
+        condition: [".condition-tag", "[data-et-name='condition']"],
+        image: ["img"]
+      },
       maxImages: 4
     },
 
@@ -116,6 +159,21 @@ const GT_CC_CONFIG = {
       imageAttrs: ["src", "data-src"],
       title: [".details h1", "p.-title", "h1"],
       brandSelectors: ["a[href*='/designers/']", ".-designer", "p.-designer"],
+      sellerSelectors: [
+        "[data-testid='Seller']",
+        ".Seller_username",
+        "a[href*='/users/']"
+      ],
+      search: {
+        detect: { pathIncludes: ["/shop", "/designers/", "/categories/"] },
+        queryParams: ["query", "q"],
+        card: ["[data-testid='feeditem']", ".feed-item", ".Feeditem"],
+        link: ["a[href*='/listings/']"],
+        title: [".ListingMetadata-module__designer", ".listing-designer", "p"],
+        price: ["[data-testid='Current price']", ".Price", ".listing-price"],
+        condition: ["[data-testid='condition']", ".ListingMetadata-module__condition"],
+        image: ["img"]
+      },
       maxImages: 4
     },
 
@@ -134,6 +192,21 @@ const GT_CC_CONFIG = {
       imageAttrs: ["src", "data-src"],
       title: ["h1[data-testid='ItemName']", "h1"],
       brandSelectors: ["[data-testid='ItemBrandName']", "a[href*='/brand/']"],
+      sellerSelectors: [
+        "[data-testid='SellerName']",
+        "a[href*='/u/'] span",
+        "a[href*='/u/']"
+      ],
+      search: {
+        detect: { pathIncludes: ["/search", "/category/", "/brand/"] },
+        queryParams: ["keyword", "q"],
+        card: ["[data-testid='ItemContainer']", "li[data-testid='ItemCell']", "a[href*='/item/']"],
+        link: ["a[href*='/item/']"],
+        title: ["[data-testid='ItemName']", "[data-testid='ItemThumbnail']"],
+        price: ["[data-testid='ItemPrice']", "[data-testid='ThumbnailPrice']"],
+        condition: ["[data-testid='ItemCondition']"],
+        image: ["img"]
+      },
       maxImages: 4
     },
 
@@ -152,6 +225,21 @@ const GT_CC_CONFIG = {
       imageAttrs: ["src", "data-src", "srcset"],
       title: ["h1", "[data-testid='product__title']"],
       brandSelectors: ["a[href*='/brands/']", "[data-testid='product__brand']"],
+      sellerSelectors: [
+        "[data-testid='shopLink']",
+        "a[data-testid='username']",
+        "a[href^='/'][data-testid*='seller']"
+      ],
+      search: {
+        detect: { pathIncludes: ["/search", "/explore", "/category/", "/brands/"] },
+        queryParams: ["q", "query"],
+        card: ["li[data-testid='product__item']", "a[data-testid='product__item']", "a[href*='/products/']"],
+        link: ["a[href*='/products/']"],
+        title: ["[data-testid='product__title']", "p"],
+        price: ["[data-testid='product__price']", "[aria-label*='price']"],
+        condition: ["[data-testid='product__condition']"],
+        image: ["img"]
+      },
       maxImages: 4
     },
 
@@ -179,6 +267,21 @@ const GT_CC_CONFIG = {
         "[data-testid='item-attributes-brand'] a",
         ".details-list__item a[href*='/brand']"
       ],
+      sellerSelectors: [
+        "[data-testid='profile-username']",
+        ".details-list__item-value a[href*='/member/']",
+        "a[href*='/member/']"
+      ],
+      search: {
+        detect: { pathIncludes: ["/catalog", "/member/", "/brand/"] },
+        queryParams: ["search_text", "q"],
+        card: ["[data-testid*='product-item']", ".feed-grid__item", "a[href*='/items/']"],
+        link: ["a[href*='/items/']"],
+        title: ["[data-testid*='description-title']", ".web_ui__ItemBox__title"],
+        price: ["[data-testid*='price-text']", "[data-testid*='description-price']"],
+        condition: ["[data-testid*='description-subtitle']"],
+        image: ["img"]
+      },
       maxImages: 4
     }
   }

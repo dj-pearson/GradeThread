@@ -10,92 +10,17 @@
 // a PURE function (valueRangeFromStats) so it's unit-tested without eBay; the
 // thin I/O wrapper (valueAtGrade) fetches the condition-matched comps first.
 
-import {
-  type CompStats,
-  gradeToConditionId,
-  positionPriceByGrade,
-} from "./repricing.ts";
+import { gradeToConditionId } from "./repricing.ts";
 import { searchBrowseComps } from "./ebay-client.ts";
-
-// Below this many condition-matched comps the range is statistically meaningless
-// — we return sufficient:false so callers show "insufficient data", never a
-// falsely-precise number (mirrors the repricing MIN_COMPS + transparency rule).
-export const MIN_VALUE_COMPS = 3;
-
-export interface ValueRange {
-  lowCents: number | null;
-  medianCents: number | null;
-  highCents: number | null;
-  sampleSize: number;
-  confidence: number; // 0..1
-  /** false when there aren't enough comps to price honestly. */
-  sufficient: boolean;
-  currency: string;
-}
-
-function dollarsToCents(d: number | null): number | null {
-  return d == null ? null : Math.round(d * 100);
-}
-
-function confidenceFromCount(count: number): number {
-  // 3 comps → ~0.45, 13+ comps → 0.95 (slightly more generous than repricing's
-  // nudge confidence because a range tolerates more spread than a point price).
-  return Math.max(0, Math.min(0.95, 0.3 + count * 0.05));
-}
-
-/**
- * Build a condition-adjusted value RANGE from a condition-matched comp
- * distribution + a grade. Pure: the comps MUST already be filtered to the
- * grade's conditionId (valueAtGrade does that). The median is the grade-
- * positioned center (a grade-8.5 sits high in the band, a grade-5 low); the
- * low/high bracket it using the comp interquartile spread.
- */
-export function valueRangeFromStats(
-  stats: CompStats,
-  gradeValue: number | null,
-  currency = "USD",
-): ValueRange {
-  const sampleSize = stats.count;
-  const medianCents = dollarsToCents(stats.median);
-
-  if (sampleSize < MIN_VALUE_COMPS || medianCents == null) {
-    return {
-      lowCents: null,
-      medianCents: null,
-      highCents: null,
-      sampleSize,
-      confidence: Math.min(0.2, confidenceFromCount(sampleSize)),
-      sufficient: false,
-      currency,
-    };
-  }
-
-  // Grade-positioned center within the condition-matched band.
-  const center = positionPriceByGrade(stats, gradeValue) ?? medianCents;
-  const p25 = dollarsToCents(stats.p25);
-  const p75 = dollarsToCents(stats.p75);
-  const min = dollarsToCents(stats.min);
-  const max = dollarsToCents(stats.max);
-
-  // Bracket the center with the comp spread, guaranteeing low ≤ center ≤ high
-  // and never escaping the observed [min, max].
-  let low = Math.min(center, p25 ?? center);
-  let high = Math.max(center, p75 ?? center);
-  if (min != null) low = Math.max(min, low);
-  if (max != null) high = Math.min(max, high);
-  if (low > center) low = center;
-  if (high < center) high = center;
-
-  return {
-    lowCents: low,
-    medianCents: center,
-    highCents: high,
-    sampleSize,
-    confidence: confidenceFromCount(sampleSize),
-    sufficient: true,
-    currency,
-  };
-}
+// US-2237: the pure range maths lives in its own module so callers that only
+// need the arithmetic (the scan endpoint's tests, for one) don't drag the eBay
+// client in with it. Re-exported here so this file stays the front door.
+import { valueRangeFromStats } from "./condition-value-math.ts";
+export {
+  MIN_VALUE_COMPS,
+  type ValueRange,
+  valueRangeFromStats,
+} from "./condition-value-math.ts";
 
 // Identifies the item to comp against. categoryId is required by eBay Browse;
 // brand + a keyword query sharpen the match.

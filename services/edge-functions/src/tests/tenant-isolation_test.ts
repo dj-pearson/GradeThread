@@ -3143,3 +3143,93 @@ Deno.test({
     }
   },
 });
+
+// ── US-2238: /api/flipdesk/scout/appraise-url ────────────────────────────────
+//
+// The extension's sourcing appraisal. It takes NO resource id — the body is a
+// list of public image URLs — so there is no row for a caller to reach across
+// tenants. What it DOES do is spend the tenant's money: a paid plan gate, an AI
+// action, and eBay comp pulls, all keyed on workspaceOwnerId ?? userId.
+//
+// So the isolation boundary worth proving is the SPEND boundary. A non-member
+// carrying somebody else's X-Workspace-Owner must be stopped by
+// workspaceMiddleware before the handler reserves anything against that
+// workspace's quota; and a viewer inside the workspace must not be able to burn
+// the owner's AI actions either.
+const APPRAISE_URL_BODY = JSON.stringify({
+  imageUrls: ["https://example.com/a.jpg"],
+  title: "Patagonia Better Sweater",
+  priceCents: 2000,
+});
+
+Deno.test({
+  name: "US-2238: non-member B cannot appraise against A's workspace quota",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/appraise-url`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+      body: APPRAISE_URL_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/appraise-url as a non-member of A's workspace");
+  },
+});
+
+Deno.test({
+  // A viewer is read-only. Appraising reserves an AI action off the OWNER's
+  // monthly cap, which is spend.
+  //
+  // The gate is NOT in flipdesk-scout.ts: it is blockViewerWrites (US-1928),
+  // mounted once on /api/flipdesk/* after workspaceMiddleware, which refuses
+  // every mutating verb for a viewer across the whole surface. That is exactly
+  // why a case here matters — a route inheriting a baseline it never mentions is
+  // the kind of protection that quietly disappears when the mount is
+  // reorganised, and nothing else in this file would notice.
+  name: "US-2238: viewer cannot spend the owner's AI quota on an appraisal",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/appraise-url`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: APPRAISE_URL_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/appraise-url as viewer");
+  },
+});
+
+Deno.test({
+  // The same baseline, on the routes that already existed. Pinned alongside the
+  // new one so a regression shows up as three failures rather than one.
+  name: "US-1928: viewer cannot spend the owner's AI quota via scout /appraise or /prospect",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    for (const path of ["/api/flipdesk/scout/appraise", "/api/flipdesk/scout/prospect"]) {
+      const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: viewerHeaders(),
+        body: JSON.stringify({ q: "patagonia", image: "x" }),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `POST ${path} as viewer`);
+    }
+  },
+});
+
+Deno.test({
+  // Unauthenticated must never reach the grader: the route sits behind
+  // authMiddleware, and a fallback-to-anonymous regression here would hand a
+  // free Vision call to anyone who found the URL.
+  name: "US-2238: scout/appraise-url rejects an unauthenticated caller",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/appraise-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: APPRAISE_URL_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/appraise-url with no auth");
+  },
+});

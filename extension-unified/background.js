@@ -38,6 +38,8 @@ if (typeof importScripts === "function") {
     "lister/lister-guard.js",
     "lister/job-store.js",
     "registry.js",
+    "research/seller-memory.js",
+    "research/compare-tray.js",
   );
 }
 const ext = globalThis.browser || globalThis.chrome;
@@ -45,6 +47,15 @@ const ext = globalThis.browser || globalThis.chrome;
 // ── endpoints / constants ────────────────────────────────────────────────
 const SITE = "https://gradethread.com";
 const GRADE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/grade-from-url";
+// US-2237: the search-page triage scan. Separate endpoint AND separate server
+// rate-limit window from grading — a scan spends no Vision call, and charging it
+// against the grade budget would let a few scrolls of a results page exhaust the
+// shopper's ability to actually grade anything.
+const SCAN_ENDPOINT = "https://functions.gradethread.com/api/grading/public/scan";
+// US-2238: flip mode. NOT under /api/grading/public — this one is authenticated
+// and plan-gated (FlipDesk compPulls), so it lives on the seller side and needs
+// the signed extension token. A request without one is a 401 by design.
+const APPRAISE_ENDPOINT = "https://functions.gradethread.com/api/flipdesk/scout/appraise-url";
 const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/public/entitlements";
 const SELECTOR_HEALTH_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/selector-health";
@@ -139,10 +150,15 @@ async function getRemoteConfig() {
 
 // ── settings ──────────────────────────────────────────────────────────────
 async function getSettings() {
-  const out = await ext.storage.local.get(["autoRun", "disabledHosts"]);
+  const out = await ext.storage.local.get(["autoRun", "disabledHosts", "scanMode"]);
   return {
     autoRun: Boolean(out.autoRun),
     disabledHosts: Array.isArray(out.disabledHosts) ? out.disabledHosts : [],
+    // US-2237: scan mode defaults ON — note this is `!== false`, not Boolean(),
+    // the opposite of autoRun above. autoRun spends a Vision call the shopper
+    // didn't ask for, so it must be opted into; a scan spends none, so an install
+    // that has never opened the popup still gets the feature.
+    scanMode: out.scanMode !== false,
   };
 }
 
@@ -285,7 +301,18 @@ async function getCapabilities(force) {
 }
 
 // ── the buyer grade call ──────────────────────────────────────────────────
-async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, price }) {
+function maxImagesFor(requested) {
+  const n = Math.floor(Number(requested));
+  if (!isFinite(n)) return self.GT_REGISTRY.MAX_IMAGES_ANON;
+  return Math.max(
+    self.GT_REGISTRY.MAX_IMAGES_ANON,
+    Math.min(self.GT_REGISTRY.MAX_IMAGES_PAID, n),
+  );
+}
+
+async function gradeFromUrls(
+  { imageUrls, brand, title, condition, marketplace, price, maxImages: msgMaxImages },
+) {
   if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
     return { ok: false, status: 400, error: "No listing photos to grade." };
   }
@@ -304,7 +331,10 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
       method: "POST",
       headers: headers,
       body: JSON.stringify({
-        imageUrls: imageUrls.slice(0, 4),
+        // US-2241: the caller's tier ceiling, clamped locally as well. The
+        // server trims to the real cap regardless — this only avoids posting
+        // URLs we already know it will drop.
+        imageUrls: imageUrls.slice(0, maxImagesFor(msgMaxImages)),
         brand: brand || undefined,
         title: title || undefined,
         condition: condition || undefined,
@@ -331,6 +361,130 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
     code: (json && json.code) || null,
     retryable: json && json.retryable === false ? false : true,
   };
+}
+
+// ── the search-page triage scan (US-2237) ─────────────────────────────────
+// Same posture as gradeFromUrls: the call is made HERE, not in the content
+// script, so it carries the extension's own origin (trusted by the server's
+// EXTENSION_ALLOWED_ORIGINS allowlist) and isn't subject to the marketplace
+// page's CSP. Unlike a grade it spends no AI quota, so anonymous installs are
+// not rationed as tightly — the server's own window is the authority.
+async function scanCards({ cards, marketplace, query, brand }) {
+  if (!Array.isArray(cards) || cards.length === 0) {
+    return { ok: false, status: 400, error: "Nothing to scan." };
+  }
+  const instanceId = await getInstanceId();
+  const headers = {
+    "Content-Type": "application/json",
+    "X-GT-Extension-Id": instanceId,
+  };
+  try {
+    const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+    if (gtBuyerToken && typeof gtBuyerToken === "string") {
+      headers["Authorization"] = "Bearer " + gtBuyerToken;
+    }
+  } catch (_e) { /* no token → anonymous */ }
+  let resp;
+  try {
+    resp = await fetch(SCAN_ENDPOINT, {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify({
+        cards: cards,
+        marketplace: marketplace || undefined,
+        query: query || undefined,
+        brand: brand || undefined,
+      }),
+    });
+  } catch (_e) {
+    // Silent by design: the shopper never asked for this, so an unreachable
+    // scan must not surface anything on their search page.
+    return { ok: false, status: 0, error: "offline" };
+  }
+  let json = null;
+  try {
+    json = await resp.json();
+  } catch (_e) {
+    json = null;
+  }
+  if (resp.ok && json) return { ok: true, status: resp.status, data: json };
+  return { ok: false, status: resp.status, error: (json && json.error) || "scan failed" };
+}
+
+// ── flip mode: the sourcing appraisal (US-2238) ───────────────────────────
+// Seller-only, and gated HERE as well as on the server. The entitlement check is
+// not decoration: without it an unentitled install would fire a request that
+// spends nothing (the server refuses) but still shows the seller a spinner and
+// then an error, which reads as broken rather than as locked.
+async function appraiseListing(msg) {
+  const caps = await getCapabilities(false);
+  if (!caps.sellerEnabled) {
+    return { ok: false, status: 403, needsUpgrade: true, error: "FlipDesk plan required." };
+  }
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, status: 401, error: "Sign in to GradeThread to appraise listings." };
+  }
+  if (!Array.isArray(msg.imageUrls) || msg.imageUrls.length === 0) {
+    return { ok: false, status: 400, error: "No listing photos to appraise." };
+  }
+  let resp;
+  try {
+    resp = await fetch(APPRAISE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify({
+        imageUrls: msg.imageUrls.slice(0, 4),
+        title: msg.title || undefined,
+        brand: msg.brand || undefined,
+        priceCents: typeof msg.priceCents === "number" ? msg.priceCents : undefined,
+        marketplace: msg.marketplace || undefined,
+      }),
+    });
+  } catch (_e) {
+    return { ok: false, status: 0, error: "Couldn't reach GradeThread. Check your connection." };
+  }
+  let json = null;
+  try {
+    json = await resp.json();
+  } catch (_e) {
+    json = null;
+  }
+  if (resp.ok && json) return { ok: true, status: resp.status, data: json };
+  // 402 is the plan gate (requireFlipdesk) and 429 the monthly AI cap. Both are
+  // states the seller can act on, and neither is worth a retry — so they are
+  // threaded through rather than flattened into "something went wrong".
+  return {
+    ok: false,
+    status: resp.status,
+    error: (json && json.error) || "Couldn't appraise this listing right now.",
+    needsUpgrade: resp.status === 402,
+    quotaExhausted: resp.status === 429,
+  };
+}
+
+// ── compare tray (US-2240) ────────────────────────────────────────────────
+// storage.LOCAL, not session: the shopper compares across tabs and often across
+// sittings ("I'll decide tonight"), so a tray that emptied on browser restart
+// would lose exactly the comparison it exists to hold.
+async function pinToTray(entry) {
+  if (!entry || typeof entry !== "object" || !entry.key) {
+    return { ok: false, error: "Nothing to pin." };
+  }
+  try {
+    const out = await ext.storage.local.get(self.GT_CC_TRAY.KEY);
+    const list = self.GT_CC_TRAY.put((out && out[self.GT_CC_TRAY.KEY]) || [], entry);
+    await ext.storage.local.set({ [self.GT_CC_TRAY.KEY]: list });
+    return { ok: true, count: list.length };
+  } catch (_e) {
+    // Storage full or unavailable. Reported as a failure so the overlay does NOT
+    // flip its button to "Pinned" — a shopper who trusts that and opens an empty
+    // compare table has lost the read they thought they saved.
+    return { ok: false, error: "Couldn't pin this read." };
+  }
 }
 
 // ── per-listing grade recall cache ────────────────────────────────────────
@@ -382,9 +536,39 @@ async function saveRead(read) {
     overallScore: Number(read.overallScore),
     gradeTier: String(read.gradeTier || ""),
     confidence: Number(read.confidence),
+    // US-2239: who was selling it, and what they claimed. Both are stored ONLY
+    // here in storage.local — the seller handle is never attached to a grading
+    // request, a telemetry ping, or anything else that leaves the device.
+    // `claimedGrade` comes from the endpoint's discrepancy block, which is a
+    // paid signal, so it is often absent; null is stored rather than 0 so an
+    // absent claim can't be averaged as "claimed nothing".
+    seller: typeof read.seller === "string" && read.seller ? read.seller.slice(0, 80) : null,
+    claimedGrade: typeof read.claimedGrade === "number" && isFinite(read.claimedGrade)
+      ? read.claimedGrade
+      : null,
     at: Number(read.at) || Date.now(),
   });
   await ext.storage.local.set({ recentReads: list.slice(0, MAX_RECENT) });
+}
+
+// US-2239: the shopper's own history with ONE seller. A pure aggregation over
+// storage.local — no network, nothing sent, nothing recorded server-side. Kept
+// in the worker rather than the content script only because recentReads lives
+// here; the answer is computed by the pure seller-memory module either way.
+async function getSellerHistory(marketplace, seller) {
+  const key = self.GT_CC_SELLER.sellerKey(marketplace, seller);
+  if (!key) return null;
+  try {
+    const { recentReads } = await ext.storage.local.get("recentReads");
+    const mine = (Array.isArray(recentReads) ? recentReads : []).filter(
+      (r) => r && self.GT_CC_SELLER.sellerKey(r.marketplace, r.seller) === key,
+    );
+    const stats = self.GT_CC_SELLER.aggregate(mine);
+    if (!stats) return null;
+    return { stats: stats, copy: self.GT_CC_SELLER.sellerCopy(stats) };
+  } catch (_e) {
+    return null; // unreadable storage — show nothing rather than a wrong pattern
+  }
 }
 
 // ── Lister job lifecycle (US-1874) ────────────────────────────────────────
@@ -954,11 +1138,53 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         sendResponse(out);
         break;
       }
+      // US-2237: the search-grid triage scan. Deliberately NOT cached — a grid
+      // changes with every filter, sort and scroll, and a stale badge on a card
+      // that is now a different listing is worse than no badge.
+      case "GT_CC_SCAN":
+        sendResponse(await scanCards(msg));
+        break;
+      // US-2238: flip mode. Not cached — the seller can re-price or the comps can
+      // move, and a stale ROI is the one number they'd act on.
+      case "GT_CC_APPRAISE":
+        sendResponse(await appraiseListing(msg));
+        break;
       case "GT_CC_GET_CACHED":
         sendResponse(await readGradeCache(msg.listingKey));
         break;
+      // US-2239: buyer-private seller pattern. Returns null below the 2-read
+      // floor — one read of one item is a coincidence, not a pattern.
+      // US-2240: the compare tray. Pinning replays the payload the endpoint
+      // already returned, so it spends no quota and makes no request — the
+      // worker is involved only because storage.local lives here.
+      case "GT_CC_TRAY_PIN":
+        sendResponse(await pinToTray(msg.entry));
+        break;
+      // Opened here rather than linked from the content script — see the comment
+      // at the call site: a link would require web_accessible_resources.
+      case "GT_CC_TRAY_OPEN":
+        try {
+          await ext.tabs.create({ url: ext.runtime.getURL("compare.html") });
+          sendResponse({ ok: true });
+        } catch (_e) {
+          sendResponse({ ok: false });
+        }
+        break;
+      case "GT_CC_GET_SELLER":
+        sendResponse(await getSellerHistory(msg.marketplace, msg.seller));
+        break;
       case "GT_CC_SAVE_READ":
         await saveRead(msg.read);
+        // US-2241: the badge follows the read that produced it, on the tab it
+        // came from. sender.tab is the authority — a tab id from the message
+        // body would let any content script badge any tab.
+        await setScoreBadge(sender.tab && sender.tab.id, msg.read && msg.read.overallScore);
+        sendResponse({ ok: true });
+        break;
+      // Cleared by the content script when it navigates away, so a badge never
+      // outlives the listing it describes.
+      case "GT_CC_CLEAR_BADGE":
+        await setScoreBadge(sender.tab && sender.tab.id, null);
         sendResponse({ ok: true });
         break;
       // US-1880 (AC3): an adapter found nothing. Respond immediately and let the
@@ -1059,6 +1285,82 @@ ext.tabs.onRemoved.addListener(function (tabId) {
     );
   })();
 });
+
+// ── US-2241: reaching the overlay without hunting for a pill ───────────────
+//
+// The overlay was only ever reachable by finding a small pill in the corner of
+// somebody else's page. Three cheaper doors, all local, none touching the
+// network:
+//
+//   • A keyboard command (Alt+G) that runs the read on the active listing.
+//   • A right-click on any image: "Grade this image with GradeThread" — the one
+//     case the adapter can't serve, where the shopper has spotted the photo that
+//     matters and the gallery selector missed it.
+//   • A toolbar badge carrying the last score for the tab it belongs to.
+//
+// Every registration is GUARDED for the reason background-deps.test.cjs pins:
+// reading .addListener off a namespace a browser didn't grant throws at LOAD and
+// takes the WHOLE worker with it — including buyer research, which has nothing to
+// do with any of this.
+const CONTEXT_MENU_ID = "gt-grade-image";
+
+if (ext.commands && ext.commands.onCommand) {
+  ext.commands.onCommand.addListener(async function (command) {
+    if (command !== "run-condition-read") return;
+    try {
+      const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+      if (tab && typeof tab.id === "number") {
+        // The content script owns the overlay; it ignores the message on a page
+        // where no adapter matched, which is the correct no-op.
+        await ext.tabs.sendMessage(tab.id, { type: "GT_CC_RUN" });
+      }
+    } catch (_e) { /* no content script on this tab — nothing to run */ }
+  });
+}
+
+if (ext.contextMenus && ext.contextMenus.create) {
+  const createMenu = function () {
+    try {
+      ext.contextMenus.create({
+        id: CONTEXT_MENU_ID,
+        title: "Grade this image with GradeThread",
+        contexts: ["image"],
+      });
+    } catch (_e) { /* already created (worker restart) — harmless */ }
+  };
+  ext.runtime.onInstalled.addListener(createMenu);
+  // Menus do not survive a worker restart on every browser, so re-create on
+  // startup too. A duplicate-id create throws and is swallowed above.
+  if (ext.runtime.onStartup) ext.runtime.onStartup.addListener(createMenu);
+
+  if (ext.contextMenus.onClicked) {
+    ext.contextMenus.onClicked.addListener(function (info, tab) {
+      if (!info || info.menuItemId !== CONTEXT_MENU_ID) return;
+      if (!info.srcUrl || !/^https?:\/\//i.test(info.srcUrl)) return;
+      if (!tab || typeof tab.id !== "number") return;
+      // Routed through the content script rather than graded straight from here,
+      // so the result lands in the same overlay, on the same page, with the same
+      // epoch guard — a second, parallel result surface would be a second place
+      // for a stale grade to appear.
+      ext.tabs.sendMessage(tab.id, { type: "GT_CC_RUN", imageUrl: info.srcUrl })
+        .catch(function () { /* no content script here */ });
+    });
+  }
+}
+
+// The toolbar badge: the last score for THIS tab. Per-tab, so switching tabs
+// never shows the previous listing's number against the current one.
+async function setScoreBadge(tabId, score) {
+  if (!ext.action || typeof tabId !== "number") return;
+  const n = Number(score);
+  const text = isFinite(n) && n >= 1 && n <= 10 ? n.toFixed(1) : "";
+  try {
+    await ext.action.setBadgeText({ tabId: tabId, text: text });
+    if (text) {
+      await ext.action.setBadgeBackgroundColor({ tabId: tabId, color: "#0F3460" });
+    }
+  } catch (_e) { /* action API unavailable — the badge is a nicety */ }
+}
 
 // Exposed for popup/deep links (kept in one place).
 self.GT_SITE = SITE;

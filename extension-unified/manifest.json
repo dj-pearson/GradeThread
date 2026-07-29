@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "GradeThread: Grade & List",
-  "version": "0.3.7",
+  "version": "0.8.0",
   "description": "Get an AI-powered condition read on a pre-owned clothing listing before you buy \u2014 plus one-click cross-listing for FlipDesk sellers.",
   "permissions": [
     "storage",
     "activeTab",
-    "alarms"
+    "alarms",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://gradethread.com/*",
@@ -37,6 +38,8 @@
       "lister/lister-guard.js",
       "lister/job-store.js",
       "registry.js",
+      "research/seller-memory.js",
+      "research/compare-tray.js",
       "background.js"
     ]
   },
@@ -117,6 +120,10 @@
         "research/selectors.js",
         "research/image-utils.js",
         "research/condition-format.js",
+        "research/scan-format.js",
+        "research/flip-format.js",
+        "research/seller-memory.js",
+        "research/compare-tray.js",
         "research/marketplace.js"
       ],
       "css": [
@@ -160,5 +167,17 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "commands": {
+    "run-condition-read": {
+      "suggested_key": {
+        "default": "Alt+G"
+      },
+      "description": "Get a condition read on this listing"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
 }

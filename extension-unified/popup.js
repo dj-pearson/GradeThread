@@ -128,13 +128,29 @@ function renderAccount(caps) {
 
 // ── research settings ───────────────────────────────────────────────────────
 async function initResearch() {
-  const { autoRun, disabledHosts } = await ext.storage.local.get(["autoRun", "disabledHosts"]);
+  const { autoRun, disabledHosts, scanMode } = await ext.storage.local.get([
+    "autoRun",
+    "disabledHosts",
+    "scanMode",
+  ]);
   const disabled = Array.isArray(disabledHosts) ? disabledHosts : [];
 
   const autoEl = document.getElementById("autoRun");
   autoEl.checked = Boolean(autoRun);
   autoEl.addEventListener("change", () => {
     ext.storage.local.set({ autoRun: autoEl.checked });
+  });
+
+  // US-2237: scan mode defaults ON, so it reads `!== false` rather than
+  // Boolean() — the opposite of autoRun directly above. autoRun spends a Vision
+  // call per listing and must be opted into; a scan spends none. Switching it ON
+  // REMOVES the key instead of storing true, so "default" and "explicitly on"
+  // stay the same stored state and a later default change can't strand anyone.
+  const scanEl = document.getElementById("scanMode");
+  scanEl.checked = scanMode !== false;
+  scanEl.addEventListener("change", async () => {
+    if (scanEl.checked) await ext.storage.local.remove("scanMode");
+    else await ext.storage.local.set({ scanMode: false });
   });
 
   // US-1880 (AC3): opt-in selector-failure reporting. Unchecked unless the key
@@ -201,6 +217,114 @@ async function renderReads() {
     li.appendChild(a);
     ul.appendChild(li);
   }
+}
+
+// ── US-2240: the compare tray's entry point ─────────────────────────────────
+// Shown only when something is pinned — an "Open compare (0)" button is a dead
+// door, and the overlay is where pinning actually happens.
+async function renderCompareLink() {
+  const btn = document.getElementById("openCompare");
+  const count = document.getElementById("compareCount");
+  let list = [];
+  try {
+    const out = await ext.storage.local.get(self.GT_CC_TRAY.KEY);
+    list = (out && out[self.GT_CC_TRAY.KEY]) || [];
+  } catch (_e) { /* unreadable — leave the button hidden */ }
+  if (!Array.isArray(list) || !list.length) return;
+  count.textContent = String(list.length);
+  btn.hidden = false;
+  btn.addEventListener("click", () => {
+    ext.tabs.create({ url: ext.runtime.getURL("compare.html") });
+  });
+}
+
+// ── US-2239: "By seller" ────────────────────────────────────────────────────
+//
+// The same recentReads list, grouped by who was selling. This is the whole point
+// of storing the seller with each read: a shopper who has read four items from
+// one closet has learned something about that closet, and until now the
+// extension threw it away every time the overlay closed.
+//
+// Local, always. groupBySeller is pure and runs over storage.local — no request
+// is made, and no seller handle has ever left this device.
+async function renderSellers() {
+  const ul = document.getElementById("sellers");
+  const empty = document.getElementById("sellersEmpty");
+  const note = document.getElementById("sellersNote");
+  const { recentReads } = await ext.storage.local.get("recentReads");
+  const rows = self.GT_CC_SELLER.groupBySeller(recentReads);
+
+  ul.textContent = "";
+  if (!rows.length) {
+    // Deliberately not "no sellers": the list is empty because nobody has been
+    // read TWICE yet, and saying so tells the shopper how to fill it.
+    const li = document.createElement("li");
+    li.className = "pop-empty";
+    li.textContent = self.GT_CC_SELLER.STRINGS.noneYet;
+    ul.appendChild(li);
+    note.hidden = true;
+    empty.hidden = true;
+    return;
+  }
+  note.hidden = false;
+
+  for (const row of rows) {
+    const li = document.createElement("li");
+    li.className = "pop-read";
+
+    const score = document.createElement("span");
+    score.className = "pop-read-score " + scoreClass(row.stats.avgOverall);
+    score.textContent = row.stats.avgOverall.toFixed(1);
+
+    const body = document.createElement("span");
+    body.className = "pop-read-body";
+    const title = document.createElement("div");
+    title.className = "pop-read-title";
+    title.textContent = row.seller;
+    const meta = document.createElement("div");
+    meta.className = "pop-read-meta";
+    // The copy line when there is a claim gap worth naming; otherwise the plain
+    // counts. Either way it is phrased as what the SHOPPER found.
+    meta.textContent = row.copy ||
+      (row.marketplace + " · " + row.stats.reads + " reads · " + timeAgo(row.stats.lastAt));
+    body.appendChild(title);
+    body.appendChild(meta);
+
+    li.appendChild(score);
+    li.appendChild(body);
+    ul.appendChild(li);
+  }
+}
+
+function wireHistoryTabs() {
+  const tabReads = document.getElementById("tabReads");
+  const tabSellers = document.getElementById("tabSellers");
+  const reads = document.getElementById("reads");
+  const sellers = document.getElementById("sellers");
+  const note = document.getElementById("sellersNote");
+  let sellersRendered = false;
+
+  function show(which) {
+    const onSellers = which === "sellers";
+    reads.hidden = onSellers;
+    sellers.hidden = !onSellers;
+    note.hidden = !onSellers || !sellersRendered;
+    tabReads.classList.toggle("is-on", !onSellers);
+    tabSellers.classList.toggle("is-on", onSellers);
+    tabReads.setAttribute("aria-selected", String(!onSellers));
+    tabSellers.setAttribute("aria-selected", String(onSellers));
+  }
+
+  tabReads.addEventListener("click", () => show("reads"));
+  tabSellers.addEventListener("click", async () => {
+    // Rendered on first open rather than at boot: it groups the whole read
+    // history, and the popup should paint before doing that work.
+    if (!sellersRendered) {
+      await renderSellers();
+      sellersRendered = true;
+    }
+    show("sellers");
+  });
 }
 
 // ── seller section ──────────────────────────────────────────────────────────
@@ -509,6 +633,8 @@ function applyCapabilities(caps) {
   initStaticLinks();
   wireAccount();
   wireConsent();
+  wireHistoryTabs();
+  renderCompareLink();
   // Render research immediately (works offline / anonymous), then fold in the
   // account-driven sections once entitlements resolve.
   await Promise.all([initResearch(), renderReads()]);

@@ -37,6 +37,8 @@ body {
 .pop-section:last-of-type { border-bottom: 0; }
 .pop-h2 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b6b80; }
 .pop-lead { margin: 0; font-size: 12px; line-height: 1.45; color: #33334d; }
+/* US-2237: the scan-mode caveat under its toggle — quieter than a lead. */
+.pop-hint { margin: -2px 0 0; font-size: 11px; line-height: 1.4; color: #6b6b80; }
 
 /* account */
 .pop-account { background: var(--gray); }
@@ -219,6 +221,13 @@ em { font-style: italic; }
      everything else that reads muted picks the new value up from :root. */
   .pop-h2 { color: #9a9ab0; }
   .pop-lead { color: #d7d7e2; }
+  .pop-hint { color: #9a9ab0; }
+  /* US-2239: the Recent reads / By seller switch. Folded into THIS block rather
+     than appended as a second @media — popup-theme.test.ts requires exactly one
+     prefers-color-scheme:dark block so the theme can't fragment. */
+  .pop-tabs { border-bottom-color: #2c2c44; }
+  .pop-tab { color: #9a9ab0; }
+  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
 
   .pop-account { background: #1e1e32; }
   .pop-badge.buyer { background: #1d2b4a; color: #cfe0ff; }
@@ -251,3 +260,31 @@ em { font-style: italic; }
   .s-fair { background: #c9921c; }
   .s-poor { background: #cf7328; }
 }
+
+/* US-2239 — the Recent reads / By seller switch.
+ *
+ * A two-item switch, not a nav: underline-on-active only, so it reads as one
+ * control rather than as two buttons competing with the section headings. */
+.pop-tabs {
+  display: flex;
+  gap: 14px;
+  margin: 0 0 8px;
+  border-bottom: 1px solid #e6e6ef;
+}
+
+.pop-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 4px 0 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b6b80;
+  cursor: pointer;
+}
+
+.pop-tab.is-on { color: #0f3460; border-bottom-color: #0f3460; }
+.pop-tab:focus-visible { outline: 2px solid #e94560; outline-offset: 2px; }

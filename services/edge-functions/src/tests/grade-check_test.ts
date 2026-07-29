@@ -306,3 +306,37 @@ Deno.test("publicAuthenticityCheckEnabled: fail-closed (default off), on only wh
   assertEquals(publicAuthenticityCheckEnabled(), true);
   Deno.env.delete("PUBLIC_AUTHENTICITY_CHECK_ENABLED");
 });
+
+// ── US-2237: the scan window is SEPARATE from the grading window ───────────
+//
+// Sharing extGradeRateLimited would let a few scrolls of a search page exhaust
+// the 20/hr grade budget — the cheap action starving the expensive one. Pinned
+// here, next to the window it must not share.
+const { scanRateLimited } = await import("../routes/public-grading.ts");
+
+Deno.test("scanRateLimited: 60/hr per IP, independent of the grade window", () => {
+  const ip = "203.0.113.77";
+  const t = Date.now();
+  for (let i = 0; i < 60; i++) {
+    assertEquals(scanRateLimited(ip, null, t + i).limited, false, `call ${i + 1}`);
+  }
+  const over = scanRateLimited(ip, null, t + 60);
+  assertEquals(over.limited, true);
+  assertEquals(over.scope, "ip");
+  // The SAME ip must still be able to grade: 60 scans burned no grade budget.
+  assertEquals(extGradeRateLimited(ip, null, t + 61).limited, false);
+});
+
+Deno.test("scanRateLimited: caps per extension instance independent of IP", () => {
+  const inst = "scan-instance-1";
+  const t = Date.now();
+  for (let i = 0; i < 120; i++) {
+    assertEquals(scanRateLimited(`198.51.100.${i % 200}`, inst, t + i).limited, false, `call ${i + 1}`);
+  }
+  const over = scanRateLimited("198.51.100.250", inst, t + 120);
+  assertEquals(over.limited, true);
+  assertEquals(over.scope, "instance");
+});
+
+// The photo-cap cases moved to extension-image-urls_test.ts, which imports the
+// pure parser directly and therefore RUNS without hono/supabase resolving.

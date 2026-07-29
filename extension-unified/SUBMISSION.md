@@ -1,7 +1,7 @@
-# Store submission kit — GradeThread unified extension v0.3.7
+# Store submission kit — GradeThread unified extension v0.8.0
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v0.3.7-chrome.zip` · `dist-ext/gradethread-v0.3.7-firefox.zip`.
+`dist-ext/gradethread-v0.8.0-chrome.zip` · `dist-ext/gradethread-v0.8.0-firefox.zip`.
 
 ## Shared fields
 
@@ -29,7 +29,11 @@ Open a clothing listing on a supported resale site and click "Get condition read
 • A sense of whether the asking price fits the condition
 • Which extra photos to request before you buy
 
+ON SEARCH PAGES
+Browsing a search or category page, GradeThread adds a small tag to each result showing the condition the seller claims and whether the asking price is high or low for that claim. Nothing is graded there — no photos are read until you open a listing and ask for a condition read. You can switch this off in the popup.
+
 FOR FLIPDESK SELLERS
+Sourcing? On any supported listing, "Should I flip this?" prices the item against comparable sales at the condition its photos actually show, and tells you the resale range, your margin after fees, what you can afford to pay, and how long it should take to sell. It runs only when you ask.
 Send a draft from FlipDesk and the extension opens the destination site's new-listing form in your own logged-in tab, already filled in. You review the details and click List — GradeThread never signs in to the marketplace for you.
 
 YOUR SESSIONS STAY YOURS
@@ -55,10 +59,22 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
   1. Call GradeThread's own API (`functions.gradethread.com`) to grade a listing the user asked us to read, and to fetch that account's entitlements.
   2. **Inject a content script into gradethread.com pages** (`gt-bridge.js`). It is a message relay: the GradeThread web app posts a cross-listing request, the script forwards it to the extension's background, and posts the reply back. It exists because Firefox has no `externally_connectable`, so this is the only cross-browser way for our own site to talk to our own extension. It reads nothing from the page — no page content, no credentials, no cookies — and forwards only our own message envelope.
 - Host `https://*.poshmark.com/*`, `https://*.mercari.com/*`, `https://*.grailed.com/*` — Prefill the seller's own new-listing form during cross-listing, in the tab they are already signed into.
+- `contextMenus` — Adds ONE right-click item on images ("Grade this image with GradeThread"). It is how a shopper grades the specific photo they spotted when the site's gallery layout hid it from us. It reads nothing on its own: the click hands the image's public URL to the extension, which grades it exactly like the on-page button does. No menu appears anywhere else, and nothing is added to the page.
 - **Remote code:** No — all executable code ships inside the package.
 
 **Data usage disclosures** (certify):
-- Collected: **Website content** (the listing's photos/text, sent for grading on user action).
+- Stored ON THE DEVICE ONLY, never transmitted: the seller's public username from
+  listings you have read, kept with your local read history so the extension can
+  show you your own pattern with that seller. It is never sent to GradeThread and
+  never leaves the browser.
+- Collected: **Website content**, in two distinct flows — state both:
+  1. **On user action** — the listing's photos and text, sent for grading when the
+     user clicks "Get condition read".
+  2. **Automatically, on supported search pages** (scan mode, ON by default, per-install
+     toggle in the popup) — for up to 24 visible result cards, the **text already
+     printed on the card**: title, price, and the seller's stated condition. **No
+     photos, no page address, no account.** It is used to check the asking price
+     against comparable sales and is not stored on our servers.
 - Collected **only if the user opts in** (off by default, per-install toggle in the
   popup): a diagnostic ping when a marketplace's layout defeats the reader —
   the marketplace name, which selector group came up empty, and the config/extension
@@ -82,7 +98,7 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 
 **Privacy policy summary (if AMO wants text):**
 ```
-GradeThread Condition Check & Lister does not read your marketplace accounts and has no "cookies" permission. When you request a condition read, the extension sends the public listing's image URLs and basic details (title, brand, price) to GradeThread's grading service to produce a score; results are not stored on our servers. Your recent reads and settings are stored only on your device. If you turn on the optional "report when a site's layout breaks the read" setting (off by default), the extension sends us the marketplace's name and which part of the read failed, so we can fix it — never the listing, the page address, or any identifier for you or your installation. If you sign in, a short-lived access token is stored locally to apply your account's quota and unlock seller tools. Cross-listing runs entirely in your browser; your marketplace passwords and cookies are never sent to GradeThread. On gradethread.com itself the extension runs a small message relay so our website can hand cross-listing requests to the extension (Firefox provides no other way for a site to reach its own extension); it reads no page content and forwards only our own messages. Full policy: https://gradethread.com/privacy
+GradeThread Condition Check & Lister does not read your marketplace accounts and has no "cookies" permission. When you request a condition read, the extension sends the public listing's image URLs and basic details (title, brand, price) to GradeThread's grading service to produce a score; results are not stored on our servers. On a supported marketplace's search page the extension also sends the text already printed on the visible result cards — title, price and the seller's stated condition, for up to 24 cards — so it can tell you whether each asking price is high or low for the condition the seller claims. No photos are read and nothing is graded on a search page, none of it is stored on our servers, and you can turn this off in the extension's popup. Your recent reads and settings are stored only on your device — including the seller's public username from listings you read, which the extension uses to show you your own pattern with that seller and never sends to us. If you turn on the optional "report when a site's layout breaks the read" setting (off by default), the extension sends us the marketplace's name and which part of the read failed, so we can fix it — never the listing, the page address, or any identifier for you or your installation. If you sign in, a short-lived access token is stored locally to apply your account's quota and unlock seller tools. Cross-listing runs entirely in your browser; your marketplace passwords and cookies are never sent to GradeThread. On gradethread.com itself the extension runs a small message relay so our website can hand cross-listing requests to the extension (Firefox provides no other way for a site to reach its own extension); it reads no page content and forwards only our own messages. Full policy: https://gradethread.com/privacy
 ```
 
 ## Notes to Reviewer (AMO) / Testing instructions
@@ -108,13 +124,33 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v0.3.7)
+## Version / release notes (v0.8.0)
 
 ```
-Listing and in-product copy clarified — no functional changes.
-Firefox: raised the minimum to Firefox 140 (Android 142) so the browser's built-in
-data-collection consent screen is shown, resolving the AMO validation warnings about
-data_collection_permissions on older versions.
+New: shortcuts, a settings page, and deeper reads. Alt+G reads the listing you are
+on; right-click any photo to grade just that one; a Settings page collects every
+option, lists the sites you have switched off with a way to turn them back on, and
+lets you clear anything the extension has stored. Paid plans now read up to eight
+listing photos instead of four.
+
+New: Compare. Pin any listing you have read and line it up against the others you
+are weighing — condition, confidence, price and photo count side by side, sortable.
+Pinning costs nothing: it saves the read you already have, and the whole table lives
+in your browser.
+
+New: By seller. When you have read two or more listings from the same seller, the
+extension tells you how their stated conditions have compared with what the photos
+actually showed. Worked out entirely on your own device from your own reads —
+nothing about a seller is ever sent to GradeThread.
+
+New: flip checks for FlipDesk sellers. On any supported listing, ask "Should I flip
+this?" and get the resale range at the condition shown, margin after fees, a
+break-even buy price and an expected time to sell. It only runs when you tap it.
+
+New: search-page tags. On a supported marketplace's search or category page, each
+result now carries the condition the seller claims and whether the price is high or
+low for that claim. Nothing is graded there — no photos are read until you open a
+listing and ask for a condition read — and it can be switched off in the popup.
 The extension does both jobs behind one role-aware popup:
 • Condition Check (all users, free): an AI condition read on a supported resale listing — score, over-grading flag, price fairness, and photo-request hints.
 • Lister (FlipDesk sellers): one-click cross-posting of drafts into a supported marketplace's new-listing form, prefilled in your own logged-in tab.

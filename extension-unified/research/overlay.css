@@ -197,3 +197,122 @@
 /* US-1837: coverage-gap photo request + actions. */
 .gt-cc-photos { margin: 4px 0 8px; padding-left: 18px; font-size: 12px; line-height: 1.5; }
 .gt-cc-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+
+/* US-2237 — scan-mode badges on marketplace SEARCH result cards.
+ *
+ * These are NOT inside #gt-cc-overlay: they are appended into the marketplace's
+ * own result tiles, so they sit in the middle of someone else's cascade. Hence
+ * `all: initial` on the row and every property re-declared on the children —
+ * the same reset-hardening the overlay root uses, applied per element because
+ * there is no container of ours to scope under.
+ *
+ * Deliberately flat: one tint per chip, no border, no shadow. A badge that
+ * competes visually with the marketplace's own price/condition text reads as an
+ * ad, and the shopper trains themselves to ignore it. */
+.gt-cc-badge-row {
+  all: initial;
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 2px;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.4;
+}
+
+.gt-cc-badge-row .gt-cc-badge-chip {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+  background: #eef0f6;
+  color: #3d3d56;
+}
+
+.gt-cc-badge-row .gt-cc-b-good { background: #e7f6ec; color: #087443; }
+.gt-cc-badge-row .gt-cc-b-bad { background: #fde8e8; color: #b42318; }
+.gt-cc-badge-row .gt-cc-b-warn { background: #fef3c7; color: #92400e; }
+.gt-cc-badge-row .gt-cc-b-claim { background: #eef0f6; color: #3d3d56; }
+.gt-cc-badge-row .gt-cc-b-neutral { background: #eef0f6; color: #3d3d56; }
+
+.gt-cc-badge-row .gt-cc-badge-cta {
+  appearance: none;
+  border: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  background: #0f3460;
+  color: #ffffff;
+}
+
+.gt-cc-badge-row .gt-cc-badge-cta:hover { background: #14427a; }
+.gt-cc-badge-row .gt-cc-badge-cta:focus-visible { outline: 2px solid #e94560; outline-offset: 2px; }
+
+@media (prefers-color-scheme: dark) {
+  .gt-cc-badge-row .gt-cc-badge-chip,
+  .gt-cc-badge-row .gt-cc-b-claim,
+  .gt-cc-badge-row .gt-cc-b-neutral { background: #2c2c44; color: #d7d7e2; }
+  .gt-cc-badge-row .gt-cc-b-good { background: #10331f; color: #8fe0ae; }
+  .gt-cc-badge-row .gt-cc-b-bad { background: #3a1618; color: #ffb4ae; }
+  .gt-cc-badge-row .gt-cc-b-warn { background: #3a2c10; color: #f5cd7a; }
+}
+
+/* US-2238 — the seller's Flip panel, appended inside the result overlay.
+ *
+ * Visually subordinate to the condition read on purpose: it is a second
+ * question about the same listing, not a competing headline. One hairline rule
+ * separates it, and elevation is declared once (by the overlay card itself). */
+#gt-cc-overlay .gt-cc-flip {
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid #e6e6ef;
+}
+
+#gt-cc-overlay .gt-cc-flip-cta { margin: 0; }
+
+#gt-cc-overlay .gt-cc-verdict {
+  display: inline-block;
+  margin: 2px 0 6px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#gt-cc-overlay .gt-cc-v-buy { background: #e7f6ec; color: #087443; }
+#gt-cc-overlay .gt-cc-v-maybe { background: #fef3c7; color: #92400e; }
+#gt-cc-overlay .gt-cc-v-skip { background: #fde8e8; color: #b42318; }
+
+#gt-cc-overlay .gt-cc-flip-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 3px 0;
+  font-size: 12px;
+}
+
+#gt-cc-overlay .gt-cc-flip-val {
+  font-weight: 700;
+  color: #0f3460;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  #gt-cc-overlay .gt-cc-flip { border-top-color: #2c2c44; }
+  #gt-cc-overlay .gt-cc-flip-val { color: #cfe0ff; }
+  #gt-cc-overlay .gt-cc-v-buy { background: #10331f; color: #8fe0ae; }
+  #gt-cc-overlay .gt-cc-v-maybe { background: #3a2c10; color: #f5cd7a; }
+  #gt-cc-overlay .gt-cc-v-skip { background: #3a1618; color: #ffb4ae; }
+}
+
+/* US-2239: the shopper's own history with this seller. Same weight as the other
+ * notes — it is an observation they made, not a warning we are issuing. */
+#gt-cc-overlay .gt-cc-seller { font-style: normal; }

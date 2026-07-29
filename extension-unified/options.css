@@ -1,0 +1,56 @@
+/* GradeThread unified extension — settings page (US-2241).
+ *
+ * Layers on compare.css for the shared page shell (tokens, header, link
+ * buttons), and adds only the form layout. Body measure is held under 75ch so
+ * the explanatory copy under each toggle stays readable on a wide window. */
+
+.opt-body { max-width: 720px; }
+.opt-ver { margin-left: auto; font-size: 12px; color: var(--cmp-muted); }
+
+.opt-section { padding: 22px 0; border-bottom: 1px solid var(--cmp-rule); }
+.opt-section:last-child { border-bottom: 0; }
+
+.opt-h2 { margin: 0 0 10px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.opt-lead { margin: 0 0 10px; color: var(--cmp-muted); max-width: 70ch; }
+
+.opt-toggle {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0 0 16px;
+  cursor: pointer;
+}
+.opt-toggle:last-child { margin-bottom: 0; }
+.opt-toggle input { margin-top: 3px; flex: 0 0 auto; }
+.opt-toggle small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--cmp-muted);
+  max-width: 68ch;
+}
+
+.opt-list { list-style: none; margin: 0; padding: 0; }
+.opt-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--cmp-rule);
+  font-size: 13px;
+}
+.opt-list li:first-child { border-top: 0; }
+
+.opt-data li { max-width: 420px; }
+
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--cmp-rule);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.opt-note { margin: 10px 0 0; font-size: 12px; color: var(--cmp-muted); }

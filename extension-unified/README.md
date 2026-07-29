@@ -6,6 +6,43 @@ extensions into a single MV3 extension:
 - **Condition Check (buyer research)** — from `extension-condition/` (US-1755/1756).
   An independent AI condition read on eBay / Poshmark / Grailed / Mercari / Depop /
   Vinted listing pages. **Always on** — anonymous-capable, quota-capped.
+- **Depth (US-2241)** — the photo cap is now the ACCOUNT's (4 anonymous, 8 paid),
+  mirrored in `registry.js` from `lib/extension-gates.ts` so the gallery is
+  extracted at the right depth before the request goes out; the server trims to
+  the real cap regardless. Gallery dedupe now collapses one photo served at two
+  sizes via a per-adapter `assetIdPattern`. Plus the doors that weren't there:
+  **Alt+G**, a right-click **"Grade this image"** (the case the gallery selector
+  missed), an **options page** carrying every setting and the undo for per-site
+  opt-outs, and a **per-tab toolbar badge** cleared on navigation.
+- **Compare tray (US-2240)** — nobody buys ONE listing; they choose between six
+  of the same jacket at six prices, and every read used to be discarded on the
+  way to the next candidate. Pinning stores the payload the endpoint already
+  returned (no second call, no second Vision spend) into `storage.local`, capped
+  at 6, oldest-out. `compare.html` renders the table with **no network call at
+  all** — it is a record of reads the shopper already has, not a live re-query.
+  Opened via the worker (`tabs.create`), NOT linked from the content script,
+  which would require `web_accessible_resources` on every marketplace host.
+- **Seller memory (US-2239)** — every read used to be a one-off. Reads now carry
+  the seller's handle and the claim they made, so at 2+ reads of the same seller
+  the overlay states the shopper's own pattern ("your 4 reads average 1.8 points
+  below their stated condition") and the popup gets a **By seller** view.
+  **Entirely on-device**: the handle is stored in `storage.local`, never attached
+  to any request, and nothing is written to `reputation_events` /
+  `buyer_trust_scores` (US-2148 — a seller-adverse score needs its own model and
+  a human-confirmed basis, which a handful of unconfirmed reads is not).
+- **Flip mode (US-2238)** — the SELLER's question about the same listing. On a
+  detail page, a FlipDesk account gets "Should I flip this?": the listing's own
+  photos are shadow-graded, priced against condition-matched eBay comps, and
+  turned into resale range / margin after fees / break-even / days-to-sell /
+  buy-or-pass (`POST /api/flipdesk/scout/appraise-url`, the URL-fed twin of
+  ScoutAI's `/appraise`). **Click-to-run, never automatic** — it spends a metered
+  AI action, unlike the buyer read's free tier. The shadow grade is private to
+  the tenant and is never written to `grade_reports` (US-620).
+- **Scan mode (US-2237)** — the same six marketplaces' **search / category grids**.
+  Badges each result with the seller's *claimed* condition and whether the asking
+  price is high or low for that claim. **It does not grade**: no photo is fetched
+  and no Vision call is made, which is why it can run automatically (default ON)
+  where the detail-page read stays click-to-run.
 - **Lister (seller cross-post)** — from `extension/` (US-716). Cross-post + delist
   FlipDesk drafts into Poshmark / Mercari / Grailed from the seller's own logged-in
   tab. **Unlocks only for an active paid FlipDesk account.**
@@ -22,7 +59,10 @@ background.js        one service worker — routes GT_CC_* + GT_LISTER_* + entit
 registry.js          feature registry — resolves capabilities from entitlements+settings
 popup.html/js/css    role-aware popup (US-1885)
 onboarding.html      first-run page opened on install (US-1885 AC4)
-research/            buyer overlay  (selectors.js, image-utils.js, marketplace.js, overlay.css)
+research/            buyer overlay  (selectors.js, image-utils.js, condition-format.js,
+                     scan-format.js, flip-format.js, seller-memory.js,
+                     compare-tray.js, marketplace.js, overlay.css)
+compare.html/js/css  the side-by-side view for the pinned tray (US-2240)
 lister/              seller Lister  (selectors.js, lister-guard.js, common.js, poshmark/mercari/grailed.js)
 icons/               shared icon set
 test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)
@@ -35,8 +75,10 @@ test/                zero-dep node guards (run in verify:web via scripts/test-ex
 | capability | granted when |
 |---|---|
 | `research` | **always** (anonymous allowed, quota-capped server-side) |
-| `autoRun`  | buyer setting |
+| `autoRun`  | buyer setting (default **off** — it spends a Vision call per listing) |
+| scan mode  | buyer setting (default **on** — it spends none; `scanMode !== false`) |
 | `lister` / `delist` | `sellerEnabled` — an **active paid FlipDesk** plan |
+| flip mode  | `sellerEnabled`, gated in BOTH the content script (render) and the background (request); the server gates again via `requireFlipdesk` |
 
 `background.js` fetches `GET https://functions.gradethread.com/api/grading/public/entitlements`
 with the signed extension token (US-1838), normalizes it through the registry, and
@@ -68,6 +110,13 @@ merged. The posture is now:
 > public endpoint (nothing is persisted server-side). Lister automation runs
 > entirely on your device — GradeThread never receives your marketplace password or
 > cookies, and records a cross-listing only from your own GradeThread session.
+
+**Scan mode adds one flow, and it is the only one that runs without a click** —
+so it is stated separately in `SUBMISSION.md` rather than folded into the above.
+On a supported search page it sends the text *already printed on* up to 24 visible
+result cards (title, price, stated condition) to `/api/grading/public/scan`. No
+photos, no page address, no account identifier; nothing is persisted; the popup
+toggle switches it off.
 
 ## Wiring for the single extension id (US-1873 AC5)
 

@@ -43,6 +43,20 @@
     };
   }
 
+  // US-2241: how many listing photos a grade may use. MIRRORS
+  // lib/extension-gates.ts on the edge — the server is the authority and trims
+  // to the caller's real cap, but the client needs the number BEFORE it extracts
+  // a gallery, or it would send four thumbnails and never know it could have
+  // sent eight. Same rule on both sides: any plan that is not "free" is paid, so
+  // a plan added later inherits the deeper read rather than silently falling
+  // back to the floor.
+  var MAX_IMAGES_ANON = 4;
+  var MAX_IMAGES_PAID = 8;
+
+  function maxImagesFor(buyerPlan) {
+    return buyerPlan && buyerPlan !== "free" ? MAX_IMAGES_PAID : MAX_IMAGES_ANON;
+  }
+
   // The capability map. `settings` carries the buyer's local prefs (autoRun).
   //   research : ALWAYS on — anonymous allowed, quota-capped server-side.
   //   autoRun  : buyer setting (only meaningful because research is always on).
@@ -61,6 +75,7 @@
       sellerEnabled: ent.sellerEnabled === true,
       buyerPlan: ent.buyerPlan,
       flipdeskPlan: ent.flipdeskPlan,
+      maxImages: maxImagesFor(ent.buyerPlan),
     };
   }
 
@@ -77,6 +92,9 @@
     ANONYMOUS_ENTITLEMENTS: ANONYMOUS_ENTITLEMENTS,
     normalizeEntitlements: normalizeEntitlements,
     resolveCapabilities: resolveCapabilities,
+    maxImagesFor: maxImagesFor,
+    MAX_IMAGES_ANON: MAX_IMAGES_ANON,
+    MAX_IMAGES_PAID: MAX_IMAGES_PAID,
     entitlementsFresh: entitlementsFresh,
   };
 })(typeof self !== "undefined" ? self : globalThis);
