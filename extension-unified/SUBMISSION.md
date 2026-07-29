@@ -1,7 +1,7 @@
-# Store submission kit — GradeThread unified extension v0.4.0
+# Store submission kit — GradeThread unified extension v0.5.0
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v0.4.0-chrome.zip` · `dist-ext/gradethread-v0.4.0-firefox.zip`.
+`dist-ext/gradethread-v0.5.0-chrome.zip` · `dist-ext/gradethread-v0.5.0-firefox.zip`.
 
 ## Shared fields
 
@@ -33,6 +33,7 @@ ON SEARCH PAGES
 Browsing a search or category page, GradeThread adds a small tag to each result showing the condition the seller claims and whether the asking price is high or low for that claim. Nothing is graded there — no photos are read until you open a listing and ask for a condition read. You can switch this off in the popup.
 
 FOR FLIPDESK SELLERS
+Sourcing? On any supported listing, "Should I flip this?" prices the item against comparable sales at the condition its photos actually show, and tells you the resale range, your margin after fees, what you can afford to pay, and how long it should take to sell. It runs only when you ask.
 Send a draft from FlipDesk and the extension opens the destination site's new-listing form in your own logged-in tab, already filled in. You review the details and click List — GradeThread never signs in to the marketplace for you.
 
 YOUR SESSIONS STAY YOURS
@@ -118,9 +119,13 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v0.4.0)
+## Version / release notes (v0.5.0)
 
 ```
+New: flip checks for FlipDesk sellers. On any supported listing, ask "Should I flip
+this?" and get the resale range at the condition shown, margin after fees, a
+break-even buy price and an expected time to sell. It only runs when you tap it.
+
 New: search-page tags. On a supported marketplace's search or category page, each
 result now carries the condition the seller claims and whether the price is high or
 low for that claim. Nothing is graded there — no photos are read until you open a

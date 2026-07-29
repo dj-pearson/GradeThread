@@ -262,3 +262,53 @@
   .gt-cc-badge-row .gt-cc-b-bad { background: #3a1618; color: #ffb4ae; }
   .gt-cc-badge-row .gt-cc-b-warn { background: #3a2c10; color: #f5cd7a; }
 }
+
+/* US-2238 — the seller's Flip panel, appended inside the result overlay.
+ *
+ * Visually subordinate to the condition read on purpose: it is a second
+ * question about the same listing, not a competing headline. One hairline rule
+ * separates it, and elevation is declared once (by the overlay card itself). */
+#gt-cc-overlay .gt-cc-flip {
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid #e6e6ef;
+}
+
+#gt-cc-overlay .gt-cc-flip-cta { margin: 0; }
+
+#gt-cc-overlay .gt-cc-verdict {
+  display: inline-block;
+  margin: 2px 0 6px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#gt-cc-overlay .gt-cc-v-buy { background: #e7f6ec; color: #087443; }
+#gt-cc-overlay .gt-cc-v-maybe { background: #fef3c7; color: #92400e; }
+#gt-cc-overlay .gt-cc-v-skip { background: #fde8e8; color: #b42318; }
+
+#gt-cc-overlay .gt-cc-flip-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 3px 0;
+  font-size: 12px;
+}
+
+#gt-cc-overlay .gt-cc-flip-val {
+  font-weight: 700;
+  color: #0f3460;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  #gt-cc-overlay .gt-cc-flip { border-top-color: #2c2c44; }
+  #gt-cc-overlay .gt-cc-flip-val { color: #cfe0ff; }
+  #gt-cc-overlay .gt-cc-v-buy { background: #10331f; color: #8fe0ae; }
+  #gt-cc-overlay .gt-cc-v-maybe { background: #3a2c10; color: #f5cd7a; }
+  #gt-cc-overlay .gt-cc-v-skip { background: #3a1618; color: #ffb4ae; }
+}

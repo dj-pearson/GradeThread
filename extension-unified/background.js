@@ -50,6 +50,10 @@ const GRADE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/gra
 // against the grade budget would let a few scrolls of a results page exhaust the
 // shopper's ability to actually grade anything.
 const SCAN_ENDPOINT = "https://functions.gradethread.com/api/grading/public/scan";
+// US-2238: flip mode. NOT under /api/grading/public — this one is authenticated
+// and plan-gated (FlipDesk compPulls), so it lives on the seller side and needs
+// the signed extension token. A request without one is a 401 by design.
+const APPRAISE_ENDPOINT = "https://functions.gradethread.com/api/flipdesk/scout/appraise-url";
 const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/public/entitlements";
 const SELECTOR_HEALTH_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/selector-health";
@@ -389,6 +393,61 @@ async function scanCards({ cards, marketplace, query, brand }) {
   }
   if (resp.ok && json) return { ok: true, status: resp.status, data: json };
   return { ok: false, status: resp.status, error: (json && json.error) || "scan failed" };
+}
+
+// ── flip mode: the sourcing appraisal (US-2238) ───────────────────────────
+// Seller-only, and gated HERE as well as on the server. The entitlement check is
+// not decoration: without it an unentitled install would fire a request that
+// spends nothing (the server refuses) but still shows the seller a spinner and
+// then an error, which reads as broken rather than as locked.
+async function appraiseListing(msg) {
+  const caps = await getCapabilities(false);
+  if (!caps.sellerEnabled) {
+    return { ok: false, status: 403, needsUpgrade: true, error: "FlipDesk plan required." };
+  }
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, status: 401, error: "Sign in to GradeThread to appraise listings." };
+  }
+  if (!Array.isArray(msg.imageUrls) || msg.imageUrls.length === 0) {
+    return { ok: false, status: 400, error: "No listing photos to appraise." };
+  }
+  let resp;
+  try {
+    resp = await fetch(APPRAISE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify({
+        imageUrls: msg.imageUrls.slice(0, 4),
+        title: msg.title || undefined,
+        brand: msg.brand || undefined,
+        priceCents: typeof msg.priceCents === "number" ? msg.priceCents : undefined,
+        marketplace: msg.marketplace || undefined,
+      }),
+    });
+  } catch (_e) {
+    return { ok: false, status: 0, error: "Couldn't reach GradeThread. Check your connection." };
+  }
+  let json = null;
+  try {
+    json = await resp.json();
+  } catch (_e) {
+    json = null;
+  }
+  if (resp.ok && json) return { ok: true, status: resp.status, data: json };
+  // 402 is the plan gate (requireFlipdesk) and 429 the monthly AI cap. Both are
+  // states the seller can act on, and neither is worth a retry — so they are
+  // threaded through rather than flattened into "something went wrong".
+  return {
+    ok: false,
+    status: resp.status,
+    error: (json && json.error) || "Couldn't appraise this listing right now.",
+    needsUpgrade: resp.status === 402,
+    quotaExhausted: resp.status === 429,
+  };
 }
 
 // ── per-listing grade recall cache ────────────────────────────────────────
@@ -1017,6 +1076,11 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // that is now a different listing is worse than no badge.
       case "GT_CC_SCAN":
         sendResponse(await scanCards(msg));
+        break;
+      // US-2238: flip mode. Not cached — the seller can re-price or the comps can
+      // move, and a stale ROI is the one number they'd act on.
+      case "GT_CC_APPRAISE":
+        sendResponse(await appraiseListing(msg));
         break;
       case "GT_CC_GET_CACHED":
         sendResponse(await readGradeCache(msg.listingKey));

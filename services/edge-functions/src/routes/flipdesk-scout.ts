@@ -27,7 +27,7 @@ import {
 } from "../lib/condition-value.ts";
 import { gradeToConditionId } from "../lib/repricing.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
-import { decideBuy } from "../lib/scout-decision.ts";
+import { decideBuy, DECISION_FEE_RATE } from "../lib/scout-decision.ts";
 import {
   rankCandidates,
   scoreCandidate,
@@ -304,6 +304,249 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
       "This is a private AI estimate from your photo — not a GradeThread certificate. Resale, sell-through, and ROI are estimates from condition-matched eBay comps. Verify condition before buying.",
   });
 });
+
+// ── US-2238: /appraise-url — appraise a listing you are LOOKING AT ──────────
+//
+// /appraise and /prospect both assume the reseller is HOLDING the item: they
+// take an uploaded photo. But most sourcing now happens online — a flipper
+// scrolling eBay, Poshmark or Grailed is standing in the same decision, with
+// the item's photos already on the page in front of them.
+//
+// This is that entry point, and it exists for the browser extension: same
+// grade → value → sell-through → buy/pass pipeline, fed by the listing's public
+// image URLs instead of an upload. The cost basis is the ASKING PRICE, which is
+// the number the flipper would actually pay.
+//
+// It is the seller-side twin of /api/grading/public/grade-from-url and shares
+// that route's SSRF posture: quickGrade fetches every URL through safeFetch
+// (private-range blocklist, redirect re-validation, size cap, content-type
+// check), and parseAppraiseUrls rejects anything that isn't a well-formed
+// http(s) URL BEFORE a socket opens or an AI action is reserved.
+//
+// PRIVACY / US-620: the grade produced here is a PRIVATE shadow grade for the
+// requesting tenant. It is never written to grade_reports, never published, and
+// never re-labels the seller's listing — the response says so, and the extension
+// renders it as an estimate.
+const MAX_APPRAISE_URLS = 4;
+
+export const APPRAISE_URL_DISCLAIMER =
+  "A private AI estimate from the listing's own photos — not a GradeThread certificate, " +
+  "and never shown to the seller. Resale, sell-through and ROI are estimates from " +
+  "condition-matched eBay comps. Inspect the item before you buy.";
+
+
+/**
+ * Validate the listing image URLs. PURE — exported for the edge test. Mirrors
+ * parseGradeFromUrlBody in public-grading.ts: obvious junk is rejected here so a
+ * bad request never reserves an AI action, and the real SSRF check still happens
+ * inside quickGrade/safeFetch.
+ */
+export function parseAppraiseUrls(
+  raw: unknown,
+): { ok: true; urls: string[] } | { ok: false; error: string } {
+  const list: unknown[] = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  const urls: string[] = [];
+  for (const u of list) {
+    if (typeof u !== "string") continue;
+    const trimmed = u.trim();
+    if (!trimmed) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      return { ok: false, error: "Each listing photo must be a valid URL." };
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return { ok: false, error: "Listing photo URLs must be http(s)." };
+    }
+    urls.push(trimmed);
+    if (urls.length >= MAX_APPRAISE_URLS) break;
+  }
+  if (urls.length === 0) return { ok: false, error: "Provide at least one listing photo URL." };
+  return { ok: true, urls };
+}
+
+flipdeskScoutRoutes.post("/appraise-url", async (c) => {
+  // US-268: the tenant for EVERY downstream spend — the plan gate, the quota
+  // check and the AI reservation. A workspace member acting in the owner's
+  // workspace spends the OWNER's quota, which is why this is
+  // workspaceOwnerId ?? userId and never a bare userId.
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  // Same paid gate as /appraise: this runs the grader and pulls comps.
+  const gate = await requireFlipdesk(c, { feature: "compPulls", userId });
+  if (gate) return gate;
+
+  let body: {
+    imageUrls?: unknown;
+    title?: unknown;
+    brand?: unknown;
+    size?: unknown;
+    categoryId?: unknown;
+    priceCents?: unknown;
+    marketplace?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+
+  const parsedUrls = parseAppraiseUrls(body.imageUrls);
+  if (!parsedUrls.ok) return jsonError(c, 400, parsedUrls.error);
+
+  const title = typeof body.title === "string" ? body.title.trim().slice(0, 200) : "";
+  const brand = typeof body.brand === "string" ? body.brand.trim().slice(0, 80) : "";
+  const size = typeof body.size === "string" ? body.size.trim().slice(0, 24) : "";
+  let categoryId = typeof body.categoryId === "string" ? body.categoryId.trim() : "";
+  // The asking price IS the cost basis: what the flipper would pay to source it.
+  const costCents = typeof body.priceCents === "number" && body.priceCents > 0
+    ? Math.round(body.priceCents)
+    : null;
+
+  if (!title && !brand && !categoryId) {
+    return jsonError(
+      c,
+      400,
+      "Provide the listing's title or brand so we can find comparable sales.",
+    );
+  }
+
+  const quota = await checkQuota(userId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  // 1) PRIVATE shadow grade from the listing's own photos. One AI action,
+  //    reserved atomically and refunded if the grade fails.
+  const reserved = await reserveAiActionSafe(userId, quota.limit);
+  if (reserved !== true) {
+    return jsonError(
+      c,
+      429,
+      "Monthly AI action limit reached — upgrade or wait for the reset.",
+    );
+  }
+  let shadowGrade: number | null = null;
+  let gradeConfidence = 0;
+  let gradeTier: string | null = null;
+  let needsHumanReview = false;
+  let imagesAnalyzed = 0;
+  try {
+    const grade = await quickGrade({
+      images: parsedUrls.urls.map((url, i) => ({
+        url,
+        type: i === 0 ? "front" : "detail",
+      })),
+      garment: { brand: brand || null, title: title || undefined },
+    });
+    shadowGrade = grade.overallScore;
+    gradeConfidence = grade.confidence;
+    gradeTier = grade.gradeTier;
+    needsHumanReview = grade.needsHumanReview;
+    imagesAnalyzed = grade.imagesAnalyzed;
+  } catch (err) {
+    await refundAiAction(userId);
+    return failSafe(
+      c,
+      502,
+      "Couldn't read this listing's photos. Try again shortly.",
+      err,
+      "scout.appraise-url.grade",
+    );
+  }
+
+  // 2) Condition-adjusted value at THAT grade. A category is required by eBay
+  //    Browse; resolve one from the listing text when the caller didn't send it.
+  if (!categoryId) {
+    try {
+      const query = [brand, title].filter(Boolean).join(" ").trim();
+      categoryId = (await suggestCategories(query))[0]?.categoryId ?? "";
+    } catch (err) {
+      return failSafe(
+        c,
+        502,
+        "Couldn't reach eBay to value this listing. Try again shortly.",
+        err,
+        "scout.appraise-url.category",
+      );
+    }
+  }
+  if (!categoryId) {
+    // No category means no comps, and no comps means no honest margin. Say so
+    // rather than returning a decision built on nothing. The grade is still
+    // returned — it is real, and it cost an AI action the caller already spent.
+    return c.json({
+      grade: {
+        value: shadowGrade,
+        tier: gradeTier,
+        confidence: gradeConfidence,
+        needsHumanReview,
+        imagesAnalyzed,
+      },
+      value: null,
+      sellThrough: null,
+      costCents,
+      decision: null,
+      insufficientComps: true,
+      disclaimer: APPRAISE_URL_DISCLAIMER,
+    });
+  }
+
+  let value: ValueRange;
+  try {
+    value = await valueAtGrade(
+      {
+        categoryId,
+        q: title || undefined,
+        brand: brand || undefined,
+        size: size || undefined,
+      },
+      shadowGrade,
+    );
+  } catch (err) {
+    return failSafe(
+      c,
+      502,
+      "Couldn't reach eBay to value this listing. Try again shortly.",
+      err,
+      "scout.appraise-url.value",
+    );
+  }
+
+  // 3) Sell-through + the buy/pass verdict at the asking price.
+  const sellThrough = forecastSellThrough(value, value.medianCents ?? 0);
+  const decision = decideBuy({
+    shadowGrade,
+    gradeConfidence,
+    value,
+    sellThrough,
+    costCents,
+  });
+
+  recordMetric("scout.appraise-url", 1, {
+    recommendation: decision.recommendation,
+    marketplace: typeof body.marketplace === "string" ? body.marketplace.slice(0, 24) : "unknown",
+  });
+
+  return c.json({
+    grade: {
+      value: shadowGrade,
+      tier: gradeTier,
+      confidence: gradeConfidence,
+      needsHumanReview,
+      imagesAnalyzed,
+    },
+    value,
+    sellThrough,
+    costCents,
+    decision,
+    feeRate: DECISION_FEE_RATE,
+    // Thin comps are reported, not hidden: the caller renders "not enough
+    // comps" instead of a margin computed off a two-item sample.
+    insufficientComps: !value.sufficient,
+    disclaimer: APPRAISE_URL_DISCLAIMER,
+  });
+});
+
 
 // ── US-1107: /prospect — snap-and-source, NO typing ─────────────────────────
 //

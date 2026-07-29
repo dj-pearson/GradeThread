@@ -26,6 +26,7 @@
   const IMG = self.GT_CC_IMG; // pure helpers (research/image-utils.js)
   const FMT = self.GT_CC_FMT; // US-1884: pure result-formatting (condition-format.js)
   const SCAN = self.GT_CC_SCAN; // US-2237: pure scan helpers (scan-format.js)
+  const FLIP = self.GT_CC_FLIP; // US-2238: pure flip-mode formatting (flip-format.js)
   const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
   const HARD_MAX_URLS = 4; // endpoint cap — never exceed regardless of adapter
   const OVERLAY_ID = "gt-cc-overlay";
@@ -44,6 +45,14 @@
   let scanning = false;
   let scanEnabled = false;
   let onSearchPage = false;
+  // US-2238 flip-mode state. `caps` is the resolved capability map; the Flip
+  // panel only exists for an install whose account has an active FlipDesk plan.
+  let caps = null;
+  let appraising = false;
+  // The Flip panel's host node inside the result overlay. Declared up here with
+  // the rest of the module state because removeOverlay() and invalidate() both
+  // clear it, and both run before the flip section further down the file.
+  let flipHost = null;
   let escHandler = null; // US-1884 (AC3): active Esc-to-dismiss listener, if any.
 
   // US-1878 (AC3): the GENERATION token.
@@ -68,6 +77,11 @@
     // nodes are gone (or worse, recycled by the router for different listings),
     // so a late response must not badge them.
     scanning = false;
+    // US-2238: the Flip panel lives INSIDE the result overlay, so once that is
+    // gone its host node is detached. Dropping the reference stops a late
+    // appraisal writing into a node nobody can see.
+    appraising = false;
+    flipHost = null;
     // And the re-scan tick stops until the next boot re-establishes where we
     // are. Without this, navigating from a search page to a page boot bails on
     // (an unsupported path, a disabled host) leaves the tick running the OLD
@@ -210,6 +224,7 @@
   function removeOverlay() {
     const existing = document.getElementById(OVERLAY_ID);
     if (existing) existing.remove();
+    flipHost = null; // US-2238: the panel went with the overlay.
     // US-1884 (AC3): tear down the Esc-to-dismiss listener with the overlay.
     if (escHandler) {
       document.removeEventListener("keydown", escHandler, true);
@@ -488,7 +503,138 @@
       again.textContent = "Re-read";
       again.addEventListener("click", () => runGrade());
       body.appendChild(again);
+
+      // US-2238: the seller's half of this listing. Appended LAST and only for a
+      // FlipDesk account — a shopper must never see a resale-margin panel on the
+      // item they are trying to buy.
+      if (FLIP && caps && caps.sellerEnabled === true) {
+        body.appendChild(flipSection());
+      }
     }, { focusClose: true });
+  }
+
+  // ── flip mode: "should I flip this?" (US-2238) ───────────────────────────
+  //
+  // The buyer overlay asks whether the item is in the condition claimed. A
+  // reseller sourcing on the same page is asking something else entirely: buy at
+  // the asking price, resell, does it clear? ScoutAI already computes that from
+  // an uploaded photo; this is the same pipeline fed by the listing's own photos.
+  //
+  // Deliberately CLICK-TO-RUN, never automatic: unlike the buyer read it spends
+  // one of the seller's metered AI actions plus comp pulls, and a panel that
+  // silently burned quota on every listing they scrolled past would be a bill
+  // they never agreed to.
+  function flipSection() {
+    flipHost = el("div", "gt-cc-flip");
+    const cta = el("button", "gt-cc-secondary gt-cc-flip-cta");
+    cta.setAttribute("type", "button");
+    cta.textContent = FLIP.STRINGS.cta;
+    cta.addEventListener("click", () => runAppraise());
+    flipHost.appendChild(cta);
+    return flipHost;
+  }
+
+  function renderFlip(build) {
+    if (!flipHost) return;
+    flipHost.textContent = "";
+    flipHost.appendChild(el("p", "gt-cc-factors-h", FLIP.STRINGS.heading));
+    build(flipHost);
+  }
+
+  function renderFlipMessage(message, opts) {
+    renderFlip((host) => {
+      host.appendChild(el("p", "gt-cc-note", message));
+      if (opts && opts.upgradeUrl) {
+        const up = el("a", "gt-cc-link", "See FlipDesk plans →");
+        up.href = opts.upgradeUrl;
+        up.target = "_blank";
+        up.rel = "noopener noreferrer";
+        host.appendChild(up);
+      }
+      if (opts && opts.retry) {
+        const again = el("button", "gt-cc-secondary");
+        again.setAttribute("type", "button");
+        again.textContent = "Try again";
+        again.addEventListener("click", () => runAppraise());
+        host.appendChild(again);
+      }
+    });
+  }
+
+  function renderFlipResult(data) {
+    const panel = FLIP.panelFor(data);
+    if (!panel) {
+      renderFlipMessage(FLIP.STRINGS.noComps);
+      return;
+    }
+    renderFlip((host) => {
+      if (panel.verdict) {
+        const v = el("div", "gt-cc-verdict " + panel.verdict.cls, panel.verdict.label);
+        host.appendChild(v);
+      }
+      for (const row of panel.rows) {
+        const line = el("div", "gt-cc-flip-row");
+        line.appendChild(el("span", "gt-cc-factor-label", row.label));
+        line.appendChild(el("span", "gt-cc-flip-val", row.value));
+        host.appendChild(line);
+      }
+      if (panel.reason) host.appendChild(el("p", "gt-cc-note", panel.reason));
+      if (panel.note) host.appendChild(el("p", "gt-cc-note", panel.note));
+      host.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || FLIP.STRINGS.privateNote)));
+
+      const again = el("button", "gt-cc-secondary");
+      again.setAttribute("type", "button");
+      again.textContent = "Re-check";
+      again.addEventListener("click", () => runAppraise());
+      host.appendChild(again);
+    });
+  }
+
+  async function runAppraise() {
+    if (appraising || !FLIP) return;
+    const imageUrls = extractImageUrls();
+    if (!imageUrls.length) {
+      renderFlipMessage("Couldn't find this listing's photos to appraise.");
+      return;
+    }
+    appraising = true;
+    renderFlipMessage(FLIP.STRINGS.working);
+
+    // Same generation guard as a grade — and it matters more here, because the
+    // panel is nested inside a result the shopper may have navigated away from.
+    const myEpoch = epoch;
+    const res = await send({
+      type: "GT_CC_APPRAISE",
+      imageUrls: imageUrls,
+      title: extractTitle(),
+      brand: extractBrand(),
+      priceCents: FLIP.priceToCents(extractPrice()),
+      marketplace: (adapter && adapter.key) || "",
+    });
+    if (myEpoch !== epoch) return;
+    appraising = false;
+
+    if (!res) {
+      renderFlipMessage("Something interrupted the flip check.", { retry: true });
+      return;
+    }
+    if (res.ok && res.data) {
+      renderFlipResult(res.data);
+      return;
+    }
+    if (res.needsUpgrade) {
+      renderFlipMessage(res.error || FLIP.STRINGS.upgrade, {
+        upgradeUrl: "https://gradethread.com/pricing?utm_source=extension&utm_medium=flip",
+      });
+      return;
+    }
+    // A spent monthly cap is not retryable — offering "try again" would just
+    // walk the seller into the same 429.
+    if (res.quotaExhausted) {
+      renderFlipMessage(res.error || FLIP.STRINGS.quota);
+      return;
+    }
+    renderFlipMessage(res.error || "Couldn't appraise this listing right now.", { retry: true });
   }
 
   function renderError(message, canRetry) {
@@ -821,6 +967,15 @@
       if (scanEnabled) runScan();
       return;
     }
+
+    // US-2238: resolve what this account may do BEFORE any result renders, so
+    // the Flip panel is present on the first paint rather than popping in after.
+    // The background caches entitlements for 5 minutes, so this is a message
+    // round trip and not a network call on most boots. A failure leaves caps
+    // null, which reads as "no seller tools" — the same fail-safe the registry
+    // applies everywhere else.
+    caps = await send({ type: "GT_GET_CAPABILITIES" });
+    if (stale()) return;
 
     // Recall: if this exact listing was already graded, show that SAME grade
     // instead of the launcher (a return visit to a graded item is stable, and it

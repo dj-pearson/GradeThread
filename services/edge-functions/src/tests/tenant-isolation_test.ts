@@ -3143,3 +3143,59 @@ Deno.test({
     }
   },
 });
+
+// ── US-2238: /api/flipdesk/scout/appraise-url ────────────────────────────────
+//
+// The extension's sourcing appraisal. It takes NO resource id — the body is a
+// list of public image URLs — so there is no row for a caller to reach across
+// tenants. What it DOES do is spend the tenant's money: a paid plan gate, an AI
+// action, and eBay comp pulls, all keyed on workspaceOwnerId ?? userId.
+//
+// So the isolation boundary worth proving is the SPEND boundary. A non-member
+// carrying somebody else's X-Workspace-Owner must be stopped by
+// workspaceMiddleware before the handler reserves anything against that
+// workspace's quota; and a viewer inside the workspace must not be able to burn
+// the owner's AI actions either.
+const APPRAISE_URL_BODY = JSON.stringify({
+  imageUrls: ["https://example.com/a.jpg"],
+  title: "Patagonia Better Sweater",
+  priceCents: 2000,
+});
+
+Deno.test({
+  name: "US-2238: non-member B cannot appraise against A's workspace quota",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/appraise-url`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+      body: APPRAISE_URL_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/appraise-url as a non-member of A's workspace");
+  },
+});
+
+// NOT asserted here, deliberately: that a VIEWER member cannot appraise. No role
+// gate exists on /api/flipdesk/scout/* at all today, so a viewer can already burn
+// the owner's AI quota through /appraise, /prospect and the ScoutAI scan. That is
+// a real gap and a pre-existing one across the whole mount — writing the case for
+// appraise-url alone would either fail on a correct fixture or pretend the mount
+// were fixed. Tracked as its own story rather than smuggled in here.
+
+Deno.test({
+  // Unauthenticated must never reach the grader: the route sits behind
+  // authMiddleware, and a fallback-to-anonymous regression here would hand a
+  // free Vision call to anyone who found the URL.
+  name: "US-2238: scout/appraise-url rejects an unauthenticated caller",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/appraise-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: APPRAISE_URL_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/appraise-url with no auth");
+  },
+});

@@ -6,6 +6,14 @@ extensions into a single MV3 extension:
 - **Condition Check (buyer research)** — from `extension-condition/` (US-1755/1756).
   An independent AI condition read on eBay / Poshmark / Grailed / Mercari / Depop /
   Vinted listing pages. **Always on** — anonymous-capable, quota-capped.
+- **Flip mode (US-2238)** — the SELLER's question about the same listing. On a
+  detail page, a FlipDesk account gets "Should I flip this?": the listing's own
+  photos are shadow-graded, priced against condition-matched eBay comps, and
+  turned into resale range / margin after fees / break-even / days-to-sell /
+  buy-or-pass (`POST /api/flipdesk/scout/appraise-url`, the URL-fed twin of
+  ScoutAI's `/appraise`). **Click-to-run, never automatic** — it spends a metered
+  AI action, unlike the buyer read's free tier. The shadow grade is private to
+  the tenant and is never written to `grade_reports` (US-620).
 - **Scan mode (US-2237)** — the same six marketplaces' **search / category grids**.
   Badges each result with the seller's *claimed* condition and whether the asking
   price is high or low for that claim. **It does not grade**: no photo is fetched
@@ -28,7 +36,7 @@ registry.js          feature registry — resolves capabilities from entitlement
 popup.html/js/css    role-aware popup (US-1885)
 onboarding.html      first-run page opened on install (US-1885 AC4)
 research/            buyer overlay  (selectors.js, image-utils.js, condition-format.js,
-                     scan-format.js, marketplace.js, overlay.css)
+                     scan-format.js, flip-format.js, marketplace.js, overlay.css)
 lister/              seller Lister  (selectors.js, lister-guard.js, common.js, poshmark/mercari/grailed.js)
 icons/               shared icon set
 test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)
@@ -44,6 +52,7 @@ test/                zero-dep node guards (run in verify:web via scripts/test-ex
 | `autoRun`  | buyer setting (default **off** — it spends a Vision call per listing) |
 | scan mode  | buyer setting (default **on** — it spends none; `scanMode !== false`) |
 | `lister` / `delist` | `sellerEnabled` — an **active paid FlipDesk** plan |
+| flip mode  | `sellerEnabled`, gated in BOTH the content script (render) and the background (request); the server gates again via `requireFlipdesk` |
 
 `background.js` fetches `GET https://functions.gradethread.com/api/grading/public/entitlements`
 with the signed extension token (US-1838), normalizes it through the registry, and

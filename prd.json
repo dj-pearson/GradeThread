@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2242",
+  "nextId": "US-2243",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5543,6 +5543,18 @@
         "An options page (options.html declared as options_ui) hosts every setting currently buried in the popup: autoRun, scan mode, selector telemetry, per-site disables with a removable list, and clear-history actions",
         "The toolbar action badge shows the last read's score on the active listing tab and clears on navigation away; a tab with no read shows no badge",
         "The new permissions (contextMenus) are added to manifest.json and reflected in the privacy posture section of extension-unified/README.md; test/manifest-hosts.test.cjs still passes and a guard asserts no new host permission was introduced"
+      ]
+    },
+    {
+      "id": "US-2242",
+      "passes": false,
+      "title": "No role gate on /api/flipdesk/scout/* — a read-only viewer can spend the owner's AI quota",
+      "description": "As a workspace owner, I want read-only members blocked from actions that spend my AI actions and comp pulls, so that adding a viewer to my workspace cannot cost me money.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/main.ts applies a role gate of at least listing_manager to /api/flipdesk/scout/* (the mount has authMiddleware, accessGateMiddleware and workspaceMiddleware today, but no requireRole), so a role=viewer member is denied before any AI action is reserved",
+        "All four spend routes are covered: POST /api/flipdesk/scout/, /appraise, /appraise-url and /prospect — each reserves an AI action via reserveAiActionSafe against the OWNER's cap",
+        "services/edge-functions/src/tests/tenant-isolation_test.ts gains a C3 viewer case per route, alongside the existing consignment/publish-batch/grade-pay cases; the US-2238 comment block noting this gap is removed once the cases land",
+        "An owner or an admin/listing_manager member is unaffected — a positive-path assertion proves the gate did not lock out the roles that should have access"
       ]
     }
   ]
