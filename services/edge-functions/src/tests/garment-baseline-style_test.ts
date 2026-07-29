@@ -141,7 +141,13 @@ Deno.test("US-2217: an unknown or empty pack still yields no block", () => {
 Deno.test("US-2217: a style-grounded brief gets its own prompt version", () => {
   // The grading-engine prompt-lifecycle rule: a distinct dynamic-context era
   // needs a distinct suffix or accuracy-tracking cannot separate them.
-  assert(BASELINE_GEN_STYLE_VERSION !== BASELINE_GEN_GROUNDED_VERSION);
+  // Widened for the same reason as the bucket check above: TS proves literal
+  // inequality at compile time, but the runtime guard is what keeps a future
+  // edit from collapsing the two version names into one.
+  assert(
+    (BASELINE_GEN_STYLE_VERSION as string) !==
+      (BASELINE_GEN_GROUNDED_VERSION as string),
+  );
   assertStringIncludes(BASELINE_GEN_STYLE_VERSION, "+style");
 });
 

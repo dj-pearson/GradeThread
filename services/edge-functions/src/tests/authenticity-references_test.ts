@@ -79,8 +79,12 @@ Deno.test("US-2218: a non-visual tell is NEVER marked unverifiable", () => {
   const v = assessTellVerifiability(LV_TELLS, []);
   const dateCode = v.find((x) => x.tell.category === "date_code");
   assertEquals(dateCode?.visuallyUnverifiable, false);
+  // Widened to ReadonlySet<string>: the point is to check categories that are
+  // NOT members, which a ReadonlySet<AuthTellCategory> will not accept as an
+  // argument.
+  const visual: ReadonlySet<string> = VISUAL_TELL_CATEGORIES;
   for (const c of ["date_code", "serial", "packaging", "material", "other"]) {
-    assert(!VISUAL_TELL_CATEGORIES.has(c), `${c} must not require imagery`);
+    assert(!visual.has(c), `${c} must not require imagery`);
   }
 });
 
@@ -188,7 +192,15 @@ Deno.test("US-2218: rights are mandatory at the schema level", () => {
 
 Deno.test("US-2218: the bucket is PRIVATE and is not item-photos", () => {
   assertEquals(REFERENCE_BUCKET, "authenticity-references");
-  assert(REFERENCE_BUCKET !== "item-photos", "never the public bucket");
+  // Widened to string on purpose. TypeScript narrows the exported const to a
+  // literal type and can prove this comparison at compile time, which makes the
+  // expression an error rather than an assertion — but the RUNTIME guard is
+  // still what we want, so a later edit to the constant fails a test instead of
+  // silently pointing at the public bucket.
+  assert(
+    (REFERENCE_BUCKET as string) !== "item-photos",
+    "never the public bucket",
+  );
   assertStringIncludes(MIGRATION, "'authenticity-references',\n  false,");
 });
 
