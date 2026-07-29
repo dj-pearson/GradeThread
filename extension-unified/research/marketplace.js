@@ -28,6 +28,7 @@
   const SCAN = self.GT_CC_SCAN; // US-2237: pure scan helpers (scan-format.js)
   const FLIP = self.GT_CC_FLIP; // US-2238: pure flip-mode formatting (flip-format.js)
   const SELLER = self.GT_CC_SELLER; // US-2239: pure seller aggregation (seller-memory.js)
+  const TRAY = self.GT_CC_TRAY; // US-2240: pure compare-tray logic (compare-tray.js)
   const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
   const HARD_MAX_URLS = 4; // endpoint cap — never exceed regardless of adapter
   const OVERLAY_ID = "gt-cc-overlay";
@@ -515,6 +516,15 @@
       again.addEventListener("click", () => runGrade());
       body.appendChild(again);
 
+      // US-2240: pin this read so it can be lined up against the other listings
+      // the shopper is weighing. Costs nothing — it stores the payload already
+      // in `data`, so no second call and no second Vision spend.
+      // Snapshot the URL at RENDER time, for the same reason the save path uses
+      // gradedUrl: nothing inside a rendered result may re-read location.href.
+      // The overlay is torn down on navigation, so this is the listing this
+      // result actually belongs to.
+      if (TRAY) body.appendChild(pinControls(data, location.href));
+
       // US-2238: the seller's half of this listing. Appended LAST and only for a
       // FlipDesk account — a shopper must never see a resale-margin panel on the
       // item they are trying to buy.
@@ -522,6 +532,53 @@
         body.appendChild(flipSection());
       }
     }, { focusClose: true });
+  }
+
+  // ── compare tray (US-2240) ──────────────────────────────────────────────
+  //
+  // Nobody buys one listing. They pick between six of the same jacket at six
+  // prices, and until now every read was discarded the moment they clicked
+  // through to the next candidate — so the comparison happened from memory.
+  function pinControls(data, renderedUrl) {
+    const wrap = el("div", "gt-cc-actions");
+    const pin = el("button", "gt-cc-secondary");
+    pin.setAttribute("type", "button");
+    pin.textContent = TRAY.STRINGS.pin;
+    pin.addEventListener("click", async () => {
+      const entry = TRAY.makeEntry(
+        {
+          url: renderedUrl,
+          title: extractTitle() || document.title,
+          marketplace: (adapter && adapter.key) || "",
+          seller: extractSeller(),
+          priceText: extractPrice(),
+          thumbUrl: extractImageUrls()[0] || null,
+        },
+        data,
+        Date.now(),
+      );
+      if (!entry) return;
+      const res = await send({ type: "GT_CC_TRAY_PIN", entry: entry });
+      // Only claim it worked once the worker says it stored it. A button that
+      // says "Pinned" over a failed write sends the shopper to an empty table.
+      if (res && res.ok) {
+        pin.textContent = TRAY.STRINGS.pinned + " (" + res.count + ")";
+        pin.disabled = true;
+      }
+    });
+    wrap.appendChild(pin);
+
+    // Opened through the WORKER (tabs.create), not as a link to
+    // chrome.runtime.getURL(). A content script linking to an extension page
+    // makes that page a web-origin navigation target, which would mean adding
+    // compare.html to web_accessible_resources — exposing it to every
+    // marketplace page we run on, to save one message.
+    const open = el("button", "gt-cc-secondary");
+    open.setAttribute("type", "button");
+    open.textContent = TRAY.STRINGS.open;
+    open.addEventListener("click", () => send({ type: "GT_CC_TRAY_OPEN" }));
+    wrap.appendChild(open);
+    return wrap;
   }
 
   // US-2239: fill the seller-history slot, or leave it hidden. Takes the epoch it

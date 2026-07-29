@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="compare.css" />
+    <title>Compare — GradeThread</title>
+  </head>
+  <body>
+    <header class="cmp-head">
+      <img src="icons/icon48.png" alt="" class="cmp-logo" />
+      <h1 class="cmp-title">Compare</h1>
+      <div class="cmp-head-actions">
+        <label class="cmp-sort">
+          Sort
+          <select id="sort">
+            <option value="recent">Recently pinned</option>
+            <option value="score">Condition</option>
+            <option value="price">Price</option>
+          </select>
+        </label>
+        <button type="button" class="cmp-linkbtn" id="clear">Clear all</button>
+      </div>
+    </header>
+
+    <main class="cmp-body">
+      <p class="cmp-empty" id="empty" hidden></p>
+
+      <!-- Scrolls inside itself: a listing title is long, and the page must not
+           scroll sideways on a narrow window. -->
+      <div class="cmp-scroll">
+        <table class="cmp-table" id="table" hidden>
+          <thead>
+            <tr>
+              <th scope="col">Listing</th>
+              <th scope="col">Condition</th>
+              <th scope="col">Confidence</th>
+              <th scope="col">Price</th>
+              <th scope="col">Photos</th>
+              <th scope="col"><span class="cmp-sr">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+
+      <p class="cmp-note" id="note" hidden>
+        Each row is the read as it was when you pinned it. Nothing here is fetched
+        again, and nothing is sent anywhere — it all lives in this browser.
+      </p>
+    </main>
+
+    <script src="research/compare-tray.js"></script>
+    <script src="compare.js"></script>
+  </body>
+</html>

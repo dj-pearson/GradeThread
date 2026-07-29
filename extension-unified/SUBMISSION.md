@@ -1,7 +1,7 @@
-# Store submission kit — GradeThread unified extension v0.6.0
+# Store submission kit — GradeThread unified extension v0.7.0
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v0.6.0-chrome.zip` · `dist-ext/gradethread-v0.6.0-firefox.zip`.
+`dist-ext/gradethread-v0.7.0-chrome.zip` · `dist-ext/gradethread-v0.7.0-firefox.zip`.
 
 ## Shared fields
 
@@ -123,9 +123,14 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v0.6.0)
+## Version / release notes (v0.7.0)
 
 ```
+New: Compare. Pin any listing you have read and line it up against the others you
+are weighing — condition, confidence, price and photo count side by side, sortable.
+Pinning costs nothing: it saves the read you already have, and the whole table lives
+in your browser.
+
 New: By seller. When you have read two or more listings from the same seller, the
 extension tells you how their stated conditions have compared with what the photos
 actually showed. Worked out entirely on your own device from your own reads —

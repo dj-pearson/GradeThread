@@ -39,6 +39,7 @@ if (typeof importScripts === "function") {
     "lister/job-store.js",
     "registry.js",
     "research/seller-memory.js",
+    "research/compare-tray.js",
   );
 }
 const ext = globalThis.browser || globalThis.chrome;
@@ -449,6 +450,27 @@ async function appraiseListing(msg) {
     needsUpgrade: resp.status === 402,
     quotaExhausted: resp.status === 429,
   };
+}
+
+// ── compare tray (US-2240) ────────────────────────────────────────────────
+// storage.LOCAL, not session: the shopper compares across tabs and often across
+// sittings ("I'll decide tonight"), so a tray that emptied on browser restart
+// would lose exactly the comparison it exists to hold.
+async function pinToTray(entry) {
+  if (!entry || typeof entry !== "object" || !entry.key) {
+    return { ok: false, error: "Nothing to pin." };
+  }
+  try {
+    const out = await ext.storage.local.get(self.GT_CC_TRAY.KEY);
+    const list = self.GT_CC_TRAY.put((out && out[self.GT_CC_TRAY.KEY]) || [], entry);
+    await ext.storage.local.set({ [self.GT_CC_TRAY.KEY]: list });
+    return { ok: true, count: list.length };
+  } catch (_e) {
+    // Storage full or unavailable. Reported as a failure so the overlay does NOT
+    // flip its button to "Pinned" — a shopper who trusts that and opens an empty
+    // compare table has lost the read they thought they saved.
+    return { ok: false, error: "Couldn't pin this read." };
+  }
 }
 
 // ── per-listing grade recall cache ────────────────────────────────────────
@@ -1118,6 +1140,22 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         break;
       // US-2239: buyer-private seller pattern. Returns null below the 2-read
       // floor — one read of one item is a coincidence, not a pattern.
+      // US-2240: the compare tray. Pinning replays the payload the endpoint
+      // already returned, so it spends no quota and makes no request — the
+      // worker is involved only because storage.local lives here.
+      case "GT_CC_TRAY_PIN":
+        sendResponse(await pinToTray(msg.entry));
+        break;
+      // Opened here rather than linked from the content script — see the comment
+      // at the call site: a link would require web_accessible_resources.
+      case "GT_CC_TRAY_OPEN":
+        try {
+          await ext.tabs.create({ url: ext.runtime.getURL("compare.html") });
+          sendResponse({ ok: true });
+        } catch (_e) {
+          sendResponse({ ok: false });
+        }
+        break;
       case "GT_CC_GET_SELLER":
         sendResponse(await getSellerHistory(msg.marketplace, msg.seller));
         break;

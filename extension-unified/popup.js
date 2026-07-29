@@ -219,6 +219,25 @@ async function renderReads() {
   }
 }
 
+// ── US-2240: the compare tray's entry point ─────────────────────────────────
+// Shown only when something is pinned — an "Open compare (0)" button is a dead
+// door, and the overlay is where pinning actually happens.
+async function renderCompareLink() {
+  const btn = document.getElementById("openCompare");
+  const count = document.getElementById("compareCount");
+  let list = [];
+  try {
+    const out = await ext.storage.local.get(self.GT_CC_TRAY.KEY);
+    list = (out && out[self.GT_CC_TRAY.KEY]) || [];
+  } catch (_e) { /* unreadable — leave the button hidden */ }
+  if (!Array.isArray(list) || !list.length) return;
+  count.textContent = String(list.length);
+  btn.hidden = false;
+  btn.addEventListener("click", () => {
+    ext.tabs.create({ url: ext.runtime.getURL("compare.html") });
+  });
+}
+
 // ── US-2239: "By seller" ────────────────────────────────────────────────────
 //
 // The same recentReads list, grouped by who was selling. This is the whole point
@@ -615,6 +634,7 @@ function applyCapabilities(caps) {
   wireAccount();
   wireConsent();
   wireHistoryTabs();
+  renderCompareLink();
   // Render research immediately (works offline / anonymous), then fold in the
   // account-driven sections once entitlements resolve.
   await Promise.all([initResearch(), renderReads()]);

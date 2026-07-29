@@ -6,6 +6,14 @@ extensions into a single MV3 extension:
 - **Condition Check (buyer research)** — from `extension-condition/` (US-1755/1756).
   An independent AI condition read on eBay / Poshmark / Grailed / Mercari / Depop /
   Vinted listing pages. **Always on** — anonymous-capable, quota-capped.
+- **Compare tray (US-2240)** — nobody buys ONE listing; they choose between six
+  of the same jacket at six prices, and every read used to be discarded on the
+  way to the next candidate. Pinning stores the payload the endpoint already
+  returned (no second call, no second Vision spend) into `storage.local`, capped
+  at 6, oldest-out. `compare.html` renders the table with **no network call at
+  all** — it is a record of reads the shopper already has, not a live re-query.
+  Opened via the worker (`tabs.create`), NOT linked from the content script,
+  which would require `web_accessible_resources` on every marketplace host.
 - **Seller memory (US-2239)** — every read used to be a one-off. Reads now carry
   the seller's handle and the claim they made, so at 2+ reads of the same seller
   the overlay states the shopper's own pattern ("your 4 reads average 1.8 points
@@ -45,7 +53,8 @@ popup.html/js/css    role-aware popup (US-1885)
 onboarding.html      first-run page opened on install (US-1885 AC4)
 research/            buyer overlay  (selectors.js, image-utils.js, condition-format.js,
                      scan-format.js, flip-format.js, seller-memory.js,
-                     marketplace.js, overlay.css)
+                     compare-tray.js, marketplace.js, overlay.css)
+compare.html/js/css  the side-by-side view for the pinned tray (US-2240)
 lister/              seller Lister  (selectors.js, lister-guard.js, common.js, poshmark/mercari/grailed.js)
 icons/               shared icon set
 test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)
