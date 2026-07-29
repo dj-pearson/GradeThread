@@ -117,6 +117,8 @@ import {
   type BrandKnowledgePack,
 } from "./brand-knowledge.ts";
 import { decodeTagCode } from "./brand-decoders.ts";
+import { getAuthenticityReferences } from "./authenticity-references.ts";
+import { brandKey } from "./brand-normalize.ts";
 import { estimateSize, type SizeEstimate } from "./ai-size-estimate.ts";
 import { isMeasurementPhoto } from "./ai-size-estimate-core.ts";
 import {
@@ -1353,6 +1355,14 @@ export async function processSubmission(submissionId: string) {
     const authenticityTells = wantAuthenticity
       ? await getEffectiveTellsForBrand(submission.brand).catch(() => [])
       : [];
+    // US-2218: the known-genuine references we hold for this brand. Empty on a
+    // miss or a failure, which marks every visual tell unverifiable — widening
+    // the disclosed limitations and capping confidence, never raising risk.
+    const authenticityReferences = wantAuthenticity
+      ? await getAuthenticityReferences(brandKey(submission.brand ?? "")).catch(
+        () => [],
+      )
+      : [];
 
     // US-2210: read the garment's OWN label as trusted identity context. Gated
     // on GRADING_TAG_OCR (default OFF — the composite prompt changes, so it goes
@@ -1499,7 +1509,7 @@ export async function processSubmission(submissionId: string) {
         ? assessAuthenticity(
             imageData.map((img) => ({ imageType: img.imageType, dataUri: img.dataUri })),
             authenticityGarmentInfo,
-            { tells: authenticityTells },
+            { tells: authenticityTells, references: authenticityReferences },
           ).catch((err) => {
             console.error(
               `[Pipeline] authenticity add-on failed for submission ${submissionId}:`,

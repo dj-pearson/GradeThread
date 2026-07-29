@@ -1,5 +1,32 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00500_authenticity_references.sql (US-2218 reference imagery, 2026-07-28)
+
+**Apply AFTER 00499.** Creates `public.authenticity_references` (operator table,
+deny-all RLS, registered in `SERVICE_ROLE_ONLY`) plus a new **PRIVATE** storage
+bucket `authenticity-references`. Run `NOTIFY pgrst, 'reload schema';` after.
+
+**`rights` is NOT NULL with no default, deliberately.** A reference image cannot
+exist without a stated licence/ownership basis. A nullable column would have made
+omitting provenance the easy path, and scraped brand imagery is exactly what this
+column exists to prevent.
+
+**No link to `submission_images`, by design.** Seller photos are never promoted
+into the corpus — the US-1067 exemplar privacy rule applies. A test asserts the
+executable SQL never names that table.
+
+**The bucket is `public = false`,** and reads go only through signed URLs with a
+TTL ≤ 900s, matching the `submission-images` rule. It is never `item-photos`.
+
+**No client involvement, and nothing breaks if unapplied.** The table starts
+empty, and an empty result is the same state the code already handles: every
+visual tell is marked unverifiable, which widens the disclosed limitations and
+caps confidence. Safe to push before applying.
+
+**Risk: LOW.** One new table, one new private bucket, no change to any existing
+object. Idempotent and re-run safe. Not exercised against a live DB (no Docker).
+
+
 ## ⏳ HELD: 00499_size_systems.sql (US-2215 size system + class, 2026-07-28)
 
 **Apply AFTER 00498.** Adds two nullable text columns to

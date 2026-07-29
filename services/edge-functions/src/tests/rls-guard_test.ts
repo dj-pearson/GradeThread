@@ -110,6 +110,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // both service-role; admins edit via /api/admin/grading/baselines. No tenant
   // data (brand + category knowledge only); the SPA never queries it directly.
   "garment_baselines",
+  // US-2218 known-genuine authentication reference imagery. Brand facts and
+  // licensed reference photos only — no tenant data, no owner column, and
+  // deliberately no link to submission_images (seller photos are never
+  // promoted here). Read by the edge service-role client to issue short-lived
+  // signed URLs; written by admin curation.
+  "authenticity_references",
   // US-1579 MeasureCard mail-fulfillment queue: shipping addresses are PII, so
   // deny-all by design — sellers go through /api/flipdesk/measure/card-request
   // (edge, owner-scoped) and operators through /api/admin/measure-cards. Keyed
