@@ -14,6 +14,10 @@ import type { ItemPhotoRow } from "@/types/database";
 
 export type PreviewViewport = "desktop" | "mobile";
 
+// US-2255: how many item-specific rows show before the "show all" toggle. Two
+// full columns' worth — enough that an ordinary listing never collapses.
+const SPECIFICS_COLLAPSED_ROWS = 12;
+
 export interface EbayViewItemPreviewProps {
   title: string;
   /** Resolved sale price, or null when the seller hasn't set one yet. */
@@ -67,6 +71,7 @@ export function EbayViewItemPreview(props: EbayViewItemPreviewProps) {
 
   const [viewport, setViewport] = useState<PreviewViewport>("desktop");
   const [activeId, setActiveId] = useState<string | null>(primaryPhotoId);
+  const [specificsExpanded, setSpecificsExpanded] = useState(false);
 
   // Keep the gallery's active photo in sync when the composer's primary
   // changes or the active one is removed from the order.
@@ -213,12 +218,19 @@ export function EbayViewItemPreview(props: EbayViewItemPreviewProps) {
     </div>
   );
 
+  // US-2255: the preview now receives EVERY filled item specific rather than a
+  // fixed six, so a well-filled listing can run long. Collapse past a dozen and
+  // let the seller open it, the way eBay's own page does.
+  const visibleSpecifics = specificsExpanded
+    ? specifics
+    : specifics.slice(0, SPECIFICS_COLLAPSED_ROWS);
+  const hiddenSpecifics = specifics.length - visibleSpecifics.length;
   const specificsTable =
     specifics.length > 0 ? (
       <div>
         <div className="mb-2 text-sm font-semibold">Item specifics</div>
         <dl className="grid grid-cols-1 gap-x-8 gap-y-0 sm:grid-cols-2">
-          {specifics.map((s) => (
+          {visibleSpecifics.map((s) => (
             <div
               key={s.label}
               className="flex justify-between gap-2 border-b py-1.5 text-xs last:border-b-0"
@@ -228,6 +240,17 @@ export function EbayViewItemPreview(props: EbayViewItemPreviewProps) {
             </div>
           ))}
         </dl>
+        {(hiddenSpecifics > 0 || specificsExpanded) && (
+          <button
+            type="button"
+            onClick={() => setSpecificsExpanded((v) => !v)}
+            className="mt-2 text-xs font-medium underline underline-offset-2"
+          >
+            {specificsExpanded
+              ? "Show fewer"
+              : `Show all ${specifics.length} item specifics`}
+          </button>
+        )}
       </div>
     ) : null;
 

@@ -15,6 +15,7 @@ import {
   Store,
   BadgeCheck,
   AlertTriangle,
+  CalendarClock,
 } from "lucide-react";
 import {
   Card,
@@ -167,6 +168,8 @@ import {
 } from "@/lib/composer-save";
 
 const TITLE_MAX = 80;
+// eBay's cap on the buyer-facing condition description (Sell Inventory API).
+const CONDITION_DESC_MAX = 1000;
 
 // Legacy rows can carry a coarse category string that predates ITEM_CATEGORIES.
 // Anything unrecognized is clothing (the only vertical FlipDesk shipped with).
@@ -795,37 +798,44 @@ export function FlipdeskComposerPage({
     ? interpolateDescription(description, item, measurementUnit)
     : description;
 
+  // US-2255: EVERY filled item specific, not a fixed six. The preview used to
+  // render a hardcoded Brand/Style/Size/Category/Condition/Grade table, so a
+  // seller who carefully filled fifteen specifics saw four of them and had no way
+  // to check their work — the preview quietly disagreed with what would publish.
+  //
+  // Row order is the aspect map's own key order, which the picker builds from
+  // eBay's taxonomy response, so required-and-prominent aspects lead the way they
+  // do on eBay. The item-column fallbacks stay for never-edited drafts whose
+  // aspect map is still empty.
   const specifics = useMemo(() => {
     if (!item) return [] as { label: string; value: string }[];
     // Prefer the LIVE aspect values (what publish will actually send) over the
     // item columns, so the preview can never disagree with the editable eBay
-    // specifics below it while the user types. Falls back through the saved
-    // override / inventory mirror to the columns for never-edited drafts.
-    const aspects =
-      livePickedAspects ??
-      listing?.item_specifics_override ??
-      ebayMapping?.ebay_aspects ??
-      {};
-    const aspectVal = (...names: string[]): string | null => {
-      for (const n of names) {
-        const v = aspects[n]?.find((x) => x.trim() !== "");
-        if (v) return v;
-      }
-      return null;
+    // specifics below it while the user types.
+    const aspects = livePickedAspects ?? savedAspects ?? {};
+    const rows: { label: string; value: string | null }[] = [];
+    const seen = new Set<string>();
+    for (const [name, values] of Object.entries(aspects)) {
+      // eBay joins multi-value aspects with a comma on the view-item page.
+      const value = (values ?? [])
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .join(", ");
+      if (!value) continue;
+      rows.push({ label: name, value });
+      seen.add(name.toLowerCase());
+    }
+    // Column fallbacks — only for a field the aspect map doesn't already carry,
+    // so an edited Brand is never shadowed by a stale column.
+    const fallback = (label: string, value: string | null | undefined) => {
+      if (seen.has(label.toLowerCase())) return;
+      rows.push({ label, value: value ?? null });
     };
-    const rows: { label: string; value: string | null }[] = [
-      { label: "Brand", value: aspectVal("Brand") ?? item.brand },
-      { label: "Style", value: aspectVal("Style", "Type") ?? item.style },
-      {
-        label: "Size",
-        value: aspectVal("Size", "US Shoe Size", "Shoe Size") ?? item.size,
-      },
-      { label: "Category", value: item.category },
-      {
-        label: "Condition",
-        value: item.grade_label ?? "Pre-owned",
-      },
-    ];
+    fallback("Brand", item.brand);
+    fallback("Style", item.style);
+    fallback("Size", item.size);
+    fallback("Category", item.category);
+    fallback("Condition", item.grade_label ?? "Pre-owned");
     if (item.grade_value != null) {
       rows.push({
         label: "GradeThread Grade",
@@ -836,7 +846,7 @@ export function FlipdeskComposerPage({
       (r): r is { label: string; value: string } =>
         !!r.value && r.value.trim() !== "",
     );
-  }, [item, livePickedAspects, listing, ebayMapping]);
+  }, [item, livePickedAspects, savedAspects]);
 
   // US-551: the AI's original draft, snapshotted at generation. Drives the
   // per-field diff chips + revert-to-AI. Null for manually-created drafts.
@@ -1464,6 +1474,20 @@ export function FlipdeskComposerPage({
   // the preflight dialog; any other selection dispatches through cross-push
   // (US-149), which fans the draft out to one listings row per platform.
   async function handlePublishClick() {
+    // US-2257: the button is disabled for these, but a keyboard/programmatic
+    // path must not slip past — and saving first would leave a draft eBay is
+    // about to bounce.
+    const { resolvedPrice } = resolveListingFields();
+    if (!(resolvedPrice > 0)) {
+      toast.error("Set a price above $0 before publishing.");
+      return;
+    }
+    if (conditionRejected) {
+      toast.error(
+        "That eBay condition isn't accepted by this category — pick an allowed one before publishing.",
+      );
+      return;
+    }
     const listingId = await saveDraft();
     if (!listingId) return;
 
@@ -1593,6 +1617,21 @@ export function FlipdeskComposerPage({
   // A chip that would push the title past 80 is disabled, never truncated (AC2).
   const chipFits = (kw: string) =>
     (title.trim() ? title.trim().length + 1 + kw.length : kw.length) <= TITLE_MAX;
+  // US-2257: the things eBay is CERTAIN to reject, checked before the round-trip.
+  // Deliberately only these two: everything softer (missing recommended aspects,
+  // a stale description, a thin title) stays a warning, and publish stays
+  // server-validated — this is a courtesy gate, not the authority.
+  const publishBlocker: string | null = (() => {
+    const { resolvedPrice } = resolveListingFields();
+    if (!(resolvedPrice > 0)) {
+      return "Set a price above $0 before publishing.";
+    }
+    if (conditionRejected) {
+      return "The eBay condition you picked isn't accepted by this category — pick an allowed one.";
+    }
+    return null;
+  })();
+
   // US-2250: when a variation matrix exists it owns the total quantity, so the
   // composer states the derived number instead of showing an input that
   // resolveQuantity would override. null = no matrix, use the input.
@@ -1795,131 +1834,172 @@ export function FlipdeskComposerPage({
       <div className="grid gap-6 @4xl:grid-cols-2">
         {/* ── Editor column ───────────────────────────────────────── */}
         <div className="space-y-6">
-          {/* Storage & SKU — item-level logistics (parity with the iOS canvas).
-              Saves to the item, not the eBay listing. */}
-          <Card>
+          {/* Photos */}
+          <Card id="composer-photos">
             <CardHeader>
-              <CardTitle>Storage &amp; SKU</CardTitle>
+              <CardTitle>Photos</CardTitle>
               <CardDescription>
-                Where this item lives and how it's labeled. Saved to the item
-                rather than the eBay listing, by the same Save button as
-                everything else on this page.
+                Drag to reorder, click a photo to view it full size, and use
+                the pencil to rotate, straighten, or crop. The star picks the
+                primary image.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="storage-sku">SKU / Item #</Label>
-                  <Input
-                    id="storage-sku"
-                    value={storageSku}
-                    onChange={(e) => setStorageSku(e.target.value)}
-                    placeholder="e.g. FD-1a2b"
-                  />
+            <CardContent className="space-y-4">
+              {/* US-1567: the full shared photo toolkit — upload, reorder,
+                  rotate/crop/straighten, retag, delete, background removal,
+                  and click-to-view — identical to the item page, so the
+                  drafts flow never sends the seller elsewhere for photo
+                  work. The star keeps the composer's primary-photo pick. */}
+              <PhotoUploader
+                itemId={item.id}
+                currentStatus={item.status}
+                category={item.category as ItemCategory | null}
+              />
+              <PhotoManager
+                itemId={item.id}
+                liveListingId={isLiveListing ? listing?.id : null}
+                primaryPhotoId={primaryPhoto?.id ?? null}
+                onPickPrimary={setPrimaryPhotoId}
+              />
+
+              {item.grade_value != null && (
+                <div className="rounded-md border p-3">
+                  <p className="text-sm font-medium">
+                    Grade shown on this listing
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Graded items automatically add the grade to the description
+                    and a “Condition Grade: {item.grade_value.toFixed(1)}{" "}
+                    (GradeThread)” item specific, plus a link to the certificate
+                    page buyers can verify. Your own photos are never altered —
+                    no watermarks or QR codes burned into them, which protects
+                    your marketplace account.
+                  </p>
+                  {/* US-2247: publish has always read listings.badge_enabled and
+                      slab_image_mode, but nothing in the app wrote either — so
+                      the grade banner told sellers to "enable the grade badge
+                      below" and no such control existed anywhere. The grade card
+                      is a SEPARATE gallery image, not an overlay on the seller's
+                      own shots, which is why the copy above still holds. */}
+                  <div className="mt-3 space-y-2 rounded-md border bg-muted/20 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <Label htmlFor="grade-badge" className="text-sm">
+                          Add a grade card image to the gallery
+                        </Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          A generated image showing the {item.grade_value.toFixed(1)}
+                          /10 grade and certificate link, added alongside your
+                          photos.
+                        </p>
+                      </div>
+                      <Switch
+                        id="grade-badge"
+                        checked={badgeEnabled}
+                        onCheckedChange={(on) => {
+                          setBadgeEnabled(on);
+                          // Turning the card on with mode "off" would store a
+                          // contradiction publish can't act on; seed a real mode.
+                          if (on && slabImageMode === "off") {
+                            setSlabImageMode("extra");
+                          }
+                          if (!on) setSlabImageMode("off");
+                        }}
+                        aria-label="Add a grade card image to this listing's gallery"
+                      />
+                    </div>
+                    {badgeEnabled && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="slab-mode" className="text-xs">
+                          Where it goes
+                        </Label>
+                        <Select
+                          value={slabImageMode === "off" ? "extra" : slabImageMode}
+                          onValueChange={(v) =>
+                            setSlabImageMode(v as SlabImageMode)
+                          }
+                        >
+                          <SelectTrigger id="slab-mode" className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="extra" className="text-xs">
+                              Extra gallery image (after your photos)
+                            </SelectItem>
+                            <SelectItem value="hero" className="text-xs">
+                              First image buyers see
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">
+                          “First image” maximises the grade's visibility in
+                          search results; “extra” keeps your own hero shot.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  {/* US-1665 growth loop: one-click copy of the public
+                      certificate link, so a seller can paste the verifiable
+                      grade into ANY marketplace listing (not just eBay). Each
+                      shared link is an indexable inbound reference to the cert. */}
+                  {item.certificate_url && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={() => {
+                        const certUrl = item.certificate_url;
+                        if (!certUrl) return;
+                        void navigator.clipboard
+                          .writeText(certUrl)
+                          .then(() =>
+                            toast.success("Certificate link copied", {
+                              description:
+                                "Paste it into your listing so buyers can verify the grade.",
+                            }),
+                          )
+                          .catch(() =>
+                            toast.error("Couldn't copy the link"),
+                          );
+                      }}
+                    >
+                      <Link2 className="mr-2 h-4 w-4" />
+                      Copy certificate link for your listing
+                    </Button>
+                  )}
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="storage-location">Location / Bin</Label>
-                  <Input
-                    id="storage-location"
-                    value={storageLocation}
-                    onChange={(e) => setStorageLocation(e.target.value)}
-                    placeholder="e.g. Tote A3"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="storage-container">Container</Label>
-                  <Input
-                    id="storage-container"
-                    value={storageContainer}
-                    onChange={(e) => setStorageContainer(e.target.value)}
-                    placeholder="e.g. Bin 7"
-                  />
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Item details — the bookkeeping that used to live only on the
-              status-gated item canvas. Saved by the main Save below, at every
-              status, so nothing here is reachable at one status and not another.
-              Brand / size / color / material deliberately aren't repeated here:
-              they're owned by the eBay item specifics editor and folded back
-              into their columns on save (single-entry rule, US-557). */}
-          <Card>
+          {/* US-1567: measurements — same form as the item canvas. */}
+          <Card id="composer-measurements">
             <CardHeader>
-              <CardTitle>Item details</CardTitle>
+              <CardTitle>Measurements</CardTitle>
               <CardDescription>
-                Pipeline status and sourcing — saved to the item alongside your
-                listing edits.
+                Flat measurements buyers ask about. Synced live with matching
+                free-text eBay item specifics (Inseam, Length, Chest, …).
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="item-status">Status</Label>
-                <Select
-                  value={itemStatus}
-                  onValueChange={(v) => setItemStatus(v as ItemStatus)}
-                >
-                  <SelectTrigger id="item-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ITEM_STATUSES.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {ITEM_STATUS_LABELS[s]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Prep stages only move forward — completed work can't be undone
-                  by picking an earlier stage.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="item-category">Category</Label>
-                <Select
-                  value={itemCategory || "__none"}
-                  onValueChange={(v) => {
-                    setItemCategory(v === "__none" ? "" : (v as ItemCategory));
-                    setCategoryTouched(true);
-                  }}
-                >
-                  <SelectTrigger id="item-category">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">— None —</SelectItem>
-                    {ITEM_CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {ITEM_CATEGORY_LABELS[c]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  The coarse grading category. Picking an eBay category below
-                  keeps this in sync unless you set it here yourself.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="item-sourced-by">Sourced by</Label>
-                <Input
-                  id="item-sourced-by"
-                  value={sourcedBy}
-                  onChange={(e) => setSourcedBy(e.target.value)}
-                  placeholder="Who picked it up"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="item-acquired-date">Purchase date</Label>
-                <Input
-                  id="item-acquired-date"
-                  type="date"
-                  value={acquiredDate}
-                  onChange={(e) => setAcquiredDate(e.target.value)}
-                />
-              </div>
+            <CardContent>
+              <MeasurementForm
+                category={item.category}
+                brand={item.brand}
+                values={measurements}
+                onChange={setMeasurements}
+                aiSources={item.ai_field_sources ?? null}
+              />
+              {/* US-1574: calibrated photo measuring — renders only when the
+                  item has a MeasureCard shot; drag-adjust + save syncs the
+                  same measurements state the form above edits. */}
+              <MeasurementPhotoEditor
+                itemId={item.id}
+                category={item.category}
+                values={measurements}
+                aiSources={item.ai_field_sources ?? null}
+                onApply={(next) => setMeasurements(next)}
+              />
             </CardContent>
           </Card>
 
@@ -2165,6 +2245,35 @@ export function FlipdeskComposerPage({
           )}
           </div>
 
+          {/* Grade this item — restores the "Submit for grading" action in the
+              drafts editor (it lived on the item canvas, which the AutoLister/
+              Inventory drafts consolidation routed around). Self-contained: shows
+              the existing grade + certificate when graded, submission status when
+              in flight, or the tier picker + Submit when eligible. */}
+          <GradeThisItemCard
+            item={item}
+            preview={gradingPreview}
+            liveFields={{
+              title,
+              garment_type: ebayMapping?.garment_type ?? "",
+              garment_category: ebayMapping?.garment_category ?? "",
+            }}
+            onPatchGarment={(gt, gc) => {
+              // The composer doesn't own garment fields; write them straight to
+              // the item and refresh the ebayMapping read so the preview clears.
+              void (async () => {
+                await supabase
+                  .from("inventory_items")
+                  .update({ garment_type: gt, garment_category: gc } as never)
+                  .eq("id", item.id);
+                await qc.invalidateQueries({
+                  queryKey: ["inventory_item_ebay", item.id],
+                });
+                await qc.invalidateQueries({ queryKey: ["items_full"] });
+              })();
+            }}
+          />
+
           {/* Live comps + price recommendation */}
           <EbayCompsPanel
             itemId={item.id}
@@ -2234,10 +2343,26 @@ export function FlipdeskComposerPage({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="condition-desc">Condition description</Label>
+                <div className="flex items-baseline justify-between gap-2">
+                  <Label htmlFor="condition-desc">Condition description</Label>
+                  {/* US-2257: eBay caps this at 1000 characters. A hard cap plus
+                      a counter beats losing the tail of a long flaw list to a
+                      server-side truncation nobody sees. */}
+                  <span
+                    className={cn(
+                      "text-[10px] tabular-nums",
+                      conditionDesc.length >= CONDITION_DESC_MAX
+                        ? "font-semibold text-destructive"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {conditionDesc.length}/{CONDITION_DESC_MAX}
+                  </span>
+                </div>
                 <Textarea
                   id="condition-desc"
                   value={conditionDesc}
+                  maxLength={CONDITION_DESC_MAX}
                   onChange={(e) => setConditionDesc(e.target.value)}
                   rows={3}
                   placeholder="Honest, buyer-facing condition notes — call out any flaws."
@@ -2353,236 +2478,173 @@ export function FlipdeskComposerPage({
                   </>
                 )}
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="purchase-cost">Purchase price (what you paid)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="purchase-cost"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={cost}
-                    onChange={(e) => setCost(e.target.value)}
-                    placeholder="0.00"
-                    className="max-w-[10rem]"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Saves with the draft · drives margin + ROI
-                  </span>
-                </div>
-                {/* US-553: live profit/margin so pricing is a margin decision. */}
-                {parsedPreviewPrice > 0 && (
-                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Est. net profit</span>
-                      <span
-                        className={cn(
-                          "font-semibold tabular-nums",
-                          profitEstimate.net < 0
-                            ? "text-destructive"
-                            : profitEstimate.marginPct < 20
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-emerald-600 dark:text-emerald-400",
-                        )}
-                      >
-                        ${profitEstimate.net.toFixed(2)} ·{" "}
-                        {profitEstimate.marginPct.toFixed(0)}% margin
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-                      <span>eBay fees ~${profitEstimate.fees.toFixed(2)}</span>
-                      <span>Cost ${(effectiveCost ?? 0).toFixed(2)}</span>
-                      {(item.shipping_cost ?? 0) > 0 && (
-                        <span>Shipping ${(item.shipping_cost ?? 0).toFixed(2)}</span>
-                      )}
-                    </div>
-                    {effectiveCost == null && (
-                      <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                        Enter the purchase price above to see true margin — this
-                        is the ceiling until you do.
+              {/* US-1898: Best Offer — a conversion/negotiation lever, NOT a
+                  ranking factor. Fixed-price only (auctions use their own
+                  reserve/BIN terms). */}
+              {listingFormat.format === "fixed_price" && (
+                <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <Label htmlFor="best-offer" className="text-sm">
+                        Accept Best Offers
+                      </Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Let buyers negotiate — offers auto-clear within your limits. A
+                        conversion lever, not a ranking factor.
                       </p>
-                    )}
-                  </div>
-                )}
-                {/* US-623: condition-aware sell-through forecast at this price. */}
-                {sellThroughForecast && sellThroughForecast.label !== "unknown" && parsedPreviewPrice > 0 && (
-                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Est. sell-through</span>
-                      <span
-                        className={cn(
-                          "font-semibold tabular-nums",
-                          sellThroughForecast.label === "fast"
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : sellThroughForecast.label === "moderate"
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-muted-foreground",
-                        )}
-                      >
-                        ~{Math.round(sellThroughForecast.sellThroughPct * 100)}% in{" "}
-                        {sellThroughForecast.daysLow}–{sellThroughForecast.daysHigh} days
-                      </span>
                     </div>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      Estimate from {sellThroughForecast.sampleSize} condition-matched comps — a lower price sells faster.
-                    </p>
+                    <Switch
+                      id="best-offer"
+                      checked={bestOfferEnabled}
+                      onCheckedChange={setBestOfferEnabled}
+                      aria-label="Accept Best Offers on this listing"
+                    />
                   </div>
-                )}
-                {/* US-848: grade-anchored value from the public Condition Index. */}
-                <ConditionIndexValueHint
-                  brand={item.brand}
-                  category={item.category}
-                  title={item.item_title}
-                  grade={item.grade_value}
-                />
-                {/* US-1898: Best Offer — a conversion/negotiation lever, NOT a
-                    ranking factor. Fixed-price only (auctions use their own
-                    reserve/BIN terms). */}
-                {listingFormat.format === "fixed_price" && (
-                  <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <Label htmlFor="best-offer" className="text-sm">
-                          Accept Best Offers
+                  {bestOfferEnabled && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="bo-accept" className="text-xs">
+                          Auto-accept ≥ ($)
                         </Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          Let buyers negotiate — offers auto-clear within your limits. A
-                          conversion lever, not a ranking factor.
-                        </p>
+                        <Input
+                          id="bo-accept"
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="0.01"
+                          value={bestOfferAccept}
+                          onChange={(e) => setBestOfferAccept(e.target.value)}
+                          placeholder={
+                            centsToDollarInput(listing?.price_range_high_cents) || "auto"
+                          }
+                          className="h-8"
+                        />
                       </div>
-                      <Switch
-                        id="best-offer"
-                        checked={bestOfferEnabled}
-                        onCheckedChange={setBestOfferEnabled}
-                        aria-label="Accept Best Offers on this listing"
-                      />
+                      <div className="space-y-1">
+                        <Label htmlFor="bo-decline" className="text-xs">
+                          Auto-decline ≤ ($)
+                        </Label>
+                        <Input
+                          id="bo-decline"
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="0.01"
+                          value={bestOfferDecline}
+                          onChange={(e) => setBestOfferDecline(e.target.value)}
+                          placeholder={
+                            centsToDollarInput(listing?.price_range_low_cents) || "auto"
+                          }
+                          className="h-8"
+                        />
+                      </div>
+                      <p className="col-span-2 text-[11px] text-muted-foreground">
+                        Blank uses your comp band (p75 accept / p25 decline). Clamped to
+                        eBay&apos;s rule: decline &lt; accept &lt; price.
+                      </p>
                     </div>
-                    {bestOfferEnabled && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label htmlFor="bo-accept" className="text-xs">
-                            Auto-accept ≥ ($)
-                          </Label>
-                          <Input
-                            id="bo-accept"
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            value={bestOfferAccept}
-                            onChange={(e) => setBestOfferAccept(e.target.value)}
-                            placeholder={
-                              centsToDollarInput(listing?.price_range_high_cents) || "auto"
-                            }
-                            className="h-8"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label htmlFor="bo-decline" className="text-xs">
-                            Auto-decline ≤ ($)
-                          </Label>
-                          <Input
-                            id="bo-decline"
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            value={bestOfferDecline}
-                            onChange={(e) => setBestOfferDecline(e.target.value)}
-                            placeholder={
-                              centsToDollarInput(listing?.price_range_low_cents) || "auto"
-                            }
-                            className="h-8"
-                          />
-                        </div>
-                        <p className="col-span-2 text-[11px] text-muted-foreground">
-                          Blank uses your comp band (p75 accept / p25 decline). Clamped to
-                          eBay&apos;s rule: decline &lt; accept &lt; price.
-                        </p>
-                      </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* US-2254: cost basis and the analysis it drives, out of "Condition
+              & price". Purchase price is an inventory_items column rather than a
+              listing field, and profit / sell-through / index value are read-outs
+              rather than inputs — all four used to be nested INSIDE the
+              purchase-price label group, inheriting its spacing and its meaning. */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Cost &amp; margin</CardTitle>
+              <CardDescription>
+                What you paid, and what this price leaves you. Saved to the item
+                with everything else on this page.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Label htmlFor="purchase-cost">Purchase price (what you paid)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="purchase-cost"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={cost}
+                  onChange={(e) => setCost(e.target.value)}
+                  placeholder="0.00"
+                  className="max-w-[10rem]"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Saves with the draft · drives margin + ROI
+                </span>
+              </div>
+              {/* US-553: live profit/margin so pricing is a margin decision. */}
+              {parsedPreviewPrice > 0 && (
+                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Est. net profit</span>
+                    <span
+                      className={cn(
+                        "font-semibold tabular-nums",
+                        profitEstimate.net < 0
+                          ? "text-destructive"
+                          : profitEstimate.marginPct < 20
+                            ? "text-amber-600 dark:text-amber-400"
+                            : "text-emerald-600 dark:text-emerald-400",
+                      )}
+                    >
+                      ${profitEstimate.net.toFixed(2)} ·{" "}
+                      {profitEstimate.marginPct.toFixed(0)}% margin
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                    <span>eBay fees ~${profitEstimate.fees.toFixed(2)}</span>
+                    <span>Cost ${(effectiveCost ?? 0).toFixed(2)}</span>
+                    {(item.shipping_cost ?? 0) > 0 && (
+                      <span>Shipping ${(item.shipping_cost ?? 0).toFixed(2)}</span>
                     )}
                   </div>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="schedule-at">Schedule publish (optional)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="schedule-at"
-                    type="datetime-local"
-                    value={scheduledAt}
-                    onChange={(e) => setScheduledAt(e.target.value)}
-                    className="max-w-[16rem]"
-                  />
-                  {scheduledAt && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setScheduledAt("")}
-                    >
-                      Clear
-                    </Button>
+                  {effectiveCost == null && (
+                    <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                      Enter the purchase price above to see true margin — this
+                      is the ceiling until you do.
+                    </p>
                   )}
                 </div>
-                {/* US-563: timezone-aware peak-time presets. The picker only
-                    controls how the presets below are evaluated; the input
-                    stays in your browser's local time. */}
-                <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                  <Select value={dropTimezone} onValueChange={setDropTimezone}>
-                    <SelectTrigger className="h-8 w-[15rem] text-xs">
-                      <SelectValue placeholder="Timezone" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(COMMON_TIMEZONES.some((t) => t.id === dropTimezone)
-                        ? COMMON_TIMEZONES
-                        : [{ id: dropTimezone, label: `${dropTimezone} (your timezone)` }, ...COMMON_TIMEZONES]
-                      ).map((tz) => (
-                        <SelectItem key={tz.id} value={tz.id} className="text-xs">
-                          {tz.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {DROP_PRESETS.map((preset) => (
-                    <Button
-                      key={preset.id}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      title={preset.hint}
-                      onClick={() => {
-                        const utc = nextPresetUtc(preset, dropTimezone);
-                        setScheduledAt(isoToLocalInput(utc.toISOString()));
-                        toast.success(
-                          `Drop set for ${formatInZone(utc.toISOString(), dropTimezone)}`,
-                        );
-                      }}
+              )}
+              {/* US-623: condition-aware sell-through forecast at this price. */}
+              {sellThroughForecast && sellThroughForecast.label !== "unknown" && parsedPreviewPrice > 0 && (
+                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Est. sell-through</span>
+                    <span
+                      className={cn(
+                        "font-semibold tabular-nums",
+                        sellThroughForecast.label === "fast"
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : sellThroughForecast.label === "moderate"
+                            ? "text-amber-600 dark:text-amber-400"
+                            : "text-muted-foreground",
+                      )}
                     >
-                      {preset.label}
-                    </Button>
-                  ))}
+                      ~{Math.round(sellThroughForecast.sellThroughPct * 100)}% in{" "}
+                      {sellThroughForecast.daysLow}–{sellThroughForecast.daysHigh} days
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Estimate from {sellThroughForecast.sampleSize} condition-matched comps — a lower price sells faster.
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Leave empty to publish immediately when you hit “Publish”.
-                  If set, save the draft and it goes live automatically at that time.
-                  {scheduledAt && (
-                    <>
-                      {" "}Goes live{" "}
-                      <span className="font-medium text-foreground">
-                        {formatInZone(
-                          localInputToIso(scheduledAt) ?? "",
-                          dropTimezone,
-                        )}
-                      </span>
-                      .
-                    </>
-                  )}
-                </p>
-              </div>
+              )}
+              {/* US-848: grade-anchored value from the public Condition Index. */}
+              <ConditionIndexValueHint
+                brand={item.brand}
+                category={item.category}
+                title={item.item_title}
+                grade={item.grade_value}
+              />
             </CardContent>
           </Card>
 
@@ -2805,302 +2867,6 @@ export function FlipdeskComposerPage({
             )}
           </Card>
 
-          {/* Push to marketplaces (US-149 + US-717). API platforms fan out via
-              cross-push; the extension platforms list from the seller's own
-              browser through the Listing Kit below. */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Push to</CardTitle>
-              <CardDescription>
-                Cross-list this draft. Each platform gets its own price — leave it
-                blank to use the price above.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {API_CROSS_LISTING_PLATFORMS.map((p) => {
-                // US-1114: a channel whose connector is built but awaiting
-                // platform approval (tier "api_pending", e.g. Depop) has no
-                // connect/publish path yet — publishing would 503. Show it
-                // disabled with honest copy instead of a live "Connected via
-                // API" checkbox that fails on click.
-                const pending = MARKETPLACE_TIER[p] === "api_pending";
-                const checked = pushPlatforms.has(p) && !pending;
-                return (
-                  <div
-                    key={p}
-                    className={cn(
-                      "flex items-center justify-between gap-3 rounded-md border p-2.5",
-                      pending && "opacity-60",
-                    )}
-                  >
-                    <label
-                      className={cn(
-                        "flex items-center gap-2 text-sm",
-                        pending ? "cursor-not-allowed" : "cursor-pointer",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={pending}
-                        onChange={() => togglePushPlatform(p)}
-                        className={cn(
-                          "h-3.5 w-3.5",
-                          pending ? "cursor-not-allowed" : "cursor-pointer",
-                        )}
-                      />
-                      <span className="font-medium">
-                        {MARKETPLACE_LABELS[p]}
-                      </span>
-                      <Badge variant="outline" className="text-[10px]">
-                        {pending
-                          ? MARKETPLACE_TIER_LABEL.api_pending
-                          : "Connected via API"}
-                      </Badge>
-                    </label>
-                    {checked && (
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="0.01"
-                        value={platformPrices[p] ?? ""}
-                        onChange={(e) =>
-                          setPlatformPrices((prev) => ({
-                            ...prev,
-                            [p]: e.target.value,
-                          }))
-                        }
-                        placeholder={price || "Price"}
-                        className="h-8 max-w-[7rem] text-right"
-                        aria-label={`${MARKETPLACE_LABELS[p]} price`}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* US-717: extension marketplaces are offered with their real
-                  mechanism badge. They have no write API, so they list from the
-                  seller's own logged-in tab via the Listing Kit below — not
-                  cross-push. */}
-              <div className="rounded-md border border-dashed p-2.5">
-                <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                  {EXTENSION_CROSS_LISTING_PLATFORMS.map((p) => (
-                    <span key={p} className="font-medium">
-                      {MARKETPLACE_LABELS[p]}
-                    </span>
-                  ))}
-                  <Badge variant="outline" className="text-[10px]">
-                    Via browser extension
-                  </Badge>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  No public API — list these from your own logged-in tab with the
-                  GradeThread Lister extension in the Listing Kit below.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Photos */}
-          <Card id="composer-photos">
-            <CardHeader>
-              <CardTitle>Photos</CardTitle>
-              <CardDescription>
-                Drag to reorder, click a photo to view it full size, and use
-                the pencil to rotate, straighten, or crop. The star picks the
-                primary image.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* US-1567: the full shared photo toolkit — upload, reorder,
-                  rotate/crop/straighten, retag, delete, background removal,
-                  and click-to-view — identical to the item page, so the
-                  drafts flow never sends the seller elsewhere for photo
-                  work. The star keeps the composer's primary-photo pick. */}
-              <PhotoUploader
-                itemId={item.id}
-                currentStatus={item.status}
-                category={item.category as ItemCategory | null}
-              />
-              <PhotoManager
-                itemId={item.id}
-                liveListingId={isLiveListing ? listing?.id : null}
-                primaryPhotoId={primaryPhoto?.id ?? null}
-                onPickPrimary={setPrimaryPhotoId}
-              />
-
-              {item.grade_value != null && (
-                <div className="rounded-md border p-3">
-                  <p className="text-sm font-medium">
-                    Grade shown on this listing
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Graded items automatically add the grade to the description
-                    and a “Condition Grade: {item.grade_value.toFixed(1)}{" "}
-                    (GradeThread)” item specific, plus a link to the certificate
-                    page buyers can verify. Your own photos are never altered —
-                    no watermarks or QR codes burned into them, which protects
-                    your marketplace account.
-                  </p>
-                  {/* US-2247: publish has always read listings.badge_enabled and
-                      slab_image_mode, but nothing in the app wrote either — so
-                      the grade banner told sellers to "enable the grade badge
-                      below" and no such control existed anywhere. The grade card
-                      is a SEPARATE gallery image, not an overlay on the seller's
-                      own shots, which is why the copy above still holds. */}
-                  <div className="mt-3 space-y-2 rounded-md border bg-muted/20 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <Label htmlFor="grade-badge" className="text-sm">
-                          Add a grade card image to the gallery
-                        </Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          A generated image showing the {item.grade_value.toFixed(1)}
-                          /10 grade and certificate link, added alongside your
-                          photos.
-                        </p>
-                      </div>
-                      <Switch
-                        id="grade-badge"
-                        checked={badgeEnabled}
-                        onCheckedChange={(on) => {
-                          setBadgeEnabled(on);
-                          // Turning the card on with mode "off" would store a
-                          // contradiction publish can't act on; seed a real mode.
-                          if (on && slabImageMode === "off") {
-                            setSlabImageMode("extra");
-                          }
-                          if (!on) setSlabImageMode("off");
-                        }}
-                        aria-label="Add a grade card image to this listing's gallery"
-                      />
-                    </div>
-                    {badgeEnabled && (
-                      <div className="space-y-1.5">
-                        <Label htmlFor="slab-mode" className="text-xs">
-                          Where it goes
-                        </Label>
-                        <Select
-                          value={slabImageMode === "off" ? "extra" : slabImageMode}
-                          onValueChange={(v) =>
-                            setSlabImageMode(v as SlabImageMode)
-                          }
-                        >
-                          <SelectTrigger id="slab-mode" className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="extra" className="text-xs">
-                              Extra gallery image (after your photos)
-                            </SelectItem>
-                            <SelectItem value="hero" className="text-xs">
-                              First image buyers see
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-[11px] text-muted-foreground">
-                          “First image” maximises the grade's visibility in
-                          search results; “extra” keeps your own hero shot.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  {/* US-1665 growth loop: one-click copy of the public
-                      certificate link, so a seller can paste the verifiable
-                      grade into ANY marketplace listing (not just eBay). Each
-                      shared link is an indexable inbound reference to the cert. */}
-                  {item.certificate_url && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
-                      onClick={() => {
-                        const certUrl = item.certificate_url;
-                        if (!certUrl) return;
-                        void navigator.clipboard
-                          .writeText(certUrl)
-                          .then(() =>
-                            toast.success("Certificate link copied", {
-                              description:
-                                "Paste it into your listing so buyers can verify the grade.",
-                            }),
-                          )
-                          .catch(() =>
-                            toast.error("Couldn't copy the link"),
-                          );
-                      }}
-                    >
-                      <Link2 className="mr-2 h-4 w-4" />
-                      Copy certificate link for your listing
-                    </Button>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* US-1567: measurements — same form as the item canvas. */}
-          <Card id="composer-measurements">
-            <CardHeader>
-              <CardTitle>Measurements</CardTitle>
-              <CardDescription>
-                Flat measurements buyers ask about. Synced live with matching
-                free-text eBay item specifics (Inseam, Length, Chest, …).
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <MeasurementForm
-                category={item.category}
-                brand={item.brand}
-                values={measurements}
-                onChange={setMeasurements}
-                aiSources={item.ai_field_sources ?? null}
-              />
-              {/* US-1574: calibrated photo measuring — renders only when the
-                  item has a MeasureCard shot; drag-adjust + save syncs the
-                  same measurements state the form above edits. */}
-              <MeasurementPhotoEditor
-                itemId={item.id}
-                category={item.category}
-                values={measurements}
-                aiSources={item.ai_field_sources ?? null}
-                onApply={(next) => setMeasurements(next)}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Grade this item — restores the "Submit for grading" action in the
-              drafts editor (it lived on the item canvas, which the AutoLister/
-              Inventory drafts consolidation routed around). Self-contained: shows
-              the existing grade + certificate when graded, submission status when
-              in flight, or the tier picker + Submit when eligible. */}
-          <GradeThisItemCard
-            item={item}
-            preview={gradingPreview}
-            liveFields={{
-              title,
-              garment_type: ebayMapping?.garment_type ?? "",
-              garment_category: ebayMapping?.garment_category ?? "",
-            }}
-            onPatchGarment={(gt, gc) => {
-              // The composer doesn't own garment fields; write them straight to
-              // the item and refresh the ebayMapping read so the preview clears.
-              void (async () => {
-                await supabase
-                  .from("inventory_items")
-                  .update({ garment_type: gt, garment_category: gc } as never)
-                  .eq("id", item.id);
-                await qc.invalidateQueries({
-                  queryKey: ["inventory_item_ebay", item.id],
-                });
-                await qc.invalidateQueries({ queryKey: ["items_full"] });
-              })();
-            }}
-          />
-
           {/* Description */}
           <Card>
             <CardHeader>
@@ -3177,6 +2943,134 @@ export function FlipdeskComposerPage({
               )}
             </CardContent>
           </Card>
+
+          {/* Item details — the bookkeeping that used to live only on the
+              status-gated item canvas. Saved by the main Save below, at every
+              status, so nothing here is reachable at one status and not another.
+              Brand / size / color / material deliberately aren't repeated here:
+              they're owned by the eBay item specifics editor and folded back
+              into their columns on save (single-entry rule, US-557). */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Item details</CardTitle>
+              <CardDescription>
+                Pipeline status and sourcing — saved to the item alongside your
+                listing edits.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="item-status">Status</Label>
+                <Select
+                  value={itemStatus}
+                  onValueChange={(v) => setItemStatus(v as ItemStatus)}
+                >
+                  <SelectTrigger id="item-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ITEM_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {ITEM_STATUS_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Prep stages only move forward — completed work can't be undone
+                  by picking an earlier stage.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="item-category">Category</Label>
+                <Select
+                  value={itemCategory || "__none"}
+                  onValueChange={(v) => {
+                    setItemCategory(v === "__none" ? "" : (v as ItemCategory));
+                    setCategoryTouched(true);
+                  }}
+                >
+                  <SelectTrigger id="item-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">— None —</SelectItem>
+                    {ITEM_CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {ITEM_CATEGORY_LABELS[c]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  The coarse grading category. Picking an eBay category below
+                  keeps this in sync unless you set it here yourself.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="item-sourced-by">Sourced by</Label>
+                <Input
+                  id="item-sourced-by"
+                  value={sourcedBy}
+                  onChange={(e) => setSourcedBy(e.target.value)}
+                  placeholder="Who picked it up"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="item-acquired-date">Purchase date</Label>
+                <Input
+                  id="item-acquired-date"
+                  type="date"
+                  value={acquiredDate}
+                  onChange={(e) => setAcquiredDate(e.target.value)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Storage & SKU — item-level logistics (parity with the iOS canvas).
+              Saves to the item, not the eBay listing. */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Storage &amp; SKU</CardTitle>
+              <CardDescription>
+                Where this item lives and how it's labeled. Saved to the item
+                rather than the eBay listing, by the same Save button as
+                everything else on this page.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="storage-sku">SKU / Item #</Label>
+                  <Input
+                    id="storage-sku"
+                    value={storageSku}
+                    onChange={(e) => setStorageSku(e.target.value)}
+                    placeholder="e.g. FD-1a2b"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="storage-location">Location / Bin</Label>
+                  <Input
+                    id="storage-location"
+                    value={storageLocation}
+                    onChange={(e) => setStorageLocation(e.target.value)}
+                    placeholder="e.g. Tote A3"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="storage-container">Container</Label>
+                  <Input
+                    id="storage-container"
+                    value={storageContainer}
+                    onChange={(e) => setStorageContainer(e.target.value)}
+                    placeholder="e.g. Bin 7"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* ── Preview column ──────────────────────────────────────── */}
@@ -3223,11 +3117,214 @@ export function FlipdeskComposerPage({
         </div>
       </div>
 
+      {/* ── Publish ──────────────────────────────────────────────
+          US-2252/US-2253: everything that decides HOW this goes live sits
+          together, directly above the button that does it. The channel picker
+          used to live four cards up in the editor column while gating the CTA at
+          the bottom, and the drop schedule was buried inside "Condition &
+          price" — neither a condition nor a price. */}
+        {/* Push to marketplaces (US-149 + US-717). API platforms fan out via
+            cross-push; the extension platforms list from the seller's own
+            browser through the Listing Kit below. */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Push to</CardTitle>
+            <CardDescription>
+              Cross-list this draft. Each platform gets its own price — leave it
+              blank to use the price above.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {API_CROSS_LISTING_PLATFORMS.map((p) => {
+              // US-1114: a channel whose connector is built but awaiting
+              // platform approval (tier "api_pending", e.g. Depop) has no
+              // connect/publish path yet — publishing would 503. Show it
+              // disabled with honest copy instead of a live "Connected via
+              // API" checkbox that fails on click.
+              const pending = MARKETPLACE_TIER[p] === "api_pending";
+              const checked = pushPlatforms.has(p) && !pending;
+              return (
+                <div
+                  key={p}
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-md border p-2.5",
+                    pending && "opacity-60",
+                  )}
+                >
+                  <label
+                    className={cn(
+                      "flex items-center gap-2 text-sm",
+                      pending ? "cursor-not-allowed" : "cursor-pointer",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={pending}
+                      onChange={() => togglePushPlatform(p)}
+                      className={cn(
+                        "h-3.5 w-3.5",
+                        pending ? "cursor-not-allowed" : "cursor-pointer",
+                      )}
+                    />
+                    <span className="font-medium">
+                      {MARKETPLACE_LABELS[p]}
+                    </span>
+                    <Badge variant="outline" className="text-[10px]">
+                      {pending
+                        ? MARKETPLACE_TIER_LABEL.api_pending
+                        : "Connected via API"}
+                    </Badge>
+                  </label>
+                  {checked && (
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      value={platformPrices[p] ?? ""}
+                      onChange={(e) =>
+                        setPlatformPrices((prev) => ({
+                          ...prev,
+                          [p]: e.target.value,
+                        }))
+                      }
+                      placeholder={price || "Price"}
+                      className="h-8 max-w-[7rem] text-right"
+                      aria-label={`${MARKETPLACE_LABELS[p]} price`}
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            {/* US-717: extension marketplaces are offered with their real
+                mechanism badge. They have no write API, so they list from the
+                seller's own logged-in tab via the Listing Kit below — not
+                cross-push. */}
+            <div className="rounded-md border border-dashed p-2.5">
+              <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                {EXTENSION_CROSS_LISTING_PLATFORMS.map((p) => (
+                  <span key={p} className="font-medium">
+                    {MARKETPLACE_LABELS[p]}
+                  </span>
+                ))}
+                <Badge variant="outline" className="text-[10px]">
+                  Via browser extension
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                No public API — list these from your own logged-in tab with the
+                GradeThread Lister extension in the Listing Kit below.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+      {/* US-2252: the Listing Kit is editable content, so it belongs ABOVE the
+          Save/Publish row rather than after it — nothing actionable should sit
+          below the button that ends the task. */}
+      <ListingKit
+        itemId={item.id}
+        baseName={item.item_number ?? item.item_title ?? item.id}
+      />
+
+      {/* US-2253: the drop schedule, next to the button that publishes.
+          It used to live inside "Condition & price", which it is neither of. */}
+      {editorMode === "draft" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>When it goes live</CardTitle>
+            <CardDescription>
+              Publish as soon as you hit the button, or pick a peak buying time
+              and let it go live on its own.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            <Label htmlFor="schedule-at">Drop time (optional)</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="schedule-at"
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                className="max-w-[16rem]"
+              />
+              {scheduledAt && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setScheduledAt("")}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+            {/* US-563: timezone-aware peak-time presets. The picker only
+                controls how the presets below are evaluated; the input
+                stays in your browser's local time. */}
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              <Select value={dropTimezone} onValueChange={setDropTimezone}>
+                <SelectTrigger className="h-8 w-[15rem] text-xs">
+                  <SelectValue placeholder="Timezone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(COMMON_TIMEZONES.some((t) => t.id === dropTimezone)
+                    ? COMMON_TIMEZONES
+                    : [{ id: dropTimezone, label: `${dropTimezone} (your timezone)` }, ...COMMON_TIMEZONES]
+                  ).map((tz) => (
+                    <SelectItem key={tz.id} value={tz.id} className="text-xs">
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {DROP_PRESETS.map((preset) => (
+                <Button
+                  key={preset.id}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  title={preset.hint}
+                  onClick={() => {
+                    const utc = nextPresetUtc(preset, dropTimezone);
+                    setScheduledAt(isoToLocalInput(utc.toISOString()));
+                    toast.success(
+                      `Drop set for ${formatInZone(utc.toISOString(), dropTimezone)}`,
+                    );
+                  }}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Leave it empty to go live the moment you hit the button below.
+              {scheduledAt && (
+                <>
+                  {" "}Set: this listing goes live{" "}
+                  <span className="font-medium text-foreground">
+                    {formatInZone(
+                      localInputToIso(scheduledAt) ?? "",
+                      dropTimezone,
+                    )}
+                  </span>{" "}
+                  on its own — you don&apos;t need to come back.
+                </>
+              )}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* US-825: pre-publish required-aspect check — warn inline (using the same
           required-aspect rule the server blocks on) instead of failing at publish.
           Non-blocking: publish stays server-validated. */}
       {missingRequired.length > 0 && (
-        <div className="flex items-start justify-end gap-2 text-right">
+        <div className="flex flex-wrap items-center justify-end gap-2 text-right">
           <p className="text-xs text-muted-foreground">
             <span className="font-medium text-destructive">
               {missingRequired.length} required{" "}
@@ -3235,8 +3332,21 @@ export function FlipdeskComposerPage({
             </span>{" "}
             ({missingRequired.slice(0, 4).join(", ")}
             {missingRequired.length > 4 ? "…" : ""}) — eBay will reject publish
-            until these are filled in the specifics editor above.
+            until these are filled in.
           </p>
+          {/* US-2257: "above" was doing a lot of work from the bottom of a very
+              long page. Take the seller there instead. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const el = document.getElementById("composer-category");
+              el?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+          >
+            Go to item specifics
+          </Button>
         </div>
       )}
 
@@ -3342,39 +3452,50 @@ export function FlipdeskComposerPage({
             </Button>
             <Button
               onClick={() => void handlePublishClick()}
+              // US-2257: also blocked on the two things eBay is CERTAIN to
+              // reject, so the seller learns it here rather than from eBay's
+              // error message after a round-trip.
               disabled={
                 saving ||
                 crossPush.isPending ||
                 pushPlatforms.size === 0 ||
-                (pushPlatforms.has("ebay") && !ebayConnection)
+                (pushPlatforms.has("ebay") && !ebayConnection) ||
+                publishBlocker != null
               }
               title={
                 pushPlatforms.has("ebay") && !ebayConnection
                   ? "Connect eBay first on the Marketplaces page."
                   : pushPlatforms.size === 0
                     ? "Pick at least one marketplace in the Push to card."
-                    : "Saves the draft, then publishes."
+                    : (publishBlocker ??
+                      (scheduledAt
+                        ? "Saves the draft; it publishes itself at your drop time."
+                        : "Saves the draft, then publishes."))
               }
             >
               {crossPush.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : scheduledAt ? (
+                <CalendarClock className="mr-2 h-4 w-4" />
               ) : (
                 <Rocket className="mr-2 h-4 w-4" />
               )}
-              {pushPlatforms.size === 1 && pushPlatforms.has("ebay")
-                ? "Save & publish to eBay"
-                : `Save & push to ${pushPlatforms.size} marketplace${
-                    pushPlatforms.size === 1 ? "" : "s"
-                  }`}
+              {/* US-2253: a scheduled drop isn't a publish — say what the click
+                  actually does, and when it happens. */}
+              {scheduledAt
+                ? `Save & schedule for ${formatInZone(
+                    localInputToIso(scheduledAt) ?? "",
+                    dropTimezone,
+                  )}`
+                : pushPlatforms.size === 1 && pushPlatforms.has("ebay")
+                  ? "Save & publish to eBay"
+                  : `Save & push to ${pushPlatforms.size} marketplace${
+                      pushPlatforms.size === 1 ? "" : "s"
+                    }`}
             </Button>
           </>
         )}
       </div>
-
-      <ListingKit
-        itemId={item.id}
-        baseName={item.item_number ?? item.item_title ?? item.id}
-      />
 
       <PublishToEbayDialog
         open={publishOpen}
