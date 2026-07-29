@@ -1,3 +1,27 @@
+// ⚠️ NOT MOUNTED BY ANY WEB ROUTE. Read this before adding a feature here.
+//
+// US-2259. The web item editor is src/pages/flipdesk/composer.tsx — it replaced
+// this canvas so a listing could not lose its eBay specifics editor by moving
+// forward in the pipeline. Nothing in src/ imports `ItemCanvas`; grep and see.
+//
+// It is kept, rather than deleted, because iOS and Android BOTH still ship a
+// live canvas and cite this file by name as the web-parity spec:
+//
+//   ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift  ("web parity —
+//     see item-canvas.tsx `save()`")
+//   ios/GradeThread/Persistence/Models/LocalInventoryItem.swift  ("web parity
+//     (item-canvas.tsx garment pickers)")
+//   android/.../inventory/ItemCanvasScreen.kt  (the same surface)
+//
+// So: this is a REFERENCE, not a surface.
+//   • A feature meant for web sellers goes in composer.tsx. Adding it here ships
+//     it to nobody — which is exactly how EbayCatalogMatchCard and
+//     CategoryCheckCard ended up unreachable until US-2259 moved their mounts.
+//   • Changing the shape this file persists (columns, trim-to-null rules) means
+//     the mobile clients are now diverging from their own stated spec. Update
+//     them in the same change, or update the parity comments to point elsewhere.
+//   • Deleting this file is fine ONLY once those mobile references are repointed
+//     at composer.tsx (or the mobile canvases are retired too).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";

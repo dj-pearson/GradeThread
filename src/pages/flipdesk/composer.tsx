@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import {
   BadgeCheck,
   AlertTriangle,
   CalendarClock,
+  DollarSign,
 } from "lucide-react";
 import {
   Card,
@@ -32,6 +33,16 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -101,6 +112,8 @@ import {
 } from "@/lib/garment-mapping";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
+import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
+import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
@@ -147,6 +160,7 @@ import {
 } from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import type {
   ItemCategory,
   ItemPhotoRow,
@@ -156,6 +170,7 @@ import type {
   SlabImageMode,
 } from "@/types/database";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
+import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { rowToMergeValues, type MergeValues } from "@/lib/merge-values";
 // US-2248/US-2249: the save payloads live in one pure module so the draft and
 // live paths cannot drift apart again (see src/lib/composer-save.ts).
@@ -166,6 +181,16 @@ import {
   resolveQuantity,
   type ComposerListingState,
 } from "@/lib/composer-save";
+
+// US-2260: statuses a SALE owns. Reaching one of these means a sales row exists
+// (RecordSaleDialog / the eBay order sync writes it and advances the status), so
+// the composer's status dropdown must not offer them as words to pick.
+const SALE_OWNED_STATUSES = new Set<ItemStatus>([
+  "sold",
+  "shipped",
+  "completed",
+  "returned",
+]);
 
 const TITLE_MAX = 80;
 // eBay's cap on the buyer-facing condition description (Sell Inventory API).
@@ -259,7 +284,18 @@ function descriptionMentions(description: string, value: string): boolean {
 export function FlipdeskComposerPage({
   itemId,
   showHeader = true,
-}: { itemId?: string; showHeader?: boolean } = {}) {
+  onDirtyChange,
+}: {
+  itemId?: string;
+  showHeader?: boolean;
+  /**
+   * US-2256: reported whenever the form's unsaved state changes. A host that can
+   * dismiss this editor WITHOUT navigating — the item detail dialog, the quick-look
+   * sheet — has to run its own confirm, because React Router's blocker only sees
+   * route changes and a closing dialog isn't one.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
+} = {}) {
   const { id: routeId } = useParams<{ id: string }>();
   const id = itemId ?? routeId;
   const navigate = useNavigate();
@@ -322,6 +358,9 @@ export function FlipdeskComposerPage({
     existing: MergeValues;
   } | null>(null);
   const [merging, setMerging] = useState(false);
+  // US-2260: recording the sale is what makes an item sold — offered here instead
+  // of letting the status dropdown claim it without the money behind it.
+  const [recordSaleOpen, setRecordSaleOpen] = useState(false);
   // US-561: Promoted Listings. promoteEnabled mirrors !promo_opt_out (promote by
   // default); promoRate is the seller's accepted/adjusted ad rate (%) seeded
   // from the category suggestion; promoSuggested holds the fetched suggestion so
@@ -360,6 +399,11 @@ export function FlipdeskComposerPage({
   const [returnPolicyId, setReturnPolicyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [initialised, setInitialised] = useState(false);
+  // US-2256: a serialized snapshot of every editable field as it was seeded (and
+  // re-stamped after each successful save). Anything other than a byte-identical
+  // match means there is unsaved work worth warning about. null until seeding
+  // completes, so a still-loading form can never look dirty.
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
   // Lifted from the category picker so the comps panel reacts to a pick
   // before the user commits via "Save eBay specifics".
   const [livePickedCategoryId, setLivePickedCategoryId] = useState<
@@ -699,6 +743,81 @@ export function FlipdeskComposerPage({
     promoDefaults,
   ]);
 
+  // US-2256: everything this page owns and could lose, in one string. Compared
+  // against the snapshot taken at seed time (and re-stamped after each save) to
+  // decide whether leaving costs the seller anything.
+  //
+  // The eBay aspect map is deliberately NOT in here: the picker reports its
+  // aspects up on mount and prefills derivable ones, so folding that into the
+  // snapshot would make a freshly-opened composer look dirty before the seller
+  // touched it — which is how a guard stops working. Aspect edits are tracked
+  // separately against the picker's FIRST report (aspectBaseline below).
+  const formSnapshot = useMemo(
+    () =>
+      JSON.stringify([
+        title,
+        description,
+        ebayCondition,
+        conditionDesc,
+        price,
+        cost,
+        quantity,
+        scheduledAt,
+        primaryPhotoId,
+        promoteEnabled,
+        promoMode,
+        promoRate,
+        listingFormat,
+        bestOfferEnabled,
+        bestOfferAccept,
+        bestOfferDecline,
+        badgeEnabled,
+        slabImageMode,
+        shippingPolicyId,
+        paymentPolicyId,
+        returnPolicyId,
+        measurements,
+        storageSku,
+        storageLocation,
+        storageContainer,
+        itemStatus,
+        itemCategory,
+        sourcedBy,
+        acquiredDate,
+      ]),
+    [
+      title, description, ebayCondition, conditionDesc, price, cost, quantity,
+      scheduledAt, primaryPhotoId, promoteEnabled, promoMode, promoRate,
+      listingFormat, bestOfferEnabled, bestOfferAccept, bestOfferDecline,
+      badgeEnabled, slabImageMode, shippingPolicyId, paymentPolicyId,
+      returnPolicyId, measurements, storageSku, storageLocation,
+      storageContainer, itemStatus, itemCategory, sourcedBy, acquiredDate,
+    ],
+  );
+  // Stamped once seeding finishes — computing it inside the seed effect would
+  // read the pre-setState values and bake in a snapshot that never matches.
+  useEffect(() => {
+    if (initialised && savedSnapshot === null) setSavedSnapshot(formSnapshot);
+  }, [initialised, savedSnapshot, formSnapshot]);
+  // The aspect map as the picker FIRST reported it (post-mount, post-prefill).
+  const aspectBaseline = useRef<string | null>(null);
+  const [aspectsDirty, setAspectsDirty] = useState(false);
+  const isDirty =
+    (savedSnapshot !== null && formSnapshot !== savedSnapshot) || aspectsDirty;
+  // Re-stamp both baselines: a save makes the current form the saved form.
+  function markSaved() {
+    setSavedSnapshot(formSnapshot);
+    aspectBaseline.current = JSON.stringify(livePickedAspects ?? null);
+    setAspectsDirty(false);
+  }
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+  // US-2256: in-app navigation (the Close button's navigate(-1), a sidebar click)
+  // is intercepted for a real confirm; refresh/tab-close falls back to the
+  // browser's own prompt. Both live in useNavigationGuard (US-2032).
+  const guard = useNavigationGuard(isDirty && !saving);
+
   // The category publish will actually use: the seller's live pick, else the
   // saved listing override, else the inventory mirror. US-2261: derived ONCE —
   // this cascade used to be re-typed in five places (the ad-rate suggestion, the
@@ -946,6 +1065,28 @@ export function FlipdeskComposerPage({
   // A brand-new draft (no listing row yet) is GradeThread-originated by definition.
   const listingOrigin = listing ? deriveListingOrigin(listing) : "gradethread";
   const isEbayOrigin = listingOrigin === "ebay";
+  // US-2258: WHICH fields eBay owns on a mirror is not a judgement call — the
+  // edge has one list, EBAY_OWNED_LISTING_FIELDS in
+  // services/edge-functions/src/lib/sync-precedence.ts, and an inbound pull
+  // overwrites exactly those while origin='ebay'. That list is:
+  //
+  //   listing_title · listing_price · listing_description · quantity ·
+  //   platform_category_id · listing_status · is_active · listed_at ·
+  //   platform_listing_id · platform_offer_id · listing_url
+  //
+  // Of the ones this form edits: title, price, description and QUANTITY are
+  // locked below (quantity was editable here and would have been silently
+  // reverted by the next sync). platform_category_id is eBay-owned too, but its
+  // editor also holds the item specifics — which are NOT on the list and must
+  // stay editable — so the picker warns instead of locking.
+  //
+  // Deliberately NOT locked, because eBay does not own them: ebay_condition,
+  // ebay_condition_description, item_specifics_override, the listing format,
+  // Promoted Listings, Best Offer, the business policies, measurements, cost,
+  // and everything on inventory_items.
+  const ebayOwnedHint = isEbayOrigin
+    ? "eBay owns this field on a listing it created — change it on eBay."
+    : undefined;
   // US-1080: on an eBay-ORIGINATED mirror, eBay owns title/price/description —
   // the server rejects edits to them. This editor is now the only one an
   // eBay-created listing ever opens in, so the lock (and the way out of it) has
@@ -1215,6 +1356,7 @@ export function FlipdeskComposerPage({
       });
       // US-1895: refresh the recommended-coverage meter after an aspect save.
       await qc.invalidateQueries({ queryKey: ["recommended-coverage", item.id] });
+      markSaved();
       toast.success(item.listing_id ? "Saved." : "Draft saved.");
       return listingId;
     } catch (err) {
@@ -1430,6 +1572,7 @@ export function FlipdeskComposerPage({
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
+      markSaved();
       return item.listing_id;
     } catch (err) {
       toast.error(`Save failed: ${errorMessage(err)}`);
@@ -2090,10 +2233,15 @@ export function FlipdeskComposerPage({
                   onRevert={() => setTitle((aiSnapshot.title ?? "").slice(0, TITLE_MAX))}
                 />
               )}
+              {/* US-2258: every write action here is gated on the same lock as
+                  the input. Offering "AI rewrite" on a field eBay owns produced a
+                  reviewed, accepted rewrite the save would then refuse. */}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
+                  disabled={isEbayOrigin}
+                  title={ebayOwnedHint}
                   onClick={() => setTitle(suggestTitle(item))}
                 >
                   <Wand2 className="mr-2 h-3 w-3" />
@@ -2104,7 +2252,8 @@ export function FlipdeskComposerPage({
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={!title.trim() || aiRewrite.isPending}
+                      disabled={!title.trim() || aiRewrite.isPending || isEbayOrigin}
+                      title={ebayOwnedHint}
                     >
                       {aiRewrite.isPending &&
                       rewriteAction?.startsWith("title_") ? (
@@ -2132,14 +2281,20 @@ export function FlipdeskComposerPage({
                   </DropdownMenuContent>
                 </DropdownMenu>
                 {titleChips.map((kw) => {
-                  const fits = chipFits(kw);
+                  const fits = chipFits(kw) && !isEbayOrigin;
                   return (
                     <button
                       key={kw}
                       type="button"
                       disabled={!fits}
                       onClick={() => appendKeyword(kw)}
-                      title={fits ? undefined : "Won't fit in 80 characters"}
+                      title={
+                        isEbayOrigin
+                          ? ebayOwnedHint
+                          : fits
+                            ? undefined
+                            : "Won't fit in 80 characters"
+                      }
                       className={cn(
                         "inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs",
                         fits
@@ -2204,6 +2359,16 @@ export function FlipdeskComposerPage({
               </CardContent>
             </Card>
           )}
+          {/* US-2258: platform_category_id is eBay-owned on a mirror, but the item
+              specifics in the same editor are not — so warn rather than lock, or
+              the seller loses the specifics editor along with the category. */}
+          {isEbayOrigin && (
+            <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
+              eBay owns this listing&apos;s category, so a change here is
+              overwritten by the next sync — change it on eBay. Item specifics
+              below are yours and save normally.
+            </p>
+          )}
           {listingLoading || ebayMappingLoading ? (
             <Card>
               <CardContent className="py-6">
@@ -2233,7 +2398,17 @@ export function FlipdeskComposerPage({
                 setLivePickedCategoryId(id);
                 setLivePickedCategoryPath(path ?? null);
               }}
-              onAspectsChange={setLivePickedAspects}
+              onAspectsChange={(next) => {
+                setLivePickedAspects(next);
+                // US-2256: the picker reports on mount (after its own prefill),
+                // so that FIRST report is the baseline — not a seller edit.
+                const encoded = JSON.stringify(next ?? null);
+                if (aspectBaseline.current === null) {
+                  aspectBaseline.current = encoded;
+                } else if (encoded !== aspectBaseline.current) {
+                  setAspectsDirty(true);
+                }
+              }}
               onSourcesChange={setLivePickedSources}
               onMissingRequiredChange={setMissingRequired}
               // US-828: highlight the aspect rows generation reconciliation
@@ -2274,6 +2449,15 @@ export function FlipdeskComposerPage({
             }}
           />
 
+          {/* US-2259: both of these were mounted ONLY on ItemCanvas, which no
+              route renders any more — this editor replaced it. Two working
+              features (adopt an eBay Catalog product to auto-fill authoritative
+              specifics; check the chosen category against the Taxonomy API's
+              current suggestion) were unreachable. They belong right under the
+              category + specifics editor they act on. */}
+          <EbayCatalogMatchCard itemId={item.id} />
+          {item.listing_id && <CategoryCheckCard listingId={item.listing_id} />}
+
           {/* Live comps + price recommendation */}
           <EbayCompsPanel
             itemId={item.id}
@@ -2306,21 +2490,29 @@ export function FlipdeskComposerPage({
             <CardContent className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="ebay-condition">eBay condition</Label>
-                {/* bg-background/text-foreground (not bg-transparent) + the global
-                    `select option` rule keep the native list legible in dark mode. */}
-                <select
-                  id="ebay-condition"
-                  value={ebayCondition}
-                  onChange={(e) => setEbayCondition(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                {/* US-2262: a shadcn Select like every other dropdown on the page.
+                    This was the one raw <select> left, on the field most likely to
+                    get a listing bounced. The id stays `ebay-condition` so the
+                    AutoLister pre-flight deep link (COMPOSER_FOCUS_ANCHORS.condition)
+                    still lands on it. */}
+                <Select
+                  value={ebayCondition || "__none"}
+                  onValueChange={(v) =>
+                    setEbayCondition(v === "__none" ? "" : v)
+                  }
                 >
-                  <option value="">Select condition…</option>
-                  {conditionOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="ebay-condition">
+                    <SelectValue placeholder="Select condition…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">Select condition…</SelectItem>
+                    {conditionOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {conditionRejected && (
                   <p className="text-xs text-destructive">
                     This condition isn't accepted by the selected eBay category —
@@ -2464,6 +2656,11 @@ export function FlipdeskComposerPage({
                       value={quantity}
                       onChange={(e) => setQuantity(e.target.value)}
                       className="max-w-[7rem]"
+                      // US-2258: quantity is on EBAY_OWNED_LISTING_FIELDS, so on
+                      // a mirror the next inbound sync overwrites whatever is
+                      // typed here.
+                      disabled={isEbayOrigin}
+                      title={ebayOwnedHint}
                     />
                     {quantityInvalid ? (
                       <p className="text-xs text-destructive">
@@ -2882,7 +3079,13 @@ export function FlipdeskComposerPage({
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={applyTemplate}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isEbayOrigin}
+                    title={ebayOwnedHint}
+                    onClick={applyTemplate}
+                  >
                     <Wand2 className="mr-2 h-3 w-3" />
                     Apply template
                   </Button>
@@ -2891,7 +3094,8 @@ export function FlipdeskComposerPage({
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={aiRewrite.isPending}
+                        disabled={aiRewrite.isPending || isEbayOrigin}
+                        title={ebayOwnedHint}
                       >
                         {aiRewrite.isPending &&
                         rewriteAction?.startsWith("description_") ? (
@@ -2961,6 +3165,13 @@ export function FlipdeskComposerPage({
             <CardContent className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="item-status">Status</Label>
+                {/* US-2260: the terminal sale statuses are NOT selectable here.
+                    resolveStatus lets a deliberate non-prep pick win outright, so
+                    choosing "Sold" wrote inventory_items.status='sold' with no
+                    sales row behind it — Sold totals, P&L and reconciliation then
+                    disagree with inventory, and nothing surfaces the discrepancy.
+                    Recording the sale is what makes an item sold; picking a word
+                    from a dropdown isn't. */}
                 <Select
                   value={itemStatus}
                   onValueChange={(v) => setItemStatus(v as ItemStatus)}
@@ -2969,7 +3180,12 @@ export function FlipdeskComposerPage({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {ITEM_STATUSES.map((s) => (
+                    {ITEM_STATUSES.filter(
+                      (s) =>
+                        // Keep the CURRENT status listed even when terminal, so an
+                        // already-sold item's select isn't showing a lie.
+                        s === item.status || !SALE_OWNED_STATUSES.has(s),
+                    ).map((s) => (
                       <SelectItem key={s} value={s}>
                         {ITEM_STATUS_LABELS[s]}
                       </SelectItem>
@@ -2980,6 +3196,26 @@ export function FlipdeskComposerPage({
                   Prep stages only move forward — completed work can't be undone
                   by picking an earlier stage.
                 </p>
+                {!SALE_OWNED_STATUSES.has(item.status) && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      Sold this item?
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setRecordSaleOpen(true)}
+                    >
+                      <DollarSign className="mr-1 h-3 w-3" />
+                      Record the sale
+                    </Button>
+                    <p className="text-[11px] text-muted-foreground">
+                      That captures the price and fees, and sets the status.
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="item-category">Category</Label>
@@ -3391,8 +3627,11 @@ export function FlipdeskComposerPage({
       )}
 
       <div className="flex justify-end gap-2">
+        {/* US-2256: navigate(-1) is intercepted by the navigation guard when
+            there is unsaved work, so this stays a plain navigation and the
+            confirm lives in one place. */}
         <Button variant="outline" onClick={() => navigate(-1)} disabled={saving}>
-          Close
+          {isDirty ? "Close without saving" : "Close"}
         </Button>
         {editorMode === "live" ? (
           <>
@@ -3512,6 +3751,40 @@ export function FlipdeskComposerPage({
         currentValues={{ title, description }}
         fieldLabels={{ title: "Title", description: "Description" }}
         onApply={applyRewrite}
+      />
+
+      {/* US-2256: thirteen cards of edits used to vanish on one stray click —
+          Close had no confirm, and neither did a sidebar click or a refresh. */}
+      <AlertDialog
+        open={guard.blocked}
+        onOpenChange={(open) => {
+          if (!open) guard.cancelLeave();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have changes to this listing that haven&apos;t been saved. If
+              you leave now they&apos;ll be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={guard.cancelLeave}>
+              Keep editing
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={guard.confirmLeave}>
+              Leave and discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* US-2260: the real sold path — captures price, fees and date, then
+          advances the status via advanceItemStatus. */}
+      <RecordSaleDialog
+        item={recordSaleOpen ? item : null}
+        onClose={() => setRecordSaleOpen(false)}
       />
 
       {mergeState && (
