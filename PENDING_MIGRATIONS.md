@@ -1,312 +1,62 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ⏳ HELD: 00503_style_code_observations.sql (US-2246 learned style codes, 2026-07-29)
-
-**Apply AFTER 00502.** Creates `public.style_code_observations` (operator table,
-deny-all RLS, registered in `SERVICE_ROLE_ONLY`) plus the increment-or-insert
-function `record_style_code_observation(...)`. Run `NOTIFY pgrst, 'reload schema';`
-after — the edge calls the function through PostgREST RPC.
-
-**Aggregate only, and that is a privacy boundary.** Brand + code + the public
-listing title/URL. No owner column, no seller or buyer identity, no price
-history. A test registers it as non-tenant for exactly that reason.
-
-**Nothing breaks if unapplied.** Writes are fire-and-forget and swallow their
-errors; the read (`lookupLearnedStyle`) returns null on any DB error, which is
-the same "no hint" path an empty table produces. Extraction is unchanged.
-
-**Risk: LOW.** One new table, one new function, no existing object touched.
-Idempotent and re-run safe. Not exercised against a live DB (no Docker).
-
-
-## ⏳ HELD: 00502_registered_number_registry.sql (US-2244 RN registrants, 2026-07-29)
-
-**Apply AFTER 00501.** Creates `public.registered_number_registry` (operator
-table, deny-all RLS, registered in `SERVICE_ROLE_ONLY`). Run
-`NOTIFY pgrst, 'reload schema';` after — the new admin routes read/write it.
-
-**The edge READS this table at boot-adjacent time.** `getRegisteredNumberContext()`
-selects from it on the first RN cross-check after each 5-minute cache expiry. If
-the table is missing, the read throws, the catch logs, and BOTH maps come back
-empty — every lookup degrades to `no_reference`, which is the outcome that
-carries no information. Grading still completes. Apply it anyway before the edge
-redeploy so the feature is not silently inert.
-
-**A company is not a brand.** `brand_keys` is the only column that can add an
-owner to the cross-check index, and only for keys that already exist in
-`brand_knowledge`. A company-only row surfaces as reviewer context and can never
-mint a brand.
-
-**Risk: LOW.** One new table, no existing object touched. Idempotent.
-
-
-## ⏳ HELD: 00501_registered_number_sightings.sql (US-2243 RN sightings, 2026-07-29)
-
-**Apply AFTER 00500.** Creates `public.registered_number_sightings` (operator
-table, deny-all RLS, registered in `SERVICE_ROLE_ONLY`) plus the atomic
-increment-or-insert function `record_registered_number_sighting(...)`. Run
-`NOTIFY pgrst, 'reload schema';` after — the edge calls it through RPC.
-
-**No per-seller column, deliberately.** One row per registry number, with a count
-and the brand names declared alongside it. There is nothing in the table that
-could say which account photographed a tag, which is why it is safe as a global
-counter.
-
-**Nothing breaks if unapplied.** The grading pipeline `void`s the write and the
-recorder swallows its own errors, so a missing function logs one line per graded
-item and changes no grade.
-
-**Risk: LOW.** One new table, one new function, no existing object touched.
-Idempotent and re-run safe. Not exercised against a live DB (no Docker).
-
-
-## ⏳ HELD: 00500_authenticity_references.sql (US-2218 reference imagery, 2026-07-28)
-
-**Apply AFTER 00499.** Creates `public.authenticity_references` (operator table,
-deny-all RLS, registered in `SERVICE_ROLE_ONLY`) plus a new **PRIVATE** storage
-bucket `authenticity-references`. Run `NOTIFY pgrst, 'reload schema';` after.
-
-**`rights` is NOT NULL with no default, deliberately.** A reference image cannot
-exist without a stated licence/ownership basis. A nullable column would have made
-omitting provenance the easy path, and scraped brand imagery is exactly what this
-column exists to prevent.
-
-**No link to `submission_images`, by design.** Seller photos are never promoted
-into the corpus — the US-1067 exemplar privacy rule applies. A test asserts the
-executable SQL never names that table.
-
-**The bucket is `public = false`,** and reads go only through signed URLs with a
-TTL ≤ 900s, matching the `submission-images` rule. It is never `item-photos`.
-
-**No client involvement, and nothing breaks if unapplied.** The table starts
-empty, and an empty result is the same state the code already handles: every
-visual tell is marked unverifiable, which widens the disclosed limitations and
-caps confidence. Safe to push before applying.
-
-**Risk: LOW.** One new table, one new private bucket, no change to any existing
-object. Idempotent and re-run safe. Not exercised against a live DB (no Docker).
-
-
-## ⏳ HELD: 00499_size_systems.sql (US-2215 size system + class, 2026-07-28)
-
-**Apply AFTER 00498.** Adds two nullable text columns to
-`public.brand_size_charts` — `size_system` (US|UK|EU|IT|FR|JP|AU|alpha) and
-`size_class` (standard|plus|petite|tall|big_and_tall|maternity) — then fills
-them for 138 of the rows 00498 inserted.
-
-**GENERATED FILE — do not hand-edit.** Regenerate with
-`deno run --allow-read --allow-write scripts/gen-size-systems-migration.mjs`.
-`sizing-chart-parity_test.ts` fails if the committed SQL drifts from the charts.
-
-**Depends on 00498 having run.** The UPDATE matches on
-(brand_key, department, garment); if 00498 has not been applied there are no
-rows to match and the UPDATE is a harmless no-op — it will NOT error, but the
-columns will stay NULL, so apply them in order.
-
-**Values are DERIVED, not asserted.** `detectSizeSystem` reads the system off
-the labels only where they state it (137 charts do) and returns NULL otherwise.
-A chart of bare numbers stays NULL because a bare "6" could be US or UK. NULL
-means "not recorded", NOT an implied US.
-
-**It does not rewrite a single size label or note.** The 115 charts that encode
-their system inside the label keep that prose; this adds the structured field
-beside it. A test asserts the migration touches neither `rows` nor `note`.
-
-**No client involvement.** Global reference table, deny-all RLS, read only by
-the edge service-role client. Nothing in the edge reads these columns yet
-either — this story lands the dimension and the conversion layer; wiring a
-converted size onto a certificate is a later, deliberate step.
-
-**Risk: LOW.** Two additive nullable columns plus an UPDATE that only sets them.
-No trigger, no index, no tenant data. Idempotent and re-run safe.
-
-
-## ⏳ HELD: 00498_sizing_charts_backfill.sql (US-2214 sizing chart parity, 2026-07-28)
-
-**Apply AFTER 00497.** Inserts 292 rows into `public.brand_size_charts` — every
-chart the in-code `SIZING_CHARTS` seed carries, across 170 brands. Previously
-only a couple of dozen had ever been seeded, so the DB-first resolver fell
-through to the frozen in-code copy for almost every brand. Run
-`NOTIFY pgrst, 'reload schema';` is NOT needed (no schema change), but harmless.
-
-**GENERATED FILE — do not hand-edit.** Regenerate with
-`deno run --allow-read --allow-write scripts/gen-sizing-chart-seed.mjs`.
-`sizing-chart-parity_test.ts` fails if the committed SQL stops matching the code.
-
-**Insert-only, and it yields to the hand-written packs.** `ON CONFLICT
-(brand_key, department, garment) DO NOTHING`, deliberately: the packs from 00447
-onward carry real `source_url` + `confidence`, and this backfill carries neither
-(the in-code seed has no per-chart provenance to copy). Every backfilled row
-lands `verified = false`, `confidence = NULL`, `source_url = NULL` — which is
-the honest state, not a regression: these are the values the resolver has always
-been using, now somewhere an operator can correct them.
-
-**No client involvement.** `brand_size_charts` is a global reference table with
-deny-all RLS, read only by the edge service-role client.
-
-**Safe to push before applying.** With 00498 unapplied the resolver simply keeps
-using the in-code charts, exactly as it does today — the only visible change is
-a new warning line naming the fallback.
-
-**Risk: LOW.** Insert-only into a reference table, no schema change, no trigger,
-no index, no tenant data. Idempotent and re-run safe.
-
-
-## ⏳ HELD: 00497_grade_reports_size_verification.sql (US-2213 verified size, 2026-07-28)
-
-**Apply AFTER 00496.** Adds one nullable column,
-`grade_reports.size_verification jsonb`, holding the size a grade was verified
-at and how: `{size, source: label|measurements|label_and_measurements,
-confidence, gender?, rationale?, disagreement?{label,measurements}}`. No
-backfill. Run `NOTIFY pgrst, 'reload schema';` after applying.
-
-**No client reads or writes this column.** The SPA is untouched and the column
-is deliberately absent from the public certificate allowlist
-(`content-public.ts` CERT_REPORT_COLUMNS), so a frontend auto-deploy cannot
-reach it.
-
-**Double-gated, same as 00496, so pushing before applying is safe.** The
-pipeline only sets `size_verification` when `GRADING_SIZE_VERIFY` is truthy —
-its own flag, separate from `GRADING_TAG_OCR`, defaulting OFF — and the insert
-uses a conditional spread, so with the flag off the column is never named in
-the PostgREST payload. Do NOT flip that flag before the SQL is applied: the
-grade-report insert would 42703 and take the paid grade down with it.
-
-**Why a separate column rather than a key inside `tag_read` (00496):** a
-measurement-derived size is not something the tag said. US-2212 had just found
-`brand_knowledge.tag_eras` doing double duty — dating generations and
-never-changed code formats in one column, because there was nowhere else for the
-second kind — and had to filter them apart at read time. Folding size into a
-column named `tag_read` would repeat that in a table we own.
-
-**Risk: LOW.** One additive nullable jsonb column plus a `comment on column`; no
-trigger, no index, no data migration, no view change. Idempotent and re-run
-safe. Not exercised against a live DB here (no Docker).
-
-
-## ⏳ HELD: 00496_grade_reports_tag_read.sql (US-2210 label transcription in grading, 2026-07-28)
-
-**Apply AFTER 00495.** Adds one nullable column, `grade_reports.tag_read jsonb`,
-holding the verbatim care/brand-label transcription a grade was identified from:
-`{fields:[{field,value,confidence}], discrepancies:[{field,read,declared}],
-min_confidence, model, read_at}`. No backfill — NULL already means "no
-label-derived identity". Run `NOTIFY pgrst, 'reload schema';` after applying.
-
-**No client reads or writes this column.** The SPA is untouched by this commit
-and the column is deliberately absent from the public certificate's allowlist
-(`content-public.ts` CERT_REPORT_COLUMNS), so a frontend auto-deploy cannot
-reach it. Unlike 00495, apply order is not urgent for correctness.
-
-**The edge write is double-gated, so pushing before applying is still safe.**
-The pipeline only sets `tag_read` when `GRADING_TAG_OCR` is truthy — the flag
-defaults OFF and must be set deliberately in Coolify. Until then the insert
-never names the column. Do NOT flip that flag before the SQL is applied: the
-grade-report insert would fail on the missing column and take the paid grade
-down with it.
-
-**Why:** grading took brand/size/style from whatever the seller typed at submit,
-even though `lib/ai-tag-ocr.ts` had read those fields verbatim off the garment's
-own label since US-543 — only the AutoLister ever called it. The pipeline now
-runs that read and injects it as trusted context, so the read itself has to be
-retained to stay auditable.
-
-**Risk: LOW.** One additive nullable jsonb column plus a `comment on column`; no
-trigger, no index, no data migration, no view change. Idempotent and re-run safe.
-Not exercised against a live DB in this environment (no Docker). After apply and
-before flipping the flag, confirm the column exists on `grade_reports`.
-
-
-## ⏳ HELD: 00495_item_photo_edit_originals.sql (US-2208 non-destructive photo editing, 2026-07-27)
-
-**Apply AFTER 00494.** Adds two nullable columns to `item_photos`:
-`original_storage_path text` (the pristine pre-edit original, copied aside once
-on first edit) and `edit_recipe jsonb` (the geometry + tone that produced the
-current image). No backfill — NULL already means "never edited". Run
-`NOTIFY pgrst, 'reload schema';` after applying.
-
-**⚠️ CLIENT READS AND WRITES BOTH NEW COLUMNS — apply-order matters.** The SPA in
-this commit selects `item_photos.*` (so PostgREST returns whatever exists — a
-missing column is tolerated on READ), but the photo editor's save path
-**writes** `original_storage_path` and `edit_recipe`
-(`src/lib/photo-mutations.ts` → `persistPhotoEdit`). Cloudflare Pages
-auto-deploys the frontend on push, so if this pushes BEFORE the SQL is applied,
-**every photo edit and every bulk tone-match fails** with
-`column item_photos.original_storage_path does not exist`, and the "Revert to
-original" control never appears. Apply the SQL to prod FIRST, then push. Upload,
-reorder, retag and delete are unaffected.
-
-**Why:** the editor overwrote `storage_path` in place, so a saved brightness or
-crop was permanent and the original upload was destroyed. Preserving the
-original also lets a re-edit start from the pristine file instead of compounding
-tone and JPEG re-encoding on each pass.
-
-**Risk: LOW.** Two additive nullable columns plus two `comment on column`
-statements; no trigger, no index, no data migration. Idempotent and re-run safe.
-The storage side is client-driven (a `copy()` into an `originals/` subfolder
-under the same `{userId}/…` prefix, so the per-user-folder RLS on
-`item-photos` still matches on segment 1). Not exercised against a live DB in
-this environment (no Docker) — after apply, spot-check that editing a photo
-once sets `original_storage_path`, that editing it twice does NOT change that
-value, and that "Revert to original" restores the pre-edit image.
-
-
-## ⏳ HELD: 00494_submissions_overall_score.sql (US-2196 server-side grade sort, 2026-07-27)
-
-**Apply AFTER 00493.** Adds `submissions.overall_score numeric(3,1)`, a
-`sync_submission_overall_score()` trigger on `grade_reports` (after
-insert/delete/update of `overall_score`,`superseded_at`) that copies the ACTIVE
-report's score (`superseded_at IS NULL`) onto the submission, a one-time
-backfill, and `idx_submissions_overall_score`. Run `NOTIFY pgrst, 'reload
-schema';` after applying.
-
-**⚠️ CLIENT READS THE NEW COLUMN — apply-order matters.** The SPA in this commit
-sorts the submissions list with `.order("overall_score")` on the `submissions`
-table (`src/pages/submissions.tsx`). Cloudflare Pages auto-deploys the frontend
-on push, so if this pushes BEFORE the SQL is applied, sorting the submissions
-list by grade throws `column submissions.overall_score does not exist` (the page
-shows the ErrorState). Apply the SQL to prod FIRST, then push. Default sort
-(created_at) and all other views are unaffected.
-
-**Why:** the old grade-sort loaded every matching submission id + score and
-sorted/paginated in JS (O(n) per sort) because the key lived in `grade_reports`;
-this denormalization lets Postgres `ORDER BY ... LIMIT`. It COPIES the already
-1-decimal-rounded value — no re-computation, so the weighted-overall rounding
-lockstep is untouched (grading-engine contract).
-
-**Risk: LOW–MEDIUM.** One additive column + one trigger + a backfill; idempotent
-and re-run safe. The trigger correctness (active-report selection) was NOT
-exercised against a live DB in this environment (no Docker) — spot-check after
-apply: `select overall_score from submissions where id = <a graded submission>`
-should match its active grade_report, and a retake should update it.
-
-
-## ⏳ HELD: 00493_dispute_one_grade_per_report.sql (US-2153 one grade dispute per report, 2026-07-23)
-
-**Apply AFTER 00492.** Deletes any pre-existing duplicate GRADE disputes
-(keeps the earliest row per `(user_id, grade_report_id)`), then creates a
-PARTIAL unique index `disputes_one_grade_dispute_per_report` on
-`(user_id, grade_report_id) WHERE kind = 'grade'`.
-
-**Why it matters:** the advertised "one complaint per grade" + 7-day filing
-window were enforced only in client UI. The `POST /api/grade/dispute` route
-inserted unconditionally, so a double-tap on a slow connection, a two-device
-race, or a direct API call created duplicate rows in the human review queue,
-and a report older than 7 days could still be disputed. The edge now enforces
-both server-side (typed `DISPUTE_WINDOW_EXPIRED` / `DISPUTE_ALREADY_EXISTS`
-errors); this index is the race-proof backstop behind the duplicate SELECT.
-
-**Scope note:** the index is PARTIAL on `kind='grade'`, NOT the blanket
-`UNIQUE (user_id, grade_report_id)` named in the story's AC3 — that AC predates
-the `kind` column (00489). A blanket constraint would wrongly stop a grade
-dispute and an authenticity appeal from coexisting on one report; the
-authenticity path is deliberately re-fileable and is left untouched.
-
-**Risk: LOW.** One DELETE of duplicates + one partial index; no schema of an
-existing column changes. Idempotent (both statements `IF NOT EXISTS` / re-run
-safe). The edge in this commit does NOT depend on the index to function — the
-window check and the duplicate SELECT work without it; the index only upgrades
-a raced duplicate from a 500 to a clean 409. So an edge-first roll is safe.
-The SPA carries no schema dependency (it reads no new column).
-
-**After applying:** `NOTIFY pgrst, 'reload schema';` (new index; keeps the boot
-guard's schema version truthful at 00493).
+**Queue is empty.** Nothing is held. Schema is at **00503**, applied to prod on
+**2026-07-29**, and `EXPECTED_SCHEMA_VERSION`
+(`services/edge-functions/src/lib/schema-version.ts`) matches.
+
+The last apply cleared `00493` → `00503`: the grade-dispute uniqueness index,
+`submissions.overall_score` + its sync trigger, the non-destructive photo-edit
+columns, `grade_reports.tag_read` and `.size_verification`, the sizing-chart
+backfill and size-system columns, the authenticity reference table + private
+bucket, and the registered-number / style-code observation tables.
+
+---
+
+## How this file works
+
+The standing rule (US-1108, plus a direct instruction from the user): **a commit
+containing a migration is committed locally but NOT pushed until the operator has
+applied the SQL to prod.** Pushing runs ahead of the schema — Cloudflare Pages
+auto-deploys the frontend the moment the branch lands, and the next Coolify edge
+deploy boot-guards on `EXPECTED_SCHEMA_VERSION`.
+
+So every held migration gets a section here before its commit, and the sections
+are deleted once the operator confirms the apply.
+
+### Adding a held migration
+
+Add one `## ⏳ HELD: NNNNN_name.sql (US-#### short title, YYYY-MM-DD)` heading —
+the exact shape matters, `.claude/hooks/session-context.mjs` parses it to warn at
+the start of every session — then say:
+
+- **Apply order.** Which migration it must follow, and why if that isn't obvious.
+- **What it does**, in one paragraph. Objects created or altered.
+- **Whether the CLIENT reads or writes anything new.** Say this LOUDLY if so.
+  The SPA auto-deploys on push, so a client that writes a column the schema
+  doesn't have yet breaks the moment the branch lands — that is the failure this
+  whole file exists to prevent. Name the file and the code path.
+- **Whether anything breaks if it stays unapplied.** A feature that degrades to
+  its empty state is safe to push early; one that 42703s is not.
+- **`NOTIFY pgrst, 'reload schema';`** whenever a table, column, or RPC changed.
+- **Risk**, and whether it was exercised against a live DB (usually not — the
+  `verify:db` lane needs Docker).
+
+### Applying
+
+1. Run the SQL in `NNNNN` order — `scripts/apply-prod-migrations.sh`, or by hand.
+   Every migration is idempotent, so re-running the tail is safe.
+2. `NOTIFY pgrst, 'reload schema';`
+3. Redeploy the edge on Coolify.
+4. Then push, and delete the section from this file.
+
+### Clearing a section
+
+Deleting the section is the whole job — this file is a queue, not an archive. The
+reasoning is not lost: it lives in the migration's own header, in the story's
+`prd.json` note, and in any vault note the migration's `code_refs` point at.
+
+One more step, and it is easy to miss: a story whose `prd.json` note still calls
+the migration HELD now says something false. `prd-lint` catches that (it warns on
+any note claiming a hold for a migration already on `origin/main`), and because
+notes are append-only the fix is to APPEND a `STATUS CORRECTION` line rather than
+edit the original sentence.
