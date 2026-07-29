@@ -5616,7 +5616,7 @@
     },
     {
       "id": "US-2247",
-      "passes": false,
+      "passes": true,
       "title": "Composer: grade badge + slab image mode have no control anywhere in the app",
       "description": "As a seller with a graded item, I want to choose whether the grade badge appears on my hero photo, so that the composer's own instruction to 'enable the grade badge below' points at a real control instead of nothing.",
       "acceptanceCriteria": [
@@ -5625,11 +5625,12 @@
         "saveLiveListing (composer.tsx) also persists badge_enabled/slab_image_mode so a live listing can change them.",
         "The grade banner copy at composer.tsx:1796-1806 ('Enable the grade badge below…') and the Photos-card copy at composer.tsx:2855-2867 ('We never add badges, watermarks, or QR codes to your photos') no longer contradict each other: whichever behaviour is real is stated once."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2248",
-      "passes": false,
+      "passes": true,
       "title": "Composer: saveLiveListing silently drops 7 fields the form still shows",
       "description": "As a seller editing a listing that is live on eBay, I want every field the composer shows me to actually save, so that changing the promote rate, Best Offer limits, format, primary photo or schedule on a live listing isn't discarded without a word.",
       "acceptanceCriteria": [
@@ -5637,11 +5638,12 @@
         "A vitest case mounts the composer on a live listing (listing_status='active' with a platform_offer_id), changes the promote rate and Best Offer accept threshold, clicks 'Save without pushing', and asserts the listings update payload contains promo_rate_pct and best_offer_auto_accept_cents.",
         "Any field that genuinely cannot change while live is disabled with a title explaining why, rather than being accepted and dropped."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2249",
-      "passes": false,
+      "passes": true,
       "title": "Composer: 'Save storage' is a second save that the main Save does not include",
       "description": "As a seller, I want one Save button to save everything in the composer, so that typing a SKU and then clicking 'Save draft' doesn't throw the SKU away.",
       "acceptanceCriteria": [
@@ -5650,11 +5652,12 @@
         "The separate 'Save storage' button is either removed or its disabled/enabled state makes clear it is redundant; the card no longer needs its own save to avoid data loss.",
         "A vitest case edits the SKU field, clicks the primary Save, and asserts the inventory_items update payload contains the new sku."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2250",
-      "passes": false,
+      "passes": true,
       "title": "Composer has no quantity field, so multi-quantity listings are impossible",
       "description": "As a seller with more than one of the same item, I want to set the listing quantity in the composer, so that I can list 5 identical tees as one multi-quantity listing instead of 5 separate items.",
       "acceptanceCriteria": [
@@ -5663,11 +5666,12 @@
         "Quantity below 1 is rejected client-side with an inline message; the field defaults to the saved listing quantity, else 1.",
         "The listing preview (src/components/flipdesk/ebay-view-item-preview.tsx) shows the quantity when it is greater than 1."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2251",
-      "passes": false,
+      "passes": true,
       "title": "Composer cannot pick shipping / payment / return policies (bulk edit can)",
       "description": "As a seller, I want to choose which eBay business policies this listing uses from the composer, so that a single item gets the right shipping and returns without me going through bulk edit or eBay Seller Hub.",
       "acceptanceCriteria": [
@@ -5676,11 +5680,12 @@
         "Each select offers a 'Use account default' option that persists NULL, so a listing can be reverted to the default.",
         "The preview's shippingPolicyName / returnPolicyName (composer.tsx:1652-1659) resolve from the listing's own chosen policy id first, then the account default — so the preview matches what will publish."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2252",
-      "passes": false,
+      "passes": true,
       "title": "Composer card order does not follow the listing workflow",
       "description": "As a seller building a listing, I want the composer's cards ordered the way the work actually happens, so that I am not asked to fill eBay specifics before I have entered measurements or asked for a bin number before I have written a title.",
       "acceptanceCriteria": [
@@ -5690,11 +5695,12 @@
         "COMPOSER_FOCUS_ANCHORS (src/lib/publish-blockers.ts:80) still resolves every key to an element that exists after the reorder, and the ?focus= deep-link effect (composer.tsx:435) is covered by a test asserting each anchor id is present in the rendered composer.",
         "ListingKit (composer.tsx:3232) renders above the footer action row rather than below it — no editable content sits after the Save/Publish buttons."
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2253",
-      "passes": false,
+      "passes": true,
       "title": "Composer 'Schedule publish' is buried inside the Condition & price card",
       "description": "As a seller, I want the publish schedule next to the publish button, so that I can see and set the drop time where I am deciding to publish rather than hidden under pricing.",
       "acceptanceCriteria": [
@@ -5702,11 +5708,12 @@
         "The scheduled time is restated next to the publish button, so the CTA reads as scheduling rather than immediate publish when scheduledAt is set.",
         "The publish button label changes to reflect a scheduled drop (e.g. 'Save & schedule for <time>') when scheduledAt is non-empty."
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2254",
-      "passes": false,
+      "passes": true,
       "title": "Condition & price card mixes five concerns in one form group",
       "description": "As a seller, I want pricing, cost basis, margin analysis and Best Offer to be visually separate, so that the card is scannable and the Best Offer block is not nested inside the purchase-price field's label group.",
       "acceptanceCriteria": [
@@ -5714,11 +5721,12 @@
         "Purchase price / cost basis moves to the Item details card (it is an inventory_items column, not a listing field) or into a clearly labelled cost-and-margin section.",
         "npx impeccable detect src/pages/flipdesk/composer.tsx reports no new violations versus the pre-change baseline."
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2255",
-      "passes": false,
+      "passes": true,
       "title": "Listing preview shows 6 hardcoded specifics, not the specifics that will publish",
       "description": "As a seller who filled 15 eBay item specifics, I want the preview to show them, so that the preview is an honest picture of the listing instead of a fixed Brand/Style/Size/Category/Condition/Grade table.",
       "acceptanceCriteria": [
@@ -5727,11 +5735,12 @@
         "The GradeThread Grade row is still appended when item.grade_value is non-null.",
         "A vitest case sets three non-hardcoded aspects (e.g. Sleeve Length, Pattern, Closure) and asserts all three render in EbayViewItemPreview."
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2256",
-      "passes": false,
+      "passes": true,
       "title": "Composer has no unsaved-changes guard — Close discards everything",
       "description": "As a seller who has edited thirteen cards of a listing, I want to be warned before I lose the work, so that one stray click on Close or the browser back button doesn't discard the whole draft.",
       "acceptanceCriteria": [
@@ -5739,11 +5748,12 @@
         "The same guard covers navigation away via React Router (a useBeforeUnload / blocker) and covers closing src/components/flipdesk/item-detail-dialog.tsx while the embedded composer is dirty.",
         "The guard does not fire after a successful save, and does not fire on a pristine composer."
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2257",
-      "passes": false,
+      "passes": true,
       "title": "Composer publishes with no client-side price or condition gate",
       "description": "As a seller, I want the composer to stop me before a publish that eBay will certainly reject, so that I am not sent to eBay's error message to learn my price is zero or my condition isn't allowed in the category.",
       "acceptanceCriteria": [
@@ -5752,11 +5762,12 @@
         "The missingRequired notice (composer.tsx:3087) gets a link/button that scrolls to #composer-category, since the copy says 'in the specifics editor above' from the very bottom of a 3200-line page.",
         "ebay_condition_description enforces eBay's 1000-character cap with maxLength and a visible counter on the textarea at composer.tsx:2286."
       ],
-      "priority": 2
+      "priority": 2,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2258",
-      "passes": false,
+      "passes": true,
       "title": "eBay-originated listings: locked fields still offer AI rewrite and stale-mismatch warnings",
       "description": "As a seller viewing an eBay-created mirror listing, I want the composer to hide actions it cannot apply, so that I don't run an AI rewrite on a title the server will refuse to save.",
       "acceptanceCriteria": [
@@ -5764,11 +5775,12 @@
         "Fields the server also rejects on an eBay-origin mirror are disabled consistently — audit ebay_condition, ebay_condition_description, platform_category_id, item_specifics_override, format, promote and Best Offer against the edge's actual accept list and disable or allow each deliberately, documented in a comment.",
         "A vitest case renders the composer with listing_origin='ebay' and asserts the rewrite trigger is disabled."
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2259",
-      "passes": false,
+      "passes": true,
       "title": "Catalog match and category check are stranded on the retired ItemCanvas",
       "description": "As a seller, I want the eBay catalog match and category-check checks in the composer, so that features built for listing quality aren't only reachable from a surface the composer's own comments call retired.",
       "acceptanceCriteria": [
@@ -5776,11 +5788,12 @@
         "CategoryCheckCard mounts only when item.listing_id exists (it takes a listingId); EbayCatalogMatchCard mounts on the item id.",
         "Either ItemCanvas is deleted, or a comment at its top states what still depends on it — a 1900-line unmounted component is not left ambiguous."
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2260",
-      "passes": false,
+      "passes": true,
       "title": "Composer: item status select can set 'sold' with no sale record",
       "description": "As a seller, I want the composer's status field to stop me from marking an item sold without recording the sale, so that Sold totals and reconciliation don't silently disagree with inventory.",
       "acceptanceCriteria": [
@@ -5788,11 +5801,12 @@
         "resolveStatus (src/lib/workflow.ts) behaviour for deliberate non-prep picks is unchanged for the statuses that remain selectable.",
         "A vitest case asserts picking a terminal status in the composer does not produce a bare inventory_items status update."
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2261",
-      "passes": false,
+      "passes": true,
       "title": "Composer: resolvedCategoryId is derived in five places and title quality recomputes every render",
       "description": "As a developer maintaining the composer, I want the resolved category and the title meter computed once, so that a change to the resolution order cannot leave one of five copies behind.",
       "acceptanceCriteria": [
@@ -5801,11 +5815,12 @@
         "effectiveCost is declared before saveDraft and saveLiveListing reference it (today it is declared at composer.tsx:1627, after the closures that read it at :1191 and :1447).",
         "npm run verify:web passes and the composer's existing tests are unchanged in intent."
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     },
     {
       "id": "US-2262",
-      "passes": false,
+      "passes": true,
       "title": "Composer: eBay condition uses a raw native select while the rest of the form uses shadcn Select",
       "description": "As a seller, I want the condition dropdown to look and behave like every other dropdown in the composer, so that the most consequential field in the form isn't the one styled differently.",
       "acceptanceCriteria": [
@@ -5813,7 +5828,8 @@
         "The 'not accepted by this category' marker option (composer.tsx:714-719) still renders and stays selectable so an out-of-set value is never silently dropped.",
         "Keyboard and screen-reader behaviour is verified: the trigger is labelled by the Label, and the focus deep-link still focuses it."
       ],
-      "priority": 4
+      "priority": 4,
+      "notes": "Done 2026-07-29 (composer deep-dive audit, branch claude/dazzling-lamport-80g2os). New src/lib/composer-save.ts holds the save payloads as pure functions shared by the draft and live paths, with a parity test that fails if a non-lifecycle column exists on one and not the other — the root cause of US-2248's silent drops. Wired the five columns publish already read but no UI wrote: quantity, badge_enabled + slab_image_mode, and the three business policies. Editor column reordered to Photos > Measurements > Title > specifics > Grade > Comps > Condition & price > Cost & margin > Format > Shipping & returns > Promote > Description > Item details > Storage; Push-to, the drop schedule and ListingKit moved into a publish area above the CTA. Preview renders every filled aspect instead of six hardcoded rows. useNavigationGuard + an onDirtyChange prop for the quick-look sheet. eBay-origin locks audited against EBAY_OWNED_LISTING_FIELDS (found quantity unlocked). Sale-owned statuses replaced with a Record-the-sale action. 54 new tests across composer-save, composer-anchors, composer-dirty-guard, composer-locks and preview-specifics; full suite 2785 green, build clean. NOTE US-2259: ItemCanvas was NOT deleted — iOS ItemCanvasView.swift and android ItemCanvasScreen.kt cite item-canvas.tsx as their web-parity spec, so it carries a header marking it a reference, not a surface. NOTE US-2261: the remaining item is the composer's size (3200+ lines); the payload extraction took the riskiest part out, but the page itself is still a candidate for further splitting."
     }
   ]
 }
