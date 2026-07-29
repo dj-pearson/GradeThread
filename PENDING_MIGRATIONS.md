@@ -1,5 +1,161 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00500_authenticity_references.sql (US-2218 reference imagery, 2026-07-28)
+
+**Apply AFTER 00499.** Creates `public.authenticity_references` (operator table,
+deny-all RLS, registered in `SERVICE_ROLE_ONLY`) plus a new **PRIVATE** storage
+bucket `authenticity-references`. Run `NOTIFY pgrst, 'reload schema';` after.
+
+**`rights` is NOT NULL with no default, deliberately.** A reference image cannot
+exist without a stated licence/ownership basis. A nullable column would have made
+omitting provenance the easy path, and scraped brand imagery is exactly what this
+column exists to prevent.
+
+**No link to `submission_images`, by design.** Seller photos are never promoted
+into the corpus — the US-1067 exemplar privacy rule applies. A test asserts the
+executable SQL never names that table.
+
+**The bucket is `public = false`,** and reads go only through signed URLs with a
+TTL ≤ 900s, matching the `submission-images` rule. It is never `item-photos`.
+
+**No client involvement, and nothing breaks if unapplied.** The table starts
+empty, and an empty result is the same state the code already handles: every
+visual tell is marked unverifiable, which widens the disclosed limitations and
+caps confidence. Safe to push before applying.
+
+**Risk: LOW.** One new table, one new private bucket, no change to any existing
+object. Idempotent and re-run safe. Not exercised against a live DB (no Docker).
+
+
+## ⏳ HELD: 00499_size_systems.sql (US-2215 size system + class, 2026-07-28)
+
+**Apply AFTER 00498.** Adds two nullable text columns to
+`public.brand_size_charts` — `size_system` (US|UK|EU|IT|FR|JP|AU|alpha) and
+`size_class` (standard|plus|petite|tall|big_and_tall|maternity) — then fills
+them for 138 of the rows 00498 inserted.
+
+**GENERATED FILE — do not hand-edit.** Regenerate with
+`deno run --allow-read --allow-write scripts/gen-size-systems-migration.mjs`.
+`sizing-chart-parity_test.ts` fails if the committed SQL drifts from the charts.
+
+**Depends on 00498 having run.** The UPDATE matches on
+(brand_key, department, garment); if 00498 has not been applied there are no
+rows to match and the UPDATE is a harmless no-op — it will NOT error, but the
+columns will stay NULL, so apply them in order.
+
+**Values are DERIVED, not asserted.** `detectSizeSystem` reads the system off
+the labels only where they state it (137 charts do) and returns NULL otherwise.
+A chart of bare numbers stays NULL because a bare "6" could be US or UK. NULL
+means "not recorded", NOT an implied US.
+
+**It does not rewrite a single size label or note.** The 115 charts that encode
+their system inside the label keep that prose; this adds the structured field
+beside it. A test asserts the migration touches neither `rows` nor `note`.
+
+**No client involvement.** Global reference table, deny-all RLS, read only by
+the edge service-role client. Nothing in the edge reads these columns yet
+either — this story lands the dimension and the conversion layer; wiring a
+converted size onto a certificate is a later, deliberate step.
+
+**Risk: LOW.** Two additive nullable columns plus an UPDATE that only sets them.
+No trigger, no index, no tenant data. Idempotent and re-run safe.
+
+
+## ⏳ HELD: 00498_sizing_charts_backfill.sql (US-2214 sizing chart parity, 2026-07-28)
+
+**Apply AFTER 00497.** Inserts 292 rows into `public.brand_size_charts` — every
+chart the in-code `SIZING_CHARTS` seed carries, across 170 brands. Previously
+only a couple of dozen had ever been seeded, so the DB-first resolver fell
+through to the frozen in-code copy for almost every brand. Run
+`NOTIFY pgrst, 'reload schema';` is NOT needed (no schema change), but harmless.
+
+**GENERATED FILE — do not hand-edit.** Regenerate with
+`deno run --allow-read --allow-write scripts/gen-sizing-chart-seed.mjs`.
+`sizing-chart-parity_test.ts` fails if the committed SQL stops matching the code.
+
+**Insert-only, and it yields to the hand-written packs.** `ON CONFLICT
+(brand_key, department, garment) DO NOTHING`, deliberately: the packs from 00447
+onward carry real `source_url` + `confidence`, and this backfill carries neither
+(the in-code seed has no per-chart provenance to copy). Every backfilled row
+lands `verified = false`, `confidence = NULL`, `source_url = NULL` — which is
+the honest state, not a regression: these are the values the resolver has always
+been using, now somewhere an operator can correct them.
+
+**No client involvement.** `brand_size_charts` is a global reference table with
+deny-all RLS, read only by the edge service-role client.
+
+**Safe to push before applying.** With 00498 unapplied the resolver simply keeps
+using the in-code charts, exactly as it does today — the only visible change is
+a new warning line naming the fallback.
+
+**Risk: LOW.** Insert-only into a reference table, no schema change, no trigger,
+no index, no tenant data. Idempotent and re-run safe.
+
+
+## ⏳ HELD: 00497_grade_reports_size_verification.sql (US-2213 verified size, 2026-07-28)
+
+**Apply AFTER 00496.** Adds one nullable column,
+`grade_reports.size_verification jsonb`, holding the size a grade was verified
+at and how: `{size, source: label|measurements|label_and_measurements,
+confidence, gender?, rationale?, disagreement?{label,measurements}}`. No
+backfill. Run `NOTIFY pgrst, 'reload schema';` after applying.
+
+**No client reads or writes this column.** The SPA is untouched and the column
+is deliberately absent from the public certificate allowlist
+(`content-public.ts` CERT_REPORT_COLUMNS), so a frontend auto-deploy cannot
+reach it.
+
+**Double-gated, same as 00496, so pushing before applying is safe.** The
+pipeline only sets `size_verification` when `GRADING_SIZE_VERIFY` is truthy —
+its own flag, separate from `GRADING_TAG_OCR`, defaulting OFF — and the insert
+uses a conditional spread, so with the flag off the column is never named in
+the PostgREST payload. Do NOT flip that flag before the SQL is applied: the
+grade-report insert would 42703 and take the paid grade down with it.
+
+**Why a separate column rather than a key inside `tag_read` (00496):** a
+measurement-derived size is not something the tag said. US-2212 had just found
+`brand_knowledge.tag_eras` doing double duty — dating generations and
+never-changed code formats in one column, because there was nowhere else for the
+second kind — and had to filter them apart at read time. Folding size into a
+column named `tag_read` would repeat that in a table we own.
+
+**Risk: LOW.** One additive nullable jsonb column plus a `comment on column`; no
+trigger, no index, no data migration, no view change. Idempotent and re-run
+safe. Not exercised against a live DB here (no Docker).
+
+
+## ⏳ HELD: 00496_grade_reports_tag_read.sql (US-2210 label transcription in grading, 2026-07-28)
+
+**Apply AFTER 00495.** Adds one nullable column, `grade_reports.tag_read jsonb`,
+holding the verbatim care/brand-label transcription a grade was identified from:
+`{fields:[{field,value,confidence}], discrepancies:[{field,read,declared}],
+min_confidence, model, read_at}`. No backfill — NULL already means "no
+label-derived identity". Run `NOTIFY pgrst, 'reload schema';` after applying.
+
+**No client reads or writes this column.** The SPA is untouched by this commit
+and the column is deliberately absent from the public certificate's allowlist
+(`content-public.ts` CERT_REPORT_COLUMNS), so a frontend auto-deploy cannot
+reach it. Unlike 00495, apply order is not urgent for correctness.
+
+**The edge write is double-gated, so pushing before applying is still safe.**
+The pipeline only sets `tag_read` when `GRADING_TAG_OCR` is truthy — the flag
+defaults OFF and must be set deliberately in Coolify. Until then the insert
+never names the column. Do NOT flip that flag before the SQL is applied: the
+grade-report insert would fail on the missing column and take the paid grade
+down with it.
+
+**Why:** grading took brand/size/style from whatever the seller typed at submit,
+even though `lib/ai-tag-ocr.ts` had read those fields verbatim off the garment's
+own label since US-543 — only the AutoLister ever called it. The pipeline now
+runs that read and injects it as trusted context, so the read itself has to be
+retained to stay auditable.
+
+**Risk: LOW.** One additive nullable jsonb column plus a `comment on column`; no
+trigger, no index, no data migration, no view change. Idempotent and re-run safe.
+Not exercised against a live DB in this environment (no Docker). After apply and
+before flipping the flag, confirm the column exists on `grade_reports`.
+
+
 ## ⏳ HELD: 00495_item_photo_edit_originals.sql (US-2208 non-destructive photo editing, 2026-07-27)
 
 **Apply AFTER 00494.** Adds two nullable columns to `item_photos`:

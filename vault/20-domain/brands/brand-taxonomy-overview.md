@@ -5,7 +5,7 @@ status: current
 source_of_truth: vault
 code_refs:
   - supabase/migrations/00389_brand_knowledge_base.sql
-reviewed: 2026-07-19
+reviewed: 2026-07-28
 tags: [grading, brands, taxonomy, moc]
 summary: Per-brand values live in the database; the per-corpus rules that govern them had no column and lived only in immutable migration headers until US-2058.
 ---
@@ -73,6 +73,59 @@ unrecoverable knowledge concentrated. Per-brand narrative in the remaining
 headers is largely mirrored by the `notes` column on each row, so it is
 queryable even though it is not indexed. If per-family notes are wanted later,
 that is a separate piece of work against a corpus that is now understood.
+
+## brand_styles coverage is ~95%, not "a fraction"
+
+Recorded 2026-07-28 (US-2216) because the story that set out to fix this gap had
+the gap wrong, and the wrong number would have driven weeks of unnecessary
+seeding.
+
+US-2216 read "70 migration statements insert into `brand_knowledge` but only 36
+insert into `brand_styles`" as a coverage ratio. **Those are FILE counts.** One
+migration seeds many brands. Counted properly:
+
+| | |
+|---|---|
+| brands in `brand_knowledge` | 188 |
+| `brand_styles` rows | 706 |
+| brands with ≥1 style | 178 (**95%**) |
+| brands with NO style | 10 |
+| brands with exactly 1 style | 2 |
+
+`scripts/brand-style-coverage.mjs` produces this, and
+`brand-style-coverage_test.ts` pins it so the "a fraction" reading cannot return.
+
+### Counting the packs correctly is harder than it looks
+
+Three tuple layouts occur across the packs, and a parser handling only the first
+under-counts silently:
+
+```sql
+  ('zara', 'Zara', ...          -- one tuple per line
+values ('nike', 'Nike', ...     -- tuple on the values line
+values (
+  'lululemon', ...              -- tuple opened, key on the next line
+```
+
+A first pass here handled only the line-anchored form, reported 53 statements
+unparsed, counted 162 brands instead of 188, and put brands in the
+"no styles" list that were not missing. **Any script that counts the packs must
+report its unparsed statements** — a silent floor is how a wrong premise gets
+believed.
+
+### The ten uncovered brands, and why some should stay uncovered
+
+`aeropostale, carharttwip, eddiebauer, gildan, guess, hanes, harleydavidson,
+hollister, nautica, poloralphlauren`
+
+Not all are gaps. **Gildan and Hanes are blanks manufacturers** — their garments
+have no model identity worth naming, and a style row for them would be noise in
+every prompt that resolves their pack. Aeropostale, Hollister and Guess are mall
+brands whose value does not turn on the model. The four worth seeding are
+**Eddie Bauer, Nautica, Harley-Davidson and Polo Ralph Lauren**, each of which
+has named, collectible lines.
+
+Absence is sometimes correct here too — see [[brand-kb-negative-findings]].
 
 ## Related
 

@@ -1563,6 +1563,11 @@ export function buildCompositeUserPrompt(
   // byte-identical). Injected at the COMPOSITE stage by design — see the
   // pipeline-ordering decision in fabric-criteria.ts.
   fabricBlock = "",
+  // US-2210: the verbatim label transcription ("" → byte-identical). TRUSTED,
+  // so it renders OUTSIDE the untrusted fence alongside baseline/fabric — it is
+  // a server-side read of the garment's own tag, not a seller claim. See
+  // tag-ground-truth.ts for why the two channels must never be merged.
+  tagBlock = "",
 ): string {
   // US-1921: defang any grade-directive text the vision pass transcribed off the
   // garment before it enters the composite prompt (copy only; stored analysis
@@ -1591,7 +1596,7 @@ export function buildCompositeUserPrompt(
   );
 
   return `Synthesize the following per-image analyses into a single composite grade for this garment.
-${baselineBlock ? `\n${baselineBlock}\n` : ""}${fabricBlock ? `\n${fabricBlock}\n` : ""}
+${baselineBlock ? `\n${baselineBlock}\n` : ""}${fabricBlock ? `\n${fabricBlock}\n` : ""}${tagBlock ? `\n${tagBlock}\n` : ""}
 GARMENT INFO (seller-supplied reference only — must NOT affect scoring):
 ${garmentInfoBlock}
 
@@ -2003,6 +2008,10 @@ export async function compositeGrade(
   // the candidate (override) leg doesn't, confounding the comparison. Default
   // false → real grading behavior byte-identical.
   suppressExemplars = false,
+  // US-2210: trusted label transcription ("" → behavior unchanged). "+tag"
+  // suffix when present so accuracy-tracking can attribute the tag-grounded era
+  // separately from the baseline/fabric/visual ones.
+  tagBlock = "",
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -2035,12 +2044,14 @@ export async function compositeGrade(
   // computed here (composite stage) so per-image parallelism is untouched.
   const fabricBlock = fabricCriteriaBlock(perImageResults);
 
-  // US-1533/US-1534/US-1537: attribute baseline/fabric/visual-era grades
-  // distinctly for the accuracy loop (deterministic suffix order).
+  // US-1533/US-1534/US-1537/US-2210: attribute baseline/fabric/visual/tag-era
+  // grades distinctly for the accuracy loop (deterministic suffix order — new
+  // suffixes APPEND so previously-recorded version strings keep their meaning).
   const promptVersion = prompt.versionName +
     (baselineBlock ? "+baseline" : "") +
     (fabricBlock ? "+fabric" : "") +
-    (verificationImages.length > 0 ? "+visual" : "");
+    (verificationImages.length > 0 ? "+visual" : "") +
+    (tagBlock ? "+tag" : "");
 
   // US-1067: when grading a real submission (no explicit override), append the
   // ACTIVE, eval-gated few-shot exemplar block for this category to the composite
@@ -2091,6 +2102,7 @@ export async function compositeGrade(
               garmentInfo,
               baselineBlock,
               fabricBlock,
+              tagBlock,
             )
             : [
               ...verificationImages.flatMap(
@@ -2106,6 +2118,7 @@ export async function compositeGrade(
                   garmentInfo,
                   baselineBlock,
                   fabricBlock,
+                  tagBlock,
                 ) + `\n\n${VISUAL_VERIFICATION_ADDENDUM}`,
               },
             ],

@@ -21,6 +21,7 @@ import {
 } from "./ai-grading.ts";
 import { Image } from "imagescript";
 import {
+  resolveTrustedStyle,
   baselineReferenceBlock,
   getGarmentBaseline,
 } from "./garment-baselines.ts";
@@ -84,6 +85,47 @@ import {
   notifyGradingIncomplete,
 } from "./grading-lifecycle-notify.ts";
 import { recordAiUsage, type AiTokenUsage } from "./ai-usage.ts";
+import {
+  extractTagGroundTruth,
+  GRADING_TAG_PHOTO_TYPES,
+  type TagOcrResult,
+} from "./ai-tag-ocr.ts";
+import {
+  acceptedTagFields,
+  buildPersistedTagRead,
+  tagDiscrepancies,
+  tagGroundTruthBlock,
+  tagOcrGradingEnabled,
+} from "./tag-ground-truth.ts";
+import {
+  assessRegisteredNumber,
+  getRegisteredNumberIndex,
+  type RegisteredNumberAssessment,
+} from "./registered-numbers.ts";
+import {
+  eraDecoderConflict,
+  matchTagEra,
+  normalizeTagEras,
+  tagEraReferenceBlock,
+  type EraDecoderConflict,
+  type MatchedTagEra,
+  type TagEra,
+} from "./tag-era.ts";
+import {
+  decoderSpecsFromPack,
+  resolveBrandKnowledgePack,
+  type BrandKnowledgePack,
+} from "./brand-knowledge.ts";
+import { decodeTagCode } from "./brand-decoders.ts";
+import { getAuthenticityReferences } from "./authenticity-references.ts";
+import { brandKey } from "./brand-normalize.ts";
+import { estimateSize, type SizeEstimate } from "./ai-size-estimate.ts";
+import { isMeasurementPhoto } from "./ai-size-estimate-core.ts";
+import {
+  resolveSizeVerification,
+  sizeVerifyGradingEnabled,
+  type SizeVerification,
+} from "./grading-size.ts";
 import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
 import {
   computeCoverage,
@@ -427,6 +469,12 @@ async function escalateGrade(
   // US-1533: the baseline block the first pass used — escalation grades the
   // same item, so it sees the same trusted reference ("" → unchanged).
   baselineBlock = "",
+  // US-2210: likewise the label transcription. The escalation re-runs the whole
+  // per-image pass on the stronger model but does NOT re-read the tag — a
+  // verbatim transcription does not get truer on a bigger model, and paying for
+  // a second vision call to re-read the same label would be the escalation
+  // spending money to learn what it already knows.
+  tagBlock = "",
 ): Promise<
   {
     perImageResults: PerImageAnalysis[];
@@ -510,6 +558,10 @@ async function escalateGrade(
     model,
     submissionId,
     baselineBlock,
+    // US-1537: escalation stays text-only by design (see the first-pass call).
+    [],
+    false,
+    tagBlock,
   );
   // US-1642: surface whether the ESCALATION dropped an optional image. The
   // caller ORs this into partialSuccess so a defect/detail image that failed to
@@ -1303,6 +1355,69 @@ export async function processSubmission(submissionId: string) {
     const authenticityTells = wantAuthenticity
       ? await getEffectiveTellsForBrand(submission.brand).catch(() => [])
       : [];
+    // US-2218: the known-genuine references we hold for this brand. Empty on a
+    // miss or a failure, which marks every visual tell unverifiable — widening
+    // the disclosed limitations and capping confidence, never raising risk.
+    const authenticityReferences = wantAuthenticity
+      ? await getAuthenticityReferences(brandKey(submission.brand ?? "")).catch(
+        () => [],
+      )
+      : [];
+
+    // US-2210: read the garment's OWN label as trusted identity context. Gated
+    // on GRADING_TAG_OCR (default OFF — the composite prompt changes, so it goes
+    // live only after the golden-set eval + canary, exactly like US-1533) AND on
+    // the submission actually having a label photo, so a submission with nothing
+    // to read never pays for a vision call. `label` is a REQUIRED image type, so
+    // in practice this is on for every well-formed submission once the flag is.
+    //
+    // KNOWN COST EDGE: like the authenticity add-on, this runs in parallel with
+    // the per-image pass and therefore BEFORE the image-quality gate — so a
+    // submission that later abstains on an illegible label has already paid for
+    // the read. Sequencing the gate first would serialize the pipeline's hot
+    // path on every grade to save a call on the abstaining minority, which is
+    // the wrong trade; the same reasoning is recorded in fabric-criteria.ts.
+    const tagPhotoTypes = images
+      .map((i) => (i as { image_type: string }).image_type)
+      .filter((t) => GRADING_TAG_PHOTO_TYPES.has(t));
+    const wantTagOcr = tagOcrGradingEnabled() && tagPhotoTypes.length > 0;
+
+    // US-2213: derive the size from the flat-lay measurement photos against the
+    // brand's own chart. Gated on GRADING_SIZE_VERIFY (its own flag — a separate
+    // vision call with a separate cost, so an operator can buy one without the
+    // other) AND on the submission actually carrying a measurement photo. Those
+    // slots are OPTIONAL at submit, so most submissions never reach the call at
+    // all and the feature costs nothing on them.
+    const hasMeasurementPhotos = images.some((i) =>
+      isMeasurementPhoto((i as { image_type: string }).image_type)
+    );
+    const wantSizeVerify = sizeVerifyGradingEnabled() && hasMeasurementPhotos;
+
+    // US-2212: the brand's known tag generations, so the label read can date the
+    // garment. Fetched ONCE here (outside the buffer closure) alongside the other
+    // knowledge lookups, and only when the tag read is going to run at all — a
+    // brand with no seeded eras yields [], the reference block renders "", and
+    // the tag-OCR prompt is byte-identical to US-2210's.
+    // US-2214: resolved when EITHER identity feature is on — the pack carries the
+    // DB-first sizing charts as well as the tag eras, and passing them into
+    // estimateSize is what makes an operator's admin chart edit actually reach
+    // the size call (it previously read the frozen in-code seed directly).
+    let brandTagEras: TagEra[] = [];
+    let brandPack: BrandKnowledgePack | null = null;
+    if (wantTagOcr || wantSizeVerify) {
+      try {
+        brandPack = await resolveBrandKnowledgePack(submission.brand, {
+          category: submission.garment_category,
+        });
+        brandTagEras = normalizeTagEras(brandPack?.tagEras);
+      } catch (err) {
+        console.error(
+          `[Pipeline] tag-era pack resolve failed for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    const eraReferenceBlock = tagEraReferenceBlock(brandTagEras);
 
     // US-1533: trusted garment expectation baseline (flag-gated, default OFF;
     // cache-first with lazy generation). Fetched ONCE before the memory-gated
@@ -1394,7 +1509,7 @@ export async function processSubmission(submissionId: string) {
         ? assessAuthenticity(
             imageData.map((img) => ({ imageType: img.imageType, dataUri: img.dataUri })),
             authenticityGarmentInfo,
-            { tells: authenticityTells },
+            { tells: authenticityTells, references: authenticityReferences },
           ).catch((err) => {
             console.error(
               `[Pipeline] authenticity add-on failed for submission ${submissionId}:`,
@@ -1404,13 +1519,66 @@ export async function processSubmission(submissionId: string) {
           })
         : Promise.resolve(null);
 
+      // US-2210: the label transcription runs INSIDE this buffer slot, in
+      // parallel with the per-image pass, over the label photos' already-
+      // resident base64 — so it adds one vision call and ZERO extra downloads,
+      // and stays under the same memory gate that bounds grading concurrency.
+      // Best-effort: a failure resolves to null and the grade proceeds with no
+      // tag block, byte-identical to the feature being off.
+      const tagPromise: Promise<TagOcrResult | null> = wantTagOcr
+        ? extractTagGroundTruth(
+            imageData
+              .filter((img) => GRADING_TAG_PHOTO_TYPES.has(img.imageType))
+              .map((img) => ({ url: img.dataUri, type: img.imageType })),
+            eraReferenceBlock,
+          ).catch((err) => {
+            console.error(
+              `[Pipeline] tag OCR failed for submission ${submissionId}:`,
+              err instanceof Error ? err.message : String(err),
+            );
+            return null;
+          })
+        : Promise.resolve(null);
+
+      // US-2213: the size pass, like the tag read, runs INSIDE this buffer slot
+      // over already-resident base64 — no extra downloads, same memory gate. It
+      // sees the measurement/flat-lay photos plus the front and back for
+      // silhouette; prioritizeMeasurementPhotos (inside estimateSize) puts the
+      // measurement shots first. Best-effort: a failure resolves to null and the
+      // grade proceeds with no verified size.
+      const sizePromise: Promise<SizeEstimate | null> = wantSizeVerify
+        ? estimateSize({
+          photos: imageData
+            .filter((img) =>
+              isMeasurementPhoto(img.imageType) ||
+              img.imageType === "front" ||
+              img.imageType === "back"
+            )
+            .map((img) => ({ url: img.dataUri, type: img.imageType })),
+          brand: submission.brand,
+          category: submission.garment_category,
+          // US-2214: DB-first charts; [] falls back to the in-code seed inside
+          // estimateSize, exactly as before.
+          charts: brandPack?.sizingCharts ?? [],
+        }).catch((err) => {
+          console.error(
+            `[Pipeline] size estimate failed for submission ${submissionId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+          return null;
+        })
+        : Promise.resolve(null);
+
       // US-485: allSettled (not all) so one flaky image doesn't fail the whole
       // paid grade. analyzeImage already retries + has a bounded timeout via the
       // Anthropic SDK (getAiMaxRetries / getAiTimeoutMs).
-      const [settled, authenticityAssessment] = await Promise.all([
-        Promise.allSettled(perImagePromises),
-        authPromise,
-      ]);
+      const [settled, authenticityAssessment, tagOcr, sizeEstimate] = await Promise
+        .all([
+          Promise.allSettled(perImagePromises),
+          authPromise,
+          tagPromise,
+          sizePromise,
+        ]);
       const results: SettledImage[] = settled.map((s, i) => ({
         imageType: imageData[i].imageType,
         result: s.status === "fulfilled" ? s.value : null,
@@ -1438,12 +1606,204 @@ export async function processSubmission(submissionId: string) {
         }
       }
 
-      return { settledImages: results, authenticityAssessment };
+      return { settledImages: results, authenticityAssessment, tagOcr, sizeEstimate };
     });
 
     const settledImages: SettledImage[] = bufferResult.settledImages;
     const authenticityAssessment: AuthenticityAssessment | null =
       bufferResult.authenticityAssessment;
+    const tagOcr: TagOcrResult | null = bufferResult.tagOcr;
+    const sizeEstimate: SizeEstimate | null = bufferResult.sizeEstimate;
+
+    // US-2210: keep only reads that cleared TAG_GROUND_TRUTH_MIN_CONFIDENCE — an
+    // illegible label yields no identity rather than a guessed one — then record
+    // where the label and the seller disagree. A disagreement is REPORTED, never
+    // resolved: we neither overwrite the seller's brand with the tag's nor drop
+    // the tag read in favour of the seller's (see tag-ground-truth.ts).
+    const acceptedTag = tagOcr ? acceptedTagFields(tagOcr.fields) : [];
+    const tagMismatches = tagDiscrepancies(acceptedTag, { brand: submission.brand });
+
+    // US-2212: resolve the model's era pick back to a SEEDED entry. matchTagEra
+    // returns null for an unknown id, a hallucinated one, or a confidence below
+    // ERA_MATCH_MIN_CONFIDENCE (0.7 — stricter than the 0.4 field bar, because
+    // dating is an inference over a reference list, not a transcription, and a
+    // half-sure decade is a fabricated provenance claim on a public certificate).
+    // So the model cannot introduce an era we did not curate.
+    const matchedEra: MatchedTagEra | null = tagOcr
+      ? matchTagEra(brandTagEras, tagOcr.eraId, tagOcr.eraConfidence)
+      : null;
+    if (matchedEra) {
+      void captureServer("grading-engine", "grading.tag_era_matched", {
+        submission_id: submissionId,
+        era: matchedEra.era,
+        years: matchedEra.years,
+        confidence: matchedEra.confidence,
+      });
+    }
+
+    // US-2212 AC4: the one place an era can be CHECKED rather than recorded.
+    // When the style code decodes to a production year AND the label's design
+    // matched a dated generation, those are two independent readings of the same
+    // garment and they have to agree. A FLAG for review, never a verdict — the
+    // US-1770 no-auto-authenticate posture holds; the innocent explanation
+    // (a relabelled or franken-tagged garment) is at least as likely as the
+    // guilty one, and nothing here can tell them apart.
+    let eraConflict: EraDecoderConflict | null = null;
+    if (matchedEra && brandPack) {
+      try {
+        const styleCode = acceptedTag.find((a) => a.field === "style_code")?.value;
+        if (styleCode) {
+          const decoded = decodeTagCode(
+            brandPack.key,
+            styleCode,
+            decoderSpecsFromPack(brandPack),
+          );
+          const decodedYear = decoded?.year ? Number(decoded.year) : null;
+          eraConflict = eraDecoderConflict(
+            matchedEra,
+            Number.isFinite(decodedYear) ? decodedYear : null,
+            new Date().getUTCFullYear(),
+          );
+          if (eraConflict) {
+            console.warn(
+              `[Pipeline] tag-era conflict on submission ${submissionId}: ${eraConflict.message}`,
+            );
+            void captureServer("grading-engine", "grading.tag_era_conflict", {
+              submission_id: submissionId,
+              decoded_year: eraConflict.decodedYear,
+              era: eraConflict.era,
+              era_years: eraConflict.eraYears,
+            });
+          }
+        }
+      } catch (err) {
+        console.error(
+          `[Pipeline] tag-era decoder cross-check failed for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    // US-2213: combine the label's size read with the measurement-derived one.
+    // There is no seller-declared size to contradict — `submissions` has no size
+    // column at all — so the comparison is between OUR two readings. When they
+    // disagree the label is shown (a transcription beats an inference) but the
+    // confidence drops to the lower of the two and the disagreement is recorded;
+    // a relabelled garment, a shrunk one and a bad tape read all look the same
+    // from here, so neither reading is treated as the correction.
+    const sizeVerification: SizeVerification | null = resolveSizeVerification(
+      acceptedTag.find((a) => a.field === "size"),
+      sizeEstimate,
+    );
+    if (sizeVerification?.disagreement) {
+      console.warn(
+        `[Pipeline] size disagreement on submission ${submissionId}: ` +
+          `label="${sizeVerification.disagreement.label}" ` +
+          `measurements="${sizeVerification.disagreement.measurements}"`,
+      );
+      void captureServer("grading-engine", "grading.size_disagreement", {
+        submission_id: submissionId,
+      });
+    }
+
+    // US-2217: a STYLE-KEYED baseline for the composite, when the style can be
+    // identified from trusted signals.
+    //
+    // WHY ONLY THE COMPOSITE: the only server-derived style signal is the tag
+    // read (US-2210), and that runs inside the buffer closure alongside the
+    // per-image calls — so it does not exist yet when the per-image baseline is
+    // resolved. Rather than serialize the hot path to learn the style first, the
+    // per-image pass keeps the brand+category brief and the composite gets the
+    // style-scoped one. That split is defensible on its own terms: per-image is
+    // photo-level observation, while the composite is where the
+    // as-manufactured framing is actually applied to the score.
+    //
+    // The style is resolved from the tag read ALONE, never from the seller's
+    // title — see resolveTrustedStyle for why choosing which trusted block gets
+    // injected is itself a privileged act.
+    let compositeBaselineBlock = baselineBlock;
+    if (brandPack) {
+      const trustedStyle = resolveTrustedStyle(brandPack.styles, [
+        acceptedTag.find((a) => a.field === "style_code")?.value ?? null,
+      ]);
+      if (trustedStyle) {
+        const styled = await getGarmentBaseline({
+          brand: submission.brand,
+          garmentCategory: submission.garment_category,
+          style: trustedStyle,
+        }).catch(() => null);
+        if (styled) {
+          compositeBaselineBlock = baselineReferenceBlock(styled);
+          void captureServer("grading-engine", "grading.style_baseline", {
+            submission_id: submissionId,
+            style: trustedStyle,
+          });
+        }
+      }
+    }
+
+    const tagBlock = tagGroundTruthBlock(acceptedTag, matchedEra, sizeVerification);
+    if (tagMismatches.length > 0) {
+      console.warn(
+        `[Pipeline] tag/seller mismatch on submission ${submissionId}: ` +
+          tagMismatches
+            .map((d) => `${d.field} label="${d.read}" seller="${d.declared}"`)
+            .join("; "),
+      );
+      void captureServer("grading-engine", "grading.tag_discrepancy", {
+        submission_id: submissionId,
+        fields: tagMismatches.map((d) => d.field),
+      });
+    }
+    // US-2211: cross-check the transcribed RN/CA against the brand KB. An RN is
+    // registry-issued, so unlike every other field on the label a seller cannot
+    // type it into existence — which makes it the cheapest DETERMINISTIC identity
+    // signal available, and it had never been compared to anything.
+    //
+    // Best-effort and strictly informational: it can corroborate, it can flag a
+    // contradiction for review, and it can NEVER rewrite the brand. Most reads
+    // return `no_reference` (six brands carry a seeded number today) and that
+    // outcome carries no information in either direction.
+    let registeredNumber: RegisteredNumberAssessment | null = null;
+    const rnRead = acceptedTag.find((a) => a.field === "rn_number");
+    if (rnRead) {
+      try {
+        registeredNumber = assessRegisteredNumber(
+          rnRead.value,
+          submission.brand,
+          await getRegisteredNumberIndex(),
+        );
+        if (registeredNumber.outcome === "contradicts") {
+          console.warn(
+            `[Pipeline] RN cross-check contradicts on submission ${submissionId}: ` +
+              registeredNumber.note,
+          );
+          void captureServer("grading-engine", "grading.rn_contradiction", {
+            submission_id: submissionId,
+            normalized: registeredNumber.normalized,
+            owner_brands: registeredNumber.owners.map((o) => o.brandKey),
+          });
+        }
+      } catch (err) {
+        console.error(
+          `[Pipeline] RN cross-check failed for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    const tagRead = tagOcr && (acceptedTag.length > 0 || matchedEra)
+      ? buildPersistedTagRead(
+        acceptedTag,
+        tagMismatches,
+        tagOcr.model,
+        new Date().toISOString(),
+        undefined,
+        registeredNumber,
+        matchedEra,
+        eraConflict,
+      )
+      : null;
 
     const { usable, failedRequired, failedOptional } = partitionImageResults(
       settledImages,
@@ -1616,12 +1976,18 @@ export async function processSubmission(submissionId: string) {
       // US-1066: cheap first-pass model when the cascade is on (else default).
       firstPassModel,
       submissionId,
-      // US-1533: same trusted baseline the per-image pass saw.
-      baselineBlock,
+      // US-1533/US-2217: the trusted baseline — style-scoped when the tag read
+      // identified one, else the same brand+category brief the per-image pass saw.
+      compositeBaselineBlock,
       // US-1537: the visual-verification photo set ([] when disabled). The
       // escalation re-grade below stays text-only by design — it re-runs the
       // whole per-image pass on the stronger model anyway.
       verificationImages,
+      // Live grading always carries the active exemplar block (eval/dry-run
+      // legs are the ones that suppress it).
+      false,
+      // US-2210: trusted label transcription ("" when off / unread).
+      tagBlock,
     );
 
     // US-1066: escalate a low-confidence / high-value first-pass grade to the
@@ -1668,7 +2034,8 @@ export async function processSubmission(submissionId: string) {
             submissionId,
             cascade.escalationModel,
             wantForensic,
-            baselineBlock,
+            compositeBaselineBlock,
+            tagBlock,
           );
           if (escalated) {
             perImageResults = escalated.perImageResults;
@@ -2304,6 +2671,26 @@ export async function processSubmission(submissionId: string) {
         // is also stored on its own column for the accuracy join.
         model_version: `${compositeResult.model}|${compositeResult.prompt_version}`,
         prompt_version: compositeResult.prompt_version,
+        // US-2210: the verbatim label transcription this grade was identified
+        // from, with per-field confidences and any seller disagreement. Absent
+        // when the feature is off, there was no label photo, or nothing cleared
+        // the confidence bar. INTERNAL for now — deliberately NOT added to the
+        // public certificate's column allowlist (content-public.ts
+        // CERT_REPORT_COLUMNS): publishing a machine read of someone's tag as
+        // certified identity is a product decision that waits for the eval
+        // numbers, not a side effect of storing it.
+        //
+        // US-2213: the verified size and its provenance. Its OWN column, not a
+        // key inside tag_read — a measurement-derived size is not something the
+        // tag said, and 00497's header records why that distinction is worth a
+        // column. Same conditional-spread reasoning as tag_read below.
+        ...(sizeVerification ? { size_verification: sizeVerification } : {}),
+        // SPREAD, not a plain `tag_read: tagRead`: with the feature off tagRead
+        // is null, and a null-VALUED key still NAMES the column in the PostgREST
+        // payload — which 42703s the whole insert, and with it the paid grade, on
+        // any environment where 00496 has not been applied. Omitting the key
+        // entirely is what makes this commit safe to deploy ahead of the SQL.
+        ...(tagRead ? { tag_read: tagRead } : {}),
         certificate_id: certificateId,
         certificate_number: certificateNumber,
         // US-333: tamper-evident integrity columns (migration 00068).
@@ -2459,6 +2846,55 @@ export async function processSubmission(submissionId: string) {
         submissionId,
         feature: "authenticity",
         usages: [{ phase: "authenticity", usage: authenticityAssessment.usage }],
+      });
+    }
+
+    // US-2210: the tag read is one extra vision call per grade, so it gets its
+    // own feature row rather than being folded into the grading phases — the
+    // point of turning it on is to be able to see what it costs against what it
+    // is worth, and a cost buried inside "per_image" cannot be evaluated.
+    if (tagOcr) {
+      void recordAiUsage({
+        userId: submission.user_id,
+        submissionId,
+        feature: "tag_ocr",
+        usages: [{
+          phase: "tag_ocr",
+          usage: {
+            model: tagOcr.model,
+            // TagOcrResult.tokensIn already SUMS plain input + cache read +
+            // cache creation, so the cache fields are zeroed here rather than
+            // double-counted. extractTagGroundTruth sets no cache_control, so
+            // in practice the whole count is plain input tokens anyway.
+            inputTokens: tagOcr.tokensIn,
+            outputTokens: tagOcr.tokensOut,
+            cacheCreationTokens: 0,
+            cacheReadTokens: 0,
+          },
+        }],
+      });
+    }
+
+    // US-2213: the size pass is its own vision call, so it gets its own feature
+    // row — the point of turning it on is to weigh what it costs against a
+    // verified size being worth having, and a cost folded into "grading" cannot
+    // be weighed.
+    if (sizeEstimate) {
+      void recordAiUsage({
+        userId: submission.user_id,
+        submissionId,
+        feature: "size_estimate",
+        usages: [{
+          phase: "size_estimate",
+          usage: {
+            model: sizeEstimate.model,
+            // tokensIn already sums plain + cache read + cache creation.
+            inputTokens: sizeEstimate.tokensIn,
+            outputTokens: sizeEstimate.tokensOut,
+            cacheCreationTokens: 0,
+            cacheReadTokens: 0,
+          },
+        }],
       });
     }
 

@@ -8,6 +8,18 @@ import {
 import { toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
 import { sanitizeSellerText, type GarmentInfo } from "./ai-grading.ts";
 import type { AuthenticationTell } from "./brand-authenticity.ts";
+import {
+  assessTellVerifiability,
+  referenceCaptionBlock,
+  referenceConfidenceCap,
+  referenceLimitation,
+  type TellVerifiability,
+} from "./authenticity-references.ts";
+import {
+  classifyTellCoverage,
+  coverageConfidenceCap,
+  coverageLimitation,
+} from "./authenticity-coverage.ts";
 import type { DecodeInconsistency } from "./brand-decoders.ts";
 
 // ── Premium authenticity / counterfeit-confidence add-on (US-601) ─────────
@@ -384,8 +396,14 @@ export function normalizeTellFindings(raw: unknown): TellFinding[] {
 export function buildTellsBlock(
   tells: readonly AuthenticationTell[],
   crossChecks: readonly DecodeInconsistency[],
+  // US-2218: per-tell verifiability. Empty => byte-identical to the US-1769
+  // block, which a test pins.
+  verifiability: readonly TellVerifiability[] = [],
 ): string {
   if (tells.length === 0 && crossChecks.length === 0) return "";
+  const unverifiable = new Set(
+    verifiability.filter((v) => v.visuallyUnverifiable).map((v) => v.tell.claim),
+  );
   const lines: string[] = [];
   if (tells.length > 0) {
     lines.push(
@@ -394,7 +412,14 @@ export function buildTellsBlock(
     tells.forEach((t, i) => {
       const check = t.check ? ` — how to check: ${t.check}` : "";
       const flag = t.redFlag ? ` — counterfeit signal: ${t.redFlag}` : "";
-      lines.push(`${i + 1}. [${t.category}] ${t.claim}${check}${flag}`);
+      // US-2218: a visual tell we hold no reference for is marked so the pass
+      // reports it as unchecked rather than quietly reasoning from memory and
+      // presenting the result as a comparison. It is NOT dropped — the claim is
+      // still useful context; it just may not carry a confident finding.
+      const unref = unverifiable.has(t.claim)
+        ? " — NO known-genuine reference image is held for this tell: you cannot compare against a verified example, so report it as UNVERIFIED rather than as a confirmed match or a discrepancy"
+        : "";
+      lines.push(`${i + 1}. [${t.category}] ${t.claim}${check}${flag}${unref}`);
     });
     lines.push("<<<END_KNOWN_AUTHENTICATION_TELLS>>>");
   }
@@ -431,6 +456,15 @@ export function normalizeAuthenticityAssessment(
   // defaulting to "assume macro evidence" so existing callers/tests are byte-
   // identical; the real pass always passes them.
   imageTypes?: readonly string[],
+  // US-2218: per-tell verifiability against known-genuine references. Optional
+  // and defaulting to EMPTY, which yields no cap and no added limitation — so
+  // every existing caller and test stays byte-identical.
+  verifiability: readonly TellVerifiability[] = [],
+  // US-2219: the tells this assessment had to work with. Empty (the default)
+  // classifies as "none", which for an EXISTING caller that never grounded is
+  // the honest reading — but it would change their output, so the cap is only
+  // applied when the caller opts in by passing `tells`. See below.
+  tells?: readonly AuthenticationTell[],
 ): AuthenticityAssessment {
   const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
 
@@ -471,7 +505,26 @@ export function normalizeAuthenticityAssessment(
     brandRecognizable,
   );
 
-  const counterfeitRisk = deriveCounterfeitRisk(confidence, redFlags.length, brandRecognizable);
+  // US-2218: cap confidence by how much of the VISUAL half we could actually
+  // check. Composes by MIN, never raises (grading-engine contract), and is
+  // applied to confidence only — deliberately NOT to counterfeit risk, because
+  // a gap in our evidence must not push a seller's item toward "suspect".
+  const refCap = referenceConfidenceCap(verifiability);
+  // US-2219: what the brand's tells could actually DO for this verdict. Only
+  // applied when the caller passed tells — an omitted argument means "not
+  // measured", not "none", so existing callers stay byte-identical.
+  const coverage = tells ? classifyTellCoverage(tells) : null;
+  const covCap = coverage ? coverageConfidenceCap(coverage.level) : 1;
+  // Caps COMPOSE BY MIN and never raise (grading-engine contract).
+  const cap = Math.min(refCap, covCap);
+  const cappedConfidence = Math.min(confidence, cap);
+  const cappedVerdictConfidence = Math.min(verdictConfidence, cap);
+
+  const counterfeitRisk = deriveCounterfeitRisk(
+    cappedConfidence,
+    redFlags.length,
+    brandRecognizable,
+  );
 
   const summary =
     typeof a.summary === "string" && a.summary.trim().length > 0
@@ -482,19 +535,24 @@ export function normalizeAuthenticityAssessment(
 
   return {
     assessed: true,
-    authenticity_confidence: Number(confidence.toFixed(2)),
+    authenticity_confidence: Number(cappedConfidence.toFixed(2)),
     counterfeit_risk: counterfeitRisk,
     verdict,
-    verdict_confidence: verdictConfidence,
+    verdict_confidence: Number(cappedVerdictConfidence.toFixed(2)),
     tell_findings: tellFindings,
     brand_assessed: brandAssessed,
     signals_examined: signalsExamined,
     red_flags: redFlags,
     supporting_signals: supportingSignals,
     summary,
-    limitations: macroPresent
+    // US-2218: disclose which visual tells we could not compare against a
+    // verified example. "" when everything checkable was checkable, keeping the
+    // string byte-identical to today.
+    limitations: (macroPresent
       ? AUTHENTICITY_LIMITATIONS
-      : AUTHENTICITY_LIMITATIONS + AUTHENTICITY_NO_MACRO_LIMITATION,
+      : AUTHENTICITY_LIMITATIONS + AUTHENTICITY_NO_MACRO_LIMITATION) +
+      referenceLimitation(verifiability) +
+      (coverage ? coverageLimitation(coverage) : ""),
     model,
     prompt_version: promptVersion,
   };
@@ -528,6 +586,10 @@ export async function assessAuthenticity(
   context: {
     tells?: readonly AuthenticationTell[];
     crossChecks?: readonly DecodeInconsistency[];
+    // US-2218: known-genuine references we hold for this brand. Empty (the
+    // default) => every visual tell is unverifiable, which widens limitations
+    // and caps confidence rather than raising suspicion.
+    references?: readonly import("./authenticity-references.ts").AuthenticityReference[];
   } = {},
 ): Promise<AuthenticityAssessment> {
   const client = getAnthropicClient();
@@ -541,7 +603,12 @@ export async function assessAuthenticity(
   // ground on, so the prompt + version stay identical to the ungrounded v1.
   const tells = context.tells ?? [];
   const crossChecks = context.crossChecks ?? [];
-  const tellsBlock = buildTellsBlock(tells, crossChecks);
+  // US-2218: which tells we can actually check against a verified example.
+  const verifiability = assessTellVerifiability(tells, context.references ?? []);
+  const captions = referenceCaptionBlock(verifiability);
+  const tellsBlock = [buildTellsBlock(tells, crossChecks, verifiability), captions]
+    .filter((b) => b.length > 0)
+    .join("\n\n");
   const grounded = tellsBlock.length > 0;
   const promptVersion = grounded
     ? AUTHENTICITY_PROMPT_VERSION_GROUNDED
@@ -602,6 +669,10 @@ export async function assessAuthenticity(
     model,
     promptVersion,
     selected.map((s) => s.imageType),
+    // US-2218: how much of the VISUAL half we could actually check.
+    verifiability,
+    // US-2219: what the brand's tells could do for the verdict at all.
+    tells,
   );
   assessment.usage = toAiTokenUsage(model, response.usage);
   return assessment;
