@@ -37,6 +37,8 @@ body {
 .pop-section:last-of-type { border-bottom: 0; }
 .pop-h2 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b6b80; }
 .pop-lead { margin: 0; font-size: 12px; line-height: 1.45; color: #33334d; }
+/* US-2237: the scan-mode caveat under its toggle — quieter than a lead. */
+.pop-hint { margin: -2px 0 0; font-size: 11px; line-height: 1.4; color: #6b6b80; }
 
 /* account */
 .pop-account { background: var(--gray); }
@@ -219,6 +221,7 @@ em { font-style: italic; }
      everything else that reads muted picks the new value up from :root. */
   .pop-h2 { color: #9a9ab0; }
   .pop-lead { color: #d7d7e2; }
+  .pop-hint { color: #9a9ab0; }
 
   .pop-account { background: #1e1e32; }
   .pop-badge.buyer { background: #1d2b4a; color: #cfe0ff; }

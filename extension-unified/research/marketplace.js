@@ -25,15 +25,25 @@
 
   const IMG = self.GT_CC_IMG; // pure helpers (research/image-utils.js)
   const FMT = self.GT_CC_FMT; // US-1884: pure result-formatting (condition-format.js)
+  const SCAN = self.GT_CC_SCAN; // US-2237: pure scan helpers (scan-format.js)
   const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
   const HARD_MAX_URLS = 4; // endpoint cap — never exceed regardless of adapter
   const OVERLAY_ID = "gt-cc-overlay";
+  // US-2237: marks a card we've already badged, so a re-scan (infinite scroll,
+  // filter change) doesn't stack a second badge on the same tile.
+  const SCAN_MARK = "data-gt-cc-scanned";
 
   if (!IMG || !DEFAULT_CFG) return; // dependencies failed to load — bail quietly
 
   let CFG = DEFAULT_CFG;
   let adapter = null;
   let grading = false;
+  // US-2237 scan-mode state. `scanEnabled` is resolved once per boot from the
+  // shopper's setting; `onSearchPage` gates the lazy-load re-scan tick so it
+  // costs a boolean check on a detail page.
+  let scanning = false;
+  let scanEnabled = false;
+  let onSearchPage = false;
   let escHandler = null; // US-1884 (AC3): active Esc-to-dismiss listener, if any.
 
   // US-1878 (AC3): the GENERATION token.
@@ -53,6 +63,17 @@
   function invalidate() {
     epoch += 1;
     grading = false;
+    // US-2237: an in-flight SCAN is invalidated the same way. Its cards belong
+    // to the grid that was on screen when it started; after a navigation those
+    // nodes are gone (or worse, recycled by the router for different listings),
+    // so a late response must not badge them.
+    scanning = false;
+    // And the re-scan tick stops until the next boot re-establishes where we
+    // are. Without this, navigating from a search page to a page boot bails on
+    // (an unsupported path, a disabled host) leaves the tick running the OLD
+    // adapter's card selectors against the NEW page — badging whatever happens
+    // to match.
+    onSearchPage = false;
   }
 
   async function send(msg) {
@@ -603,6 +624,152 @@
     renderError(res.error || "Couldn't grade this listing right now.", true);
   }
 
+  // ── scan mode: the search-results grid (US-2237) ─────────────────────────
+  //
+  // Everything above this point is the DETAIL-page surface: one listing, one
+  // click, one Vision read. That surface only ever appears after the shopper has
+  // already committed to a listing — the choice between twelve listings happened
+  // a screen earlier, where the extension showed nothing at all.
+  //
+  // Scan mode badges the grid. It deliberately does NOT grade: no photo is
+  // fetched and no Vision call is made (see /scan on the edge). It reports the
+  // seller's own claimed condition and how their price sits against comps for
+  // that claim — the two things printed on the card itself. Clicking a badge is
+  // what escalates to the real read.
+
+  function firstMatchIn(node, selectors) {
+    for (const sel of selectors || []) {
+      let el;
+      try {
+        el = node.querySelector(sel);
+      } catch (_e) {
+        continue; // a bad remote selector never breaks the scan
+      }
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function textIn(node, selectors) {
+    const el = firstMatchIn(node, selectors);
+    const txt = el && el.textContent && el.textContent.trim();
+    return txt || "";
+  }
+
+  // Collect the result tiles and the fields printed on them. Returns [] when the
+  // adapter's card selector matches nothing — the honest degrade: a marketplace
+  // that changed its grid markup shows today's behaviour (no badges), never a
+  // row of empty pills.
+  function collectCards(cfgSearch) {
+    let nodes = [];
+    for (const sel of cfgSearch.card || []) {
+      let found;
+      try {
+        found = document.querySelectorAll(sel);
+      } catch (_e) {
+        continue;
+      }
+      if (found && found.length) {
+        nodes = Array.from(found);
+        break;
+      }
+    }
+    const cards = [];
+    nodes.forEach((node, i) => {
+      if (node.getAttribute(SCAN_MARK)) return; // already badged
+      const linkEl = firstMatchIn(node, cfgSearch.link);
+      const href = (linkEl && linkEl.href) || "";
+      cards.push({
+        node: node,
+        href: href,
+        key: SCAN.cardKey(href, i),
+        title: textIn(node, cfgSearch.title).slice(0, 200),
+        priceText: textIn(node, cfgSearch.price).slice(0, 40),
+        conditionText: textIn(node, cfgSearch.condition).slice(0, 60),
+        // No marketplace prints a photo count on a result card today; the field
+        // exists because the endpoint accepts it and an adapter may gain one.
+        photoCount: null,
+      });
+    });
+    return SCAN.usableCards(cards, SCAN.MAX_CARDS);
+  }
+
+  function renderBadge(card, result) {
+    const badge = SCAN.badgeFor(result);
+    if (!badge) return; // nothing honest to say about this card
+    card.node.setAttribute(SCAN_MARK, "1");
+
+    const wrap = el("div", "gt-cc-badge-row " + badge.cls);
+    wrap.setAttribute("dir", "ltr");
+    for (const part of badge.parts) {
+      wrap.appendChild(el("span", "gt-cc-badge-chip " + part.cls, part.text));
+    }
+    // The escalation path: the badge is a triage signal, and this is how the
+    // shopper turns it into an actual condition read.
+    const open = el("button", "gt-cc-badge-cta");
+    open.setAttribute("type", "button");
+    open.textContent = "Read condition";
+    open.title = SCAN.STRINGS.footnote;
+    open.addEventListener("click", function (e) {
+      // The tile is a link on most grids; badging inside it means a click would
+      // navigate before we could act.
+      e.preventDefault();
+      e.stopPropagation();
+      if (card.href) window.open(card.href, "_blank", "noopener");
+    });
+    wrap.appendChild(open);
+
+    try {
+      card.node.appendChild(wrap);
+    } catch (_e) { /* detached node (the grid re-rendered) — drop this badge */ }
+  }
+
+  async function runScan() {
+    if (scanning || !SCAN) return;
+    const cfgSearch = adapter && adapter.search;
+    if (!cfgSearch) return;
+    const cards = collectCards(cfgSearch);
+    if (!cards.length) return; // unreadable grid — degrade to nothing
+
+    scanning = true;
+    // Same generation guard as a grade: a scan is a round trip and the shopper
+    // can re-filter or click through mid-flight, at which point these cards are
+    // gone and the response belongs to a page that no longer exists.
+    const myEpoch = epoch;
+    const res = await send({
+      type: "GT_CC_SCAN",
+      marketplace: (adapter && adapter.key) || "",
+      query: SCAN.searchQueryFrom(location.href, cfgSearch.queryParams),
+      cards: cards.map((c) => ({
+        key: c.key,
+        title: c.title,
+        priceText: c.priceText,
+        conditionText: c.conditionText,
+        photoCount: c.photoCount,
+      })),
+    });
+    if (myEpoch !== epoch) return;
+    scanning = false;
+
+    // A scan that fails is silent by design. There is no user action to retry —
+    // they didn't ask for this — so an error banner over a search page would be
+    // pure noise. The detail-page read is unaffected either way.
+    if (!res || !res.ok || !res.data || !Array.isArray(res.data.cards)) return;
+    // Refuse to render anything that isn't the claim/price signal: if the
+    // endpoint ever starts returning graded reads here, the badges must not
+    // silently start presenting them as if they were triage.
+    if (res.data.signal !== "claimed-condition-and-price") return;
+
+    const byKey = new Map();
+    for (const row of res.data.cards) {
+      if (row && typeof row.key === "string") byKey.set(row.key, row);
+    }
+    for (const card of cards) {
+      const row = byKey.get(card.key);
+      if (row) renderBadge(card, row);
+    }
+  }
+
   // ── boot ─────────────────────────────────────────────────────────────────
   // US-1878 (AC3): boot() awaits the config, the settings and the recall cache, so
   // it is just as navigable-away-from as a grade is. Without the same epoch guard,
@@ -630,13 +797,28 @@
 
     adapter = IMG.resolveAdapter(CFG.adapters, location.host);
     if (!adapter || adapter.enabled === false) return; // unknown/disabled site — no-op
-    if (!IMG.isDetailPage(adapter, location.pathname)) return; // not a listing page
 
-    // Permanent per-site opt-out from the popup.
+    const onDetail = IMG.isDetailPage(adapter, location.pathname);
+    const onSearch = IMG.isSearchPage(adapter, location.pathname);
+    if (!onDetail && !onSearch) return; // neither surface applies here
+
+    // Permanent per-site opt-out from the popup. Read BEFORE either surface
+    // renders: a host the shopper switched off must be silent on its search
+    // pages too, not just its listings.
     const settings = await send({ type: "GT_CC_GET_SETTINGS" });
     if (stale()) return;
     const host = location.host;
     if (settings && Array.isArray(settings.disabledHosts) && settings.disabledHosts.includes(host)) {
+      return;
+    }
+
+    // US-2237: the search grid. Defaults ON (scanMode is undefined until the
+    // shopper touches the toggle) because it costs no Vision call and no quota —
+    // unlike autoRun, which stays opt-in precisely because it does.
+    onSearchPage = onSearch;
+    scanEnabled = !settings || settings.scanMode !== false;
+    if (onSearch) {
+      if (scanEnabled) runScan();
       return;
     }
 
@@ -710,6 +892,21 @@
   // (3) The universal backstop. 400ms is imperceptible against a multi-second grade
   // and costs a string compare; it is deliberately NOT the primary mechanism.
   setInterval(onUrlMaybeChanged, 400);
+
+  // US-2237: results grids paginate by INFINITE SCROLL on every marketplace we
+  // support, and the new cards arrive with no navigation and no URL change — so
+  // neither the Navigation API nor the poll above sees them, and a one-shot scan
+  // at boot would badge only the first screen and then look broken.
+  //
+  // runScan already skips cards carrying SCAN_MARK and returns immediately when
+  // no unbadged card matched, so a tick over a settled grid costs one
+  // querySelectorAll and no network. 2s (not 400ms) because a scan IS a round
+  // trip: the slower cadence lets a burst of newly-rendered cards batch into one
+  // request instead of firing several partial ones.
+  setInterval(function () {
+    if (!onSearchPage || !scanEnabled || scanning) return;
+    runScan();
+  }, 2000);
 
   boot();
 })();

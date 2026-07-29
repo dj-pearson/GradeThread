@@ -45,6 +45,11 @@ const ext = globalThis.browser || globalThis.chrome;
 // ── endpoints / constants ────────────────────────────────────────────────
 const SITE = "https://gradethread.com";
 const GRADE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/grade-from-url";
+// US-2237: the search-page triage scan. Separate endpoint AND separate server
+// rate-limit window from grading — a scan spends no Vision call, and charging it
+// against the grade budget would let a few scrolls of a results page exhaust the
+// shopper's ability to actually grade anything.
+const SCAN_ENDPOINT = "https://functions.gradethread.com/api/grading/public/scan";
 const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/public/entitlements";
 const SELECTOR_HEALTH_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/selector-health";
@@ -139,10 +144,15 @@ async function getRemoteConfig() {
 
 // ── settings ──────────────────────────────────────────────────────────────
 async function getSettings() {
-  const out = await ext.storage.local.get(["autoRun", "disabledHosts"]);
+  const out = await ext.storage.local.get(["autoRun", "disabledHosts", "scanMode"]);
   return {
     autoRun: Boolean(out.autoRun),
     disabledHosts: Array.isArray(out.disabledHosts) ? out.disabledHosts : [],
+    // US-2237: scan mode defaults ON — note this is `!== false`, not Boolean(),
+    // the opposite of autoRun above. autoRun spends a Vision call the shopper
+    // didn't ask for, so it must be opted into; a scan spends none, so an install
+    // that has never opened the popup still gets the feature.
+    scanMode: out.scanMode !== false,
   };
 }
 
@@ -331,6 +341,54 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
     code: (json && json.code) || null,
     retryable: json && json.retryable === false ? false : true,
   };
+}
+
+// ── the search-page triage scan (US-2237) ─────────────────────────────────
+// Same posture as gradeFromUrls: the call is made HERE, not in the content
+// script, so it carries the extension's own origin (trusted by the server's
+// EXTENSION_ALLOWED_ORIGINS allowlist) and isn't subject to the marketplace
+// page's CSP. Unlike a grade it spends no AI quota, so anonymous installs are
+// not rationed as tightly — the server's own window is the authority.
+async function scanCards({ cards, marketplace, query, brand }) {
+  if (!Array.isArray(cards) || cards.length === 0) {
+    return { ok: false, status: 400, error: "Nothing to scan." };
+  }
+  const instanceId = await getInstanceId();
+  const headers = {
+    "Content-Type": "application/json",
+    "X-GT-Extension-Id": instanceId,
+  };
+  try {
+    const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+    if (gtBuyerToken && typeof gtBuyerToken === "string") {
+      headers["Authorization"] = "Bearer " + gtBuyerToken;
+    }
+  } catch (_e) { /* no token → anonymous */ }
+  let resp;
+  try {
+    resp = await fetch(SCAN_ENDPOINT, {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify({
+        cards: cards,
+        marketplace: marketplace || undefined,
+        query: query || undefined,
+        brand: brand || undefined,
+      }),
+    });
+  } catch (_e) {
+    // Silent by design: the shopper never asked for this, so an unreachable
+    // scan must not surface anything on their search page.
+    return { ok: false, status: 0, error: "offline" };
+  }
+  let json = null;
+  try {
+    json = await resp.json();
+  } catch (_e) {
+    json = null;
+  }
+  if (resp.ok && json) return { ok: true, status: resp.status, data: json };
+  return { ok: false, status: resp.status, error: (json && json.error) || "scan failed" };
 }
 
 // ── per-listing grade recall cache ────────────────────────────────────────
@@ -954,6 +1012,12 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         sendResponse(out);
         break;
       }
+      // US-2237: the search-grid triage scan. Deliberately NOT cached — a grid
+      // changes with every filter, sort and scroll, and a stale badge on a card
+      // that is now a different listing is worse than no badge.
+      case "GT_CC_SCAN":
+        sendResponse(await scanCards(msg));
+        break;
       case "GT_CC_GET_CACHED":
         sendResponse(await readGradeCache(msg.listingKey));
         break;

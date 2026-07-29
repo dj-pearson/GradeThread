@@ -6,6 +6,11 @@ extensions into a single MV3 extension:
 - **Condition Check (buyer research)** — from `extension-condition/` (US-1755/1756).
   An independent AI condition read on eBay / Poshmark / Grailed / Mercari / Depop /
   Vinted listing pages. **Always on** — anonymous-capable, quota-capped.
+- **Scan mode (US-2237)** — the same six marketplaces' **search / category grids**.
+  Badges each result with the seller's *claimed* condition and whether the asking
+  price is high or low for that claim. **It does not grade**: no photo is fetched
+  and no Vision call is made, which is why it can run automatically (default ON)
+  where the detail-page read stays click-to-run.
 - **Lister (seller cross-post)** — from `extension/` (US-716). Cross-post + delist
   FlipDesk drafts into Poshmark / Mercari / Grailed from the seller's own logged-in
   tab. **Unlocks only for an active paid FlipDesk account.**
@@ -22,7 +27,8 @@ background.js        one service worker — routes GT_CC_* + GT_LISTER_* + entit
 registry.js          feature registry — resolves capabilities from entitlements+settings
 popup.html/js/css    role-aware popup (US-1885)
 onboarding.html      first-run page opened on install (US-1885 AC4)
-research/            buyer overlay  (selectors.js, image-utils.js, marketplace.js, overlay.css)
+research/            buyer overlay  (selectors.js, image-utils.js, condition-format.js,
+                     scan-format.js, marketplace.js, overlay.css)
 lister/              seller Lister  (selectors.js, lister-guard.js, common.js, poshmark/mercari/grailed.js)
 icons/               shared icon set
 test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)
@@ -35,7 +41,8 @@ test/                zero-dep node guards (run in verify:web via scripts/test-ex
 | capability | granted when |
 |---|---|
 | `research` | **always** (anonymous allowed, quota-capped server-side) |
-| `autoRun`  | buyer setting |
+| `autoRun`  | buyer setting (default **off** — it spends a Vision call per listing) |
+| scan mode  | buyer setting (default **on** — it spends none; `scanMode !== false`) |
 | `lister` / `delist` | `sellerEnabled` — an **active paid FlipDesk** plan |
 
 `background.js` fetches `GET https://functions.gradethread.com/api/grading/public/entitlements`
@@ -68,6 +75,13 @@ merged. The posture is now:
 > public endpoint (nothing is persisted server-side). Lister automation runs
 > entirely on your device — GradeThread never receives your marketplace password or
 > cookies, and records a cross-listing only from your own GradeThread session.
+
+**Scan mode adds one flow, and it is the only one that runs without a click** —
+so it is stated separately in `SUBMISSION.md` rather than folded into the above.
+On a supported search page it sends the text *already printed on* up to 24 visible
+result cards (title, price, stated condition) to `/api/grading/public/scan`. No
+photos, no page address, no account identifier; nothing is persisted; the popup
+toggle switches it off.
 
 ## Wiring for the single extension id (US-1873 AC5)
 

@@ -16,11 +16,12 @@ import {
   computeResaleConditionReport,
   type ResaleConditionReport,
 } from "../lib/resale-condition.ts";
-import { valueAtGrade, type ValueRange } from "../lib/condition-value.ts";
-import { suggestCategories } from "../lib/ebay-client.ts";
+import { valueAtGrade, valueRangeFromStats, type ValueRange } from "../lib/condition-value.ts";
+import { type BrowseCompsResult, searchBrowseComps, suggestCategories } from "../lib/ebay-client.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { claimedConditionToGrade, scoreDiscrepancy } from "../lib/condition-discrepancy.ts";
-import { parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
+import { type FairnessVerdict, parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
+import { gradeToConditionId } from "../lib/repricing.ts";
 import { deriveFraudFlags } from "../lib/fraud-flags.ts";
 import { coverageGapForTitle } from "../lib/coverage-gap.ts";
 import { bearerFromHeader, verifyExtensionToken } from "../lib/extension-token.ts";
@@ -995,6 +996,297 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
       err instanceof Error ? err.message : String(err),
     );
     return c.json({ error: "Couldn't grade that image right now. Try again later." }, 500);
+  }
+});
+
+// ── Search-page triage scan (US-2237) ────────────────────────────────────
+//
+// The extension's overlay reads ONE listing at a time, after a click, on a
+// detail page. Every buying decision that matters happens a screen earlier — on
+// the search results grid — where it showed nothing at all.
+//
+// This endpoint is what makes a result grid readable WITHOUT a Vision call per
+// card. Grading 24 cards would be 24 Vision calls per scroll; instead it uses
+// only the two signals already printed on the card (the seller's CLAIMED
+// condition and the asking price) and answers a narrower, honest question:
+// "for what the seller SAYS it is, is this price high or low?"
+//
+// COST SHAPE — the reason this is affordable. Cards are bucketed by the
+// conditionId their claimed condition maps to, and comps are fetched ONCE per
+// distinct bucket (capped at MAX_SCAN_COMP_BUCKETS), not once per card. The
+// per-card work after that is the two PURE functions valueRangeFromStats +
+// priceFairness. A 24-card scan costs at most one suggestCategories call plus
+// three eBay Browse calls, and ZERO AI actions.
+//
+// WHAT IT IS NOT: this is not a grade. Nothing here looks at a photo, so the
+// response deliberately carries no overallScore/gradeTier/confidence field for
+// the extension to render — a number on a card that the buyer read as a
+// GradeThread grade would be the worst possible outcome of this feature. The
+// per-card `claimedGrade` is explicitly the SELLER's claim expressed on our
+// scale, and it is named that way all the way to the DOM.
+const SCAN_PER_IP_PER_HOUR = 60;
+const SCAN_PER_INSTANCE_PER_HOUR = 120;
+const SCAN_WINDOW_MS = 60 * 60 * 1000;
+const MAX_SCAN_CARDS = 24;
+// Distinct claimed-condition buckets we'll spend an eBay Browse call on. Real
+// grids cluster into 2-3 (a "used" bulk plus a few NWT); the cap bounds the
+// worst case where a page happens to span every condition tier.
+const MAX_SCAN_COMP_BUCKETS = 3;
+const scanIpHits = new Map<string, number[]>();
+const scanInstanceHits = new Map<string, number[]>();
+
+/**
+ * Rate-limit a scan on both IP and extension instance. Deliberately its OWN
+ * window rather than sharing extGradeRateLimited: a scan costs no Vision call,
+ * so charging it against the 20/hr grade budget would let a few scrolls of a
+ * search page exhaust the buyer's ability to actually grade anything — the
+ * expensive action must not be starved by the cheap one.
+ */
+export function scanRateLimited(
+  ip: string,
+  instanceId: string | null,
+  now: number,
+): { limited: boolean; scope?: "ip" | "instance" } {
+  if (windowLimited(scanIpHits, ip, now, SCAN_PER_IP_PER_HOUR, SCAN_WINDOW_MS)) {
+    return { limited: true, scope: "ip" };
+  }
+  if (
+    instanceId &&
+    windowLimited(scanInstanceHits, instanceId, now, SCAN_PER_INSTANCE_PER_HOUR, SCAN_WINDOW_MS)
+  ) {
+    return { limited: true, scope: "instance" };
+  }
+  return { limited: false };
+}
+
+export interface ScanCardInput {
+  /** Caller-assigned id echoed back so the content script can match rows to DOM
+   *  nodes without relying on array order. */
+  key: string;
+  title: string;
+  priceText: string;
+  conditionText: string;
+  photoCount: number | null;
+}
+
+/**
+ * Validate + cap the scan body. PURE — exported for the edge test. Cards missing
+ * a key are dropped rather than failing the request: one malformed card on a
+ * 24-card grid should degrade that card, not blank the whole page.
+ */
+export function parseScanBody(
+  body: unknown,
+): { ok: true; cards: ScanCardInput[]; query: string; brand: string } | { ok: false; error: string } {
+  const b = (body ?? {}) as {
+    cards?: unknown;
+    query?: unknown;
+    brand?: unknown;
+  };
+  if (!Array.isArray(b.cards)) return { ok: false, error: "Provide a cards array." };
+  const cards: ScanCardInput[] = [];
+  for (const raw of b.cards) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const key = typeof r.key === "string" ? r.key.trim().slice(0, 200) : "";
+    if (!key) continue;
+    const photoCount = typeof r.photoCount === "number" && Number.isFinite(r.photoCount)
+      ? Math.max(0, Math.min(99, Math.round(r.photoCount)))
+      : null;
+    cards.push({
+      key,
+      title: typeof r.title === "string" ? r.title.trim().slice(0, 200) : "",
+      priceText: typeof r.priceText === "string" ? r.priceText.trim().slice(0, 40) : "",
+      conditionText: typeof r.conditionText === "string" ? r.conditionText.trim().slice(0, 60) : "",
+      photoCount,
+    });
+    if (cards.length >= MAX_SCAN_CARDS) break;
+  }
+  if (cards.length === 0) return { ok: false, error: "Provide at least one card." };
+  return {
+    ok: true,
+    cards,
+    query: typeof b.query === "string" ? b.query.trim().slice(0, 200) : "",
+    brand: typeof b.brand === "string" ? b.brand.trim().slice(0, 80) : "",
+  };
+}
+
+export interface ScanCardResult {
+  key: string;
+  /** The SELLER's claimed condition on our 1-10 scale, or null when the card
+   *  didn't print one / we don't recognise it. Never our own read. */
+  claimedGrade: number | null;
+  priceCents: number | null;
+  fairness: FairnessVerdict;
+  deltaPct: number | null;
+  /** true when the card shows too few photos to support any confident read —
+   *  the one thing worth flagging from the grid itself. */
+  thinPhotos: boolean;
+}
+
+/**
+ * Bucket cards by the eBay conditionId their claimed condition maps to. PURE —
+ * exported for the edge test. This is the function that makes the whole endpoint
+ * affordable: comps are fetched once per BUCKET, and real grids collapse to two
+ * or three.
+ *
+ * A card whose condition we can't read is NOT dropped — only eBay reliably
+ * prints a condition on the result card, so dropping them would make scan mode
+ * an eBay-only feature. It buckets under gradeToConditionId(null) ("Used", the
+ * safe default) and its per-card result keeps claimedGrade:null, so the caller
+ * can say "vs typical used" instead of implying the seller claimed anything.
+ *
+ * Buckets come back ordered by size so the MAX_SCAN_COMP_BUCKETS cap spends the
+ * comp calls on the conditions covering the most cards.
+ */
+export function bucketScanCards(
+  cards: ScanCardInput[],
+  marketplace: string | null,
+): Array<{ conditionId: string; keys: string[] }> {
+  const byCondition = new Map<string, string[]>();
+  for (const card of cards) {
+    const claimed = claimedConditionToGrade(card.conditionText, marketplace);
+    const conditionId = gradeToConditionId(claimed);
+    const entry = byCondition.get(conditionId);
+    if (entry) entry.push(card.key);
+    else byCondition.set(conditionId, [card.key]);
+  }
+  return Array.from(byCondition, ([conditionId, keys]) => ({ conditionId, keys }))
+    .sort((a, b) => b.keys.length - a.keys.length);
+}
+
+/** The comp distribution one condition bucket is priced against. Carries the
+ *  currency, which the bare CompStats in repricing.ts does not. */
+type ScanCompStats = BrowseCompsResult["stats"];
+
+/** Fewer than 3 photos on a result card means no read could be confident. */
+const SCAN_THIN_PHOTO_FLOOR = 3;
+
+export const SCAN_DISCLAIMER =
+  "Based on the seller's stated condition and asking price only — no photos were analysed. " +
+  "Open a listing for a GradeThread condition read.";
+
+/**
+ * Assemble the per-card verdicts from the (already fetched) per-bucket comp
+ * STATS. PURE — exported for the edge test, and the reason a 24-card scan costs
+ * three network calls instead of 24.
+ *
+ * Stats are shared per condition bucket but the band is positioned PER CARD, via
+ * the pure valueRangeFromStats: two cards in the same "Used" bucket that claim
+ * "very good" and "fair" get different bands off one eBay call. Anything below
+ * MIN_VALUE_COMPS comes back sufficient:false and publicValueFromRange nulls it,
+ * so a thin grid yields 'unknown' rather than a fabricated verdict.
+ */
+export function scanCardResults(
+  cards: ScanCardInput[],
+  marketplace: string | null,
+  statsByKey: Map<string, ScanCompStats>,
+): ScanCardResult[] {
+  return cards.map((card) => {
+    const claimedGrade = claimedConditionToGrade(card.conditionText, marketplace);
+    const priceCents = parsePriceCents(card.priceText);
+    const stats = statsByKey.get(card.key);
+    const band = stats
+      ? publicValueFromRange(valueRangeFromStats(stats, claimedGrade, stats.currency))
+      : null;
+    const fairness = priceFairness(priceCents, band);
+    return {
+      key: card.key,
+      claimedGrade,
+      priceCents,
+      fairness: fairness.verdict,
+      deltaPct: fairness.deltaPct,
+      thinPhotos: card.photoCount != null && card.photoCount < SCAN_THIN_PHOTO_FLOOR,
+    };
+  });
+}
+
+// POST /scan — per-card claim + price triage for a marketplace SEARCH page.
+// Unauthenticated like /grade-from-url, and cheaper by construction: no Vision
+// call, no AI quota, nothing persisted.
+publicGradingRoutes.post("/scan", async (c) => {
+  try {
+    const ip = clientIpFor(c);
+    const instanceId = c.req.header("x-gt-extension-id")?.trim().slice(0, 64) || null;
+    const gate = scanRateLimited(ip, instanceId, Date.now());
+    if (gate.limited) {
+      return c.json(
+        {
+          error: gate.scope === "instance"
+            ? "This extension has reached its scan limit for now. Try again later."
+            : "You've reached the scan limit for now. Try again later.",
+        },
+        429,
+      );
+    }
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = parseScanBody(body);
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+    const marketplace = typeof (body as { marketplace?: unknown })?.marketplace === "string"
+      ? (body as { marketplace: string }).marketplace.slice(0, 24)
+      : null;
+
+    // One category resolution for the whole grid — every card on a search page
+    // is an answer to the same query, so comping them under different categories
+    // would be noise, not precision.
+    let categoryId: string | undefined;
+    const query = [parsed.brand, parsed.query].filter(Boolean).join(" ").trim();
+    if (query) {
+      try {
+        categoryId = (await suggestCategories(query))[0]?.categoryId;
+      } catch (err) {
+        // Comps are the OPTIONAL half of this response. A category lookup that
+        // fails still leaves every card its claimed-condition read, which is the
+        // signal a shopper can't get anywhere else — so degrade, never 500.
+        console.error(
+          "public-grading /scan categories:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    const statsByKey = new Map<string, ScanCompStats>();
+    if (categoryId) {
+      const buckets = bucketScanCards(parsed.cards, marketplace).slice(0, MAX_SCAN_COMP_BUCKETS);
+      for (const bucket of buckets) {
+        try {
+          const { stats } = await searchBrowseComps({
+            categoryId,
+            q: parsed.query || undefined,
+            brand: parsed.brand || undefined,
+            conditionId: bucket.conditionId,
+            limit: 25,
+          });
+          for (const key of bucket.keys) statsByKey.set(key, stats);
+        } catch (err) {
+          // One bucket's comps failing leaves the OTHER buckets priced and every
+          // card its claimed-condition read. Degrade per bucket, never per page.
+          console.error(
+            "public-grading /scan comps:",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+    }
+
+    return c.json(
+      {
+        estimate: true,
+        // Named so no caller can mistake this for a graded read: the extension
+        // asserts on this field before it will render anything.
+        signal: "claimed-condition-and-price",
+        comped: statsByKey.size > 0,
+        cards: scanCardResults(parsed.cards, marketplace, statsByKey),
+        disclaimer: SCAN_DISCLAIMER,
+      },
+      200,
+    );
+  } catch (err) {
+    console.error(
+      "public-grading /scan:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Couldn't scan this page right now. Try again later." }, 500);
   }
 });
 

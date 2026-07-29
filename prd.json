@@ -5485,7 +5485,8 @@
       ],
       "dependsOn": [
         "US-1880"
-      ]
+      ],
+      "notes": "Implemented 2026-07-29. Deviation from AC5: /scan gets its OWN sliding window (scanRateLimited, 60/hr IP + 120/hr instance) rather than sharing extGradeRateLimited as the AC said — a scan spends no Vision call, and charging it to the 20/hr grade budget would let a few scrolls of a search page exhaust the shopper's ability to grade anything. Same helper, same 429 copy shape. Also: cards whose condition is unreadable are bucketed as Used rather than dropped (only eBay prints a condition on result cards, so dropping them would have made scan mode eBay-only); their claimedGrade stays null so no claim is implied. Side effect: extension-condition/selectors.js was resynced to the shared hosted config, since both bundled copies sync against the same public/extension/marketplace-selectors.json."
     },
     {
       "id": "US-2238",

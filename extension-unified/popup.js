@@ -128,13 +128,29 @@ function renderAccount(caps) {
 
 // ── research settings ───────────────────────────────────────────────────────
 async function initResearch() {
-  const { autoRun, disabledHosts } = await ext.storage.local.get(["autoRun", "disabledHosts"]);
+  const { autoRun, disabledHosts, scanMode } = await ext.storage.local.get([
+    "autoRun",
+    "disabledHosts",
+    "scanMode",
+  ]);
   const disabled = Array.isArray(disabledHosts) ? disabledHosts : [];
 
   const autoEl = document.getElementById("autoRun");
   autoEl.checked = Boolean(autoRun);
   autoEl.addEventListener("change", () => {
     ext.storage.local.set({ autoRun: autoEl.checked });
+  });
+
+  // US-2237: scan mode defaults ON, so it reads `!== false` rather than
+  // Boolean() — the opposite of autoRun directly above. autoRun spends a Vision
+  // call per listing and must be opted into; a scan spends none. Switching it ON
+  // REMOVES the key instead of storing true, so "default" and "explicitly on"
+  // stay the same stored state and a later default change can't strand anyone.
+  const scanEl = document.getElementById("scanMode");
+  scanEl.checked = scanMode !== false;
+  scanEl.addEventListener("change", async () => {
+    if (scanEl.checked) await ext.storage.local.remove("scanMode");
+    else await ext.storage.local.set({ scanMode: false });
   });
 
   // US-1880 (AC3): opt-in selector-failure reporting. Unchecked unless the key
