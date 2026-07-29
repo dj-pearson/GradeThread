@@ -306,3 +306,70 @@ Deno.test("publicAuthenticityCheckEnabled: fail-closed (default off), on only wh
   assertEquals(publicAuthenticityCheckEnabled(), true);
   Deno.env.delete("PUBLIC_AUTHENTICITY_CHECK_ENABLED");
 });
+
+// ── US-2241: the photo cap is the CALLER's, not a flat 4 ────────────────────
+//
+// A 20-photo listing judged on four thumbnails is judged on the four the gallery
+// emits first — the flattering ones, not the cuff wear. The cap is now resolved
+// from the caller's tier, and the two things worth pinning are that anonymous
+// still gets exactly 4, and that no caller can talk their way past the ceiling.
+const {
+  EXTENSION_MAX_IMAGES_ANON,
+  EXTENSION_MAX_IMAGES_PAID,
+  resolveExtensionGates,
+} = await import("../lib/extension-gates.ts");
+
+function extUrls(n: number): string[] {
+  return Array.from({ length: n }, (_, i) => `https://i.ebayimg.com/${i}.jpg`);
+}
+
+Deno.test("US-2241: anonymous is capped at 4 photos", () => {
+  const gates = resolveExtensionGates(null);
+  assertEquals(gates.maxImages, EXTENSION_MAX_IMAGES_ANON);
+  const r = parseGradeFromUrlBody({ imageUrls: extUrls(20) }, gates.maxImages);
+  assert(r.ok);
+  assertEquals(r.urls.length, 4);
+});
+
+Deno.test("US-2241: a paid tier gets the deeper read", () => {
+  const gates = resolveExtensionGates({ plan: "guard", gateFlags: {} });
+  assertEquals(gates.maxImages, EXTENSION_MAX_IMAGES_PAID);
+  const r = parseGradeFromUrlBody({ imageUrls: extUrls(20) }, gates.maxImages);
+  assert(r.ok);
+  assertEquals(r.urls.length, 8);
+});
+
+Deno.test("US-2241: an authenticated FREE plan stays at the anonymous cap", () => {
+  // Signing in is not the same as paying. The deeper read is what the plan buys.
+  const gates = resolveExtensionGates({ plan: "free", gateFlags: {} });
+  assertEquals(gates.maxImages, EXTENSION_MAX_IMAGES_ANON);
+});
+
+Deno.test("US-2241: an unknown future plan inherits the PAID cap, not the floor", () => {
+  // `plan` is a free-form string from the entitlements row. A plan added later
+  // must not silently fall back to 4 because nobody remembered to list it here.
+  const gates = resolveExtensionGates({ plan: "collector-2027", gateFlags: {} });
+  assertEquals(gates.maxImages, EXTENSION_MAX_IMAGES_PAID);
+});
+
+Deno.test("US-2241: the cap is clamped — no caller can buy unbounded Vision calls", () => {
+  // The cap reaches the parser as a number. Whatever goes wrong upstream, the
+  // parser must land inside [anon, paid]: a huge value would turn one request
+  // into an unbounded number of Vision calls, and a zero/NaN would starve a
+  // paying caller down to nothing.
+  for (const bogus of [9999, Infinity, NaN, 0, -5, undefined as unknown as number]) {
+    const r = parseGradeFromUrlBody({ imageUrls: extUrls(50) }, bogus);
+    assert(r.ok, `cap ${bogus} must still parse`);
+    assert(
+      r.urls.length >= EXTENSION_MAX_IMAGES_ANON &&
+        r.urls.length <= EXTENSION_MAX_IMAGES_PAID,
+      `cap ${bogus} produced ${r.urls.length} urls — outside the allowed band`,
+    );
+  }
+});
+
+Deno.test("US-2241: a listing with fewer photos than the cap is unaffected", () => {
+  const r = parseGradeFromUrlBody({ imageUrls: extUrls(2) }, EXTENSION_MAX_IMAGES_PAID);
+  assert(r.ok);
+  assertEquals(r.urls.length, 2);
+});

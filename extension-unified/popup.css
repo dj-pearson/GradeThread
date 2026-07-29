@@ -222,6 +222,12 @@ em { font-style: italic; }
   .pop-h2 { color: #9a9ab0; }
   .pop-lead { color: #d7d7e2; }
   .pop-hint { color: #9a9ab0; }
+  /* US-2239: the Recent reads / By seller switch. Folded into THIS block rather
+     than appended as a second @media — popup-theme.test.ts requires exactly one
+     prefers-color-scheme:dark block so the theme can't fragment. */
+  .pop-tabs { border-bottom-color: #2c2c44; }
+  .pop-tab { color: #9a9ab0; }
+  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
 
   .pop-account { background: #1e1e32; }
   .pop-badge.buyer { background: #1d2b4a; color: #cfe0ff; }
@@ -282,9 +288,3 @@ em { font-style: italic; }
 
 .pop-tab.is-on { color: #0f3460; border-bottom-color: #0f3460; }
 .pop-tab:focus-visible { outline: 2px solid #e94560; outline-offset: 2px; }
-
-@media (prefers-color-scheme: dark) {
-  .pop-tabs { border-bottom-color: #2c2c44; }
-  .pop-tab { color: #9a9ab0; }
-  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
-}

@@ -301,7 +301,18 @@ async function getCapabilities(force) {
 }
 
 // ── the buyer grade call ──────────────────────────────────────────────────
-async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, price }) {
+function maxImagesFor(requested) {
+  const n = Math.floor(Number(requested));
+  if (!isFinite(n)) return self.GT_REGISTRY.MAX_IMAGES_ANON;
+  return Math.max(
+    self.GT_REGISTRY.MAX_IMAGES_ANON,
+    Math.min(self.GT_REGISTRY.MAX_IMAGES_PAID, n),
+  );
+}
+
+async function gradeFromUrls(
+  { imageUrls, brand, title, condition, marketplace, price, maxImages: msgMaxImages },
+) {
   if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
     return { ok: false, status: 400, error: "No listing photos to grade." };
   }
@@ -320,7 +331,10 @@ async function gradeFromUrls({ imageUrls, brand, title, condition, marketplace, 
       method: "POST",
       headers: headers,
       body: JSON.stringify({
-        imageUrls: imageUrls.slice(0, 4),
+        // US-2241: the caller's tier ceiling, clamped locally as well. The
+        // server trims to the real cap regardless — this only avoids posting
+        // URLs we already know it will drop.
+        imageUrls: imageUrls.slice(0, maxImagesFor(msgMaxImages)),
         brand: brand || undefined,
         title: title || undefined,
         condition: condition || undefined,
@@ -1161,6 +1175,16 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         break;
       case "GT_CC_SAVE_READ":
         await saveRead(msg.read);
+        // US-2241: the badge follows the read that produced it, on the tab it
+        // came from. sender.tab is the authority — a tab id from the message
+        // body would let any content script badge any tab.
+        await setScoreBadge(sender.tab && sender.tab.id, msg.read && msg.read.overallScore);
+        sendResponse({ ok: true });
+        break;
+      // Cleared by the content script when it navigates away, so a badge never
+      // outlives the listing it describes.
+      case "GT_CC_CLEAR_BADGE":
+        await setScoreBadge(sender.tab && sender.tab.id, null);
         sendResponse({ ok: true });
         break;
       // US-1880 (AC3): an adapter found nothing. Respond immediately and let the
@@ -1261,6 +1285,82 @@ ext.tabs.onRemoved.addListener(function (tabId) {
     );
   })();
 });
+
+// ── US-2241: reaching the overlay without hunting for a pill ───────────────
+//
+// The overlay was only ever reachable by finding a small pill in the corner of
+// somebody else's page. Three cheaper doors, all local, none touching the
+// network:
+//
+//   • A keyboard command (Alt+G) that runs the read on the active listing.
+//   • A right-click on any image: "Grade this image with GradeThread" — the one
+//     case the adapter can't serve, where the shopper has spotted the photo that
+//     matters and the gallery selector missed it.
+//   • A toolbar badge carrying the last score for the tab it belongs to.
+//
+// Every registration is GUARDED for the reason background-deps.test.cjs pins:
+// reading .addListener off a namespace a browser didn't grant throws at LOAD and
+// takes the WHOLE worker with it — including buyer research, which has nothing to
+// do with any of this.
+const CONTEXT_MENU_ID = "gt-grade-image";
+
+if (ext.commands && ext.commands.onCommand) {
+  ext.commands.onCommand.addListener(async function (command) {
+    if (command !== "run-condition-read") return;
+    try {
+      const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+      if (tab && typeof tab.id === "number") {
+        // The content script owns the overlay; it ignores the message on a page
+        // where no adapter matched, which is the correct no-op.
+        await ext.tabs.sendMessage(tab.id, { type: "GT_CC_RUN" });
+      }
+    } catch (_e) { /* no content script on this tab — nothing to run */ }
+  });
+}
+
+if (ext.contextMenus && ext.contextMenus.create) {
+  const createMenu = function () {
+    try {
+      ext.contextMenus.create({
+        id: CONTEXT_MENU_ID,
+        title: "Grade this image with GradeThread",
+        contexts: ["image"],
+      });
+    } catch (_e) { /* already created (worker restart) — harmless */ }
+  };
+  ext.runtime.onInstalled.addListener(createMenu);
+  // Menus do not survive a worker restart on every browser, so re-create on
+  // startup too. A duplicate-id create throws and is swallowed above.
+  if (ext.runtime.onStartup) ext.runtime.onStartup.addListener(createMenu);
+
+  if (ext.contextMenus.onClicked) {
+    ext.contextMenus.onClicked.addListener(function (info, tab) {
+      if (!info || info.menuItemId !== CONTEXT_MENU_ID) return;
+      if (!info.srcUrl || !/^https?:\/\//i.test(info.srcUrl)) return;
+      if (!tab || typeof tab.id !== "number") return;
+      // Routed through the content script rather than graded straight from here,
+      // so the result lands in the same overlay, on the same page, with the same
+      // epoch guard — a second, parallel result surface would be a second place
+      // for a stale grade to appear.
+      ext.tabs.sendMessage(tab.id, { type: "GT_CC_RUN", imageUrl: info.srcUrl })
+        .catch(function () { /* no content script here */ });
+    });
+  }
+}
+
+// The toolbar badge: the last score for THIS tab. Per-tab, so switching tabs
+// never shows the previous listing's number against the current one.
+async function setScoreBadge(tabId, score) {
+  if (!ext.action || typeof tabId !== "number") return;
+  const n = Number(score);
+  const text = isFinite(n) && n >= 1 && n <= 10 ? n.toFixed(1) : "";
+  try {
+    await ext.action.setBadgeText({ tabId: tabId, text: text });
+    if (text) {
+      await ext.action.setBadgeBackgroundColor({ tabId: tabId, color: "#0F3460" });
+    }
+  } catch (_e) { /* action API unavailable — the badge is a nicety */ }
+}
 
 // Exposed for popup/deep links (kept in one place).
 self.GT_SITE = SITE;

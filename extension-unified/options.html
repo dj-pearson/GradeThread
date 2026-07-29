@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="compare.css" />
+    <link rel="stylesheet" href="options.css" />
+    <title>Settings — GradeThread</title>
+  </head>
+  <body>
+    <header class="cmp-head">
+      <img src="icons/icon48.png" alt="" class="cmp-logo" />
+      <h1 class="cmp-title">Settings</h1>
+      <span class="opt-ver" id="version"></span>
+    </header>
+
+    <main class="cmp-body opt-body">
+      <section class="opt-section">
+        <h2 class="opt-h2">While you shop</h2>
+
+        <label class="opt-toggle">
+          <input type="checkbox" id="autoRun" />
+          <span>
+            Read every supported listing automatically
+            <small>
+              Off by default. Each automatic read uses one of your condition
+              reads, so leaving this on will use them faster.
+            </small>
+          </span>
+        </label>
+
+        <label class="opt-toggle">
+          <input type="checkbox" id="scanMode" />
+          <span>
+            Check search results as I browse
+            <small>
+              On by default. Search pages get the seller’s stated condition and a
+              price check only — no photos are read until you open a listing.
+            </small>
+          </span>
+        </label>
+
+        <label class="opt-toggle">
+          <input type="checkbox" id="selectorTelemetry" />
+          <span>
+            Report when a site’s layout breaks the read
+            <small>
+              Off by default. Sends only the marketplace name and which part
+              failed — never the listing, the page address, or anything that
+              identifies you or this installation.
+            </small>
+          </span>
+        </label>
+      </section>
+
+      <section class="opt-section">
+        <h2 class="opt-h2">Sites you’ve turned off</h2>
+        <p class="opt-lead" id="disabledEmpty">
+          None. You can switch off any supported site from the extension popup
+          while you’re on it.
+        </p>
+        <ul class="opt-list" id="disabledList"></ul>
+      </section>
+
+      <section class="opt-section">
+        <h2 class="opt-h2">Keyboard shortcut</h2>
+        <p class="opt-lead">
+          <kbd id="shortcut">Alt+G</kbd> reads the listing you’re on. Change it in
+          your browser’s extension shortcut settings.
+        </p>
+        <button type="button" class="cmp-linkbtn" id="openShortcuts">
+          Open shortcut settings
+        </button>
+      </section>
+
+      <section class="opt-section">
+        <h2 class="opt-h2">Your data</h2>
+        <p class="opt-lead">
+          All of it lives in this browser. None of it is sent to GradeThread.
+        </p>
+        <ul class="opt-list opt-data">
+          <li>
+            <span id="readsCount">0</span> saved reads
+            <button type="button" class="cmp-linkbtn" id="clearReads">Clear</button>
+          </li>
+          <li>
+            <span id="trayCount">0</span> pinned for compare
+            <button type="button" class="cmp-linkbtn" id="clearTray">Clear</button>
+          </li>
+          <li>
+            <span id="cacheCount">0</span> remembered listing grades
+            <button type="button" class="cmp-linkbtn" id="clearCache">Clear</button>
+          </li>
+        </ul>
+        <p class="opt-note" id="cleared" hidden>Cleared.</p>
+      </section>
+    </main>
+
+    <script src="research/compare-tray.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

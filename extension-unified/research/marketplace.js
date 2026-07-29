@@ -30,7 +30,16 @@
   const SELLER = self.GT_CC_SELLER; // US-2239: pure seller aggregation (seller-memory.js)
   const TRAY = self.GT_CC_TRAY; // US-2240: pure compare-tray logic (compare-tray.js)
   const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
-  const HARD_MAX_URLS = 4; // endpoint cap — never exceed regardless of adapter
+  // US-2241: the photo ceiling is the ACCOUNT's, not a constant. 4 is the
+  // anonymous floor and what we assume until capabilities resolve; a paid tier
+  // raises it, because a 20-photo listing judged on four thumbnails is judged on
+  // the four the gallery emits first — the flattering ones. The server trims to
+  // the real cap regardless, so this is an optimisation, never the gate.
+  const HARD_MAX_URLS = 8; // absolute ceiling, matching the edge's paid cap
+  function capForAccount() {
+    const n = caps && Number(caps.maxImages);
+    return isFinite(n) && n > 0 ? Math.min(HARD_MAX_URLS, Math.floor(n)) : 4;
+  }
   const OVERLAY_ID = "gt-cc-overlay";
   // US-2237: marks a card we've already badged, so a re-scan (infinite scroll,
   // filter change) doesn't stack a second badge on the same tile.
@@ -201,8 +210,13 @@
       const chosen = IMG.pickImageUrl(candidates);
       if (chosen) urls.push(IMG.applyUrlUpgrade(chosen, adapter.urlUpgrade));
     }
-    const cap = Math.min(HARD_MAX_URLS, Number(adapter.maxImages) || HARD_MAX_URLS);
-    return IMG.dedupeUrls(urls, cap);
+    // The adapter's own maxImages is a per-marketplace hint (some galleries
+    // repeat the same shot); the account cap is the ceiling. Take the smaller.
+    const cap = Math.min(capForAccount(), Number(adapter.maxImages) || HARD_MAX_URLS);
+    // US-2241: dedupe by CDN ASSET as well as by URL. The same photo served at
+    // two sizes is two different URLs, so plain URL dedupe let one shot occupy
+    // two of the slots the shopper is paying for.
+    return IMG.dedupeUrls(urls, cap, adapter.assetIdPattern);
   }
 
   // `srcset` needs its largest candidate pulled out; plain attrs are read as-is.
@@ -782,12 +796,16 @@
     } catch (_e) { /* never let telemetry break the degrade path */ }
   }
 
-  async function runGrade() {
+  async function runGrade(explicitUrls) {
     if (grading) return;
     const title = extractTitle();
     const brand = extractBrand();
     const condition = extractCondition();
-    const imageUrls = extractImageUrls();
+    // US-2241: an explicitly chosen image (the right-click path) wins over the
+    // adapter's gallery.
+    const imageUrls = Array.isArray(explicitUrls) && explicitUrls.length
+      ? explicitUrls.slice(0, capForAccount())
+      : extractImageUrls();
     if (!imageUrls.length) {
       // AC5 first: the honest degrade is rendered unconditionally and never
       // depends on telemetry succeeding, being consented to, or being reachable.
@@ -814,6 +832,7 @@
     const res = await send({
       type: "GT_CC_GRADE",
       imageUrls,
+      maxImages: capForAccount(),
       title,
       brand,
       condition,
@@ -1021,6 +1040,23 @@
     }
   }
 
+  // US-2241: the keyboard command and the image context menu both land here. The
+  // overlay is the ONLY result surface — routing these through it rather than
+  // grading in the worker means one epoch guard, one place a stale result could
+  // ever appear, and one thing to close.
+  chrome.runtime.onMessage.addListener(function (msg) {
+    if (!msg || msg.type !== "GT_CC_RUN") return;
+    if (!adapter) return; // no adapter matched this page — nothing to grade
+    // A right-clicked image is graded ON ITS OWN. That is the whole point of the
+    // menu: the shopper spotted the photo that matters and the gallery selector
+    // missed it, so substituting the gallery here would ignore what they picked.
+    if (typeof msg.imageUrl === "string" && /^https?:\/\//i.test(msg.imageUrl)) {
+      runGrade([msg.imageUrl]);
+      return;
+    }
+    runGrade();
+  });
+
   // ── boot ─────────────────────────────────────────────────────────────────
   // US-1878 (AC3): boot() awaits the config, the settings and the recall cache, so
   // it is just as navigable-away-from as a grade is. Without the same epoch guard,
@@ -1127,6 +1163,10 @@
     // (AC3) — without this the old listing's score renders over the new one.
     invalidate();
     removeOverlay();
+    // US-2241: the badge describes the listing we just left. Clearing it here
+    // rather than on the next read means a tab that navigates to an ungraded
+    // listing shows no score, instead of the previous one's.
+    send({ type: "GT_CC_CLEAR_BADGE" });
     boot();
   }
 

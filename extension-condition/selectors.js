@@ -26,7 +26,7 @@
 // from telemetry without shipping a new build.
 
 const GT_CC_CONFIG = {
-  version: "2026.07.7",
+  version: "2026.07.8",
   lastVerified: "2026-07-29",
   configUrl: "https://gradethread.com/extension/marketplace-selectors.json",
   adapters: {
@@ -85,6 +85,10 @@ const GT_CC_CONFIG = {
         "[data-testid='x-sellercard-atf'] a[href*='/usr/']",
         "a[href*='/usr/']"
       ],
+      // US-2241: eBay serves one photo at many sizes under the same id path
+      // segment (…/images/g/<ID>/s-l1600.jpg). Capture the id so the thumbnail
+      // and the zoom render of one shot collapse to a single slot.
+      assetIdPattern: "/g/([^/]+)/",
       search: {
         detect: { pathIncludes: ["/sch/", "/b/"] },
         queryParams: ["_nkw"],
@@ -124,6 +128,9 @@ const GT_CC_CONFIG = {
         ".listing__seller a",
         "a[href^='/closet/']"
       ],
+      // The CloudFront filename carries a size prefix (s_/m_/l_) on a stable
+      // hash — capture the hash so two sizes of one photo are one photo.
+      assetIdPattern: "/(?:s|m|t|l)_([a-f0-9]{8,})",
       search: {
         detect: { pathIncludes: ["/search", "/category/", "/brand/", "/closet/", "/feed"] },
         queryParams: ["query", "q"],

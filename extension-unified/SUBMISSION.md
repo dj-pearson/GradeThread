@@ -1,7 +1,7 @@
-# Store submission kit — GradeThread unified extension v0.7.0
+# Store submission kit — GradeThread unified extension v0.8.0
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v0.7.0-chrome.zip` · `dist-ext/gradethread-v0.7.0-firefox.zip`.
+`dist-ext/gradethread-v0.8.0-chrome.zip` · `dist-ext/gradethread-v0.8.0-firefox.zip`.
 
 ## Shared fields
 
@@ -59,6 +59,7 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
   1. Call GradeThread's own API (`functions.gradethread.com`) to grade a listing the user asked us to read, and to fetch that account's entitlements.
   2. **Inject a content script into gradethread.com pages** (`gt-bridge.js`). It is a message relay: the GradeThread web app posts a cross-listing request, the script forwards it to the extension's background, and posts the reply back. It exists because Firefox has no `externally_connectable`, so this is the only cross-browser way for our own site to talk to our own extension. It reads nothing from the page — no page content, no credentials, no cookies — and forwards only our own message envelope.
 - Host `https://*.poshmark.com/*`, `https://*.mercari.com/*`, `https://*.grailed.com/*` — Prefill the seller's own new-listing form during cross-listing, in the tab they are already signed into.
+- `contextMenus` — Adds ONE right-click item on images ("Grade this image with GradeThread"). It is how a shopper grades the specific photo they spotted when the site's gallery layout hid it from us. It reads nothing on its own: the click hands the image's public URL to the extension, which grades it exactly like the on-page button does. No menu appears anywhere else, and nothing is added to the page.
 - **Remote code:** No — all executable code ships inside the package.
 
 **Data usage disclosures** (certify):
@@ -123,9 +124,15 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v0.7.0)
+## Version / release notes (v0.8.0)
 
 ```
+New: shortcuts, a settings page, and deeper reads. Alt+G reads the listing you are
+on; right-click any photo to grade just that one; a Settings page collects every
+option, lists the sites you have switched off with a way to turn them back on, and
+lets you clear anything the extension has stored. Paid plans now read up to eight
+listing photos instead of four.
+
 New: Compare. Pin any listing you have read and line it up against the others you
 are weighing — condition, confidence, price and photo count side by side, sortable.
 Pinning costs nothing: it saves the read you already have, and the whole table lives

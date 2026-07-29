@@ -51,13 +51,36 @@
   // Dedupe URLs preserving order and cap to `limit` (the endpoint accepts at
   // most 4). Marketplaces repeat the same photo across a main view + a
   // filmstrip; after upgrading to full size many collapse to one URL.
-  function dedupeUrls(urls, limit) {
+  // US-2241: `assetIdPattern` (optional, per adapter) is a regex whose FIRST
+  // capture group is the CDN's stable id for a photo. Without it, the same shot
+  // served at two sizes is two different URLs and survives dedupe — so on a
+  // gallery that emits both a thumbnail strip and a main image, one photo could
+  // occupy two of the four slots and the read lost a quarter of its evidence.
+  // Matching on the asset id collapses those. A pattern that doesn't match (or
+  // is absent, or is malformed) falls back to plain URL identity, so a bad
+  // remote pattern can never make photos vanish.
+  function dedupeUrls(urls, limit, assetIdPattern) {
+    let re = null;
+    if (typeof assetIdPattern === "string" && assetIdPattern) {
+      try {
+        re = new RegExp(assetIdPattern, "i");
+      } catch (_e) {
+        re = null; // malformed remote pattern — degrade to URL identity
+      }
+    }
     const out = [];
     const seen = new Set();
     for (const u of urls || []) {
       if (typeof u !== "string" || !u) continue;
-      if (seen.has(u)) continue;
-      seen.add(u);
+      let identity = u;
+      if (re) {
+        try {
+          const m = re.exec(u);
+          if (m && m[1]) identity = "asset:" + m[1];
+        } catch (_e) { /* keep URL identity */ }
+      }
+      if (seen.has(identity)) continue;
+      seen.add(identity);
       out.push(u);
       if (typeof limit === "number" && out.length >= limit) break;
     }

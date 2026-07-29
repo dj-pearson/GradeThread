@@ -25,7 +25,11 @@ import { gradeToConditionId } from "../lib/repricing.ts";
 import { deriveFraudFlags } from "../lib/fraud-flags.ts";
 import { coverageGapForTitle } from "../lib/coverage-gap.ts";
 import { bearerFromHeader, verifyExtensionToken } from "../lib/extension-token.ts";
-import { resolveExtensionGates } from "../lib/extension-gates.ts";
+import {
+  EXTENSION_MAX_IMAGES_ANON,
+  EXTENSION_MAX_IMAGES_PAID,
+  resolveExtensionGates,
+} from "../lib/extension-gates.ts";
 import {
   ANONYMOUS_EXTENSION_ENTITLEMENTS,
   getBuyerEntitlements,
@@ -778,7 +782,16 @@ export function extGradeRateLimited(
  */
 export function parseGradeFromUrlBody(
   body: unknown,
+  maxUrls: number = EXT_GRADE_MAX_URLS,
 ): { ok: true; urls: string[] } | { ok: false; error: string } {
+  // US-2241: the ceiling is now the CALLER's, resolved from their tier before we
+  // get here. It is clamped to the anonymous floor and the paid ceiling so a bad
+  // gate value can neither starve a paying caller nor let anyone buy an
+  // unbounded number of Vision calls with one request.
+  const cap = Math.max(
+    EXTENSION_MAX_IMAGES_ANON,
+    Math.min(EXTENSION_MAX_IMAGES_PAID, Math.floor(Number(maxUrls) || EXT_GRADE_MAX_URLS)),
+  );
   const b = (body ?? {}) as { imageUrl?: unknown; imageUrls?: unknown };
   const raw: unknown[] = Array.isArray(b.imageUrls)
     ? b.imageUrls
@@ -800,7 +813,7 @@ export function parseGradeFromUrlBody(
       return { ok: false, error: "Image URLs must be http(s)." };
     }
     urls.push(trimmed);
-    if (urls.length >= EXT_GRADE_MAX_URLS) break;
+    if (urls.length >= cap) break;
   }
   if (urls.length === 0) {
     return { ok: false, error: "Provide at least one image URL." };
@@ -861,7 +874,21 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
     }
 
     const body = await c.req.json().catch(() => null);
-    const parsed = parseGradeFromUrlBody(body);
+
+    // US-2241: resolve WHO is calling before parsing, because the photo cap is
+    // now theirs. This block used to sit after the grade — it had to move, not
+    // just get copied, or the grade would run on a 4-photo slice and the tier
+    // would be applied to a decision already made.
+    const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
+    let ent = null;
+    if (verified) {
+      try {
+        ent = await getBuyerEntitlements(verified.userId);
+      } catch { /* entitlement hiccup → treat as anonymous (fail-safe) */ }
+    }
+    const gates = resolveExtensionGates(ent);
+
+    const parsed = parseGradeFromUrlBody(body, gates.maxImages);
     if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
     // Optional garment context from the listing (title/brand) sharpens the grade.
@@ -936,19 +963,10 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
     const fairness = priceFairness(parsePriceCents((body as { price?: unknown })?.price), value);
     const fraudFlagsAll = extensionFraudFlagsEnabled() ? deriveFraudFlags(result.imageAuthenticity) : [];
 
-    // US-1838: authenticate the buyer via the signed extension token → resolve
-    // entitlements → gate the paid VALUE signals by tier. FAIL-SAFE: no/invalid
-    // token (anonymous) unlocks only the free basics (grade + coverage advice)
-    // and gets a signup prompt with funnel attribution. The base objective grade
-    // always returns — it's the hook.
-    const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
-    let ent = null;
-    if (verified) {
-      try {
-        ent = await getBuyerEntitlements(verified.userId);
-      } catch { /* entitlement hiccup → treat as anonymous (fail-safe) */ }
-    }
-    const gates = resolveExtensionGates(ent);
+    // US-1838: the tier gates resolved above decide which paid VALUE signals this
+    // caller sees. FAIL-SAFE: no/invalid token (anonymous) unlocks only the free
+    // basics (grade + coverage advice) and gets a signup prompt with funnel
+    // attribution. The base objective grade always returns — it's the hook.
     const signupPrompt = gates.tier === "anonymous"
       ? {
         message: "Sign in to GradeThread to unlock over-grade, price-fairness & fraud signals.",
@@ -965,6 +983,9 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         factorScores: result.factorScores,
         imagesAnalyzed: result.imagesAnalyzed,
         tier: gates.tier,
+        // US-2241: the extension reads its ceiling from here rather than
+        // hardcoding one, so a tier change takes effect without a store update.
+        maxImages: gates.maxImages,
         discrepancy: gates.discrepancy ? discrepancy : null,
         value: gates.priceFairness ? value : null,
         priceFairness: gates.priceFairness ? fairness : null,

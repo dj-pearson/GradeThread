@@ -6,6 +6,14 @@ extensions into a single MV3 extension:
 - **Condition Check (buyer research)** — from `extension-condition/` (US-1755/1756).
   An independent AI condition read on eBay / Poshmark / Grailed / Mercari / Depop /
   Vinted listing pages. **Always on** — anonymous-capable, quota-capped.
+- **Depth (US-2241)** — the photo cap is now the ACCOUNT's (4 anonymous, 8 paid),
+  mirrored in `registry.js` from `lib/extension-gates.ts` so the gallery is
+  extracted at the right depth before the request goes out; the server trims to
+  the real cap regardless. Gallery dedupe now collapses one photo served at two
+  sizes via a per-adapter `assetIdPattern`. Plus the doors that weren't there:
+  **Alt+G**, a right-click **"Grade this image"** (the case the gallery selector
+  missed), an **options page** carrying every setting and the undo for per-site
+  opt-outs, and a **per-tab toolbar badge** cleared on navigation.
 - **Compare tray (US-2240)** — nobody buys ONE listing; they choose between six
   of the same jacket at six prices, and every read used to be discarded on the
   way to the next candidate. Pinning stores the payload the endpoint already
