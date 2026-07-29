@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2247",
+  "nextId": "US-2263",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5613,6 +5613,207 @@
         "Migration follows the US-1108 triple and PENDING_MIGRATIONS.md is updated; unit tests cover the upsert increment, the precedence rule, and the confidence cap."
       ],
       "notes": "Done 2026-07-29. Migration 00503: style_code_observations (aggregate: brand + code + public listing title/URL only, no owner, no seller/buyer, no price) + record_style_code_observation() upsert RPC. New lib/style-code-observations.ts: normalizeStyleCode, learnedConfidence capped at LEARNED_CONFIDENCE_CAP=0.55, pickLearnedStyle (a TIE yields nothing - two attested titles for one code is not an answer), styleNameFromTitle (strips brand/code/listing chatter, keeps model numbers, refuses a one-word remnant), lookupLearnedStyle. identification-verify.ts _browse now returns {title,url} and the CODE query's hits are recorded (source market_verify, max 3 titles per call). ai-extract applyLearnedStyle: never overrides a decoder style, and loses to any equal-or-more-confident existing suggestion. 18 new tests."
+    },
+    {
+      "id": "US-2247",
+      "passes": false,
+      "title": "Composer: grade badge + slab image mode have no control anywhere in the app",
+      "description": "As a seller with a graded item, I want to choose whether the grade badge appears on my hero photo, so that the composer's own instruction to 'enable the grade badge below' points at a real control instead of nothing.",
+      "acceptanceCriteria": [
+        "listings.badge_enabled and listings.slab_image_mode are read by publish (services/edge-functions/src/routes/flipdesk-ebay.ts:9596) but no file under src/ writes either column — a grep for badge_enabled in src/ excluding src/types/database.ts returns zero hits before this story and at least one composer control after it.",
+        "src/pages/flipdesk/composer.tsx renders a badge toggle (and slab-image-mode select when badge_enabled is true) inside the Photos card, and saveDraft's ListingInsert payload includes badge_enabled and slab_image_mode.",
+        "saveLiveListing (composer.tsx) also persists badge_enabled/slab_image_mode so a live listing can change them.",
+        "The grade banner copy at composer.tsx:1796-1806 ('Enable the grade badge below…') and the Photos-card copy at composer.tsx:2855-2867 ('We never add badges, watermarks, or QR codes to your photos') no longer contradict each other: whichever behaviour is real is stated once."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-2248",
+      "passes": false,
+      "title": "Composer: saveLiveListing silently drops 7 fields the form still shows",
+      "description": "As a seller editing a listing that is live on eBay, I want every field the composer shows me to actually save, so that changing the promote rate, Best Offer limits, format, primary photo or schedule on a live listing isn't discarded without a word.",
+      "acceptanceCriteria": [
+        "saveLiveListing (src/pages/flipdesk/composer.tsx:1404) writes the same listing columns saveDraft does for the fields whose inputs stay enabled in editorMode==='live': promote_override, promo_opt_out, promo_mode, promo_rate_pct, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, primary_photo_id, scheduled_publish_at, and the buildFormatPayload() columns.",
+        "A vitest case mounts the composer on a live listing (listing_status='active' with a platform_offer_id), changes the promote rate and Best Offer accept threshold, clicks 'Save without pushing', and asserts the listings update payload contains promo_rate_pct and best_offer_auto_accept_cents.",
+        "Any field that genuinely cannot change while live is disabled with a title explaining why, rather than being accepted and dropped."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-2249",
+      "passes": false,
+      "title": "Composer: 'Save storage' is a second save that the main Save does not include",
+      "description": "As a seller, I want one Save button to save everything in the composer, so that typing a SKU and then clicking 'Save draft' doesn't throw the SKU away.",
+      "acceptanceCriteria": [
+        "saveDraft and saveLiveListing (src/pages/flipdesk/composer.tsx) include sku, location_bin and container in their inventory_items patch, so the main Save persists the Storage & SKU card.",
+        "The duplicate-SKU merge path (23505 on idx_inventory_items_user_sku → MergeSkuDialog) fires from the main Save too, not only from the standalone saveStorage — a draft save that collides on SKU offers the merge instead of failing with a raw toast.",
+        "The separate 'Save storage' button is either removed or its disabled/enabled state makes clear it is redundant; the card no longer needs its own save to avoid data loss.",
+        "A vitest case edits the SKU field, clicks the primary Save, and asserts the inventory_items update payload contains the new sku."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-2250",
+      "passes": false,
+      "title": "Composer has no quantity field, so multi-quantity listings are impossible",
+      "description": "As a seller with more than one of the same item, I want to set the listing quantity in the composer, so that I can list 5 identical tees as one multi-quantity listing instead of 5 separate items.",
+      "acceptanceCriteria": [
+        "listings.quantity (src/types/database.ts:1128) is read by publish (flipdesk-ebay.ts:9596) and set today only by src/pages/flipdesk/autolister-bulk-edit.tsx; src/pages/flipdesk/composer.tsx adds a quantity input and includes quantity in both saveDraft and saveLiveListing payloads.",
+        "The quantity input is hidden or forced to the variation total when listingFormat.format==='auction' (auctions are single-quantity) or when listingFormat.variations is non-empty (per-variant quantities own the total).",
+        "Quantity below 1 is rejected client-side with an inline message; the field defaults to the saved listing quantity, else 1.",
+        "The listing preview (src/components/flipdesk/ebay-view-item-preview.tsx) shows the quantity when it is greater than 1."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-2251",
+      "passes": false,
+      "title": "Composer cannot pick shipping / payment / return policies (bulk edit can)",
+      "description": "As a seller, I want to choose which eBay business policies this listing uses from the composer, so that a single item gets the right shipping and returns without me going through bulk edit or eBay Seller Hub.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/composer.tsx renders shipping / payment / return policy selects fed by useEbayPolicies (already imported for the preview at composer.tsx:410), matching the pickers in src/components/flipdesk/bulk-edit-dialog.tsx:168-215.",
+        "saveDraft and saveLiveListing write listings.shipping_policy_id, payment_policy_id and return_policy_id, which publish already consumes (flipdesk-ebay.ts:10121 falls back to the account default when null).",
+        "Each select offers a 'Use account default' option that persists NULL, so a listing can be reverted to the default.",
+        "The preview's shippingPolicyName / returnPolicyName (composer.tsx:1652-1659) resolve from the listing's own chosen policy id first, then the account default — so the preview matches what will publish."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-2252",
+      "passes": false,
+      "title": "Composer card order does not follow the listing workflow",
+      "description": "As a seller building a listing, I want the composer's cards ordered the way the work actually happens, so that I am not asked to fill eBay specifics before I have entered measurements or asked for a bin number before I have written a title.",
+      "acceptanceCriteria": [
+        "In src/pages/flipdesk/composer.tsx the editor column is reordered so photo/measure/grade inputs precede the fields that consume them: Photos and Measurements come before the eBay category + item specifics card (the picker syncs measurement aspects via its measurements/onMeasurementsChange props at composer.tsx:2190), and Grade this item comes before Condition & price (grade drives mapEbayCondition and the description grade line).",
+        "Storage & SKU and Item details move out of first position — the composer opens on Photos or Title, not on bin numbers.",
+        "The 'Push to' marketplace picker sits adjacent to the footer publish actions it gates (composer.tsx:3201-3227), not four cards above them.",
+        "COMPOSER_FOCUS_ANCHORS (src/lib/publish-blockers.ts:80) still resolves every key to an element that exists after the reorder, and the ?focus= deep-link effect (composer.tsx:435) is covered by a test asserting each anchor id is present in the rendered composer.",
+        "ListingKit (composer.tsx:3232) renders above the footer action row rather than below it — no editable content sits after the Save/Publish buttons."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-2253",
+      "passes": false,
+      "title": "Composer 'Schedule publish' is buried inside the Condition & price card",
+      "description": "As a seller, I want the publish schedule next to the publish button, so that I can see and set the drop time where I am deciding to publish rather than hidden under pricing.",
+      "acceptanceCriteria": [
+        "The Schedule publish input, timezone select and DROP_PRESETS buttons (src/pages/flipdesk/composer.tsx:2509-2586) move out of the Condition & price card into their own card or the footer publish area.",
+        "The scheduled time is restated next to the publish button, so the CTA reads as scheduling rather than immediate publish when scheduledAt is set.",
+        "The publish button label changes to reflect a scheduled drop (e.g. 'Save & schedule for <time>') when scheduledAt is non-empty."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-2254",
+      "passes": false,
+      "title": "Condition & price card mixes five concerns in one form group",
+      "description": "As a seller, I want pricing, cost basis, margin analysis and Best Offer to be visually separate, so that the card is scannable and the Best Offer block is not nested inside the purchase-price field's label group.",
+      "acceptanceCriteria": [
+        "In src/pages/flipdesk/composer.tsx the Best Offer block (2443-2507), profit estimate (2376-2408), sell-through forecast (2410-2432) and ConditionIndexValueHint (2434-2439) are no longer children of the purchase-price div opened at composer.tsx:2357 — each is a sibling with its own container.",
+        "Purchase price / cost basis moves to the Item details card (it is an inventory_items column, not a listing field) or into a clearly labelled cost-and-margin section.",
+        "npx impeccable detect src/pages/flipdesk/composer.tsx reports no new violations versus the pre-change baseline."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-2255",
+      "passes": false,
+      "title": "Listing preview shows 6 hardcoded specifics, not the specifics that will publish",
+      "description": "As a seller who filled 15 eBay item specifics, I want the preview to show them, so that the preview is an honest picture of the listing instead of a fixed Brand/Style/Size/Category/Condition/Grade table.",
+      "acceptanceCriteria": [
+        "The specifics memo in src/pages/flipdesk/composer.tsx:766-807 renders every filled aspect from the resolved aspect map (livePickedAspects ?? item_specifics_override ?? ebay_aspects) rather than only the six hardcoded labels.",
+        "Aspect rows appear in eBay's own order for the category where available, with required aspects first; the list collapses behind a 'show all' control past a reasonable row count.",
+        "The GradeThread Grade row is still appended when item.grade_value is non-null.",
+        "A vitest case sets three non-hardcoded aspects (e.g. Sleeve Length, Pattern, Closure) and asserts all three render in EbayViewItemPreview."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-2256",
+      "passes": false,
+      "title": "Composer has no unsaved-changes guard — Close discards everything",
+      "description": "As a seller who has edited thirteen cards of a listing, I want to be warned before I lose the work, so that one stray click on Close or the browser back button doesn't discard the whole draft.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/composer.tsx tracks a dirty flag against the seeded values and the Close button (composer.tsx:3142) prompts for confirmation when dirty.",
+        "The same guard covers navigation away via React Router (a useBeforeUnload / blocker) and covers closing src/components/flipdesk/item-detail-dialog.tsx while the embedded composer is dirty.",
+        "The guard does not fire after a successful save, and does not fire on a pristine composer."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-2257",
+      "passes": false,
+      "title": "Composer publishes with no client-side price or condition gate",
+      "description": "As a seller, I want the composer to stop me before a publish that eBay will certainly reject, so that I am not sent to eBay's error message to learn my price is zero or my condition isn't allowed in the category.",
+      "acceptanceCriteria": [
+        "handlePublishClick (src/pages/flipdesk/composer.tsx:1500) refuses to dispatch when the resolved price is 0 or negative, with an inline message on the price field rather than a server round-trip.",
+        "Publish is blocked (not merely warned) when conditionRejected is true (composer.tsx:724) — the chosen eBay condition is outside the category's allowed set.",
+        "The missingRequired notice (composer.tsx:3087) gets a link/button that scrolls to #composer-category, since the copy says 'in the specifics editor above' from the very bottom of a 3200-line page.",
+        "ebay_condition_description enforces eBay's 1000-character cap with maxLength and a visible counter on the textarea at composer.tsx:2286."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-2258",
+      "passes": false,
+      "title": "eBay-originated listings: locked fields still offer AI rewrite and stale-mismatch warnings",
+      "description": "As a seller viewing an eBay-created mirror listing, I want the composer to hide actions it cannot apply, so that I don't run an AI rewrite on a title the server will refuse to save.",
+      "acceptanceCriteria": [
+        "When isEbayOrigin is true (src/pages/flipdesk/composer.tsx:906) the title and description 'AI rewrite' dropdowns, 'Suggest title', 'Apply template' and the title keyword chips are disabled with a title explaining eBay owns the field.",
+        "Fields the server also rejects on an eBay-origin mirror are disabled consistently — audit ebay_condition, ebay_condition_description, platform_category_id, item_specifics_override, format, promote and Best Offer against the edge's actual accept list and disable or allow each deliberately, documented in a comment.",
+        "A vitest case renders the composer with listing_origin='ebay' and asserts the rewrite trigger is disabled."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2259",
+      "passes": false,
+      "title": "Catalog match and category check are stranded on the retired ItemCanvas",
+      "description": "As a seller, I want the eBay catalog match and category-check checks in the composer, so that features built for listing quality aren't only reachable from a surface the composer's own comments call retired.",
+      "acceptanceCriteria": [
+        "src/components/flipdesk/ebay-catalog-match-card.tsx and src/components/flipdesk/category-check-card.tsx are rendered by src/pages/flipdesk/composer.tsx — today their only mount is src/components/flipdesk/item-canvas.tsx:1873 and :1878, and no route or page imports ItemCanvas.",
+        "CategoryCheckCard mounts only when item.listing_id exists (it takes a listingId); EbayCatalogMatchCard mounts on the item id.",
+        "Either ItemCanvas is deleted, or a comment at its top states what still depends on it — a 1900-line unmounted component is not left ambiguous."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2260",
+      "passes": false,
+      "title": "Composer: item status select can set 'sold' with no sale record",
+      "description": "As a seller, I want the composer's status field to stop me from marking an item sold without recording the sale, so that Sold totals and reconciliation don't silently disagree with inventory.",
+      "acceptanceCriteria": [
+        "The Item details status select (src/pages/flipdesk/composer.tsx:1894-1908) either excludes the terminal sale statuses (sold, shipped, completed, returned) or routes a pick of 'sold' into the existing mark-sold flow (src/components/flipdesk/mark-listed-dialog.tsx / the sales record path) instead of writing inventory_items.status directly.",
+        "resolveStatus (src/lib/workflow.ts) behaviour for deliberate non-prep picks is unchanged for the statuses that remain selectable.",
+        "A vitest case asserts picking a terminal status in the composer does not produce a bare inventory_items status update."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2261",
+      "passes": false,
+      "title": "Composer: resolvedCategoryId is derived in five places and title quality recomputes every render",
+      "description": "As a developer maintaining the composer, I want the resolved category and the title meter computed once, so that a change to the resolution order cannot leave one of five copies behind.",
+      "acceptanceCriteria": [
+        "The livePickedCategoryId ?? listing.platform_category_id ?? ebayMapping.ebay_category_id cascade appears exactly once in src/pages/flipdesk/composer.tsx as a memo — today it is duplicated at :693, inside resolveListingFields (:973), inside the specDescMismatches memo (:932), in the EbayCompsPanel props (:2214) and in the EbayCategoryPicker initialCategoryId (:2173).",
+        "titleQuality/titleChips (composer.tsx:1590-1616) are wrapped in useMemo keyed on title, brand, demand_terms and the resolved aspects.",
+        "effectiveCost is declared before saveDraft and saveLiveListing reference it (today it is declared at composer.tsx:1627, after the closures that read it at :1191 and :1447).",
+        "npm run verify:web passes and the composer's existing tests are unchanged in intent."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2262",
+      "passes": false,
+      "title": "Composer: eBay condition uses a raw native select while the rest of the form uses shadcn Select",
+      "description": "As a seller, I want the condition dropdown to look and behave like every other dropdown in the composer, so that the most consequential field in the form isn't the one styled differently.",
+      "acceptanceCriteria": [
+        "The native select at src/pages/flipdesk/composer.tsx:2250-2262 becomes a shadcn Select, keeping id='ebay-condition' so COMPOSER_FOCUS_ANCHORS.condition still resolves.",
+        "The 'not accepted by this category' marker option (composer.tsx:714-719) still renders and stays selectable so an out-of-set value is never silently dropped.",
+        "Keyboard and screen-reader behaviour is verified: the trigger is labelled by the Label, and the focus deep-link still focuses it."
+      ],
+      "priority": 4
     }
   ]
 }
