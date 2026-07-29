@@ -49,7 +49,11 @@ export function useKeyboardShortcuts(
     if (!enabled) return;
 
     function onKey(e: KeyboardEvent) {
+      // Some events (autofill / datalist commits / IME) dispatch a keydown with
+      // no `key`; calling .toLowerCase() on it throws and blows up the handler.
+      if (!e.key) return;
       for (const shortcut of shortcutsRef.current) {
+        if (!shortcut.key) continue;
         if (e.key.toLowerCase() !== shortcut.key.toLowerCase()) continue;
 
         const hasMod = e.metaKey || e.ctrlKey;

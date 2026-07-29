@@ -1113,7 +1113,19 @@ function AspectField({
             setDraft(e.target.value);
             onChange(e.target.value);
           }}
-          onBlur={() => setDraft(null)}
+          onBlur={(e) => {
+            // Picking a <datalist> suggestion by mouse fires only a `change`
+            // event, never an `input` one — and a controlled input's React
+            // onChange listens to `input` alone. So a mouse-picked value never
+            // reaches state, and the next render reverts the field to the typed
+            // prefix ("leat" instead of the chosen "Leather"). Commit whatever
+            // the DOM actually holds on blur before dropping the draft, so a
+            // datalist selection sticks. A no-op for plain typing (the value is
+            // already committed via onChange).
+            const committed = e.currentTarget.value;
+            if (committed !== (value[0] ?? "")) onChange(committed);
+            setDraft(null);
+          }}
           className="h-8 text-xs"
           list={allowedValues.length > 0 ? `${fieldId}-options` : undefined}
         />

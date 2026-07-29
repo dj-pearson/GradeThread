@@ -2165,6 +2165,12 @@ function AttributeField({
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        // A datalist option picked by mouse fires only `change`, which a
+        // controlled input's onChange (input-event only) misses — the pick
+        // would revert on re-render. Commit the DOM value on blur.
+        onBlur={(e) => {
+          if (e.currentTarget.value !== value) onChange(e.currentTarget.value);
+        }}
         list={listId}
         placeholder={placeholder}
       />

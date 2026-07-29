@@ -689,6 +689,13 @@ function TaskDetailDialog({
                 list="td-section-options"
                 value={section}
                 onChange={(e) => setSection(e.target.value)}
+                // A datalist option picked by mouse fires only `change`, which a
+                // controlled input's onChange (input-event only) misses — the
+                // pick would revert on re-render. Commit the DOM value on blur.
+                onBlur={(e) => {
+                  if (e.currentTarget.value !== section)
+                    setSection(e.currentTarget.value);
+                }}
                 placeholder="e.g. Phase 1"
               />
               <datalist id="td-section-options">
@@ -918,6 +925,11 @@ function AddTaskDialog({
                 list="at-section-options"
                 value={section}
                 onChange={(e) => setSection(e.target.value)}
+                // Commit a mouse-picked datalist value on blur — see td-section.
+                onBlur={(e) => {
+                  if (e.currentTarget.value !== section)
+                    setSection(e.currentTarget.value);
+                }}
                 placeholder="Optional"
               />
               <datalist id="at-section-options">
