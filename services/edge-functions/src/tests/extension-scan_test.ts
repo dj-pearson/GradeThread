@@ -4,20 +4,26 @@
 // that true: body parsing/capping, the condition bucketing that collapses 24
 // cards into a handful of comp lookups, and the per-card verdict assembly.
 //
-// Prime env then dynamic-import (the route pulls in supabase.ts via quick-grade).
-import { assert, assertEquals } from "@std/assert";
+// Imports lib/extension-scan.ts, NOT the route. That is deliberate: the route
+// pulls in hono, supabase and the eBay client, none of which this logic needs —
+// and requiring them meant these assertions could only ever run in CI. Asserting
+// with node:assert (a Deno builtin) rather than @std/assert keeps the whole file
+// resolvable with no network at all, so the decision math is checkable anywhere.
+//
+// The rate limiter stays in the route (it owns per-instance state) and is covered
+// by grade-check_test.ts alongside the grading window it mirrors.
+import assert from "node:assert/strict";
 
-Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
-Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-key");
-Deno.env.set("ANTHROPIC_API_KEY", Deno.env.get("ANTHROPIC_API_KEY") ?? "test-key");
-
-const {
-  parseScanBody,
+import {
   bucketScanCards,
-  scanCardResults,
-  scanRateLimited,
+  parseScanBody,
   SCAN_DISCLAIMER,
-} = await import("../routes/public-grading.ts");
+  type ScanCompStats,
+  scanCardResults,
+} from "../lib/extension-scan.ts";
+import { valueRangeFromStats } from "../lib/condition-value-math.ts";
+
+const assertEquals = (a: unknown, b: unknown, msg?: string) => assert.deepEqual(a, b, msg);
 
 function card(over: Record<string, unknown> = {}) {
   return {
@@ -103,7 +109,26 @@ Deno.test("bucketScanCards: unreadable conditions bucket as Used, not dropped", 
 });
 
 // A comp distribution wide enough to clear MIN_VALUE_COMPS, in dollars.
-const STATS = { count: 12, currency: "USD", min: 30, p25: 45, median: 60, p75: 85, max: 140 };
+const STATS: ScanCompStats = {
+  count: 12,
+  currency: "USD",
+  min: 30,
+  p25: 45,
+  median: 60,
+  p75: 85,
+  max: 140,
+};
+
+// The REAL band builder the route injects. Using the production function here —
+// rather than a stub — is the point: the seam exists to drop the eBay client, not
+// to replace the pricing maths with something that always agrees with the test.
+const buildBand = (stats: ScanCompStats, grade: number | null) => {
+  const range = valueRangeFromStats(stats, grade, stats.currency);
+  if (!range.sufficient || range.lowCents == null || range.medianCents == null || range.highCents == null) {
+    return null;
+  }
+  return { lowCents: range.lowCents, medianCents: range.medianCents, highCents: range.highCents };
+};
 
 Deno.test("scanCardResults: prices each card against its bucket's comp stats", () => {
   const parsed = parseScanBody({
@@ -115,7 +140,7 @@ Deno.test("scanCardResults: prices each card against its bucket's comp stats", (
   });
   assert(parsed.ok);
   const stats = new Map(parsed.cards.map((c) => [c.key, STATS]));
-  const out = scanCardResults(parsed.cards, "ebay", stats);
+  const out = scanCardResults(parsed.cards, "ebay", stats, buildBand);
   assertEquals(out.map((r) => r.fairness), ["low", "fair", "high"]);
   assertEquals(out[0].priceCents, 2000);
 });
@@ -132,7 +157,7 @@ Deno.test("scanCardResults: one comp fetch, different bands per claimed conditio
   });
   assert(parsed.ok);
   const stats = new Map(parsed.cards.map((c) => [c.key, STATS]));
-  const out = scanCardResults(parsed.cards, "ebay", stats);
+  const out = scanCardResults(parsed.cards, "ebay", stats, buildBand);
   assert(out[0].claimedGrade !== out[1].claimedGrade);
   assert(
     out[0].deltaPct !== out[1].deltaPct,
@@ -143,7 +168,7 @@ Deno.test("scanCardResults: one comp fetch, different bands per claimed conditio
 Deno.test("scanCardResults: no stats → 'unknown', never a fabricated verdict", () => {
   const parsed = parseScanBody({ cards: [card()] });
   assert(parsed.ok);
-  const out = scanCardResults(parsed.cards, "ebay", new Map());
+  const out = scanCardResults(parsed.cards, "ebay", new Map(), buildBand);
   assertEquals(out[0].fairness, "unknown");
   assertEquals(out[0].deltaPct, null);
   // The claimed-condition read still lands — it needs no comps at all.
@@ -153,8 +178,8 @@ Deno.test("scanCardResults: no stats → 'unknown', never a fabricated verdict",
 Deno.test("scanCardResults: too-thin comps stay 'unknown' rather than pricing", () => {
   const parsed = parseScanBody({ cards: [card({ priceText: "$60.00" })] });
   assert(parsed.ok);
-  const thin = { count: 1, currency: "USD", min: 60, p25: 60, median: 60, p75: 60, max: 60 };
-  const out = scanCardResults(parsed.cards, "ebay", new Map([[parsed.cards[0].key, thin]]));
+  const thin: ScanCompStats = { count: 1, currency: "USD", min: 60, p25: 60, median: 60, p75: 60, max: 60 };
+  const out = scanCardResults(parsed.cards, "ebay", new Map([[parsed.cards[0].key, thin]]), buildBand);
   assertEquals(out[0].fairness, "unknown");
 });
 
@@ -166,7 +191,7 @@ Deno.test("scanCardResults: claimedGrade is the SELLER's claim, not our read", (
     })],
   });
   assert(parsed.ok);
-  const out = scanCardResults(parsed.cards, "ebay", new Map());
+  const out = scanCardResults(parsed.cards, "ebay", new Map(), buildBand);
   assertEquals(out[0].claimedGrade, 10);
   assertEquals(out[1].claimedGrade, 4.5);
   // No graded-read fields may appear on a scan card — a number a shopper could
@@ -187,31 +212,8 @@ Deno.test("scanCardResults: thinPhotos flags only a card that printed a low coun
     ],
   });
   assert(parsed.ok);
-  const out = scanCardResults(parsed.cards, "ebay", new Map());
+  const out = scanCardResults(parsed.cards, "ebay", new Map(), buildBand);
   assertEquals(out.map((r) => r.thinPhotos), [true, false, false]);
-});
-
-Deno.test("scanRateLimited: its own window, 60/hr per IP", () => {
-  const ip = "203.0.113.77";
-  const t = Date.now();
-  for (let i = 0; i < 60; i++) {
-    assertEquals(scanRateLimited(ip, null, t + i).limited, false, `call ${i + 1}`);
-  }
-  const over = scanRateLimited(ip, null, t + 60);
-  assertEquals(over.limited, true);
-  assertEquals(over.scope, "ip");
-});
-
-Deno.test("scanRateLimited: caps per extension instance independent of IP", () => {
-  const inst = "scan-instance-1";
-  const t = Date.now();
-  for (let i = 0; i < 120; i++) {
-    const r = scanRateLimited(`198.51.100.${i % 200}`, inst, t + i);
-    assertEquals(r.limited, false, `call ${i + 1}`);
-  }
-  const over = scanRateLimited("198.51.100.250", inst, t + 120);
-  assertEquals(over.limited, true);
-  assertEquals(over.scope, "instance");
 });
 
 Deno.test("SCAN_DISCLAIMER says plainly that no photos were analysed", () => {

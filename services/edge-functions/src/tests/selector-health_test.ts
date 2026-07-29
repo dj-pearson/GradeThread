@@ -126,3 +126,38 @@ Deno.test("selector-health: rejects junk bodies without throwing", () => {
     ["gallery"],
   );
 });
+
+// ── US-2237 / US-2239: the newer, quieter surfaces ──────────────────────────
+//
+// A broken search grid and an unresolvable seller both fail SILENTLY by design —
+// the shopper never asked for a scan, and a missing seller line is
+// indistinguishable from "you haven't read this seller twice". Neither would ever
+// be user-reported, so the closed vocabulary has to carry them or the pings the
+// content script sends are dropped on the floor and the feature looks fine while
+// it is dead.
+Deno.test("selector-health: accepts the scan + seller signals", () => {
+  assertEquals(
+    parseSelectorHealth({ adapter: "vinted", emptySelectors: ["search-cards"] })?.emptySelectors,
+    ["search-cards"],
+  );
+  assertEquals(
+    parseSelectorHealth({ adapter: "grailed", emptySelectors: ["seller"] })?.emptySelectors,
+    ["seller"],
+  );
+});
+
+Deno.test("selector-health: the vocabulary is still CLOSED", () => {
+  // The point of the allowlist is that an unknown name carries no signal and
+  // could smuggle free text into an unauthenticated write. Adding two names must
+  // not have turned it into a passthrough.
+  assertEquals(parseSelectorHealth({ adapter: "ebay", emptySelectors: ["whatever"] }), null);
+  assertEquals(
+    parseSelectorHealth({ adapter: "ebay", emptySelectors: ["https://evil.test/?u=1"] }),
+    null,
+  );
+  // A known name alongside an unknown one keeps only the known one.
+  assertEquals(
+    parseSelectorHealth({ adapter: "ebay", emptySelectors: ["seller", "made-up"] })?.emptySelectors,
+    ["seller"],
+  );
+});

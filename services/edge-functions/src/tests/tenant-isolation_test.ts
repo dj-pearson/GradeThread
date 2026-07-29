@@ -3176,12 +3176,46 @@ Deno.test({
   },
 });
 
-// NOT asserted here, deliberately: that a VIEWER member cannot appraise. No role
-// gate exists on /api/flipdesk/scout/* at all today, so a viewer can already burn
-// the owner's AI quota through /appraise, /prospect and the ScoutAI scan. That is
-// a real gap and a pre-existing one across the whole mount — writing the case for
-// appraise-url alone would either fail on a correct fixture or pretend the mount
-// were fixed. Tracked as its own story rather than smuggled in here.
+Deno.test({
+  // A viewer is read-only. Appraising reserves an AI action off the OWNER's
+  // monthly cap, which is spend.
+  //
+  // The gate is NOT in flipdesk-scout.ts: it is blockViewerWrites (US-1928),
+  // mounted once on /api/flipdesk/* after workspaceMiddleware, which refuses
+  // every mutating verb for a viewer across the whole surface. That is exactly
+  // why a case here matters — a route inheriting a baseline it never mentions is
+  // the kind of protection that quietly disappears when the mount is
+  // reorganised, and nothing else in this file would notice.
+  name: "US-2238: viewer cannot spend the owner's AI quota on an appraisal",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/appraise-url`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: APPRAISE_URL_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/appraise-url as viewer");
+  },
+});
+
+Deno.test({
+  // The same baseline, on the routes that already existed. Pinned alongside the
+  // new one so a regression shows up as three failures rather than one.
+  name: "US-1928: viewer cannot spend the owner's AI quota via scout /appraise or /prospect",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    for (const path of ["/api/flipdesk/scout/appraise", "/api/flipdesk/scout/prospect"]) {
+      const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: viewerHeaders(),
+        body: JSON.stringify({ q: "patagonia", image: "x" }),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `POST ${path} as viewer`);
+    }
+  },
+});
 
 Deno.test({
   // Unauthenticated must never reach the grader: the route sits behind

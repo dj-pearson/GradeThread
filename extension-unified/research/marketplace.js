@@ -64,6 +64,10 @@
   // the rest of the module state because removeOverlay() and invalidate() both
   // clear it, and both run before the flip section further down the file.
   let flipHost = null;
+  // US-2241: one selector-miss report per page for the seller lookup, reset by
+  // invalidate(). Declared with the rest of the module state because invalidate()
+  // clears it and runs long before the reporting section further down.
+  let sellerMissReported = false;
   let escHandler = null; // US-1884 (AC3): active Esc-to-dismiss listener, if any.
 
   // US-1878 (AC3): the GENERATION token.
@@ -99,6 +103,8 @@
     // adapter's card selectors against the NEW page — badging whatever happens
     // to match.
     onSearchPage = false;
+    // A new page gets a fresh chance to report its own selector miss.
+    sellerMissReported = false;
   }
 
   async function send(msg) {
@@ -780,20 +786,36 @@
   // `title`/`brand` are passed in only to test them for emptiness, and their
   // VALUES never leave this function. The background drops it entirely unless
   // the shopper opted in.
-  function reportSelectorMiss(title, brand) {
+  function reportMiss(emptySelectors) {
     try {
-      const empty = [];
-      // The gallery is the failure that matters — split by which half broke.
-      empty.push(lastGalleryMatched ? "gallery-no-urls" : "gallery");
-      if (!title) empty.push("title");
-      if (!brand) empty.push("brand");
       send({
         type: "GT_CC_SELECTOR_MISS",
         adapter: (adapter && adapter.key) || "",
-        emptySelectors: empty,
+        emptySelectors: emptySelectors,
         configVersion: (CFG && CFG.version) || null,
       });
     } catch (_e) { /* never let telemetry break the degrade path */ }
+  }
+
+  function reportSelectorMiss(title, brand) {
+    const empty = [];
+    // The gallery is the failure that matters — split by which half broke.
+    empty.push(lastGalleryMatched ? "gallery-no-urls" : "gallery");
+    if (!title) empty.push("title");
+    if (!brand) empty.push("brand");
+    reportMiss(empty);
+  }
+
+  // US-2239: the seller selectors are unverified too, and their failure is even
+  // quieter than the gallery's — a missing seller just means the history line
+  // never appears, which is indistinguishable from "you haven't read this seller
+  // twice". Reported ONLY when the page was otherwise readable (a gallery miss
+  // already says the whole adapter is broken) and only once per page, so a
+  // re-read doesn't double-count one broken selector.
+  function reportSellerMiss() {
+    if (sellerMissReported) return;
+    sellerMissReported = true;
+    reportMiss(["seller"]);
   }
 
   async function runGrade(explicitUrls) {
@@ -854,6 +876,9 @@
       return;
     }
     if (res.ok && res.data) {
+      // The page WAS readable (we just graded it), so an unresolvable seller is a
+      // selector problem rather than a broken adapter.
+      if (!gradedSeller) reportSellerMiss();
       renderResult(res.data);
       send({
         type: "GT_CC_SAVE_READ",
@@ -930,8 +955,14 @@
   // adapter's card selector matches nothing — the honest degrade: a marketplace
   // that changed its grid markup shows today's behaviour (no badges), never a
   // row of empty pills.
+  // US-2237/US-2241: did ANY card selector match on the last collect? [] alone is
+  // ambiguous — it also means "every card is already badged", which is the normal
+  // steady state of the re-scan tick. Only the first meaning is a broken adapter.
+  let lastCardSelectorMatched = false;
+
   function collectCards(cfgSearch) {
     let nodes = [];
+    lastCardSelectorMatched = false;
     for (const sel of cfgSearch.card || []) {
       let found;
       try {
@@ -941,6 +972,7 @@
       }
       if (found && found.length) {
         nodes = Array.from(found);
+        lastCardSelectorMatched = true;
         break;
       }
     }
@@ -999,7 +1031,18 @@
     const cfgSearch = adapter && adapter.search;
     if (!cfgSearch) return;
     const cards = collectCards(cfgSearch);
-    if (!cards.length) return; // unreadable grid — degrade to nothing
+    if (!cards.length) {
+      // The honest degrade stays silent to the shopper — they never asked for a
+      // scan, so an error banner over their search page would be pure noise. But
+      // "silent to the user" must not mean "invisible to us": the search
+      // selectors ship UNVERIFIED against six live DOMs, so a marketplace that
+      // changed its grid markup has to show up as a counter rather than waiting
+      // for somebody to notice the badges stopped appearing. Same opt-in channel
+      // and the same fire-and-forget posture as the gallery miss (US-1880 AC3);
+      // the background drops it entirely without consent.
+      if (!lastCardSelectorMatched) reportMiss(["search-cards"]);
+      return;
+    }
 
     scanning = true;
     // Same generation guard as a grade: a scan is a round trip and the shopper

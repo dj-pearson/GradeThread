@@ -36,15 +36,24 @@ const IMG = loadIntoSelf("research/image-utils.js").GT_CC_IMG;
 assert.strictEqual(REG.MAX_IMAGES_ANON, 4);
 assert.strictEqual(REG.MAX_IMAGES_PAID, 8);
 
-// The client mirrors lib/extension-gates.ts. If that file's constants move, this
-// assertion is the thing that notices — the two are a contract, not a coincidence.
-const gatesSrc = fs.readFileSync(
-  path.resolve(dir, "..", "services", "edge-functions", "src", "lib", "extension-gates.ts"),
+// The client mirrors the server's caps. They are declared next to the parser
+// that enforces them (lib/extension-image-urls.ts) so the value and its clamp
+// can't drift apart; extension-gates.ts re-exports them for tier resolution.
+//
+// Read from the DECLARING file rather than the re-exporting one: a re-export
+// would still match a loose regex after the real constant had changed, which is
+// exactly the drift this assertion exists to catch.
+const capsSrc = fs.readFileSync(
+  path.resolve(dir, "..", "services", "edge-functions", "src", "lib", "extension-image-urls.ts"),
   "utf8",
 );
-const anonServer = /EXTENSION_MAX_IMAGES_ANON\s*=\s*(\d+)/.exec(gatesSrc);
-const paidServer = /EXTENSION_MAX_IMAGES_PAID\s*=\s*(\d+)/.exec(gatesSrc);
-assert.ok(anonServer && paidServer, "extension-gates.ts must export both image caps");
+const anonServer = /export const EXTENSION_MAX_IMAGES_ANON\s*=\s*(\d+)/.exec(capsSrc);
+const paidServer = /export const EXTENSION_MAX_IMAGES_PAID\s*=\s*(\d+)/.exec(capsSrc);
+assert.ok(
+  anonServer && paidServer,
+  "lib/extension-image-urls.ts must declare both image caps — it is the file that " +
+    "enforces them, so it is the one the client must agree with",
+);
 assert.strictEqual(
   Number(anonServer[1]),
   REG.MAX_IMAGES_ANON,
@@ -223,4 +232,72 @@ assert.ok(
 console.log(
   "depth.test.cjs: client/server photo caps agree, asset dedupe never loses " +
     "images, menu + command route through the overlay, badge is per-tab",
+);
+
+// ── the telemetry vocabulary is a contract, in both directions ────────────
+//
+// The scan grid and the seller lookup both fail SILENTLY on purpose, so a ping
+// is the only way a broken adapter surfaces at all. The server drops any name
+// outside its closed allowlist — silently, and with a 204, so a drift here looks
+// exactly like "nothing is broken out there". That is the worst possible failure
+// mode for a signal whose entire job is to tell us something IS broken.
+const gradingSrc = fs.readFileSync(
+  path.resolve(dir, "..", "services", "edge-functions", "src", "routes", "public-grading.ts"),
+  "utf8",
+);
+const vocabBlock = /const SELECTOR_HEALTH_LISTS = new Set\(\[([\s\S]*?)\]\);/.exec(gradingSrc);
+assert.ok(vocabBlock, "public-grading.ts must define SELECTOR_HEALTH_LISTS");
+const serverVocab = new Set(
+  Array.from(vocabBlock[1].matchAll(/"([^"]+)"/g)).map((m) => m[1]),
+);
+
+// Every literal the content script can send must be in it.
+for (const sent of ["gallery", "gallery-no-urls", "title", "brand", "search-cards", "seller"]) {
+  assert.ok(
+    serverVocab.has(sent),
+    `marketplace.js can send "${sent}" but SELECTOR_HEALTH_LISTS does not accept it. ` +
+      "The endpoint drops it and answers 204, so the ping vanishes and a dead " +
+      "adapter reads as a healthy one.",
+  );
+}
+
+// And the adapter keys the ping carries must be accepted too — the ping sends
+// adapter.key, and an unknown key rejects the WHOLE ping, not just the name.
+const adaptersBlock = /const SELECTOR_HEALTH_ADAPTERS = new Set\(\[([\s\S]*?)\]\);/.exec(gradingSrc);
+assert.ok(adaptersBlock, "public-grading.ts must define SELECTOR_HEALTH_ADAPTERS");
+const serverAdapters = new Set(
+  Array.from(adaptersBlock[1].matchAll(/"([^"]+)"/g)).map((m) => m[1]),
+);
+for (const key of Object.keys(cfg.adapters)) {
+  assert.ok(
+    serverAdapters.has(key),
+    `adapter "${key}" ships in the extension but SELECTOR_HEALTH_ADAPTERS rejects ` +
+      "it — every ping from that marketplace is discarded, so it is precisely the " +
+      "newest (least verified) adapter that would report nothing.",
+  );
+}
+
+// ── the silent surfaces actually report ───────────────────────────────────
+assert.ok(
+  /reportMiss\(\["search-cards"\]\)/.test(mkt),
+  "an unreadable search grid must ping. The search selectors ship unverified " +
+    "against six live DOMs and the shopper is shown nothing when they break, so " +
+    "without this the feature can die on a marketplace and look identical to " +
+    "'nobody used it'.",
+);
+assert.ok(
+  /reportMiss\(\["seller"\]\)/.test(mkt),
+  "an unresolvable seller must ping — it is indistinguishable from 'no repeat " +
+    "reads yet' from the outside",
+);
+assert.ok(
+  /if \(!lastCardSelectorMatched\) reportMiss/.test(mkt),
+  "the scan ping must fire ONLY when no card selector matched. An empty card list " +
+    "is also the steady state of the re-scan tick (every card already badged), and " +
+    "pinging on that would bury the real signal under noise on every healthy page.",
+);
+assert.ok(
+  /if \(sellerMissReported\) return;/.test(mkt),
+  "the seller ping is once per page — a re-read must not double-count one broken " +
+    "selector",
 );

@@ -5501,7 +5501,7 @@
         "extension-unified renders a Flip panel in the overlay ONLY when GT_GET_CAPABILITIES reports sellerEnabled true; the shadow grade is labelled a private estimate and is never written to grade_reports nor shown as a GradeThread certificate (US-620 posture)",
         "The Flip panel shows cost basis = listing price, comp range, net margin after a per-platform fee assumption, days-to-sell, and a buy/pass verdict; a thin-comp result (value null) renders 'not enough comps' and never a fabricated range"
       ],
-      "notes": "Done 2026-07-29 on claude/unified-extension-features-fqm7je. Extension 0.3.7 -> 0.8.0; adapter config 2026.07.5 -> 2026.07.8 (search blocks, sellerSelectors, assetIdPattern) mirrored to public/extension/marketplace-selectors.json and the legacy extension-condition bundle. New edge surfaces: POST /api/grading/public/scan (no Vision, own rate window) and POST /api/flipdesk/scout/appraise-url (plan-gated, tenant-scoped, SSRF-guarded). New pure modules with node guards: scan-format, flip-format, seller-memory, compare-tray, plus depth.test.cjs pinning the client/server photo-cap contract. All 20 extension guards + 2699 vitest tests pass. Edge tests written but NOT run locally (deno.land is blocked by the container network policy, so deno could only lint) — CI is the check. Search-page and seller selectors are best-effort against live DOMs and unverified, per the US-1880 posture."
+      "notes": "Done 2026-07-29 on claude/unified-extension-features-fqm7je. Extension 0.3.7 -> 0.8.0; adapter config 2026.07.5 -> 2026.07.8 (search blocks, sellerSelectors, assetIdPattern) mirrored to public/extension/marketplace-selectors.json and the legacy extension-condition bundle. New edge surfaces: POST /api/grading/public/scan (no Vision, own rate window) and POST /api/flipdesk/scout/appraise-url (plan-gated, tenant-scoped, SSRF-guarded). New pure modules with node guards: scan-format, flip-format, seller-memory, compare-tray, plus depth.test.cjs pinning the client/server photo-cap contract. All 20 extension guards + 2699 vitest tests pass. Edge tests written but NOT run locally (deno.land is blocked by the container network policy, so deno could only lint) — CI is the check. Search-page and seller selectors are best-effort against live DOMs and unverified, per the US-1880 posture. | CORRECTION 2026-07-29: the earlier note claiming no role gate exists on /api/flipdesk/scout/* was WRONG. blockViewerWrites (US-1928) is mounted on /api/flipdesk/* at main.ts:661, after workspaceMiddleware at :629, and refuses every mutating verb for role=viewer across the whole surface — so a viewer already cannot spend the owner's AI quota through scout. US-2242 was filed on that false premise and has been deleted. The viewer cases are now IN tenant-isolation_test.ts for appraise-url, /appraise and /prospect."
     },
     {
       "id": "US-2239",
@@ -5548,18 +5548,6 @@
         "The new permissions (contextMenus) are added to manifest.json and reflected in the privacy posture section of extension-unified/README.md; test/manifest-hosts.test.cjs still passes and a guard asserts no new host permission was introduced"
       ],
       "notes": "Done 2026-07-29 on claude/unified-extension-features-fqm7je. Extension 0.3.7 -> 0.8.0; adapter config 2026.07.5 -> 2026.07.8 (search blocks, sellerSelectors, assetIdPattern) mirrored to public/extension/marketplace-selectors.json and the legacy extension-condition bundle. New edge surfaces: POST /api/grading/public/scan (no Vision, own rate window) and POST /api/flipdesk/scout/appraise-url (plan-gated, tenant-scoped, SSRF-guarded). New pure modules with node guards: scan-format, flip-format, seller-memory, compare-tray, plus depth.test.cjs pinning the client/server photo-cap contract. All 20 extension guards + 2699 vitest tests pass. Edge tests written but NOT run locally (deno.land is blocked by the container network policy, so deno could only lint) — CI is the check. Search-page and seller selectors are best-effort against live DOMs and unverified, per the US-1880 posture."
-    },
-    {
-      "id": "US-2242",
-      "passes": false,
-      "title": "No role gate on /api/flipdesk/scout/* — a read-only viewer can spend the owner's AI quota",
-      "description": "As a workspace owner, I want read-only members blocked from actions that spend my AI actions and comp pulls, so that adding a viewer to my workspace cannot cost me money.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/main.ts applies a role gate of at least listing_manager to /api/flipdesk/scout/* (the mount has authMiddleware, accessGateMiddleware and workspaceMiddleware today, but no requireRole), so a role=viewer member is denied before any AI action is reserved",
-        "All four spend routes are covered: POST /api/flipdesk/scout/, /appraise, /appraise-url and /prospect — each reserves an AI action via reserveAiActionSafe against the OWNER's cap",
-        "services/edge-functions/src/tests/tenant-isolation_test.ts gains a C3 viewer case per route, alongside the existing consignment/publish-batch/grade-pay cases; the US-2238 comment block noting this gap is removed once the cases land",
-        "An owner or an admin/listing_manager member is unaffected — a positive-path assertion proves the gate did not lock out the roles that should have access"
-      ]
     }
   ]
 }

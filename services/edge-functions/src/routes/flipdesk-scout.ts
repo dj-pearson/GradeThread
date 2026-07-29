@@ -33,6 +33,10 @@ import {
   scoreCandidate,
   type ScoutCandidate,
 } from "../lib/scout-scoring.ts";
+import {
+  EXTENSION_MAX_IMAGES_ANON,
+  parseListingImageUrls,
+} from "../lib/extension-image-urls.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 
@@ -327,7 +331,10 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
 // requesting tenant. It is never written to grade_reports, never published, and
 // never re-labels the seller's listing — the response says so, and the extension
 // renders it as an estimate.
-const MAX_APPRAISE_URLS = 4;
+// Photos we'll grade from one listing. Deliberately the ANONYMOUS ceiling rather
+// than the paid one: this is the seller's own metered AI action, and the value
+// here comes from the comps, not from a deeper condition read.
+const MAX_APPRAISE_URLS = EXTENSION_MAX_IMAGES_ANON;
 
 export const APPRAISE_URL_DISCLAIMER =
   "A private AI estimate from the listing's own photos — not a GradeThread certificate, " +
@@ -336,34 +343,18 @@ export const APPRAISE_URL_DISCLAIMER =
 
 
 /**
- * Validate the listing image URLs. PURE — exported for the edge test. Mirrors
- * parseGradeFromUrlBody in public-grading.ts: obvious junk is rejected here so a
- * bad request never reserves an AI action, and the real SSRF check still happens
- * inside quickGrade/safeFetch.
+ * Validate the listing image URLs. Shape only — the real SSRF check is safeFetch
+ * inside quickGrade. Delegates to the shared extension parser so this endpoint
+ * and /api/grading/public/grade-from-url cannot drift on what they accept.
  */
 export function parseAppraiseUrls(
   raw: unknown,
 ): { ok: true; urls: string[] } | { ok: false; error: string } {
-  const list: unknown[] = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
-  const urls: string[] = [];
-  for (const u of list) {
-    if (typeof u !== "string") continue;
-    const trimmed = u.trim();
-    if (!trimmed) continue;
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      return { ok: false, error: "Each listing photo must be a valid URL." };
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return { ok: false, error: "Listing photo URLs must be http(s)." };
-    }
-    urls.push(trimmed);
-    if (urls.length >= MAX_APPRAISE_URLS) break;
-  }
-  if (urls.length === 0) return { ok: false, error: "Provide at least one listing photo URL." };
-  return { ok: true, urls };
+  return parseListingImageUrls(raw, MAX_APPRAISE_URLS, {
+    malformed: "Each listing photo must be a valid URL.",
+    scheme: "Listing photo URLs must be http(s).",
+    empty: "Provide at least one listing photo URL.",
+  });
 }
 
 flipdeskScoutRoutes.post("/appraise-url", async (c) => {

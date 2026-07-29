@@ -6,6 +6,11 @@
 // The base objective grade is always returned (the funnel hook) — gating only
 // hides the paid VALUE layers.
 
+import {
+  EXTENSION_MAX_IMAGES_ANON,
+  EXTENSION_MAX_IMAGES_PAID,
+} from "./extension-image-urls.ts";
+
 export interface GateableEntitlements {
   plan: string;
   // Only the flags this resolver reads (a structural subset of BuyerGateFlags).
@@ -43,10 +48,13 @@ export interface ExtensionGates {
   tier: string;
 }
 
-/** The floor, and what an anonymous caller gets. */
-export const EXTENSION_MAX_IMAGES_ANON = 4;
-/** What any authenticated, paid tier gets. */
-export const EXTENSION_MAX_IMAGES_PAID = 8;
+// The caps live with the parser that enforces them, so the value and its clamp
+// can never drift apart. Re-exported here because this is where callers resolve
+// them from a tier.
+export {
+  EXTENSION_MAX_IMAGES_ANON,
+  EXTENSION_MAX_IMAGES_PAID,
+} from "./extension-image-urls.ts";
 
 /**
  * Resolve the extension gates for a caller. PURE. Null ent (anonymous / bad

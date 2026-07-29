@@ -17,19 +17,29 @@ import {
   type ResaleConditionReport,
 } from "../lib/resale-condition.ts";
 import { valueAtGrade, valueRangeFromStats, type ValueRange } from "../lib/condition-value.ts";
-import { type BrowseCompsResult, searchBrowseComps, suggestCategories } from "../lib/ebay-client.ts";
+import { searchBrowseComps, suggestCategories } from "../lib/ebay-client.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { claimedConditionToGrade, scoreDiscrepancy } from "../lib/condition-discrepancy.ts";
-import { type FairnessVerdict, parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
-import { gradeToConditionId } from "../lib/repricing.ts";
+import { parsePriceCents, priceFairness } from "../lib/price-fairness.ts";
+// US-2237: the scan's decision logic lives in lib/ so it can be type-checked and
+// unit-tested without this file's dependency graph (hono, supabase, the eBay
+// client). The route keeps the I/O; everything imported here is pure.
+import {
+  bucketScanCards,
+  MAX_SCAN_COMP_BUCKETS,
+  parseScanBody,
+  SCAN_DISCLAIMER,
+  type ScanCompStats,
+  scanCardResults,
+} from "../lib/extension-scan.ts";
 import { deriveFraudFlags } from "../lib/fraud-flags.ts";
 import { coverageGapForTitle } from "../lib/coverage-gap.ts";
 import { bearerFromHeader, verifyExtensionToken } from "../lib/extension-token.ts";
+import { resolveExtensionGates } from "../lib/extension-gates.ts";
 import {
   EXTENSION_MAX_IMAGES_ANON,
-  EXTENSION_MAX_IMAGES_PAID,
-  resolveExtensionGates,
-} from "../lib/extension-gates.ts";
+  parseListingImageUrls,
+} from "../lib/extension-image-urls.ts";
 import {
   ANONYMOUS_EXTENSION_ENTITLEMENTS,
   getBuyerEntitlements,
@@ -410,6 +420,14 @@ const SELECTOR_HEALTH_LISTS = new Set([
   "brand",
   "price",
   "condition",
+  // US-2237/US-2239: the newer surfaces fail even more quietly than the gallery.
+  // A broken search grid renders NOTHING (the shopper never asked for a scan, so
+  // there is no error state to show them), and an unresolvable seller just means
+  // the history line never appears — indistinguishable from "you haven't read
+  // this seller twice". Neither would ever be reported by a user, so telemetry is
+  // the only way they surface at all.
+  "search-cards",
+  "seller",
 ]);
 // Mirrors the shipped config's adapter keys. A new marketplace adapter must be
 // added here too — a closed list is the point, so an unknown key is dropped
@@ -715,7 +733,6 @@ publicGradingRoutes.post("/grade-check", async (c) => {
 const EXT_GRADE_PER_IP_PER_HOUR = 20;
 const EXT_GRADE_PER_INSTANCE_PER_HOUR = 40;
 const EXT_GRADE_WINDOW_MS = 60 * 60 * 1000;
-const EXT_GRADE_MAX_URLS = 4;
 const extIpHits = new Map<string, number[]>();
 const extInstanceHits = new Map<string, number[]>();
 
@@ -782,78 +799,14 @@ export function extGradeRateLimited(
  */
 export function parseGradeFromUrlBody(
   body: unknown,
-  maxUrls: number = EXT_GRADE_MAX_URLS,
+  maxUrls: number = EXTENSION_MAX_IMAGES_ANON,
 ): { ok: true; urls: string[] } | { ok: false; error: string } {
-  // US-2241: the ceiling is now the CALLER's, resolved from their tier before we
-  // get here. It is clamped to the anonymous floor and the paid ceiling so a bad
-  // gate value can neither starve a paying caller nor let anyone buy an
-  // unbounded number of Vision calls with one request.
-  const cap = Math.max(
-    EXTENSION_MAX_IMAGES_ANON,
-    Math.min(EXTENSION_MAX_IMAGES_PAID, Math.floor(Number(maxUrls) || EXT_GRADE_MAX_URLS)),
-  );
   const b = (body ?? {}) as { imageUrl?: unknown; imageUrls?: unknown };
-  const raw: unknown[] = Array.isArray(b.imageUrls)
-    ? b.imageUrls
-    : typeof b.imageUrl === "string"
-    ? [b.imageUrl]
-    : [];
-  const urls: string[] = [];
-  for (const u of raw) {
-    if (typeof u !== "string") continue;
-    const trimmed = u.trim();
-    if (!trimmed) continue;
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      return { ok: false, error: "Each image must be a valid URL." };
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return { ok: false, error: "Image URLs must be http(s)." };
-    }
-    urls.push(trimmed);
-    if (urls.length >= cap) break;
-  }
-  if (urls.length === 0) {
-    return { ok: false, error: "Provide at least one image URL." };
-  }
-  return { ok: true, urls };
-}
-
-function publicSiteUrl(): string {
-  return (Deno.env.get("PUBLIC_SITE_URL")?.trim() || "https://gradethread.com").replace(/\/$/, "");
-}
-
-// Assign sensible VIEW types to a marketplace listing's scraped gallery photos.
-// The extension can't know which photo is which, so it used to send every URL as
-// "detail" — which tells the composite grader the set is all close-ups with NO
-// primary front/back coverage, so it (correctly, given that framing) docks its
-// own confidence_score. Real galleries conventionally LEAD with the hero/front
-// shot, then a back/alternate view, then close-ups, so typing the first two as
-// front/back gives the grader the primary-angle coverage a listing usually has.
-// A "front"/"back" per-image prompt is also a better fit for a full-garment shot
-// than "detail" (which narrows the model to stitching/hardware). This changes the
-// grader's INPUT framing, not any prompt text and not the post-composite
-// confidence policy — the model still reports whatever confidence it earns. Pure;
-// exported for the edge test. Never emits more types than there are images.
-const GALLERY_VIEW_ORDER = ["front", "back", "detail", "detail_2", "detail_3", "detail_4"];
-export function assignGalleryImageTypes(count: number): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < count; i++) out.push(GALLERY_VIEW_ORDER[i] ?? "detail");
-  return out;
-}
-
-// The "ask the seller for these photos" coverage-gap macro is only worth showing
-// when it would actually help: when the read came back low-confidence OR the
-// listing had too few photos to cover the item. On a confident read of a
-// well-photographed listing, surfacing a full "ask for 7 photos" list reads as
-// "this grade is unreliable" when it isn't — so we suppress it. Pure; exported
-// for the edge test.
-export const COVERAGE_GAP_CONFIDENCE_BAR = 0.75;
-export const COVERAGE_GAP_MIN_IMAGES = 3;
-export function shouldRequestCoveragePhotos(confidence: number, imagesAnalyzed: number): boolean {
-  return confidence < COVERAGE_GAP_CONFIDENCE_BAR || imagesAnalyzed < COVERAGE_GAP_MIN_IMAGES;
+  return parseListingImageUrls(b.imageUrls ?? b.imageUrl, maxUrls, {
+    malformed: "Each image must be a valid URL.",
+    scheme: "Image URLs must be http(s).",
+    empty: "Provide at least one image URL.",
+  });
 }
 
 publicGradingRoutes.post("/grade-from-url", async (c) => {
@@ -1048,11 +1001,6 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
 const SCAN_PER_IP_PER_HOUR = 60;
 const SCAN_PER_INSTANCE_PER_HOUR = 120;
 const SCAN_WINDOW_MS = 60 * 60 * 1000;
-const MAX_SCAN_CARDS = 24;
-// Distinct claimed-condition buckets we'll spend an eBay Browse call on. Real
-// grids cluster into 2-3 (a "used" bulk plus a few NWT); the cap bounds the
-// worst case where a page happens to span every condition tier.
-const MAX_SCAN_COMP_BUCKETS = 3;
 const scanIpHits = new Map<string, number[]>();
 const scanInstanceHits = new Map<string, number[]>();
 
@@ -1078,147 +1026,6 @@ export function scanRateLimited(
     return { limited: true, scope: "instance" };
   }
   return { limited: false };
-}
-
-export interface ScanCardInput {
-  /** Caller-assigned id echoed back so the content script can match rows to DOM
-   *  nodes without relying on array order. */
-  key: string;
-  title: string;
-  priceText: string;
-  conditionText: string;
-  photoCount: number | null;
-}
-
-/**
- * Validate + cap the scan body. PURE — exported for the edge test. Cards missing
- * a key are dropped rather than failing the request: one malformed card on a
- * 24-card grid should degrade that card, not blank the whole page.
- */
-export function parseScanBody(
-  body: unknown,
-): { ok: true; cards: ScanCardInput[]; query: string; brand: string } | { ok: false; error: string } {
-  const b = (body ?? {}) as {
-    cards?: unknown;
-    query?: unknown;
-    brand?: unknown;
-  };
-  if (!Array.isArray(b.cards)) return { ok: false, error: "Provide a cards array." };
-  const cards: ScanCardInput[] = [];
-  for (const raw of b.cards) {
-    if (!raw || typeof raw !== "object") continue;
-    const r = raw as Record<string, unknown>;
-    const key = typeof r.key === "string" ? r.key.trim().slice(0, 200) : "";
-    if (!key) continue;
-    const photoCount = typeof r.photoCount === "number" && Number.isFinite(r.photoCount)
-      ? Math.max(0, Math.min(99, Math.round(r.photoCount)))
-      : null;
-    cards.push({
-      key,
-      title: typeof r.title === "string" ? r.title.trim().slice(0, 200) : "",
-      priceText: typeof r.priceText === "string" ? r.priceText.trim().slice(0, 40) : "",
-      conditionText: typeof r.conditionText === "string" ? r.conditionText.trim().slice(0, 60) : "",
-      photoCount,
-    });
-    if (cards.length >= MAX_SCAN_CARDS) break;
-  }
-  if (cards.length === 0) return { ok: false, error: "Provide at least one card." };
-  return {
-    ok: true,
-    cards,
-    query: typeof b.query === "string" ? b.query.trim().slice(0, 200) : "",
-    brand: typeof b.brand === "string" ? b.brand.trim().slice(0, 80) : "",
-  };
-}
-
-export interface ScanCardResult {
-  key: string;
-  /** The SELLER's claimed condition on our 1-10 scale, or null when the card
-   *  didn't print one / we don't recognise it. Never our own read. */
-  claimedGrade: number | null;
-  priceCents: number | null;
-  fairness: FairnessVerdict;
-  deltaPct: number | null;
-  /** true when the card shows too few photos to support any confident read —
-   *  the one thing worth flagging from the grid itself. */
-  thinPhotos: boolean;
-}
-
-/**
- * Bucket cards by the eBay conditionId their claimed condition maps to. PURE —
- * exported for the edge test. This is the function that makes the whole endpoint
- * affordable: comps are fetched once per BUCKET, and real grids collapse to two
- * or three.
- *
- * A card whose condition we can't read is NOT dropped — only eBay reliably
- * prints a condition on the result card, so dropping them would make scan mode
- * an eBay-only feature. It buckets under gradeToConditionId(null) ("Used", the
- * safe default) and its per-card result keeps claimedGrade:null, so the caller
- * can say "vs typical used" instead of implying the seller claimed anything.
- *
- * Buckets come back ordered by size so the MAX_SCAN_COMP_BUCKETS cap spends the
- * comp calls on the conditions covering the most cards.
- */
-export function bucketScanCards(
-  cards: ScanCardInput[],
-  marketplace: string | null,
-): Array<{ conditionId: string; keys: string[] }> {
-  const byCondition = new Map<string, string[]>();
-  for (const card of cards) {
-    const claimed = claimedConditionToGrade(card.conditionText, marketplace);
-    const conditionId = gradeToConditionId(claimed);
-    const entry = byCondition.get(conditionId);
-    if (entry) entry.push(card.key);
-    else byCondition.set(conditionId, [card.key]);
-  }
-  return Array.from(byCondition, ([conditionId, keys]) => ({ conditionId, keys }))
-    .sort((a, b) => b.keys.length - a.keys.length);
-}
-
-/** The comp distribution one condition bucket is priced against. Carries the
- *  currency, which the bare CompStats in repricing.ts does not. */
-type ScanCompStats = BrowseCompsResult["stats"];
-
-/** Fewer than 3 photos on a result card means no read could be confident. */
-const SCAN_THIN_PHOTO_FLOOR = 3;
-
-export const SCAN_DISCLAIMER =
-  "Based on the seller's stated condition and asking price only — no photos were analysed. " +
-  "Open a listing for a GradeThread condition read.";
-
-/**
- * Assemble the per-card verdicts from the (already fetched) per-bucket comp
- * STATS. PURE — exported for the edge test, and the reason a 24-card scan costs
- * three network calls instead of 24.
- *
- * Stats are shared per condition bucket but the band is positioned PER CARD, via
- * the pure valueRangeFromStats: two cards in the same "Used" bucket that claim
- * "very good" and "fair" get different bands off one eBay call. Anything below
- * MIN_VALUE_COMPS comes back sufficient:false and publicValueFromRange nulls it,
- * so a thin grid yields 'unknown' rather than a fabricated verdict.
- */
-export function scanCardResults(
-  cards: ScanCardInput[],
-  marketplace: string | null,
-  statsByKey: Map<string, ScanCompStats>,
-): ScanCardResult[] {
-  return cards.map((card) => {
-    const claimedGrade = claimedConditionToGrade(card.conditionText, marketplace);
-    const priceCents = parsePriceCents(card.priceText);
-    const stats = statsByKey.get(card.key);
-    const band = stats
-      ? publicValueFromRange(valueRangeFromStats(stats, claimedGrade, stats.currency))
-      : null;
-    const fairness = priceFairness(priceCents, band);
-    return {
-      key: card.key,
-      claimedGrade,
-      priceCents,
-      fairness: fairness.verdict,
-      deltaPct: fairness.deltaPct,
-      thinPhotos: card.photoCount != null && card.photoCount < SCAN_THIN_PHOTO_FLOOR,
-    };
-  });
 }
 
 // POST /scan — per-card claim + price triage for a marketplace SEARCH page.
@@ -1297,7 +1104,16 @@ publicGradingRoutes.post("/scan", async (c) => {
         // asserts on this field before it will render anything.
         signal: "claimed-condition-and-price",
         comped: statsByKey.size > 0,
-        cards: scanCardResults(parsed.cards, marketplace, statsByKey),
+        // The band builder is injected so lib/extension-scan.ts can stay free of
+        // the eBay client. This is the real implementation; the unit test passes
+        // its own, which is what makes the decision logic testable at all.
+        cards: scanCardResults(
+          parsed.cards,
+          marketplace,
+          statsByKey,
+          (stats, claimedGrade) =>
+            publicValueFromRange(valueRangeFromStats(stats, claimedGrade, stats.currency)),
+        ),
         disclaimer: SCAN_DISCLAIMER,
       },
       200,
