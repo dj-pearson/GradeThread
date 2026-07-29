@@ -312,3 +312,7 @@
   #gt-cc-overlay .gt-cc-v-maybe { background: #3a2c10; color: #f5cd7a; }
   #gt-cc-overlay .gt-cc-v-skip { background: #3a1618; color: #ffb4ae; }
 }
+
+/* US-2239: the shopper's own history with this seller. Same weight as the other
+ * notes — it is an observation they made, not a warning we are issuing. */
+#gt-cc-overlay .gt-cc-seller { font-style: normal; }

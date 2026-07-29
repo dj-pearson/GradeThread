@@ -38,6 +38,7 @@ if (typeof importScripts === "function") {
     "lister/lister-guard.js",
     "lister/job-store.js",
     "registry.js",
+    "research/seller-memory.js",
   );
 }
 const ext = globalThis.browser || globalThis.chrome;
@@ -499,9 +500,39 @@ async function saveRead(read) {
     overallScore: Number(read.overallScore),
     gradeTier: String(read.gradeTier || ""),
     confidence: Number(read.confidence),
+    // US-2239: who was selling it, and what they claimed. Both are stored ONLY
+    // here in storage.local — the seller handle is never attached to a grading
+    // request, a telemetry ping, or anything else that leaves the device.
+    // `claimedGrade` comes from the endpoint's discrepancy block, which is a
+    // paid signal, so it is often absent; null is stored rather than 0 so an
+    // absent claim can't be averaged as "claimed nothing".
+    seller: typeof read.seller === "string" && read.seller ? read.seller.slice(0, 80) : null,
+    claimedGrade: typeof read.claimedGrade === "number" && isFinite(read.claimedGrade)
+      ? read.claimedGrade
+      : null,
     at: Number(read.at) || Date.now(),
   });
   await ext.storage.local.set({ recentReads: list.slice(0, MAX_RECENT) });
+}
+
+// US-2239: the shopper's own history with ONE seller. A pure aggregation over
+// storage.local — no network, nothing sent, nothing recorded server-side. Kept
+// in the worker rather than the content script only because recentReads lives
+// here; the answer is computed by the pure seller-memory module either way.
+async function getSellerHistory(marketplace, seller) {
+  const key = self.GT_CC_SELLER.sellerKey(marketplace, seller);
+  if (!key) return null;
+  try {
+    const { recentReads } = await ext.storage.local.get("recentReads");
+    const mine = (Array.isArray(recentReads) ? recentReads : []).filter(
+      (r) => r && self.GT_CC_SELLER.sellerKey(r.marketplace, r.seller) === key,
+    );
+    const stats = self.GT_CC_SELLER.aggregate(mine);
+    if (!stats) return null;
+    return { stats: stats, copy: self.GT_CC_SELLER.sellerCopy(stats) };
+  } catch (_e) {
+    return null; // unreadable storage — show nothing rather than a wrong pattern
+  }
 }
 
 // ── Lister job lifecycle (US-1874) ────────────────────────────────────────
@@ -1084,6 +1115,11 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         break;
       case "GT_CC_GET_CACHED":
         sendResponse(await readGradeCache(msg.listingKey));
+        break;
+      // US-2239: buyer-private seller pattern. Returns null below the 2-read
+      // floor — one read of one item is a coincidence, not a pattern.
+      case "GT_CC_GET_SELLER":
+        sendResponse(await getSellerHistory(msg.marketplace, msg.seller));
         break;
       case "GT_CC_SAVE_READ":
         await saveRead(msg.read);

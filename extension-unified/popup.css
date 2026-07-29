@@ -254,3 +254,37 @@ em { font-style: italic; }
   .s-fair { background: #c9921c; }
   .s-poor { background: #cf7328; }
 }
+
+/* US-2239 — the Recent reads / By seller switch.
+ *
+ * A two-item switch, not a nav: underline-on-active only, so it reads as one
+ * control rather than as two buttons competing with the section headings. */
+.pop-tabs {
+  display: flex;
+  gap: 14px;
+  margin: 0 0 8px;
+  border-bottom: 1px solid #e6e6ef;
+}
+
+.pop-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 4px 0 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b6b80;
+  cursor: pointer;
+}
+
+.pop-tab.is-on { color: #0f3460; border-bottom-color: #0f3460; }
+.pop-tab:focus-visible { outline: 2px solid #e94560; outline-offset: 2px; }
+
+@media (prefers-color-scheme: dark) {
+  .pop-tabs { border-bottom-color: #2c2c44; }
+  .pop-tab { color: #9a9ab0; }
+  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
+}

@@ -27,6 +27,7 @@
   const FMT = self.GT_CC_FMT; // US-1884: pure result-formatting (condition-format.js)
   const SCAN = self.GT_CC_SCAN; // US-2237: pure scan helpers (scan-format.js)
   const FLIP = self.GT_CC_FLIP; // US-2238: pure flip-mode formatting (flip-format.js)
+  const SELLER = self.GT_CC_SELLER; // US-2239: pure seller aggregation (seller-memory.js)
   const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
   const HARD_MAX_URLS = 4; // endpoint cap — never exceed regardless of adapter
   const OVERLAY_ID = "gt-cc-overlay";
@@ -381,6 +382,16 @@
         }
       }
 
+      // US-2239: what THIS shopper has found on this seller's other listings.
+      // Rendered async (it reads storage) and appended in place, so a slow read
+      // never delays the grade itself. Absent below the 2-read floor.
+      if (SELLER) {
+        var sellerSlot = el("p", "gt-cc-note gt-cc-seller");
+        sellerSlot.hidden = true;
+        body.appendChild(sellerSlot);
+        renderSellerHistory(sellerSlot, epoch);
+      }
+
       // US-1834: claimed-vs-objective condition discrepancy signal.
       var disc = data.discrepancy;
       if (disc && disc.signal && disc.signal !== "unknown") {
@@ -511,6 +522,23 @@
         body.appendChild(flipSection());
       }
     }, { focusClose: true });
+  }
+
+  // US-2239: fill the seller-history slot, or leave it hidden. Takes the epoch it
+  // was started in for the usual reason — this awaits storage, and by the time it
+  // resolves the shopper may be on a different listing by a different seller.
+  async function renderSellerHistory(slot, myEpoch) {
+    const seller = extractSeller();
+    if (!seller) return; // unreadable seller — no line, no guess
+    const res = await send({
+      type: "GT_CC_GET_SELLER",
+      marketplace: (adapter && adapter.key) || "",
+      seller: seller,
+    });
+    if (myEpoch !== epoch) return;
+    if (!res || !res.copy) return; // below the floor, or nothing notable
+    slot.textContent = res.copy;
+    slot.hidden = false;
   }
 
   // ── flip mode: "should I flip this?" (US-2238) ───────────────────────────
@@ -658,6 +686,14 @@
     return firstText(adapter.condition).slice(0, 60);
   }
 
+  // US-2239: who is selling it. Optional and NEVER sent anywhere — it is stored
+  // with the read in storage.local so a second read of the same seller can be
+  // recognised. A listing whose seller we can't resolve simply never aggregates.
+  function extractSeller() {
+    if (!adapter || !adapter.sellerSelectors) return "";
+    return firstText(adapter.sellerSelectors).slice(0, 80);
+  }
+
   // US-1835: the listing price — optional; endpoint rates fairness when present.
   function extractPrice() {
     if (!adapter || !adapter.price) return "";
@@ -716,6 +752,7 @@
     const gradedUrl = location.href;
     const gradedTitle = title || document.title;
     const gradedMarketplace = (adapter && adapter.key) || "";
+    const gradedSeller = extractSeller();
 
     const res = await send({
       type: "GT_CC_GRADE",
@@ -753,6 +790,17 @@
           overallScore: res.data.overallScore,
           gradeTier: res.data.gradeTier,
           confidence: res.data.confidence,
+          // US-2239: captured pre-flight alongside the URL, for the same reason
+          // — after the await this is a different listing whenever the shopper
+          // navigated, and a read filed against the wrong SELLER is the bug the
+          // epoch guard exists to prevent, one field over.
+          seller: gradedSeller,
+          // The endpoint's discrepancy block carries the seller's claim on our
+          // scale. It is a paid signal, so it is often absent; storing null
+          // rather than 0 keeps "no claim" out of the average.
+          claimedGrade: res.data.discrepancy && typeof res.data.discrepancy.claimedGrade === "number"
+            ? res.data.discrepancy.claimedGrade
+            : null,
           at: Date.now(),
         },
       });

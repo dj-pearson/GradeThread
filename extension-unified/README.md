@@ -6,6 +6,14 @@ extensions into a single MV3 extension:
 - **Condition Check (buyer research)** — from `extension-condition/` (US-1755/1756).
   An independent AI condition read on eBay / Poshmark / Grailed / Mercari / Depop /
   Vinted listing pages. **Always on** — anonymous-capable, quota-capped.
+- **Seller memory (US-2239)** — every read used to be a one-off. Reads now carry
+  the seller's handle and the claim they made, so at 2+ reads of the same seller
+  the overlay states the shopper's own pattern ("your 4 reads average 1.8 points
+  below their stated condition") and the popup gets a **By seller** view.
+  **Entirely on-device**: the handle is stored in `storage.local`, never attached
+  to any request, and nothing is written to `reputation_events` /
+  `buyer_trust_scores` (US-2148 — a seller-adverse score needs its own model and
+  a human-confirmed basis, which a handful of unconfirmed reads is not).
 - **Flip mode (US-2238)** — the SELLER's question about the same listing. On a
   detail page, a FlipDesk account gets "Should I flip this?": the listing's own
   photos are shadow-graded, priced against condition-matched eBay comps, and
@@ -36,7 +44,8 @@ registry.js          feature registry — resolves capabilities from entitlement
 popup.html/js/css    role-aware popup (US-1885)
 onboarding.html      first-run page opened on install (US-1885 AC4)
 research/            buyer overlay  (selectors.js, image-utils.js, condition-format.js,
-                     scan-format.js, flip-format.js, marketplace.js, overlay.css)
+                     scan-format.js, flip-format.js, seller-memory.js,
+                     marketplace.js, overlay.css)
 lister/              seller Lister  (selectors.js, lister-guard.js, common.js, poshmark/mercari/grailed.js)
 icons/               shared icon set
 test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)

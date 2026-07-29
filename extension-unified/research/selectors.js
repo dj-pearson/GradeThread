@@ -26,7 +26,7 @@
 // from telemetry without shipping a new build.
 
 const GT_CC_CONFIG = {
-  version: "2026.07.6",
+  version: "2026.07.7",
   lastVerified: "2026-07-29",
   configUrl: "https://gradethread.com/extension/marketplace-selectors.json",
   adapters: {
@@ -77,6 +77,14 @@ const GT_CC_CONFIG = {
       // US-2237 scan mode: the SEARCH page. `card` finds the result tiles; the
       // rest are read relative to each tile. eBay is the only adapter whose
       // cards print a condition, which is why its scan read is the richest.
+      // US-2239: the seller's identity on the listing page, so repeat reads of the
+      // same seller can be recognised. Buyer-private — never sent anywhere.
+      sellerSelectors: [
+        ".x-sellercard-atf__info__about-seller a",
+        ".x-sellercard-atf__info__about-seller span",
+        "[data-testid='x-sellercard-atf'] a[href*='/usr/']",
+        "a[href*='/usr/']"
+      ],
       search: {
         detect: { pathIncludes: ["/sch/", "/b/"] },
         queryParams: ["_nkw"],
@@ -111,6 +119,11 @@ const GT_CC_CONFIG = {
       urlUpgrade: { pattern: "/(?:s|m|t)_(?=[^/]*$)", replacement: "/l_", flags: "i" },
       title: ["h1.listing__title", "[data-et-name='listing_title']", "h1"],
       brandSelectors: ["a[data-et-name='brand']", ".listing__brand", "a[href*='/brand/']"],
+      sellerSelectors: [
+        "[data-et-name='seller_username']",
+        ".listing__seller a",
+        "a[href^='/closet/']"
+      ],
       search: {
         detect: { pathIncludes: ["/search", "/category/", "/brand/", "/closet/", "/feed"] },
         queryParams: ["query", "q"],
@@ -139,6 +152,11 @@ const GT_CC_CONFIG = {
       imageAttrs: ["src", "data-src"],
       title: [".details h1", "p.-title", "h1"],
       brandSelectors: ["a[href*='/designers/']", ".-designer", "p.-designer"],
+      sellerSelectors: [
+        "[data-testid='Seller']",
+        ".Seller_username",
+        "a[href*='/users/']"
+      ],
       search: {
         detect: { pathIncludes: ["/shop", "/designers/", "/categories/"] },
         queryParams: ["query", "q"],
@@ -167,6 +185,11 @@ const GT_CC_CONFIG = {
       imageAttrs: ["src", "data-src"],
       title: ["h1[data-testid='ItemName']", "h1"],
       brandSelectors: ["[data-testid='ItemBrandName']", "a[href*='/brand/']"],
+      sellerSelectors: [
+        "[data-testid='SellerName']",
+        "a[href*='/u/'] span",
+        "a[href*='/u/']"
+      ],
       search: {
         detect: { pathIncludes: ["/search", "/category/", "/brand/"] },
         queryParams: ["keyword", "q"],
@@ -195,6 +218,11 @@ const GT_CC_CONFIG = {
       imageAttrs: ["src", "data-src", "srcset"],
       title: ["h1", "[data-testid='product__title']"],
       brandSelectors: ["a[href*='/brands/']", "[data-testid='product__brand']"],
+      sellerSelectors: [
+        "[data-testid='shopLink']",
+        "a[data-testid='username']",
+        "a[href^='/'][data-testid*='seller']"
+      ],
       search: {
         detect: { pathIncludes: ["/search", "/explore", "/category/", "/brands/"] },
         queryParams: ["q", "query"],
@@ -231,6 +259,11 @@ const GT_CC_CONFIG = {
       brandSelectors: [
         "[data-testid='item-attributes-brand'] a",
         ".details-list__item a[href*='/brand']"
+      ],
+      sellerSelectors: [
+        "[data-testid='profile-username']",
+        ".details-list__item-value a[href*='/member/']",
+        "a[href*='/member/']"
       ],
       search: {
         detect: { pathIncludes: ["/catalog", "/member/", "/brand/"] },
