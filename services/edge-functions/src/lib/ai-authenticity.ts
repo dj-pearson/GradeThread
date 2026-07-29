@@ -15,6 +15,11 @@ import {
   referenceLimitation,
   type TellVerifiability,
 } from "./authenticity-references.ts";
+import {
+  classifyTellCoverage,
+  coverageConfidenceCap,
+  coverageLimitation,
+} from "./authenticity-coverage.ts";
 import type { DecodeInconsistency } from "./brand-decoders.ts";
 
 // ── Premium authenticity / counterfeit-confidence add-on (US-601) ─────────
@@ -455,6 +460,11 @@ export function normalizeAuthenticityAssessment(
   // and defaulting to EMPTY, which yields no cap and no added limitation — so
   // every existing caller and test stays byte-identical.
   verifiability: readonly TellVerifiability[] = [],
+  // US-2219: the tells this assessment had to work with. Empty (the default)
+  // classifies as "none", which for an EXISTING caller that never grounded is
+  // the honest reading — but it would change their output, so the cap is only
+  // applied when the caller opts in by passing `tells`. See below.
+  tells?: readonly AuthenticationTell[],
 ): AuthenticityAssessment {
   const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
 
@@ -500,8 +510,15 @@ export function normalizeAuthenticityAssessment(
   // applied to confidence only — deliberately NOT to counterfeit risk, because
   // a gap in our evidence must not push a seller's item toward "suspect".
   const refCap = referenceConfidenceCap(verifiability);
-  const cappedConfidence = Math.min(confidence, refCap);
-  const cappedVerdictConfidence = Math.min(verdictConfidence, refCap);
+  // US-2219: what the brand's tells could actually DO for this verdict. Only
+  // applied when the caller passed tells — an omitted argument means "not
+  // measured", not "none", so existing callers stay byte-identical.
+  const coverage = tells ? classifyTellCoverage(tells) : null;
+  const covCap = coverage ? coverageConfidenceCap(coverage.level) : 1;
+  // Caps COMPOSE BY MIN and never raise (grading-engine contract).
+  const cap = Math.min(refCap, covCap);
+  const cappedConfidence = Math.min(confidence, cap);
+  const cappedVerdictConfidence = Math.min(verdictConfidence, cap);
 
   const counterfeitRisk = deriveCounterfeitRisk(
     cappedConfidence,
@@ -534,7 +551,8 @@ export function normalizeAuthenticityAssessment(
     limitations: (macroPresent
       ? AUTHENTICITY_LIMITATIONS
       : AUTHENTICITY_LIMITATIONS + AUTHENTICITY_NO_MACRO_LIMITATION) +
-      referenceLimitation(verifiability),
+      referenceLimitation(verifiability) +
+      (coverage ? coverageLimitation(coverage) : ""),
     model,
     prompt_version: promptVersion,
   };
@@ -653,6 +671,8 @@ export async function assessAuthenticity(
     selected.map((s) => s.imageType),
     // US-2218: how much of the VISUAL half we could actually check.
     verifiability,
+    // US-2219: what the brand's tells could do for the verdict at all.
+    tells,
   );
   assessment.usage = toAiTokenUsage(model, response.usage);
   return assessment;
