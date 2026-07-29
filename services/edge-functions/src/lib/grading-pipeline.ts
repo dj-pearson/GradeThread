@@ -21,6 +21,7 @@ import {
 } from "./ai-grading.ts";
 import { Image } from "imagescript";
 import {
+  resolveTrustedStyle,
   baselineReferenceBlock,
   getGarmentBaseline,
 } from "./garment-baselines.ts";
@@ -1695,6 +1696,42 @@ export async function processSubmission(submissionId: string) {
       });
     }
 
+    // US-2217: a STYLE-KEYED baseline for the composite, when the style can be
+    // identified from trusted signals.
+    //
+    // WHY ONLY THE COMPOSITE: the only server-derived style signal is the tag
+    // read (US-2210), and that runs inside the buffer closure alongside the
+    // per-image calls — so it does not exist yet when the per-image baseline is
+    // resolved. Rather than serialize the hot path to learn the style first, the
+    // per-image pass keeps the brand+category brief and the composite gets the
+    // style-scoped one. That split is defensible on its own terms: per-image is
+    // photo-level observation, while the composite is where the
+    // as-manufactured framing is actually applied to the score.
+    //
+    // The style is resolved from the tag read ALONE, never from the seller's
+    // title — see resolveTrustedStyle for why choosing which trusted block gets
+    // injected is itself a privileged act.
+    let compositeBaselineBlock = baselineBlock;
+    if (brandPack) {
+      const trustedStyle = resolveTrustedStyle(brandPack.styles, [
+        acceptedTag.find((a) => a.field === "style_code")?.value ?? null,
+      ]);
+      if (trustedStyle) {
+        const styled = await getGarmentBaseline({
+          brand: submission.brand,
+          garmentCategory: submission.garment_category,
+          style: trustedStyle,
+        }).catch(() => null);
+        if (styled) {
+          compositeBaselineBlock = baselineReferenceBlock(styled);
+          void captureServer("grading-engine", "grading.style_baseline", {
+            submission_id: submissionId,
+            style: trustedStyle,
+          });
+        }
+      }
+    }
+
     const tagBlock = tagGroundTruthBlock(acceptedTag, matchedEra, sizeVerification);
     if (tagMismatches.length > 0) {
       console.warn(
@@ -1929,8 +1966,9 @@ export async function processSubmission(submissionId: string) {
       // US-1066: cheap first-pass model when the cascade is on (else default).
       firstPassModel,
       submissionId,
-      // US-1533: same trusted baseline the per-image pass saw.
-      baselineBlock,
+      // US-1533/US-2217: the trusted baseline — style-scoped when the tag read
+      // identified one, else the same brand+category brief the per-image pass saw.
+      compositeBaselineBlock,
       // US-1537: the visual-verification photo set ([] when disabled). The
       // escalation re-grade below stays text-only by design — it re-runs the
       // whole per-image pass on the stronger model anyway.
@@ -1986,7 +2024,7 @@ export async function processSubmission(submissionId: string) {
             submissionId,
             cascade.escalationModel,
             wantForensic,
-            baselineBlock,
+            compositeBaselineBlock,
             tagBlock,
           );
           if (escalated) {

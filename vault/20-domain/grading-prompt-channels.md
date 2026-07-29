@@ -95,6 +95,29 @@ established**.
 The general form: a trusted block should carry a conclusion the grader can use,
 not a table it has to reason over. Prompt noise on a paid call is a real cost.
 
+## Choosing WHICH trusted block gets injected is itself privileged
+
+Added 2026-07-28 (US-2217), and it is the subtlest rule on this page.
+
+The baseline block is trusted context describing a garment's as-manufactured
+state. US-2217 made it style-scoped, which raised a question the earlier blocks
+never had to answer: **what picks the style?**
+
+The obvious answer — match the seller's title against known style names — is an
+injection vector, and a live one. A seller who types "Bedale" onto a quilted
+Barbour Liddesdale gets a brief saying waxed cotton is expected and re-waxing is
+maintenance. Genuine wear then reads as intentional finish, and the grade goes
+up. **No untrusted string ever entered the trusted block**, and the attack still
+works, because selecting among trusted blocks is as powerful as writing one.
+
+So the selector takes a trusted input only: the tag read's `style_code`
+(US-2210), read off the label by a vision pass over that photo alone. A
+near-miss is refused rather than resolved — a wrong style silently swaps one
+garment's factory state for another's, which is worse than having no baseline.
+
+The general form: **a routing decision over trusted content inherits that
+content's trust requirements.** Ask what picks the block, not just what is in it.
+
 ## Trusted does not mean scoring
 
 Trusted context earns a place outside the fence; it does not earn the right to
