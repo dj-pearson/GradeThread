@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -10,9 +10,12 @@ import {
   ExternalLink,
   Info,
   Lightbulb,
+  Loader2,
   RefreshCw,
   Repeat,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Card,
@@ -124,10 +127,13 @@ export function FlipdeskListingPerformancePage() {
     if (ok) navigate(`/dashboard/flipdesk/items/${inventoryItemId}`);
   }
 
+  const qc = useQueryClient();
   const [sortKey, setSortKey] = useState<SortKey>("views_total");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   // null = chip off; otherwise the N-day no-views window.
   const [noViewDays, setNoViewDays] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
 
   const { data: listings = [], isLoading } = useQuery({
     queryKey: ["listing_performance", user?.id],
@@ -181,6 +187,35 @@ export function FlipdeskListingPerformancePage() {
     },
   });
 
+  // US-2233: on-demand "Sync now" — refresh THIS seller's metrics instead of
+  // waiting up to 6h for the cron. Server route is tenant-scoped to the caller.
+  const syncNow = useMutation({
+    mutationFn: async (): Promise<{ updated: number; accessDenied: boolean }> => {
+      const res = await edgeFetch("/api/flipdesk/ebay/sync/performance/me", {
+        method: "POST",
+        json: {},
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        updated?: number;
+        accessDenied?: boolean;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error ?? "Sync failed");
+      return { updated: json.updated ?? 0, accessDenied: json.accessDenied ?? false };
+    },
+    onSuccess: async (r) => {
+      if (r.accessDenied) {
+        toast.warning("eBay Sell Analytics access isn't granted", {
+          description: "Reconnect your eBay account to pull performance metrics.",
+        });
+      } else {
+        toast.success(`Synced ${r.updated} listing${r.updated === 1 ? "" : "s"}.`);
+      }
+      await qc.invalidateQueries({ queryKey: ["listing_performance"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Sync failed"),
+  });
+
   const rows = useMemo(() => {
     const decorated = listings.map((l) => ({
       ...l,
@@ -188,9 +223,12 @@ export function FlipdeskListingPerformancePage() {
       days: daysListed(l.listed_at),
     }));
 
-    const filtered = noViewDays
-      ? decorated.filter((r) => r.views_total === 0 && r.days >= noViewDays)
-      : decorated;
+    const q = search.trim().toLowerCase();
+    const filtered = decorated.filter((r) => {
+      if (noViewDays && !(r.views_total === 0 && r.days >= noViewDays)) return false;
+      if (q && !r.title.toLowerCase().includes(q)) return false;
+      return true;
+    });
 
     const sorted = [...filtered].sort((a, b) => {
       let av: number | string;
@@ -217,7 +255,38 @@ export function FlipdeskListingPerformancePage() {
       return 0;
     });
     return sorted;
-  }, [listings, titles, noViewDays, sortKey, sortDir]);
+  }, [listings, titles, noViewDays, sortKey, sortDir, search]);
+
+  // US-2233: page the (potentially large) table so a big catalog doesn't render
+  // thousands of rows at once.
+  const PAGE_SIZE = 50;
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = rows.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  // The read is bounded at 1000 rows; if it filled, some listings aren't shown —
+  // say so rather than silently truncate (US-2169).
+  const truncated = listings.length >= 1000;
+
+  // US-2233: at-a-glance KPIs across ALL active listings (not just the page).
+  const kpis = useMemo(() => {
+    let views = 0;
+    let ctrSum = 0;
+    let ctrCount = 0;
+    let stale = 0;
+    for (const l of listings) {
+      views += l.views_total || 0;
+      if (l.click_through_rate != null && Number.isFinite(l.click_through_rate)) {
+        ctrSum += l.click_through_rate;
+        ctrCount += 1;
+      }
+      if (l.views_total === 0 && daysListed(l.listed_at) >= 14) stale += 1;
+    }
+    return {
+      totalViews: views,
+      avgCtr: ctrCount > 0 ? ctrSum / ctrCount : null,
+      stalePct: listings.length > 0 ? stale / listings.length : 0,
+    };
+  }, [listings]);
 
   const lastSynced = useMemo(() => {
     let latest: number | null = null;
@@ -260,12 +329,59 @@ export function FlipdeskListingPerformancePage() {
         title="Listing Performance"
         subtitle="Views, watchers and impressions per active eBay listing. Spot duds before they age out."
         actions={
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <RefreshCw className="h-3.5 w-3.5" />
-            Synced {relativeTime(lastSynced)} · auto every 6h
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              Synced {relativeTime(lastSynced)} · auto every 6h
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => syncNow.mutate()}
+              disabled={syncNow.isPending}
+            >
+              {syncNow.isPending ? (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-3.5 w-3.5" />
+              )}
+              Sync now
+            </Button>
           </div>
         }
       />
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total views
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{num(kpis.totalViews)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Avg CTR
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{pct(kpis.avgCtr)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Stale (0 views, 14d+)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{pct(kpis.stalePct)}</div>
+          </CardContent>
+        </Card>
+      </div>
 
       {accessDenied && (
         <Card className="border-brand-red/40 bg-brand-red/5">
@@ -347,6 +463,15 @@ export function FlipdeskListingPerformancePage() {
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(0);
+                }}
+                placeholder="Search title…"
+                className="h-8 w-44"
+              />
               <span className="text-xs text-muted-foreground">
                 No views in:
               </span>
@@ -354,9 +479,10 @@ export function FlipdeskListingPerformancePage() {
                 <button
                   key={n}
                   type="button"
-                  onClick={() =>
-                    setNoViewDays((cur) => (cur === n ? null : n))
-                  }
+                  onClick={() => {
+                    setNoViewDays((cur) => (cur === n ? null : n));
+                    setPage(0);
+                  }}
                   className={cn(
                     "rounded-full border px-3 py-1 text-xs transition-colors",
                     noViewDays === n
@@ -437,7 +563,7 @@ export function FlipdeskListingPerformancePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((r) => {
+                  {pageRows.map((r) => {
                     const stale = r.views_total === 0 && r.days >= 14;
                     return (
                       <TableRow key={r.id}>
@@ -487,6 +613,39 @@ export function FlipdeskListingPerformancePage() {
                   })}
                 </TableBody>
               </Table>
+              {pageCount > 1 && (
+                <div className="flex items-center justify-between pt-3 text-sm">
+                  <span className="text-muted-foreground">
+                    {safePage * PAGE_SIZE + 1}–
+                    {Math.min(rows.length, safePage * PAGE_SIZE + PAGE_SIZE)} of{" "}
+                    {rows.length}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage === 0}
+                      onClick={() => setPage(safePage - 1)}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage >= pageCount - 1}
+                      onClick={() => setPage(safePage + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {truncated && (
+                <p className="pt-3 text-xs text-muted-foreground">
+                  Showing the first 1,000 active listings. Use search or the
+                  no-views filters to narrow down the rest.
+                </p>
+              )}
             </div>
           )}
         </CardContent>

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2226",
+  "nextId": "US-2237",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4200,7 +4200,7 @@
         "Progress is reported while the batch runs and the dialog is cancellable",
         "A test asserts a mixed eBay + Shopify selection reprices both upstream and reports per-platform outcomes"
       ],
-      "notes": "[P1][FlipDesk/Listings] 2026-07-25 deep dive. listings.tsx:1420 loops one HTTP call per selected listing under setBusy() with no progress or cancel; the 409 path (non-eBay rows) silently writes the local listing_price and reports it as `remoteSkipped` → toast '(N updated locally only)'. A diverged local price then poisons margin/ROI math. The server already has the batched, adapter-driven path at flipdesk-ebay.ts:4802 (/listings/bulk-price-quantity) and 4948 (/listings/bulk-edit) — this story wires the UI to it. Depends on US-2165 for the route move. IMPLEMENTED 2026-07-25. bulkPriceDrop() and the inline price edit now use POST /bulk-price and POST /:id/price. Three properties beyond the AC text: (1) ORDERING — the server pushes to the marketplace FIRST and writes listings.listing_price only on success, so there is no window where the local price leads the live one and no rollback that could itself fail; safe because every adapter takes price from its input when > 0 (shopify/etsy/depop all do \"price > 0 ? price : row.listing_price\") and the routes validate price > 0. (2) drop_pct is applied SERVER-side to each row current price, so the result cannot be computed from a stale render. (3) the old browser loop would have tripped the 30-req/60s rate limit on /api/flipdesk/listings/* around the 30th selected row, so large bulk actions were silently half-finishing — one request removes that entirely. 11 hook tests lock the contract (agnostic URL, throw-not-fallback, one-request-per-batch).",
+      "notes": "[P1][FlipDesk/Listings] 2026-07-25 deep dive. listings.tsx:1420 loops one HTTP call per selected listing under setBusy() with no progress or cancel; the 409 path (non-eBay rows) silently writes the local listing_price and reports it as `remoteSkipped` → toast '(N updated locally only)'. A diverged local price then poisons margin/ROI math. The server already has the batched, adapter-driven path at flipdesk-ebay.ts:4802 (/listings/bulk-price-quantity) and 4948 (/listings/bulk-edit) — this story wires the UI to it. Depends on US-2165 for the route move. IMPLEMENTED 2026-07-25. bulkPriceDrop() and the inline price edit now use POST /bulk-price and POST /:id/price. Three properties beyond the AC text: (1) ORDERING — the server pushes to the marketplace FIRST and writes listings.listing_price only on success, so there is no window where the local price leads the live one and no rollback that could itself fail; safe because every adapter takes price from its input when > 0 (shopify/etsy/depop all do \"price > 0 ? price : row.listing_price\") and the routes validate price > 0. (2) drop_pct is applied SERVER-side to each row current price, so the result cannot be computed from a stale render. (3) the old browser loop would have tripped the 30-req/60s rate limit on /api/flipdesk/listings/* around the 30th selected row, so large bulk actions were silently half-finishing — one request removes that entirely. 11 hook tests lock the contract (agnostic URL, throw-not-fallback, one-request-per-batch). | Review 2026-07-28 (verification pass, NOT closing). Confirmed genuinely met: AC1 (bulkPriceDrop posts one request to /api/flipdesk/listings/bulk-price — use-listing-lifecycle.test.ts 18 tests green), AC3 (server pushes upstream FIRST then writes local; refused row keeps marketplace price, flipdesk-listings.ts:1390-1410), AC4 (structured per-row RowResult surfaced in listings.tsx). Two ACs NOT met, so the story correctly stays open: AC2 as written wants '25-per-call chunking' but /bulk-price is deliberately SEQUENTIAL per row (documented eBay rate-limit rationale, :1318) — a defensible deviation but not the literal AC; AC5 (progress reported while the batch runs + cancellable dialog) is unmet — listings.tsx bulkPriceDrop runs under a blocking setBusy(true) spinner with no progress and no cancel. To close: either implement per-row progress + cancel (AC5) or amend AC2/AC5 to match the one-request design.",
       "passes": false
     },
     {
@@ -5326,6 +5326,148 @@
       "dependsOn": [
         "US-2209",
         "US-1997"
+      ]
+    },
+    {
+      "id": "US-2226",
+      "passes": true,
+      "title": "Finances net profit ignores logged operating expenses — two conflicting profit numbers",
+      "description": "As a reseller, I want my logged operating expenses folded into the Finances net profit, so the app shows one true net figure instead of a per-item P&L number that leaves overhead out.",
+      "acceptanceCriteria": [
+        "fetchFinancesDashboard (src/lib/finances-dashboard.ts) either subtracts the period flipdesk_expenses total from net profit, or the dashboard adds a distinct true-net-after-overhead tile",
+        "The Finances Net Profit and Total Costs tiles (src/pages/finances.tsx lines 187-221) reconcile with the Expenses total for the same period",
+        "The misleading copy on src/pages/flipdesk/expenses.tsx line 177 (reduce true net profit beyond per-item P&L) is updated to match the single-source behavior",
+        "A test asserts that adding an expense inside a period lowers that period Finances net profit by the same amount"
+      ],
+      "notes": "Done 2026-07-28. Added src/lib/finances-overhead.ts with pure helpers sumExpensesInPeriod() + netAfterOverhead() and a fetchOperatingExpensesTotal() that reads flipdesk_expenses (RLS-scoped) for the same period boundary the finances_dashboard RPC uses. src/pages/finances.tsx now queries the period overhead and renders a 'Net After Overhead' card = net_profit - overhead, showing both operands so the Expenses total reconciles into one true-net figure (AC1/AC2). Chose the client-side tile path over an RPC change to avoid a 9th migration on a branch with 8 held migrations. Fixed the misleading copy on src/pages/flipdesk/expenses.tsx (~line 177) to point at the new figure (AC3). AC4: src/lib/finances-overhead.test.ts asserts adding an in-period expense lowers true net by exactly that amount; 5 tests pass. Verified: vitest green, tsc --noEmit clean, eslint clean on all changed files."
+    },
+    {
+      "id": "US-2227",
+      "passes": false,
+      "title": "Returns and Disputes: refunds are all-or-nothing and there is no closed/history view",
+      "description": "As a reseller handling returns, I want to issue a partial refund and review resolved cases, so I can offer keep-it discounts and audit past outcomes.",
+      "acceptanceCriteria": [
+        "refundReturn in src/pages/flipdesk/post-sale.tsx accepts a refund amount and issues a partial refund through the existing eBay post-order refund edge route, not only a full refund",
+        "A partial refund amount is validated to be greater than 0 and no more than the order total",
+        "Each of the three cards (disputes, returns, cancellations) gains a closed/resolved view showing past outcomes, not only open items",
+        "A test asserts a partial-refund request sends the entered amount to the edge route"
+      ]
+    },
+    {
+      "id": "US-2228",
+      "passes": false,
+      "title": "Expenses: no edit, no receipt upload, no recurring entries",
+      "description": "As a reseller doing bookkeeping, I want to edit an expense, attach a receipt, and mark an expense recurring, so I can fix mistakes and keep an audit trail without re-logging monthly costs by hand.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/expenses.tsx gains an edit action for an existing expense (today it is only add plus delete, lines 101-123)",
+        "An expense can attach a receipt image or PDF stored per-user via the hardened upload path (validateImageUpload then stripImageMetadata) and the row shows it",
+        "An expense can be marked recurring monthly and the system auto-creates the next entry",
+        "The list gains category and date-range filters",
+        "If a column or table is added for receipts or recurrence, the migration follows the US-1108 triple (idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer)"
+      ]
+    },
+    {
+      "id": "US-2229",
+      "passes": true,
+      "title": "Bulk pricing loads only 500 rows with no search, filter, sort, or pagination",
+      "description": "As a high-volume reseller, I want to search, filter, sort and page through my active listings on the Bulk pricing screen, so I can target the right listings past the first 500.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/bulk-pricing.tsx no longer caps the listing load at limit(500) (line 54) — it paginates or loads on demand",
+        "The listing list supports search by title, a filter such as price range or brand, and sort by price or age",
+        "A select-all-filtered control selects the current filtered set, not just the loaded rows",
+        "The two price operations are joined by increase-by-percent and a .99 rounding option",
+        "The page cross-links to the Repricing page"
+      ],
+      "notes": "Done 2026-07-28. Rewrote src/pages/flipdesk/bulk-pricing.tsx: (AC1) the .limit(500) is gone — listings load in 1000-row chunks via .range() until exhausted, so no active eBay listing is unreachable, with 50-per-page client-side display pagination. (AC2) title search, brand filter (via inventory_items(brand) embed), min/max price range, and sort by newest/oldest/price/title. (AC3) 'Select all N filtered' toggles selection across the entire filtered set, not just the visible page; apply() still iterates the full row set by id so cross-page selections apply. (AC4) added an Increase-by-% mode alongside Set/Reduce, plus an opt-in 'round to nearest .99' checkbox (applyRounding). (AC5) header links to /dashboard/flipdesk/repricing. Verified: tsc --noEmit clean, eslint clean; embed pattern matches existing use-ebay.ts inventory_items(title) usage."
+    },
+    {
+      "id": "US-2230",
+      "passes": true,
+      "title": "Reconcile: stale review-queue-coming-next copy and dev-facing internal names leak to users",
+      "description": "As a reseller, I want the Reconcile copy to describe what is actually on screen in plain language, so I am not told a feature is coming when it is right below and not shown internal code names.",
+      "acceptanceCriteria": [
+        "The Use the review queue (coming next) line in src/pages/flipdesk/reconciliation.tsx line 272 is corrected — the review queue renders directly below it",
+        "The How reconciliation works block (reconciliation.tsx lines 85-95) no longer names internal identifiers such as reconciliation-matcher edge function or payout_imports",
+        "Copy-only change with no behavior change"
+      ],
+      "notes": "Done 2026-07-28. Rewrote the reconciliation STEPS block (src/pages/flipdesk/reconciliation.tsx:82-95) into plain-English copy with no internal identifiers (removed reconciliation-matcher edge function and payout_imports), and changed the Recent payout rows CardDescription (line ~272) from 'review queue (coming next)' to 'review queue below' — accurate because ReviewQueueCard renders directly below at line ~337. Copy-only, no logic touched. Verified: eslint on the file clean."
+    },
+    {
+      "id": "US-2231",
+      "passes": false,
+      "title": "MeasureCard is a brochure with no path into the actual measure flow",
+      "description": "As a reseller reading the MeasureCard page, I want a button into the measure tool and a sample of the finished result, so the page leads to the capability it describes instead of dead-ending.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/measure-card.tsx adds a primary CTA linking into the item measure surface",
+        "The page shows a before/after sample of a finished buyer-facing measurements photo",
+        "The mailed-card status surfaces an ETA and, once shipped, a tracking number (today only a date, lines 199-206)"
+      ]
+    },
+    {
+      "id": "US-2232",
+      "passes": true,
+      "title": "Automations set_promo_rate_pct action silently no-ops on eBay — a paid rule does nothing",
+      "description": "As a Pro reseller, I want the promo-rate automation to actually change my eBay Promoted Listings rate or not be offered at all, so I never build a paid rule that quietly has no marketplace effect.",
+      "acceptanceCriteria": [
+        "set_promo_rate_pct either pushes the rate to the eBay Marketing API (services/edge-functions/src/lib/ebay-marketing.ts) so the live campaign rate changes, or the action is removed from the dialog dropdown in src/pages/flipdesk/automations.tsx (lines 368-373) until it is wired",
+        "The apply path in services/edge-functions/src/routes/flipdesk-automations.ts (lines 378-386) no longer records a promo-rate change as applied when nothing reached the marketplace",
+        "The activity-log local-only flag (automations.tsx line 542) is accurate for whatever ships",
+        "A test asserts the action either calls the eBay marketing path or is absent from the available actions"
+      ],
+      "notes": "Done 2026-07-28. Wired the set_promo_rate automation to eBay Promoted Listings instead of writing local-only. services/edge-functions/src/routes/flipdesk-automations.ts applyMatch set_promo_rate branch now: ensureAdCampaign(ownerId) then getAdForListing → updateAdRateForListing (existing ad) or createAdForListing (new ad), pushing to eBay FIRST (US-467) and only writing listings.promo_rate_pct + recording the action with ebay_synced:true once the marketplace accepted it; a listing with no live eBay id or a disconnected account is skipped (return false) and retried next run, never counted as applied (AC1/AC2). New exported gate promoRatePushable() follows the endListingWritesApplied house pattern. Frontend: removed the set_promo_rate exclusion from the 'local only' activity-log badge so it is accurate (AC3, src/pages/flipdesk/automations.tsx ~542), and replaced the 'not pushed to eBay yet' dialog note. AC4: services/edge-functions/src/tests/automation-promo-rate_test.ts (3 cases) asserts the eBay-push gate. Verified: deno check clean, deno test 3/3 pass, deno lint clean, frontend tsc --noEmit + eslint clean."
+    },
+    {
+      "id": "US-2233",
+      "passes": false,
+      "title": "Listing Performance: decorative refresh icon, no KPI tiles, no pagination or search",
+      "description": "As a reseller, I want a real Sync now button, top-line KPIs, and a searchable paged table on Listing Performance, so I am not stuck waiting six hours behind a fake refresh icon or scrolling a thousand rows.",
+      "acceptanceCriteria": [
+        "The RefreshCw element in src/pages/flipdesk/listing-performance.tsx (lines 263-267) becomes a working Sync now button that triggers the eBay traffic sync and reflects progress",
+        "The page shows aggregate KPI tiles (total views, average CTR, percent stale)",
+        "The table paginates and supports title search server-side rather than limit(1000) plus a client filter (line 145)",
+        "No unbounded read is introduced, honoring the US-2168 and US-2169 read contract"
+      ],
+      "notes": "Partial 2026-07-28. LANDED AC1: new user-scoped edge route POST /api/flipdesk/ebay/sync/performance/me (services/edge-functions/src/routes/flipdesk-ebay.ts) reusing syncListingPerformanceForUser(ownerId) — tenant-scoped (owner from JWT, no body id, US-268), with a tenant-isolation_test.ts no-auth case; the decorative RefreshCw in src/pages/flipdesk/listing-performance.tsx is now a real 'Sync now' button (spinner + toast + query invalidation). LANDED AC2: three KPI tiles (total views, avg CTR, % stale) computed across all active listings. LANDED partial AC3: title search box + 50-per-page client pagination + a US-2169 'showing first 1000' truncation notice. NOT DONE AC3/AC4 (server-side): the read is still .select(...).limit(1000) + client filter (line ~145) — search/sort/pagination remain client-side because the KPI tiles need the full set; genuinely server-side paging requires a server aggregate RPC for the KPIs + server-side listing_title search (mind the inventory_items.title fallback). Verified: frontend tsc+eslint clean; deno check + deno lint clean; tenant-isolation suite 17 passed / 0 failed with the new case."
+    },
+    {
+      "id": "US-2234",
+      "passes": false,
+      "title": "Analytics is mostly tables — no trend charts, no CSV export, Grading ROI is all-time only",
+      "description": "As a reseller, I want charts, a profit trend over time, CSV export, and consistent period controls across every Analytics tab, so the surface reads as an analytics product not a spreadsheet.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/analytics.tsx adds a revenue and net-profit trend chart over the selected period",
+        "The Returns and Grading-ROI tabs render a chart alongside their tables, not tables only",
+        "The Grading ROI tab honors the same period presets as the sibling tabs (today it is all-time only)",
+        "Each report offers a CSV export",
+        "Filter state (preset and groupKey) is reflected in the URL so views are shareable and survive a refresh"
+      ],
+      "notes": "Partial 2026-07-28. LANDED AC4: Export CSV buttons on all three Analytics reports (src/pages/flipdesk/analytics.tsx) via the shared downloadCsv() — sell-through by group, grading-ROI all-buckets, returns-by-grade-band (with the overall row). LANDED AC5: period preset AND sell-through grouping now persist in the URL (?preset=, ?group=) via new usePresetParam()/useGroupKeyParam() hooks, so an analytics view is shareable and survives refresh instead of resetting to all-time. NOT DONE AC2 (charts on Returns + Grading-ROI tabs — needs Recharts chart components like the existing SellThroughChart) and AC3 (period presets on Grading ROI — blocked: flipdesk_grading_roi / _summary RPCs take no p_period_start, so it needs a migration to add the param, and Docker is down with 8 held migrations). Verified: tsc --noEmit clean, eslint clean. | Progress 2026-07-28. LANDED AC2: new lazy src/components/flipdesk/analytics-bar-chart.tsx (Recharts, US-408 pattern); the Grading-ROI tab now charts net-profit lift by bucket (top 12) and the Returns tab charts return-rate by grade band, each alongside its table. Remaining: AC1 (a revenue/net-profit trend-over-time chart — the analytics RPCs return grouped aggregates, no time series; needs a time-series source like finances_dashboard.time_series wired in) and AC3 (Grading-ROI period presets — RPC migration, Docker down). Verified: tsc + eslint clean. | Progress 2026-07-28 (AC1). Added src/components/flipdesk/analytics-trend-chart.tsx (Recharts line chart, lazy) and a Revenue & net-profit over-time card on the Sell-through tab, fed by fetchFinancesDashboard(periodStart).time_series and gated on the same period preset. Story now 4/5: AC1/AC2/AC4/AC5 done; ONLY AC3 remains (Grading-ROI period presets need p_period_start added to the flipdesk_grading_roi / _summary RPCs = a migration; deferred — Docker down + 8 held migrations, must be done with the migrations skill and the db lane). Verified: tsc + eslint clean."
+    },
+    {
+      "id": "US-2235",
+      "passes": false,
+      "title": "Community Insights has no filtering, no coverage signal, and dead-end recommendations",
+      "description": "As a reseller researching what to source, I want to filter community benchmarks and act on recommendations, so I can answer a specific question and take the next step instead of reading fixed top-N lists.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/community-insights.tsx adds brand, category, size and price filtering on the community_benchmarks data with the min-5-seller k-anonymity still enforced DB-side",
+        "A coverage banner shows the total number of sellers feeding the aggregates",
+        "When personal cohorts miss k-anonymity, a global fallback signal is shown instead of only a not-enough-data message",
+        "Recommendations link into Scout or Buyer Demand to act on them and can be dismissed, with a see-all control"
+      ]
+    },
+    {
+      "id": "US-2236",
+      "passes": false,
+      "title": "Offers and Messages: every offer is manual, counters show no margin, and lists never paginate",
+      "description": "As a reseller handling Best Offers, I want auto-accept and auto-decline threshold rules, margin context on counters, and a paged filterable inbox, so high-volume negotiation is not one-by-one and blind to break-even.",
+      "acceptanceCriteria": [
+        "Offers can be auto-accepted above a set percent and auto-declined below a set percent of list price, via the automations engine offer_received trigger (US-2156) or a rule surfaced on src/pages/flipdesk/offers.tsx",
+        "The counter-offer input (offers.tsx lines 186-208) shows the item cost and resulting margin so a counter below break-even is visible",
+        "The offers list and message inbox paginate, and the inbox has an unread filter (today offers.map and messages.map render a flat list, lines 117 and 465)",
+        "Deadline-sensitive offers refresh in the background rather than only on a manual retry"
+      ],
+      "dependsOn": [
+        "US-2156"
       ]
     }
   ]

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Tags } from "lucide-react";
+import { Loader2, Tags, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -28,14 +28,37 @@ import {
 interface BulkRow {
   id: string;
   title: string;
+  brand: string | null;
   price: number;
   quantity: number | null;
+  listedAt: string | null;
 }
 
-type PriceMode = "none" | "set" | "reduce";
+// US-2229: reduce drives prices down, increase drives them up, set is absolute.
+type PriceMode = "none" | "set" | "reduce" | "increase";
+type SortKey = "age_new" | "age_old" | "price_high" | "price_low" | "title";
 
-// US-1046 clean surface: select active eBay listings and update price and/or
-// quantity in one bulk call.
+// US-2229: load every active eBay listing in chunks so a seller past 500 rows
+// can still reach and select the rest — no silent truncation.
+const FETCH_CHUNK = 1000;
+const PAGE_SIZE = 50;
+
+interface RawListingRow {
+  id: string;
+  listing_title: string | null;
+  listing_price: number;
+  quantity: number | null;
+  listed_at: string | null;
+  inventory_items: { brand: string | null } | { brand: string | null }[] | null;
+}
+
+function rawBrand(inv: RawListingRow["inventory_items"]): string | null {
+  if (!inv) return null;
+  return Array.isArray(inv) ? (inv[0]?.brand ?? null) : inv.brand;
+}
+
+// US-1046 + US-2229: select active eBay listings and update price and/or
+// quantity in one bulk call, with search / filter / sort over the full set.
 export function FlipdeskBulkPricingPage() {
   const confirm = useConfirm();
   const { data: connection, isLoading: connLoading } = useEbayConnection();
@@ -45,25 +68,30 @@ export function FlipdeskBulkPricingPage() {
     queryKey: ["bulk_pricing_listings"],
     enabled: connected,
     queryFn: async (): Promise<BulkRow[]> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select("id, listing_title, listing_price, quantity, platform_offer_id")
-        .eq("platform", "ebay")
-        .eq("listing_status", "active")
-        .not("platform_offer_id", "is", null)
-        .order("listed_at", { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      return ((data ?? []) as Array<{
-        id: string;
-        listing_title: string | null;
-        listing_price: number;
-        quantity: number | null;
-      }>).map((l) => ({
+      const all: RawListingRow[] = [];
+      for (let from = 0; ; from += FETCH_CHUNK) {
+        const { data, error } = await supabase
+          .from("listings")
+          .select(
+            "id, listing_title, listing_price, quantity, listed_at, platform_offer_id, inventory_items(brand)",
+          )
+          .eq("platform", "ebay")
+          .eq("listing_status", "active")
+          .not("platform_offer_id", "is", null)
+          .order("listed_at", { ascending: false })
+          .range(from, from + FETCH_CHUNK - 1);
+        if (error) throw error;
+        const batch = (data ?? []) as unknown as RawListingRow[];
+        all.push(...batch);
+        if (batch.length < FETCH_CHUNK) break;
+      }
+      return all.map((l) => ({
         id: l.id,
         title: l.listing_title || "Untitled listing",
+        brand: rawBrand(l.inventory_items),
         price: l.listing_price,
         quantity: l.quantity,
+        listedAt: l.listed_at,
       }));
     },
   });
@@ -73,9 +101,63 @@ export function FlipdeskBulkPricingPage() {
   const [priceMode, setPriceMode] = useState<PriceMode>("none");
   const [priceValue, setPriceValue] = useState("");
   const [qtyValue, setQtyValue] = useState("");
+  const [roundTo99, setRoundTo99] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const allSelected = rows.length > 0 && selected.size === rows.length;
+  // Filter / sort / pagination state.
+  const [search, setSearch] = useState("");
+  const [brandFilter, setBrandFilter] = useState("all");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("age_new");
+  const [page, setPage] = useState(0);
+
+  const brands = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) if (r.brand) set.add(r.brand);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const min = minPrice.trim() === "" ? null : Number(minPrice);
+    const max = maxPrice.trim() === "" ? null : Number(maxPrice);
+    const out = rows.filter((r) => {
+      if (q && !r.title.toLowerCase().includes(q)) return false;
+      if (brandFilter !== "all" && r.brand !== brandFilter) return false;
+      if (min != null && Number.isFinite(min) && r.price < min) return false;
+      if (max != null && Number.isFinite(max) && r.price > max) return false;
+      return true;
+    });
+    out.sort((a, b) => {
+      switch (sortKey) {
+        case "price_high":
+          return b.price - a.price;
+        case "price_low":
+          return a.price - b.price;
+        case "title":
+          return a.title.localeCompare(b.title);
+        case "age_old":
+          return (a.listedAt ?? "").localeCompare(b.listedAt ?? "");
+        case "age_new":
+        default:
+          return (b.listedAt ?? "").localeCompare(a.listedAt ?? "");
+      }
+    });
+    return out;
+  }, [rows, search, brandFilter, minPrice, maxPrice, sortKey]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((r) => selected.has(r.id));
+
+  function resetPage() {
+    setPage(0);
+  }
+
   function toggle(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -84,27 +166,54 @@ export function FlipdeskBulkPricingPage() {
       return next;
     });
   }
-  function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
+
+  // US-2229: select-all acts on the whole FILTERED set, not just the visible
+  // page, so a "select all under $20" bulk action selects every match.
+  function toggleAllFiltered() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        for (const r of filtered) next.delete(r.id);
+      } else {
+        for (const r of filtered) next.add(r.id);
+      }
+      return next;
+    });
   }
 
   const qtyNum = qtyValue.trim() === "" ? undefined : Number(qtyValue);
   const priceNum = priceValue.trim() === "" ? undefined : Number(priceValue);
-  // A reduce percent outside 1–99 would drive computed prices to $0 or below, so
-  // it never counts as an active (appliable) price change.
-  const percentInvalid = priceMode === "reduce" && priceNum != null &&
-    Number.isFinite(priceNum) && (priceNum < 1 || priceNum > 99);
-  const priceActive = priceMode !== "none" && priceNum != null &&
-    Number.isFinite(priceNum) && priceNum > 0 && !percentInvalid;
+  const isPct = priceMode === "reduce" || priceMode === "increase";
+  // A reduce percent outside 1–99 would drive computed prices to $0 or below; an
+  // increase just needs a positive percent.
+  const percentInvalid =
+    isPct &&
+    priceNum != null &&
+    Number.isFinite(priceNum) &&
+    (priceMode === "reduce" ? priceNum < 1 || priceNum > 99 : priceNum < 1);
+  const priceActive =
+    priceMode !== "none" &&
+    priceNum != null &&
+    Number.isFinite(priceNum) &&
+    priceNum > 0 &&
+    !percentInvalid;
   const qtyActive = qtyNum != null && Number.isInteger(qtyNum) && qtyNum >= 0;
   const canApply = selected.size > 0 && (priceActive || qtyActive) && !bulk.isPending;
+
+  // Round to the nearest .99 when the seller opts in (psychological pricing).
+  function applyRounding(p: number): number {
+    if (!roundTo99) return Number(p.toFixed(2));
+    return Math.max(0.99, Math.round(p) - 0.01);
+  }
 
   /// Resolve the target price for a row given the chosen mode.
   function targetPrice(row: BulkRow): number | undefined {
     if (!priceActive || priceNum == null) return undefined;
-    if (priceMode === "set") return Number(priceNum.toFixed(2));
-    // reduce by %
-    return Number((row.price * (1 - priceNum / 100)).toFixed(2));
+    let p: number;
+    if (priceMode === "set") p = priceNum;
+    else if (priceMode === "reduce") p = row.price * (1 - priceNum / 100);
+    else p = row.price * (1 + priceNum / 100); // increase
+    return applyRounding(p);
   }
 
   async function apply() {
@@ -122,9 +231,12 @@ export function FlipdeskBulkPricingPage() {
       ? null
       : priceMode === "set"
         ? `set the price to $${priceNum.toFixed(2)}`
-        : `reduce the price by ${priceNum}%`;
+        : priceMode === "reduce"
+          ? `reduce the price by ${priceNum}%`
+          : `increase the price by ${priceNum}%`;
     const qtyOp = qtyActive ? `set quantity to ${qtyNum}` : null;
-    const op = [priceOp, qtyOp].filter(Boolean).join(" and ");
+    const roundOp = priceActive && roundTo99 ? "round to .99" : null;
+    const op = [priceOp, roundOp, qtyOp].filter(Boolean).join(", ");
     const ok = await confirm({
       title: `Apply changes to ${updates.length} listing${updates.length === 1 ? "" : "s"}?`,
       description: `This will ${op} on ${updates.length} live eBay listing${updates.length === 1 ? "" : "s"} immediately.`,
@@ -150,10 +262,14 @@ export function FlipdeskBulkPricingPage() {
 
   const previewPrice = useMemo(() => {
     if (!priceActive || priceNum == null) return null;
-    return priceMode === "set"
-      ? `Set price to $${priceNum.toFixed(2)}`
-      : `Reduce price by ${priceNum}%`;
-  }, [priceActive, priceMode, priceNum]);
+    const base =
+      priceMode === "set"
+        ? `Set price to $${priceNum.toFixed(2)}`
+        : priceMode === "reduce"
+          ? `Reduce price by ${priceNum}%`
+          : `Increase price by ${priceNum}%`;
+    return roundTo99 ? `${base}, rounded to .99` : base;
+  }, [priceActive, priceMode, priceNum, roundTo99]);
 
   if (connLoading) {
     return (
@@ -179,10 +295,18 @@ export function FlipdeskBulkPricingPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <PageHeader
-        title="Bulk pricing"
-        subtitle="Select active eBay listings and update their price and/or quantity in one go. Changes push straight to eBay."
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          title="Bulk pricing"
+          subtitle="Select active eBay listings and update their price and/or quantity in one go. Changes push straight to eBay."
+        />
+        <Button asChild variant="outline" size="sm">
+          <a href="/dashboard/flipdesk/repricing">
+            <TrendingUp className="mr-2 h-4 w-4" />
+            Condition-aware repricing
+          </a>
+        </Button>
+      </div>
 
       <Card>
         <CardHeader>
@@ -203,12 +327,13 @@ export function FlipdeskBulkPricingPage() {
                   <SelectItem value="none">No change</SelectItem>
                   <SelectItem value="set">Set price to…</SelectItem>
                   <SelectItem value="reduce">Reduce by %…</SelectItem>
+                  <SelectItem value="increase">Increase by %…</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {priceMode !== "none" && (
               <div className="space-y-1">
-                <Label>{priceMode === "set" ? "New price ($)" : "Reduce by (%)"}</Label>
+                <Label>{priceMode === "set" ? "New price ($)" : "Percent (%)"}</Label>
                 <Input
                   type="number"
                   min={priceMode === "set" ? 0.01 : 1}
@@ -226,7 +351,9 @@ export function FlipdeskBulkPricingPage() {
                 />
                 {percentInvalid && (
                   <p className="text-xs text-destructive">
-                    Enter a percentage between 1 and 99.
+                    {priceMode === "reduce"
+                      ? "Enter a percentage between 1 and 99."
+                      : "Enter a percentage of 1 or more."}
                   </p>
                 )}
               </div>
@@ -248,6 +375,18 @@ export function FlipdeskBulkPricingPage() {
               Apply
             </Button>
           </div>
+          {priceMode !== "none" && (
+            <div className="flex w-fit items-center gap-2">
+              <Checkbox
+                id="round-to-99"
+                checked={roundTo99}
+                onCheckedChange={(v) => setRoundTo99(v === true)}
+              />
+              <Label htmlFor="round-to-99" className="text-sm text-muted-foreground">
+                Round to nearest .99
+              </Label>
+            </div>
+          )}
           {(previewPrice || qtyActive) && (
             <p className="text-xs text-muted-foreground">
               {[previewPrice, qtyActive ? `Set quantity to ${qtyNum}` : null]
@@ -259,19 +398,100 @@ export function FlipdeskBulkPricingPage() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="space-y-3">
           <CardTitle className="flex items-center justify-between text-base">
             <span>Active eBay listings</span>
-            {rows.length > 0 && (
+            {filtered.length > 0 && (
               <button
                 type="button"
-                onClick={toggleAll}
+                onClick={toggleAllFiltered}
                 className="text-sm font-normal text-muted-foreground hover:underline"
               >
-                {allSelected ? "Clear" : "Select all"}
+                {allFilteredSelected
+                  ? "Clear selection"
+                  : `Select all ${filtered.length} filtered`}
               </button>
             )}
           </CardTitle>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[12rem] flex-1 space-y-1">
+              <Label className="text-xs">Search title</Label>
+              <Input
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  resetPage();
+                }}
+                placeholder="Search…"
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Brand</Label>
+              <Select
+                value={brandFilter}
+                onValueChange={(v) => {
+                  setBrandFilter(v);
+                  resetPage();
+                }}
+              >
+                <SelectTrigger className="h-9 w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All brands</SelectItem>
+                  {brands.map((b) => (
+                    <SelectItem key={b} value={b}>
+                      {b}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Min $</Label>
+              <Input
+                type="number"
+                min={0}
+                value={minPrice}
+                onChange={(e) => {
+                  setMinPrice(e.target.value);
+                  resetPage();
+                }}
+                className="h-9 w-20"
+                placeholder="—"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Max $</Label>
+              <Input
+                type="number"
+                min={0}
+                value={maxPrice}
+                onChange={(e) => {
+                  setMaxPrice(e.target.value);
+                  resetPage();
+                }}
+                className="h-9 w-20"
+                placeholder="—"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Sort</Label>
+              <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+                <SelectTrigger className="h-9 w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="age_new">Newest first</SelectItem>
+                  <SelectItem value="age_old">Oldest first</SelectItem>
+                  <SelectItem value="price_high">Price: high to low</SelectItem>
+                  <SelectItem value="price_low">Price: low to high</SelectItem>
+                  <SelectItem value="title">Title A–Z</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-1">
           {isLoading ? (
@@ -280,28 +500,66 @@ export function FlipdeskBulkPricingPage() {
             <p className="text-sm text-muted-foreground">
               No active eBay listings with an offer id.
             </p>
+          ) : filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No listings match your filters.
+            </p>
           ) : (
-            rows.map((row) => (
-              <div
-                key={row.id}
-                className="flex items-center gap-3 rounded-md border p-2"
-              >
-                <Checkbox
-                  checked={selected.has(row.id)}
-                  onCheckedChange={() => toggle(row.id)}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{row.title}</p>
-                  {errors[row.id] && (
-                    <p className="truncate text-xs text-destructive">{errors[row.id]}</p>
+            <>
+              {pageRows.map((row) => (
+                <div
+                  key={row.id}
+                  className="flex items-center gap-3 rounded-md border p-2"
+                >
+                  <Checkbox
+                    checked={selected.has(row.id)}
+                    onCheckedChange={() => toggle(row.id)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{row.title}</p>
+                    {row.brand && (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {row.brand}
+                      </p>
+                    )}
+                    {errors[row.id] && (
+                      <p className="truncate text-xs text-destructive">{errors[row.id]}</p>
+                    )}
+                  </div>
+                  <Badge variant="secondary">${row.price.toFixed(2)}</Badge>
+                  {row.quantity != null && (
+                    <span className="text-xs text-muted-foreground">qty {row.quantity}</span>
                   )}
                 </div>
-                <Badge variant="secondary">${row.price.toFixed(2)}</Badge>
-                {row.quantity != null && (
-                  <span className="text-xs text-muted-foreground">qty {row.quantity}</span>
-                )}
-              </div>
-            ))
+              ))}
+              {pageCount > 1 && (
+                <div className="flex items-center justify-between pt-2 text-sm">
+                  <span className="text-muted-foreground">
+                    {safePage * PAGE_SIZE + 1}–
+                    {Math.min(filtered.length, safePage * PAGE_SIZE + PAGE_SIZE)} of{" "}
+                    {filtered.length}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage === 0}
+                      onClick={() => setPage(safePage - 1)}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage >= pageCount - 1}
+                      onClick={() => setPage(safePage + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

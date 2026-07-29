@@ -367,8 +367,8 @@ function RuleDialog({
             )}
             {actionType === "set_promo_rate_pct" && (
               <p className="text-xs text-muted-foreground">
-                Tracked in FlipDesk for now — the rate isn't pushed to eBay
-                Promoted Listings yet.
+                Sets the listing's eBay Promoted Listings ad rate. A listing that
+                isn't live on eBay is skipped until it is.
               </p>
             )}
             {actionType === "create_coded_coupon" && (
@@ -539,7 +539,7 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
             {a.action_type === "end_listing" && (
               <span className="text-muted-foreground">ended</span>
             )}
-            {!a.ebay_synced && a.action_type !== "set_promo_rate_pct" && (
+            {!a.ebay_synced && (
               <span className="text-amber-600 dark:text-amber-400">local only</span>
             )}
           </li>

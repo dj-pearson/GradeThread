@@ -845,6 +845,30 @@ flipdeskEbayRoutes.post("/sync/performance", async (c) => {
   return c.json({ scanned: userIds.length, updated, accessDenied, failed });
 });
 
+// POST /api/flipdesk/ebay/sync/performance/me — user-facing "Sync now" (US-2233).
+// The 6h cron above is job-secret only; this lets a seller refresh their OWN
+// listing metrics on demand instead of waiting. Tenant-scoped: it only ever
+// touches the caller's listings — syncListingPerformanceForUser writes are keyed
+// on ownerId's active listings (via inventory_items, US-268), and the id comes
+// from the auth context, never the request body.
+flipdeskEbayRoutes.post("/sync/performance/me", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Unauthorized" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  try {
+    const { updated, accessDenied } = await syncListingPerformanceForUser(ownerId);
+    return c.json({ updated, accessDenied });
+  } catch (err) {
+    console.error(
+      `[flipdesk-ebay] on-demand performance sync failed for ${ownerId}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return c.json({ error: "Performance sync failed" }, 500);
+  }
+});
+
 // ── US-314: business policies + merchant location ────────────────────
 //
 // GET  /policies          → list cached policies + locations (syncs if empty);

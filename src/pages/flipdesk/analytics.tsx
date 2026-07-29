@@ -1,5 +1,5 @@
-import { lazy, Suspense, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { lazy, Suspense, useMemo } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -12,7 +12,9 @@ import {
   Clock,
   Percent,
   DollarSign,
+  Download,
 } from "lucide-react";
+import { downloadCsv } from "@/lib/csv-export";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -49,6 +51,7 @@ import {
   fetchGradingRoi,
   fetchGradingRoiSummary,
 } from "@/lib/flipdesk-analytics-server";
+import { fetchFinancesDashboard } from "@/lib/finances-dashboard";
 import { ShareOutcomesToggle } from "@/components/flipdesk/share-outcomes-toggle";
 import { EbayAccountHealthCard } from "@/components/flipdesk/ebay-account-health-card";
 import { EbayListingHealthCard } from "@/components/flipdesk/ebay-listing-health-card";
@@ -71,6 +74,16 @@ const SellThroughChart = lazy(() =>
     default: m.SellThroughChart,
   })),
 );
+const AnalyticsBarChart = lazy(() =>
+  import("@/components/flipdesk/analytics-bar-chart").then((m) => ({
+    default: m.AnalyticsBarChart,
+  })),
+);
+const AnalyticsTrendChart = lazy(() =>
+  import("@/components/flipdesk/analytics-trend-chart").then((m) => ({
+    default: m.AnalyticsTrendChart,
+  })),
+);
 
 const usd = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `$${n.toFixed(2)}`;
@@ -89,6 +102,48 @@ function presetStart(p: Preset): string | null {
   from.setDate(from.getDate() - days);
   return from.toISOString().slice(0, 10);
 }
+
+// US-2234: persist the period preset in the URL so an analytics view is
+// shareable and survives a refresh, instead of resetting to all-time.
+function usePresetParam(): [Preset, (p: Preset) => void] {
+  const [sp, setSp] = useSearchParams();
+  const raw = sp.get("preset");
+  const preset: Preset =
+    raw === "30d" || raw === "90d" || raw === "12mo" ? raw : "all";
+  const setPreset = (p: Preset) =>
+    setSp(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (p === "all") next.delete("preset");
+        else next.set("preset", p);
+        return next;
+      },
+      { replace: true },
+    );
+  return [preset, setPreset];
+}
+
+// US-2234: the sell-through grouping (category/brand/source) also lives in the
+// URL so the whole view is deep-linkable.
+function useGroupKeyParam(): [GroupKey, (k: GroupKey) => void] {
+  const [sp, setSp] = useSearchParams();
+  const raw = sp.get("group");
+  const groupKey: GroupKey =
+    raw === "brand" || raw === "source" ? raw : "category";
+  const setGroupKey = (k: GroupKey) =>
+    setSp(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (k === "category") next.delete("group");
+        else next.set("group", k);
+        return next;
+      },
+      { replace: true },
+    );
+  return [groupKey, setGroupKey];
+}
+
+const csvDate = (): string => new Date().toISOString().slice(0, 10);
 
 export function FlipdeskAnalyticsPage() {
   const location = useLocation();
@@ -151,8 +206,8 @@ function Loading() {
 
 function SellThroughReport() {
   const user = useAuthStore((s) => s.user);
-  const [preset, setPreset] = useState<Preset>("all");
-  const [groupKey, setGroupKey] = useState<GroupKey>("category");
+  const [preset, setPreset] = usePresetParam();
+  const [groupKey, setGroupKey] = useGroupKeyParam();
 
   const periodStart = useMemo(() => presetStart(preset), [preset]);
   const { data: rows = [], isLoading } = useQuery({
@@ -164,6 +219,19 @@ function SellThroughReport() {
     queryFn: () => fetchSellThrough(groupKey, periodStart),
   });
 
+  // US-2234 (AC1): revenue + net-profit trend over the selected period. Reuses
+  // the finances_dashboard RPC's time_series (the only server-side time series we
+  // have) rather than adding a second one; shares the same cache key prefix.
+  const { data: trend = [] } = useQuery({
+    queryKey: ["items_full", "analytics", "trend", user?.id, preset],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const dash = await fetchFinancesDashboard(periodStart);
+      return dash.time_series ?? [];
+    },
+  });
+
   if (isLoading) return <Loading />;
 
   const chartData = rows.slice(0, 12).map((r) => ({
@@ -172,6 +240,28 @@ function SellThroughReport() {
     sold: r.sold,
     listed: r.listed,
   }));
+
+  function exportCsv() {
+    downloadCsv(
+      `flipdesk-sell-through-by-${groupKey}-${csvDate()}.csv`,
+      [
+        groupKey,
+        "Listed",
+        "Sold",
+        "Sell-through %",
+        "Avg net profit",
+        "Median days to sell",
+      ],
+      rows.map((r) => [
+        r.group,
+        r.listed,
+        r.sold,
+        r.sellThrough != null ? Math.round(r.sellThrough * 100) : "",
+        r.avgNetProfit ?? "",
+        r.medianDaysToSell != null ? Math.round(r.medianDaysToSell) : "",
+      ]),
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -197,7 +287,36 @@ function SellThroughReport() {
             <SelectItem value="12mo">Last 12 months</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          disabled={rows.length === 0}
+          onClick={exportCsv}
+        >
+          <Download className="mr-2 h-4 w-4" />
+          Export CSV
+        </Button>
       </div>
+
+      {trend.length > 1 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <TrendingUp className="h-4 w-4" />
+              Revenue &amp; net profit over time
+            </CardTitle>
+            <CardDescription>
+              Daily revenue and net profit for the selected period.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Suspense fallback={<ChartSkeleton />}>
+              <AnalyticsTrendChart data={trend} />
+            </Suspense>
+          </CardContent>
+        </Card>
+      )}
 
       {/* US-1473/US-1422: eBay account + listing health. Self-gate on connection. */}
       <div className="grid gap-4 md:grid-cols-2">
@@ -308,8 +427,63 @@ function GradingRoiReport() {
     .filter((b) => b.netProfitLift != null && b.netProfitLift > 0)
     .sort((a, b) => (b.netProfitLift ?? 0) - (a.netProfitLift ?? 0));
 
+  // US-2234: chart the profit lift for the meaningful buckets (top 12 by lift).
+  const liftChart = meaningful
+    .filter((b) => b.netProfitLift != null)
+    .sort((a, b) => (b.netProfitLift ?? 0) - (a.netProfitLift ?? 0))
+    .slice(0, 12)
+    .map((b) => ({
+      name: `${b.category} · ${b.band}`,
+      value: Math.round(b.netProfitLift ?? 0),
+    }));
+
+  function exportCsv() {
+    downloadCsv(
+      `flipdesk-grading-roi-${csvDate()}.csv`,
+      [
+        "Category",
+        "Price band",
+        "Graded n",
+        "Graded avg profit",
+        "Ungraded n",
+        "Ungraded avg profit",
+        "Profit lift",
+        "Days faster",
+        "Meaningful",
+      ],
+      buckets.map((b) => {
+        const faster =
+          b.graded.medianDaysToSell != null && b.ungraded.medianDaysToSell != null
+            ? b.ungraded.medianDaysToSell - b.graded.medianDaysToSell
+            : null;
+        return [
+          b.category,
+          b.band,
+          b.graded.count,
+          b.graded.avgNetProfit ?? "",
+          b.ungraded.count,
+          b.ungraded.avgNetProfit ?? "",
+          b.netProfitLift ?? "",
+          faster != null ? Math.round(faster) : "",
+          b.meaningful ? "yes" : "no",
+        ];
+      }),
+    );
+  }
+
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={buckets.length === 0}
+          onClick={exportCsv}
+        >
+          <Download className="mr-2 h-4 w-4" />
+          Export CSV
+        </Button>
+      </div>
       <RoiHeadline summary={summary} />
 
       <Card>
@@ -361,6 +535,23 @@ function GradingRoiReport() {
           )}
         </CardContent>
       </Card>
+
+      {liftChart.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Net profit lift by bucket</CardTitle>
+            <CardDescription>
+              How much more (or less) graded items net than ungraded, per
+              category and price band. Top 12 by lift.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Suspense fallback={<ChartSkeleton />}>
+              <AnalyticsBarChart data={liftChart} unit="$" label="Profit lift" />
+            </Suspense>
+          </CardContent>
+        </Card>
+      )}
 
       {buckets.length > 0 && (
         <Card>
@@ -612,7 +803,7 @@ function RoiStatTile({
 // into their listings. Return rate = refunded ÷ fulfilled (shipped) sales.
 function ReturnReductionReport() {
   const user = useAuthStore((s) => s.user);
-  const [preset, setPreset] = useState<Preset>("all");
+  const [preset, setPreset] = usePresetParam();
 
   const periodStart = useMemo(() => presetStart(preset), [preset]);
   const { data, isLoading } = useQuery({
@@ -635,6 +826,29 @@ function ReturnReductionReport() {
   const lowVsHigh = lowVsHighBandMultiplier(summary);
   const highBand = summary.bands.find((b) => b.key === "high");
 
+  function exportCsv() {
+    downloadCsv(
+      `flipdesk-returns-by-grade-${csvDate()}.csv`,
+      ["Grade band", "Shipped", "Returns", "Return rate %"],
+      [
+        ...summary.bands.map((b) => [
+          b.label,
+          b.sold,
+          b.returns,
+          b.returnRate != null ? Math.round(b.returnRate * 100) : "",
+        ]),
+        [
+          "All shipped sales",
+          summary.overall.sold,
+          summary.overall.returns,
+          summary.overall.returnRate != null
+            ? Math.round(summary.overall.returnRate * 100)
+            : "",
+        ],
+      ],
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -649,6 +863,16 @@ function ReturnReductionReport() {
             <SelectItem value="12mo">Last 12 months</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          disabled={summary.overall.sold === 0}
+          onClick={exportCsv}
+        >
+          <Download className="mr-2 h-4 w-4" />
+          Export CSV
+        </Button>
       </div>
 
       {summary.overall.sold === 0 ? (
@@ -707,9 +931,38 @@ function ReturnReductionReport() {
             </CardContent>
           </Card>
 
+          {(() => {
+            const bandChart = summary.bands
+              .filter((b) => b.sold > 0 && b.returnRate != null)
+              .map((b) => ({
+                name: b.label,
+                value: Math.round((b.returnRate ?? 0) * 100),
+              }));
+            return bandChart.length > 0 ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    Return rate by grade band
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Suspense fallback={<ChartSkeleton />}>
+                    <AnalyticsBarChart
+                      data={bandChart}
+                      unit="%"
+                      color="#E94560"
+                      label="Return rate"
+                      domain={[0, "auto"]}
+                    />
+                  </Suspense>
+                </CardContent>
+              </Card>
+            ) : null;
+          })()}
+
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Return rate by grade band</CardTitle>
+              <CardTitle className="text-base">Detail</CardTitle>
             </CardHeader>
             <CardContent className="px-0">
               <Table>

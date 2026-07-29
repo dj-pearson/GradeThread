@@ -82,15 +82,15 @@ import type { SaleRow, ItemFullRow } from "@/types/database";
 const STEPS = [
   {
     title: "Ingest payout rows",
-    body: "Two ingestion paths: live eBay webhooks via the edge service and CSV upload from the eBay seller dashboard. Both land in payout_imports.",
+    body: "Payouts come in two ways: automatically from eBay, or from a CSV you upload from your eBay seller dashboard.",
   },
   {
     title: "Auto-match to sales",
-    body: "The reconciliation-matcher edge function matches payout rows to listings by listing ID and timestamp window. Matched rows update the linked sale row with per-fee breakdowns.",
+    body: "We match each payout to the right sale by listing ID and date, then fill in the fee breakdown on that sale.",
   },
   {
-    title: "Manual review queue",
-    body: "Anything unmatched stays in a review queue with a side-by-side compare UI. Matches are an explicit user action — never silent.",
+    title: "Review the rest",
+    body: "Anything we could not match waits in the review queue below with a side-by-side compare. You confirm each match — nothing is linked silently.",
   },
 ];
 
@@ -269,8 +269,8 @@ export function ReconciliationPayoutsTab() {
                   Recent payout rows
                 </CardTitle>
                 <CardDescription>
-                  Last 25. Use the review queue (coming next) to link each one
-                  to a sale.
+                  Last 25. Use the review queue below to link each one to a
+                  sale.
                 </CardDescription>
               </CardHeader>
               <CardContent className="px-0">

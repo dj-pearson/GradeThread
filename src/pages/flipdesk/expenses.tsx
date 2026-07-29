@@ -174,7 +174,8 @@ export function FlipdeskExpensesPage() {
         <CardHeader>
           <CardTitle>{expenses.length} expenses</CardTitle>
           <CardDescription>
-            Logged overhead. These reduce true net profit beyond per-item P&amp;L.
+            Logged overhead. The Finances page subtracts this total from net
+            profit in its Net After Overhead figure.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">

@@ -819,6 +819,25 @@ Deno.test({
 });
 
 Deno.test({
+  // US-2233: the on-demand "Sync now" performance route takes NO target id — the
+  // tenant is resolved from the JWT (workspaceOwnerId ?? userId) and
+  // syncListingPerformanceForUser only writes that owner's listings. The only
+  // cross-tenant attack surface is calling it unauthenticated, which must be
+  // denied — there is no body field that could point it at another seller.
+  name: "on-demand performance sync requires auth (no anonymous cross-tenant sync)",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/sync/performance/me`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: "some-other-tenant" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST sync/performance/me unauthenticated");
+  },
+});
+
+Deno.test({
   // US-674: listing templates CRUD is scoped by user_id. B must not be able to
   // overwrite or delete A's template; the PUT/DELETE are scoped, so they hit
   // 0 rows and return 404 (never confirming the row exists).

@@ -10,8 +10,12 @@ import {
   withdrawOffer,
 } from "../lib/ebay-client.ts";
 import {
+  createAdForListing,
   createItemPromotion,
+  ensureAdCampaign,
   generateCouponCode,
+  getAdForListing,
+  updateAdRateForListing,
 } from "../lib/ebay-marketing.ts";
 import { filterListablePhotos } from "../lib/item-photo-storage.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
@@ -37,8 +41,10 @@ import {
 // The hourly cron applies due actions through the same code paths the manual
 // endpoints use (updateOfferPrice / withdrawOffer — push to eBay FIRST per
 // US-467 so a failed remote update never desyncs local state). The promo-rate
-// action is local-first: eBay's Marketing API push is deferred, same precedent
-// as US-141's promote action.
+// action (US-2232) pushes the Promoted Listings bid to eBay's Marketing API
+// first (ensureAdCampaign → create/updateAdRateForListing) and only records the
+// local promo_rate_pct once the marketplace accepted it; a listing with no live
+// eBay ad is skipped, not written local-only.
 //
 // US-268: listings/items carry no user_id of their own here — every query
 // joins through inventory_items.user_id, and action rows are stamped with the
@@ -340,6 +346,17 @@ export function endListingWritesApplied(
   return writeErrors.every((e) => !e);
 }
 
+// US-2232: a set_promo_rate action must reach eBay Promoted Listings before it
+// is recorded. It is only pushable when the listing has a live eBay id AND the
+// eBay client is configured; otherwise the action is SKIPPED (return false in
+// applyMatch) rather than written local-only and counted as applied.
+export function promoRatePushable(
+  liveListingId: string | null | undefined,
+  ebayConfigured: boolean,
+): boolean {
+  return Boolean(liveListingId) && ebayConfigured;
+}
+
 async function applyMatch(
   ownerId: string,
   m: { rule: AutomationRuleRow; listing: AutomationListingRow; planned: PlannedAction },
@@ -376,7 +393,43 @@ async function applyMatch(
     before = { price_cents: currentCents };
     after = { price_cents: planned.newCents, floored: planned.floored };
   } else if (planned.kind === "set_promo_rate") {
-    // Local-first — no eBay Marketing API client yet (see module header).
+    // US-2232: push the new Promoted Listings bid to eBay FIRST (US-467), then
+    // record local state — so a rule can never report an "applied" promo rate
+    // that never reached the marketplace. A listing with no live eBay id (or a
+    // disconnected account) is SKIPPED (return false) and retried next run,
+    // rather than written local-only and counted as done.
+    const liveListingId = listing.platform_listing_id;
+    if (!liveListingId || !promoRatePushable(liveListingId, isEbayConfigured())) {
+      return false;
+    }
+    try {
+      const campaignId = await ensureAdCampaign(ownerId);
+      const existingAd = await getAdForListing(ownerId, campaignId, liveListingId);
+      if (existingAd) {
+        await updateAdRateForListing(
+          ownerId,
+          campaignId,
+          liveListingId,
+          planned.newRatePct,
+        );
+      } else {
+        const created = await createAdForListing(
+          ownerId,
+          campaignId,
+          liveListingId,
+          planned.newRatePct,
+        );
+        if (!created) return false; // could not promote → skip, retry later
+      }
+      ebaySynced = true;
+    } catch (err) {
+      console.error(
+        "[automations] set promo rate failed for",
+        listing.id,
+        err instanceof Error ? err.message : String(err),
+      );
+      return false;
+    }
     const { error } = await supabaseAdmin
       .from("listings")
       .update({ promo_rate_pct: planned.newRatePct })

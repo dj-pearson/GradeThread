@@ -2,6 +2,10 @@ import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchFinancesDashboard } from "@/lib/finances-dashboard";
+import {
+  fetchOperatingExpensesTotal,
+  netAfterOverhead,
+} from "@/lib/finances-overhead";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -108,7 +112,18 @@ export function FinancesPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // US-2226: operating expenses (overhead) live in flipdesk_expenses and are
+  // NOT part of the RPC's per-item net_profit. Fetch the period total so the
+  // page can show one reconciled "true net after overhead" figure instead of
+  // leaving the Expenses page as a second, disconnected profit number.
+  const { data: overhead = 0 } = useQuery({
+    queryKey: ["finances-overhead", period, user?.id],
+    queryFn: () => fetchOperatingExpensesTotal(periodStart),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const summary = data?.summary;
+  const trueNet = netAfterOverhead(summary?.net_profit ?? 0, overhead);
 
   // US-1467: a brand-new reseller (no sales AND no inventory in the period) sees
   // an all-$0 dashboard that looks broken. Once the data has loaded successfully,
@@ -241,6 +256,40 @@ export function FinancesPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* US-2226: reconcile per-item net profit with logged operating overhead
+          into one true-net figure, so the Expenses page is no longer a second,
+          disconnected profit number. */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">
+            Net After Overhead
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <Skeleton className="h-8 w-32" />
+          ) : (
+            <>
+              <div
+                className={cn(
+                  "text-2xl font-bold",
+                  trueNet >= 0
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-red-600 dark:text-red-400",
+                )}
+              >
+                {formatCurrency(trueNet)}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {formatCurrency(summary?.net_profit ?? 0)} net profit minus{" "}
+                {formatCurrency(overhead)} operating expenses. Overhead comes
+                from the Expenses page for this period.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Secondary metrics */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
