@@ -150,12 +150,21 @@ import type {
   ItemCategory,
   ItemPhotoRow,
   ItemStatus,
-  ListingInsert,
   ListingRow,
   InventoryItemRow,
+  SlabImageMode,
 } from "@/types/database";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
 import { rowToMergeValues, type MergeValues } from "@/lib/merge-values";
+// US-2248/US-2249: the save payloads live in one pure module so the draft and
+// live paths cannot drift apart again (see src/lib/composer-save.ts).
+import {
+  buildDraftListingPayload,
+  buildLiveListingPatch,
+  buildItemPatch,
+  resolveQuantity,
+  type ComposerListingState,
+} from "@/lib/composer-save";
 
 const TITLE_MAX = 80;
 
@@ -188,35 +197,6 @@ const DEFAULT_LISTING_FORMAT_VALUE: ListingFormatValue = {
   auctionDuration: "DAYS_7",
   variations: null,
 };
-
-// US-568: turn the composer's format editor state into the listings columns.
-// Dollar strings convert to integer cents; auction columns null out for
-// fixed-price drafts, and variations null out for auctions / empty matrices.
-function buildFormatPayload(v: ListingFormatValue): Partial<ListingInsert> {
-  const dollarsToCents = (s: string): number | null => {
-    const n = Number.parseFloat(s);
-    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
-  };
-  const isAuction = v.format === "auction";
-  return {
-    listing_format: v.format,
-    auction_start_price_cents: isAuction
-      ? dollarsToCents(v.auctionStartPrice)
-      : null,
-    auction_reserve_price_cents: isAuction
-      ? dollarsToCents(v.auctionReservePrice)
-      : null,
-    auction_buy_it_now_price_cents: isAuction
-      ? dollarsToCents(v.auctionBuyItNowPrice)
-      : null,
-    auction_duration: isAuction ? v.auctionDuration : null,
-    // Variations only apply to fixed-price listings; drop empty matrices.
-    variations:
-      !isAuction && v.variations && v.variations.variants.length > 0
-        ? v.variations
-        : null,
-  };
-}
 
 // Shared item specifics whose value the buyer expects to also see reflected in
 // the free-text description. Item specifics and the description are edited on
@@ -317,7 +297,6 @@ export function FlipdeskComposerPage({
   const [storageSku, setStorageSku] = useState("");
   const [storageLocation, setStorageLocation] = useState("");
   const [storageContainer, setStorageContainer] = useState("");
-  const [savingStorage, setSavingStorage] = useState(false);
   // Item-level bookkeeping that used to live only on the retired ItemCanvas.
   // These are inventory_items columns, saved by the same single Save as the
   // listing fields — the whole point of one editor is that nothing is stranded
@@ -360,6 +339,22 @@ export function FlipdeskComposerPage({
   const [bestOfferEnabled, setBestOfferEnabled] = useState(false);
   const [bestOfferAccept, setBestOfferAccept] = useState("");
   const [bestOfferDecline, setBestOfferDecline] = useState("");
+  // US-2250: how many of this item are for sale. listings.quantity was already
+  // read at publish and settable from AutoLister bulk-edit, but the single-item
+  // composer had no field — so a seller with five identical tees had to create
+  // five items. Auctions and variation matrices override it (resolveQuantity).
+  const [quantity, setQuantity] = useState("1");
+  // US-2247: the grade badge on the hero photo + how the slab image is attached.
+  // publish reads listings.badge_enabled / slab_image_mode, but nothing in the
+  // app wrote either — so the grade banner told sellers to "enable the grade
+  // badge below" and there was no such control anywhere.
+  const [badgeEnabled, setBadgeEnabled] = useState(false);
+  const [slabImageMode, setSlabImageMode] = useState<SlabImageMode>("off");
+  // US-2251: per-listing eBay business policies. null = fall back to the
+  // account default, which is exactly what publish does when these are NULL.
+  const [shippingPolicyId, setShippingPolicyId] = useState<string | null>(null);
+  const [paymentPolicyId, setPaymentPolicyId] = useState<string | null>(null);
+  const [returnPolicyId, setReturnPolicyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [initialised, setInitialised] = useState(false);
   // Lifted from the category picker so the comps panel reacts to a pick
@@ -658,6 +653,19 @@ export function FlipdeskComposerPage({
     setBestOfferEnabled(listing?.best_offer_enabled ?? false);
     setBestOfferAccept(centsToDollarInput(listing?.best_offer_auto_accept_cents));
     setBestOfferDecline(centsToDollarInput(listing?.best_offer_auto_decline_cents));
+    // US-2250: quantity defaults to 1 for a brand-new draft.
+    setQuantity(
+      listing?.quantity != null && listing.quantity > 0
+        ? String(listing.quantity)
+        : "1",
+    );
+    // US-2247: grade badge + slab image mode.
+    setBadgeEnabled(listing?.badge_enabled ?? false);
+    setSlabImageMode(listing?.slab_image_mode ?? "off");
+    // US-2251: business policies; null means "use my account default".
+    setShippingPolicyId(listing?.shipping_policy_id ?? null);
+    setPaymentPolicyId(listing?.payment_policy_id ?? null);
+    setReturnPolicyId(listing?.return_policy_id ?? null);
     const seededPrimary =
       listing?.primary_photo_id &&
       photos.some((p) => p.id === listing.primary_photo_id)
@@ -688,13 +696,35 @@ export function FlipdeskComposerPage({
     promoDefaults,
   ]);
 
-  // US-561: the category that publish will use, for the Promoted Listings ad-rate
-  // suggestion (mirrors the resolution order in saveDraft / assemblePublishContext).
-  const resolvedCategoryId =
-    livePickedCategoryId ??
-    listing?.platform_category_id ??
-    ebayMapping?.ebay_category_id ??
-    null;
+  // The category publish will actually use: the seller's live pick, else the
+  // saved listing override, else the inventory mirror. US-2261: derived ONCE —
+  // this cascade used to be re-typed in five places (the ad-rate suggestion, the
+  // save path, the spec/description diff, the comps panel), so changing the
+  // resolution order meant finding all five.
+  const resolvedCategoryId = useMemo(
+    () =>
+      livePickedCategoryId ??
+      listing?.platform_category_id ??
+      ebayMapping?.ebay_category_id ??
+      null,
+    [livePickedCategoryId, listing?.platform_category_id, ebayMapping?.ebay_category_id],
+  );
+  // The category/aspect values the picker seeds FROM — deliberately the saved
+  // pair only (no live pick), so the picker owns its own edit state.
+  const savedCategoryId =
+    listing?.platform_category_id ?? ebayMapping?.ebay_category_id ?? null;
+  const savedAspects =
+    listing?.item_specifics_override ?? ebayMapping?.ebay_aspects ?? null;
+
+  // The cost being EDITED, not the saved one, so margin moves as you type.
+  // Declared here (not beside the profit panel) because both save paths close
+  // over it — reading it from a closure defined above its own declaration was a
+  // temporal-dead-zone hazard waiting for someone to call a save earlier.
+  const parsedCost = cost.trim() === "" ? null : Number.parseFloat(cost);
+  const effectiveCost =
+    parsedCost != null && Number.isFinite(parsedCost) && parsedCost >= 0
+      ? parsedCost
+      : null;
 
   // eBay condition/category awareness: many apparel leaves (Dresses, Women's
   // Sweaters, …) accept only {New, New other, New with defects, Pre-owned -
@@ -755,7 +785,9 @@ export function FlipdeskComposerPage({
     };
   }, [resolvedCategoryId]);
 
-  const keywords = item ? titleKeywords(item) : [];
+  // Memoized so the title-chip memo below has a stable dependency — a fresh
+  // array identity every render defeated it entirely.
+  const keywords = useMemo(() => (item ? titleKeywords(item) : []), [item]);
   const group = item ? templateGroupFor(item) : "generic";
   const primaryPhoto =
     photos.find((p) => p.id === primaryPhotoId) ?? photos[0] ?? null;
@@ -928,17 +960,10 @@ export function FlipdeskComposerPage({
   const specDescMismatches = useMemo<
     { field: SharedDescField; value: string }[]
   >(() => {
-    const category =
-      livePickedCategoryId ??
-      listing?.platform_category_id ??
-      ebayMapping?.ebay_category_id ??
-      null;
-    const savedAspects =
-      listing?.item_specifics_override ?? ebayMapping?.ebay_aspects ?? null;
     const currentAspects = livePickedAspects ?? savedAspects;
     if (!currentAspects) return [];
-    const base = sharedValuesFromAspects(savedAspects, category);
-    const cur = sharedValuesFromAspects(currentAspects, category);
+    const base = sharedValuesFromAspects(savedAspects, resolvedCategoryId);
+    const cur = sharedValuesFromAspects(currentAspects, resolvedCategoryId);
     const out: { field: SharedDescField; value: string }[] = [];
     for (const field of SHARED_DESC_FIELDS) {
       const val = cur[field];
@@ -949,13 +974,7 @@ export function FlipdeskComposerPage({
       if (!descriptionMentions(description, val)) out.push({ field, value: val });
     }
     return out;
-  }, [
-    livePickedAspects,
-    livePickedCategoryId,
-    listing,
-    ebayMapping,
-    description,
-  ]);
+  }, [livePickedAspects, savedAspects, resolvedCategoryId, description]);
 
   // Resolve the eBay-owned fields from the live picker state, falling back to the
   // saved listing override and the inventory mirror — shared by the draft save
@@ -970,16 +989,7 @@ export function FlipdeskComposerPage({
         item?.target_price,
         item?.list_price,
       ].find((p): p is number => p != null && p > 0) ?? 0;
-    const resolvedCategoryId =
-      livePickedCategoryId ??
-      listing?.platform_category_id ??
-      ebayMapping?.ebay_category_id ??
-      null;
-    const liveAspects =
-      livePickedAspects ??
-      listing?.item_specifics_override ??
-      ebayMapping?.ebay_aspects ??
-      null;
+    const liveAspects = livePickedAspects ?? savedAspects;
     const resolvedAspects =
       liveAspects && Object.keys(liveAspects).length > 0 ? liveAspects : null;
     const liveSources =
@@ -989,6 +999,88 @@ export function FlipdeskComposerPage({
       null;
     const resolvedSources = resolvedAspects ? (liveSources ?? {}) : {};
     return { resolvedPrice, resolvedCategoryId, resolvedAspects, resolvedSources };
+  }
+
+  // The whole listing-side form, in the shape the pure payload builders take.
+  // Both save paths read this one object, so a field can't be wired into the
+  // draft save and forgotten in the live one (US-2248).
+  function composerListingState(): ComposerListingState {
+    const { resolvedPrice, resolvedAspects, resolvedSources } =
+      resolveListingFields();
+    // US-1898: seller overrides win over the comp-derived default, then clamp to
+    // eBay's constraints (decline < accept < price). Same math the edge
+    // re-applies at publish (best-offer.ts).
+    const bestOffer = bestOfferEnabled
+      ? resolveBestOfferThresholds({
+          priceCents: resolvedPrice > 0 ? Math.round(resolvedPrice * 100) : 0,
+          p25Cents: listing?.price_range_low_cents ?? null,
+          p75Cents: listing?.price_range_high_cents ?? null,
+          acceptOverrideCents: dollarInputToCents(bestOfferAccept),
+          declineOverrideCents: dollarInputToCents(bestOfferDecline),
+        })
+      : { autoAcceptCents: null, autoDeclineCents: null };
+    return {
+      title,
+      description,
+      ebayCondition,
+      conditionDesc,
+      resolvedPrice,
+      resolvedCategoryId,
+      resolvedAspects,
+      resolvedSources,
+      scheduledPublishAt: localInputToIso(scheduledAt),
+      primaryPhotoId,
+      promoteEnabled,
+      promoMode,
+      promoRate,
+      listingFormat,
+      bestOfferEnabled,
+      bestOfferAcceptCents: bestOffer.autoAcceptCents,
+      bestOfferDeclineCents: bestOffer.autoDeclineCents,
+      quantity,
+      badgeEnabled,
+      slabImageMode,
+      shippingPolicyId,
+      paymentPolicyId,
+      returnPolicyId,
+    };
+  }
+
+  // The whole item-side patch, assembled from the same state every save path
+  // sees — including the Storage & SKU fields that used to need a second Save
+  // button and were silently dropped by "Save draft" (US-2249).
+  function composerItemPatch(
+    resolvedAspects: Record<string, string[]> | null,
+    resolvedSources: Record<string, string | undefined>,
+  ): Record<string, unknown> {
+    return buildItemPatch(
+      {
+        resolvedCategoryId,
+        resolvedAspects,
+        resolvedSources,
+        measurements,
+        effectiveCost,
+        sourcedBy,
+        acquiredDate,
+        categoryTouched,
+        itemCategory,
+        storageSku,
+        storageLocation,
+        storageContainer,
+        // Forward-only: never regress a listed/sold item back to "drafted". The
+        // seller's Item details pick is the `selected` input — resolveStatus
+        // lets a deliberate non-prep choice (archived, sold) win outright and
+        // otherwise takes the furthest of current / picked / earned.
+        resolvedStatus: resolveStatus(item!.status, itemStatus, {
+          ...factsOf(item!),
+          hasDraftListing: true,
+        }),
+      },
+      {
+        ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
+        ...categoryCascadePatch(),
+      },
+    );
   }
 
   // Category coupling: when the seller fixes the eBay category here, derive the
@@ -1014,19 +1106,6 @@ export function FlipdeskComposerPage({
       patch.garment_category = g.garment_category;
     }
     return patch;
-  }
-
-  // The inventory_items bookkeeping edited in the Item details card. Written by
-  // every save path (draft, live revise) so these fields behave identically at
-  // every status — the split editor is exactly what let them drift.
-  function itemDetailsPatch(): Record<string, unknown> {
-    return {
-      sourced_by: sourcedBy.trim() || null,
-      acquired_date: acquiredDate || null,
-      ...(categoryTouched
-        ? { item_category: itemCategory === "" ? null : itemCategory }
-        : {}),
-    };
   }
 
   // Reverse-sync shared fields: fold manual/AI edits made in the eBay specifics
@@ -1068,77 +1147,12 @@ export function FlipdeskComposerPage({
       // publish reads first) AND the inventory mirror (ebay_aspects — the
       // fallback) in the same save, so the two stores never diverge and a
       // picker edit can't vanish by skipping a separate save.
-      const {
-        resolvedPrice,
-        resolvedCategoryId,
-        resolvedAspects,
-        resolvedSources,
-      } = resolveListingFields();
-      // US-1898: resolve Best Offer thresholds — seller overrides win over the
-      // comp-derived default, then clamp to eBay's constraints (decline < accept
-      // < price). Same math the edge re-applies at publish (best-offer.ts).
-      const bestOffer = bestOfferEnabled
-        ? resolveBestOfferThresholds({
-            priceCents: resolvedPrice != null && resolvedPrice > 0
-              ? Math.round(resolvedPrice * 100)
-              : 0,
-            p25Cents: listing?.price_range_low_cents ?? null,
-            p75Cents: listing?.price_range_high_cents ?? null,
-            acceptOverrideCents: dollarInputToCents(bestOfferAccept),
-            declineOverrideCents: dollarInputToCents(bestOfferDecline),
-          })
-        : { autoAcceptCents: null, autoDeclineCents: null };
-      const payload: ListingInsert = {
-        inventory_item_id: item.id,
-        platform: "ebay",
-        // Only a row we're creating (or one still a draft) may be stamped
-        // "draft". Now that this editor opens at EVERY status, hard-coding it
-        // would demote an ended/sold listing to a draft on an ordinary save.
-        listing_status: listing?.listing_status ?? "draft",
-        listing_price: resolvedPrice,
-        listing_title: title.trim(),
-        listing_description: description.trim() || null,
-        ebay_condition: ebayCondition || null,
-        ebay_condition_description: conditionDesc.trim() || null,
-        platform_category_id: resolvedCategoryId,
-        item_specifics_override: resolvedAspects,
-        item_specifics_sources: resolvedSources,
-        scheduled_publish_at: localInputToIso(scheduledAt),
-        // Saving = a human reviewed the price, so it's no longer an unverified
-        // AI estimate.
-        price_is_estimated: false,
-        // US-1568: a composer Save IS the human review — the draft leaves the
-        // AutoLister 'needs review' queue and lives on in Inventory → Drafts.
-        reviewed_at: new Date().toISOString(),
-        // Draft-only. A live row's is_active is owned by the publish/end flow.
-        ...(listing?.listing_status && listing.listing_status !== "draft"
-          ? {}
-          : { is_active: false }),
-        primary_photo_id: primaryPhotoId,
-        // 00432: persist the Promoted Listings choice as an EXPLICIT per-listing
-        // override (saving the composer is a deliberate decision, so it no longer
-        // inherits the seller default). Keep promo_opt_out in sync for the legacy
-        // read sites (item page, marketplaces, scheduled drops).
-        promote_override: promoteEnabled,
-        promo_opt_out: !promoteEnabled,
-        // US-1447: persist the chosen mode; CPC ignores the % (bid is the
-        // ad-group max-CPC), so only store a rate in CPS mode.
-        promo_mode: promoMode,
-        promo_rate_pct:
-          promoteEnabled && promoMode === "cps"
-            ? (() => {
-                const r = Number.parseFloat(promoRate);
-                return Number.isFinite(r) && r > 0 ? r : null;
-              })()
-            : null,
-        // US-568: persist format + auction terms + variation matrix. Auction
-        // prices convert dollars → cents; null when blank or non-auction.
-        ...buildFormatPayload(listingFormat),
-        // US-1898: Best Offer (publish already consumes these columns).
-        best_offer_enabled: bestOfferEnabled,
-        best_offer_auto_accept_cents: bestOffer.autoAcceptCents,
-        best_offer_auto_decline_cents: bestOffer.autoDeclineCents,
-      };
+      const state = composerListingState();
+      const payload = buildDraftListingPayload(state, {
+        inventoryItemId: item.id,
+        existingStatus: listing?.listing_status ?? null,
+        reviewedAt: new Date().toISOString(),
+      });
 
       let listingId: string;
       // Update whenever a listing row EXISTS, whatever its status. The old
@@ -1163,38 +1177,26 @@ export function FlipdeskComposerPage({
         listingId = (created as { id: string }).id;
       }
 
-      // Forward-only: never regress a listed/sold item back to "drafted". The
-      // seller's own Item details pick is the `selected` input — resolveStatus
-      // lets a deliberate non-prep choice (archived, sold) win outright and
-      // otherwise takes the furthest of current / picked / earned.
-      const resolvedStatus = resolveStatus(item.status, itemStatus, {
-        ...factsOf(item),
-        hasDraftListing: true,
-      });
       // Mirror the category + aspects onto the item in the same save so the
       // inventory store stays in lockstep with the listing override (US-557),
-      // and fold specifics edits back into their backing item fields so shared
-      // values (Brand & co.) stay single-entry.
+      // fold specifics edits back into their backing item fields so shared
+      // values (Brand & co.) stay single-entry, and carry the Storage & SKU
+      // fields that used to be stranded behind their own Save (US-2249).
       const { error: sErr } = await supabase
         .from("inventory_items")
-        .update({
-          status: resolvedStatus,
-          ebay_category_id: resolvedCategoryId,
-          ebay_aspects: resolvedAspects,
-          ebay_aspect_sources: resolvedSources,
-          // US-1567: measurements edited in the composer save with the draft.
-          measurements:
-            Object.keys(measurements).length > 0 ? measurements : null,
-          // Cost basis, edited in Condition & price. Written unconditionally
-          // (including back to null when cleared) so the field behaves like
-          // every other one in this form rather than being write-once.
-          acquired_price: effectiveCost,
-          ...itemDetailsPatch(),
-          ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
-          ...categoryCascadePatch(),
-        } as never)
+        .update(
+          composerItemPatch(
+            state.resolvedAspects,
+            state.resolvedSources,
+          ) as never,
+        )
         .eq("id", item.id);
-      if (sErr) throw sErr;
+      // US-2249: the SKU rides the main save now, so the main save is where a
+      // duplicate-SKU collision has to offer the merge.
+      if (sErr) {
+        if (await offerSkuMerge(sErr)) return null;
+        throw sErr;
+      }
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
@@ -1213,78 +1215,57 @@ export function FlipdeskComposerPage({
     }
   }
 
-  // Save the item-level logistics (SKU / location / container) to inventory_items.
-  // Independent of the eBay draft save so a physical-label edit doesn't require
-  // touching the listing.
-  async function saveStorage() {
-    if (!item) return;
-    setSavingStorage(true);
-    try {
-      const { error } = await supabase
+  // US-2249: the Storage & SKU fields ride the main save now, so the duplicate-SKU
+  // recovery has to be reachable from every save path rather than living inside a
+  // storage-only handler. Returns true when the error WAS a SKU collision and the
+  // merge dialog has been opened (the caller stops there — the update rolled back);
+  // false means "not mine, keep throwing".
+  async function offerSkuMerge(err: unknown): Promise<boolean> {
+    if (!item) return false;
+    // Duplicate-SKU partial unique index (user_id, sku) → offer to merge the
+    // two records in place (same flow as the item page). supabase-js rejects
+    // with a PostgrestError PLAIN OBJECT (not an Error instance), so read the
+    // pg code/message/details directly — an `err instanceof Error` gate here
+    // would stringify to "[object Object]" and miss the constraint match.
+    const pgErr = err as { code?: string; message?: string; details?: string };
+    const dupText = `${pgErr.message ?? ""} ${pgErr.details ?? ""}`;
+    const isSkuDuplicate =
+      pgErr.code === "23505" &&
+      (dupText.includes("idx_inventory_items_user_sku") ||
+        dupText.toLowerCase().includes("sku"));
+    if (!isSkuDuplicate) return false;
+    const newSku = storageSku.trim();
+    // Load both raw rows (the pre-existing SKU owner + this survivor) so the
+    // dialog can compare field-by-field. `.limit(1)` (not `.maybeSingle()`)
+    // so a stray >1-row state can't itself throw and mask the duplicate.
+    const [dupRes, survRes] = await Promise.all([
+      supabase
         .from("inventory_items")
-        .update({
-          sku: storageSku.trim() || null,
-          location_bin: storageLocation.trim() || null,
-          container: storageContainer.trim() || null,
-        } as never)
-        .eq("id", item.id);
-      if (error) throw error;
-      await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success("Storage details saved.");
-    } catch (err) {
-      // Duplicate-SKU partial unique index (user_id, sku) → offer to merge the
-      // two records in place (same flow as the item page). supabase-js rejects
-      // with a PostgrestError PLAIN OBJECT (not an Error instance), so read the
-      // pg code/message/details directly — an `err instanceof Error` gate here
-      // would stringify to "[object Object]" and miss the constraint match.
-      const pgErr = err as { code?: string; message?: string; details?: string };
-      const dupText = `${pgErr.message ?? ""} ${pgErr.details ?? ""}`;
-      const isSkuDuplicate =
-        pgErr.code === "23505" &&
-        (dupText.includes("idx_inventory_items_user_sku") ||
-          dupText.toLowerCase().includes("sku"));
-      if (isSkuDuplicate) {
-        const newSku = storageSku.trim();
-        // Load both raw rows (the pre-existing SKU owner + this survivor) so the
-        // dialog can compare field-by-field. `.limit(1)` (not `.maybeSingle()`)
-        // so a stray >1-row state can't itself throw and mask the duplicate.
-        const [dupRes, survRes] = await Promise.all([
-          supabase
-            .from("inventory_items")
-            .select("*")
-            .eq("user_id", item.user_id)
-            .eq("sku", newSku)
-            .neq("id", item.id)
-            .order("updated_at", { ascending: false })
-            .limit(1),
-          supabase
-            .from("inventory_items")
-            .select("*")
-            .eq("id", item.id)
-            .limit(1),
-        ]);
-        const dupRow = ((dupRes.data ?? [])[0] as InventoryItemRow | undefined);
-        const survRow = ((survRes.data ?? [])[0] as InventoryItemRow | undefined);
-        if (dupRow && survRow) {
-          setMergeState({
-            sku: newSku,
-            existingId: dupRow.id,
-            current: rowToMergeValues(survRow),
-            existing: rowToMergeValues(dupRow),
-          });
-        } else {
-          // The index says the SKU is taken, but we couldn't load the other row
-          // (RLS, a filter, or it was just deleted). Say so plainly.
-          toast.error(
-            `SKU "${newSku}" is already used by another item, but it couldn't be loaded to merge — refresh and try again.`,
-          );
-        }
-      } else {
-        toast.error(`Save failed: ${errorMessage(err)}`);
-      }
-    } finally {
-      setSavingStorage(false);
+        .select("*")
+        .eq("user_id", item.user_id)
+        .eq("sku", newSku)
+        .neq("id", item.id)
+        .order("updated_at", { ascending: false })
+        .limit(1),
+      supabase.from("inventory_items").select("*").eq("id", item.id).limit(1),
+    ]);
+    const dupRow = (dupRes.data ?? [])[0] as InventoryItemRow | undefined;
+    const survRow = (survRes.data ?? [])[0] as InventoryItemRow | undefined;
+    if (dupRow && survRow) {
+      setMergeState({
+        sku: newSku,
+        existingId: dupRow.id,
+        current: rowToMergeValues(survRow),
+        existing: rowToMergeValues(dupRow),
+      });
+    } else {
+      // The index says the SKU is taken, but we couldn't load the other row
+      // (RLS, a filter, or it was just deleted). Say so plainly.
+      toast.error(
+        `SKU "${newSku}" is already used by another item, but it couldn't be loaded to merge — refresh and try again.`,
+      );
     }
+    return true;
   }
 
   // Map the merge dialog's chosen field values back to inventory_items columns.
@@ -1409,21 +1390,14 @@ export function FlipdeskComposerPage({
     }
     setSaving(true);
     try {
-      const { resolvedPrice, resolvedCategoryId, resolvedAspects, resolvedSources } =
-        resolveListingFields();
+      // US-2248: the SAME content columns as a draft save. This path used to be
+      // a hand-written subset that had fallen a dozen columns behind — a seller
+      // could change the promote rate, Best Offer limits, format, quantity or
+      // primary photo on a live listing, get a success toast, and lose all of it.
+      const state = composerListingState();
       const { error } = await supabase
         .from("listings")
-        .update({
-          listing_price: resolvedPrice,
-          listing_title: title.trim(),
-          listing_description: description.trim() || null,
-          ebay_condition: ebayCondition || null,
-          ebay_condition_description: conditionDesc.trim() || null,
-          platform_category_id: resolvedCategoryId,
-          item_specifics_override: resolvedAspects,
-          item_specifics_sources: resolvedSources,
-          price_is_estimated: false,
-        } as never)
+        .update(buildLiveListingPatch(state) as never)
         .eq("id", item.listing_id);
       if (error) throw error;
       // Mirror onto the item. Status still comes from resolveStatus (forward-
@@ -1432,25 +1406,17 @@ export function FlipdeskComposerPage({
       // same Item details card they use on a draft.
       const { error: sErr } = await supabase
         .from("inventory_items")
-        .update({
-          status: resolveStatus(item.status, itemStatus, {
-            ...factsOf(item),
-            hasDraftListing: true,
-          }),
-          ebay_category_id: resolvedCategoryId,
-          ebay_aspects: resolvedAspects,
-          ebay_aspect_sources: resolvedSources,
-          // US-1567 parity: measurements + cost are editable at every status now,
-          // so the live save must persist them like the draft save does.
-          measurements:
-            Object.keys(measurements).length > 0 ? measurements : null,
-          acquired_price: effectiveCost,
-          ...itemDetailsPatch(),
-          ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
-          ...categoryCascadePatch(),
-        } as never)
+        .update(
+          composerItemPatch(
+            state.resolvedAspects,
+            state.resolvedSources,
+          ) as never,
+        )
         .eq("id", item.id);
-      if (sErr) throw sErr;
+      if (sErr) {
+        if (await offerSkuMerge(sErr)) return null;
+        throw sErr;
+      }
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
@@ -1561,6 +1527,47 @@ export function FlipdeskComposerPage({
     enabled: !!item,
   });
 
+  // US-1892: title quality meter — utilization band, brand-first, policy/quality
+  // lint, and pack-to-80 suggestions from the listing's mined demand terms +
+  // high-value filled aspects. Pure (src/lib/title-quality.ts, lockstep with the
+  // edge publish lint).
+  // US-2261: memoized, and hoisted above the early returns so it CAN be — it ran
+  // unconditionally on every keystroke of every field in a 3000-line form.
+  const titleMeter = useMemo(
+    () =>
+      titleQuality({
+        title,
+        brand: item?.brand ?? null,
+        demandTerms: listing?.demand_terms ?? [],
+        aspects: livePickedAspects ?? savedAspects ?? {},
+      }),
+    [title, item?.brand, listing?.demand_terms, livePickedAspects, savedAspects],
+  );
+  // Merge the existing titleKeywords() chips with the pack suggestions (demand
+  // terms + aspects), dropping any token already in the title and de-duping —
+  // extends the chips rather than duplicating them (AC2).
+  const titleChips = useMemo<string[]>(() => {
+    const present = new Set(
+      title
+        .toLowerCase()
+        .split(/\s+/)
+        .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+        .filter(Boolean),
+    );
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of [
+      ...keywords,
+      ...titleMeter.suggestions.map((s) => s.token),
+    ]) {
+      const key = t.toLowerCase();
+      if (!t.trim() || seen.has(key) || present.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+    return out;
+  }, [title, keywords, titleMeter]);
+
   if (isLoading) {
     return (
       <LoadingRegion label="Loading item" className="space-y-4 p-6">
@@ -1583,51 +1590,25 @@ export function FlipdeskComposerPage({
   }
 
   const titleLen = title.length;
-  // US-1892: title quality meter — utilization band, brand-first, policy/quality
-  // lint, and pack-to-80 suggestions from the listing's mined demand terms +
-  // high-value filled aspects. Pure (src/lib/title-quality.ts, lockstep with the
-  // edge publish lint).
-  const titleMeter = titleQuality({
-    title,
-    brand: item?.brand ?? null,
-    demandTerms: listing?.demand_terms ?? [],
-    aspects:
-      livePickedAspects ??
-      listing?.item_specifics_override ??
-      ebayMapping?.ebay_aspects ??
-      {},
-  });
-  // Merge the existing titleKeywords() chips with the pack suggestions (demand
-  // terms + aspects), dropping any token already in the title and de-duping —
-  // extends the chips rather than duplicating them (AC2).
-  const titleChips: string[] = (() => {
-    const present = new Set(
-      title.toLowerCase().split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}]/gu, "")).filter(Boolean),
-    );
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const t of [...keywords, ...titleMeter.suggestions.map((s) => s.token)]) {
-      const key = t.toLowerCase();
-      if (!t.trim() || seen.has(key) || present.has(key)) continue;
-      seen.add(key);
-      out.push(t);
-    }
-    return out;
-  })();
   // A chip that would push the title past 80 is disabled, never truncated (AC2).
   const chipFits = (kw: string) =>
     (title.trim() ? title.trim().length + 1 + kw.length : kw.length) <= TITLE_MAX;
+  // US-2250: when a variation matrix exists it owns the total quantity, so the
+  // composer states the derived number instead of showing an input that
+  // resolveQuantity would override. null = no matrix, use the input.
+  const variationQuantity =
+    listingFormat.format !== "auction" &&
+    (listingFormat.variations?.variants.length ?? 0) > 0
+      ? resolveQuantity({ quantity, listingFormat })
+      : null;
+  // A blank/0/negative box saves as 1; say so rather than silently coercing.
+  const quantityInvalid =
+    quantity.trim() !== "" &&
+    !(Number.parseInt(quantity, 10) > 0);
   const parsedPreviewPrice = Number.parseFloat(price);
   const previewPrice = Number.isFinite(parsedPreviewPrice)
     ? parsedPreviewPrice
     : (item.target_price ?? item.list_price ?? null);
-  // The cost being EDITED, not the saved one, so margin moves as you type.
-  // Falls back to the persisted value until the field is touched.
-  const parsedCost = cost.trim() === "" ? null : Number.parseFloat(cost);
-  const effectiveCost =
-    parsedCost != null && Number.isFinite(parsedCost) && parsedCost >= 0
-      ? parsedCost
-      : null;
   // US-553: forward profit/margin at the current list price.
   const profitEstimate = estimateListingProfit({
     price: Number.isFinite(parsedPreviewPrice) ? parsedPreviewPrice : 0,
@@ -1649,13 +1630,16 @@ export function FlipdeskComposerPage({
   };
   // `defaults` is optional-chained too: a policies response without it (edge
   // degradation / unexpected shape) must not crash the whole composer route.
+  // US-2251: this listing's OWN policy pick wins over the account default, so
+  // the preview shows what will actually publish rather than the default the
+  // seller just overrode.
   const shippingPolicyName = policyName(
     "fulfillment",
-    ebayPolicies?.defaults?.fulfillment_policy_id ?? null,
+    shippingPolicyId ?? ebayPolicies?.defaults?.fulfillment_policy_id ?? null,
   );
   const returnPolicyName = policyName(
     "return",
-    ebayPolicies?.defaults?.return_policy_id ?? null,
+    returnPolicyId ?? ebayPolicies?.defaults?.return_policy_id ?? null,
   );
 
   return (
@@ -1798,9 +1782,9 @@ export function FlipdeskComposerPage({
           <Award className="h-4 w-4 text-brand-navy dark:text-foreground" />
           <span>
             Graded {item.grade_value.toFixed(1)}/10
-            {item.grade_label ? ` · ${item.grade_label}` : ""}. Enable the grade
-            badge below to publish with the badge on the hero photo and a
-            certificate link in the description.
+            {item.grade_label ? ` · ${item.grade_label}` : ""}. The grade and a
+            certificate link publish in the description automatically. Add a
+            grade card to the photo gallery in the Photos card below.
           </span>
         </div>
       )}
@@ -1817,8 +1801,9 @@ export function FlipdeskComposerPage({
             <CardHeader>
               <CardTitle>Storage &amp; SKU</CardTitle>
               <CardDescription>
-                Where this item lives and how it's labeled — saved to the item,
-                not the eBay listing.
+                Where this item lives and how it's labeled. Saved to the item
+                rather than the eBay listing, by the same Save button as
+                everything else on this page.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1850,26 +1835,6 @@ export function FlipdeskComposerPage({
                     placeholder="e.g. Bin 7"
                   />
                 </div>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void saveStorage()}
-                  disabled={
-                    savingStorage ||
-                    (storageSku === (item.item_number ?? "") &&
-                      storageLocation === (item.location_bin ?? "") &&
-                      storageContainer === (item.container ?? ""))
-                  }
-                >
-                  {savingStorage ? (
-                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                  ) : (
-                    <Save className="mr-2 h-3 w-3" />
-                  )}
-                  Save storage
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -2170,16 +2135,8 @@ export function FlipdeskComposerPage({
           ) : (
             <EbayCategoryPicker
               itemId={item.id}
-              initialCategoryId={
-                listing?.platform_category_id ??
-                ebayMapping?.ebay_category_id ??
-                null
-              }
-              initialAspects={
-                listing?.item_specifics_override ??
-                ebayMapping?.ebay_aspects ??
-                null
-              }
+              initialCategoryId={savedCategoryId}
+              initialAspects={savedAspects}
               initialAspectSources={
                 (listing?.item_specifics_sources ??
                   ebayMapping?.ebay_aspect_sources ??
@@ -2211,12 +2168,7 @@ export function FlipdeskComposerPage({
           {/* Live comps + price recommendation */}
           <EbayCompsPanel
             itemId={item.id}
-            categoryId={
-              livePickedCategoryId ??
-              listing?.platform_category_id ??
-              ebayMapping?.ebay_category_id ??
-              null
-            }
+            categoryId={resolvedCategoryId}
             brand={item.brand ?? null}
             size={item.size ?? null}
             q={item.item_title ?? ""}
@@ -2352,6 +2304,53 @@ export function FlipdeskComposerPage({
                       ? "No sold comps were available, so this price is based on active eBay asking prices, which tend to run high. Verify before publishing."
                       : "No eBay comps were found, so this price is the AI's estimate. Edit it to confirm."}
                   </p>
+                )}
+              </div>
+              {/* US-2250: quantity. listings.quantity was already read at
+                  publish and settable from AutoLister bulk-edit, but the
+                  single-item composer had no field — so five identical tees
+                  meant five items. An auction is single-quantity by definition,
+                  and a variation matrix owns the total, so both cases explain
+                  the number instead of offering a box that would be ignored. */}
+              <div className="space-y-1.5">
+                <Label htmlFor="listing-quantity">Quantity</Label>
+                {listingFormat.format === "auction" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Auctions sell one item. Switch to fixed price in Format
+                    &amp; variations to list more than one.
+                  </p>
+                ) : variationQuantity != null ? (
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {variationQuantity}
+                    </span>{" "}
+                    across your{" "}
+                    {listingFormat.variations?.variants.length ?? 0} variations —
+                    edit the per-variation counts in Format &amp; variations.
+                  </p>
+                ) : (
+                  <>
+                    <Input
+                      id="listing-quantity"
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      step="1"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      className="max-w-[7rem]"
+                    />
+                    {quantityInvalid ? (
+                      <p className="text-xs text-destructive">
+                        Quantity must be at least 1.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">
+                        How many of this item you have. Leave at 1 for a
+                        one-of-a-kind piece.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -2603,6 +2602,86 @@ export function FlipdeskComposerPage({
               />
             </CardContent>
           </Card>
+
+          {/* US-2251: per-listing eBay business policies. Bulk-edit could set
+              these and publish has always honoured them, but the single-item
+              composer couldn't — so shipping and returns for one item meant a
+              detour through bulk edit or Seller Hub. NULL = account default,
+              which is exactly what publish falls back to. */}
+          {ebayConnection && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Shipping &amp; returns</CardTitle>
+                <CardDescription>
+                  Which of your eBay business policies this listing uses. Leave
+                  them on your account default unless this item needs different
+                  terms.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 sm:grid-cols-3">
+                {(
+                  [
+                    {
+                      id: "policy-shipping",
+                      label: "Shipping",
+                      type: "fulfillment" as const,
+                      value: shippingPolicyId,
+                      set: setShippingPolicyId,
+                    },
+                    {
+                      id: "policy-payment",
+                      label: "Payment",
+                      type: "payment" as const,
+                      value: paymentPolicyId,
+                      set: setPaymentPolicyId,
+                    },
+                    {
+                      id: "policy-return",
+                      label: "Returns",
+                      type: "return" as const,
+                      value: returnPolicyId,
+                      set: setReturnPolicyId,
+                    },
+                  ]
+                ).map((row) => {
+                  const options = (ebayPolicies?.policies ?? []).filter(
+                    (p) => p.policy_type === row.type,
+                  );
+                  return (
+                    <div key={row.id} className="space-y-1.5">
+                      <Label htmlFor={row.id}>{row.label}</Label>
+                      <Select
+                        value={row.value ?? "__default"}
+                        onValueChange={(v) =>
+                          row.set(v === "__default" ? null : v)
+                        }
+                      >
+                        <SelectTrigger id={row.id}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__default">
+                            Use account default
+                          </SelectItem>
+                          {options.map((p) => (
+                            <SelectItem key={p.policy_id} value={p.policy_id}>
+                              {p.policy_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  );
+                })}
+                {(ebayPolicies?.policies ?? []).length === 0 && (
+                  <p className="text-xs text-muted-foreground sm:col-span-3">
+                    No business policies loaded yet. Create them in eBay Seller
+                    Hub, then reconnect on the Marketplaces page.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Promoted Listings ad rate (US-561) */}
           <Card>
@@ -2861,10 +2940,73 @@ export function FlipdeskComposerPage({
                     Graded items automatically add the grade to the description
                     and a “Condition Grade: {item.grade_value.toFixed(1)}{" "}
                     (GradeThread)” item specific, plus a link to the certificate
-                    page buyers can verify. We never add badges, watermarks, or
-                    QR codes to your photos — that protects your marketplace
-                    account.
+                    page buyers can verify. Your own photos are never altered —
+                    no watermarks or QR codes burned into them, which protects
+                    your marketplace account.
                   </p>
+                  {/* US-2247: publish has always read listings.badge_enabled and
+                      slab_image_mode, but nothing in the app wrote either — so
+                      the grade banner told sellers to "enable the grade badge
+                      below" and no such control existed anywhere. The grade card
+                      is a SEPARATE gallery image, not an overlay on the seller's
+                      own shots, which is why the copy above still holds. */}
+                  <div className="mt-3 space-y-2 rounded-md border bg-muted/20 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <Label htmlFor="grade-badge" className="text-sm">
+                          Add a grade card image to the gallery
+                        </Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          A generated image showing the {item.grade_value.toFixed(1)}
+                          /10 grade and certificate link, added alongside your
+                          photos.
+                        </p>
+                      </div>
+                      <Switch
+                        id="grade-badge"
+                        checked={badgeEnabled}
+                        onCheckedChange={(on) => {
+                          setBadgeEnabled(on);
+                          // Turning the card on with mode "off" would store a
+                          // contradiction publish can't act on; seed a real mode.
+                          if (on && slabImageMode === "off") {
+                            setSlabImageMode("extra");
+                          }
+                          if (!on) setSlabImageMode("off");
+                        }}
+                        aria-label="Add a grade card image to this listing's gallery"
+                      />
+                    </div>
+                    {badgeEnabled && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="slab-mode" className="text-xs">
+                          Where it goes
+                        </Label>
+                        <Select
+                          value={slabImageMode === "off" ? "extra" : slabImageMode}
+                          onValueChange={(v) =>
+                            setSlabImageMode(v as SlabImageMode)
+                          }
+                        >
+                          <SelectTrigger id="slab-mode" className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="extra" className="text-xs">
+                              Extra gallery image (after your photos)
+                            </SelectItem>
+                            <SelectItem value="hero" className="text-xs">
+                              First image buyers see
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">
+                          “First image” maximises the grade's visibility in
+                          search results; “extra” keeps your own hero shot.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                   {/* US-1665 growth loop: one-click copy of the public
                       certificate link, so a seller can paste the verifiable
                       grade into ANY marketplace listing (not just eBay). Each

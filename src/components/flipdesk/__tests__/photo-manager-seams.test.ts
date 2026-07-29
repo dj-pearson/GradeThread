@@ -107,7 +107,12 @@ describe("composer embeds the shared photo toolkit (US-1567)", () => {
     expect(composerSrc).toMatch(/liveListingId=\{isLiveListing \? listing\?\.id : null\}/);
   });
 
+  // US-2248 moved the payload assembly into src/lib/composer-save.ts, so the
+  // reviewed_at stamp is now asserted on the real payload rather than by
+  // grepping for a literal — see buildDraftListingPayload in
+  // src/lib/__tests__/composer-save.test.ts. What still has to hold HERE is that
+  // the composer feeds the builder a timestamp at all.
   it("stamps reviewed_at on save (US-1568: the draft leaves the AI queue)", () => {
-    expect(composerSrc).toContain("reviewed_at: new Date().toISOString()");
+    expect(composerSrc).toContain("reviewedAt: new Date().toISOString()");
   });
 });
