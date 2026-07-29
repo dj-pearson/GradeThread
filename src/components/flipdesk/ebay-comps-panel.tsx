@@ -30,6 +30,9 @@ interface Props {
   size: string | null;
   // Free-text query, usually the item's title minus brand+size.
   q: string;
+  // US-2245: the brand's style/product code off the tag, when the item has one.
+  // Searched ahead of `q` — a comp carrying the same code is the same garment.
+  styleCode?: string;
   // US-594: the item's condition grade — drives the grade-banded, sold-comp
   // recommendation. Null when the item hasn't been graded yet.
   grade?: number | null;
@@ -39,6 +42,8 @@ interface Props {
 
 // US-1060: human label for how broad the comp set is after the fallback ladder.
 const BREADTH_LABEL: Record<string, string> = {
+  // US-2245: narrower than "exact" — these comps carry the item's own style code.
+  style_code: "Same style code",
   exact: "Exact match",
   broadened: "Broadened search",
   brand_category: "Brand + category",
@@ -60,6 +65,7 @@ export function EbayCompsPanel({
   brand,
   size,
   q,
+  styleCode,
   grade = null,
   onTargetPriceUpdated,
 }: Props) {
@@ -69,6 +75,7 @@ export function EbayCompsPanel({
     q: q || undefined,
     brand: brand || undefined,
     size: size || undefined,
+    styleCode: styleCode || undefined,
     limit: 12,
   });
 

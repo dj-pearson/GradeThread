@@ -846,7 +846,13 @@ export function useAiExtractAspects() {
 // ── Comps (Browse API) ──────────────────────────────────────────────
 
 // US-1060: how broad the returned comp set is after the fallback ladder.
-export type CompBreadth = "exact" | "broadened" | "brand_category" | "category";
+export type CompBreadth =
+  // US-2245: comps that carry the item's own style code — narrower than "exact".
+  | "style_code"
+  | "exact"
+  | "broadened"
+  | "brand_category"
+  | "category";
 
 interface CompStats {
   count: number;
@@ -891,6 +897,12 @@ export interface EbayCompsArgs {
   brand?: string;
   size?: string;
   conditionId?: string;
+  /**
+   * US-2245: the style/product code off the tag. When present the server tries a
+   * style-code rung ABOVE the exact query — one comp carrying the same code is a
+   * better price basis than a page of same-brand listings.
+   */
+  styleCode?: string;
   limit?: number;
 }
 
@@ -903,6 +915,7 @@ export function useEbayComps(args: EbayCompsArgs) {
       args.brand ?? null,
       args.size ?? null,
       args.conditionId ?? null,
+      args.styleCode ?? null,
     ],
     enabled: !!args.categoryId,
     staleTime: 30 * 60_000,
@@ -912,6 +925,7 @@ export function useEbayComps(args: EbayCompsArgs) {
       if (args.brand) params.set("brand", args.brand);
       if (args.size) params.set("size", args.size);
       if (args.conditionId) params.set("condition_id", args.conditionId);
+      if (args.styleCode) params.set("style_code", args.styleCode);
       if (args.limit) params.set("limit", String(args.limit));
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/comps?${params.toString()}`,

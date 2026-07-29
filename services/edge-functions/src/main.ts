@@ -89,6 +89,7 @@ import { adminNotificationsRoutes } from "./routes/admin-notifications.ts";
 import { adminViewsRoutes } from "./routes/admin-views.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
 import { adminBrandKnowledgeRoutes } from "./routes/admin-brand-knowledge.ts";
+import { adminRegisteredNumbersRoutes } from "./routes/admin-registered-numbers.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminScopesRoutes } from "./routes/admin-scopes.ts";
 import { adminSearchRoutes } from "./routes/admin-search.ts";
@@ -1234,6 +1235,10 @@ app.route("/api/admin/notifications", adminNotificationsRoutes);
 // AAL2 MFA via the /api/admin/* group.
 app.route("/api/admin/knowledge-base", adminKnowledgeBaseRoutes);
 app.route("/api/admin/brand-knowledge", adminBrandKnowledgeRoutes);
+// US-2244: the RN/CA resolve queue — the most-sighted care-label registry numbers
+// (US-2243) and the company each one turns out to belong to. Aggregate reference
+// data, no tenant rows; admin JWT + AAL2 MFA + content:publish.
+app.route("/api/admin/registered-numbers", adminRegisteredNumbersRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
 // US-908 granular RBAC scope management: view/edit which permission scopes each
 // role holds + per-admin additive grants. Reads are admin; mutations are

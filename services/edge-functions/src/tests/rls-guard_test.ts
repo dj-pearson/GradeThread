@@ -98,6 +98,17 @@ const SERVICE_ROLE_ONLY = new Set([
   "brand_style_codes",
   "brand_colorways",
   "brand_size_charts",
+  // US-2243/2244 (00501, 00502): RN/CA sighting counters + resolved registrants.
+  // AGGREGATE and non-tenant by construction — one row per registry number, no
+  // owner column and no item reference, so a row cannot say who photographed the
+  // tag. Incremented by the edge service-role client, worked by admin routes.
+  "registered_number_sightings",
+  "registered_number_registry",
+  // US-2246 (00503): learned style-code → product titles. Brand + code + public
+  // listing title/URL only; no owner, no seller/buyer identity, no prices.
+  // Written during identification verify, read during extraction — both
+  // service-role. The SPA never queries it.
+  "style_code_observations",
   // US-1565: admin task board — internal operator tooling; client policies
   // dropped in 00344, all CRUD flows through /api/admin/tasks (edge boundary).
   "admin_task_projects",

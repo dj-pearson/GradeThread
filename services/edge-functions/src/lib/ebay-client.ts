@@ -3921,6 +3921,13 @@ export interface BrowseCompsArgs {
   // UPC/EAN/ISBN barcode. When present, Browse matches the exact product —
   // used by Scout's barcode buy-decision mode (US-592).
   gtin?: string;
+  // US-2245: the brand's own style/product code off the tag (e.g. LW7DVCS,
+  // 511-0011). Searched VERBATIM as keywords — buildCompKeywords' de-noising is
+  // bypassed for it, because a code is not a title token and losing a character
+  // of it turns an exact-product match into nothing. Weaker than `gtin` (no
+  // registry behind it) but far stronger than a title, so the comps ladder tries
+  // it first. Not a filter: eBay has no style-code field, only free text.
+  styleCode?: string;
   // Maps to eBay conditionId. Defaults to "3000" (Used) for pre-owned resale.
   conditionId?: string;
   limit?: number;
@@ -4088,6 +4095,15 @@ export async function searchBrowseComps(
     // the exact-product result set down toward zero). Category/condition/price
     // filters below still apply.
     params.set("gtin", gtin);
+  } else if (args.styleCode?.trim()) {
+    // US-2245: brand + the code, VERBATIM. buildCompKeywords is deliberately
+    // skipped: it lowercases and strips edge punctuation, and isCompSizeToken
+    // would eat a code shaped like a size (32x34, w32). Category/condition
+    // filters and the Brand aspect below still apply.
+    params.set(
+      "q",
+      [args.brand?.trim(), args.styleCode.trim()].filter(Boolean).join(" "),
+    );
   } else {
     // US-1059: de-noised, brand-led keyword query (see buildCompKeywords) rather
     // than the raw title — the raw title is over-specific and returns no comps.
@@ -4211,7 +4227,12 @@ export async function searchSoldComps(
 
     const params = new URLSearchParams();
     if (args.categoryId) params.set("category_ids", args.categoryId);
-    if (args.q && args.q.trim()) params.set("q", args.q.trim());
+    // US-2245: when the ladder won on the style-code rung, the sold search must
+    // ask the same question — the code, not the title it replaced.
+    const soldQ = args.styleCode?.trim()
+      ? [args.brand?.trim(), args.styleCode.trim()].filter(Boolean).join(" ")
+      : args.q?.trim();
+    if (soldQ) params.set("q", soldQ);
     params.set("filter", filters.join(","));
     if (args.categoryId && aspectFilters.length > 0) {
       params.set(

@@ -127,6 +127,13 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
       "Curates the brand & style knowledge base (reference content that grounds garment identification); human-verifies AI-drafted facts.",
   },
   {
+    file: "admin-registered-numbers.ts",
+    scope: "content:publish",
+    mode: "router",
+    rationale:
+      "US-2244 RN/CA resolve queue: records which company a care-label registry number belongs to — brand reference content, same gate as the rest of the KB.",
+  },
+  {
     file: "admin-seo.ts",
     scope: "content:publish",
     mode: "router",

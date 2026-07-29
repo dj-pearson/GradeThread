@@ -3233,3 +3233,42 @@ Deno.test({
     assertDenied(res.status, "POST scout/appraise-url with no auth");
   },
 });
+
+Deno.test({
+  // US-2244: the RN/CA resolve queue is an OPERATOR surface. It holds no tenant
+  // rows at all (00501/00502 are aggregate, owner-less), so the risk it guards is
+  // the other direction: a seller must not be able to WRITE brand reference data
+  // that then feeds every other tenant's identification. adminAuthMiddleware plus
+  // the content:publish scope guard deny a non-admin before any row is touched.
+  name: "B (non-admin) cannot read or write the RN resolve queue",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const read = await fetch(`${BASE}/api/admin/registered-numbers`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await read.body?.cancel();
+    assertDenied(read.status, "GET registered-numbers queue");
+
+    const write = await fetch(`${BASE}/api/admin/registered-numbers`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        registry_key: "RN 87370",
+        company_name: "Not My Company",
+        brand_keys: ["lululemon"],
+      }),
+    });
+    await write.body?.cancel();
+    assertDenied(write.status, "POST registered-numbers resolve");
+  },
+});
+
+Deno.test({
+  name: "US-2244: registered-numbers rejects an unauthenticated caller",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/admin/registered-numbers`);
+    await res.body?.cancel();
+    assertDenied(res.status, "GET registered-numbers with no auth");
+  },
+});

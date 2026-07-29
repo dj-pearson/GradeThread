@@ -1,5 +1,65 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00503_style_code_observations.sql (US-2246 learned style codes, 2026-07-29)
+
+**Apply AFTER 00502.** Creates `public.style_code_observations` (operator table,
+deny-all RLS, registered in `SERVICE_ROLE_ONLY`) plus the increment-or-insert
+function `record_style_code_observation(...)`. Run `NOTIFY pgrst, 'reload schema';`
+after — the edge calls the function through PostgREST RPC.
+
+**Aggregate only, and that is a privacy boundary.** Brand + code + the public
+listing title/URL. No owner column, no seller or buyer identity, no price
+history. A test registers it as non-tenant for exactly that reason.
+
+**Nothing breaks if unapplied.** Writes are fire-and-forget and swallow their
+errors; the read (`lookupLearnedStyle`) returns null on any DB error, which is
+the same "no hint" path an empty table produces. Extraction is unchanged.
+
+**Risk: LOW.** One new table, one new function, no existing object touched.
+Idempotent and re-run safe. Not exercised against a live DB (no Docker).
+
+
+## ⏳ HELD: 00502_registered_number_registry.sql (US-2244 RN registrants, 2026-07-29)
+
+**Apply AFTER 00501.** Creates `public.registered_number_registry` (operator
+table, deny-all RLS, registered in `SERVICE_ROLE_ONLY`). Run
+`NOTIFY pgrst, 'reload schema';` after — the new admin routes read/write it.
+
+**The edge READS this table at boot-adjacent time.** `getRegisteredNumberContext()`
+selects from it on the first RN cross-check after each 5-minute cache expiry. If
+the table is missing, the read throws, the catch logs, and BOTH maps come back
+empty — every lookup degrades to `no_reference`, which is the outcome that
+carries no information. Grading still completes. Apply it anyway before the edge
+redeploy so the feature is not silently inert.
+
+**A company is not a brand.** `brand_keys` is the only column that can add an
+owner to the cross-check index, and only for keys that already exist in
+`brand_knowledge`. A company-only row surfaces as reviewer context and can never
+mint a brand.
+
+**Risk: LOW.** One new table, no existing object touched. Idempotent.
+
+
+## ⏳ HELD: 00501_registered_number_sightings.sql (US-2243 RN sightings, 2026-07-29)
+
+**Apply AFTER 00500.** Creates `public.registered_number_sightings` (operator
+table, deny-all RLS, registered in `SERVICE_ROLE_ONLY`) plus the atomic
+increment-or-insert function `record_registered_number_sighting(...)`. Run
+`NOTIFY pgrst, 'reload schema';` after — the edge calls it through RPC.
+
+**No per-seller column, deliberately.** One row per registry number, with a count
+and the brand names declared alongside it. There is nothing in the table that
+could say which account photographed a tag, which is why it is safe as a global
+counter.
+
+**Nothing breaks if unapplied.** The grading pipeline `void`s the write and the
+recorder swallows its own errors, so a missing function logs one line per graded
+item and changes no grade.
+
+**Risk: LOW.** One new table, one new function, no existing object touched.
+Idempotent and re-run safe. Not exercised against a live DB (no Docker).
+
+
 ## ⏳ HELD: 00500_authenticity_references.sql (US-2218 reference imagery, 2026-07-28)
 
 **Apply AFTER 00499.** Creates `public.authenticity_references` (operator table,

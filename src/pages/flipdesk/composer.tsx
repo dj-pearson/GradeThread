@@ -528,6 +528,20 @@ export function FlipdeskComposerPage({
     },
   });
 
+  // US-2245: the brand's own product code off the tag. Comps searched on it come
+  // back as the SAME garment, so the pricing panel tries it before the title.
+  // style_code first, mpn as fallback — extraction fills both when one printed
+  // code serves both roles.
+  const compStyleCode = useMemo(() => {
+    const attrs = ebayMapping?.attributes ?? null;
+    for (const key of ["style_code", "mpn"] as const) {
+      const raw = attrs?.[key];
+      const value = Array.isArray(raw) ? raw[0] : raw;
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return undefined;
+  }, [ebayMapping?.attributes]);
+
   // Live grading-readiness preview for the drafts-editor grade card, so it flips
   // to Ready the instant the last requirement is met (photos are DB-immediate;
   // title is composer state; garment comes from the item). Mirrors the item
@@ -2206,6 +2220,7 @@ export function FlipdeskComposerPage({
             brand={item.brand ?? null}
             size={item.size ?? null}
             q={item.item_title ?? ""}
+            styleCode={compStyleCode}
             grade={item.grade_value ?? null}
             onTargetPriceUpdated={(value) => {
               // US-1449: flow an applied comp/recommended price straight into the

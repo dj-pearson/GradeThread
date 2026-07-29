@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2243",
+  "nextId": "US-2247",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5548,6 +5548,71 @@
         "The new permissions (contextMenus) are added to manifest.json and reflected in the privacy posture section of extension-unified/README.md; test/manifest-hosts.test.cjs still passes and a guard asserts no new host permission was introduced"
       ],
       "notes": "Done 2026-07-29 on claude/unified-extension-features-fqm7je. Extension 0.3.7 -> 0.8.0; adapter config 2026.07.5 -> 2026.07.8 (search blocks, sellerSelectors, assetIdPattern) mirrored to public/extension/marketplace-selectors.json and the legacy extension-condition bundle. New edge surfaces: POST /api/grading/public/scan (no Vision, own rate window) and POST /api/flipdesk/scout/appraise-url (plan-gated, tenant-scoped, SSRF-guarded). New pure modules with node guards: scan-format, flip-format, seller-memory, compare-tray, plus depth.test.cjs pinning the client/server photo-cap contract. All 20 extension guards + 2699 vitest tests pass. Edge tests written but NOT run locally (deno.land is blocked by the container network policy, so deno could only lint) — CI is the check. Search-page and seller selectors are best-effort against live DOMs and unverified, per the US-1880 posture."
+    },
+    {
+      "id": "US-2243",
+      "passes": true,
+      "title": "RN sightings: record every unreferenced registry number we read",
+      "description": "As a reseller, I want every RN/CA number we read off a care label that the brand base cannot resolve to be recorded and counted, so that GradeThread learns which registry numbers actually walk in the door instead of us importing a 100k-row FTC registry we cannot legally bulk-download.",
+      "acceptanceCriteria": [
+        "A migration adds public.registered_number_sightings keyed on the normalized registry key (kind + digits, e.g. RN:87370) with sighting_count int, declared_brands text[], first_seen_at, last_seen_at, resolved boolean default false, and a UNIQUE index on (registry_key).",
+        "The table is AGGREGATE ONLY: it has no user_id and no item_id column, so a sighting cannot reveal which tenant photographed the tag. It is registered in rls-guard_test.ts as an operator table.",
+        "services/edge-functions/src/lib/registered-numbers.ts exports recordRegisteredNumberSighting(); it writes ONLY for outcome no_reference and is a no-op for unparsed, corroborates, ambiguous and contradicts.",
+        "The recorder never throws into its caller: a DB error is logged and swallowed, and the tag pipeline result is unchanged (asserted by a test that injects a failing writer).",
+        "Repeat sightings increment sighting_count and union the declared brand into declared_brands without duplicating it; a null/blank declared brand is not appended.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer, and PENDING_MIGRATIONS.md updated.",
+        "registered-numbers_test.ts covers: writes on no_reference only, count increment, brand union dedup, blank-brand skip, and error swallow."
+      ],
+      "notes": "Done 2026-07-29. Migration 00501: registered_number_sightings (aggregate, no per-seller column, deny-all RLS, registered in rls-guard SERVICE_ROLE_ONLY) + atomic record_registered_number_sighting() RPC so concurrent passes cannot lose a count. recordRegisteredNumberSighting() in lib/registered-numbers.ts writes ONLY on outcome no_reference, splits the normalized key (parseRegisteredNumber rejects the colon), passes a blank declared brand as null, and swallows every write error. Wired fire-and-forget into grading-pipeline.ts beside the US-2211 cross-check. 6 new cases in registered-numbers_test.ts (no_reference-only, CA kind kept, blank brand, error swallow)."
+    },
+    {
+      "id": "US-2244",
+      "passes": true,
+      "title": "RN registry: admin resolve queue that fills the reverse index lazily",
+      "description": "As an operator, I want to work the most-sighted unresolved RN numbers and record who each one is registered to, so that the RN cross-check has real coverage without bulk-importing the FTC registry.",
+      "acceptanceCriteria": [
+        "A migration adds public.registered_number_registry (registry_key unique, kind, digits, company_name, brand_keys text[], source_url, notes, verified boolean, resolved_by, created_at, updated_at); it is aggregate/operator data with no user_id and is registered in rls-guard_test.ts.",
+        "GET /api/admin/registered-numbers returns unresolved sightings ordered by sighting_count desc plus their declared_brands, and is admin-gated the same way the other admin-brand-knowledge routes are.",
+        "POST /api/admin/registered-numbers accepts { registry_key, company_name, brand_keys[], source_url, notes } and upserts a registry row, then flips the matching sighting row resolved = true.",
+        "getRegisteredNumberIndex() merges brand_knowledge.registered_numbers AND registered_number_registry rows; a registry row contributes owners only for brand_keys that exist in brand_knowledge, so a company-only row never mints a brand.",
+        "A company-only registry row (empty brand_keys) still surfaces: RegisteredNumberAssessment gains an optional registrant field carrying company_name, and the note names the company while the outcome stays no_reference for brand purposes.",
+        "The index cache is invalidated (or TTL-bounded to under 10 minutes) after a resolve so a freshly resolved RN corroborates without a redeploy.",
+        "Migration follows the US-1108 triple and PENDING_MIGRATIONS.md is updated; new admin routes get a tenant-isolation_test.ts case proving they are operator-only and expose no per-tenant data."
+      ],
+      "dependsOn": [
+        "US-2243"
+      ],
+      "notes": "Done 2026-07-29. Migration 00502: registered_number_registry + new routes/admin-registered-numbers.ts (GET queue ordered by sighting_count desc, POST resolve -> upsert + flip sighting resolved), mounted at /api/admin/registered-numbers with admin+AAL2+content:publish and an ADMIN_ROUTER_SCOPES entry. getRegisteredNumberContext() now reads brand_knowledge AND the registry in one pass: a registry row adds an owner ONLY for a brand_key that exists in brand_knowledge, so a company can never mint a brand; a company-only row sets the new assessment.registrant and keeps outcome no_reference. Index TTL cut 10min -> 5min and reset on write. 6 merge/precedence cases + 2 tenant-isolation cases (non-admin and unauthenticated denied)."
+    },
+    {
+      "id": "US-2245",
+      "passes": true,
+      "title": "Comps: style-code rung above exact, so a tag code prices the same product",
+      "description": "As a reseller, I want the pricing panel to search comps by the style code printed on the tag before it searches by title, so that I price against the identical product instead of a fuzzy keyword match.",
+      "acceptanceCriteria": [
+        "comps-ladder.ts CompBreadth gains style_code, and buildLadderStages() puts a style-code stage FIRST (brand + code, or the code alone when no brand) whenever a style code is supplied.",
+        "The style-code stage is omitted entirely when no code is supplied, so the existing exact/broadened/brand_category/category ladder is byte-for-byte unchanged for coded-less items (asserted by an existing-stage-order test).",
+        "Rung selection is overridden for this rung only: if the style-code stage returns >= 1 item it WINS even when that is below comps_min_results, because one identical-product comp beats twenty fuzzy ones.",
+        "GET /api/flipdesk/ebay/comps accepts a style_code query param, trims it, and passes it into searchCompsWithLadder; an absent param behaves exactly as today.",
+        "The composer pricing panel sends the item's style_code (falling back to mpn) from the persisted canonical attributes, and the returned breadth style_code renders as an exact-product label rather than a broadened warning.",
+        "comps-ladder_test.ts covers: stage order with and without a code, the >= 1 item win rule, and that a zero-result style rung falls through to exact without changing the old outcome."
+      ],
+      "notes": "Done 2026-07-29. comps-ladder.ts gains a style_code rung ABOVE exact, built only when a code is supplied and judged by STYLE_CODE_MIN_RESULTS=1 instead of comps_min_results (one identical-product comp beats twenty title matches). broadened stays false on it (tightening is not broadening) and an EMPTY style rung can never become the reported breadth. BrowseCompsArgs.styleCode is searched VERBATIM in searchBrowseComps + searchSoldComps, bypassing buildCompKeywords (which would lowercase, strip edge punctuation, and let isCompSizeToken eat a code shaped like 32x34). Route: style_code query param. Web: useEbayComps + EbayCompsPanel + composer (style_code, falling back to mpn, from the persisted attributes) and the 'Same style code' breadth label. 6 new ladder tests. DEFERRED: iOS/Android CompsService has no style code plumbing yet (no attributes on that screen) - web+edge only."
+    },
+    {
+      "id": "US-2246",
+      "passes": true,
+      "title": "Learned style-code index: every confirmed code-to-product pair is kept",
+      "description": "As a reseller, I want GradeThread to remember which product a style code turned out to be every time the market confirms it, so that the next copy of that garment is identified instantly from a source no vendor sells.",
+      "acceptanceCriteria": [
+        "A migration adds public.style_code_observations (brand_key, style_code_norm, style_code_raw, product_title, source enum-ish text in (market_verify, own_sale, admin), evidence_url, seen_count, first_seen_at, last_seen_at) with a UNIQUE index on (brand_key, style_code_norm, product_title); aggregate/operator, no user_id, registered in rls-guard_test.ts.",
+        "identification-verify.ts writes an observation with source market_verify when a style-code query returns live listings, storing only the listing title and itemWebUrl (never seller identity, buyer data or price history).",
+        "A repeat confirmation increments seen_count and moves last_seen_at instead of inserting a duplicate row.",
+        "ai-extract.ts decode reads the observations for a transcribed style code and may add a style suggestion with source learned, but NEVER overrides a brand_style_codes decoder hit or a research identification of equal-or-higher confidence.",
+        "A learned suggestion carries confidence derived from seen_count and is capped below a verified decoder hit, so the index can never harden a wrong guess into a fact.",
+        "Migration follows the US-1108 triple and PENDING_MIGRATIONS.md is updated; unit tests cover the upsert increment, the precedence rule, and the confidence cap."
+      ],
+      "notes": "Done 2026-07-29. Migration 00503: style_code_observations (aggregate: brand + code + public listing title/URL only, no owner, no seller/buyer, no price) + record_style_code_observation() upsert RPC. New lib/style-code-observations.ts: normalizeStyleCode, learnedConfidence capped at LEARNED_CONFIDENCE_CAP=0.55, pickLearnedStyle (a TIE yields nothing - two attested titles for one code is not an answer), styleNameFromTitle (strips brand/code/listing chatter, keeps model numbers, refuses a one-word remnant), lookupLearnedStyle. identification-verify.ts _browse now returns {title,url} and the CODE query's hits are recorded (source market_verify, max 3 titles per call). ai-extract applyLearnedStyle: never overrides a decoder style, and loses to any equal-or-more-confident existing suggestion. 18 new tests."
     }
   ]
 }

@@ -15,7 +15,9 @@
 // configured, the token request throws and we skip.
 
 import type { ResearchIdentification } from "./ai-extract.ts";
+import { brandKey } from "./brand-normalize.ts";
 import { searchBrowseComps } from "./ebay-client.ts";
+import { recordStyleCodeObservations } from "./style-code-observations.ts";
 import { supabaseAdmin } from "./supabase.ts";
 
 /** Fraction of the style's tokens a title must contain to count as agreeing. */
@@ -150,15 +152,24 @@ export function decideVerification(args: {
 }
 
 // Injectable Browse seam so tests exercise the full verify flow with fixture
-// titles instead of the live API.
+// titles instead of the live API. US-2246: the listing URL rides along so a kept
+// observation can cite its evidence; only public listing text is ever carried —
+// no seller identity, no price.
+export interface BrowseHit {
+  title: string;
+  url: string | null;
+}
+
 export const _browse = {
-  search: async (q: string, brand: string | null): Promise<string[]> => {
+  search: async (q: string, brand: string | null): Promise<BrowseHit[]> => {
     const res = await searchBrowseComps({
       q,
       brand: brand ?? undefined,
       limit: 10,
     });
-    return (res.items ?? []).map((i) => i.title).filter((t) => t !== "");
+    return (res.items ?? [])
+      .filter((i) => i.title !== "")
+      .map((i) => ({ title: i.title, url: i.itemWebUrl ?? null }));
   },
 };
 
@@ -182,17 +193,38 @@ export async function verifyIdentificationAgainstMarket(args: {
 
   // Two anchored queries: the hard code (when US-1526 read one) and the named
   // style. Dedupe titles across both.
-  const queries: string[] = [];
-  if (styleCode) queries.push(`${brand ?? ""} ${styleCode}`.trim());
-  queries.push(`${brand ?? ""} ${identifiedStyle}`.trim());
+  const queries: Array<{ q: string; isCode: boolean }> = [];
+  if (styleCode) {
+    queries.push({ q: `${brand ?? ""} ${styleCode}`.trim(), isCode: true });
+  }
+  queries.push({ q: `${brand ?? ""} ${identifiedStyle}`.trim(), isCode: false });
 
   const titles = new Set<string>();
-  for (const q of queries) {
+  // US-2246: what the CODE query returned, kept separately — those hits are the
+  // only ones that say anything about the code, and they are what gets learned.
+  const codeHits: BrowseHit[] = [];
+  for (const { q, isCode } of queries) {
     try {
-      for (const t of await _browse.search(q, brand)) titles.add(t);
+      for (const hit of await _browse.search(q, brand)) {
+        titles.add(hit.title);
+        if (isCode) codeHits.push(hit);
+      }
     } catch {
       // No app creds / quota / network — this query contributes nothing.
     }
+  }
+
+  // US-2246: keep the code → title pairing the market just confirmed, so the next
+  // copy of this garment is identified from our own history. Fire-and-forget and
+  // deliberately BEFORE the decision: what the code returned is a fact either way,
+  // and the confidence cap (LEARNED_CONFIDENCE_CAP) is what keeps it modest.
+  if (styleCode && codeHits.length > 0) {
+    void recordStyleCodeObservations({
+      brandKey: brand ? brandKey(brand) : "",
+      styleCodeRaw: styleCode,
+      titles: codeHits,
+      source: "market_verify",
+    });
   }
 
   const agreement = scoreTitleAgreement({

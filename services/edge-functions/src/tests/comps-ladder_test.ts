@@ -14,6 +14,7 @@ const {
   buildLadderStages,
   searchCompsWithLadder,
   DEFAULT_MIN_COMP_RESULTS,
+  STYLE_CODE_MIN_RESULTS,
 } = await import("../lib/comps-ladder.ts");
 
 type Args = {
@@ -24,6 +25,7 @@ type Args = {
   conditionId?: string;
   limit?: number;
   gtin?: string;
+  styleCode?: string;
 };
 
 type Stats = {
@@ -287,6 +289,136 @@ Deno.test("searchCompsWithLadder: sold fetch failure degrades to active-only", a
   );
   assertEquals(out.soldStats, null);
   assertEquals(out.items.length, 3);
+});
+
+// ── US-2245: the style-code rung ───────────────────────────────────────────
+
+Deno.test("buildLadderStages: a style code adds a FIRST rung and changes nothing else", () => {
+  const args = {
+    categoryId: "11450",
+    q: "Lululemon ABC pant classic",
+    brand: "Lululemon",
+    size: "32",
+  };
+  const without = buildLadderStages(args);
+  const with_ = buildLadderStages({ ...args, styleCode: "LW7DVCS" });
+
+  assertEquals(with_[0]!.breadth, "style_code");
+  assertEquals(with_[0]!.args.styleCode, "LW7DVCS");
+  assertEquals(with_[0]!.args.brand, "Lululemon");
+  // The code identifies the product, not the size.
+  assertEquals(with_[0]!.args.size, undefined);
+
+  // Every rung after it is the old ladder, untouched — and no other rung
+  // inherits the code.
+  assertEquals(with_.length, without.length + 1);
+  assertEquals(
+    JSON.stringify(with_.slice(1)),
+    JSON.stringify(without),
+  );
+  for (const s of with_.slice(1)) assertEquals(s.args.styleCode, undefined);
+});
+
+Deno.test("buildLadderStages: a blank style code adds no rung", () => {
+  for (const code of ["", "   ", undefined]) {
+    const stages = buildLadderStages({
+      categoryId: "11450",
+      q: "Nike tee",
+      brand: "Nike",
+      styleCode: code,
+    });
+    assertEquals(stages[0]!.breadth, "exact");
+  }
+});
+
+Deno.test("searchCompsWithLadder: ONE style-code comp wins, even below minResults", async () => {
+  const out = await searchCompsWithLadder(
+    {
+      categoryId: "11450",
+      q: "Lululemon ABC pant",
+      brand: "Lululemon",
+      styleCode: "LW7DVCS",
+    },
+    {
+      minResults: 5,
+      soldEnabled: false,
+      // The code returns a single identical-product comp; the title query would
+      // have returned a fat page of same-brand-different-product listings.
+      fetchActive: (a: Args) =>
+        Promise.resolve(result(a.styleCode ? 1 : 20, "active")),
+    },
+  );
+  assertEquals(STYLE_CODE_MIN_RESULTS, 1);
+  assertEquals(out.breadth, "style_code");
+  assertEquals(out.stats.count, 1);
+  // Tightening is not broadening — no "we loosened your search" warning.
+  assertEquals(out.broadened, false);
+  assertEquals(out.ladder.length, 1); // stopped on the first rung
+});
+
+Deno.test("searchCompsWithLadder: an empty style-code rung falls through to the old outcome", async () => {
+  const args = {
+    categoryId: "11450",
+    q: "Nike Dri-Fit shirt",
+    brand: "Nike",
+    size: "M",
+  };
+  const fetchActive = (a: Args) =>
+    Promise.resolve(result(a.styleCode ? 0 : 6, "active"));
+
+  const baseline = await searchCompsWithLadder(args, {
+    minResults: 5,
+    soldEnabled: false,
+    fetchActive,
+  });
+  const withCode = await searchCompsWithLadder(
+    { ...args, styleCode: "NOSUCHCODE" },
+    { minResults: 5, soldEnabled: false, fetchActive },
+  );
+
+  assertEquals(withCode.breadth, baseline.breadth);
+  assertEquals(withCode.stats.count, baseline.stats.count);
+  assertEquals(withCode.broadened, baseline.broadened);
+  // The dead rung is still reported, so the panel can show it was tried.
+  assertEquals(withCode.ladder[0], { breadth: "style_code", count: 0 });
+});
+
+Deno.test("searchCompsWithLadder: an all-empty ladder never reports style_code breadth", async () => {
+  const out = await searchCompsWithLadder(
+    { categoryId: "11450", q: "nothing", brand: "Acme", styleCode: "XYZ1" },
+    {
+      minResults: 3,
+      soldEnabled: false,
+      fetchActive: () => Promise.resolve(result(0, "active")),
+    },
+  );
+  // A blank panel labelled "same style code" would be a lie.
+  assert(out.breadth !== "style_code");
+  assertEquals(out.items.length, 0);
+});
+
+Deno.test("searchCompsWithLadder: sold comps are searched at the winning style-code rung", async () => {
+  let soldArgs: Args | null = null;
+  const out = await searchCompsWithLadder(
+    {
+      categoryId: "11450",
+      q: "Lululemon ABC pant",
+      brand: "Lululemon",
+      styleCode: "LW7DVCS",
+    },
+    {
+      minResults: 5,
+      soldEnabled: true,
+      fetchActive: (a: Args) =>
+        Promise.resolve(result(a.styleCode ? 2 : 20, "active")),
+      fetchSold: (a: Args) => {
+        soldArgs = a;
+        return Promise.resolve(result(1, "sold"));
+      },
+    },
+  );
+  assertEquals(out.breadth, "style_code");
+  assertEquals((soldArgs as Args | null)?.styleCode, "LW7DVCS");
 });
 
 Deno.test("searchCompsWithLadder: defaults the threshold when none is passed", async () => {

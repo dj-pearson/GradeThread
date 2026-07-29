@@ -3,6 +3,10 @@
 // A narrow comp search (full title + brand + size, one category) frequently
 // returns nothing, leaving the pricing panel blank. This module broadens the
 // search PROGRESSIVELY until it clears a configurable minimum-results bar:
+//   style_code     → brand + the code off the tag (US-2245; only when we have
+//                    one). NARROWER than exact and judged by a different rule:
+//                    ONE identical-product comp beats twenty title matches, so
+//                    this rung wins on >= 1 result instead of >= minResults.
 //   exact          → full query + brand + size
 //   broadened      → drop the size, then drop trailing title tokens one by one
 //                    (keeping brand + category so it stays on-topic)
@@ -29,7 +33,20 @@ import {
   searchSoldComps,
 } from "./ebay-client.ts";
 
-export type CompBreadth = "exact" | "broadened" | "brand_category" | "category";
+export type CompBreadth =
+  | "style_code"
+  | "exact"
+  | "broadened"
+  | "brand_category"
+  | "category";
+
+/**
+ * Minimum results for the style-code rung to win. ONE is deliberate: a comp that
+ * carries the same style code is the same garment, so a single hit prices better
+ * than a full page of same-brand-different-product listings. This is the only
+ * rung exempt from `minResults`.
+ */
+export const STYLE_CODE_MIN_RESULTS = 1;
 
 // system_settings key + factory default for the min-results threshold. Tunable
 // deploy-free via the admin settings editor (migration 00243).
@@ -87,6 +104,7 @@ function stageKey(a: BrowseCompsArgs): string {
     norm(a.brand).toLowerCase(),
     norm(a.size).toLowerCase(),
     a.gtin ?? "",
+    norm(a.styleCode).toLowerCase(),
     a.conditionId ?? "",
   ].join("|");
 }
@@ -108,6 +126,23 @@ export function buildLadderStages(args: BrowseCompsArgs): CompLadderStage[] {
   const qTokens = norm(args.q).split(/\s+/).filter(Boolean);
 
   const stages: CompLadderStage[] = [];
+
+  // 0. style_code — the tag's own product code (US-2245). Omitted entirely when
+  //    the caller has no code, so the classic ladder is unchanged for the items
+  //    that make up most of the catalog. No size: the code identifies the
+  //    PRODUCT, and constraining size on top of it usually returns nothing.
+  //    `base` never carries styleCode, so no other rung inherits it.
+  const styleCode = norm(args.styleCode) || undefined;
+  if (styleCode) {
+    stages.push({
+      breadth: "style_code",
+      args: {
+        ...base,
+        styleCode,
+        ...(brand ? { brand } : {}),
+      },
+    });
+  }
 
   // 1. exact — everything the caller asked for.
   stages.push({
@@ -216,10 +251,21 @@ export async function searchCompsWithLadder(
       continue;
     }
     ladder.push({ breadth: stage.breadth, count: result.stats.count });
-    if (!best || result.stats.count > best.result.stats.count) {
+    // An empty style-code rung must not become the reported breadth in the
+    // everything-returned-nothing case: that would label a blank panel
+    // "exact product" and hide that the ladder found nothing at all.
+    const eligibleAsBest = stage.breadth !== "style_code" ||
+      result.stats.count > 0;
+    if (eligibleAsBest && (!best || result.stats.count > best.result.stats.count)) {
       best = { stage, result };
     }
-    if (result.stats.count >= minResults) {
+    // US-2245: the style-code rung answers to STYLE_CODE_MIN_RESULTS, not to
+    // minResults. Below the bar it simply falls through to `exact` with the old
+    // outcome — it can only ever add a better answer, never remove one.
+    const bar = stage.breadth === "style_code"
+      ? STYLE_CODE_MIN_RESULTS
+      : minResults;
+    if (result.stats.count >= bar) {
       chosen = { stage, result };
       break;
     }
@@ -256,7 +302,9 @@ export async function searchCompsWithLadder(
     stats: activeResult.stats,
     soldStats: soldResult?.stats ?? null,
     breadth,
-    broadened: breadth !== "exact",
+    // style_code is NARROWER than exact, so winning on it is not a broadening —
+    // the UI must not warn the comps were loosened when they were tightened.
+    broadened: breadth !== "exact" && breadth !== "style_code",
     minResults,
     soldEnabled,
     ladder,

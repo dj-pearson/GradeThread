@@ -6,7 +6,9 @@ Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KE
 Deno.env.set("EXTENSION_TOKEN_SECRET", "test-extension-secret");
 
 const { mintExtensionToken, verifyExtensionToken, bearerFromHeader } = await import("../lib/extension-token.ts");
-const { resolveExtensionGates } = await import("../lib/extension-gates.ts");
+const { resolveExtensionGates, EXTENSION_MAX_IMAGES_ANON } = await import(
+  "../lib/extension-gates.ts"
+);
 
 // ── token mint / verify ─────────────────────────────────────────────────────
 
@@ -51,7 +53,17 @@ Deno.test("bearer: extracts the token from an Authorization header", () => {
 
 Deno.test("gates: anonymous → only free basics, all paid signals OFF", () => {
   const g = resolveExtensionGates(null);
-  assertEquals(g, { discrepancy: false, priceFairness: false, fraud: false, coverage: true, fit: false, tier: "anonymous" });
+  // maxImages is part of the gate set since US-2241: anonymous keeps the free
+  // 4-photo read, so the whole shape is asserted rather than field-by-field.
+  assertEquals(g, {
+    discrepancy: false,
+    priceFairness: false,
+    fraud: false,
+    coverage: true,
+    fit: false,
+    maxImages: EXTENSION_MAX_IMAGES_ANON,
+    tier: "anonymous",
+  });
 });
 
 Deno.test("gates: Guard unlocks discrepancy + price-fairness + fit, not fraud", () => {

@@ -15,6 +15,10 @@ import {
   resolveBrandKnowledgePack,
 } from "./brand-knowledge.ts";
 import { decodeTagCode, type DecodeResult } from "./brand-decoders.ts";
+import {
+  lookupLearnedStyle,
+  styleNameFromTitle,
+} from "./style-code-observations.ts";
 
 // Model routing: text-only requests use the cheap lightweight model; any
 // request that includes a photo uses the vision-capable default model.
@@ -729,6 +733,10 @@ export async function extractItemFields(
       if (pack) {
         const enriched = enrichExtractionWithBrandKnowledge(decoded, pack);
         decoded = enriched.decoded;
+        // US-2246: after the decoders have had their say, offer what our own
+        // observation index learned about this code. Gap-fill only — a decoder
+        // style or an equally-confident existing one is left alone.
+        decoded = await enrichWithLearnedStyle(decoded, pack.key, enrichBrand);
         // US-1714 metric — one structured line per enriched extraction so the
         // KB's effect is measurable in log aggregation: which brand, whether a
         // decoder fired (match-rate), and how many fields it grounded.
@@ -1042,6 +1050,74 @@ export function enrichExtractionWithBrandKnowledge(
       overrides,
     },
   };
+}
+
+// ── US-2246: the learned style-code hint ────────────────────────────────────
+
+/** Provenance marker for a suggestion that came from our own observation index. */
+export const LEARNED_SOURCE = "learned";
+
+/**
+ * Offer a learned style name, and only if nothing better is already there.
+ *
+ * PRECEDENCE, in order — this is the whole safety property of the feature:
+ *   1. a `decoder` style (a verified brand_style_codes spec) is never touched;
+ *   2. `research` and any other existing suggestion win on equal-or-higher
+ *      confidence, so a learned hint fills a GAP rather than replacing judgment;
+ *   3. the learned confidence is already capped (LEARNED_CONFIDENCE_CAP), so
+ *      repetition can never promote market chatter above a spec.
+ *
+ * Pure, so the precedence rules are unit-testable without a DB.
+ */
+export function applyLearnedStyle(
+  decoded: DecodedExtraction,
+  learned: { styleName: string; confidence: number } | null,
+): DecodedExtraction {
+  if (!learned || learned.styleName.trim() === "") return decoded;
+  const current = decoded.suggestions.style;
+  if (current?.source === "decoder") return decoded;
+  if (
+    current && current.value.trim() !== "" &&
+    (current.confidence ?? 0) >= learned.confidence
+  ) {
+    return decoded;
+  }
+  return {
+    ...decoded,
+    suggestions: {
+      ...decoded.suggestions,
+      style: {
+        value: learned.styleName,
+        confidence: learned.confidence,
+        source: LEARNED_SOURCE,
+      },
+    },
+  };
+}
+
+/**
+ * Look up the transcribed tag codes in the learned index and apply the best hit.
+ * Every failure degrades to "no hint" — extraction must never depend on it.
+ */
+async function enrichWithLearnedStyle(
+  decoded: DecodedExtraction,
+  packKey: string,
+  brand: string | null,
+): Promise<DecodedExtraction> {
+  const codes = ["style_code", "mpn"]
+    .map((k) => decoded.attributes[k]?.values?.[0])
+    .filter((v): v is string => !!v && v.trim() !== "");
+  for (const code of codes) {
+    const learned = await lookupLearnedStyle(packKey, code);
+    if (!learned) continue;
+    const styleName = styleNameFromTitle(learned.productTitle, brand, code);
+    if (!styleName) continue;
+    return applyLearnedStyle(decoded, {
+      styleName,
+      confidence: learned.confidence,
+    });
+  }
+  return decoded;
 }
 
 /**

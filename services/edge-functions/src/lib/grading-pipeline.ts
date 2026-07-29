@@ -99,7 +99,8 @@ import {
 } from "./tag-ground-truth.ts";
 import {
   assessRegisteredNumber,
-  getRegisteredNumberIndex,
+  getRegisteredNumberContext,
+  recordRegisteredNumberSighting,
   type RegisteredNumberAssessment,
 } from "./registered-numbers.ts";
 import {
@@ -1768,11 +1769,20 @@ export async function processSubmission(submissionId: string) {
     const rnRead = acceptedTag.find((a) => a.field === "rn_number");
     if (rnRead) {
       try {
+        // US-2244: the context carries the operator-resolved registrants (00502)
+        // alongside the brand index, so a resolved number reads as "registered to
+        // <company>" instead of silently as "no reference".
+        const rnContext = await getRegisteredNumberContext();
         registeredNumber = assessRegisteredNumber(
           rnRead.value,
           submission.brand,
-          await getRegisteredNumberIndex(),
+          rnContext.index,
+          rnContext.registrants,
         );
+        // US-2243: a number we have no reference for is the NORMAL case and the
+        // only one worth recording — it becomes the admin resolve queue, so
+        // coverage grows in the order real tags arrive. Fire-and-forget.
+        void recordRegisteredNumberSighting(registeredNumber, submission.brand);
         if (registeredNumber.outcome === "contradicts") {
           console.warn(
             `[Pipeline] RN cross-check contradicts on submission ${submissionId}: ` +

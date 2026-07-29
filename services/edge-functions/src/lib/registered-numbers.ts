@@ -161,6 +161,12 @@ export interface RegisteredNumberAssessment {
   normalized: string | null;
   /** Brands the number resolves to (empty unless corroborates/ambiguous/contradicts). */
   owners: RegisteredNumberOwner[];
+  /**
+   * US-2244: the registrant COMPANY, when an operator has resolved this number
+   * (00502). A company is not a brand — this is display + reviewer context only
+   * and, on its own, never changes the outcome.
+   */
+  registrant: string | null;
   /** One line a human reviewer can read without opening this file. */
   note: string;
 }
@@ -176,6 +182,11 @@ export function assessRegisteredNumber(
   raw: string | null | undefined,
   declaredBrand: string | null | undefined,
   index: Map<string, RegisteredNumberOwner[]>,
+  /**
+   * US-2244: registry_key -> registrant company name (00502). Optional so every
+   * pre-2244 caller and test keeps working with a two-table-free index.
+   */
+  registrants?: Map<string, string>,
 ): RegisteredNumberAssessment {
   const parsed = parseRegisteredNumber(raw);
   if (!parsed) {
@@ -183,19 +194,27 @@ export function assessRegisteredNumber(
       outcome: "unparsed",
       normalized: null,
       owners: [],
+      registrant: null,
       note: "Not a parseable RN/CA number.",
     };
   }
   const normalized = registeredNumberKey(parsed);
   const owners = index.get(normalized) ?? [];
+  const registrant = registrants?.get(normalized) ?? null;
   if (owners.length === 0) {
     return {
       outcome: "no_reference",
       normalized,
       owners: [],
-      note:
-        `${parsed.kind} ${parsed.digits} is not in the brand knowledge base. ` +
-        "Carries no information — most brands have no seeded registry number.",
+      registrant,
+      note: registrant
+        // The company is known but its labels are not established, so the
+        // outcome stays no_reference: a registrant can never mint a brand.
+        ? `${parsed.kind} ${parsed.digits} is registered to ${registrant}, ` +
+          "whose brands have not been established. Context only — it cannot " +
+          "confirm or contradict the brand on this item."
+        : `${parsed.kind} ${parsed.digits} is not in the brand knowledge base. ` +
+          "Carries no information — most brands have no seeded registry number.",
     };
   }
 
@@ -208,6 +227,7 @@ export function assessRegisteredNumber(
       outcome: owners.length > 1 ? "ambiguous" : "corroborates",
       normalized,
       owners,
+      registrant,
       note:
         `${parsed.kind} ${parsed.digits} is registered to ${names}. ` +
         "No brand was declared to compare against.",
@@ -220,6 +240,7 @@ export function assessRegisteredNumber(
       outcome: "contradicts",
       normalized,
       owners,
+      registrant,
       note:
         `${parsed.kind} ${parsed.digits} is registered to ${names}, not to the ` +
         "brand on this item. Corroboration only — an RN is public and can be " +
@@ -231,6 +252,7 @@ export function assessRegisteredNumber(
       outcome: "ambiguous",
       normalized,
       owners,
+      registrant,
       note:
         `${parsed.kind} ${parsed.digits} is shared across ${names} (one ` +
         "registrant, several brands), so it is CONSISTENT with this item but " +
@@ -241,55 +263,193 @@ export function assessRegisteredNumber(
     outcome: "corroborates",
     normalized,
     owners,
+    registrant,
     note:
       `${parsed.kind} ${parsed.digits} is registered to ${names}, matching the ` +
       "brand on this item. Supporting signal only — never proof of authenticity.",
   };
 }
 
+// ── Sightings: learning which numbers actually arrive (US-2243) ─────────────
+//
+// The FTC registry has no API and no bulk download, so coverage cannot be bought
+// or imported. It CAN be earned in arrival order: count the numbers real tags
+// carry, and resolve those (US-2244). A few thousand items covers the registrants
+// that actually walk into thrift stores, weighted by how often they do.
+//
+// Aggregate only — the table has one row per registry number, no owner column and
+// no item reference (00501), so a sighting cannot say who photographed the tag.
+
+/** Injectable writer — the real one is the 00501 RPC. Exists for tests. */
+export type SightingWriter = (args: {
+  registryKey: string;
+  kind: "RN" | "CA";
+  digits: string;
+  declaredBrand: string | null;
+}) => Promise<void>;
+
+const defaultSightingWriter: SightingWriter = async (args) => {
+  const { error } = await supabaseAdmin.rpc(
+    "record_registered_number_sighting",
+    {
+      p_registry_key: args.registryKey,
+      p_kind: args.kind,
+      p_digits: args.digits,
+      p_declared_brand: args.declaredBrand,
+    },
+  );
+  if (error) throw error;
+};
+
+/**
+ * Record a registry number we have NO reference for, so it can be resolved later.
+ *
+ * Writes for `no_reference` and nothing else: a number that already resolved
+ * teaches us nothing, and an `unparsed` string is not a number at all. Never
+ * throws — a grade must not fail over bookkeeping — so callers may `void` it.
+ */
+export async function recordRegisteredNumberSighting(
+  assessment: RegisteredNumberAssessment,
+  declaredBrand: string | null | undefined,
+  write: SightingWriter = defaultSightingWriter,
+): Promise<void> {
+  if (assessment.outcome !== "no_reference" || !assessment.normalized) return;
+  // `normalized` is a KEY ("RN:87370"), not a printed number, so it is split
+  // rather than re-parsed — parseRegisteredNumber would reject the colon.
+  const [kind, digits] = assessment.normalized.split(":");
+  if ((kind !== "RN" && kind !== "CA") || !digits) return;
+  const brand = (declaredBrand ?? "").trim();
+  try {
+    await write({
+      registryKey: assessment.normalized,
+      kind,
+      digits,
+      declaredBrand: brand === "" ? null : brand,
+    });
+  } catch (err) {
+    console.error(
+      "[RegisteredNumbers] sighting write failed (ignored):",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+// ── Merging the resolved registry into the index (US-2244) ──────────────────
+
+/** One resolved registrant row (00502). */
+export interface RegistryRow {
+  registry_key: string;
+  company_name: string | null;
+  brand_keys: string[] | null;
+}
+
+/**
+ * Fold resolved registry rows into an existing brand-derived index.
+ *
+ * A registry row contributes an OWNER only for brand_keys that exist in
+ * brand_knowledge: an operator types a company, and a company is not a brand, so
+ * an unknown key must not invent one. A row with no usable brand_keys still
+ * contributes its company to `registrants`, which surfaces in the note without
+ * changing the outcome. Pure — testable with no DB.
+ */
+export function mergeRegistryRows(
+  index: Map<string, RegisteredNumberOwner[]>,
+  rows: readonly RegistryRow[],
+  knownBrands: Map<string, string>,
+): { index: Map<string, RegisteredNumberOwner[]>; registrants: Map<string, string> } {
+  const registrants = new Map<string, string>();
+  for (const row of rows) {
+    const key = row.registry_key?.trim();
+    if (!key) continue;
+    const company = row.company_name?.trim();
+    if (company) registrants.set(key, company);
+    for (const rawBrand of row.brand_keys ?? []) {
+      const bk = brandKey(rawBrand ?? "");
+      const canonical = knownBrands.get(bk);
+      if (!canonical) continue;
+      const owners = index.get(key) ?? [];
+      if (owners.some((o) => o.brandKey === bk)) continue;
+      owners.push({ brandKey: bk, canonicalBrand: canonical });
+      index.set(key, owners);
+    }
+  }
+  return { index, registrants };
+}
+
 // ── The cached reverse index ────────────────────────────────────────────────
 
-const INDEX_TTL_MS = 10 * 60 * 1000;
-let cached: { index: Map<string, RegisteredNumberOwner[]>; expires: number } | null =
-  null;
+/** Everything a lookup needs: the brand index plus the resolved registrants. */
+export interface RegisteredNumberContext {
+  index: Map<string, RegisteredNumberOwner[]>;
+  registrants: Map<string, string>;
+}
 
-/** Test seam — drops the cache so a test can supply its own rows. */
+const INDEX_TTL_MS = 5 * 60 * 1000;
+let cached: { context: RegisteredNumberContext; expires: number } | null = null;
+
+/** Test seam, and the post-resolve invalidation for the admin write path. */
 export function resetRegisteredNumberIndex(): void {
   cached = null;
 }
 
 /**
- * Load (and cache) the reverse index. The whole corpus is ~180 brand rows of
- * which six carry a number, so this is one small filtered read rather than a
- * per-lookup query — and it needs no GIN index, which is why this story ships
- * without a migration. On any DB error the index is EMPTY, which degrades every
- * lookup to `no_reference`: the outcome that carries no information. A failed
- * read must never manufacture a contradiction.
+ * Load (and cache) the reverse index plus the resolved registrants. Two small
+ * reads: ~180 brand rows and the resolved-registry table, both whole — no GIN
+ * index needed at this size.
+ *
+ * On any DB error BOTH maps are EMPTY, which degrades every lookup to
+ * `no_reference`: the outcome that carries no information. A partial load is
+ * deliberately not used, because a half-built index is exactly what could
+ * manufacture a `contradicts` out of missing data.
+ *
+ * US-2244: the TTL is 5 minutes and the admin resolve route calls
+ * resetRegisteredNumberIndex() on write, so a freshly resolved number starts
+ * corroborating immediately on that instance and within the TTL everywhere else.
  */
-export async function getRegisteredNumberIndex(): Promise<
-  Map<string, RegisteredNumberOwner[]>
+export async function getRegisteredNumberContext(): Promise<
+  RegisteredNumberContext
 > {
-  if (cached && cached.expires > Date.now()) return cached.index;
+  if (cached && cached.expires > Date.now()) return cached.context;
   try {
-    const { data, error } = await supabaseAdmin
-      .from("brand_knowledge")
-      .select("brand_key, canonical_brand, registered_numbers")
-      .not("registered_numbers", "eq", "{}");
-    if (error) throw error;
-    const index = buildRegisteredNumberIndex(
-      (data ?? []) as Array<{
-        brand_key: string;
-        canonical_brand: string;
-        registered_numbers: string[] | null;
-      }>,
+    const [brands, registry] = await Promise.all([
+      supabaseAdmin
+        .from("brand_knowledge")
+        .select("brand_key, canonical_brand, registered_numbers"),
+      supabaseAdmin
+        .from("registered_number_registry")
+        .select("registry_key, company_name, brand_keys"),
+    ]);
+    if (brands.error) throw brands.error;
+    if (registry.error) throw registry.error;
+
+    const brandRows = (brands.data ?? []) as Array<{
+      brand_key: string;
+      canonical_brand: string;
+      registered_numbers: string[] | null;
+    }>;
+    const knownBrands = new Map(
+      brandRows.map((b) => [b.brand_key, b.canonical_brand]),
     );
-    cached = { index, expires: Date.now() + INDEX_TTL_MS };
-    return index;
+    const { index, registrants } = mergeRegistryRows(
+      buildRegisteredNumberIndex(brandRows),
+      (registry.data ?? []) as RegistryRow[],
+      knownBrands,
+    );
+    const context: RegisteredNumberContext = { index, registrants };
+    cached = { context, expires: Date.now() + INDEX_TTL_MS };
+    return context;
   } catch (err) {
     console.error(
       "[RegisteredNumbers] index load failed — every lookup degrades to no_reference:",
       err instanceof Error ? err.message : String(err),
     );
-    return new Map();
+    return { index: new Map(), registrants: new Map() };
   }
+}
+
+/** Back-compat shim for callers that only need the brand index. */
+export async function getRegisteredNumberIndex(): Promise<
+  Map<string, RegisteredNumberOwner[]>
+> {
+  return (await getRegisteredNumberContext()).index;
 }

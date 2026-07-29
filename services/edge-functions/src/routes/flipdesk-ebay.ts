@@ -7891,6 +7891,9 @@ flipdeskEbayRoutes.get("/comps", async (c) => {
   const brand = c.req.query("brand") ?? undefined;
   const size = c.req.query("size") ?? undefined;
   const conditionId = c.req.query("condition_id") ?? undefined;
+  // US-2245: the tag's style code, when the item has one. Adds a rung ABOVE
+  // exact; absent, the ladder behaves exactly as it did before.
+  const styleCode = c.req.query("style_code")?.trim() || undefined;
   const limitRaw = c.req.query("limit");
   const limit = limitRaw ? Number(limitRaw) : undefined;
 
@@ -7906,6 +7909,7 @@ flipdeskEbayRoutes.get("/comps", async (c) => {
         brand,
         size,
         conditionId,
+        styleCode,
         limit: Number.isFinite(limit) ? limit : undefined,
       },
       { minResults },
