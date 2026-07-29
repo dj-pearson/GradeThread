@@ -436,6 +436,14 @@ app.use("/api/flipdesk/ebay/messages/*", authMiddleware);
 // (US-1039) are user-initiated; they were missing from this whitelist so
 // userId was unset → handlers queried user_id="undefined" → 22P02 / 500.
 app.use("/api/flipdesk/ebay/sync-runs", authMiddleware);
+// US-2233: user-facing "Sync now" (POST /sync/performance/me). Same US-1623
+// allowlist trap — the cron sibling /sync/performance is job-secret and stays
+// self-authenticating, but the /me route reads workspaceOwnerId ?? userId from
+// the auth context, so without this entry authMiddleware never runs and every
+// signed-in seller's on-demand refresh fails closed to 401. Exact path (not a
+// wildcard) so it cannot swallow the job-secret /sync/performance cron. Caught
+// by ebay-auth-coverage_test.ts (US-2014).
+app.use("/api/flipdesk/ebay/sync/performance/me", authMiddleware);
 app.use("/api/flipdesk/ebay/orders/*", authMiddleware);
 // US-1978: eBay artifact cleanup (DELETE a stale unpublished offer / SKU). Same
 // US-1623 trap as the paths above — without a whitelist entry authMiddleware never

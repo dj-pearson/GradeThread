@@ -15,7 +15,7 @@ import { searchBrowseComps } from "./ebay-client.ts";
 // US-2237: the pure range maths lives in its own module so callers that only
 // need the arithmetic (the scan endpoint's tests, for one) don't drag the eBay
 // client in with it. Re-exported here so this file stays the front door.
-import { valueRangeFromStats } from "./condition-value-math.ts";
+import { type ValueRange, valueRangeFromStats } from "./condition-value-math.ts";
 export {
   MIN_VALUE_COMPS,
   type ValueRange,
