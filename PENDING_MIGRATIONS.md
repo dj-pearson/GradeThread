@@ -1,5 +1,39 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00499_size_systems.sql (US-2215 size system + class, 2026-07-28)
+
+**Apply AFTER 00498.** Adds two nullable text columns to
+`public.brand_size_charts` — `size_system` (US|UK|EU|IT|FR|JP|AU|alpha) and
+`size_class` (standard|plus|petite|tall|big_and_tall|maternity) — then fills
+them for 138 of the rows 00498 inserted.
+
+**GENERATED FILE — do not hand-edit.** Regenerate with
+`deno run --allow-read --allow-write scripts/gen-size-systems-migration.mjs`.
+`sizing-chart-parity_test.ts` fails if the committed SQL drifts from the charts.
+
+**Depends on 00498 having run.** The UPDATE matches on
+(brand_key, department, garment); if 00498 has not been applied there are no
+rows to match and the UPDATE is a harmless no-op — it will NOT error, but the
+columns will stay NULL, so apply them in order.
+
+**Values are DERIVED, not asserted.** `detectSizeSystem` reads the system off
+the labels only where they state it (137 charts do) and returns NULL otherwise.
+A chart of bare numbers stays NULL because a bare "6" could be US or UK. NULL
+means "not recorded", NOT an implied US.
+
+**It does not rewrite a single size label or note.** The 115 charts that encode
+their system inside the label keep that prose; this adds the structured field
+beside it. A test asserts the migration touches neither `rows` nor `note`.
+
+**No client involvement.** Global reference table, deny-all RLS, read only by
+the edge service-role client. Nothing in the edge reads these columns yet
+either — this story lands the dimension and the conversion layer; wiring a
+converted size onto a certificate is a later, deliberate step.
+
+**Risk: LOW.** Two additive nullable columns plus an UPDATE that only sets them.
+No trigger, no index, no tenant data. Idempotent and re-run safe.
+
+
 ## ⏳ HELD: 00498_sizing_charts_backfill.sql (US-2214 sizing chart parity, 2026-07-28)
 
 **Apply AFTER 00497.** Inserts 292 rows into `public.brand_size_charts` — every

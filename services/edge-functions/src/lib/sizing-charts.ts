@@ -31,6 +31,21 @@ export interface SizingChart {
   categoryMatch: string[];
   rows: SizingRow[];
   note?: string;
+  /**
+   * US-2215: the national system the size labels are WRITTEN IN. Optional and
+   * usually derived — `size-systems.ts:detectSizeSystem` reads it off the
+   * labels when they say so — but settable here when a chart's labels are bare
+   * numbers whose system only a human knows. null/absent means "not recorded",
+   * never "US".
+   */
+  sizeSystem?: string;
+  /**
+   * US-2215: extended size class (plus / petite / tall / big_and_tall /
+   * maternity). Absent means `standard`. This exists so extended sizing can be
+   * a SEPARATE chart rather than folded into a standard one — see the Talbots
+   * row, the corpus's only extended chart, which crams three classes into one.
+   */
+  sizeClass?: string;
 }
 
 // ── Seed charts ─────────────────────────────────────────────────────────────

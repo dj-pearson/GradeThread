@@ -19,6 +19,9 @@ const { brandKey } = await import("../lib/brand-normalize.ts");
 const { buildSql, chartToValues } = await import(
   "../../../../scripts/gen-sizing-chart-seed.mjs"
 );
+const { buildSql: buildSystemsSql } = await import(
+  "../../../../scripts/gen-size-systems-migration.mjs"
+);
 
 const MIGRATION_URL = new URL(
   "../../../../supabase/migrations/00498_sizing_charts_backfill.sql",
@@ -178,4 +181,32 @@ Deno.test("US-2214: the in-code fallback is observable when it fires", async () 
     src.includes("came from the IN-CODE"),
     "resolveBrandKnowledgePack must warn when charts fall back to code",
   );
+});
+
+// ── US-2215: the size_system / size_class migration is generated too ───────
+
+Deno.test("US-2215: the committed 00499 matches what the code generates", async () => {
+  const committed499 = await Deno.readTextFile(
+    new URL("../../../../supabase/migrations/00499_size_systems.sql", import.meta.url),
+  );
+  assertEquals(
+    buildSystemsSql(SIZING_CHARTS),
+    committed499,
+    "00499 is stale — regenerate: deno run --allow-read --allow-write scripts/gen-size-systems-migration.mjs",
+  );
+});
+
+Deno.test("US-2215: 00499 only ADDS columns and fills them", async () => {
+  const sql = await Deno.readTextFile(
+    new URL("../../../../supabase/migrations/00499_size_systems.sql", import.meta.url),
+  );
+  assert(sql.includes("add column if not exists size_system text"));
+  assert(sql.includes("add column if not exists size_class  text"));
+  assert(
+    sql.includes("insert into public.applied_migrations (version) values ('00499')"),
+  );
+  // It must not rewrite the charts themselves: the size labels and notes are
+  // what the model reads, and re-authoring 115 of them deserves its own eval.
+  assert(!/update[\s\S]*set[\s\S]*\brows\b\s*=/i.test(sql), "00499 must not rewrite chart rows");
+  assert(!/set[\s\S]*\bnote\s*=/i.test(sql), "00499 must not rewrite chart notes");
 });
