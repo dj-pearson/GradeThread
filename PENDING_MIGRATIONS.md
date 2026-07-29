@@ -1,5 +1,36 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00498_sizing_charts_backfill.sql (US-2214 sizing chart parity, 2026-07-28)
+
+**Apply AFTER 00497.** Inserts 292 rows into `public.brand_size_charts` — every
+chart the in-code `SIZING_CHARTS` seed carries, across 170 brands. Previously
+only a couple of dozen had ever been seeded, so the DB-first resolver fell
+through to the frozen in-code copy for almost every brand. Run
+`NOTIFY pgrst, 'reload schema';` is NOT needed (no schema change), but harmless.
+
+**GENERATED FILE — do not hand-edit.** Regenerate with
+`deno run --allow-read --allow-write scripts/gen-sizing-chart-seed.mjs`.
+`sizing-chart-parity_test.ts` fails if the committed SQL stops matching the code.
+
+**Insert-only, and it yields to the hand-written packs.** `ON CONFLICT
+(brand_key, department, garment) DO NOTHING`, deliberately: the packs from 00447
+onward carry real `source_url` + `confidence`, and this backfill carries neither
+(the in-code seed has no per-chart provenance to copy). Every backfilled row
+lands `verified = false`, `confidence = NULL`, `source_url = NULL` — which is
+the honest state, not a regression: these are the values the resolver has always
+been using, now somewhere an operator can correct them.
+
+**No client involvement.** `brand_size_charts` is a global reference table with
+deny-all RLS, read only by the edge service-role client.
+
+**Safe to push before applying.** With 00498 unapplied the resolver simply keeps
+using the in-code charts, exactly as it does today — the only visible change is
+a new warning line naming the fallback.
+
+**Risk: LOW.** Insert-only into a reference table, no schema change, no trigger,
+no index, no tenant data. Idempotent and re-run safe.
+
+
 ## ⏳ HELD: 00497_grade_reports_size_verification.sql (US-2213 verified size, 2026-07-28)
 
 **Apply AFTER 00496.** Adds one nullable column,

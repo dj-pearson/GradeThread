@@ -18,6 +18,7 @@ import { withRetry } from "./retry.ts";
 import {
   findSizingCharts,
   formatSizingChartsForPrompt,
+  type SizingChart,
 } from "./sizing-charts.ts";
 // US-1996: the pure size helpers live in ONE place — ai-size-estimate-core.ts —
 // which exists so tests can exercise them WITHOUT dragging in the Anthropic
@@ -126,6 +127,19 @@ export async function estimateSize(input: {
   photos: SizePhoto[];
   brand?: string | null;
   category?: string | null;
+  /**
+   * US-2214: already-resolved charts, DB-FIRST. Pass
+   * `resolveBrandKnowledgePack(...).sizingCharts` and an operator's admin edit
+   * actually reaches this call. Omit and it falls back to the in-code seed, as
+   * it always did.
+   *
+   * WHY THIS PARAM EXISTS: until now this function read findSizingCharts()
+   * directly, so the DB-first-with-code-fallback pattern the brand KB was built
+   * on was NOT wired for the one call that consumes charts. brand_size_charts
+   * reached resolveBrandKnowledgePack and stopped there, which meant fixing a
+   * wrong chart in the admin UI changed nothing about size estimation.
+   */
+  charts?: SizingChart[];
 }): Promise<SizeEstimate> {
   if (input.photos.length === 0) {
     throw new Error("estimateSize requires at least one photo");
@@ -151,7 +165,9 @@ export async function estimateSize(input: {
   // (US-1088 knowledge layer) so the model maps measurements → the brand's own
   // label instead of relying on memory. Empty when we have no matching chart.
   const chartText = formatSizingChartsForPrompt(
-    findSizingCharts(input.brand, input.category),
+    input.charts && input.charts.length > 0
+      ? input.charts
+      : findSizingCharts(input.brand, input.category),
   );
   if (chartText) {
     content.push({

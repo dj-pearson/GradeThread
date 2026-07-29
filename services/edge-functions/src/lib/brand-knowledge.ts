@@ -241,6 +241,21 @@ export function assembleBrandKnowledgePack(
     category,
   ).slice(0, MAX_CHARTS);
 
+  // US-2214: the chart fallback is SILENT by construction — it always returns
+  // something, so a brand missing from brand_size_charts looks exactly like a
+  // brand that has one. That is how the DB drifted to a couple of dozen charts
+  // against 292 in code without anyone noticing. 00498 backfilled them, so a
+  // fallback now means either the migration has not been applied or a chart was
+  // added to code without regenerating it. Say so once, where it is greppable.
+  if (!usedDbCharts && fallbackCharts.length > 0) {
+    console.warn(
+      `[BrandKnowledge] size charts for "${canonical}" came from the IN-CODE ` +
+        `fallback, not brand_size_charts — 00498 may be unapplied, or the chart ` +
+        `was added to sizing-charts.ts without regenerating the seed ` +
+        `(scripts/gen-sizing-chart-seed.mjs).`,
+    );
+  }
+
   const hasDbRows = !!brandRow || styleRows.length > 0 ||
     decoderRows.length > 0 || colorwayRows.length > 0 || usedDbCharts;
   // "db" = knowledge (incl. charts) came from the DB; "mixed" = DB rows present

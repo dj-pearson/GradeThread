@@ -1387,9 +1387,13 @@ export async function processSubmission(submissionId: string) {
     // knowledge lookups, and only when the tag read is going to run at all — a
     // brand with no seeded eras yields [], the reference block renders "", and
     // the tag-OCR prompt is byte-identical to US-2210's.
+    // US-2214: resolved when EITHER identity feature is on — the pack carries the
+    // DB-first sizing charts as well as the tag eras, and passing them into
+    // estimateSize is what makes an operator's admin chart edit actually reach
+    // the size call (it previously read the frozen in-code seed directly).
     let brandTagEras: TagEra[] = [];
     let brandPack: BrandKnowledgePack | null = null;
-    if (wantTagOcr) {
+    if (wantTagOcr || wantSizeVerify) {
       try {
         brandPack = await resolveBrandKnowledgePack(submission.brand, {
           category: submission.garment_category,
@@ -1542,6 +1546,9 @@ export async function processSubmission(submissionId: string) {
             .map((img) => ({ url: img.dataUri, type: img.imageType })),
           brand: submission.brand,
           category: submission.garment_category,
+          // US-2214: DB-first charts; [] falls back to the in-code seed inside
+          // estimateSize, exactly as before.
+          charts: brandPack?.sizingCharts ?? [],
         }).catch((err) => {
           console.error(
             `[Pipeline] size estimate failed for submission ${submissionId}:`,
