@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2274",
+  "nextId": "US-2275",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3383,6 +3383,21 @@
         "A vitest asserts the resolver: signed (path contains /object/sign/) for tag/tag_2/certificate with empty photo_url; the stored photo_url untouched for a web-uploaded tag that HAS one; the public URL for front/back; and empty input yields no request.",
         "A vitest asserts a private-bucket photo is never handed to a PUBLIC destination from the client (eBay preview, share, export) - the display URL is short-lived and must not be persisted onto a listing.",
         "The DB is NOT the problem and no migration is needed: the item_photos row, storage_path and bytes are all correct today. This is purely a client read path."
+      ]
+    },
+    {
+      "id": "US-2274",
+      "passes": false,
+      "title": "iOS: the item's own columns don't own their eBay specifics, so changing Size edits nothing the listing will publish",
+      "description": "As a seller on iPhone, I want changing Size or Color on the item to update the eBay item specific too, so that I don't have to open Category & Specifics and type the same value a second time.",
+      "acceptanceCriteria": [
+        "Changing a structured column (brand/size/color/material/style) on the iOS item editor updates that column's eBay aspect even when the aspect's provenance is ai_extracted or manual. Today InventoryAspectSync.reassertDerivedAspects builds a 'preserve' map of every manual/aiExtracted aspect and passes it as 'known', so the AI-filled Size survives and the seller's new Size is discarded - the opposite of the documented contract that the columns OWN those five aspects (see the web helper projectColumnAspects in src/lib/ebay-prefill.ts and its tests).",
+        "The save writes BOTH aspect stores, not just one: inventory_items.ebay_aspects (+ebay_aspect_sources) AND listings.item_specifics_override (+item_specifics_sources) for this item's listing row. Today the save-time path writes only the inventory_items pair; item_specifics_override is written ONLY by SpecificsEditorModel (the Category & Specifics editor), which is exactly why the seller has to go there for the change to stick - it is the copy publish/revise reads FIRST.",
+        "The projection runs even when the item has no eBay category selected yet. Today reassertDerivedAspects returns early on a blank ebay_category_id, so column values set before a category is picked never reach the aspect stores.",
+        "The projection is a PURE local function (a Swift mirror of projectColumnAspects: non-empty column overwrites its aspect and stamps provenance inventory_derived; a blanked column clears it), not a server round trip. Today every save calls EbayAspectsService.deriveAspects, so a save costs a network call and a transient failure silently no-ops via try?.",
+        "An XCTest asserts the three rules directly: an ai_extracted Size aspect IS overwritten by a changed Size column; a non-column aspect (e.g. Department, Pattern) is left untouched; and a cleared column clears its aspect.",
+        "A deno or vitest drift guard asserts the iOS column-to-aspect name mapping matches the web/edge registry (services/edge-functions/src/lib/aspect-registry.ts, vendored to src/lib/ebay-aspect-registry.json), so the two platforms cannot disagree on which aspect a column owns.",
+        "Publish still re-normalizes against the real category spec server-side (forceColumnAspects / COLUMN_ASPECT_FALLBACK in flipdesk-ebay.ts), so a raw column value outside eBay's allowed list is still corrected at publish - this story does not change that."
       ]
     }
   ]
