@@ -147,6 +147,13 @@ googlePlayVerifyRoutes.post("/verify", async (c) => {
           { error: "ACTIVE_STRIPE_SUBSCRIPTION", action: "cancel_stripe_first" },
           409,
         );
+      case "blocked_active_appstore":
+        // US-2126: an App Store subscription already entitles this user — manage
+        // it in the iOS app rather than start a second bill on Google Play.
+        return c.json(
+          { error: "ACTIVE_APPSTORE_SUBSCRIPTION", action: "manage_in_app" },
+          409,
+        );
       case "account_mismatch":
         // The purchase belongs to a different account (obfuscated id mismatch or
         // the token is already claimed elsewhere) — never entitle the caller.

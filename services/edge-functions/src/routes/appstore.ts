@@ -19,6 +19,7 @@ import { computeConsumableGrant, isTransactionRevoked } from "../lib/appstore/gr
 import {
   appstoreLapseSkippedByStripe,
   decideAppstorePrecedence,
+  googleplaySubscriptionActive,
 } from "../lib/appstore/precedence.ts";
 import { routeNotification } from "../lib/appstore/notifications.ts";
 import { verifyNotification, verifyTransaction } from "../lib/appstore/verify.ts";
@@ -257,6 +258,15 @@ appstoreVerifyRoutes.post("/verify", async (c) => {
   if (decideAppstorePrecedence(user, mapping.kind) === "block_active_stripe") {
     return c.json(
       { error: "ACTIVE_STRIPE_SUBSCRIPTION", action: "cancel_stripe_first" },
+      409,
+    );
+  }
+
+  // US-2126: same precedence, other mobile store. A subscription purchase must
+  // not stack on an active Google Play subscription (consumables are additive).
+  if (mapping.kind === "subscription" && googleplaySubscriptionActive(user)) {
+    return c.json(
+      { error: "ACTIVE_GOOGLEPLAY_SUBSCRIPTION", action: "manage_in_play" },
       409,
     );
   }

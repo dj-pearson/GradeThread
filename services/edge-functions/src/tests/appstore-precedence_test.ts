@@ -3,8 +3,10 @@
 import { assertEquals } from "@std/assert";
 import {
   appstoreLapseSkippedByStripe,
+  appstoreSubscriptionActive,
   appstoreSubscriptionBlocksStripe,
   decideAppstorePrecedence,
+  googleplaySubscriptionActive,
 } from "../lib/appstore/precedence.ts";
 
 Deno.test("consumables always proceed, even with an active Stripe sub", () => {
@@ -117,6 +119,56 @@ Deno.test("US-1640: Apple lapse still applies for a genuine App Store user", () 
       subscription_status: "canceled",
       billing_source: "stripe",
     }),
+    false,
+  );
+});
+
+// ── US-2126: Google Play joins the cross-processor precedence matrix ──
+//
+// The server side for Google Play is live, but billing_source='googleplay'
+// appeared in neither precedence guard, so a Play subscriber could stack an App
+// Store OR a Stripe subscription and be double-charged. These pin the two new
+// pure predicates that the three purchase paths (App Store verify, Google Play
+// verify, Stripe subscribe) now consult.
+
+Deno.test("googleplaySubscriptionActive: true only for an entitling Play sub", () => {
+  for (const status of ["active", "trialing", "past_due"]) {
+    assertEquals(
+      googleplaySubscriptionActive({ billing_source: "googleplay", subscription_status: status }),
+      true,
+    );
+  }
+  // Lapsed Play sub.
+  assertEquals(
+    googleplaySubscriptionActive({ billing_source: "googleplay", subscription_status: "canceled" }),
+    false,
+  );
+  // Other processors are NOT Google Play.
+  for (const src of ["stripe", "appstore", null]) {
+    assertEquals(
+      googleplaySubscriptionActive({ billing_source: src, subscription_status: "active" }),
+      false,
+    );
+  }
+  // Free / never-subscribed.
+  assertEquals(googleplaySubscriptionActive({}), false);
+});
+
+Deno.test("appstoreSubscriptionActive mirrors the App Store block predicate", () => {
+  for (const status of ["active", "trialing", "past_due"]) {
+    const u = { billing_source: "appstore", subscription_status: status };
+    assertEquals(appstoreSubscriptionActive(u), true);
+    // The public block name delegates to it — same answer, no drift.
+    assertEquals(appstoreSubscriptionBlocksStripe(u), true);
+  }
+  // A Google Play sub is not an App Store sub, and vice versa — the two mobile
+  // predicates never overlap, so the matrix has no double-block cell.
+  assertEquals(
+    appstoreSubscriptionActive({ billing_source: "googleplay", subscription_status: "active" }),
+    false,
+  );
+  assertEquals(
+    googleplaySubscriptionActive({ billing_source: "appstore", subscription_status: "active" }),
     false,
   );
 });

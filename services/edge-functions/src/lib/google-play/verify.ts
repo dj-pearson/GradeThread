@@ -23,7 +23,10 @@ import {
   computeGoogleUserUpdate,
   type GoogleUsersBillingUpdate,
 } from "./products.ts";
-import { decideAppstorePrecedence } from "../appstore/precedence.ts";
+import {
+  appstoreSubscriptionActive,
+  decideAppstorePrecedence,
+} from "../appstore/precedence.ts";
 
 const ANDROIDPUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher";
 
@@ -174,6 +177,9 @@ export interface GooglePlayResult {
     | "invalid_purchase"
     | "already_processed"
     | "blocked_active_stripe"
+    // US-2126: an active App Store subscription owns the plan — route the user
+    // to manage it in the iOS app rather than double-charge via Google Play.
+    | "blocked_active_appstore"
     // The purchase is bound to a different account — either its
     // obfuscatedExternalAccountId names another user, or the token is already
     // claimed on another user's row. Never entitles the caller (US-1614).
@@ -242,6 +248,12 @@ export async function processGooglePlayPurchase(
   // silently never fired (billing_source was never stamped 'stripe').
   if (decideAppstorePrecedence(user, mapping.kind) === "block_active_stripe") {
     return { ok: false, kind: "subscription", reason: "blocked_active_stripe" };
+  }
+  // US-2126: same precedence, other mobile store. Block a Google Play
+  // subscription when an App Store subscription already entitles the user
+  // (consumables are additive and never blocked).
+  if (mapping.kind === "subscription" && appstoreSubscriptionActive(user)) {
+    return { ok: false, kind: "subscription", reason: "blocked_active_appstore" };
   }
 
   const info = await deps.verifyPurchase(ctx.productId, ctx.purchaseToken, mapping.kind);

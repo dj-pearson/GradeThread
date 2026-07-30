@@ -44,11 +44,37 @@ export function decideAppstorePrecedence(
 // and steer the user to manage their plan in the iOS app.
 const APPSTORE_ENTITLING_STATUSES = new Set(["active", "trialing", "past_due"]);
 
-export function appstoreSubscriptionBlocksStripe(
+/** True when the user is currently entitled through an App Store subscription. */
+export function appstoreSubscriptionActive(
   user: Pick<BillingUserRow, "billing_source" | "subscription_status">,
 ): boolean {
   return (
     user.billing_source === "appstore" &&
+    APPSTORE_ENTITLING_STATUSES.has(user.subscription_status ?? "")
+  );
+}
+
+export function appstoreSubscriptionBlocksStripe(
+  user: Pick<BillingUserRow, "billing_source" | "subscription_status">,
+): boolean {
+  return appstoreSubscriptionActive(user);
+}
+
+// US-2126: Google Play is a THIRD subscription processor whose server side is
+// live (lib/google-play/*), but it appeared in NEITHER precedence guard — so a
+// Play subscriber could stack an App Store OR a Stripe subscription and be
+// double-charged. This is the Play analogue of appstoreSubscriptionActive:
+// billing_source is stamped 'googleplay' by the Play verify/RTDN path
+// (lib/google-play/products.ts). The entitling statuses are the same three the
+// App Store and Stripe guards use. Wired into all three purchase paths (App
+// Store verify, Google Play verify, Stripe subscribe) so any two processors
+// cannot both bill the same user.
+/** True when the user is currently entitled through a Google Play subscription. */
+export function googleplaySubscriptionActive(
+  user: Pick<BillingUserRow, "billing_source" | "subscription_status">,
+): boolean {
+  return (
+    user.billing_source === "googleplay" &&
     APPSTORE_ENTITLING_STATUSES.has(user.subscription_status ?? "")
   );
 }

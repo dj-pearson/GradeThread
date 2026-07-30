@@ -9,7 +9,10 @@ import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 import { getBuyerPriceIds, getFlipdeskPriceIds } from "../lib/pricing-config.ts";
 import { effectiveAiActionsUsed } from "../lib/ai-metering.ts";
 import { API_OVERAGE_PACKS, isApiOveragePackKey } from "../lib/api-overage-packs.ts";
-import { appstoreSubscriptionBlocksStripe } from "../lib/appstore/precedence.ts";
+import {
+  appstoreSubscriptionBlocksStripe,
+  googleplaySubscriptionActive,
+} from "../lib/appstore/precedence.ts";
 import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
 
 type PaymentsEnv = {
@@ -319,6 +322,11 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
   // (avoids double-billing). The user must manage that plan in the iOS app.
   if (appstoreSubscriptionBlocksStripe(user)) {
     return c.json({ error: "ACTIVE_APPSTORE_SUBSCRIPTION", action: "manage_in_app" }, 409);
+  }
+  // US-2126: same guard for the third processor — an active Google Play
+  // subscription must not be double-billed by a new Stripe one.
+  if (googleplaySubscriptionActive(user)) {
+    return c.json({ error: "ACTIVE_GOOGLEPLAY_SUBSCRIPTION", action: "manage_in_play" }, 409);
   }
 
   const stripe = getStripe();
@@ -1625,6 +1633,10 @@ paymentRoutes.post("/flipdesk/downgrade", async (c) => {
   // plan is managed in the iOS app. Reject before touching Stripe (US-807).
   if (appstoreSubscriptionBlocksStripe(user)) {
     return c.json({ error: "ACTIVE_APPSTORE_SUBSCRIPTION", action: "manage_in_app" }, 409);
+  }
+  // US-2126: same for a Google Play subscriber — managed in the Play app.
+  if (googleplaySubscriptionActive(user)) {
+    return c.json({ error: "ACTIVE_GOOGLEPLAY_SUBSCRIPTION", action: "manage_in_play" }, 409);
   }
 
   if (!user.flipdesk_subscription_id) {
