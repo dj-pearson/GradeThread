@@ -29,6 +29,11 @@ struct ItemCanvasView: View {
     /// US-748: this item's listing(s) so the canvas shows where it's listed
     /// and links out to the live listing — part of the Item↔Listing↔Sale thread.
     @Query private var itemListings: [LocalListing]
+    /// The live store row(s) for this item's id — see the note in `init`.
+    @Query private var itemRows: [LocalInventoryItem]
+    /// Report the stale-row state at most once per appearance, so a screen left
+    /// open doesn't spam telemetry.
+    @State private var reportedStaleRow = false
     @State private var state: ItemCanvasState?
     /// US-967: parsed `measurements_json`, memoized so the Measurements section
     /// reads a cached value instead of re-decoding JSON on every `body` pass.
@@ -178,6 +183,58 @@ struct ItemCanvasView: View {
         activeEbayListing != nil || endedEbayListing != nil
     }
 
+    // MARK: - Stale row recovery
+
+    /// Why this screen can no longer trust the object it was handed, or nil when
+    /// the row is still live and still the same object.
+    ///
+    /// Two distinct ways a background sync invalidates it:
+    ///   * `removed` — the merge's prune deleted the row (it wasn't in the server
+    ///     payload) and nothing replaced it.
+    ///   * `replaced` — the merge deleted and re-inserted the row, so a LIVE row
+    ///     exists for this id but it is a different object than the one this view
+    ///     holds. Rendering the old one shows empty fields, which reads as a blank
+    ///     screen rather than an error.
+    private var staleRowReason: String? {
+        guard let live = itemRows.first else { return "removed" }
+        // Reference identity: @Model generates a class, so a re-insert is a
+        // genuinely different instance even though the id matches.
+        return live === item ? nil : "replaced"
+    }
+
+    /// Honest recovery instead of a silently empty form. Reopening re-reads the
+    /// row from the store, which is exactly what the seller was doing by hand
+    /// (back out to Inventory, tap the item again).
+    private func staleRow(_ reason: String) -> some View {
+        ContentUnavailableView {
+            Label("This item was refreshed", systemImage: "arrow.triangle.2.circlepath")
+        } description: {
+            Text(reason == "removed"
+                 ? "A background sync removed this item from your device. Pull to refresh your inventory and open it again."
+                 : "A background sync replaced this item while it was open, so this screen is out of date. Reopen it to pick up the current version.")
+        } actions: {
+            Button("Back to inventory") { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.brandNavy)
+        }
+        .onAppear {
+            // This failure produced NO telemetry before — no throw, no crash, so
+            // nothing to report. Record it so the next occurrence names the sync
+            // that did it instead of leaving us to reason about it from source.
+            guard !reportedStaleRow else { return }
+            reportedStaleRow = true
+            Telemetry.breadcrumb(
+                "Item canvas hit a stale SwiftData row (\(reason))",
+                category: "sync"
+            )
+            Telemetry.event("item_canvas_stale_row", props: [
+                "item_id": item.id,
+                "reason": reason,
+                "live_rows": itemRows.count,
+            ])
+        }
+    }
+
     init(item: LocalInventoryItem) {
         self.item = item
         // Filter photos by item id at @Query time — far cheaper than
@@ -197,6 +254,16 @@ struct ItemCanvasView: View {
             filter: #Predicate<LocalListing> { $0.inventoryItemId == itemId },
             sort: \.updatedAt, order: .reverse
         )
+        // The row this screen is drawing, re-read from the store on every store
+        // change. `item` is a strong reference to ONE SwiftData object; a sync
+        // merge can delete that object (prune) or delete-and-reinsert it under a
+        // fresh identity, and this view would go on rendering the dead one — every
+        // field reading empty, which is the "screen goes blank after grading"
+        // report. Nothing throws and nothing crashes, so there is no crash report
+        // either; comparing against the live row is the only way to notice.
+        self._itemRows = Query(
+            filter: #Predicate<LocalInventoryItem> { $0.id == itemId }
+        )
     }
 
     /// US-665: realized per-item P&L once the item has sold (sale − fees − cost).
@@ -208,7 +275,9 @@ struct ItemCanvasView: View {
 
     var body: some View {
         Group {
-            if let state {
+            if let reason = staleRowReason {
+                staleRow(reason)
+            } else if let state {
                 form(state: state)
             } else {
                 ProgressView()

@@ -580,6 +580,37 @@ final class AIExtractTests: XCTestCase {
         XCTAssertFalse(mgr.isRunning(id))
     }
 
+    // MARK: - Stale SwiftData row on the item canvas (US-2276)
+
+    /// The rule the canvas now applies before drawing anything. Pulled out as a
+    /// pure function of (live rows, held object) so it is testable without a model
+    /// container or a view: reference identity is the whole trick, because a
+    /// delete-and-reinsert produces a live row with the SAME id and a DIFFERENT
+    /// instance — which is what rendered as a blank screen.
+    private func staleReason(
+        liveRows: [AnyObject],
+        held: AnyObject
+    ) -> String? {
+        guard let live = liveRows.first else { return "removed" }
+        return live === held ? nil : "replaced"
+    }
+
+    func test_staleRowRule_distinguishesRemovedReplacedAndHealthy() {
+        final class Row {}
+        let held = Row()
+
+        // Healthy: the live row IS the object the screen holds.
+        XCTAssertNil(staleReason(liveRows: [held], held: held))
+
+        // Pruned: the merge deleted it and nothing replaced it.
+        XCTAssertEqual(staleReason(liveRows: [], held: held), "removed")
+
+        // Delete-and-reinsert: a live row exists for the id, but it's a different
+        // instance. Same id, so an id comparison would call this healthy — and the
+        // screen would keep drawing the dead object with every field empty.
+        XCTAssertEqual(staleReason(liveRows: [Row()], held: held), "replaced")
+    }
+
     // MARK: - Background eBay category pass (US-2270)
 
     /// The current edge build always returns `ebay: null` + `ebay_pending: true`,

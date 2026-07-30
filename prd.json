@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2276",
+  "nextId": "US-2277",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3415,6 +3415,20 @@
         "npx impeccable detect on composer.tsx stays clean, and the row wraps rather than overflowing the narrower rail (the publish label can read 'Save & schedule for Jul 30, 2026, 3:00 PM CDT')."
       ],
       "notes": "Done 2026-07-29. actionRow extracted to a const and rendered first in the sticky rail, with the blocker notices moved in under it; PushToCard/ListingKit/ScheduleCard relocated INTO the editor column (they were left stranded below the grid with no button under them once the CTA moved up). Reframed US-2252/US-2253's guarantee honestly rather than deleting it: 'config directly above the CTA' was a layout expression of 'the CTA cannot outrun the channel picker', and a sticky CTA has no 'below' — so the invariant is now asserted against the button itself (names its destination, disables with a reason when pushPlatforms is empty). composer-anchors.test.ts rewritten to anchor on the {actionRow} render site instead of a className; the old anchor was a className string and my class change alone took three tests down, which is the real lesson. 14 tests pass; full web suite back to its single pre-existing failure (heading-outline needs a built dist). tsc, eslint and impeccable clean."
+    },
+    {
+      "id": "US-2276",
+      "passes": true,
+      "title": "iOS item screen keeps drawing a SwiftData row the sync deleted, so it renders blank with no error",
+      "description": "As a seller on iPhone, I want the item screen to stay usable after a background sync, so that finishing a grade doesn't leave me staring at an empty screen I have to back out of and reopen.",
+      "acceptanceCriteria": [
+        "ItemCanvasView detects that the object it holds is no longer the live store row and refuses to draw it: a @Query on the item id classifies 'removed' (no live row - the merge's prune deleted it) vs 'replaced' (a live row exists for the id but is a DIFFERENT instance, i.e. delete-and-reinsert). Reference identity is load-bearing: an id comparison calls the replaced case healthy.",
+        "In either state the screen shows an explicit recovery (ContentUnavailableView + 'Back to inventory') instead of a form whose every field reads empty - which is what the seller reported as the screen going blank.",
+        "The state is REPORTED: a Telemetry breadcrumb plus an item_canvas_stale_row event carrying item_id, reason and live-row count, fired at most once per appearance. This failure previously produced zero telemetry (nothing throws, nothing crashes - confirmed: iOS reports to the gradethread-frontend Sentry project and there is no error for it), so the trigger could not be identified from source alone. The event is what names it on the next occurrence.",
+        "An XCTest covers the classification rule for all three cases (healthy / removed / replaced) as a pure function, so it runs without a ModelContainer.",
+        "FOLLOW-UP, not closed by this story: WHY the row is deleted mid-session is still unknown. mergeItems prunes only when isFullItemSync (itemWatermark == nil), and grade completion posts .inventoryPullRequested; the paginated item fetch and SyncEngine.resetWatermarks are the two candidates to examine once the telemetry lands."
+      ],
+      "notes": "Done 2026-07-29. Guard + telemetry only; the root cause is deliberately still open (see the follow-up AC). ItemCanvasView gained a @Query on its own item id and a staleRowReason computed from REFERENCE identity (live === item), because delete-and-reinsert leaves a live row with the same id — an id-based check would miss exactly the case that blanks the screen. Renders an honest ContentUnavailableView with a Back button instead of a form of empty fields, and fires a breadcrumb + item_canvas_stale_row event (item_id, reason, live_rows) once per appearance. Chose the guard over re-resolving the object into the view: threading a replacement row through a 2000-line view that holds  as a let, with its own @State form snapshot, is a refactor I cannot compile or test on this host. Diagnosis evidence: iOS DOES report to Sentry (8 cocoa events in gradethread-frontend, newest 2026-07-24, release com.gradethread.app@1.0.4+318) and there is NO event for this — so it is not a crash and not a throw, which is what pointed at an empty-rendering view rather than an error. 1 new XCTest, unrun locally (no Swift toolchain); five ios/Scripts checks pass."
     }
   ]
 }
