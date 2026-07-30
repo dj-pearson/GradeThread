@@ -220,6 +220,7 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellSection.MARKETPLACES.route) {
             com.gradethread.app.marketplaces.MarketplacesScreen(
                 onOpenNegotiation = { navController.navigate(ShellRoutes.negotiation()) },
+                onOpenBulkPricing = { navController.navigate(ShellRoutes.BULK_PRICING) },
             )
         }
         // US-1354: the offers + messages inbox. The item argument is optional —
@@ -236,6 +237,12 @@ private fun ShellNavHost(navController: NavHostController) {
         ) { entry ->
             com.gradethread.app.marketplaces.negotiation.NegotiationInboxScreen(
                 filterItemId = entry.arguments?.getString("item"),
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1355: the bulk price editor.
+        composable(ShellRoutes.BULK_PRICING) {
+            com.gradethread.app.marketplaces.pricing.BulkPricingScreen(
                 onClose = { navController.popBackStack() },
             )
         }

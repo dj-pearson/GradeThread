@@ -72,7 +72,7 @@
     {
       "id": "US-1355",
       "priority": -98645,
-      "passes": false,
+      "passes": true,
       "title": "Bulk pricing",
       "description": "As a seller, I can adjust prices across many active listings at once and push to eBay.",
       "acceptanceCriteria": [
@@ -80,7 +80,7 @@
         "Adjustment previews the new price per listing before pushing; failures are reported per-listing without aborting the batch",
         "Pushed prices reconcile back into the local listing rows on the next sync"
       ],
-      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android bulk pricing. AC1: marketplaces/pricing/{BulkPricing,BulkPricingService,BulkPricingViewModel,BulkPricingScreen}.kt — active eBay listings read from Postgres under RLS (the Room mirror carries no listing_title) and filtered to rows WITH a platform_offer_id, since the bulk endpoint addresses the Inventory API by offer and an imported listing would always fail; Set-price and Reduce-% modes; POST /listings/bulk-price-quantity. AC2: every selected row previews its new price before anything is pushed (BulkPricing.target, cents-rounded on both branches), a target under $0.01 is REFUSED with its reason on the row rather than clamped — a deep reduce on a cheap item otherwise pushes a price the seller never chose — and those rows are dropped from the request instead of risking a wholesale rejection; per-listing failures from the response land on their own rows via BulkPricing.rowErrors and the summary names a partial batch as partial ('Updated 18 of 20'). Quantity is deliberately never sent: an accidental 0 pulls listings out of stock, which is a far bigger action than a price change. AC3: a successful push runs SyncService.pull() then reloads, so the local rows carry the new price immediately rather than until the next scheduled sync (the edge already wrote the successes). Multi-store banner (US-1216) names the primary account every push routes through. Reached from the Marketplaces screen. Verified by BulkPricingTest (13 cases across rounding, the sub-cent refusal, input bounds, request shaping, the 500 cap and result reporting). Deliberately NOT ported: the US-1167 'suggest from comps' mode, which is its own comps-fetch surface and outside this story's ACs. NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1356",

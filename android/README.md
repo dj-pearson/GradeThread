@@ -18,7 +18,7 @@ list and item canvas (photos, measurements, comps, eBay specifics) · global sea
 eBay OAuth connect · eBay listing sync (pull → poll → provenance-aware merge),
 the unified listing card, and publish/relist with pre-flight, listing-time
 category specifics and a live profit estimate · the negotiation inbox (offers,
-send-offer, buyer messages) · credit-pack Play Billing ·
+send-offer, buyer messages) · bulk pricing · credit-pack Play Billing ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -26,7 +26,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Bulk pricing, post-sale actions, repricing | US-1355–1358 |
+| Post-sale actions, repricing rules | US-1356–1358 |
 | AutoLister (batch jobs, photo classify/QA, drafts) | US-1359 |
 | Disclosure, scheduled drops, automations | US-1360–1362 |
 | Payout reconciliation | US-1365 |

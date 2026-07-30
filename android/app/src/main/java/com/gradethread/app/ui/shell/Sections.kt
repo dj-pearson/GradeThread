@@ -61,6 +61,9 @@ object ShellRoutes {
     /** A navigable route, scoped to one listing when [itemId] is given. */
     fun negotiation(itemId: String? = null): String =
         itemId?.takeIf { it.isNotBlank() }?.let { "$NEGOTIATION?item=$it" } ?: NEGOTIATION
+
+    /** US-1355: the bulk price editor, reached from Marketplaces. */
+    const val BULK_PRICING = "bulk-pricing"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */

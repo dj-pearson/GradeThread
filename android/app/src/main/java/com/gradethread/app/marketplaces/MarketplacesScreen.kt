@@ -41,6 +41,8 @@ fun MarketplacesScreen(
     modifier: Modifier = Modifier,
     /** US-1354: opens the offers + messages inbox. */
     onOpenNegotiation: () -> Unit = {},
+    /** US-1355: opens the bulk price editor. */
+    onOpenBulkPricing: () -> Unit = {},
     viewModel: MarketplacesViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -133,6 +135,10 @@ fun MarketplacesScreen(
                 text = "Offers & messages",
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenNegotiation() }
+            BrandSecondaryButton(
+                text = "Bulk pricing",
+                modifier = Modifier.fillMaxWidth(),
+            ) { onOpenBulkPricing() }
         }
 
         BrandSecondaryButton(text = "Refresh", modifier = Modifier.fillMaxWidth()) {

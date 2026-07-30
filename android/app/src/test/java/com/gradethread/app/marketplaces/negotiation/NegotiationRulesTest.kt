@@ -95,7 +95,7 @@ class NegotiationRulesTest {
         assertNull(NegotiationRules.counterPrice(""))
         assertNull(NegotiationRules.counterPrice("0"))
         assertNull(NegotiationRules.counterPrice("-5"))
-        assertEquals(42.5, NegotiationRules.counterPrice("$42.50")!!, 1e-9)
+        assertEquals(42.5, NegotiationRules.counterPrice("\$42.50")!!, 1e-9)
     }
 
     @Test
