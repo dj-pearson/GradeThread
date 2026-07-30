@@ -239,27 +239,50 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
       </div>
 
       {countering ? (
-        <div className="mt-3 flex items-center gap-2">
-          <Input
-            type="number"
-            step="0.01"
-            min="0.01"
-            value={counterPrice}
-            onChange={(e) => setCounterPrice(e.target.value)}
-            placeholder="Counter price"
-            className="h-8 w-32"
-          />
-          <Button size="sm" className="h-8" disabled={busy} onClick={() => act("Counter")}>
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Send counter"}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8"
-            onClick={() => setCountering(false)}
-          >
-            Cancel
-          </Button>
+        <div className="mt-3 space-y-1">
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={counterPrice}
+              onChange={(e) => setCounterPrice(e.target.value)}
+              placeholder="Counter price"
+              className="h-8 w-32"
+            />
+            <Button size="sm" className="h-8" disabled={busy} onClick={() => act("Counter")}>
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Send counter"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8"
+              onClick={() => setCountering(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+          {/* US-2236 AC2: margin at this counter, so a below-break-even offer is
+              visible. Only when we know the item's cost. */}
+          {offer.itemCost != null &&
+            Number.isFinite(Number(counterPrice)) &&
+            Number(counterPrice) > 0 &&
+            (() => {
+              const margin = Number(counterPrice) - offer.itemCost;
+              const below = margin < 0;
+              return (
+                <p
+                  className={
+                    below
+                      ? "text-xs font-medium text-destructive"
+                      : "text-xs text-muted-foreground"
+                  }
+                >
+                  {below ? "Below cost" : "Margin"}: {cur} {margin.toFixed(2)}
+                  {" · "}cost {cur} {offer.itemCost.toFixed(2)}
+                </p>
+              );
+            })()}
         </div>
       ) : (
         <div className="mt-3 flex flex-wrap gap-2">

@@ -1724,6 +1724,9 @@ export interface EbayBestOffer {
   status?: string | null;
   message?: string | null;
   expiresAt?: string | null;
+  // US-2236 AC2: the item's acquisition cost (dollars) for margin context on the
+  // counter input. null when the listing/cost isn't known.
+  itemCost?: number | null;
 }
 
 export interface EbayEligibleItem {

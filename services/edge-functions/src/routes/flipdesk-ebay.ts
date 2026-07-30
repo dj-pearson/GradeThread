@@ -7965,7 +7965,46 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   try {
     const offers = await getBestOffers(userId);
-    return c.json({ offers });
+    // US-2236 AC2: attach the item's acquisition cost so the counter UI can show
+    // the resulting margin (a counter below break-even is otherwise invisible).
+    // The offers come from THIS seller's eBay account, so their itemIds are the
+    // seller's own listings; the cost lookup is still tenant-scoped via the
+    // owner-verified parent (inventory_items.user_id — the loadListingOwned
+    // pattern, US-268) as defence in depth. acquired_price is numeric(10,2)
+    // dollars, matching the eBay offer/counter price units.
+    const itemIds = [...new Set(offers.map((o) => o.itemId).filter(Boolean))];
+    const costByItemId = new Map<string, number>();
+    if (itemIds.length > 0) {
+      const { data: rows } = await supabaseAdmin
+        .from("listings")
+        .select("platform_listing_id, inventory_items!inner(user_id, acquired_price)")
+        .eq("platform", "ebay")
+        .in("platform_listing_id", itemIds)
+        .eq("inventory_items.user_id", userId);
+      type CostRow = {
+        platform_listing_id: string | null;
+        // PostgREST returns a to-one embed as an object, but supabase-js types it
+        // as an array — accept either.
+        inventory_items:
+          | { acquired_price: number | null }
+          | { acquired_price: number | null }[]
+          | null;
+      };
+      for (const r of (rows ?? []) as unknown as CostRow[]) {
+        const inv = Array.isArray(r.inventory_items)
+          ? r.inventory_items[0]
+          : r.inventory_items;
+        const cost = inv?.acquired_price;
+        if (r.platform_listing_id && typeof cost === "number") {
+          costByItemId.set(r.platform_listing_id, cost);
+        }
+      }
+    }
+    const enriched = offers.map((o) => ({
+      ...o,
+      itemCost: costByItemId.get(o.itemId) ?? null,
+    }));
+    return c.json({ offers: enriched });
   } catch (err) {
     console.error("[flipdesk-ebay] getBestOffers failed:", err);
     return c.json({ error: "Couldn't load best offers from eBay." }, 502);
