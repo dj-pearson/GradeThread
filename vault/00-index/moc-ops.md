@@ -4,7 +4,7 @@ type: moc
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-27
+reviewed: 2026-07-30
 tags: [meta, moc]
 summary: Map of content for 10-ops.
 ---

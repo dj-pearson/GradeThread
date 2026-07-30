@@ -1274,6 +1274,48 @@ Deno.test({
   },
 });
 
+// US-2272: the credential-refresh cron sweeps EVERY verified seller's live eBay
+// listings and revises their descriptions. It resolves the tenant from each row
+// (users → that seller's own listings, scoped by user_id) and takes no ids from
+// the request, so the boundary that matters is the door: a signed-in seller must
+// not be able to fire a fleet-wide eBay write, and neither must a wrong secret.
+Deno.test({
+  name: "credentials-refresh job rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/credentials-refresh`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/credentials-refresh with a user JWT should 401 (no job secret), got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "credentials-refresh job rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/credentials-refresh`, {
+      method: "POST",
+      headers: {
+        "X-Internal-Job-Secret": "wrong-secret-value",
+        "Content-Type": "application/json",
+      },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/credentials-refresh with a bogus job secret should 401, got ${status}`,
+    );
+  },
+});
+
 // ── Photo Dump Reconciliation (US-290) ──────────────────────────────────
 //
 // New surfaces: /api/flipdesk/ai/classify-photos (item-scoped), the reconcile

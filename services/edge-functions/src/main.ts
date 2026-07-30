@@ -63,6 +63,7 @@ import {
   flipdeskAutomationsRoutes,
   handleAutomationRulesCron,
 } from "./routes/flipdesk-automations.ts";
+import { handleCredentialsRefreshCron } from "./routes/jobs-credentials-refresh.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminPricingRoutes } from "./routes/admin-pricing.ts";
@@ -1155,6 +1156,11 @@ app.post("/api/jobs/reprice-rules", (c) => handleRepriceRulesCron(c));
 // US-150 price-drop/promo scheduler cron (hourly) — trigger/action/scope
 // rules over active listings. Same X-Internal-Job-Secret gate.
 app.post("/api/jobs/automation-rules", (c) => handleAutomationRulesCron(c));
+// US-2272 verified-seller credential refresh. Re-renders the frozen "N items
+// graded · X / 10 average" block on live eBay listings of GRADED items, since
+// eBay bans active content so a description can never self-update. Same
+// X-Internal-Job-Secret gate; capped + overlap-locked.
+app.post("/api/jobs/credentials-refresh", (c) => handleCredentialsRefreshCron(c));
 // US-525 AutoLister reclaim sweeper. OUTSIDE the /api/flipdesk/autolister/*
 // JWT wildcard so a cron (no user token) can reach it; the handler enforces
 // X-Internal-Job-Secret itself. Resumes batches whose worker died mid-run.

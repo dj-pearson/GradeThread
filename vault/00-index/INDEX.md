@@ -42,6 +42,7 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[cross-listing]] — reference — Direct marketplace APIs versus aggregators, and which channels are reachable how.
 - [[ebay-aspect-value-limit]] — contract — eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
 - [[ebay-condition-and-policies]] — contract — Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
+- [[ebay-description-freshness]] — contract — An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 - [[ebay-ranking-playbook]] — reference — What actually moves Best Match placement, and what is folklore.
 - [[ebay-trading-api-watch]] — reference — Deprecation exposure on the legacy Trading API and what would force a migration.
 - [[flipdesk-dogfood]] — reference — What broke when the pipeline was run end to end on real inventory.

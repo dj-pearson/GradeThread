@@ -280,6 +280,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | content-refresh | `30 4 * * *` | `/api/jobs/content-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | content-tick | `0 * * * *` | `/api/content/scheduler/tick` | `$CONTENT_INTERNAL_JOB_SECRET` | 200 with skipped:true when idle (cadence gate) — NOT ok:true; not in the cron_runs ledger |
 | content-watchdog | `0 */3 * * *` | `/api/jobs/content-watchdog` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| credentials-refresh | `40 5 * * *` | `/api/jobs/credentials-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, revised, up_to_date, capped:false}; revised is 0 on a steady-state run |
 | cron-fleet-health | `17 * * * *` | `/api/jobs/cron-fleet-health` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | data-retention | `0 4 * * *` | `/api/jobs/data-retention` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | demand-matches | `30 */6 * * *` | `/api/jobs/demand-matches` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -330,10 +331,22 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_72 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_73 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 > **Cadence notes (US-496):**
+> - `credentials-refresh` (US-2272) re-renders the frozen verified-seller
+>   credential block ("N items independently graded · X / 10") on LIVE eBay
+>   listings of GRADED items. eBay bans active content in descriptions, so a
+>   published block can never self-update; a revise is the only compliant fix
+>   (allowed any time, free, even on a listing with sales). Daily, because the
+>   block only moves when the seller's grade count/average moves. It compares the
+>   stored copy FIRST, so a steady-state run makes **zero** eBay calls, and it
+>   caps eBay writes per run (default 100 — override with the `system_settings`
+>   key `credentials_refresh.max_per_run`; `credentials_refresh.enabled: false`
+>   is the kill-switch). `capped: true` in the response means the rest are
+>   waiting for the next run, not that everything is current. It never INJECTS a
+>   block into a description that doesn't already have one.
 > - `reprice-scan` fans out one eBay Browse call per active listing — every 6h
 >   balances freshness vs. rate budget; the eBay circuit breaker backs it off
 >   during an outage (US-499) and the job lock prevents overlap (US-503).

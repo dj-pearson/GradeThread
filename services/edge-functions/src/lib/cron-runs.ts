@@ -84,6 +84,10 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "reprice-scan", label: "Repricing scan", schedule: "0 */6 * * *", category: "repricing", endpoint: "/api/jobs/reprice-scan", recorded: true },
   { name: "reprice-rules", label: "Repricing rules", schedule: "0 */6 * * *", category: "repricing", endpoint: "/api/jobs/reprice-rules", recorded: true },
   { name: "automation-rules", label: "Listing automation rules", schedule: "0 * * * *", category: "listings", endpoint: "/api/jobs/automation-rules", recorded: true },
+  // US-2272: re-render the frozen verified-seller credential block on live eBay
+  // listings of graded items. Daily is the right cadence — the block only moves
+  // when the seller's grade count/average moves, and a revise is an eBay write.
+  { name: "credentials-refresh", label: "Seller-credential refresh", schedule: "40 5 * * *", category: "listings", endpoint: "/api/jobs/credentials-refresh", recorded: true, healthy: "200 with {ok:true, revised, up_to_date, capped:false}; revised is 0 on a steady-state run" },
   { name: "autolister-reclaim", label: "AutoLister reclaim", schedule: "*/5 * * * *", category: "autolister", endpoint: "/api/jobs/autolister-reclaim", recorded: true },
   { name: "publish-batch-reclaim", label: "Publish-batch reclaim", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/jobs/publish-batch-reclaim", recorded: true },
   // US-1790: B2B batch-grading reclaim — resumes stale grading batches.

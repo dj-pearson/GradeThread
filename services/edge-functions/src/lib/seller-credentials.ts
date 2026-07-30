@@ -14,6 +14,13 @@
 
 export const DEFAULT_SITE = "https://gradethread.com";
 
+/**
+ * The HTML comment that anchors the credential block inside a listing
+ * description. Injected by ai-listing.ts; kept in lockstep with the web mirror
+ * (src/lib/listing-templates.ts SELLER_CREDENTIALS_MARKER).
+ */
+export const SELLER_CREDENTIALS_MARKER = "<!--gradethread-seller-credentials-->";
+
 export interface SellerCredentialStats {
   total_graded: number;
   average_grade: number;
@@ -111,4 +118,100 @@ export function buildSellerCredentialBlock(
   const html = htmlParts.join("");
 
   return { plain, markdown, html };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// US-2272: in-place refresh of an ALREADY-PUBLISHED block
+// ══════════════════════════════════════════════════════════════════
+//
+// The block is rendered once, at draft time, and then frozen in the live eBay
+// description — so a seller's 13th listing still advertises "13 items graded"
+// after they've graded 19. eBay bans active content in descriptions (no script,
+// no iframe, no remote include), so there is no live-updating embed: the only
+// compliant fix is to REVISE the description, which the credentials-refresh
+// cron does (routes/jobs-credentials-refresh.ts).
+//
+// Locating the block is the delicate part. The marker is appended before the
+// grade/cert line (applyGradeListingPromotion runs after AutoLister), so a
+// published description reads:
+//
+//   <body copy>
+//   <!--gradethread-disclosure--><div>…</div>
+//   <!--gradethread-seller-credentials--><div>…</div>
+//
+//   Graded by GradeThread — Condition Grade 7.9 — Cert #GT-X9RQ0J6
+//
+// "Everything after the marker" (what the web mirror's splitSellerCredentials
+// does, safely, on an UNPUBLISHED draft) would swallow that cert line. So we
+// walk <div> depth from the marker and replace exactly the one element.
+
+/** Bounds of the credential block's outer <div>, marker excluded. */
+export interface SellerCredentialBlockSpan {
+  /** Index of the opening `<div` of the block. */
+  start: number;
+  /** Index one past the block's matching `</div>`. */
+  end: number;
+  /** The block markup currently occupying [start, end). */
+  html: string;
+}
+
+/** Cap the tag walk so a truncated/malformed description can't spin. */
+const MAX_TAG_SCAN = 500;
+
+/**
+ * Pure: locate the credential block that follows the marker.
+ *
+ * Returns null when the marker is absent, when no <div> opens after it, or when
+ * the element never closes — every "shape I don't recognise" case, because the
+ * caller's only safe response to an unrecognised description is to leave it
+ * exactly as it is.
+ */
+export function findSellerCredentialBlock(
+  description: string,
+): SellerCredentialBlockSpan | null {
+  const markerAt = description.indexOf(SELLER_CREDENTIALS_MARKER);
+  if (markerAt < 0) return null;
+
+  const after = markerAt + SELLER_CREDENTIALS_MARKER.length;
+  // Only whitespace may sit between the marker and its block; anything else
+  // means this isn't the generated shape.
+  const openMatch = /^\s*<div\b/i.exec(description.slice(after));
+  if (!openMatch) return null;
+  const start = after + openMatch[0].length - "<div".length;
+
+  const tagRe = /<\s*(\/?)div\b[^>]*>/gi;
+  tagRe.lastIndex = start;
+  let depth = 0;
+  let scanned = 0;
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(description)) !== null) {
+    if (++scanned > MAX_TAG_SCAN) return null;
+    depth += m[1] === "/" ? -1 : 1;
+    if (depth === 0) {
+      const end = m.index + m[0].length;
+      return { start, end, html: description.slice(start, end) };
+    }
+  }
+  return null; // unclosed
+}
+
+/**
+ * Pure: replace the credential block in `description` with freshly rendered
+ * `html`, leaving every other byte — body copy, disclosure block, and the
+ * trailing grade/cert line — untouched.
+ *
+ * Returns null when there is no block to replace. Null is NOT the same as "no
+ * change needed": it means this description never carried a block (the seller
+ * had not opted in when it was drafted, or an eBay-side edit stripped it), and
+ * a refresh sweep must never INJECT the block into such a listing — that would
+ * silently add marketing copy to a listing the seller wrote themselves.
+ * Callers detect "already fresh" by comparing the returned string to the input.
+ */
+export function refreshSellerCredentialBlock(
+  description: string,
+  html: string,
+): string | null {
+  const span = findSellerCredentialBlock(description);
+  if (!span) return null;
+  return description.slice(0, span.start) + html + description.slice(span.end);
 }
