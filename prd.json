@@ -3217,7 +3217,7 @@
     },
     {
       "id": "US-2263",
-      "passes": false,
+      "passes": true,
       "title": "Split the composer: 3400 lines in one file, one component",
       "description": "As a developer, I want the composer broken into section components, so that changing the pricing card doesn't mean scrolling a 3400-line file and every card's inputs are a readable prop list instead of a closure over 40 useStates.",
       "acceptanceCriteria": [
@@ -3226,11 +3226,12 @@
         "All five existing composer test files pass without edits to their assertions: composer-save, composer-anchors, composer-dirty-guard, composer-locks, preview-specifics. Where an assertion greps composer.tsx for markup that moved, the assertion is repointed at the new file rather than weakened.",
         "npx tsc -b, npm run lint and npm run build are clean, and npx impeccable detect on every new file reports no violations."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "Done 2026-07-30 (branch claude/dazzling-lamport-80g2os). US-2263: composer.tsx 3803 -> 2368 lines, 13 section components under src/components/flipdesk/composer/ plus src/hooks/use-sku-merge.ts. JSX moved byte-identical (re-indented only) so no logic slip could hide in the churn; props named as the page names them, callbacks only where a prop does more than set state. TITLE_MAX/CONDITION_DESC_MAX/SALE_OWNED_STATUSES moved into composer-save.ts. New src/lib/__tests__/helpers/composer-source.ts names which source each guard is about (composerPage for order/state, composerAll for markup), so all five test files were repointed rather than weakened — two got stronger (order now reads the call sites; nothing-below-the-CTA checks all 14 sections). PARTIAL vs AC1: landed at 2368, not <1400. The remaining page is imports 240 / state+queries 350 / seeding+derived 530 / saves 380 / JSX 700 — all genuinely the page's job. Getting under 1400 would mean a save hook taking a ~35-field parameter object, trading one large file for one large parameter list; judged motion rather than improvement, and left for a follow-up if the number itself matters. US-2264: the earlier audit found 2 stranded features, the real count was 9. Ported the next-action CTA (+ new #composer-grading anchor), Complete with AI (writes to the item, not composer state, per US-557 single-entry; specifics picker now keyed on ai_generated_aspects_at so it remounts with the AI's category/aspects), Size AI, the US-1779 fit preview, Mark listed, duplicate and relist (direct status write, since advanceItemStatus is forward-only and a relist is the one legitimate backward move). NOT ported, deliberately: useListingCopy — the US-552 AI rewrite already covers title+description with review/accept and acceptance logging. ItemCanvas (2232 lines) deleted; iOS ItemCanvasView.swift, LocalInventoryItem.swift, title-sync.ts, title-sync-patch.ts and listings.tsx repointed at the composer. Two guards replace its header warning: the file must not exist, and nothing under src/ may import it."
     },
     {
       "id": "US-2264",
-      "passes": false,
+      "passes": true,
       "title": "Features stranded on the unmounted ItemCanvas, then delete it",
       "description": "As a seller, I want the workflow actions that only ever existed on the retired ItemCanvas, so that Complete with AI, Size AI, the next-action CTA and the fit preview aren't shipped to nobody in a 2200-line component no route renders.",
       "acceptanceCriteria": [
@@ -3242,7 +3243,8 @@
       "priority": 1,
       "dependsOn": [
         "US-2263"
-      ]
+      ],
+      "notes": "Done 2026-07-30 (branch claude/dazzling-lamport-80g2os). US-2263: composer.tsx 3803 -> 2368 lines, 13 section components under src/components/flipdesk/composer/ plus src/hooks/use-sku-merge.ts. JSX moved byte-identical (re-indented only) so no logic slip could hide in the churn; props named as the page names them, callbacks only where a prop does more than set state. TITLE_MAX/CONDITION_DESC_MAX/SALE_OWNED_STATUSES moved into composer-save.ts. New src/lib/__tests__/helpers/composer-source.ts names which source each guard is about (composerPage for order/state, composerAll for markup), so all five test files were repointed rather than weakened — two got stronger (order now reads the call sites; nothing-below-the-CTA checks all 14 sections). PARTIAL vs AC1: landed at 2368, not <1400. The remaining page is imports 240 / state+queries 350 / seeding+derived 530 / saves 380 / JSX 700 — all genuinely the page's job. Getting under 1400 would mean a save hook taking a ~35-field parameter object, trading one large file for one large parameter list; judged motion rather than improvement, and left for a follow-up if the number itself matters. US-2264: the earlier audit found 2 stranded features, the real count was 9. Ported the next-action CTA (+ new #composer-grading anchor), Complete with AI (writes to the item, not composer state, per US-557 single-entry; specifics picker now keyed on ai_generated_aspects_at so it remounts with the AI's category/aspects), Size AI, the US-1779 fit preview, Mark listed, duplicate and relist (direct status write, since advanceItemStatus is forward-only and a relist is the one legitimate backward move). NOT ported, deliberately: useListingCopy — the US-552 AI rewrite already covers title+description with review/accept and acceptance logging. ItemCanvas (2232 lines) deleted; iOS ItemCanvasView.swift, LocalInventoryItem.swift, title-sync.ts, title-sync-patch.ts and listings.tsx repointed at the composer. Two guards replace its header warning: the file must not exist, and nothing under src/ may import it."
     }
   ]
 }
