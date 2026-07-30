@@ -9,6 +9,9 @@ import com.gradethread.app.inventory.EbayAspect
 import com.gradethread.app.inventory.MeasurementCatalog
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.db.GradeThreadDb
+import com.gradethread.app.templates.ListingTemplate
+import com.gradethread.app.templates.TemplateApply
+import com.gradethread.app.templates.TemplateProviding
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +33,7 @@ class PublishViewModel @Inject constructor(
     private val publish: EbayPublishService,
     private val specs: AspectSpecService,
     private val db: GradeThreadDb,
+    private val templates: TemplateProviding,
 ) : ViewModel() {
 
     data class State(
@@ -50,6 +54,10 @@ class PublishViewModel @Inject constructor(
         val specifics: Map<String, List<String>> = emptyMap(),
         /** The item's measurements — what the publish auto-fills aspects from. */
         val measurements: Map<String, Double> = emptyMap(),
+        /** US-1373: the seller's saved presets, empty until they load. */
+        val templates: List<ListingTemplate> = emptyList(),
+        /** US-1373: what the last apply actually did, or null. */
+        val templateMessage: String? = null,
         val errorMessage: String? = null,
     ) {
 
@@ -128,6 +136,11 @@ class PublishViewModel @Inject constructor(
                 measurements = MeasurementCatalog.decode(item?.measurementsJson),
             )
             loadSpecifics(item?.ebayCategoryId)
+            // Templates load silently and never block the composer: a seller
+            // with no templates, or a failed read, must still be able to publish.
+            runCatching { templates.list() }.getOrNull()?.let { rows ->
+                _state.value = _state.value.copy(templates = TemplateApply.ordered(rows))
+            }
             validate()
         }
     }
@@ -149,6 +162,39 @@ class PublishViewModel @Inject constructor(
         _state.value = _state.value.copy(
             specifics = ListingSpecifics.set(_state.value.specifics, aspect, values),
         )
+    }
+
+    /**
+     * US-1373 AC2: pre-fill from a saved template.
+     *
+     * Applied to the COMPOSER, not written to the listing — the seller reviews
+     * and edits everything before the save that publish actually reads, so a
+     * template can never put something on eBay they didn't look at.
+     */
+    fun applyTemplate(template: ListingTemplate) {
+        val current = _state.value
+        val result = TemplateApply.apply(
+            template,
+            TemplateApply.Target(
+                condition = current.condition.wire,
+                conditionDescription = current.conditionDescription,
+                specifics = current.specifics,
+            ),
+        )
+        Telemetry.event(
+            "publish.template_applied",
+            mapOf("changed" to result.changed.size, "kept" to result.keptExisting.size),
+        )
+        _state.value = current.copy(
+            condition = EbayCondition.resolve(result.target.condition),
+            conditionDescription = result.target.conditionDescription,
+            specifics = result.target.specifics,
+            templateMessage = result.message,
+        )
+    }
+
+    fun dismissTemplateMessage() {
+        _state.value = _state.value.copy(templateMessage = null)
     }
 
     fun editTitle(value: String) {

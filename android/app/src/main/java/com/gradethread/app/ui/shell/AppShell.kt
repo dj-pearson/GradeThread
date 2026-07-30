@@ -249,6 +249,12 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
             )
         }
+        // US-1373: saved listing presets.
+        composable(ShellRoutes.TEMPLATES) {
+            com.gradethread.app.templates.TemplatesScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
         // US-1372: consignors + the payout report.
         composable(ShellRoutes.CONSIGNORS) {
             com.gradethread.app.consignment.ConsignorsScreen(
@@ -383,6 +389,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onGrades = { navController.navigate(ShellRoutes.GRADES) },
                 onAnalytics = { navController.navigate(ShellRoutes.ANALYTICS) },
                 onConsignors = { navController.navigate(ShellRoutes.CONSIGNORS) },
+                onTemplates = { navController.navigate(ShellRoutes.TEMPLATES) },
             )
         }
         // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops

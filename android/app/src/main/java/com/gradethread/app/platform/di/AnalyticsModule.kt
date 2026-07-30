@@ -6,6 +6,8 @@ import com.gradethread.app.analytics.ListingPerformanceProviding
 import com.gradethread.app.analytics.ListingPerformanceService
 import com.gradethread.app.consignment.ConsignorProviding
 import com.gradethread.app.consignment.ConsignorService
+import com.gradethread.app.templates.TemplateProviding
+import com.gradethread.app.templates.TemplateService
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -39,4 +41,9 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindConsignors(impl: ConsignorService): ConsignorProviding
+
+    /** US-1373: listing templates, RLS-scoped. */
+    @Binds
+    @Singleton
+    abstract fun bindTemplates(impl: TemplateService): TemplateProviding
 }

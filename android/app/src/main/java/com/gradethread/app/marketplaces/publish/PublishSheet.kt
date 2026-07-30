@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -100,6 +102,29 @@ fun PublishSheet(
 
 @Composable
 private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel) {
+    // US-1373: renders nothing when the seller has no templates, so the composer
+    // stays exactly as it was for everyone who doesn't use them.
+    if (state.templates.isNotEmpty()) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+        ) {
+            state.templates.forEach { template ->
+                AssistChip(
+                    onClick = { viewModel.applyTemplate(template) },
+                    enabled = !state.busy,
+                    label = { Text(template.name) },
+                )
+            }
+        }
+        state.templateMessage?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
     OutlinedTextField(
         value = state.title,
         onValueChange = viewModel::editTitle,

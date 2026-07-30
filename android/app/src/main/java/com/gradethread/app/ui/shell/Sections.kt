@@ -70,6 +70,9 @@ object ShellRoutes {
     /** US-1372: what each consignor is owed, reached from Consignors. */
     const val CONSIGNMENT_REPORT = "consignment-report"
 
+    /** US-1373: saved listing presets, reached from Tools. */
+    const val TEMPLATES = "templates"
+
     /**
      * US-1354: the offers + messages inbox, reached from Marketplaces or from
      * a `gradethread.com/app/negotiation/<itemId>` deep link.

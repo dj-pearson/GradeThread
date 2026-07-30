@@ -32,6 +32,7 @@ a range selector and an on-demand AI summary) with the listing-performance
 drill-down ·
 community benchmarks with brand deep-links into inventory ·
 consignors, per-item splits and the payout report ·
+listing templates applied from the publish composer ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -39,7 +40,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Templates, Scout/Prospect, verified badge, passport, fulfilment | US-1373–1377 |
+| Scout/Prospect, verified badge, passport, fulfilment | US-1374–1377 |
 | FCM push, Glance widgets, onboarding, referrals, feedback, workspaces, CSV import | US-1378–1389 |
 | Localization (`values-*`, plurals, locale selector) | US-1393 |
 
@@ -90,6 +91,7 @@ opened the project (US-2015). Add a row when the code lands, not before.
 | `plangate` | `PlanGate.swift` | shell-wide 402 upgrade dialog + 80% soft-warning banner |
 | `analytics` | `Analytics/` | grade/brand/sell-through/value/ROI rollups, AI narrative, listing performance, community benchmarks |
 | `consignment` | `Consignment/` | consignor CRUD (RLS-scoped), per-item split picker, payout report |
+| `templates` | `Templates/` | listing-preset CRUD (RLS-scoped), editor, apply-to-composer |
 | `platform` | `Networking/` + `Telemetry/` | EdgeAPI, Supabase, Sentry/PostHog, workspace scope, app lock |
 
 ## Play Billing (US-1338, US-1366)

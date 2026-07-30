@@ -26,6 +26,7 @@ fun ToolsScreen(
     onGrades: () -> Unit = {},
     onAnalytics: () -> Unit = {},
     onConsignors: () -> Unit = {},
+    onTemplates: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -51,6 +52,11 @@ fun ToolsScreen(
             title = "Consignors",
             subtitle = "Who you sell for, their split, and what you owe them",
             onClick = onConsignors,
+        )
+        ToolRow(
+            title = "Listing templates",
+            subtitle = "Save the condition, specifics and boilerplate you reuse",
+            onClick = onTemplates,
         )
     }
 }
