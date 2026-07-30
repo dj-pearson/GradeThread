@@ -37,6 +37,13 @@ class DeepLinkTest {
             DeepLinkRoute.NegotiationInbox("i1"),
             route("https://gradethread.com/app/negotiation/i1"),
         )
+        // US-1354: the filter rides through to the inbox route, so a push about
+        // one listing opens that listing's offers rather than the whole inbox.
+        assertEquals(
+            "negotiation?item=i1",
+            DeepLinkRoute.NegotiationInbox("i1").toNavRoute(),
+        )
+        assertEquals("negotiation", DeepLinkRoute.NegotiationInbox(null).toNavRoute())
         assertEquals(DeepLinkRoute.GradesList, route("https://gradethread.com/app/grades"))
         assertEquals(
             DeepLinkRoute.SupportTickets("t7"),
@@ -90,11 +97,15 @@ class DeepLinkTest {
             "capture/photos", "capture/details", "capture/autolister",
             // US-1335 / US-1341: the Tools hub's real destinations.
             "snap", "grades",
+            // US-1354: the offers + messages inbox.
+            "negotiation",
         )
         for (route in routes) {
+            // Compared on the PATH: an optional query argument (the inbox's
+            // item filter) is part of the link, not part of the destination.
             assertTrue(
                 "${route::class.simpleName} → ${route.toNavRoute()} is unregistered",
-                route.toNavRoute() in registered,
+                route.toNavRoute().substringBefore("?") in registered,
             )
         }
     }

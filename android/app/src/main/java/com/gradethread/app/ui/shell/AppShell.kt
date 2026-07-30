@@ -27,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -216,7 +218,26 @@ private fun ShellNavHost(navController: NavHostController) {
         }
         // US-1350: eBay connections replace the placeholder.
         composable(ShellSection.MARKETPLACES.route) {
-            com.gradethread.app.marketplaces.MarketplacesScreen()
+            com.gradethread.app.marketplaces.MarketplacesScreen(
+                onOpenNegotiation = { navController.navigate(ShellRoutes.negotiation()) },
+            )
+        }
+        // US-1354: the offers + messages inbox. The item argument is optional —
+        // a deep link scopes the inbox to one listing, the tab entry doesn't.
+        composable(
+            ShellRoutes.NEGOTIATION_PATTERN,
+            arguments = listOf(
+                navArgument("item") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
+            com.gradethread.app.marketplaces.negotiation.NegotiationInboxScreen(
+                filterItemId = entry.arguments?.getString("item"),
+                onClose = { navController.popBackStack() },
+            )
         }
         // US-1383: settings replace the placeholder — including the app's only
         // route to signing out.

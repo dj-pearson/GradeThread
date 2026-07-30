@@ -60,14 +60,14 @@
     {
       "id": "US-1354",
       "priority": -98646,
-      "passes": false,
+      "passes": true,
       "title": "Negotiation inbox (offers, send-offer, buyer messages)",
       "description": "As a seller, I can manage best offers and buyer messages from one inbox.",
       "acceptanceCriteria": [
         "List + respond to best offers (accept/counter/decline, GET/POST .../negotiation/offers*); batch send-offer to eligible items with a discount %",
         "Buyer messages list + reply (GET/POST .../messages*); deep-link filter by item (mirrors US-999)"
       ],
-      "notes": "[P2][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android negotiation inbox. AC1: marketplaces/negotiation/{NegotiationService,NegotiationInboxViewModel,NegotiationInboxScreen}.kt — GET /negotiation/offers, POST /negotiation/offers/:id/respond (Accept/Counter/Decline, counter_price only sent for a counter), GET /negotiation/eligible + POST /negotiation/send-offer with a 5-50% stepped discount and a can't-be-undone confirmation naming the listing count (US-1238). Send-offer is gated on GET /negotiation/capabilities BEFORE the entry point renders: hidden entirely when the deployment lacks the sell.negotiation licence (a dead button with no remedy), kept when a reconnect would genuinely fix it so the sheet can say so, and left visible when the probe itself fails (a blip must not hide a working feature) — US-1967/US-1421 parity. A 501 from /eligible records the same capability so the seller stops being offered something that can't work. Counter sheet shows the resulting net + margin through the composer's ListingProfit (US-2236) and flags a below-break-even counter without blocking it; a 409 offer_not_open drops the row with the server's copy instead of an error the seller can't act on. AC2: GET /messages + POST /messages/:id/reply, with a missing item/sender explained rather than sent as a doomed 400; deep-link filter (US-999) — DeepLinkRoute.NegotiationInbox now resolves to the real 'negotiation?item=' route instead of dumping the seller on the Marketplaces root, the inbox says it is showing one listing only, and offers a way back to all. Entry point also on the Marketplaces screen. Verified by NegotiationRulesTest (capability gate, filters, counter price/margin, discount snapping, confirmation copy) plus updated DeepLinkTest cases. NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1355",

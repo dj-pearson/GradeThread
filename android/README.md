@@ -17,7 +17,8 @@ grading path (validate → submit → poll → report → dispute, plus bulk) ·
 list and item canvas (photos, measurements, comps, eBay specifics) · global search ·
 eBay OAuth connect · eBay listing sync (pull → poll → provenance-aware merge),
 the unified listing card, and publish/relist with pre-flight, listing-time
-category specifics and a live profit estimate · credit-pack Play Billing ·
+category specifics and a live profit estimate · the negotiation inbox (offers,
+send-offer, buyer messages) · credit-pack Play Billing ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -25,7 +26,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Negotiation inbox, bulk pricing, post-sale actions, repricing | US-1354–1358 |
+| Bulk pricing, post-sale actions, repricing | US-1355–1358 |
 | AutoLister (batch jobs, photo classify/QA, drafts) | US-1359 |
 | Disclosure, scheduled drops, automations | US-1360–1362 |
 | Payout reconciliation | US-1365 |

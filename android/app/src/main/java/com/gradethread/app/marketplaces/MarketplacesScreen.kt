@@ -39,6 +39,8 @@ import com.gradethread.app.ui.theme.Spacing
 @Composable
 fun MarketplacesScreen(
     modifier: Modifier = Modifier,
+    /** US-1354: opens the offers + messages inbox. */
+    onOpenNegotiation: () -> Unit = {},
     viewModel: MarketplacesViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -124,6 +126,13 @@ fun MarketplacesScreen(
                 enabled = !state.syncing,
                 modifier = Modifier.fillMaxWidth(),
             ) { viewModel.syncListings() }
+        }
+
+        if (state.canSync) {
+            BrandSecondaryButton(
+                text = "Offers & messages",
+                modifier = Modifier.fillMaxWidth(),
+            ) { onOpenNegotiation() }
         }
 
         BrandSecondaryButton(text = "Refresh", modifier = Modifier.fillMaxWidth()) {

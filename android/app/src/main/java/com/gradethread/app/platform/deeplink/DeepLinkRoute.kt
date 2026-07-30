@@ -81,7 +81,10 @@ sealed class DeepLinkRoute {
         is SalesTab -> ShellSection.MONEY.route
         MarketplacesTab, ReconnectEbay -> ShellSection.MARKETPLACES.route
         is InventoryItem, InventoryTab -> ShellSection.INVENTORY.route
-        is NegotiationInbox -> ShellSection.MARKETPLACES.route
+        // US-1354: a real inbox at last. This used to land on the Marketplaces
+        // root, so a push about one listing's offer dropped the seller on the
+        // connections screen with no offer in sight.
+        is NegotiationInbox -> ShellRoutes.negotiation(filterItemId)
         // US-1341: a real destination at last. Until the grades list existed
         // this fell back to the Home root, so gradethread.com/app/grades — a
         // link we send people — dropped them on a placeholder.

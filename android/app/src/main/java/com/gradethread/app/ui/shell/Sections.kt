@@ -48,6 +48,19 @@ object ShellRoutes {
 
     /** US-1371: the sales list, reached from [ShellSection.MONEY]. */
     const val SALES = "sales"
+
+    /**
+     * US-1354: the offers + messages inbox, reached from Marketplaces or from
+     * a `gradethread.com/app/negotiation/<itemId>` deep link.
+     */
+    const val NEGOTIATION = "negotiation"
+
+    /** The graph pattern — the item filter is optional. */
+    const val NEGOTIATION_PATTERN = "$NEGOTIATION?item={item}"
+
+    /** A navigable route, scoped to one listing when [itemId] is given. */
+    fun negotiation(itemId: String? = null): String =
+        itemId?.takeIf { it.isNotBlank() }?.let { "$NEGOTIATION?item=$it" } ?: NEGOTIATION
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */
