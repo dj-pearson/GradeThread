@@ -61,6 +61,7 @@ fun ItemCanvasScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     var publishing by remember { mutableStateOf(false) }
+    var disclosing by remember { mutableStateOf(false) }
 
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -78,6 +79,16 @@ fun ItemCanvasScreen(
             )
             BrandPrimaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
         }
+        return
+    }
+
+    // US-1360: the disclosure surface REPLACES the canvas rather than stacking
+    // under it — it is a full screen, not a sheet.
+    if (disclosing) {
+        com.gradethread.app.disclosure.DisclosureScreen(
+            itemId = itemId,
+            onClose = { disclosing = false },
+        )
         return
     }
 
@@ -250,6 +261,13 @@ fun ItemCanvasScreen(
             enabled = !state.isDirty,
             modifier = Modifier.fillMaxWidth(),
         ) { publishing = true }
+
+        // US-1360: the graded flaws, marked on the photo and pushed into the
+        // live description.
+        BrandSecondaryButton(
+            text = "Flaw disclosure",
+            modifier = Modifier.fillMaxWidth(),
+        ) { disclosing = true }
 
         BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
     }

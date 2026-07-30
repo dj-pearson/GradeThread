@@ -134,7 +134,7 @@
     {
       "id": "US-1360",
       "priority": -98640,
-      "passes": false,
+      "passes": true,
       "title": "Disclosure: annotated photos + apply to listing",
       "description": "As a seller, I can annotate flaw photos and push the disclosure into the live eBay listing.",
       "acceptanceCriteria": [
@@ -142,7 +142,7 @@
         "Annotation overlay coordinates are stored and re-rendered consistently on the saved photo",
         "Apply-to-listing updates the live eBay description; success/failure surfaced to the user"
       ],
-      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android flaw disclosure. AC1: disclosure/{DisclosureTypes,DisclosureService,DisclosureViewModel,DisclosureScreen}.kt — GET /disclosure/item/:id, POST .../annotated-photo and POST .../apply-to-listing, reached from a Selling section on the item canvas. AC2: DisclosureGeometry + DisclosureRenderer are the same arithmetic for both the on-screen preview and the uploaded PNG, which is the only way 're-rendered consistently' can be true: annotations are stored NORMALISED (bbox 0..1) and mapped through one scaledRect, the canvas caps at 900px and never upscales (an upscaled flaw photo is blurrier, not clearer), and a malformed bbox draws NO box rather than a guessed one — a callout from bad coordinates points at the wrong part of the garment, and the legend still names the defect. Unlocalised defects stay legend-only. Severity colours match the web's SEVERITY_COLOR with an unknown severity falling back rather than rendering invisible. Compositing and base64 both run off the main thread. Upload is PNG-only because the server sniffs real magic bytes for the public bucket (US-276). AC3: apply-to-listing reports the SERVER's verdict rather than assuming — applied:false surfaces as 'eBay didn't take the change, the description is unchanged', and already_present gets its own copy so a seller doesn't push twice. Not-graded, no-flaws and flaws-with-no-photo are three distinct states with three different next steps, never one empty screen. Verified by DisclosureGeometryTest (14 cases incl. the proportional-consistency check across render sizes and every malformed-bbox path). NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1361",
