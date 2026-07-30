@@ -26,3 +26,16 @@
 # if you ever re-add this file, check `git ls-files -s android/gradlew` says
 # 100755.
 gradlew text eol=lf
+
+# Migrations must stay LF because tests COMPARE THEIR BYTES. sizing-chart-parity
+# re-runs the generator and asserts the committed 00498/00499 match it exactly,
+# and authenticity-references asserts 00500 contains a literal "…,\n  false,"
+# (the load-bearing `public = false` on a private bucket). The generators emit
+# LF, so a CRLF working tree fails all three on a `\r` — while CI on Linux stays
+# green, because the blobs are LF and only core.autocrlf=true rewrites them.
+#
+# Third time this exact shape has bitten (see .sh and .mjs above), and the worst
+# variant: `npm run verify` IS the pre-push hook, so on Windows the gate failed
+# for a reason that had nothing to do with the change being pushed — which
+# teaches --no-verify. Postgres does not care either way.
+*.sql text eol=lf
