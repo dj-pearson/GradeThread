@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Check,
+  ChevronLeft,
+  ChevronRight,
   ImageOff,
   Info,
   Loader2,
@@ -37,6 +39,47 @@ import {
 // US-1040/1041: web parity for eBay Best Offers (accept/decline/counter), send
 // offers to interested buyers, and the buyer-message inbox — features that were
 // edge + iOS only.
+// US-2236 AC3: high-volume negotiation shouldn't render one flat list. Both the
+// offers and messages lists page client-side at this size.
+const LIST_PAGE_SIZE = 15;
+
+function Pager({
+  page,
+  pageCount,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  onPage: (p: number) => void;
+}) {
+  if (pageCount <= 1) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 pt-1">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={page === 0}
+        onClick={() => onPage(page - 1)}
+        aria-label="Previous page"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <span className="text-xs text-muted-foreground">
+        Page {page + 1} of {pageCount}
+      </span>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={page >= pageCount - 1}
+        onClick={() => onPage(page + 1)}
+        aria-label="Next page"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
 export function FlipdeskOffersPage() {
   const { data: connection, isLoading: connLoading } = useEbayConnection();
   const connected = !!connection;
@@ -86,6 +129,13 @@ function BestOffersCard() {
     refetch,
     isFetching,
   } = useEbayBestOffers();
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(offers.length / LIST_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pagedOffers = offers.slice(
+    safePage * LIST_PAGE_SIZE,
+    safePage * LIST_PAGE_SIZE + LIST_PAGE_SIZE,
+  );
   return (
     <Card>
       <CardHeader>
@@ -114,7 +164,12 @@ function BestOffersCard() {
         ) : offers.length === 0 ? (
           <p className="text-sm text-muted-foreground">No open offers.</p>
         ) : (
-          offers.map((o) => <OfferRow key={o.bestOfferId} offer={o} />)
+          <>
+            {pagedOffers.map((o) => (
+              <OfferRow key={o.bestOfferId} offer={o} />
+            ))}
+            <Pager page={safePage} pageCount={pageCount} onPage={setPage} />
+          </>
         )}
       </CardContent>
     </Card>
@@ -439,6 +494,21 @@ function MessagesCard() {
     refetch,
     isFetching,
   } = useEbayMessages();
+  // US-2236 AC3: "unread" for a buyer thread is one that still needs a reply —
+  // EbayBuyerMessage exposes `answered`, so unanswered is the actionable subset.
+  const [unansweredOnly, setUnansweredOnly] = useState(false);
+  const [page, setPage] = useState(0);
+  const unansweredCount = messages.filter((m) => !m.answered).length;
+  const filtered = unansweredOnly ? messages.filter((m) => !m.answered) : messages;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pagedMessages = filtered.slice(
+    safePage * LIST_PAGE_SIZE,
+    safePage * LIST_PAGE_SIZE + LIST_PAGE_SIZE,
+  );
+  useEffect(() => {
+    setPage(0);
+  }, [unansweredOnly]);
   return (
     <Card>
       <CardHeader>
@@ -448,6 +518,22 @@ function MessagesCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {!isLoading && !error && messages.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={unansweredOnly ? "default" : "outline"}
+              onClick={() => setUnansweredOnly((v) => !v)}
+            >
+              Needs reply
+              {unansweredCount > 0 && (
+                <Badge variant="secondary" className="ml-1.5">
+                  {unansweredCount}
+                </Badge>
+              )}
+            </Button>
+          </div>
+        )}
         {isLoading ? (
           <Skeleton className="h-20 w-full" />
         ) : error ? (
@@ -461,8 +547,17 @@ function MessagesCard() {
           />
         ) : messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">No recent messages.</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No messages need a reply.
+          </p>
         ) : (
-          messages.map((m) => <MessageRow key={m.messageId} message={m} />)
+          <>
+            {pagedMessages.map((m) => (
+              <MessageRow key={m.messageId} message={m} />
+            ))}
+            <Pager page={safePage} pageCount={pageCount} onPage={setPage} />
+          </>
         )}
       </CardContent>
     </Card>
