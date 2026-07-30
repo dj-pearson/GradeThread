@@ -129,6 +129,28 @@ enum AIItemFieldWriter {
         }
     }
 
+    // MARK: - Column emptiness (US-2267)
+    //
+    // Lives here rather than on ``AIExtractStore`` because this enum is
+    // nonisolated: the store is @MainActor, so a MainActor-isolated constant can't
+    // be read from ``AIExtractInputs`` (a plain value type) without tripping the
+    // Swift 6 isolation rules.
+
+    /// The placeholder title a photo-first capture creates the row with
+    /// (`PhotoIntakeView.startIntakeFlow`). `title` is NOT NULL, so a brand-new
+    /// item's title is this string rather than empty — and treating it as "already
+    /// filled" would make the never-overwrite rule refuse to name the item, which
+    /// is the exact "Untitled item" dead end US-682 exists to prevent.
+    static let placeholderTitle = "Untitled item"
+
+    /// Whether a column currently holds nothing the seller would miss: blank, or
+    /// (for `title`) the placeholder.
+    static func isUnset(_ value: String?, field: String) -> Bool {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty { return true }
+        return field == "title" && trimmed == placeholderTitle
+    }
+
     /// Every field name the extract endpoint can return, mirrored from
     /// `EXTRACT_FIELDS` in `services/edge-functions/src/lib/ai-extract.ts`. A
     /// parity test asserts each one maps to a ``FieldUpdate`` column, so the

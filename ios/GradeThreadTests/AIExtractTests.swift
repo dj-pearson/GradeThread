@@ -242,7 +242,7 @@ final class AIExtractTests: XCTestCase {
         // US-2267: the placeholder title is treated as unset, so it auto-applies
         // and carries its prior value for undo. brand/size/color start empty.
         var snapshot = AIItemFieldWriter.Snapshot()
-        snapshot.title = AIExtractStore.placeholderTitle
+        snapshot.title = AIItemFieldWriter.placeholderTitle
 
         let review = try XCTUnwrap(store.buildFillReview(itemId: "item-1", snapshot: snapshot))
 
@@ -274,10 +274,10 @@ final class AIExtractTests: XCTestCase {
             model: nil, logId: nil, actionsRemaining: 0
         ))
         var snapshot = AIItemFieldWriter.Snapshot()
-        snapshot.title = AIExtractStore.placeholderTitle
+        snapshot.title = AIItemFieldWriter.placeholderTitle
         let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: snapshot))
         let title = try XCTUnwrap(review.applied.first { $0.field == "title" })
-        XCTAssertEqual(title.previousValue, AIExtractStore.placeholderTitle)
+        XCTAssertEqual(title.previousValue, AIItemFieldWriter.placeholderTitle)
     }
 
     func test_buildFillReview_returnsNilWhenNotReady() {
@@ -782,7 +782,7 @@ final class AIExtractTests: XCTestCase {
         )
 
         // A brand-new photo-first row: title is the placeholder, nothing else set.
-        let fresh = AIExtractInputs(title: AIExtractStore.placeholderTitle)
+        let fresh = AIExtractInputs(title: AIItemFieldWriter.placeholderTitle)
         XCTAssertNil(fresh.text, "the placeholder is not seller copy")
         XCTAssertNil(fresh.knownFields)
         XCTAssertTrue(fresh.isEmpty)
@@ -798,7 +798,7 @@ final class AIExtractTests: XCTestCase {
     func test_bareCapture_omitsKnownFieldsAndText() throws {
         let inputs = AIExtractInputs(snapshot: {
             var s = AIItemFieldWriter.Snapshot()
-            s.title = AIExtractStore.placeholderTitle
+            s.title = AIItemFieldWriter.placeholderTitle
             return s
         }())
         XCTAssertNil(inputs.knownFields)
@@ -891,17 +891,17 @@ final class AIExtractTests: XCTestCase {
     /// never-overwrite rule has to treat it as unset or the item stays "Untitled
     /// item", the exact dead end US-682 exists to prevent.
     func test_placeholderTitle_countsAsUnset() throws {
-        XCTAssertTrue(AIExtractStore.isUnset(AIExtractStore.placeholderTitle, field: "title"))
-        XCTAssertTrue(AIExtractStore.isUnset("  ", field: "brand"))
-        XCTAssertFalse(AIExtractStore.isUnset("Real Title", field: "title"))
+        XCTAssertTrue(AIItemFieldWriter.isUnset(AIItemFieldWriter.placeholderTitle, field: "title"))
+        XCTAssertTrue(AIItemFieldWriter.isUnset("  ", field: "brand"))
+        XCTAssertFalse(AIItemFieldWriter.isUnset("Real Title", field: "title"))
         // The placeholder is only special for `title`.
-        XCTAssertFalse(AIExtractStore.isUnset(AIExtractStore.placeholderTitle, field: "brand"))
+        XCTAssertFalse(AIItemFieldWriter.isUnset(AIItemFieldWriter.placeholderTitle, field: "brand"))
 
         let store = readyStore([
             "title": .init(value: "Patagonia Nano Puff", confidence: 0.9, source: "photo:front"),
         ])
         var snapshot = AIItemFieldWriter.Snapshot()
-        snapshot.title = AIExtractStore.placeholderTitle
+        snapshot.title = AIItemFieldWriter.placeholderTitle
         let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: snapshot))
         XCTAssertEqual(review.applied.map(\.field), ["title"])
     }

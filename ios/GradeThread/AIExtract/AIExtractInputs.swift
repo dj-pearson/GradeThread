@@ -115,7 +115,7 @@ struct AIExtractInputs: Equatable {
     var text: String? {
         let parts = [title, itemDescription, conditionNotes]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0 != AIExtractStore.placeholderTitle }
+            .filter { !$0.isEmpty && $0 != AIItemFieldWriter.placeholderTitle }
         return parts.isEmpty ? nil : parts.joined(separator: "\n")
     }
 

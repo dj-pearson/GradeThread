@@ -348,7 +348,7 @@ struct AIFillReviewSheet: View {
             stored.lowConfidence
                 .filter { entry in
                     entry.confidence >= AIExtractStore.defaultAcceptConfidenceThreshold
-                        && AIExtractStore.isUnset(currentValue(for: entry.field), field: entry.field)
+                        && AIItemFieldWriter.isUnset(currentValue(for: entry.field), field: entry.field)
                 }
                 .map(\.field)
         )

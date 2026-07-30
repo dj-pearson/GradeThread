@@ -53,21 +53,6 @@ final class AIExtractStore {
     /// panel's "Med" tier (`confidenceTier` in ai-fill-panel.tsx).
     static let defaultAcceptConfidenceThreshold = 0.5
 
-    /// The placeholder title a photo-first capture creates the row with
-    /// (``PhotoIntakeView.startIntakeFlow``). `title` is NOT NULL, so a brand-new
-    /// item's title is this string rather than empty — and treating it as "already
-    /// filled" would make the never-overwrite rule below refuse to name the item,
-    /// which is the exact "Untitled item" dead end US-682 exists to prevent.
-    static let placeholderTitle = "Untitled item"
-
-    /// Whether a column currently holds nothing the seller would miss. Blank, or
-    /// the placeholder title.
-    static func isUnset(_ value: String?, field: String) -> Bool {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if trimmed.isEmpty { return true }
-        return field == "title" && trimmed == placeholderTitle
-    }
-
     var phase: Phase = .waitingForUploads(complete: 0, total: 0)
     /// Field names the user has checked for acceptance.
     var acceptedFields: Set<String> = []
@@ -312,7 +297,7 @@ final class AIExtractStore {
         // Everything else becomes an opt-in row, whatever its confidence.
         func isAutoApplicable(_ entry: FieldSuggestionEntry) -> Bool {
             guard entry.confidence >= Self.autoApplyConfidenceThreshold else { return false }
-            return Self.isUnset(snapshot.value(for: entry.field), field: entry.field)
+            return AIItemFieldWriter.isUnset(snapshot.value(for: entry.field), field: entry.field)
         }
         let applied = result.entries
             .filter(isAutoApplicable)

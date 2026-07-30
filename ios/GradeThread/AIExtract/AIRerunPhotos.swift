@@ -48,7 +48,10 @@ enum AIRerunPhotos {
     ) async -> [ExtractPhoto] {
         var out: [ExtractPhoto] = []
         for ref in refs {
-            guard !PhotoSlotType.isNonListable(ref.photoType) else { continue }
+            // FlipdeskPhotoType, not PhotoSlotType: these are PERSISTED rows, so
+            // they carry the server `photo_type` string rather than a capture-time
+            // slot (see the comment on FlipdeskPhotoType).
+            guard !FlipdeskPhotoType.isNonListable(ref.photoType) else { continue }
             let path = ref.storagePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let stored = ref.photoURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
