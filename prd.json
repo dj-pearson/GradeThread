@@ -147,14 +147,14 @@
     {
       "id": "US-1361",
       "priority": -98639,
-      "passes": false,
+      "passes": true,
       "title": "Scheduled drops (timezone-aware)",
       "description": "As a seller, I can schedule draft listings to publish at chosen local times (server cron publishes).",
       "acceptanceCriteria": [
         "List drafts with scheduled_publish_at converted to the user’s timezone; reschedule via date/time picker → PATCH UTC (java.time ZonedDateTime)",
         "No client background work — the publish-due cron handles publishing (mirrors ScheduledDrops)"
       ],
-      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android scheduled drops. AC1: autolister/ScheduledDrops.kt + the drafts library — every draft's scheduled_publish_at is rendered in the DEVICE zone via java.time (Instant.atZone), rescheduling writes UTC back through DraftsService.schedule (ZonedDateTime.of(local, zone).toInstant()), and clearing writes null explicitly because unscheduling is an action, not an omission. Both daylight-saving edges are handled AND surfaced rather than silently applied: a local time inside the spring-forward gap shifts past it and says so ('that time doesn't exist, this will publish at X'), and one inside the fall-back overlap takes the earlier offset and says it happens twice. A time already past is named as still-coming ('was due X — publishing on the next run') instead of shown as a normal future drop, because the cron simply hasn't reached it. Unparseable input refuses rather than guessing a date. Drafts sort soonest-first with unscheduled last. AC2: NO client background work — no WorkManager, no alarm, nothing waiting on the device. The write is UTC and the server's publish-due cron (POST /jobs/publish-due, claim-locked) takes it live, which is why a drop still happens with the app closed; the dialog says exactly that. Verified by ScheduledDropsTest (13 cases incl. both DST edges pinned to real 2026 transition dates, offset-vs-Z parsing, due-ness boundaries and ordering). NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1362",

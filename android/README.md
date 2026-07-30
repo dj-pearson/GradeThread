@@ -22,7 +22,7 @@ send-offer, buyer messages) · bulk pricing · orphan-listing reconciliation wit
 the shell-wide banner · per-listing promotions and markdown sales · post-sale
 shipping and feedback · repricing rules with scan-driven suggestions ·
 AutoLister batches, photo QA and the drafts library · flaw disclosure with
-annotated photos ·
+annotated photos · timezone-aware scheduled drops ·
 credit-pack Play Billing ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
@@ -31,7 +31,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Scheduled drops, automations | US-1361, US-1362 |
+| Automations | US-1362 |
 | Payout reconciliation | US-1365 |
 | Subscription billing + paywall / plan gates | US-1366, US-1367 |
 | Analytics, community insights | US-1368, US-1369 |

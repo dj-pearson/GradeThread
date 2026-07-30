@@ -35,6 +35,10 @@ import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 
 /**
  * US-1359: generated drafts — review them, edit them, or change many at once.
@@ -47,6 +51,7 @@ fun DraftsLibraryScreen(
     val state by viewModel.state.collectAsState()
     var editing by remember { mutableStateOf<DraftListing?>(null) }
     var bulkOpen by remember { mutableStateOf(false) }
+    var scheduling by remember { mutableStateOf<DraftListing?>(null) }
 
     LaunchedEffect(Unit) { viewModel.loadDrafts() }
 
@@ -84,7 +89,7 @@ fun DraftsLibraryScreen(
                 Modifier.fillMaxWidth().weight(1f),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
-                items(state.drafts, key = { it.id }) { draft ->
+                items(ScheduledDrops.ordered(state.drafts), key = { it.id }) { draft ->
                     DraftCard(
                         draft = draft,
                         selected = draft.id in state.selected,
@@ -92,6 +97,8 @@ fun DraftsLibraryScreen(
                         onToggle = { viewModel.toggle(draft.id) },
                         onEdit = { editing = draft },
                         onDelete = { viewModel.deleteDraft(draft) },
+                        onSchedule = { scheduling = draft },
+                        onClearSchedule = { viewModel.clearSchedule(draft) },
                     )
                 }
             }
@@ -116,6 +123,18 @@ fun DraftsLibraryScreen(
             onSave = { title, description, price ->
                 viewModel.saveDraft(draft, title, description, price)
                 editing = null
+            },
+        )
+    }
+
+    scheduling?.let { draft ->
+        ScheduleDialog(
+            draft = draft,
+            busy = state.busy,
+            onDismiss = { scheduling = null },
+            onSchedule = { date, time ->
+                viewModel.schedule(draft, date, time)
+                scheduling = null
             },
         )
     }
@@ -193,6 +212,8 @@ private fun DraftCard(
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onSchedule: () -> Unit = {},
+    onClearSchedule: () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
@@ -224,8 +245,24 @@ private fun DraftCard(
         draft.publishError?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
+        // US-1361: the schedule, in the seller's own timezone. A time already
+        // past is named as still-coming rather than shown as a normal future
+        // drop — the cron simply hasn't reached it yet.
+        draft.scheduledPublishAt?.let {
+            Text(
+                ScheduledDrops.statusLine(it, ZoneId.systemDefault(), Instant.now()),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Row {
             TextButton(onClick = onEdit, enabled = !busy) { Text("Edit") }
+            TextButton(onClick = onSchedule, enabled = !busy) {
+                Text(if (draft.scheduledPublishAt == null) "Schedule" else "Reschedule")
+            }
+            if (draft.scheduledPublishAt != null) {
+                TextButton(onClick = onClearSchedule, enabled = !busy) { Text("Unschedule") }
+            }
             TextButton(onClick = onDelete, enabled = !busy) {
                 Text("Delete", color = MaterialTheme.colorScheme.error)
             }
@@ -381,5 +418,100 @@ private fun Hint(text: String) {
         text,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
+ * US-1361: pick a local date and time for the drop.
+ *
+ * Plain text fields rather than platform pickers: the value is typed as ISO
+ * date and 24-hour time, parsed with java.time, and anything unparseable
+ * refuses rather than guessing at a date. The note under it says what will
+ * ACTUALLY happen — the clocks changing, or a time already gone.
+ */
+@Composable
+private fun ScheduleDialog(
+    draft: DraftListing,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onSchedule: (LocalDate, LocalTime) -> Unit,
+) {
+    val zone = ZoneId.systemDefault()
+    val existing = remember(draft.id) {
+        ScheduledDrops.toLocal(draft.scheduledPublishAt, zone)
+    }
+    var dateText by remember(draft.id) {
+        mutableStateOf((existing?.toLocalDate() ?: LocalDate.now(zone).plusDays(1)).toString())
+    }
+    var timeText by remember(draft.id) {
+        mutableStateOf((existing?.toLocalTime()?.withSecond(0)?.withNano(0) ?: LocalTime.of(19, 0)).toString())
+    }
+
+    val date = runCatching { LocalDate.parse(dateText.trim()) }.getOrNull()
+    val time = runCatching { LocalTime.parse(timeText.trim()) }.getOrNull()
+    val note = if (date != null && time != null) {
+        ScheduledDrops.scheduleNote(date, time, zone)
+            ?: if (ScheduledDrops.isDue(ScheduledDrops.toInstant(date, time, zone), Instant.now())) {
+                ScheduledDrops.PAST_TIME_NOTE
+            } else {
+                null
+            }
+    } else {
+        null
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Schedule this drop") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                OutlinedTextField(
+                    value = dateText,
+                    onValueChange = { dateText = it },
+                    label = { Text("Date (YYYY-MM-DD)") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = timeText,
+                    onValueChange = { timeText = it },
+                    label = { Text("Time (HH:MM)") },
+                    singleLine = true,
+                )
+                Text(
+                    "Times are your own — ${zone.id}. The server publishes it; " +
+                        "your phone doesn't need to be on.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (dateText.isNotBlank() && date == null) {
+                    Text(
+                        "That date doesn't parse. Use YYYY-MM-DD.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (timeText.isNotBlank() && time == null) {
+                    Text(
+                        "That time doesn't parse. Use HH:MM on a 24-hour clock.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                note?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = date != null && time != null && !busy,
+                onClick = { onSchedule(date!!, time!!) },
+            ) { Text("Schedule") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

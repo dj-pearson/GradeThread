@@ -27,6 +27,11 @@ data class DraftListing(
     @SerialName("price_is_estimated") val priceIsEstimated: Boolean? = null,
     /** US-1511: a failed publish drops the draft back here carrying its reason. */
     @SerialName("publish_error") val publishError: String? = null,
+    /**
+     * US-1361: when the publish-due cron should take this draft live, in UTC.
+     * Null means it publishes only when someone presses the button.
+     */
+    @SerialName("scheduled_publish_at") val scheduledPublishAt: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
 ) {
     val title: String get() = listingTitle?.takeIf { it.isNotBlank() } ?: "Untitled draft"

@@ -218,6 +218,33 @@ class AutolisterViewModel @Inject constructor(
         drafts.delete(draft.id)
     }
 
+    /**
+     * US-1361: schedule this draft to publish, or clear the schedule.
+     *
+     * Nothing on the phone waits for the time — the write is UTC and a server
+     * cron takes it live, so the drop happens with the app closed.
+     */
+    fun schedule(draft: DraftListing, date: java.time.LocalDate, time: java.time.LocalTime) {
+        val zone = java.time.ZoneId.systemDefault()
+        val instant = ScheduledDrops.toInstant(date, time, zone)
+        val note = ScheduledDrops.scheduleNote(date, time, zone)
+            ?: if (ScheduledDrops.isDue(instant, java.time.Instant.now())) {
+                ScheduledDrops.PAST_TIME_NOTE
+            } else {
+                null
+            }
+        act(
+            note ?: "Scheduled for ${
+                ScheduledDrops.formatLocal(instant.atZone(zone))
+            }.",
+        ) { drafts.schedule(draft.id, instant.toString()) }
+    }
+
+    fun clearSchedule(draft: DraftListing) =
+        act("Schedule cleared. It stays a draft until you publish it.") {
+            drafts.schedule(draft.id, null)
+        }
+
     fun bulkPrice(change: DraftBulk.PriceChange) {
         val state = _state.value
         if (state.selected.isEmpty()) return

@@ -27,7 +27,8 @@ class DraftsService @Inject constructor(
         private const val TABLE = "listings"
         private const val COLUMNS =
             "id, inventory_item_id, listing_title, listing_description, listing_price, " +
-                "ebay_condition, quantity, batch_id, price_is_estimated, publish_error, created_at"
+                "ebay_condition, quantity, batch_id, price_is_estimated, publish_error, " +
+                "scheduled_publish_at, created_at"
 
         /** One request's ceiling, so a huge library can't stall the screen. */
         const val PAGE = 200
@@ -108,6 +109,28 @@ class DraftsService @Inject constructor(
             updated += 1
         }
         return updated
+    }
+
+    /**
+     * US-1361: set or clear a draft's scheduled publish time.
+     *
+     * [instantIso] is UTC — the column is, and the publish-due cron compares it
+     * against server time. Null CLEARS the schedule, leaving the draft a draft;
+     * that is a real action, not an omission, so it writes null rather than
+     * being skipped.
+     */
+    suspend fun schedule(draftId: String, instantIso: String?) {
+        client.from(TABLE).update(
+            JsonObject(
+                mapOf(
+                    "scheduled_publish_at" to (
+                        instantIso?.let { JsonPrimitive(it) } ?: JsonNull
+                        ),
+                ),
+            ),
+        ) {
+            filter { eq("id", draftId) }
+        }
     }
 
     /**
