@@ -4,6 +4,12 @@
 // edge service, so we can drop it into the template as-is.
 
 import { generateNonce, ssrSecurityHeaders } from "./security-headers";
+// US-2108 AC2: banks an incoming ?ref= client-side. Lives in renderLayout rather
+// than in the cert Function because the leak is a property of EVERY standalone
+// SSR surface (cert, blog, verified, passport) — a shared link can carry a ref
+// to any of them, and fixing only the named one leaves the same hole three doors
+// down. Same reasoning that made AC3's OG fallback a shared helper.
+import { affiliateCaptureSnippet } from "./affiliate-capture";
 
 export interface PagesEnv {
   // Static-asset binding (present at runtime in Pages Functions; optional in the
@@ -567,6 +573,7 @@ ${input.twitterSite ? `<meta name="twitter:site" content="${escape(input.twitter
 ${ogType === "article" ? renderArticleMetaTags(input.articleMeta) : ""}
 <style>${BASE_STYLES}</style>
 ${input.gaMeasurementId ? ga4Snippet(input.gaMeasurementId, input.nonce) : ""}
+${affiliateCaptureSnippet(input.nonce)}
 ${ldScripts}
 </head>
 <body>

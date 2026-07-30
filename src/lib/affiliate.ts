@@ -17,9 +17,22 @@ const STORAGE_KEY = "gt_affiliate_ref";
 // time so a stale code can't silently attribute a much later, unrelated signup.
 const TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+// US-2108 AC2: a click that was captured on a STANDALONE SSR page (cert, blog,
+// verified, passport — see functions/_shared/affiliate-capture.ts) parks its
+// ping payload here instead of sending it. Those pages don't mount the SPA and
+// their CSP has no connect-src for the edge API, so the ping waits for a page
+// that can make the call. Absent on a ref captured by captureAffiliateRef(),
+// which sends immediately.
+interface PendingClick {
+  source: string;
+  path: string;
+  referrer: string | null;
+}
+
 interface StoredRef {
   code: string;
   ts: number;
+  pendingClick?: PendingClick;
 }
 
 function readStored(): StoredRef | null {
@@ -28,9 +41,45 @@ function readStored(): StoredRef | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredRef>;
     if (typeof parsed.code !== "string" || typeof parsed.ts !== "number") return null;
-    return { code: parsed.code, ts: parsed.ts };
+    const p = parsed.pendingClick;
+    const pendingClick =
+      p && typeof p.source === "string" && typeof p.path === "string"
+        ? {
+            source: p.source,
+            path: p.path,
+            referrer: typeof p.referrer === "string" ? p.referrer : null,
+          }
+        : undefined;
+    return { code: parsed.code, ts: parsed.ts, pendingClick };
   } catch {
     return null;
+  }
+}
+
+function writeStored(ref: StoredRef): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(ref));
+  } catch {
+    /* storage unavailable — attribution degrades to this-tab only */
+  }
+}
+
+/** Anonymous, fire-and-forget click ping. Never rejects. */
+function postClickPing(click: PendingClick & { code: string }): void {
+  try {
+    void fetch(`${edgeApiUrl()}/api/affiliate/click`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({
+        code: click.code,
+        source: click.source,
+        path: click.path,
+        referrer: click.referrer,
+      }),
+    }).catch(() => {});
+  } catch {
+    /* edge URL unconfigured in this env — skip the ping */
   }
 }
 
@@ -58,11 +107,8 @@ export function captureAffiliateRef(): string | null {
   }
   if (!code || code.length > 32) return null;
 
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ code, ts: Date.now() }));
-  } catch {
-    /* storage unavailable — attribution degrades to this-tab only */
-  }
+  // No pendingClick: this path CAN reach the edge, so the ping goes out now.
+  writeStored({ code, ts: Date.now() });
 
   // Anonymous, fire-and-forget click ping. utm_source=badge → 'badge', else 'link'.
   let source = "link";
@@ -72,23 +118,39 @@ export function captureAffiliateRef(): string | null {
   } catch {
     /* ignore */
   }
-  try {
-    void fetch(`${edgeApiUrl()}/api/affiliate/click`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      keepalive: true,
-      body: JSON.stringify({
-        code,
-        source,
-        path: window.location.pathname,
-        referrer: safeReferrerHost(),
-      }),
-    }).catch(() => {});
-  } catch {
-    /* edge URL unconfigured in this env — skip the ping */
-  }
+  postClickPing({
+    code,
+    source,
+    path: window.location.pathname,
+    referrer: safeReferrerHost(),
+  });
 
   return code;
+}
+
+/**
+ * US-2108 AC2: send the click ping for a ref banked by a standalone SSR page.
+ *
+ * Safe to call on every app load — it no-ops unless a stored ref carries a
+ * parked `pendingClick`. Single-shot: the marker is cleared BEFORE the request
+ * goes out, so a failed ping is dropped rather than retried on every subsequent
+ * page load (an affiliate's click count that inflates while the visitor browses
+ * would be worse than one missed click). Expired refs are dropped with their
+ * ping, since redeem would ignore them anyway.
+ *
+ * Returns true if a ping was sent.
+ */
+export function flushPendingAffiliateClick(): boolean {
+  const stored = readStored();
+  if (!stored?.pendingClick) return false;
+  if (Date.now() - stored.ts > TTL_MS) {
+    clearStoredAffiliateRef();
+    return false;
+  }
+  const { pendingClick, ...rest } = stored;
+  writeStored(rest);
+  postClickPing({ code: stored.code, ...pendingClick });
+  return true;
 }
 
 function safeReferrerHost(): string | null {

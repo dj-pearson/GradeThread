@@ -248,26 +248,23 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   <p class="cert-eyebrow" style="margin-top:24px">Graded on ${escape(gradedOn)}${certNoSuffix}</p>
   <a class="cta" href="/?utm_source=certificate&utm_medium=organic">Grade your own garment with GradeThread &rarr;</a>
   <!--
-    US-2108 AC2 asked to "preserve attribution through the SSR CTA" — i.e. carry
-    an incoming ?ref= into this href. DELIBERATELY NOT DONE, because it would be
-    a correctness bug rather than a fix:
+    US-2108 AC2. This href is INTENTIONALLY free of the visitor's ?ref=, and
+    that is not the leak it looks like.
 
-    1. THIS RESPONSE IS SHARED-CACHED. withEdgeCache keys on origin+pathname and
-       DROPS the query string (blog-render.ts). Varying this href by the visitor's
-       ?ref= would cache the first arriver's referral code and then serve it to
-       every subsequent visitor of the same certificate — silently crediting one
-       seller for everyone else's traffic. That is worse than the leak it closes.
+    THIS RESPONSE IS SHARED-CACHED. withEdgeCache keys on origin+pathname and
+    DROPS the query string (blog-render.ts), so varying this href by the
+    visitor's ?ref= would cache the first arriver's referral code and serve it
+    to every subsequent visitor of the same certificate — silently crediting one
+    seller for everyone else's traffic. That is worse than the leak it closes.
+    Do not "fix" it into a cache-poisoning bug.
 
-    2. THERE IS ALMOST NOTHING TO PRESERVE. /cert/:id renders under RootLayout,
-       which calls captureAffiliateRef() on mount, so a JS-enabled visitor has
-       already banked the ref in storage before they can click this link. The gap
-       is limited to no-JS agents, which are overwhelmingly crawlers — and a
-       crawler does not sign up.
-
-    Fixing this properly means making attribution a client-side concern on this
-    route (it already is) or splitting the cache key, which would multiply cache
-    entries per certificate by the number of referral codes in circulation.
-    Recorded here so the next person does not "fix" it into a cache-poisoning bug.
+    Attribution IS preserved, by a mechanism that keeps the HTML identical for
+    every visitor: renderLayout emits affiliateCaptureSnippet(), which reads the
+    ref off the visitor's OWN URL at runtime and banks it in localStorage under
+    the key the SPA's redeem path reads. Nothing in the cached bytes varies by
+    referral code. See functions/_shared/affiliate-capture.ts — including why an
+    earlier note here wrongly claimed the SPA already handled this (it does not;
+    these pages never mount it).
   -->
 </main>`;
 
