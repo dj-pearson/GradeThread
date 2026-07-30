@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -7,6 +8,8 @@ import {
   X,
   ExternalLink,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   Card,
@@ -17,6 +20,14 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -25,10 +36,28 @@ import {
   useRepricingSuggestions,
   useScanRepricing,
   useApplyReprice,
+  useBulkRepriceApply,
   useDismissReprice,
   type ReasonCode,
   type RepriceSuggestion,
 } from "@/hooks/use-repricing";
+
+// US-2171: the queue can carry dozens of nudges. Paginate the client-side list
+// so the page renders a bounded slice, and let the reseller filter/sort/bulk-act
+// on the whole queue instead of one Apply click per row.
+const PAGE_SIZE = 20;
+
+// The reason codes a nudge can actually carry as an actionable suggestion. OK /
+// NO_COMPS never reach the queue, so they're not offered as filters.
+const FILTERABLE_REASONS: ReasonCode[] = ["UNDERPRICED", "OVERPRICED", "STALE"];
+
+type ReasonFilter = ReasonCode | "ALL";
+type SortKey = "delta_desc" | "delta_asc";
+
+// Signed price delta in cents (positive = a raise, negative = a drop).
+function repriceDelta(s: RepriceSuggestion): number {
+  return s.suggested_price_cents - s.current_price_cents;
+}
 
 const REASON_META: Record<
   ReasonCode,
@@ -57,7 +86,15 @@ function money(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function SuggestionRow({ s }: { s: RepriceSuggestion }) {
+function SuggestionRow({
+  s,
+  selected,
+  onToggleSelect,
+}: {
+  s: RepriceSuggestion;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
+}) {
   const confirm = useConfirm();
   const apply = useApplyReprice();
   const dismiss = useDismissReprice();
@@ -80,6 +117,12 @@ function SuggestionRow({ s }: { s: RepriceSuggestion }) {
   return (
     <Card>
       <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={() => onToggleSelect(s.id)}
+          aria-label={`Select ${s.inventory_items?.title ?? "item"} for bulk repricing`}
+          className="mt-1 sm:mt-0"
+        />
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className={cn("gap-1", meta.classes)}>
@@ -162,6 +205,91 @@ export function FlipdeskRepricingPage() {
     isFetching,
   } = useRepricingSuggestions();
   const scan = useScanRepricing();
+  const bulkApply = useBulkRepriceApply();
+  const confirm = useConfirm();
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [reason, setReason] = useState<ReasonFilter>("ALL");
+  const [sort, setSort] = useState<SortKey>("delta_desc");
+  const [page, setPage] = useState(0);
+
+  // Filter by reason, then sort by the magnitude of the suggested change so the
+  // biggest moves lead — sign is shown per row, so ranking by absolute delta
+  // answers "where does acting change the most money".
+  const filtered = useMemo(() => {
+    const rows =
+      reason === "ALL"
+        ? suggestions
+        : suggestions.filter((s) => s.reason_code === reason);
+    return [...rows].sort((a, b) => {
+      const diff = Math.abs(repriceDelta(b)) - Math.abs(repriceDelta(a));
+      return sort === "delta_desc" ? diff : -diff;
+    });
+  }, [suggestions, reason, sort]);
+
+  // A changed filter/sort can shrink the list below the current page — clamp.
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(0);
+  }, [reason, sort]);
+
+  const filteredIds = filtered.map((s) => s.id);
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selected.has(id));
+  const selectedCount = filtered.filter((s) => selected.has(s.id)).length;
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllFiltered() {
+    setSelected((prev) => {
+      if (filteredIds.every((id) => prev.has(id))) {
+        const next = new Set(prev);
+        filteredIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      return new Set([...prev, ...filteredIds]);
+    });
+  }
+
+  // Bulk apply, cents-safe: reuse useBulkRepriceApply (US-962), whose payload is
+  // already {listing_id, price_cents} — no unit conversion, no per-row round trip.
+  async function applyRows(rows: RepriceSuggestion[]) {
+    if (rows.length === 0) return;
+    const ok = await confirm({
+      title: `Apply ${rows.length} new price${rows.length === 1 ? "" : "s"}?`,
+      description:
+        `This updates ${rows.length} live eBay listing${rows.length === 1 ? "" : "s"} to their ` +
+        `condition-matched suggested prices. Rows below the margin floor or with no ` +
+        `comps are skipped server-side.`,
+      confirmLabel: "Apply prices",
+    });
+    if (!ok) return;
+    const items = rows.map((s) => ({
+      listing_id: s.listing_id,
+      price_cents: s.suggested_price_cents,
+    }));
+    bulkApply.mutate(items, {
+      onSuccess: (res) => {
+        setSelected(new Set());
+        const parts = [`${res.applied} applied`];
+        if (res.skipped.length) parts.push(`${res.skipped.length} skipped`);
+        if (res.errors.length) parts.push(`${res.errors.length} failed`);
+        toast.success(`Repricing: ${parts.join(" · ")}.`);
+      },
+    });
+  }
+
+  const hasSuggestions = suggestions.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
@@ -188,6 +316,64 @@ export function FlipdeskRepricingPage() {
         </Button>
       </div>
 
+      {/* US-2171: queue controls — filter, sort, bulk select + apply. */}
+      {hasSuggestions && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2">
+          <Checkbox
+            checked={allFilteredSelected}
+            onCheckedChange={toggleSelectAllFiltered}
+            aria-label="Select all shown suggestions"
+          />
+          <span className="text-sm text-muted-foreground">
+            {selectedCount > 0 ? `${selectedCount} selected` : `${filtered.length} nudges`}
+          </span>
+          <Select value={reason} onValueChange={(v) => setReason(v as ReasonFilter)}>
+            <SelectTrigger className="h-8 w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All reasons</SelectItem>
+              {FILTERABLE_REASONS.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {REASON_META[r].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+            <SelectTrigger className="h-8 w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="delta_desc">Biggest change first</SelectItem>
+              <SelectItem value="delta_asc">Smallest change first</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="ml-auto flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={selectedCount === 0 || bulkApply.isPending}
+              onClick={() => applyRows(filtered.filter((s) => selected.has(s.id)))}
+            >
+              {bulkApply.isPending ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="mr-1.5 h-4 w-4" />
+              )}
+              Apply selected
+            </Button>
+            <Button
+              size="sm"
+              disabled={filtered.length === 0 || bulkApply.isPending}
+              onClick={() => applyRows(filtered)}
+            >
+              Apply all ({filtered.length})
+            </Button>
+          </div>
+        </div>
+      )}
+
       {isError ? (
         <ErrorState
           title="Couldn't load repricing suggestions"
@@ -209,12 +395,49 @@ export function FlipdeskRepricingPage() {
             comps. We'll surface anything underpriced, overpriced, or stale here.
           </CardContent>
         </Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <CardContent className="pt-6 text-sm text-muted-foreground">
+            No {reason === "ALL" ? "" : REASON_META[reason].label.toLowerCase() + " "}
+            nudges match this filter.
+          </CardContent>
+        </Card>
       ) : (
-        <div className="space-y-3">
-          {suggestions.map((s) => (
-            <SuggestionRow key={s.id} s={s} />
-          ))}
-        </div>
+        <>
+          <div className="space-y-3">
+            {pageRows.map((s) => (
+              <SuggestionRow
+                key={s.id}
+                s={s}
+                selected={selected.has(s.id)}
+                onToggleSelect={toggleSelect}
+              />
+            ))}
+          </div>
+          {pageCount > 1 && (
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={safePage === 0}
+                onClick={() => setPage(safePage - 1)}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {safePage + 1} of {pageCount}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={safePage >= pageCount - 1}
+                onClick={() => setPage(safePage + 1)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
