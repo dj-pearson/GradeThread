@@ -44,6 +44,27 @@ sealed class EdgeApiError : Exception() {
     /** 409 `offer_not_open` — refresh the inbox instead of erroring (US-1510). */
     object OfferNotOpen : EdgeApiError()
 
+    /** Where an existing subscription is billed. */
+    enum class SubscriptionSource { STRIPE, APPSTORE }
+
+    /**
+     * US-1366: 409 `ACTIVE_STRIPE_SUBSCRIPTION` / `ACTIVE_APPSTORE_SUBSCRIPTION`
+     * — this account already pays somewhere else, so a Play purchase would be a
+     * second bill for the same thing. The route out is the other store, not a
+     * retry here.
+     */
+    data class SubscriptionConflict(val source: SubscriptionSource) : EdgeApiError()
+
+    /**
+     * US-1366: 403 `PURCHASE_NOT_OWNED_BY_ACCOUNT` — the Play purchase belongs
+     * to a different GradeThread account.
+     *
+     * Typed separately because a bare 403 maps to [Unauthorized], whose copy
+     * ("your session expired, sign in again") is actively wrong here: the
+     * session is fine, and re-authenticating as the same person changes nothing.
+     */
+    object PurchaseNotOwned : EdgeApiError()
+
     /**
      * US-1335: any status carrying `action: "upgrade"` — a plan or quota wall,
      * not a transport failure.
@@ -77,6 +98,17 @@ sealed class EdgeApiError : Exception() {
         is FeatureUnavailable -> detail ?: "This feature isn't available yet."
         OfferNotOpen ->
             "This offer is no longer available — it may have expired or already been answered."
+        is SubscriptionConflict -> when (source) {
+            SubscriptionSource.STRIPE ->
+                "You already have a subscription billed on the web. Manage or cancel it there " +
+                    "first, then you can subscribe through Google Play."
+            SubscriptionSource.APPSTORE ->
+                "You already have a subscription billed through the App Store. Manage it on " +
+                    "your iPhone or iPad."
+        }
+        PurchaseNotOwned ->
+            "That Google Play purchase belongs to a different GradeThread account. Sign in " +
+                "with that account to use it."
         // The server's copy names the actual limit and what lifts it, so it
         // beats anything generic we could write here.
         is UpgradeRequired -> detail ?: "You've reached a limit on your plan. Upgrade to keep going."
@@ -122,6 +154,17 @@ sealed class EdgeApiError : Exception() {
                 return FeatureUnavailable(detail)
             }
             if (payload?.discriminator == "offer_not_open") return OfferNotOpen
+            // US-1366: the billing conflicts put their marker in `error`, not in
+            // a discriminator field, and both statuses they use already map to
+            // something whose copy misleads. Matched before the status switch
+            // for the same reason the plan wall is.
+            when (payload?.error) {
+                "ACTIVE_STRIPE_SUBSCRIPTION" ->
+                    return SubscriptionConflict(SubscriptionSource.STRIPE)
+                "ACTIVE_APPSTORE_SUBSCRIPTION" ->
+                    return SubscriptionConflict(SubscriptionSource.APPSTORE)
+                "PURCHASE_NOT_OWNED_BY_ACCOUNT" -> return PurchaseNotOwned
+            }
             // Checked BEFORE the status switch, which is the whole point: the
             // statuses the edge uses for a plan wall (429, 403) already map to
             // errors whose copy actively misleads here.

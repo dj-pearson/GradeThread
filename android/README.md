@@ -25,7 +25,7 @@ AutoLister batches, photo QA and the drafts library · flaw disclosure with
 annotated photos · timezone-aware scheduled drops · trigger/action/scope
 automations ·
 payout reconciliation against the recorded sales ·
-credit-pack Play Billing ·
+Play Billing for credit packs and FlipDesk subscriptions ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -33,7 +33,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Subscription billing + paywall / plan gates | US-1366, US-1367 |
+| Paywall / post-signup plan step / plan-gate presentation | US-1367 |
 | Analytics, community insights | US-1368, US-1369 |
 | Consignment, templates, Scout/Prospect, verified badge, passport, fulfilment | US-1372–1377 |
 | FCM push, Glance widgets, onboarding, referrals, feedback, workspaces, CSV import | US-1378–1389 |
@@ -82,8 +82,46 @@ opened the project (US-2015). Add a row when the code lands, not before.
 | `money` | `Money/` + `Sales/` + `Dashboard/` | rollups (KPIs, cash flow, aging, ROI, P&L), sales list, expenses |
 | `home` | `Dashboard/` + `Onboarding/` | snapshot, sparkline, quick actions, activation checklist |
 | `settings` | `Settings/` | profile, plan, preferences, diagnostics, sign-out |
-| `billing` | `Billing/` | Play Billing credit packs (no subscriptions — US-1366) |
+| `billing` | `Billing/` | Play Billing credit packs + FlipDesk subscriptions, server-verified |
 | `platform` | `Networking/` + `Telemetry/` | EdgeAPI, Supabase, Sentry/PostHog, workspace scope, app lock |
+
+## Play Billing (US-1338, US-1366)
+
+The client never decides an entitlement. It sends the product id and the purchase
+token to `POST /api/payments/google/verify`, which checks the token with Google,
+maps it through `ANDROID_CATALOG` in the edge's `lib/google-play/products.ts`, and
+grants the plan or the credits. Anything Play-specific sits behind the
+`PlayBilling` interface so the whole purchase path runs against `FakePlayBilling`
+in a plain JVM test.
+
+**Product ids** must match the Play Console (Monetize → Products) AND the server
+catalog exactly. The server fails closed on an unknown id, so a typo is a purchase
+the buyer completes and is never credited for. `SubscriptionCatalogTest` and
+`CreditTopUpFlowTest` pin both lists.
+
+| Kind | Product ids | Console type |
+|---|---|---|
+| Subscriptions | `flipdesk_{starter,pro,business}_{monthly,yearly}` | Subscription (one base plan each) |
+| Credit packs | `credits_{10,25,50,100}` | One-time product, **consumable** |
+
+**Testing a purchase without spending money.** Play has no local sandbox — a
+purchase always goes through a real Play Store on a real signed build:
+
+1. Upload a signed build to an internal-testing track (the app must be published
+   to a track before Billing responds at all; an unpublished app returns an empty
+   product list, which looks exactly like a typo in the ids).
+2. Play Console → Setup → License testing: add the tester's Google account. Their
+   purchases are free, renew fast (a monthly sub renews every ~5 minutes), and can
+   be refunded from the order page.
+3. Install as that account from the internal-testing link, not by sideloading —
+   Billing checks the install source.
+4. Google's reserved ids (`android.test.purchased` and friends) work only for the
+   deprecated AIDL flow and are **not** usable with Billing 7. Use real test SKUs.
+
+Settlement rules the tests hold to: consumables are **consumed** (so they can be
+bought again), subscriptions are **acknowledged** (Play auto-refunds an
+unacknowledged purchase after three days), and NEITHER happens until the server
+has confirmed the grant.
 
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 

@@ -6,6 +6,7 @@ import com.gradethread.app.platform.AppConfig
 import com.gradethread.app.platform.applock.AppLock
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.auth.AuthRepository
+import com.gradethread.app.billing.SubscriptionService
 import com.gradethread.app.platform.workspace.WorkspaceScope
 import com.gradethread.app.sync.ConnectivityMonitor
 import com.gradethread.app.sync.SyncTrigger
@@ -57,6 +58,10 @@ class GradeThreadApp : Application(), Configuration.Provider {
         // note. Reconnect matters most for the queue: a seller working through a
         // dead spot never backgrounds the app, so no foreground event fires.
         syncTrigger.observeConnectivity(ConnectivityMonitor(this))
+        // US-1366: Play pushes renewals and purchases made on another device
+        // through the same listener as a fresh buy, with no screen open to
+        // catch them. Without this the plan only moves when a webhook does.
+        subscriptions.observe(appScope)
     }
 
     /** Lives as long as the process — these observers never unsubscribe. */
@@ -67,4 +72,7 @@ class GradeThreadApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var authRepository: AuthRepository
+
+    @Inject
+    lateinit var subscriptions: SubscriptionService
 }

@@ -1,36 +1,13 @@
 package com.gradethread.app.billing
 
 import android.app.Activity
-import android.content.Context
-import com.android.billingclient.api.AcknowledgePurchaseParams
-import com.android.billingclient.api.BillingClient
-import com.android.billingclient.api.BillingFlowParams
-import com.android.billingclient.api.BillingResult
-import com.android.billingclient.api.ConsumeParams
-import com.android.billingclient.api.PendingPurchasesParams
-import com.android.billingclient.api.ProductDetails
-import com.android.billingclient.api.Purchase
-import com.android.billingclient.api.PurchasesUpdatedListener
-import com.android.billingclient.api.QueryProductDetailsParams
-import com.android.billingclient.api.acknowledgePurchase
-import com.android.billingclient.api.consumePurchase
-import com.android.billingclient.api.QueryPurchasesParams
-import com.android.billingclient.api.queryProductDetails
-import com.android.billingclient.api.queryPurchasesAsync
-import com.gradethread.app.platform.net.EdgeApi
+import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import javax.inject.Inject
-import javax.inject.Named
 import javax.inject.Singleton
-import kotlin.coroutines.resume
 
 /** What the edge reports back after verifying a Play purchase. */
 @Serializable
@@ -39,99 +16,59 @@ data class GooglePlayVerifyResponse(
     val interval: String? = null,
     val status: String = "none",
     @SerialName("credits_balance") val creditsBalance: Int = 0,
-)
-
-@Serializable
-private data class GooglePlayVerifyRequest(
-    val productId: String,
-    val purchaseToken: String,
-)
+) {
+    val tier: PlanTier? get() = PlanTier.fromSlug(plan)
+    val subscribed: Boolean get() = status == "active" && tier != null
+}
 
 /**
- * US-1338: the Play Billing half of the credit top-up.
+ * US-1338/US-1366: the Play Billing side of credits AND subscriptions.
  *
  * The client NEVER decides an entitlement. It hands the product id and the
  * purchase token to `POST /api/payments/google/verify`, which checks the token
- * with Google, maps the product through its own catalog and grants the
- * credits. That is also why the purchase is consumed only AFTER the server
- * confirms: consuming first would make the token unrecoverable, and a buyer who
- * lost their network between paying and verifying would have paid for nothing.
+ * with Google, maps the product through its own catalog and grants the plan or
+ * the credits.
+ *
+ * Everything Play-specific lives behind [PlayBilling], so this whole class runs
+ * against a fake in unit tests — the purchase paths that involve real money are
+ * exactly the ones you cannot afford to check by hand.
  */
 @Singleton
 class BillingRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
-    @Named("shared") private val edge: EdgeApi,
+    private val play: PlayBilling,
+    private val verifier: PurchaseVerifier,
 ) {
 
     companion object {
-        const val VERIFY_PATH = "/api/payments/google/verify"
-        private val json = Json { ignoreUnknownKeys = true }
+        /** Where a buyer goes when the fix isn't in this app. */
+        const val WEB_BILLING_URL = "https://gradethread.com/dashboard/settings/billing"
     }
 
     sealed class PurchaseOutcome {
-        /** Verified server-side; [creditsBalance] is the post-grant balance. */
-        data class Verified(val creditsBalance: Int) : PurchaseOutcome()
+        /** Verified server-side; the response carries the post-grant state. */
+        data class Verified(val entitlement: GooglePlayVerifyResponse) : PurchaseOutcome() {
+            val creditsBalance: Int get() = entitlement.creditsBalance
+        }
 
         /** The buyer backed out of Play's dialog. Not an error to report. */
         object Cancelled : PurchaseOutcome()
 
-        data class Failed(val message: String) : PurchaseOutcome()
+        /**
+         * [conflict] non-null means the buyer must act somewhere else — retrying
+         * here cannot work, and the UI should say where to go instead.
+         */
+        data class Failed(
+            val message: String,
+            val conflict: PlayPurchaseRules.Conflict? = null,
+        ) : PurchaseOutcome()
     }
 
-    private val purchaseEvents = MutableSharedFlow<PurchaseSignal>(
-        replay = 0,
-        extraBufferCapacity = 4,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    /** Purchase results from Play, including renewals nobody tapped for. */
+    val events: SharedFlow<PlaySignal> get() = play.events
 
-    sealed class PurchaseSignal {
-        data class Updated(val purchases: List<Purchase>) : PurchaseSignal()
-        object Cancelled : PurchaseSignal()
-        data class Error(val message: String) : PurchaseSignal()
-    }
+    suspend fun connect(): Boolean = play.connect()
 
-    val events: SharedFlow<PurchaseSignal> get() = purchaseEvents
-
-    private val listener = PurchasesUpdatedListener { result, purchases ->
-        val signal = when (result.responseCode) {
-            BillingClient.BillingResponseCode.OK ->
-                PurchaseSignal.Updated(purchases.orEmpty())
-            BillingClient.BillingResponseCode.USER_CANCELED -> PurchaseSignal.Cancelled
-            else -> PurchaseSignal.Error(describe(result))
-        }
-        purchaseEvents.tryEmit(signal)
-    }
-
-    private val client: BillingClient = BillingClient.newBuilder(context)
-        .setListener(listener)
-        // Required from Billing 7: declares we handle one-time products.
-        .enablePendingPurchases(
-            PendingPurchasesParams.newBuilder().enableOneTimeProducts().build(),
-        )
-        .build()
-
-    /** Connect if needed. Returns false when Play Billing is unavailable. */
-    suspend fun connect(): Boolean {
-        if (client.isReady) return true
-        return suspendCancellableCoroutine { continuation ->
-            client.startConnection(
-                object : com.android.billingclient.api.BillingClientStateListener {
-                    override fun onBillingSetupFinished(result: BillingResult) {
-                        if (continuation.isActive) {
-                            continuation.resume(
-                                result.responseCode == BillingClient.BillingResponseCode.OK,
-                            )
-                        }
-                    }
-
-                    override fun onBillingServiceDisconnected() {
-                        // Reconnection is handled by the next connect() call —
-                        // resuming false here would race the success path.
-                    }
-                },
-            )
-        }
-    }
+    // ── Credit packs (consumables) ───────────────────────────────────────────
 
     /**
      * Fetch Play's localized pricing for the credit packs.
@@ -142,147 +79,124 @@ class BillingRepository @Inject constructor(
      * fallback is a label, never a commitment.
      */
     suspend fun creditPackOffers(): List<CreditPackOffer> {
-        val fallback = CreditPack.entries.map { CreditPackOffer(it) }
-        if (!connect()) return fallback
-
-        val params = QueryProductDetailsParams.newBuilder()
-            .setProductList(
-                CreditPack.entries.map { pack ->
-                    QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId(pack.productId)
-                        .setProductType(BillingClient.ProductType.INAPP)
-                        .build()
-                },
-            )
-            .build()
-
-        val result = runCatching { client.queryProductDetails(params) }.getOrNull()
-            ?: return fallback
-        val details = result.productDetailsList.orEmpty().associateBy { it.productId }
+        val details = play.products(CreditPack.productIds, PlayProductType.INAPP)
+            .associateBy { it.productId }
         return CreditPack.entries.map { pack ->
-            CreditPackOffer(
-                pack = pack,
-                formattedPrice = details[pack.productId]
-                    ?.oneTimePurchaseOfferDetails
-                    ?.formattedPrice,
-            )
+            CreditPackOffer(pack, details[pack.productId]?.formattedPrice)
         }
     }
 
     /** Launch Play's purchase dialog. The result arrives on [events]. */
-    suspend fun launchPurchase(activity: Activity, pack: CreditPack): Boolean {
-        if (!connect()) return false
-        val params = QueryProductDetailsParams.newBuilder()
-            .setProductList(
-                listOf(
-                    QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId(pack.productId)
-                        .setProductType(BillingClient.ProductType.INAPP)
-                        .build(),
-                ),
-            )
-            .build()
-        val details: ProductDetails = runCatching { client.queryProductDetails(params) }
-            .getOrNull()
-            ?.productDetailsList
-            ?.firstOrNull()
-            ?: return false
+    suspend fun launchPurchase(activity: Activity, pack: CreditPack): Boolean =
+        play.launch(activity, PlayProduct(pack.productId), PlayProductType.INAPP)
 
-        val flow = BillingFlowParams.newBuilder()
-            .setProductDetailsParamsList(
-                listOf(
-                    BillingFlowParams.ProductDetailsParams.newBuilder()
-                        .setProductDetails(details)
-                        .build(),
-                ),
-            )
-            .build()
-        return client.launchBillingFlow(activity, flow).responseCode ==
-            BillingClient.BillingResponseCode.OK
-    }
+    // ── Subscriptions ────────────────────────────────────────────────────────
 
     /**
-     * Verify a purchase server-side, then consume it.
+     * Play's localized pricing for the FlipDesk plans.
      *
-     * ORDER IS DELIBERATE. Consuming makes the token unusable, so it happens
-     * only after the server has confirmed the grant — otherwise a buyer whose
-     * connection dropped between paying and verifying would have destroyed the
-     * only proof of their purchase.
+     * Same fallback contract as the credit packs, with one addition: an offer
+     * with no token is reported as not purchasable rather than silently priced,
+     * because Play will refuse a subscription flow without one and the buyer
+     * would just watch a dialog fail to open.
      */
-    suspend fun verifyAndConsume(purchase: Purchase): PurchaseOutcome {
-        if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED) {
-            // PENDING (e.g. cash payment): nothing to grant yet. Play delivers
-            // the completed purchase later.
+    suspend fun subscriptionOffers(): List<SubscriptionOffer> {
+        val details = play.products(SubscriptionProduct.productIds, PlayProductType.SUBS)
+            .associateBy { it.productId }
+        return SubscriptionProduct.entries.map { product ->
+            val row = details[product.productId]
+            SubscriptionOffer(product, row?.formattedPrice, row?.offerToken)
+        }
+    }
+
+    /** Launch Play's subscription dialog. The result arrives on [events]. */
+    suspend fun launchSubscription(activity: Activity, offer: SubscriptionOffer): Boolean {
+        if (!offer.purchasable) return false
+        return play.launch(
+            activity,
+            PlayProduct(offer.product.productId, offer.formattedPrice, offer.offerToken),
+            PlayProductType.SUBS,
+        )
+    }
+
+    /** What Play says this account currently subscribes to, if anything. */
+    suspend fun activeSubscription(): PlayPurchase? =
+        play.purchases(PlayProductType.SUBS)
+            .firstOrNull { PlayPurchaseRules.redeemable(it) }
+
+    // ── Verify + settle ──────────────────────────────────────────────────────
+
+    /**
+     * Verify a purchase server-side, then settle it with Play.
+     *
+     * ORDER IS DELIBERATE. Consuming makes the token unusable and acknowledging
+     * is what stops Play auto-refunding, so both happen only after the server
+     * has confirmed the grant — otherwise a buyer whose connection dropped
+     * between paying and verifying would have destroyed the only proof of their
+     * purchase.
+     */
+    suspend fun verifyAndSettle(purchase: PlayPurchase): PurchaseOutcome {
+        if (purchase.state == PlayPurchaseState.PENDING) {
+            // Play's cash-payment flow: nothing has been paid yet, so there is
+            // nothing to grant. Play delivers the completed purchase later.
             return PurchaseOutcome.Failed("This purchase is still pending with Google Play.")
         }
-        val productId = purchase.products.firstOrNull()
-            ?: return PurchaseOutcome.Failed("That purchase didn't name a product.")
+        if (!PlayPurchaseRules.redeemable(purchase)) {
+            return PurchaseOutcome.Failed("That purchase didn't name a product we sell.")
+        }
+        val productId = purchase.productId!!
 
         val response = runCatching {
-            val body = json.encodeToString(
-                GooglePlayVerifyRequest.serializer(),
-                GooglePlayVerifyRequest(productId, purchase.purchaseToken),
-            )
-            json.decodeFromString(
-                GooglePlayVerifyResponse.serializer(),
-                edge.postRaw(VERIFY_PATH, body),
-            )
+            verifier.verify(productId, purchase.purchaseToken)
         }.getOrElse { error ->
-            Telemetry.breadcrumb("play verify failed: ${error.message}", "billing")
-            // The purchase is NOT consumed — Play will redeliver it, and the
-            // next verify attempt can still redeem it.
+            val conflict = PlayPurchaseRules.conflict(error)
+            Telemetry.breadcrumb(
+                "play verify failed: ${conflict ?: error.message}",
+                "billing",
+            )
+            // Not settled — Play redelivers the purchase, and verify is
+            // idempotent by token, so a transient failure costs nothing.
             return PurchaseOutcome.Failed(
-                (error as? com.gradethread.app.platform.net.EdgeApiError)?.userMessage()
+                conflict?.message
+                    ?: (error as? EdgeApiError)?.userMessage()
                     ?: "We couldn't confirm that purchase. It's safe — reopen this screen " +
                     "to finish it.",
+                conflict,
             )
         }
 
-        runCatching {
-            if (CreditPack.fromProductId(productId) != null) {
-                // Consumables must be consumed so the buyer can purchase again.
-                client.consumePurchase(
-                    ConsumeParams.newBuilder()
-                        .setPurchaseToken(purchase.purchaseToken)
-                        .build(),
-                )
-            } else if (!purchase.isAcknowledged) {
-                client.acknowledgePurchase(
-                    AcknowledgePurchaseParams.newBuilder()
-                        .setPurchaseToken(purchase.purchaseToken)
-                        .build(),
-                )
-            }
-        }.onFailure {
-            // The grant already landed, so this is not the buyer's problem.
-            // Play re-delivers an unconsumed purchase and verify is idempotent.
-            Telemetry.breadcrumb("play consume failed: ${it.message}", "billing")
-        }
+        settle(purchase)
+        return PurchaseOutcome.Verified(response)
+    }
 
-        return PurchaseOutcome.Verified(response.creditsBalance)
+    private suspend fun settle(purchase: PlayPurchase) {
+        val settlement = PlayPurchaseRules.settlement(purchase)
+        val ok = when (settlement) {
+            PlayPurchaseRules.Settlement.CONSUME -> play.consume(purchase.purchaseToken)
+            PlayPurchaseRules.Settlement.ACKNOWLEDGE -> play.acknowledge(purchase.purchaseToken)
+            PlayPurchaseRules.Settlement.NONE -> true
+        }
+        if (!ok) {
+            // The grant already landed, so this is not the buyer's problem. Play
+            // redelivers an unsettled purchase and verify is idempotent.
+            Telemetry.breadcrumb("play $settlement failed for ${purchase.productId}", "billing")
+        }
     }
 
     /**
-     * Redeem anything Play is still holding for this user.
+     * Redeem anything Play is still holding for this account.
      *
-     * Called when the paywall opens: a purchase that was paid for but never
-     * verified (app killed mid-flow, network dropped) is otherwise invisible,
-     * and the buyer is out the money with nothing to show.
+     * Called when a paywall opens: a purchase that was paid for but never
+     * verified (app killed mid-flow, network dropped, a renewal that arrived
+     * while the app was closed) is otherwise invisible, and the buyer is out the
+     * money with nothing to show.
      */
     suspend fun redeemOutstanding(): List<PurchaseOutcome> {
-        if (!connect()) return emptyList()
-        val params = QueryPurchasesParams.newBuilder()
-            .setProductType(BillingClient.ProductType.INAPP)
-            .build()
-        val purchases: List<Purchase> = runCatching {
-            client.queryPurchasesAsync(params).purchasesList
-        }.getOrNull().orEmpty()
-        return purchases
-            .filter { it.purchaseState == Purchase.PurchaseState.PURCHASED }
-            .map { verifyAndConsume(it) }
+        if (!play.connect()) return emptyList()
+        val outstanding = play.purchases(PlayProductType.INAPP) +
+            play.purchases(PlayProductType.SUBS)
+        return outstanding
+            .filter { PlayPurchaseRules.redeemable(it) }
+            .map { verifyAndSettle(it) }
     }
-
-    private fun describe(result: BillingResult): String =
-        result.debugMessage.takeIf { it.isNotBlank() }
-            ?: "Play Billing error ${result.responseCode}"
 }
