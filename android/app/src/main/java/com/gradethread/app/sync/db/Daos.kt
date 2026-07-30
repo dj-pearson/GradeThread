@@ -133,6 +133,10 @@ interface SaleDao {
     @Query("SELECT id FROM sales")
     suspend fun allIds(): List<String>
 
+    /** US-1351: the eBay-sync summary's sales total. */
+    @Query("SELECT COUNT(*) FROM sales")
+    suspend fun count(): Int
+
     @Query("SELECT id FROM sales WHERE hasLocalChanges = 1")
     suspend fun dirtyIds(): List<String>
 
@@ -179,6 +183,25 @@ interface ListingDao {
     /** US-1349: the whole table, for global search. */
     @Query("SELECT * FROM listings")
     suspend fun all(): List<ListingEntity>
+
+    /**
+     * US-1351: the cached rows a pulled batch lands on, in ONE query — the
+     * per-row lookup [ItemDao.byId] does is fine for items but would be a
+     * query per listing on a full eBay pull.
+     */
+    @Query("SELECT * FROM listings WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<String>): List<ListingEntity>
+
+    /** US-1351: reactive backing for the listings surface. */
+    @Query("SELECT * FROM listings ORDER BY listedAt DESC, createdAt DESC")
+    fun observeAll(): kotlinx.coroutines.flow.Flow<List<ListingEntity>>
+
+    @Query("SELECT COUNT(*) FROM listings")
+    suspend fun count(): Int
+
+    /** Live listings — the statuses in `ConflictPolicy.liveListingStatuses`. */
+    @Query("SELECT COUNT(*) FROM listings WHERE listingStatus IN (:statuses)")
+    suspend fun countByStatus(statuses: Collection<String>): Int
 
     @Query("SELECT id FROM listings")
     suspend fun allIds(): List<String>

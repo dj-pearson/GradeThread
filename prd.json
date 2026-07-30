@@ -22,14 +22,14 @@
     {
       "id": "US-1351",
       "priority": -98649,
-      "passes": false,
+      "passes": true,
       "title": "eBay listing sync (pull, poll, merge)",
       "description": "As a seller, my eBay listings pull into the app and merge into the local cache.",
       "acceptanceCriteria": [
         "POST /api/flipdesk/ebay/listings/pull (202 async); poll last_synced_at past baseline; merge via the sync engine into LocalListing",
         "Unified listing card UI (price/quantity/status/platform) — mirrors ListingKit"
       ],
-      "notes": "[P1][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android eBay listing sync. AC1: marketplaces/EbaySync.kt — EbaySyncService.sync() POSTs /api/flipdesk/ebay/listings/pull then pollUntilSynced() polls the PRIMARY connection row (is_primary DESC) with Backoff.delayMillis, returning Advanced/TimedOut/Flagged/Failed; refresh_error outranks the cursor, 3 consecutive unreachable polls bail with a lost-connection message instead of a misleading timeout, and cancellation propagates instead of being counted as a blip. didAdvance() compares instants so mixed fractional-second precision can't fake an advance. Completion runs SyncService.pull() before counting, so the summary deltas are deterministic. Merge: SyncRows.decodeListingRow now reads platform_offer_id, quantity, listing_origin and publish_error (all four were dropped, so every pulled listing looked eBay-native and quantity-less), and SyncMerger.mergeListing routes price/status/quantity through ConflictPolicy.resolveEbayOwnedListingField — listings were previously blind-upserted, which silently reverted pending local edits. ListingEntity.quantity + Room v2→v3 MIGRATION_2_3 (explicit ALTER, not destructive fallback). AC2: marketplaces/ListingCard.kt — ListingCardModel (platform label, money-formatted price, three-state quantity incl. 'Out of stock' for 0, status badge, imported-from-eBay provenance line, publish_error) wired into MarketplacesScreen as a lazy list over the Room flow, plus a 'Sync listings from eBay' button. Verified by unit tests: ListingMergeTest (11 cases incl. the blind-upsert regression), EbaySyncTest (poll outcomes, backoff cadence, failure-streak reset, summary deltas, completion copy), ListingCardModelTest, SyncRowsTest additions. NOT compiled locally — this container has no Android SDK; android-ci.yml (assembleDebug + testDebugUnitTest + lintDebug) is the gate. Room schemas/3.json regenerates on the first real build. Vault sync-source-of-truth.md surface-parity section updated to name Android."
     },
     {
       "id": "US-1352",

@@ -15,14 +15,15 @@ pull, mutation queue *and its replay*, delete reconciliation · CameraX capture 
 staged uploads · AI attribute extraction · Snap-to-Value · the full certified
 grading path (validate → submit → poll → report → dispute, plus bulk) · inventory
 list and item canvas (photos, measurements, comps, eBay specifics) · global search ·
-eBay OAuth connect · credit-pack Play Billing · Home, Money (KPIs, cash flow,
+eBay OAuth connect · eBay listing sync (pull → poll → provenance-aware merge) and
+the unified listing card · credit-pack Play Billing · Home, Money (KPIs, cash flow,
 aging, time-on-market, ROI-by-source, per-item P&L), Sales, Expenses, Settings.
 
 **Not built.** The remaining work is the expensive half, not a polish pass:
 
 | Area | Owning story |
 |---|---|
-| eBay listing lifecycle (sync, publish/relist, listing-time specifics) | US-1351–1353 |
+| eBay publish/relist + listing-time category specifics (sync itself is done, US-1351) | US-1352, US-1353 |
 | Negotiation inbox, bulk pricing, post-sale actions, repricing | US-1354–1358 |
 | AutoLister (batch jobs, photo classify/QA, drafts) | US-1359 |
 | Disclosure, scheduled drops, automations | US-1360–1362 |

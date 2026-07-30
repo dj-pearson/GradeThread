@@ -134,9 +134,9 @@ above.
 - **No push-before-pull, no per-field dirty-tracking, no outbound retry queue for live-listing edits.** Earlier drafts needed these to protect local edits from an authoritative eBay pull. Provenance makes them unnecessary: GT-originated listings are never overwritten on editable fields, and eBay-originated listings are read-only mirrors with no local edits to protect.
 - **The eBay per-field `source_of_truth` pin (US-148) is retired** for the eBay↔FlipDesk axis — provenance supersedes it. (See US-1078 notes on safe removal; the Google Sheets merge does not depend on it.)
 
-## Surface parity (web + iOS)
+## Surface parity (web + iOS + Android)
 
-These rules are surface-agnostic. **iOS enforces the identical model** (US-1086): eBay-originated listings are read-only mirrors with an "Edit on eBay" deep-link; GradeThread-originated listings are editable in-app and push up via the same edge endpoints. There is **no client-side precedence logic** on either web or iOS — the edge service is the single enforcement point (server rejects writes to locked eBay-owned fields regardless of client). CSV/Sheets reconciliation stays entirely server-side.
+These rules are surface-agnostic. **iOS enforces the identical model** (US-1086), and **Android joined it with US-1351**: eBay-originated listings are read-only mirrors with an "edit it on eBay" affordance; GradeThread-originated listings are editable in-app and push up via the same edge endpoints. There is **no client-side precedence logic** on any of the three — the edge service is the single enforcement point (server rejects writes to locked eBay-owned fields regardless of client). What a client's local merge does with provenance is a CACHE decision only: it picks which copy the device shows until the next pull, never what the server accepts. CSV/Sheets reconciliation stays entirely server-side.
 
 ## Provenance marker
 

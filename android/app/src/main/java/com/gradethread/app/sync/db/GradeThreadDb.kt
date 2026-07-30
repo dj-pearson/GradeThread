@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
         PendingMutationEntity::class,
         CaptureDraftEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class GradeThreadDb : RoomDatabase() {
@@ -99,7 +99,7 @@ object DatabaseProvider {
 
     private fun build(context: Context, dbName: String): GradeThreadDb =
         Room.databaseBuilder(context, GradeThreadDb::class.java, dbName)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
 
     /**
@@ -118,6 +118,19 @@ object DatabaseProvider {
             db.execSQL(
                 "ALTER TABLE inventory_items ADD COLUMN ebayAspectSourcesJson TEXT DEFAULT NULL",
             )
+        }
+    }
+
+    /**
+     * US-1351: the listed quantity mirrored from eBay.
+     *
+     * Explicit like [MIGRATION_1_2] — a version bump with no migration is a
+     * launch crash for anyone already holding a v2 file, and destructive
+     * fallback would take their queued mutations with it.
+     */
+    internal val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE listings ADD COLUMN quantity INTEGER DEFAULT NULL")
         }
     }
 }

@@ -177,6 +177,14 @@ data class ListingEntity(
     val endedAt: Long?,
     val viewsTotal: Int?,
     val watchersCount: Int?,
+    /**
+     * US-1351/US-1973: the listed available quantity, mirrored from eBay.
+     * eBay-owned + editable (same class as price/status), so the merge routes
+     * it through the provenance policy. `0` = out of stock: the offer stays
+     * published but nothing is buyable. Null on rows synced before a pull first
+     * observed the column — the card says "—" rather than inventing a 1.
+     */
+    @ColumnInfo(defaultValue = "NULL") val quantity: Int? = null,
     /** Provenance: which side authored this listing (vault/20-domain/sync-source-of-truth.md). */
     val listingOrigin: String?,
     val publishError: String?,

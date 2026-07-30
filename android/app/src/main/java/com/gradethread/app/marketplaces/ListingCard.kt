@@ -1,0 +1,217 @@
+package com.gradethread.app.marketplaces
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import com.gradethread.app.money.Money
+import com.gradethread.app.sync.db.ListingEntity
+import com.gradethread.app.ui.components.StatusBadge
+import com.gradethread.app.ui.components.StatusStyle
+import com.gradethread.app.ui.theme.GradeThreadTheme
+import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.cardStyle
+import java.util.Locale
+
+/**
+ * US-1351: the display shape of one listing, on any platform.
+ *
+ * A pure model, separate from the composable, so the wording rules (what a null
+ * quantity says, when a listing counts as imported) are unit-tested instead of
+ * only being visible in a screenshot.
+ */
+data class ListingCardModel(
+    val id: String,
+    val platform: String,
+    val platformLabel: String,
+    val priceText: String,
+    val quantityText: String,
+    val status: String,
+    val externalUrl: String?,
+    /** Server-owned last push failure — shown, never swallowed (US-1511). */
+    val publishError: String?,
+    /**
+     * eBay authored this listing, so its price and quantity are mirrors the
+     * seller edits on eBay rather than here (US-1086 provenance).
+     */
+    val isImported: Boolean,
+) {
+    /** One line for TalkBack — the card's four facts read as a sentence. */
+    val contentDescription: String
+        get() = "$platformLabel listing, $priceText, $quantityText, ${statusLabel(status)}"
+
+    companion object {
+
+        /** Canonical platform names, matching the web's MARKETPLACE_LABELS. */
+        private val PLATFORM_LABELS = mapOf(
+            "ebay" to "eBay",
+            "poshmark" to "Poshmark",
+            "mercari" to "Mercari",
+            "depop" to "Depop",
+            "grailed" to "Grailed",
+            "facebook" to "Facebook",
+            "offerup" to "OfferUp",
+            "shopify" to "Shopify",
+            "etsy" to "Etsy",
+            "whatnot" to "Whatnot",
+            "vinted" to "Vinted",
+            "other" to "Other",
+        )
+
+        /** Unknown platforms title-case rather than render as a raw slug. */
+        fun platformLabel(platform: String): String =
+            PLATFORM_LABELS[platform.lowercase()]
+                ?: platform.replaceFirstChar { it.uppercaseChar() }
+
+        fun statusLabel(status: String): String = StatusStyle.label(status)
+
+        /**
+         * Quantity wording.
+         *
+         * Three states, not two: `0` is out of stock — the offer is still
+         * published but nothing is buyable, which is exactly when a seller needs
+         * telling. Null means no sync has ever reported a quantity; saying
+         * "Qty 1" there would be an invention, and "Out of stock" would be a
+         * lie.
+         */
+        fun quantityText(quantity: Int?): String = when {
+            quantity == null -> "Qty —"
+            quantity <= 0 -> "Out of stock"
+            else -> "Qty $quantity"
+        }
+
+        fun from(
+            listing: ListingEntity,
+            locale: Locale = Locale.getDefault(),
+        ): ListingCardModel = ListingCardModel(
+            id = listing.id,
+            platform = listing.platform,
+            platformLabel = platformLabel(listing.platform),
+            priceText = Money.format(listing.listingPrice, locale),
+            quantityText = quantityText(listing.quantity),
+            status = listing.listingStatus,
+            externalUrl = listing.externalUrl?.takeIf { it.isNotBlank() },
+            publishError = listing.publishError?.takeIf { it.isNotBlank() },
+            // Legacy rows carry no origin. Falling back to the offer id keeps
+            // the old heuristic honest: only listings GradeThread published get
+            // a Sell API offer, so no offer means eBay authored it.
+            isImported = when (listing.listingOrigin) {
+                "ebay" -> true
+                "gradethread" -> false
+                else -> listing.platform == "ebay" && listing.platformOfferId == null
+            },
+        )
+    }
+}
+
+/**
+ * US-1351: the unified listing card — price, quantity, status and platform, the
+ * same on every surface that shows a listing.
+ */
+@Composable
+fun ListingCard(
+    model: ListingCardModel,
+    modifier: Modifier = Modifier,
+    onOpenExternal: ((String) -> Unit)? = null,
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .cardStyle()
+            .semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                model.platformLabel,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            StatusBadge(model.status)
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(model.priceText, style = MaterialTheme.typography.titleMedium)
+            Text(
+                model.quantityText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (model.isImported) {
+            Text(
+                "Imported from eBay — edit the price and quantity on eBay.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        model.publishError?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        model.externalUrl?.let { url ->
+            onOpenExternal?.let { open ->
+                TextButton(
+                    onClick = { open(url) },
+                    modifier = Modifier.padding(top = Spacing.xxs),
+                ) { Text("View on ${model.platformLabel}") }
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun ListingCardPreview() {
+    GradeThreadTheme {
+        Column(
+            Modifier.padding(Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            ListingCard(
+                ListingCardModel(
+                    id = "1",
+                    platform = "ebay",
+                    platformLabel = "eBay",
+                    priceText = "$48.00",
+                    quantityText = "Qty 1",
+                    status = "active",
+                    externalUrl = "https://www.ebay.com/itm/1",
+                    publishError = null,
+                    isImported = true,
+                ),
+                onOpenExternal = {},
+            )
+            ListingCard(
+                ListingCardModel(
+                    id = "2",
+                    platform = "poshmark",
+                    platformLabel = "Poshmark",
+                    priceText = "$32.00",
+                    quantityText = "Out of stock",
+                    status = "drafted",
+                    externalUrl = null,
+                    publishError = "eBay rejected the last update: title too long.",
+                    isImported = false,
+                ),
+            )
+        }
+    }
+}

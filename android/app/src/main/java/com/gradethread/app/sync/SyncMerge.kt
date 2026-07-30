@@ -84,6 +84,56 @@ class SyncMerger(private val db: GradeThreadDb) {
         )
     }
 
+    /**
+     * US-1351: field-level listing merge (iOS SyncMergeActor.mergeListings).
+     *
+     * Price, status and quantity are eBay-OWNED EDITABLE fields, so they go
+     * through the provenance policy rather than being overwritten: an
+     * eBay-originated listing always takes the server value (eBay is the source
+     * of truth), while a GradeThread-originated one carrying a pending local
+     * edit keeps its local value until the mutation queue replays it. A null
+     * origin on the delta falls back to the cached marker, then to gradethread.
+     *
+     * Everything else about the listing is platform identity or server-owned
+     * bookkeeping and refreshes every pass. Pure; unit-tested.
+     */
+    fun mergeListing(local: ListingEntity?, server: ListingEntity): ListingEntity {
+        if (local == null) return server
+        val dirty = local.hasLocalChanges
+        val origin = server.listingOrigin ?: local.listingOrigin
+
+        fun <T> ebayOwned(localValue: T, serverValue: T): T =
+            ConflictPolicy.resolveEbayOwnedListingField(localValue, serverValue, dirty, origin)
+
+        return ListingEntity(
+            id = server.id,
+            inventoryItemId = server.inventoryItemId,
+            // ── platform identity: server-authoritative every pass ──
+            platform = server.platform,
+            platformListingId = server.platformListingId,
+            platformOfferId = server.platformOfferId,
+            externalUrl = server.externalUrl,
+            listedAt = server.listedAt,
+            endedAt = server.endedAt,
+            viewsTotal = server.viewsTotal,
+            watchersCount = server.watchersCount,
+            // ── eBay-owned editable: provenance decides ──
+            listingPrice = ebayOwned(local.listingPrice, server.listingPrice),
+            listingStatus = ebayOwned(local.listingStatus, server.listingStatus),
+            // A server null means "never observed", not "set it to nothing" —
+            // keep what we already had rather than blanking the card.
+            quantity = server.quantity?.let { ebayOwned(local.quantity ?: it, it) }
+                ?: local.quantity,
+            // ── server-owned ──
+            listingOrigin = server.listingOrigin ?: local.listingOrigin,
+            publishError = server.publishError,
+            createdAt = server.createdAt,
+            updatedAt = maxOf(local.updatedAt, server.updatedAt),
+            // The mutation queue clears dirtiness after replay — never the pull.
+            hasLocalChanges = local.hasLocalChanges,
+        )
+    }
+
     private fun <T> neutral(
         local: InventoryItemEntity,
         server: InventoryItemEntity,
@@ -135,7 +185,16 @@ class SyncMerger(private val db: GradeThreadDb) {
             if (batch.photos.isNotEmpty()) db.photos().upsert(batch.photos)
             if (batch.sales.isNotEmpty()) db.sales().upsert(batch.sales)
             if (batch.expenses.isNotEmpty()) db.expenses().upsert(batch.expenses)
-            if (batch.listings.isNotEmpty()) db.listings().upsert(batch.listings)
+            if (batch.listings.isNotEmpty()) {
+                // US-1351: merged, not blind-upserted. A plain upsert threw away
+                // the local side of every eBay-owned editable field, so a pull
+                // racing a just-made price or out-of-stock edit silently undid
+                // it — and re-published the old number on the next push.
+                val cached = db.listings()
+                    .byIds(batch.listings.map { it.id })
+                    .associateBy { it.id }
+                db.listings().upsert(batch.listings.map { mergeListing(cached[it.id], it) })
+            }
             if (batch.sources.isNotEmpty()) db.sources().upsert(batch.sources)
         }
     }

@@ -230,10 +230,29 @@ object SyncRows {
         @SerialName("inventory_item_id") val inventoryItemId: String,
         val platform: String? = null,
         @SerialName("platform_listing_id") val platformListingId: String? = null,
+        /**
+         * US-1351: the Sell Inventory API offer id (00031). Non-nil ONLY for
+         * listings GradeThread published itself — that is what makes a listing
+         * revisable in place. Dropping it made every pulled listing look
+         * eBay-native, so the publish path could never tell "revise here" from
+         * "edit on eBay".
+         */
+        @SerialName("platform_offer_id") val platformOfferId: String? = null,
         @SerialName("listing_url") val listingUrl: String? = null,
         @SerialName("listing_price") val listingPrice: Double? = null,
         @SerialName("listing_status") val listingStatus: String? = null,
         @SerialName("listed_at") val listedAt: String? = null,
+        /** US-1351/US-1973: eBay's availableQuantity mirror (00133). */
+        val quantity: Int? = null,
+        /**
+         * US-1351/US-1086: `gradethread` | `ebay` (00232). The merge's
+         * provenance input — without it every listing fell back to the
+         * gradethread branch and an eBay-owned price could lose to a stale
+         * local edit.
+         */
+        @SerialName("listing_origin") val listingOrigin: String? = null,
+        /** US-1511: last outbound push failure, server-owned; cleared on success. */
+        @SerialName("publish_error") val publishError: String? = null,
         val views: Int? = null,
         val watchers: Int? = null,
         @SerialName("created_at") val createdAt: String? = null,
@@ -247,19 +266,23 @@ object SyncRows {
             inventoryItemId = row.inventoryItemId.lowercase(),
             platform = row.platform ?: "other",
             platformListingId = row.platformListingId,
-            platformOfferId = null,
+            platformOfferId = row.platformOfferId,
             externalUrl = row.listingUrl,
             listingPrice = row.listingPrice ?: 0.0,
             listingStatus = row.listingStatus ?: "draft",
             listedAt = RealtimeRows.parseTimestamp(row.listedAt),
+            // `listings` carries no ended_at column — the field stays null here
+            // rather than being guessed from status (iOS carries the same note).
             endedAt = null,
             viewsTotal = row.views,
             watchersCount = row.watchers,
-            // Provenance is set by the eBay sync path, not by a plain pull —
-            // guessing an origin here would corrupt the source-of-truth model
-            // (vault/20-domain/sync-source-of-truth.md).
-            listingOrigin = null,
-            publishError = null,
+            quantity = row.quantity,
+            // US-1351: provenance is read STRAIGHT from the server column, never
+            // guessed. A wrong origin silently flips which side owns price and
+            // quantity (vault/20-domain/sync-source-of-truth.md); a null one is
+            // a legacy row and the merge treats it as gradethread.
+            listingOrigin = row.listingOrigin,
+            publishError = row.publishError,
             createdAt = RealtimeRows.parseTimestamp(row.createdAt) ?: 0L,
             updatedAt = RealtimeRows.parseTimestamp(row.updatedAt) ?: 0L,
         )

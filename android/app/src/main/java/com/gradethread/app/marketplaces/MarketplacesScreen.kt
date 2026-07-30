@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -41,6 +43,7 @@ fun MarketplacesScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsState()
+    val listings by viewModel.listings.collectAsState(initial = emptyList())
 
     LaunchedEffect(Unit) { viewModel.load() }
 
@@ -115,8 +118,44 @@ fun MarketplacesScreen(
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.connect() }
 
+        if (state.canSync) {
+            BrandSecondaryButton(
+                text = if (state.syncing) "Syncing from eBay…" else "Sync listings from eBay",
+                enabled = !state.syncing,
+                modifier = Modifier.fillMaxWidth(),
+            ) { viewModel.syncListings() }
+        }
+
         BrandSecondaryButton(text = "Refresh", modifier = Modifier.fillMaxWidth()) {
             viewModel.load()
+        }
+
+        // US-1351: the listings the pull merged. Weighted + lazy so a seller
+        // with a few hundred live listings scrolls them instead of composing
+        // every card into a Column that can't scroll.
+        Text(
+            "Listings",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = Spacing.sm),
+        )
+        if (listings.isEmpty()) {
+            Text(
+                "No listings cached yet. Sync to pull the ones live on eBay.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            LazyColumn(
+                Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                items(listings, key = { it.id }) { listing ->
+                    ListingCard(
+                        listing,
+                        onOpenExternal = { url -> CustomTabsLauncher.open(context, url) },
+                    )
+                }
+            }
         }
     }
 
