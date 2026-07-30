@@ -1067,6 +1067,26 @@ function ItemCardVisual({
               {Number(item.grade_value).toFixed(1)}
             </Badge>
           )}
+          {/* US-1897: the Listing Quality Score (0–100), on the board where the
+              work happens. Band-coloured so a weak listing reads at a glance; the
+              full factor breakdown lives on the item page and the drafts list.
+              Only listed/scored rows carry it (items_full.quality_score, 00506). */}
+          {item.quality_score != null && (
+            <Badge
+              variant="outline"
+              title="Listing Quality Score — 0–100 across every ranking lever"
+              className={cn(
+                "px-1.5 py-0 text-[10px] tabular-nums",
+                item.quality_score >= 80
+                  ? "border-emerald-300 text-emerald-700 dark:text-emerald-300"
+                  : item.quality_score >= 60
+                    ? "border-amber-300 text-amber-700 dark:text-amber-300"
+                    : "border-muted-foreground/30 text-muted-foreground",
+              )}
+            >
+              Q{item.quality_score}
+            </Badge>
+          )}
         </div>
         {age != null && (
           <span
