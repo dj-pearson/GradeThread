@@ -553,6 +553,66 @@ final class AIExtractTests: XCTestCase {
         XCTAssertFalse(mgr.isRunning(id))
     }
 
+    // MARK: - condition_notes was silently dropped (US-2269)
+
+    /// The bug: `assign` had no case for `condition_notes`, so the AI's read of the
+    /// garment's condition hit the `default: break` branch. The review screen still
+    /// counted it as applied, so the user was told it saved and the column never
+    /// changed.
+    func test_fieldUpdate_encodesConditionNotes() throws {
+        var update = AIItemFieldWriter.FieldUpdate()
+        XCTAssertTrue(update.assign(field: "condition_notes", value: "small pill on the left cuff"))
+
+        let data = try JSONEncoder().encode(update)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        XCTAssertEqual(json["condition_notes"] as? String, "small pill on the left cuff")
+        // Sparse: untouched columns must stay out of the payload entirely so a
+        // fill can never clobber a column it didn't set.
+        XCTAssertFalse(json.keys.contains("brand"))
+        XCTAssertFalse(json.keys.contains("title"))
+    }
+
+    /// An unknown field must be reported, not swallowed. `assign` returning false
+    /// is what lets `write` surface the divergence.
+    func test_fieldUpdate_reportsUnmappedField() {
+        var update = AIItemFieldWriter.FieldUpdate()
+        XCTAssertFalse(update.assign(field: "not_a_column", value: "x"))
+        XCTAssertTrue(update.assign(field: "brand", value: "Patagonia"))
+    }
+
+    /// Parity guard. Every field the extract endpoint can return has to land on a
+    /// column — otherwise it is applied-in-the-review and absent-in-the-database,
+    /// which is exactly how condition_notes went unnoticed. Mirrors EXTRACT_FIELDS
+    /// in services/edge-functions/src/lib/ai-extract.ts.
+    func test_everyServerExtractFieldMapsToAColumn() {
+        XCTAssertFalse(AIItemFieldWriter.serverExtractFields.isEmpty)
+        for field in AIItemFieldWriter.serverExtractFields {
+            var update = AIItemFieldWriter.FieldUpdate()
+            XCTAssertTrue(
+                update.assign(field: field, value: "v"),
+                "server field '\(field)' has no FieldUpdate column — it would be dropped silently"
+            )
+        }
+    }
+
+    /// Undo restores the PRIOR value, so the snapshot has to read the column too.
+    /// Without this, undoing an AI-written condition note left the AI's text in
+    /// place (the revert would have nothing to restore).
+    func test_snapshot_roundTripsConditionNotes() throws {
+        let json = #"""
+        {"title":"Tee","condition_notes":"tiny mark on hem","brand":"Nike"}
+        """#
+        let snapshot = try JSONDecoder().decode(
+            AIItemFieldWriter.Snapshot.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertEqual(snapshot.conditionNotes, "tiny mark on hem")
+        XCTAssertEqual(snapshot.value(for: "condition_notes"), "tiny mark on hem")
+        XCTAssertNil(snapshot.value(for: "not_a_column"))
+    }
+
     // MARK: - Complete with AI: re-run from persisted photos (US-2266)
 
     /// The tag photo is the one the AI reads brand/size/material off, and on iOS

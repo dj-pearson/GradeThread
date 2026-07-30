@@ -32,6 +32,11 @@ enum AIItemFieldWriter {
         var material: String?
         var style: String?
         var description: String?
+        /// US-2269: the AI's read of the garment's condition, off the detail and
+        /// defect photos. The edge returns this in EXTRACT_FIELDS and both web
+        /// intake surfaces apply it; iOS had no case for it, so the review
+        /// reported it applied and the column never changed.
+        var conditionNotes: String?
         var garmentType: String?
         var garmentCategory: String?
         var itemCategory: String?
@@ -41,6 +46,7 @@ enum AIItemFieldWriter {
 
         private enum CodingKeys: String, CodingKey {
             case title, brand, size, color, material, style, description
+            case conditionNotes = "condition_notes"
             case garmentType = "garment_type"
             case garmentCategory = "garment_category"
             case itemCategory = "item_category"
@@ -49,7 +55,16 @@ enum AIItemFieldWriter {
             case aiEnrichedAt = "ai_enriched_at"
         }
 
-        mutating func assign(field: String, value: String) {
+        /// Maps one server field name onto its column. Returns false when the
+        /// field isn't one we persist.
+        ///
+        /// The return value is load-bearing: this used to `break` on an unknown
+        /// field, so a field the SERVER started returning was dropped in total
+        /// silence while the review screen still counted it as applied. The caller
+        /// reports what it couldn't map (see ``write``), which is the only way the
+        /// next divergence surfaces instead of looking like an AI miss.
+        @discardableResult
+        mutating func assign(field: String, value: String) -> Bool {
             switch field {
             case "title":            title = value
             case "brand":            brand = value
@@ -58,13 +73,13 @@ enum AIItemFieldWriter {
             case "material":         material = value
             case "style":            style = value
             case "description":      description = value
+            case "condition_notes":  conditionNotes = value
             case "garment_type":     garmentType = value
             case "garment_category": garmentCategory = value
             case "item_category":    itemCategory = value
-            default:
-                // Unknown field — silently dropped, matching the web client.
-                break
+            default:                 return false
             }
+            return true
         }
     }
 
@@ -81,12 +96,14 @@ enum AIItemFieldWriter {
         var material: String? = nil
         var style: String? = nil
         var description: String? = nil
+        var conditionNotes: String? = nil
         var garmentType: String? = nil
         var garmentCategory: String? = nil
         var itemCategory: String? = nil
 
         private enum CodingKeys: String, CodingKey {
             case title, brand, size, color, material, style, description
+            case conditionNotes = "condition_notes"
             case garmentType = "garment_type"
             case garmentCategory = "garment_category"
             case itemCategory = "item_category"
@@ -103,6 +120,7 @@ enum AIItemFieldWriter {
             case "material":         return material
             case "style":            return style
             case "description":      return description
+            case "condition_notes":  return conditionNotes
             case "garment_type":     return garmentType
             case "garment_category": return garmentCategory
             case "item_category":    return itemCategory
@@ -110,6 +128,25 @@ enum AIItemFieldWriter {
             }
         }
     }
+
+    /// Every field name the extract endpoint can return, mirrored from
+    /// `EXTRACT_FIELDS` in `services/edge-functions/src/lib/ai-extract.ts`. A
+    /// parity test asserts each one maps to a ``FieldUpdate`` column, so the
+    /// silent-drop bug (US-2269, `condition_notes`) can't come back the next time
+    /// the server learns a new field.
+    static let serverExtractFields: [String] = [
+        "title",
+        "brand",
+        "style",
+        "size",
+        "color",
+        "material",
+        "item_category",
+        "garment_type",
+        "garment_category",
+        "condition_notes",
+        "description",
+    ]
 
     // MARK: - Revert update (explicit nulls)
 
@@ -163,7 +200,7 @@ enum AIItemFieldWriter {
     static func snapshot(itemId: String) async throws -> Snapshot {
         let rows: [Snapshot] = try await SupabaseShared.client
             .from("inventory_items")
-            .select("title,brand,size,color,material,style,description,garment_type,garment_category,item_category")
+            .select("title,brand,size,color,material,style,description,condition_notes,garment_type,garment_category,item_category")
             .eq("id", value: itemId)
             .limit(1)
             .execute()
@@ -188,10 +225,29 @@ enum AIItemFieldWriter {
         titleSeed: String? = nil
     ) async throws {
         var update = FieldUpdate()
+        var unmapped: [String] = []
         for entry in fields {
             let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else { continue }
-            update.assign(field: entry.field, value: value)
+            if !update.assign(field: entry.field, value: value) {
+                unmapped.append(entry.field)
+            }
+        }
+        // US-2269: a field the server returns and we can't persist is a real
+        // divergence, not a no-op — the review still counts it as applied. Report
+        // it instead of dropping it in silence.
+        if !unmapped.isEmpty {
+            let names = unmapped.sorted().joined(separator: ",")
+            await MainActor.run {
+                Telemetry.breadcrumb(
+                    "AI fill: unmapped extract fields dropped: \(names)",
+                    category: "ai-extract"
+                )
+                Telemetry.event("ai_fill_unmapped_fields", props: [
+                    "item_id": itemId,
+                    "fields": names,
+                ])
+            }
         }
         if let measurements, !measurements.isEmpty {
             update.measurements = measurements

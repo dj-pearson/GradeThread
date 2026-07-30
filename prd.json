@@ -3311,7 +3311,7 @@
     },
     {
       "id": "US-2269",
-      "passes": false,
+      "passes": true,
       "title": "iOS silently drops the AI's condition_notes: the review says applied, nothing is saved",
       "description": "As a seller on iPhone, I want the condition notes the AI read off my defect photos to actually save, so that the review screen is not lying to me about what it applied.",
       "acceptanceCriteria": [
@@ -3320,7 +3320,8 @@
         "An XCTest asserts assign(field: 'condition_notes', value: 'small pill on left cuff') encodes a condition_notes key in the update payload.",
         "assign's default branch logs or counts an unmapped field name rather than dropping it in silence, so the next server-side field addition surfaces instead of vanishing.",
         "An XCTest enumerates the edge's EXTRACT_FIELDS list and asserts every entry maps to a FieldUpdate column, so the two lists cannot drift again."
-      ]
+      ],
+      "notes": "Done 2026-07-29. FieldUpdate + Snapshot gained condition_notes (column, CodingKey, assign case, value(for:) case, and the snapshot select list so undo restores the prior notes instead of leaving the AI text). assign now returns Bool and write() reports what it could not map via a breadcrumb + ai_fill_unmapped_fields event, so the next server-side field addition surfaces instead of vanishing. Added AIItemFieldWriter.serverExtractFields as the mirror of EXTRACT_FIELDS. Beyond the ACs: the parity assertion also exists as a DENO test (tests/extract-fields-client-parity_test.ts) because the Swift suite cannot run on a Windows dev host — it reads ai-extract.ts, the Swift mirror list AND the assign switch body, and a second case covers the web intake's AI_FILLABLE_FIELDS. Verified by sabotage: deleting the condition_notes case from assign makes that test fail with the field named, then restored. 4 new XCTests are unrun locally (no Swift toolchain); iOS CI is the gate."
     },
     {
       "id": "US-2270",
