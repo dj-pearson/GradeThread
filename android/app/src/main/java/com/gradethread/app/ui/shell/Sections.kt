@@ -76,6 +76,9 @@ object ShellRoutes {
 
     /** US-1359: the AutoLister drafts library. */
     const val DRAFTS = "drafts"
+
+    /** US-1362: trigger/action/scope automation rules. */
+    const val AUTOMATIONS = "automations"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */

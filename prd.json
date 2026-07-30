@@ -159,14 +159,14 @@
     {
       "id": "US-1362",
       "priority": -98638,
-      "passes": false,
+      "passes": true,
       "title": "Automations (trigger/action/scope rules)",
       "description": "As a seller, I can define trigger-based rules (e.g. drop price 10% after 30 days) applied by the server cron.",
       "acceptanceCriteria": [
         "Rules list + editor building trigger (days-listed/no-views), action (price-drop/promo/end), and scope (all/filter) JSON (mirrors AutomationTypes)",
         "Currency/number display locale-aware"
       ],
-      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android automations. AC1: automations/{AutomationTypes,Automations,AutomationsService,AutomationsViewModel,AutomationsScreen}.kt — full rules list + editor over GET/POST/PUT/PATCH/DELETE /api/flipdesk/automations/rules, building trigger (days_listed_gt / no_views_in_days / watchers_lt_after_days with days + cooldown), action (price_drop_pct with margin floor / set_promo_rate_pct / end_listing) and scope (all | filter with field/op/value clauses and and-or) as the exact jsonb the edge's normalizeAutomationInput expects; plus dry-run, the per-rule activity feed, and run-now. Percent ceilings mirror the server (90 drop / 100 promo) so a rejected rule is caught in the editor. Three safety points the surface leads with: an unscoped END-LISTING rule is flagged before it runs (it can take a whole shop down on a timer); an incomplete filter clause is DROPPED and, when that empties the filter entirely, the rule silently becomes all-listings — so scopeSilentlyWidened flags it in the editor AND on save; and watchers/margin-floor ride only on the trigger and action that use them, since a 0 would read as a threshold nobody set. Dry-run is offered per rule because it's the only way to see the blast radius before the cron acts, and its list names what it truncates. An applied change that never reached eBay is surfaced — the buyer still sees the old value. AC2: every amount goes through Money.format (device locale for separators and symbol placement) and percentages drop a pointless '.0'; a hardcoded dollar sign would be wrong for most of the world even on USD amounts. Verified by AutomationsTest (22 cases incl. the scope-widening trap, the end-listing warning, server-matching ceilings and a US-vs-Germany money check). NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1365",
