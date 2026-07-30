@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2282",
+  "nextId": "US-2367",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3494,6 +3494,1111 @@
         "Decision recorded: is a promo-video skill wanted at all? Default to out-of-scope unless a concrete use is named.",
         "If wanted: file a build story with scope. If not: close this with the out-of-scope rationale so the proposal is not silently retired when the roadmap moves into the vault."
       ]
+    },
+    {
+      "id": "US-2282",
+      "passes": false,
+      "title": "Lock down SECURITY DEFINER functions: revoke EXECUTE from PUBLIC across public schema",
+      "description": "Postgres grants EXECUTE on every new function to PUBLIC by default. No migration in supabase/migrations/ ever revokes it, and no `REVOKE ... ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC` exists anywhere. Because these functions are SECURITY DEFINER they run as the owner and bypass RLS, so any holder of the anon key can call them directly through PostgREST. grant_grade_credits and debit_grade_credits carry no GRANT/REVOKE statements at all; the revenue-dashboard functions (00215_revenue_dashboard.sql:273-274) grant to authenticated and service_role but never revoke the implicit PUBLIC grant. Impact: mint yourself unlimited grade credits, drain another user's credit balance, and read the full revenue and customer roster anonymously.",
+      "acceptanceCriteria": [
+        "New migration revokes EXECUTE on all existing public-schema functions from PUBLIC, then re-grants explicitly to the roles each function actually needs.",
+        "`ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` so future functions are closed by default.",
+        "Every SECURITY DEFINER function is inventoried with its intended caller role; credit-mutating functions (grant_grade_credits, debit_grade_credits, refund/reserve variants) are service_role only.",
+        "A test or CI check fails if a new SECURITY DEFINER function ships without an explicit grant block.",
+        "Migration triple honoured: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer.",
+        "Run `SELECT proname, proacl FROM pg_proc WHERE pronamespace='public'::regnamespace AND prosecdef;` against prod before and after and record both in the story."
+      ],
+      "notes": "[P0][Security/DB] [Audit 2026-07-30 module/platform sweep] VERIFIED directly against the code in this session. Pairs with the guard_users_protected_columns gap — either one alone gives free grading. Fix both together."
+    },
+    {
+      "id": "US-2283",
+      "passes": false,
+      "title": "guard_users_protected_columns leaves entitlement columns writable by the account owner",
+      "description": "The users self-update guard (latest definition supabase/migrations/00402_buyer_subscription.sql:41-88) freezes 24 columns covering role, suspension, plan and billing. It omits included_grades_this_period, ai_actions_used_this_month, ai_actions_reset_at, past_due_since, billing_source and google_purchase_token. The RLS policy at 00076:22 permits any-column self-update and no migration revokes column privileges. A logged-in customer can run supabase.from('users').update({ included_grades_this_period: 100000, ai_actions_used_this_month: 0 }) on their own row and get unlimited free Claude Vision grading and unlimited AI actions, billed to Pearson Media.",
+      "acceptanceCriteria": [
+        "Confirmed present on public.users: ai_actions_used_this_month (00024_ai_enrichment.sql:10), billing_source (00104_appstore_billing.sql:13), included_grades_this_period (00209_pricing_config.sql:107). Confirm ai_actions_reset_at, past_due_since, google_purchase_token before writing the migration.",
+        "All usage, entitlement and billing-provenance columns are added to the guard's protected list.",
+        "The guard is restructured so protection is deny-by-default: enumerate the columns a user MAY change, not the ones they may not.",
+        "A regression test attempts each newly protected column as an authenticated non-owner-of-privilege and asserts the exception.",
+        "Migration triple honoured.",
+        "Audit prod for rows already tampered with: users where ai_actions_used_this_month or grades_used_this_month is implausibly low against grade_reports counts."
+      ],
+      "notes": "[P0][Security/DB] [Audit 2026-07-30 module/platform sweep] VERIFIED directly against the code in this session. Guard body confirmed at 00402_buyer_subscription.sql:41-88 (NOT 00402_buyer_account_roles.sql as first reported). Column existence confirmed for 3 of 6."
+    },
+    {
+      "id": "US-2284",
+      "passes": false,
+      "title": "extension.pem private key is committed to the repository",
+      "description": "git ls-files confirms extension.pem and extension.crx are tracked. extension.pem begins with `-----BEGIN PRIVATE KEY-----`. .gitignore has no .pem or .crx rule. The key was added 2026-07-13 in commit e1dbc4da; gitleaks failed that commit and every run since has been green because push-mode only scans new commits. This is the Chrome Web Store signing identity for the extension. Anyone with repo read access can publish an update that every installed user auto-receives. Also tracked and probably unwanted: ios-screenshots/Payment/ios.zip, ios-screenshots/screenshots-appstore.zip, ios-screenshots/screenshots-raw.zip.",
+      "acceptanceCriteria": [
+        "Rotate the Chrome Web Store extension key first. Removing the file does not un-leak it.",
+        "git rm --cached extension.pem extension.crx; add *.pem, *.crx and ios-screenshots/*.zip to .gitignore.",
+        "Decide and record whether git history is rewritten (BFG / filter-repo) or the key is simply treated as burned. Rewriting rewrites every open PR.",
+        "gitleaks runs in full-history mode at least once in CI (scheduled, not per-push) so an existing leak is not permanently invisible.",
+        "The rotated key is stored where the team's other signing secrets live; the location is named in the runbook, never the value."
+      ],
+      "notes": "[P0][Security/Secrets] [Audit 2026-07-30 module/platform sweep] VERIFIED directly against the code in this session. via git ls-files + file header + .gitignore read. Rotation is a human action, not a code change."
+    },
+    {
+      "id": "US-2285",
+      "passes": false,
+      "title": "Google Play: plan tier is taken from the client-supplied productId, not from Google",
+      "description": "lib/google-play/verify.ts:236 derives the plan tier from the productId the device sends rather than from the verified purchase Google returns. A customer buys the cheapest monthly plan, then replays the verify call claiming the business yearly productId, and the server grants it.",
+      "acceptanceCriteria": [
+        "Plan tier is resolved only from the productId/subscriptionId on the verified Google Play purchase response.",
+        "A client-supplied productId that disagrees with the verified one is rejected and logged as a security event, not silently trusted.",
+        "Regression test: mismatched client productId is rejected.",
+        "Audit existing googleplay-sourced users for plan/price mismatches."
+      ],
+      "notes": "[P0][Payments/Android] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2286",
+      "passes": false,
+      "title": "Apple sandbox purchases grant production plans",
+      "description": "lib/appstore/verify.ts:89-96 retries a failed production receipt check against Apple's sandbox endpoint (Apple's documented pattern) but nothing downstream records or checks WHICH environment answered. Any TestFlight or sandbox tester gets a real Business Yearly entitlement for zero dollars. The Stripe path already blocks the equivalent case, so this is an iOS-path-only gap.",
+      "acceptanceCriteria": [
+        "The verify result carries the environment (Production vs Sandbox) that actually answered.",
+        "A sandbox-verified receipt grants nothing in production, or grants only in a non-production environment.",
+        "Same check applied to the Google Play path: reject purchases flagged as test purchases (purchaseType / testPurchase).",
+        "Regression test for both stores.",
+        "Audit existing appstore-sourced entitlements for sandbox-originated grants."
+      ],
+      "notes": "[P0][Payments/iOS+Android] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Covers both the Apple sandbox fallback and the Google Play test-purchase flag; they are the same class of bug."
+    },
+    {
+      "id": "US-2287",
+      "passes": false,
+      "title": "users_billing_source_chk rejects 'googleplay' — Play subscriptions may be failing outright",
+      "description": "00104_appstore_billing.sql:25 defines users_billing_source_chk allowing only 'stripe' and 'appstore'. The Google Play verification path writes 'googleplay'. If the constraint is live in prod as written, every Play subscription write fails: the customer is charged by Google and receives no entitlement.",
+      "acceptanceCriteria": [
+        "Confirm against prod whether the constraint still excludes 'googleplay' and whether any Play purchase has ever succeeded.",
+        "Migration extends the allowed set to include every billing source the code actually writes.",
+        "A test asserts the constraint's allowed set matches the set of literals the code writes.",
+        "If any customer was charged by Google without receiving entitlement, reconcile and grant retroactively."
+      ],
+      "notes": "[P0][Payments/Android] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Verify against prod before assuming customers were affected — the constraint may have been altered outside migrations."
+    },
+    {
+      "id": "US-2288",
+      "passes": false,
+      "title": "Unlimited free trials: handle_new_user grants 14 days of Pro with no abuse check",
+      "description": "00401_buyer_account_roles.sql:102-104 grants every new signup a 14-day Pro trial with no card, no device fingerprint, no email-domain check and no prior-trial lookup. Deleting the account and signing up again resets it. Each trial can consume real Claude Vision spend.",
+      "acceptanceCriteria": [
+        "Decide the abuse control: card-on-file for trial, per-device/per-email prior-trial record, or a hard cap on trial grading volume. Record the decision.",
+        "A prior-trial record survives account deletion (keyed on something that persists, not on the users row).",
+        "Trial grading volume is capped independently of the plan's normal allowance.",
+        "Measure current exposure first: count trials started vs converted, and grading spend attributable to trial accounts."
+      ],
+      "notes": "[P0][Payments/Abuse] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Measure before building — the fix depends on whether this is being exploited today."
+    },
+    {
+      "id": "US-2289",
+      "passes": false,
+      "title": "Batch grading re-charges on every retry, up to 5 times for one garment",
+      "description": "lib/grading-batch-worker.ts:59-124 and :155-176: gradeBatchItem unconditionally INSERTs a new submission (:66-79) and calls runPaymentPrecedence (:97) on every invocation. runJob reclaims a stale job (:167) and calls it again with no reference to the submission a prior attempt already created and paid for. GRADE_ITEM_TIMEOUT_MS is 240s but a single image's worst case is already 3 attempts x 120s = 360s, so a job can be marked stale while the original pipeline is still running and may still write a valid grade. After GRADE_BATCH_STALE_MS (15 min) the reclaim cron starts a second paid attempt. MAX_GRADE_JOB_ATTEMPTS is 5. Result: up to 5 credits debited for one payload, plus duplicate certificates.",
+      "acceptanceCriteria": [
+        "The created submission_id is persisted on the job row BEFORE the charge, and a reclaimed job resumes that submission rather than creating a new one.",
+        "Payment is charged at most once per job row, enforced by an idempotency key on grade_credit_transactions (the column and partial unique index already exist at 00216_credit_ledger_admin.sql:35-42 and the grading path never sets it).",
+        "Item lease duration exceeds the true worst-case runtime (3 AI attempts x timeout + composite), or the work is made cancellable.",
+        "Regression test: a job forced through 3 reclaims debits exactly one credit and produces exactly one certificate.",
+        "Audit prod for submissions sharing a batch job id, and refund affected customers."
+      ],
+      "notes": "[P0][Grading/Billing] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Highest-confidence money bug from the grading audit — the code path is described concretely and matches the reclaim-cron design."
+    },
+    {
+      "id": "US-2290",
+      "passes": false,
+      "title": "Consignors can be paid twice: manual and automatic payouts file under different sources",
+      "description": "flipdesk-consignment.ts:336 (manual payout) and lib/consignor-payout.ts:198 (automatic sweep) record the payout under different source values, so neither can see the other's record. Both mark the sale as paid. A consignor paid manually is paid again by the sweep.",
+      "acceptanceCriteria": [
+        "Manual and automatic payouts write the same identifying key so each blocks the other.",
+        "A unique constraint at the database level makes a second payout for the same sale impossible, not merely unlikely.",
+        "Regression test: manual payout then sweep produces exactly one transfer.",
+        "Audit prod for sales with more than one payout record and reconcile."
+      ],
+      "notes": "[P0][FlipDesk/Consignment] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2291",
+      "passes": false,
+      "title": "Buyer guarantee claims draw the pool down twice",
+      "description": "lib/buyer-guarantee-claim.ts:328 and :375 both decrement the guarantee pool for the same claim. A $5,000 budget is exhausted after $2,500 of real payouts.",
+      "acceptanceCriteria": [
+        "The pool is drawn down exactly once per approved claim.",
+        "Regression test asserting pool balance after N claims equals starting balance minus the sum of claim amounts.",
+        "Reconcile the current prod pool balance against the sum of approved claims and correct the drift."
+      ],
+      "notes": "[P0][Buyer/Guarantee] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2292",
+      "passes": false,
+      "title": "Non-USD marketplace sales pay out as if they were dollars",
+      "description": "Only the eBay path records the sale currency. shopify-orders.ts:189 and the other connectors drop it. A 200 GBP Shopify sale pays the consignor 120 USD instead of 120 GBP.",
+      "acceptanceCriteria": [
+        "Every order ingest records the sale currency alongside the amount.",
+        "Payout math refuses to compute across mixed or missing currencies rather than assuming USD.",
+        "Existing sales rows are backfilled where the source data still has the currency, and flagged where it does not.",
+        "Regression test with a non-USD order per connector."
+      ],
+      "notes": "[P1][FlipDesk/Money] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2293",
+      "passes": false,
+      "title": "Refunding an API overage pack does not claw back the credits",
+      "description": "webhooks.ts:1532 handles the refund event but never reverses the credit grant. The customer keeps the credits and gets the money back.",
+      "acceptanceCriteria": [
+        "A refunded overage-pack charge debits the granted credits (clamped at zero, with the shortfall recorded).",
+        "Regression test: grant then refund leaves a net-zero credit change.",
+        "Audit prod for refunded overage packs and reconcile balances."
+      ],
+      "notes": "[P1][Payments/Credits] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2294",
+      "passes": false,
+      "title": "Admin refund with amount 0 issues a full refund",
+      "description": "admin-billing.ts:821 and :830 accept amount as any number and build the Stripe call with `...(amount ? { amount } : {})`, so a literal 0 is falsy and drops the field, which Stripe reads as a full refund. There is also no upper bound on the accepted amount.",
+      "acceptanceCriteria": [
+        "amount is validated: integer, greater than zero, not greater than the remaining refundable balance on the charge.",
+        "The 'full refund' intent is expressed explicitly (omit the field / pass a flag), never inferred from falsiness.",
+        "Regression test for amount 0, negative, and larger-than-charge."
+      ],
+      "notes": "[P1][Admin/Billing] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2295",
+      "passes": false,
+      "title": "Billing reconciliation job never talks to Stripe — it compares the database to itself",
+      "description": "jobs-billing-reconciliation.ts:58-60 imports no Stripe client. The job exists to catch drift between Stripe and the local subscription state, and it reads only local rows, so the exact drift it was built to detect is invisible to it. It returns green regardless.",
+      "acceptanceCriteria": [
+        "The job fetches subscription state from Stripe and diffs it against users/subscription rows.",
+        "Discrepancies emit an ops event at warning or above, not console output.",
+        "Run it once against prod and record the drift found — that number sizes the follow-up work."
+      ],
+      "notes": "[P1][Payments/Ops] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Pairs with the 'jobs return 200 while failing' story — both are failure-visibility gaps."
+    },
+    {
+      "id": "US-2296",
+      "passes": false,
+      "title": "consignor-payout-math rounding is not half-up despite the intent",
+      "description": "lib/consignor-payout-math.ts:20 uses Math.round((n + Number.EPSILON) * 100) / 100. Number.EPSILON is far too small to correct the binary representation error at typical currency magnitudes, so this does not reliably achieve half-up rounding. Payouts can be a cent off, consistently, in a direction that depends on the value.",
+      "acceptanceCriteria": [
+        "Money is handled in integer minor units end to end, or rounding uses a method that is provably half-up at currency magnitudes.",
+        "Property test over a wide value range asserting the rounding rule.",
+        "Confirm the same rounding is used everywhere a consignor split is computed (edge, frontend estimate, exports)."
+      ],
+      "notes": "[P2][FlipDesk/Money] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2297",
+      "passes": false,
+      "title": "Unmetered Claude Vision on the buyer authenticity endpoint",
+      "description": "/api/buyer/authenticity calls Claude Vision without debiting credits or checking a plan allowance. Cost scales with usage and is billed to Pearson Media with no ceiling.",
+      "acceptanceCriteria": [
+        "The endpoint debits credits or enforces a per-plan allowance before the AI call.",
+        "A per-user and global rate limit caps worst-case spend.",
+        "Confirm no other AI-calling route is unmetered — sweep every call site of the Anthropic client for a preceding payment or allowance check."
+      ],
+      "notes": "[P1][Buyer/Cost] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2298",
+      "passes": false,
+      "title": "Read-then-act debit race on POST /pay/:id",
+      "description": "routes/grade.ts:798 reads payment_status !== 'unpaid' and returns early; :808 then debits. Two concurrent calls can both read 'unpaid' and both debit. debit_grade_credits (00037_pricing_split.sql:131-176) has no idempotency key and no uniqueness on (submission_id, reason). The grade_credit_transactions.idempotency_key column and its partial unique index already exist (00216_credit_ledger_admin.sql:35-42) and this path never sets it.",
+      "acceptanceCriteria": [
+        "The debit passes an idempotency key derived from (submission_id, reason) so the existing unique index makes a double debit impossible.",
+        "Or the read and the debit are collapsed into one conditional UPDATE.",
+        "Concurrency test: two simultaneous /pay calls debit once."
+      ],
+      "notes": "[P2][Grading/Billing] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Narrow window; the batch re-charge story is the same class and much more likely to fire."
+    },
+    {
+      "id": "US-2299",
+      "passes": false,
+      "title": "Provenance boosts raise confidence above caps set inside compositeGrade",
+      "description": "grading-pipeline.ts:2109 seeds the running ceiling from partialSuccess only (`let confidenceCeiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1`). The four caps applied inside compositeGrade — authenticity 0.6, defaulted-factor 0.5, prompt-injection 0.5 (ai-grading.ts:1815-1821), defect-divergence 0.6 (ai-grading.ts:2405) — are already baked into the composite confidence and the ceiling never records them. Three boost sites then raise confidence clamped only to 1: verified capture (:2316), live capture (:2429), verified 360 (:2539). A grade capped at 0.5 for a hallucinated factor can be stored at up to 1.0. The review gate itself holds, but the stored number feeds the public confidence_label bucket and the calibration miner that derives future thresholds. This directly violates the grading-engine skill's 'never raise confidence post-composite' rule.",
+      "acceptanceCriteria": [
+        "compositeGrade returns the ceiling it applied, and the pipeline seeds confidenceCeiling from it.",
+        "Every boost site clamps to that ceiling, not to 1.",
+        "Regression test per cap: a submission with a defaulted factor plus live capture plus verified 360 stores confidence at or below 0.5.",
+        "The grading-engine skill's invariant list is updated to name the mechanism, not just the rule."
+      ],
+      "notes": "[P1][Grading/Confidence] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Directly contradicts a documented skill invariant."
+    },
+    {
+      "id": "US-2300",
+      "passes": false,
+      "title": "Canary rollout route skips the US-2036 qualified-model check",
+      "description": "admin-grading.ts:1463-1490 selects id, stage, garment_scope, is_active, is_canary, eval_passed and tests only eval_passed at :1485. qualified_model is neither selected nor checked. activatePromptVersion closed this hole (grading-eval.ts:603-617) but the canary path is a separate route serving a live traffic slice to paying customers, so a prompt qualified on model A can take real traffic while DEFAULT_AI_MODEL is model B.",
+      "acceptanceCriteria": [
+        "The canary route applies the same qualified_model check as activatePromptVersion.",
+        "The check lives in one shared helper both routes call, so a third path cannot drift again.",
+        "Test asserting a version qualified on a different model cannot be canaried."
+      ],
+      "notes": "[P1][Grading/Lifecycle] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2301",
+      "passes": false,
+      "title": "The golden-set eval gate never runs in CI and the live prompt versions have no DB row",
+      "description": "Two compounding problems. (1) The grading eval appears in none of the 16 files in .github/workflows/, no package.json script, not scripts/verify.mjs, not services/edge-functions/deno.json. The only eval task there is the agent eval, and CI does not call that either. No build, deploy or PR is blocked by golden-set accuracy. runScheduledEval raises alerts and blocks nothing. (2) The code defaults are per_image_v5 and composite_v4 (ai-grading.ts:62-63) but the only grading seed migration (00050_grading_self_improvement.sql:121-127) inserts per_image_v2 and composite_v2, and no migration sets is_active. So the live prompts have no row and were never evaluated. (3) The repo contains no golden-set data at all: zero INSERTs into grading_eval_cases, no seed, no fixture. A fresh database has an empty golden set; runEval throws on empty but grading-monitor.ts:287-294 treats zero cases as a clean skip, so an empty set is silent. Net effect: editing prompt text in ai-grading.ts ships straight to customers without ever touching an eval.",
+      "acceptanceCriteria": [
+        "Confirm first, against prod, whether grading_eval_cases has any rows and which ai_prompt_versions rows are active. Record the answer in the story before building.",
+        "The golden-set eval runs in CI and fails the build on regression, or the reason it cannot is written down.",
+        "Every prompt version the code can use has a DB row with eval results and qualified_model, including the code defaults.",
+        "An empty golden set is treated as a hard failure, not a clean skip.",
+        "Prompt text in ai-grading.ts cannot ship without a corresponding evaluated version — enforced by a test, not by convention.",
+        "EVAL_MAX_MAE default of 1.0 (grading-eval.ts:26-29) is reconsidered: on a 1.0-10.0 scale a prompt can be a full grade point off on average and pass."
+      ],
+      "notes": "[P1][Grading/Lifecycle] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. The prompt-lifecycle doc reads as if a pipeline gate exists. It does not. Either add one or correct the doc."
+    },
+    {
+      "id": "US-2302",
+      "passes": false,
+      "title": "The grading monitor evals an orphan prompt version",
+      "description": "lib/grading-monitor.ts:275 hardcodes a fallback lookup of version_name 'composite_v2'. When no composite override is active — the normal state — the scheduled monitor evals that stale row and stamps eval_passed and qualified_model on it. Live grades are attributed composite_v4, so monitor results and accuracy slices never join. Orphan in both directions: composite_v4 has no row, composite_v2 is a row nothing runs.",
+      "acceptanceCriteria": [
+        "The monitor resolves the version actually in use (including the code default) rather than a hardcoded fallback.",
+        "Monitor results join to the grades they describe.",
+        "Test asserting the monitor targets the same version string the pipeline attributes grades to."
+      ],
+      "notes": "[P2][Grading/Monitoring] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Same root cause as the missing-DB-row half of the golden-set story."
+    },
+    {
+      "id": "US-2303",
+      "passes": false,
+      "title": "The 0.75 review threshold lives in ~18 places and only the edge copy is tunable",
+      "description": "Four named constants, none shared: ai-config.ts:267 (tunable via env + DB setting), src/lib/constants.ts:1310, ios GradeFactors.swift:117, android GradeFactor.kt:47. Plus roughly fourteen hardcoded literals making the same decision: main.ts:1678, admin-grading.ts:1320 (hardcoded in the same file that reads the tunable at :2103), admin-dashboard.ts:107, listing-suggestions.tsx:123, extension-condition/content/marketplace.js:267, extension-unified/research/marketplace.js:370, GradeReportView.swift:247 and :254, five display-bucket sites, and four SQL view copies (00082:56-58, 00118:45-47, 00138:69-71, 00194:64-66). Lowering the threshold in the admin UI moves the real gate but leaves the admin agreement metric, the dashboard count, both browser extensions and all three clients still deciding at 0.75.",
+      "acceptanceCriteria": [
+        "One authoritative value, served to every surface that makes the decision (clients read it from config, not from a literal).",
+        "SQL views derive their buckets from a single function or table rather than four copies of the literal.",
+        "A lockstep guard test fails if a new 0.75 literal appears in a decision site.",
+        "Comparison operators stay consistent (< threshold routes to review); the audit found no off-by-one today."
+      ],
+      "notes": "[P2][Grading/Config] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Also: grading-pipeline.ts:2561 calls reconcileNeedsReview without the calibrated threshold, so it re-flags at the flat value and makes calibration a no-op in the direction it was built for. Fix together."
+    },
+    {
+      "id": "US-2304",
+      "passes": false,
+      "title": "FlipDesk grading drops the label photo the pipeline still blocks on",
+      "description": "flipdesk-grading.ts:83 sets REQUIRED_GRADING_PHOTO_TYPES to front and back only, with a comment claiming the tag shot is covered by the sub-0.75 review path. That premise is false: lib/image-quality.ts:68 still lists label as required with severity 'block' and there is no carve-out at its only call site (grading-pipeline.ts:1859). A FlipDesk item with no tag photo is charged (flipdesk-grading.ts:591), runs one Claude Vision call per image, then abstains to needs_photos and refunds. Money returns, AI spend burns every time, seller round-trips. iOS and Android both use this path with no local check.",
+      "acceptanceCriteria": [
+        "Decide: either FlipDesk requires the label photo, or image-quality gets an explicit FlipDesk carve-out. Record which and why.",
+        "The two requirement lists cannot disagree — one source, or a test that asserts they match.",
+        "The client validates before upload so the seller is told up front, not after a round trip.",
+        "Measure how often this fires today (submissions ending needs_photos with a refund) to size the wasted AI spend."
+      ],
+      "notes": "[P2][FlipDesk/Grading] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2305",
+      "passes": false,
+      "title": "Anthropic Retry-After is never honored and 529 retries only by string match",
+      "description": "lib/retry.ts:36 lists retryable statuses 408/429/500/502/503/504. 529 (Anthropic overloaded) is absent and retries only because the message text matches /overloaded/i at :37-38 — a fragile coupling to a vendor error string. retryAfterMs() (:75-81) reads a property the caller attaches, and only the eBay clients attach it, so the honor-the-header branch at :113-116 never fires on a Claude 429.",
+      "acceptanceCriteria": [
+        "529 is in the retryable status list; the string match is removed or kept only as a belt-and-braces fallback.",
+        "The Anthropic client parses the Retry-After header and attaches it so the existing honor branch fires.",
+        "Confirm whether the Anthropic SDK surfaces a numeric 529 status or only a message — the fix depends on it.",
+        "Test for both a 529 and a 429-with-Retry-After."
+      ],
+      "notes": "[P2][Grading/Reliability] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2306",
+      "passes": false,
+      "title": "ai-grading.ts FACTOR_WEIGHTS is a third unpinned copy of the rounding contract",
+      "description": "The shared fixture src/test/fixtures/weighted-grade-cases.json is asserted by the web test and by services/edge-functions/src/tests/weighted-grade-parity_test.ts:14, but the edge test imports only human-review.ts. ai-grading.ts's FACTOR_WEIGHTS is module-private and unexported so nothing can pin it, and it is absent from the PINNED/EXEMPT registry in lockstep-registry.test.ts:41-72 because its comment phrasing at ai-grading.ts:1727 does not match the guard's MARKER regex. It is correct today by inspection, not by mechanism. This is exactly the failure mode that shipped twice.",
+      "acceptanceCriteria": [
+        "ai-grading.ts's weights are exported (or moved to the shared module) and asserted against the same fixture.",
+        "The file is registered in the lockstep registry, or its comment is fixed so the guard sees it.",
+        "The fixture gains a missing-factor case: site 1 coalesces to 0 and returns a wrong finite number, site 2 returns NaN. The three admin pages cast (`factors as WeightedFactorScores`, e.g. disputes.tsx:184), which defeats the type guard."
+      ],
+      "notes": "[P2][Grading/Lockstep] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. The math itself is CORRECT: all 2,476,099 factor combinations were brute-forced across all three sites with zero divergence. This story is about the guard, not a live bug."
+    },
+    {
+      "id": "US-2307",
+      "passes": false,
+      "title": "Listing prompts can never be activated; prompt deactivation has no step-up",
+      "description": "lib/listing-eval.ts:274-277 writes eval_passed and eval_run_id but never stamps qualified_model, so activatePromptVersion:604 refuses every listing_gen prompt. listing_gen_v2 (seeded 00446_listing_gen_v2_prompt.sql) is permanently unpromotable. Separately, POST /prompts/:id/deactivate (admin-grading.ts:530-541) requires no step-up auth, while activate and canary both do — deactivating silently reverts live grading to the code default.",
+      "acceptanceCriteria": [
+        "listing-eval stamps qualified_model like the grading eval does.",
+        "listing_gen_v2 can be activated; test proves it.",
+        "Deactivate requires step-up, matching activate and canary.",
+        "POST /eval/cases (admin-grading.ts:1751) also lacks step-up while PATCH and DELETE have it. Decide whether that asymmetry is deliberate and record it."
+      ],
+      "notes": "[P3][Grading/Admin] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2308",
+      "passes": false,
+      "title": "Fix grading-engine skill doc drift found by the contract audit",
+      "description": "Four documented facts are now wrong. SKILL.md:73 says the partial-image set caps confidence at 0.7; the code caps at 0.6 (ai-grading.ts:1838), and peer-norm.ts:16's comment repeats the error claiming its 0.7 matches PARTIAL_IMAGE_CONFIDENCE_CAP. SKILL.md:36-38 still names three rounding sites including src/pages/admin/reviews.tsx computeWeightedScore, which is now a one-line delegation; references/rounding-sites.md already says so but the SKILL body was not updated with it. references/prompt-lifecycle.md:29-36 omits a fourth dynamic-context suffix, +tag (US-2210), shipping at ai-grading.ts:2054. And prompt-lifecycle.md reads as if a CI gate exists when none does.",
+      "acceptanceCriteria": [
+        "All four corrections land in the skill and its references.",
+        "+visual and +tag get byte-identical-when-off regression tests, matching +baseline (garment-baselines_test.ts:108,120) and +fabric (fabric-criteria_test.ts:127).",
+        "A test asserts suffix concatenation order.",
+        "peer-norm.ts:16's comment is corrected or its 0.7 is derived from the constant."
+      ],
+      "notes": "[P3][Grading/Docs] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Doc-only except the two missing suffix tests."
+    },
+    {
+      "id": "US-2309",
+      "passes": false,
+      "title": "quick-grade bypasses every pipeline-level confidence control",
+      "description": "quick-grade.ts:137 returns composite.needs_human_review straight from compositeGrade, so the Snap-to-Value and browser-extension path never sees the partial-image cap, peer-norm, forensic or reconcile passes. Separately, auto-approve requires confidence >= 0.9 (grade-auto-approve.ts:22) while the clients call >= 0.75 'certified', a mismatch already recorded as a UI bug in ios/IOS_APP_REVIEW_AUDIT_2026-06-30.md:46.",
+      "acceptanceCriteria": [
+        "Decide whether quick-grade should carry the pipeline controls or is deliberately a lighter product. Record the decision.",
+        "If deliberate, the difference is documented and the quick-grade output is labelled differently to customers.",
+        "The auto-approve threshold and the client 'certified' threshold are reconciled or the labels are changed."
+      ],
+      "notes": "[P3][Grading/QuickGrade] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. DECISION-then-build."
+    },
+    {
+      "id": "US-2310",
+      "passes": false,
+      "title": "Three scheduled tasks 401 on every fire and leave no trace",
+      "description": "Three CRON_REGISTRY entries point at paths behind an authMiddleware mount, with no requireJobSecret branch in the handler, so the documented curl-with-job-secret invocation is rejected before the handler runs. ebay-orders-sync -> /api/flipdesk/ebay/listings/pull (blocked at main.ts:414), photo-archive -> /api/flipdesk/images/archive (main.ts:498), reconciliation-sweep -> /api/flipdesk/reconciliation/run (main.ts:500). All three are recorded:false so they never write a cron_runs row, so cron-fleet-health (which reads only that ledger) structurally cannot see them. The nightly payout-reconciliation sweep and the photo cold-storage sweep have most likely never run in production. The eBay siblings at flipdesk-ebay.ts:621, :808, :4405, :7625, :7774 all DO call requireJobSecret, so this is a per-route omission.",
+      "acceptanceCriteria": [
+        "Each of the three handlers accepts the job secret and resolves the tenant server-side (they are currently per-user handlers).",
+        "All three are switched to recorded:true so a failure is visible in cron_runs and to cron-fleet-health.",
+        "Confirm against prod ops_events / Coolify whether these tasks exist and have been 401-ing, and for how long.",
+        "Backfill: run the reconciliation sweep and the photo archive once manually and record what they find.",
+        "cron-registry-drift_test.ts is extended to cover the 13 non-/api/jobs entries (it filters to /api/jobs/ at :36) and to assert every registry endpoint is reachable with only the job secret."
+      ],
+      "notes": "[P0][Ops/Cron] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Published as operator instructions in COOLIFY.md:292,322,326 and CRON_SETUP.md:168,198,202, so Coolify tasks almost certainly exist and have been failing on schedule."
+    },
+    {
+      "id": "US-2311",
+      "passes": false,
+      "title": "release_job_lock has no holder check, so an over-running job destroys its successor's lock",
+      "description": "00094_job_locks.sql:63-70 defines release_job_lock(p_job) as an unconditional DELETE, and lib/job-lock.ts:71 always passes p_holder: null so a holder check is not even possible today. Scenario: autolister-reclaim has a 300s lease and a */5 schedule — lease equals interval exactly. A run taking 5m30s means tick 2 legitimately steals the expired lock at t=5:00, then run 1's finally block deletes tick 2's live lock at t=5:30, and tick 3 acquires freely and runs concurrently. Mutual exclusion does not degrade, it disappears, and the more loaded the box the more concurrent runs there are. Jobs where lease <= interval: autolister-reclaim, publish-batch-reclaim, grading-batch-reclaim, thumbnail-backfill, email-retry, ebay-pending-webhooks, newsletter-ab-finalize.",
+      "acceptanceCriteria": [
+        "acquire generates a holder token, release passes it, and the DELETE adds `AND holder = p_holder`.",
+        "Every job whose lease is <= its schedule interval gets a lease longer than its worst-case runtime.",
+        "Test: a stale-lock steal followed by the original holder's release leaves the new holder's lock intact.",
+        "jobs-guarantee-pool.ts:26 and jobs-durability-aggregate.ts:23-36 acquire a lock and never release it (no finally). Both are daily so the lease expires first, but a manual 'Run Now' inside the lease window silently no-ops. Add the finally."
+      ],
+      "notes": "[P1][Ops/Cron] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Compounds the batch-grading re-charge story — concurrent reclaim runs are exactly how that one fires."
+    },
+    {
+      "id": "US-2312",
+      "passes": false,
+      "title": "Jobs that fail return HTTP 200, so every failure-visibility control is blind to them",
+      "description": "main.ts:679-707 records cron_runs and emits job.failed only when httpStatus >= 400, and cron-fleet-health (jobs-cron-fleet.ts:123-131) only detects missed and slow runs. Nothing inspects a run's payload. So these read green: jobs-affiliate-payouts.ts:44 returns 200 {ok:true, failed:N} — every transfer can fail and the console shows success; jobs-consignor-payouts.ts:45 the same; jobs-guarantee-pool.ts:80-87 returns 200 {discrepancies:N} with console.error only, so an auto_approved claim with no pool drawdown is unaccounted financial exposure. recordCronRun's rowsProcessed field (cron-runs.ts:28) is defined and never populated, so even 'processed 0 rows for a week' is not queryable.",
+      "acceptanceCriteria": [
+        "A job that failed any unit of work returns a non-2xx status, or emits an ops event at warning or above.",
+        "rowsProcessed is populated by the middleware so zero-work runs are queryable.",
+        "Financial discrepancy counts (guarantee pool, payouts) emit ops events, not console output.",
+        "cron-fleet-health gains a 'ran but did nothing / ran but failed items' signal."
+      ],
+      "notes": "[P1][Ops/Observability] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. This is the reason several of the other findings could have been running unnoticed for months."
+    },
+    {
+      "id": "US-2313",
+      "passes": false,
+      "title": "Nothing in version control creates or verifies the 73 production cron schedules",
+      "description": "There is no scheduling mechanism in the repo. docker-compose.coolify.yml has no cron, sidecar or command (only the healthcheck at lines 70-79); same for the other compose files. .github/workflows has zero /api/jobs references and its only three schedule blocks are lighthouse, staging-smoke and an uptime probe. pg_cron is unused (zero cron.schedule across all 506 migrations). Cloudflare is unused (no crons in wrangler.toml, no scheduled handler in functions/). The sole mechanism is 73 hand-typed Coolify UI scheduled tasks documented in COOLIFY.md:222-255 and CRON_SETUP.md. Nothing creates, applies or verifies them. The only runtime check is cron-fleet-health, which is itself one of the 73 hand-entered tasks — if the operator never created it, nothing alerts about anything.",
+      "acceptanceCriteria": [
+        "Decide the mechanism: schedules-as-code (compose sidecar, pg_cron, or a scheduler service) or a verified manifest. Record the decision.",
+        "At minimum: an artifact in the repo listing every expected schedule, and a job that compares it to what actually ran and alerts on absence.",
+        "Confirm cron-fleet-health itself is scheduled in prod and that its alerts reach a human.",
+        "Confirm ops_alert_webhook_url and ops_alert_email are set in prod system_settings — both default to empty string (ops-events.ts:78-79), in which case the entire alert path terminates in an admin screen nobody is watching."
+      ],
+      "notes": "[P1][Ops/Cron] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Root cause behind the three dead schedules. Start with the prod verification, not the build."
+    },
+    {
+      "id": "US-2314",
+      "passes": false,
+      "title": "Weekly north-star email marks users celebrated before it sends, and loses the tail on any throw",
+      "description": "routes/jobs-north-star.ts:150-260. The loop has no try/catch and the handler is try/finally with no catch (:65, :273). The north_star_weekly_log insert is at :173-180, the send at :210, and the next run's dedupe reads exactly that table (:90-100) — so a send throw permanently marks the user celebrated and they never get the email. Worse, selection is keyed to weekStartKey (:69) and the cron is weekly, so a throw at user 50 of 1000 means users 51-1000 get no log row and no email, and that week is never recomputed. Their digest and milestone emails are gone, not deferred. Same pattern for milestones at :230-250.",
+      "acceptanceCriteria": [
+        "Per-user try/catch so one failure cannot abort the run.",
+        "The log row is written after a successful send, or written as 'attempted' and only marked sent on success.",
+        "A failed user is retried on a later run rather than being permanently skipped by the week key.",
+        "Test: a throw at user N still delivers users N+1..end."
+      ],
+      "notes": "[P1][Ops/Email] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2315",
+      "passes": false,
+      "title": "One poison row can block the entire email outbox forever",
+      "description": "lib/email-retry.ts:63-119 has no try/catch in the loop. attempts is only incremented after a send result (:83) and next_attempt_at only advanced at :110-117. A row where getSuppression (:66) or deliverEmail (:77) THROWS never advances either field, never reaches max_attempts and never dead-letters — and rows are ordered next_attempt_at ASC (:49), so it sorts first on every run and aborts the remaining 49 of the 50-row batch, every five minutes, indefinitely. The only symptom is a 500 from the cron. lib/condition-alerts.ts:254-290 has the same shape: last_matched_at is stamped after the work, so a consistently-throwing search is permanently the stalest and therefore permanently first.",
+      "acceptanceCriteria": [
+        "Per-row try/catch that advances attempts and next_attempt_at on a throw, not only on a send result.",
+        "A row that exhausts max_attempts is dead-lettered and stops being selected.",
+        "Same fix applied to condition-alerts and to the payout sweeps (lib/affiliate-payout.ts:469-480, :495-497 and lib/consignor-payout.ts:549-556, which have no per-item try/catch and deterministic iteration order, so one poison item blocks every item after it on every run).",
+        "Test: a permanently-throwing row does not prevent the rest of the batch from processing."
+      ],
+      "notes": "[P1][Ops/Email] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Head-of-line starvation, three places, same shape."
+    },
+    {
+      "id": "US-2316",
+      "passes": false,
+      "title": "growth-dispatch sends bulk marketing email with no job lock",
+      "description": "routes/admin-growth.ts:1394-1426 is job-secret gated but is the only bulk-email job with no acquireJobLock, on a */15 schedule. A campaign larger than one tick's SES budget stays status='sending' (:814) and is picked up by the resume branch (:1408-1412) with {resume:true}, which deliberately bypasses the 'Already in progress' 409 (:643-645). A tick running longer than 15 minutes means two ticks process the same campaign concurrently, each having loaded its `done` set at start (:657-666), so both send to the same recipients. The only backstop is the 1/day marketing frequency cap — a policy control, not an idempotency control. Also no try/catch around dispatchCampaign, and the campaign_recipients pre-load at :659-662 has no limit.",
+      "acceptanceCriteria": [
+        "growth-dispatch acquires a job lock like every sibling bulk-email job.",
+        "Per-(campaign, recipient) idempotency at the send layer, so a duplicate send is impossible rather than merely capped.",
+        "The campaign_recipients pre-load is bounded.",
+        "Same idempotency gap in lib/newsletter-ab-job.ts:177-208, which calls coordinateMarketingSend then upserts the ledger row after — a container death between the two re-sends on the next tick. And resolveConfirmed (:108-118) caps at 1000 with no .order(), so subscriber 1001 never receives an issue and which 1000 you get is unstable."
+      ],
+      "notes": "[P1][Growth/Email] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2317",
+      "passes": false,
+      "title": "durability-aggregate scans three append-only tables with no limit and no time window",
+      "description": "lib/durability-aggregate.ts:218-220 (garments), :225-230 (public_grade_reports), :239-242 (garment_events) have no .limit(), no created_at window, no cap constant, and no truncation reporting — and all three are materialized into JS Maps simultaneously (:231-250) before the cohort pass. Every sibling job declares a cap (PHASH_CANDIDATE_LIMIT 3000, FINGERPRINT_SCAN_CAP 5000, ROW_CAP 5000, MAX_CANDIDATES 500). This one is the outlier and gets slower and heavier forever until it OOMs the container or times out. Lesser unbounded reads: condition-alerts.ts:239-243 (whole saved_searches table read then sliced to 50 in JS), jobs-operator-brief.ts:46, jobs-marketplace-events.ts:18-22, jobs-content-watchdog.ts:141-144, jobs-content-refresh.ts:119-123, jobs-north-star.ts:72-78 (RPC called with no p_limit).",
+      "acceptanceCriteria": [
+        "durability-aggregate processes an incremental window or a capped batch, and reports truncation.",
+        "The six lesser sites get caps with explicit ordering.",
+        "Confirm whether PGRST_DB_MAX_ROWS is set on the self-hosted stack — if it is, these are not 'slow forever' but 'silently truncated, wrong answer', which changes the severity.",
+        "A lint or test flags a new .select() on a growth table with no limit."
+      ],
+      "notes": "[P1][Ops/Scaling] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2318",
+      "passes": false,
+      "title": "The admin cron dashboard shows every daily job as never having run",
+      "description": "routes/admin-jobs.ts:323-327 pulls the most recent 2000 cron_runs rows and reduces to latest-per-job. With ~15 jobs on */5 to */15 schedules, 2000 rows is roughly 8-10 hours of history, so every daily and 6-hourly job — trial-expiry, data-retention, guarantee-pool, affiliate-payouts, billing-reconciliation — routinely falls outside the window and renders last_run_at as null. An operator checking the console learns nothing about exactly the jobs that matter most. cron-fleet-health uses 20000 rows and is fine.",
+      "acceptanceCriteria": [
+        "The dashboard query is per-job latest (DISTINCT ON or a lateral join), not a fixed-row window.",
+        "A job with no run inside its expected interval renders as overdue, distinguishable from never-configured.",
+        "Test with a synthetic ledger where a daily job's last run is older than the window."
+      ],
+      "notes": "[P2][Admin/Ops] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Cheap fix, high value — it is the screen you would look at during an incident."
+    },
+    {
+      "id": "US-2319",
+      "passes": false,
+      "title": "Trial-expiry notices have no dedupe marker: miss a day and the customer is never warned",
+      "description": "routes/jobs-trial-expiry.ts:111-118 documents it in the code: alreadyNotifiedAt is hardcoded null and the exact-day window (shouldSendTrialNotice, :63-74) is the only dedupe. So a missed cron day means the user gets no trial-ending notice at all, and a same-day manual re-run double-sends it. The downgrade half (:145-156) is a properly idempotent conditional UPDATE; only the notice is exposed.",
+      "acceptanceCriteria": [
+        "A users.trial_notice_sent_at column (or equivalent) makes the notice idempotent and recoverable.",
+        "A missed day still sends, late, rather than never.",
+        "Same claim-before-work pattern in routes/jobs-buyer-digest.ts:88-102 (claim inserted, then recipient resolved at :105 and sent at :114; a caught send failure leaves the claim and loses that period's digest) and in lib/marketplace-event-poll.ts:91-139 and jobs-audit-anomaly.ts:165-235 — fix the class, not just the instance.",
+        "buyer-digest's candidate scan (:53-57) caps at 2000 with no ordering, so buyer 2001 never gets a digest."
+      ],
+      "notes": "[P2][Ops/Email] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Advance-then-act appears in at least four jobs. Consider one shared claim/release helper."
+    },
+    {
+      "id": "US-2320",
+      "passes": false,
+      "title": "eBay orders sync advances its cursor after swallowing a failure — permanent order loss",
+      "description": "flipdesk-ebay.ts:3219-3226 wraps the entire orders pass in a catch that logs and continues, then execution falls through to an unconditional cursor stamp at :3490-3493 setting last_synced_at to now(). Scenario: a seller has 500 orders modified since the last sync, eBay 500s at order 200. Orders 1-199 are committed, 200-500 are never written, and the cursor now says 'now', so the next incremental pull asks eBay only for orders modified since now (ebay-client.ts:3398) and the 301 missing orders are never re-fetched. Sales rows, payouts, net_profit and the inventory_items.status='sold' flip are gone for good. The HTTP response was already 202 {ok:true} and the UI shows 'Synced just now'. The backstop cannot recover it: jobs-ebay-order-backstop.ts:85-100 selects stale owners by that same last_synced_at. Same loss without a throw when ORDERS_PAGE_CEILING is hit (ebay-client.ts:3503-3507) — it only pushes a warning string into errors[] and the cursor still advances. Shopify does this correctly: flipdesk-shopify.ts:357-363 gates the watermark on ingest.ok and lib/shopify-orders.ts:62-68 documents exactly this failure mode.",
+      "acceptanceCriteria": [
+        "last_synced_at is gated on the orders pass completing cleanly, or advanced only to the max lastModifiedDate actually persisted. Mirror lib/shopify-orders.ts.",
+        "Hitting the page ceiling is treated as incomplete, not as success.",
+        "The sync response and the UI reflect a partial sync rather than reading 'Synced just now'.",
+        "flipdesk-ebay.ts:3149-3153 and :3128-3131 destructure away the Supabase error and increment salesNew/salesUpdated anyway — read the error before counting.",
+        "Regression test: an injected failure mid-pass leaves the cursor unmoved.",
+        "Assume this has already fired. Plan a one-off backfill that re-pulls a wide window for every eBay connection."
+      ],
+      "notes": "[P0][FlipDesk/eBay] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Highest-impact marketplace finding — it is silent, permanent, and triggers on any transient eBay error."
+    },
+    {
+      "id": "US-2321",
+      "passes": false,
+      "title": "The entire Google integration has no fetch timeout — 22 call sites",
+      "description": "lib/circuit-breaker.ts:30 provides fetchWithTimeout and every eBay/Etsy/Depop/Shopify/Whatnot client uses it at 20-25s. The Google integration was never migrated. Bare fetch with no AbortSignal at: google-sheets-api.ts:51 (all reads/writes; all four constructors use the default bare fetch), google-service-account.ts:144, flipdesk-google.ts:184/208/311/402/458/615 (OAuth exchange, userinfo, refresh mint, sheet create, access check, revoke), flipdesk-google-photos.ts:106/126/250/382/434/479, flipdesk-sheets.ts:87 (with redirect:'follow'), google-ads-client.ts:99/171/243. Scenario: a Google regional slowdown, the 5-minute sheet-sync cron fans out per user, each hangs on a socket read, and requests pile up in the single Deno container until it stops answering /api/grade/* and /api/payments/* too.",
+      "acceptanceCriteria": [
+        "SheetsClient's default fetchFn becomes fetchWithTimeout (google-sheets-api.ts:34) — that covers the largest block.",
+        "The six flipdesk-google.ts fetches and the rest of the table route through fetchWithTimeout.",
+        "A lint rule or test flags a bare fetch to an external host in services/edge-functions/src/.",
+        "google-sheets-api.ts:62-66 is an UNBOUNDED retry: the comment says 'one retry' but the code self-recurses on 429 with no attempt counter, no growth and no ceiling. Under project-level quota exhaustion this hammers Google every 2 seconds forever, per in-flight request, per replica. Route it through lib/retry.ts."
+      ],
+      "notes": "[P0][FlipDesk/Google] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. The unbounded 429 retry is a ban risk; the missing timeouts are a whole-container availability risk including grading and payments."
+    },
+    {
+      "id": "US-2322",
+      "passes": false,
+      "title": "Concurrent token refresh disconnects sellers on providers that rotate refresh tokens",
+      "description": "No advisory lock, mutex or single-flight guard exists in any token path (no pg_advisory, no FOR UPDATE, no in-flight promise map). The read-modify-write is check expiry, refresh, persist. Four connectors do this and all four persist a rotated refresh token when the provider sends one, which proves rotation is expected: etsy-client.ts:392-396, whatnot-client.ts:347-350, depop-client.ts, flipdesk-google.ts:353-355. Scenario (Etsy, 1-hour tokens): a user opens the Marketplaces page while the sync cron fires; both see expiresAt - now < 60s (etsy-client.ts:368) and POST the same refresh token; Etsy rotates and invalidates the old one on first use; the second call gets 400 invalid_grant; isPermanentEtsyAuthFailure classifies 400 as PERMANENT (:243) so the handler sets is_active:false and stores a reconnect message (:410-416). The user is force-disconnected by a race, not a revocation. eBay is not exposed (its refresh token is not rotated).",
+      "acceptanceCriteria": [
+        "A per-connection advisory lock (keyed on connection id) around refresh, so concurrent callers wait rather than racing.",
+        "invalid_grant immediately after a successful sibling refresh is treated as transient (re-read the row and retry once) rather than permanent.",
+        "refreshExpiringEtsyConnections (etsy-client.ts:467) scans on a 24-hour horizon but delegates to getEtsyAccessToken which only refreshes inside a 60-second window, so the cron decrypts every active connection every run and proactively refreshes nothing. Fix or delete it.",
+        "Confirm whether Etsy/Depop/Google actually invalidate the old token on rotation — that sets the real severity.",
+        "Audit prod for connections deactivated with an invalid_grant refresh_error and offer affected sellers a reconnect."
+      ],
+      "notes": "[P1][FlipDesk/Auth] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2323",
+      "passes": false,
+      "title": "eBay Trading (XML) API has no timeout, no retry and no breaker",
+      "description": "lib/ebay-trading.ts:444 (tradingCall) is a bare fetch to {api.ebay.com}/ws/api.dll with no AbortSignal, no withRetry and no breaker. It is the shared entry point for getBestOffers, respondToBestOffer, getMemberMessages, replyToMemberMessage, leaveFeedback and getOrderLegacyLineItems. getItemSpecifics at :374 runs it per item in a loop; the legacy listings pull at :243 pages through GetMyeBaySelling with the same bare call. Trading is eBay's slowest and least reliable surface, so a hang ties up a worker indefinitely and a transient 500 aborts the whole legacy pull.",
+      "acceptanceCriteria": [
+        "tradingCall routes through fetchWithTimeout plus fetchWithEbayRetry, both already exported from lib/ebay-client.ts:56. One change covers 8+ call sites.",
+        "The per-item loop at :374 has a ceiling and reports truncation.",
+        "lib/circuit-breaker.ts:30-49 clears its timer as soon as response HEADERS arrive, so every caller's await res.text()/json() runs outside the deadline — a partner returning 200 then stalling the body hangs forever. Extend the deadline to cover the body read.",
+        "Test: a stalled body is aborted."
+      ],
+      "notes": "[P1][FlipDesk/eBay] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. The body-read gap affects every client, not just Trading."
+    },
+    {
+      "id": "US-2324",
+      "passes": false,
+      "title": "Etsy and Depop syncs discard every per-record error and report success",
+      "description": "flipdesk-etsy.ts:274-278 and flipdesk-depop.ts:269-273 (plus the adapter copies at marketplace-adapters/etsy.ts:371-381 and depop.ts:329-339) loop over receipts calling handleEtsyReceiptEvent, which never throws and instead collects failures into res.errors (etsy-orders.ts:192,225; depop-orders.ts:167,200). res.errors is read nowhere. Every failed receipt is invisible and the sync returns ok:true. Neither loop has a per-record try/catch, so a throw at receipt 200 aborts 201-500, and since every retry restarts at offset=0 it hits the same poison record forever — a permanently stuck sync. Mitigating: neither uses a real fetch cursor so the next run replays the window and self-heals, but Etsy's window is capped at 20 pages x 50 = 1000 receipts (etsy-api.ts:525) so anything aging out before the retry is lost.",
+      "acceptanceCriteria": [
+        "res.errors is propagated into the sync result and surfaced to the seller.",
+        "Per-record try/catch so one bad receipt cannot block the tail.",
+        "A record that fails repeatedly is quarantined rather than retried forever at the head of the queue.",
+        "etsy-api.ts:68-76, depop-api.ts:69-78 and whatnot-api.ts:53-60 have no 429 handling at all — fetch then throw on !ok, with no Retry-After, no backoff and no 429-vs-4xx distinction. Route them through lib/retry.ts. Shopify (shopify-graphql.ts:98-220) is the model to copy."
+      ],
+      "notes": "[P2][FlipDesk/Etsy+Depop] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Both connectors ship behind an env kill-switch defaulting to false, so this is not live today — fix before enabling."
+    },
+    {
+      "id": "US-2325",
+      "passes": false,
+      "title": "eBay fee rate is defined in three places with two different values",
+      "description": "src/lib/listing-profit.ts:10-11 has DEFAULT_EBAY_FEE_RATE 0.1325 and DEFAULT_EBAY_FIXED_FEE 0.4. services/edge-functions/src/lib/scout-scoring.ts:15 has SCOUT_FEE_RATE 0.13 and scout-decision.ts:16 has DECISION_FEE_RATE 0.13. Not one place, not env-driven, not fetched from eBay, and only the frontend models the fixed per-order fee at all. ScoutAI's buy/skip decision and the listing composer's profit estimate disagree on every item. No guard test ties them together, unlike marketplace-specs.ts which has marketplace-specs-sync.test.ts. When eBay next changes the FVF rate, three files must be found and edited and nothing fails if one is missed.",
+      "acceptanceCriteria": [
+        "One fee module with a sourceNote and a last-verified date, following the marketplace-specs.ts model.",
+        "Both the frontend estimate and the ScoutAI decision consume it, including the fixed per-order fee.",
+        "A sync guard test fails on drift.",
+        "getCategoryTreeId() (ebay-client.ts:1115) reads EBAY_CATEGORY_TREE_ID with a '0' default and is never reconciled against eBay's get_default_category_tree_id; combined with the 30-day aspect cache TTL a taxonomy version bump goes unnoticed for up to a month. Add a reconcile."
+      ],
+      "notes": "[P2][FlipDesk/Pricing] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Category ids, aspects, condition ids and business policies are all correctly fetched from eBay rather than hardcoded — the fees are the outlier."
+    },
+    {
+      "id": "US-2326",
+      "passes": false,
+      "title": "Marketplace webhooks have no freshness window and one debug flag disables all four",
+      "description": "Verification itself is correct everywhere — all four receivers read the raw body, verify before any DB write, fail closed when the secret is missing, and use constant-time comparison (or asymmetric verify for eBay). Three residual gaps. (A) isDebugAllowed('WEBHOOK_PAYOUT_DEBUG') is checked at flipdesk-webhooks.ts:123, :201, :493, :1229 and skips the whole verify block when true; lib/env.ts:82-85 returns false in production and edgeEnv() defaults to 'production' when unset, so a bare container fails closed — but any staging or preview with EDGE_ENV non-production and the flag on accepts unsigned requests on the account-deletion path (mass seller disconnect) and logs headers plus 2KB of body verbatim. (B) No replay or freshness check anywhere. All four rely on event-id dedupe which is skipped when the provider's id header is absent (:756, :389, :512) and FAILS OPEN on a DB error (:770, :400, :595, :1290). eBay's notification.publishDate is declared in the type at :744-745 and never read; Shopify's X-Shopify-Triggered-At is never read. (C) fetchPublicKeyMaterial (ebay-notification-verify.ts:135-154) does getAppAccessToken plus a call to eBay's public_key/{kid} for any attacker-supplied kid, with no timeout and no negative cache (keyCache at :92 stores only successes), bounded only by the 600/60s limiter at main.ts:1025 — so an attacker can drive 600 unauthenticated outbound eBay calls per minute per replica and burn the app's API quota.",
+      "acceptanceCriteria": [
+        "Confirm EDGE_ENV and WEBHOOK_PAYOUT_DEBUG in staging, and whether staging shares marketplace_connections with prod. If it does, this is live.",
+        "A timestamp freshness window (+/- 5 min) on the eBay and Shopify receivers using the headers already sent.",
+        "Dedupe fails CLOSED on a DB error rather than open.",
+        "Negative cache plus a timeout on the eBay public-key fetch.",
+        "Depop's header names (x-depop-signature / x-depop-hmac-sha256 at :495-496, x-depop-webhook-id / x-depop-delivery-id at :512) are unconfirmed guesses. The signature failure mode is safe (401) but the dedupe failure mode is SILENT — if Depop uses neither header, every delivery is reprocessed with no error. Confirm and narrow, including the hex-or-base64 hedge at depop-api.ts:488-491."
+      ],
+      "notes": "[P2][FlipDesk/Webhooks] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Secrets at rest are CLEAN: crypto-aes.ts uses a fresh 96-bit IV per encryption, key from env never logged, and v2 binds user_id as GCM additionalData so a ciphertext copied to another tenant fails to decrypt. No plaintext tokens in any log path."
+    },
+    {
+      "id": "US-2327",
+      "passes": false,
+      "title": "The frontend claims Depop and Whatnot are live cross-listing when they are not",
+      "description": "src/lib/constants.ts:1381 declares LIVE_CROSS_LISTING_PLATFORMS as ebay, shopify, depop, and MARKETPLACE_MECHANISM at :1391-1400 marks whatnot as 'api'. Depop ships behind DEPOP_ENABLED defaulting to false and lib/depop-api.ts:14-19 states its field names are modeled from public docs and must be reconciled against the live OpenAPI once sandbox access lands. Whatnot's adapter methods are all notImplemented (whatnot.ts:79-83) and lib/whatnot-api.ts:5-8 states the base URL, endpoints and field names are modeled with no public docs. MARKETPLACE_TIER correctly marks depop/etsy/whatnot as api_pending at :1424-1440, so these two entries are the outliers in an otherwise honest layer.",
+      "acceptanceCriteria": [
+        "LIVE_CROSS_LISTING_PLATFORMS reflects what actually works today.",
+        "MARKETPLACE_MECHANISM for whatnot stops claiming 'api'.",
+        "A test asserts the frontend's live list matches the set of adapters that are enabled and non-stub.",
+        "Review any marketing copy or pricing page that reads from these constants."
+      ],
+      "notes": "[P2][FlipDesk/Honesty] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Shopify ship is also a shell — there is no fulfillmentCreate anywhere in the repo, so tracking never reaches Shopify. Etsy has no receipt-tracking endpoint so ship is genuinely absent there."
+    },
+    {
+      "id": "US-2328",
+      "passes": false,
+      "title": "Add Shopify fulfillment: tracking numbers never reach Shopify",
+      "description": "The platform coverage matrix shows Shopify as REAL for connect, list, sync, delist and price revise, but SHELL for ship. There is no fulfillmentCreate call anywhere in the repo. A seller who ships a Shopify order through FlipDesk leaves the Shopify order unfulfilled and the buyer never gets tracking.",
+      "acceptanceCriteria": [
+        "Shipping an order marked as sourced from Shopify calls fulfillmentCreate with the tracking number and carrier.",
+        "Failure to fulfil is surfaced to the seller, not swallowed.",
+        "Test against the Shopify sandbox."
+      ],
+      "notes": "[P2][FlipDesk/Shopify] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2329",
+      "passes": false,
+      "title": "eBay compliance sync clears every flag then re-flags row by row with no transaction",
+      "description": "flipdesk-ebay.ts:1023-1031 clears all compliance flags, then :1034-1045 re-flags each violating listing. No transaction, no diff, and upErr is ignored except to skip a counter. A throw or a run of failed updates after the clear leaves listings reading compliant while they have open eBay policy violations. It runs inline in the request with no job row.",
+      "acceptanceCriteria": [
+        "Replace clear-then-reflag with a diff or a single upsert so there is no window where everything reads compliant.",
+        "Update errors fail the sync rather than being counted away.",
+        "Move it to a job row so a failure is visible."
+      ],
+      "notes": "[P3][FlipDesk/eBay] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2330",
+      "passes": false,
+      "title": "The entire authenticated web surface ships with no security headers",
+      "description": "functions/_shared/spa-shell.ts:58-67 builds a fresh Response copying only content-type, cache-control and x-robots-tag, and Cloudflare's _headers file does not apply to Pages Functions. Verified live: /login and /dashboard return no CSP, no HSTS, no X-Frame-Options, no X-Content-Type-Options, no Referrer-Policy and no Permissions-Policy. functions/_shared/security-headers.ts already exists with a correct ssrSecurityHeaders() and is only used by blog-render.ts.",
+      "acceptanceCriteria": [
+        "spa-shell.ts applies ssrSecurityHeaders() like blog-render.ts does.",
+        "CSP is developed in report-only first, then enforced — the SPA loads Sentry, PostHog and Stripe, so a blind enforce will break it.",
+        "A test or synthetic check asserts the headers are present on /login and /dashboard.",
+        "Verify after deploy with an actual request, not by reading the code."
+      ],
+      "notes": "[P1][Web/Security] [Audit 2026-07-30 module/platform sweep] Verified live against the deployed site by the auditor. The helper already exists — this is a wiring fix plus CSP tuning."
+    },
+    {
+      "id": "US-2331",
+      "passes": false,
+      "title": "items_full is fetched whole with no limit, and the item detail page fetches the entire inventory to render one row",
+      "description": "src/hooks/use-items-full.ts:52 does .select('*') on items_full with no .limit() or .range(). Ten consumers. src/pages/flipdesk/item.tsx:68-73 fetches the entire inventory and then does items.find(it => it.id === id) to render a single item. For a seller with thousands of items this is a large payload on every page load, and it grows without bound.",
+      "acceptanceCriteria": [
+        "The hook paginates or takes a required limit.",
+        "The item detail page fetches one row by id.",
+        "The other eight consumers are reviewed for whether they need the full set.",
+        "Measure the current payload size for the largest prod account before and after."
+      ],
+      "notes": "[P1][Web/Perf] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2332",
+      "passes": false,
+      "title": "Sentry is eagerly bundled into 59 chunks despite the stated lazy-load intent",
+      "description": "src/lib/welcome-email.ts:1 does a static `import * as Sentry from '@sentry/react'`, which reaches src/hooks/use-auth.ts:6 and from there 67 modules. Verified in the build output: 59 of 603 chunks statically import vendor-sentry (475,804 bytes). This contradicts the stated intent at src/main.tsx:31. src/components/error-boundary.tsx:4 shows the correct lazy pattern.",
+      "acceptanceCriteria": [
+        "welcome-email.ts uses the lazy pattern from error-boundary.tsx.",
+        "The static import chain into use-auth is broken.",
+        "A build-output assertion fails if vendor-sentry is statically imported by more than N chunks.",
+        "Record the before and after first-load JS size."
+      ],
+      "notes": "[P2][Web/Perf] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. One import fixes a 475KB chunk pulled into a tenth of the app."
+    },
+    {
+      "id": "US-2333",
+      "passes": false,
+      "title": "Responsive images are switched off in production",
+      "description": ".env.production:44 sets VITE_CF_IMAGE_RESIZING=false, which disables all srcset, AVIF and WebP generation in src/components/responsive-image.tsx:32. Every image is served at full size in its original format.",
+      "acceptanceCriteria": [
+        "Confirm whether Cloudflare Image Resizing is actually enabled on the account — if it is not, that is the real blocker and this flag is correct.",
+        "If it is available, enable it and verify a real page serves AVIF/WebP at the right size.",
+        "Record the Lighthouse LCP before and after."
+      ],
+      "notes": "[P2][Web/Perf] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Check the Cloudflare account first — the flag may be correct and the plan the problem."
+    },
+    {
+      "id": "US-2334",
+      "passes": false,
+      "title": "Accent red fails AA contrast and 46 sites violate the project's own red-text rule",
+      "description": "src/index.css:144 and :182 set --accent to #f03d5f with --accent-foreground #ffffff, which is 3.79:1 — below the 4.5:1 AA threshold. #cc1f3d would be 5.48:1. Separately src/index.css:85 documents 'Use text-brand-red-text for red text; never text-brand-red' and 46 sites violate it.",
+      "acceptanceCriteria": [
+        "Accent foreground/background pair meets 4.5:1, or the accent is only used at large-text sizes where 3:1 applies.",
+        "The 46 text-brand-red uses are migrated to text-brand-red-text.",
+        "A lint rule or the impeccable check prevents regression.",
+        "Verify the change against the brand: navy #0F3460 / red #E94560 are the documented brand colors, so any shift needs a deliberate decision."
+      ],
+      "notes": "[P2][Web/A11y] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Brand colors are documented in CLAUDE.md — changing the accent is a brand decision, not just a code change."
+    },
+    {
+      "id": "US-2335",
+      "passes": false,
+      "title": "Roughly 359 form controls have no accessible label",
+      "description": "An accessibility sweep found approximately 359 inputs, selects and textareas with no associated label, aria-label or aria-labelledby. Screen reader users cannot tell what any of them are for.",
+      "acceptanceCriteria": [
+        "Get an exact count and a per-file list first — 359 is an estimate.",
+        "Fix in batches by surface, highest-traffic first (auth, grading submission, FlipDesk item edit).",
+        "An eslint jsx-a11y rule fails the build on new violations.",
+        "Verify a representative page with an actual screen reader, not only with the linter."
+      ],
+      "notes": "[P2][Web/A11y] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Large but mechanical. Land the lint rule first so the number cannot grow."
+    },
+    {
+      "id": "US-2336",
+      "passes": false,
+      "title": "Clear the impeccable UI anti-patterns: 12 side-tab borders and one gradient text",
+      "description": "`npx impeccable detect src` reports 42 findings. Twelve are side-tab (border-l-4) across the marketing pages plus src/pages/submission-detail.tsx:1551 — the single most recognizable AI-default tell per the shared UI guidance. One is gradient-text at src/pages/landing.tsx:658. The remaining 29 are false positives: 25 broken-image findings are all inside src/test/*.test.ts, and 4 overused-font findings are src/index.css:20 and :30 (Inter, the documented brand font) plus Arial in financial-export.tsx:154 and flipdesk/reconciliation.tsx:730, which are PDF and export contexts where a core font is correct.",
+      "acceptanceCriteria": [
+        "The 12 border-l-4 uses are replaced with a treatment that is not a colored side tab.",
+        "The landing gradient text is replaced with weight and size for emphasis.",
+        "impeccable detect is added to CI or to npm run verify so the count cannot grow silently.",
+        "The known false positives are suppressed rather than re-triaged every run."
+      ],
+      "notes": "[P3][Web/UI] [Audit 2026-07-30 module/platform sweep] VERIFIED directly against the code in this session. — ran npx impeccable detect src in this session. Inter is a documented brand choice, so the overused-font findings are correctly ignored."
+    },
+    {
+      "id": "US-2337",
+      "passes": false,
+      "title": "iOS: SyncEngine can prune the entire local database when the session lookup fails",
+      "description": "ios/GradeThread/Persistence/SyncEngine.swift:367 does `let selfId = try? await ...auth.session.user.id`, swallowing the failure. At :430 that means the .eq('user_id', ...) filter is dropped, :438 treats the resulting zero rows as a complete result, and SyncMergeActor.reconcileDeletes:564 then prunes the entire local mirror. A transient session read failure wipes the user's offline data.",
+      "acceptanceCriteria": [
+        "A failed session lookup aborts the sync rather than proceeding unfiltered.",
+        "reconcileDeletes refuses to prune when the fetch was not provably complete and scoped.",
+        "Test: a session-lookup failure leaves local data intact.",
+        "Check crash/analytics for users whose local item count dropped to zero."
+      ],
+      "notes": "[P0][iOS/Sync] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Data loss on the customer's device. Highest-severity mobile finding."
+    },
+    {
+      "id": "US-2338",
+      "passes": false,
+      "title": "iOS: PhotoUploadService is built without a modelContainer, so pending mutations are silently dropped",
+      "description": "ios/GradeThread/Upload/AppDelegate.swift:21 constructs PhotoUploadService(store:) with no modelContainer:. PhotoUploadService.swift:781 enqueuePendingMutation opens with `guard let container = modelContainer else { return }`. Every mutation queued through that instance is discarded with no error.",
+      "acceptanceCriteria": [
+        "AppDelegate passes the modelContainer.",
+        "The guard logs or throws rather than returning silently, so a future miswiring is loud.",
+        "Test asserting a queued mutation is persisted."
+      ],
+      "notes": "[P1][iOS/Upload] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2339",
+      "passes": false,
+      "title": "Android: expense dates walk back one day on every edit-sync cycle",
+      "description": "android/app/src/main/java/com/gradethread/app/money/ExpenseRepository.kt:128 sends ExpenseDraft.isoDate(entity.spentOn), which re-derives YYYY-MM-DD from a UTC-midnight epoch using ZoneId.systemDefault() (ExpenseDraft.kt:72). It is used for updates as well as inserts, so for any user west of UTC the date moves back one day each time the expense is edited and synced. iOS fixed exactly this as US-1494 at ios/GradeThread/Money/ExpenseStore.swift:34-43.",
+      "acceptanceCriteria": [
+        "The stored calendar date is round-tripped as a date, never re-derived through the local timezone.",
+        "Port the iOS US-1494 approach.",
+        "Test with a device timezone west of UTC across several edit cycles.",
+        "Audit prod expense rows for dates that have drifted."
+      ],
+      "notes": "[P1][Android/Money] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Already solved on iOS — port, do not redesign."
+    },
+    {
+      "id": "US-2340",
+      "passes": false,
+      "title": "Android: the local database is reopened per call site and deleted on any open failure",
+      "description": "android/.../sync/db/GradeThreadDb.kt:77 — DatabaseProvider.open is not memoized, and line 88 runs context.deleteDatabase(dbName) on any step-1 failure. Four call sites open it: UploadWorker.kt:74, UploadWorker.kt:125, capture/CaptureScreen.kt:76, plus the Hilt singleton. A transient open failure destroys the user's offline data.",
+      "acceptanceCriteria": [
+        "One memoized instance, injected, not opened per call site.",
+        "deleteDatabase is reserved for a genuine, identified corruption case and is not the catch-all for any open failure.",
+        "Test: a simulated transient open failure does not delete the database."
+      ],
+      "notes": "[P1][Android/Sync] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Same class as the iOS SyncEngine finding — silent local data loss."
+    },
+    {
+      "id": "US-2341",
+      "passes": false,
+      "title": "Android: item edits keep reporting unsaved changes after a successful save",
+      "description": "android/.../inventory/ItemCanvasViewModel.kt:225 — the success path never clears hasLocalChanges. The flag is set at :319 and cleared only in sync/MutationReplayer.kt:131. The user sees an unsaved-changes state after saving.",
+      "acceptanceCriteria": [
+        "The success path clears the flag.",
+        "Test asserting the flag is false after a successful save.",
+        "Also android/.../platform/net/PlanGate.kt:92 — PlanGateNotifier.gates and .warnings are published to from EdgeApi.kt:54-55 and collected nowhere, so plan-limit messages from the server never reach the user. Wire or delete."
+      ],
+      "notes": "[P2][Android/Inventory] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2342",
+      "passes": false,
+      "title": "iOS force-unwrap guard does not scan the GradeThreadCore package",
+      "description": "ios/Scripts/no-force-unwrap.py:22 scans GradeThread, ShareExtension, GradeThreadWidget and Shared. It omits ios/Packages/GradeThreadCore, where MoneyMath.swift and SalePnL.swift live — the money math is the least-guarded code in the app.",
+      "acceptanceCriteria": [
+        "The scan list includes ios/Packages/.",
+        "Fix whatever the expanded scan finds.",
+        "Confirm no other ios/Scripts guard has the same omission."
+      ],
+      "notes": "[P2][iOS/Quality] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2343",
+      "passes": false,
+      "title": "The blocking npm audit gate is red on main",
+      "description": ".github/workflows/security.yml:37 runs a blocking `npm audit --omit=dev --audit-level=high` and it currently fails on react-router 7.16.0. `npm audit fix` resolves it. A permanently-red blocking gate trains everyone to ignore it.",
+      "acceptanceCriteria": [
+        "Run npm audit fix and confirm the gate is green.",
+        "Confirm the react-router bump does not break routing (React Router v7 createBrowserRouter).",
+        "npm run verify passes locally before pushing."
+      ],
+      "notes": "[P1][CI] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Smallest fix in the whole audit. Do it first."
+    },
+    {
+      "id": "US-2344",
+      "passes": false,
+      "title": "iOS UI tests and edge coverage are configured never to fail",
+      "description": ".github/workflows/ios-ci.yml:151 sets continue-on-error: true on the entire ui-test job. .github/workflows/security.yml:99 runs `deno coverage cov_profile || true`, so edge coverage is never enforced. Both look like safety nets on the dashboard and neither can block anything.",
+      "acceptanceCriteria": [
+        "Decide per job: make it blocking, or delete it and say so. A permanently-non-blocking check is worse than no check.",
+        "If iOS UI tests are flaky, quarantine the flaky cases rather than the whole job.",
+        "Set and enforce an edge coverage floor at the current measured level, then ratchet.",
+        "Note: iOS cannot be built or tested on Windows, so the macOS runner IS the safety net. That makes the continue-on-error more serious, not less."
+      ],
+      "notes": "[P1][CI] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2345",
+      "passes": false,
+      "title": "The three highest-value money paths have zero tests",
+      "description": "services/edge-functions/src/routes/grade.ts is 1,396 lines with no direct tests. routes/admin-billing.ts is 1,756 lines with no tests. lib/affiliate-payout.ts is 500 lines with no tests. grade.ts:1065 fires the refund_snap RPC as `.then(() => {}, () => {})` with both callbacks swallowed. affiliate-payout.ts:209 flips commissions to paid BEFORE the Stripe transfer fires.",
+      "acceptanceCriteria": [
+        "Test coverage for the charge, refund and payout paths in all three files, including the failure branches.",
+        "grade.ts:1065's swallowed refund is either handled or explicitly documented as fire-and-forget with a reason.",
+        "affiliate-payout.ts:209 marks paid after the transfer succeeds, or uses a two-phase record.",
+        "affiliate-payout.ts's SWEEP_LIMIT of 500 (:39) is applied with no .order() on phases b and c, so beyond 500 eligible rows which affiliates get paid is unspecified and possibly permanently starved. Add ordering.",
+        "A coverage floor prevents new untested money code."
+      ],
+      "notes": "[P1][Edge/Tests] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. These three files are where a bug costs real money."
+    },
+    {
+      "id": "US-2346",
+      "passes": false,
+      "title": "Migrations 00504-00506 are on origin/main while PENDING_MIGRATIONS.md marks them held",
+      "description": "PENDING_MIGRATIONS.md:3-7 states prod is at 00503 and that 00504_listings_is_active_lockstep, 00505_grading_roi_period_filter and 00506_items_full_quality_score are HELD, some apply-BEFORE-push. All three are confirmed on origin/main (git log origin/main..HEAD is empty, HEAD == origin/main). Either they were applied to prod and the doc is stale, or code that expects them shipped ahead of the schema.",
+      "acceptanceCriteria": [
+        "Confirm the actual applied schema version in prod (query applied_migrations).",
+        "If applied: clear PENDING_MIGRATIONS.md and record why the doc drifted.",
+        "If not applied: assess what the pushed code does against the 00503 schema and apply or roll back.",
+        "The pre-push hook or CI should refuse a push that adds a migration still listed as apply-BEFORE-push in PENDING_MIGRATIONS.md — the process failed silently here."
+      ],
+      "notes": "[P1][DB/Process] [Audit 2026-07-30 module/platform sweep] VERIFIED directly against the code in this session. — confirmed all three are on origin/main via git. Which side is wrong needs a prod query."
+    },
+    {
+      "id": "US-2347",
+      "passes": false,
+      "title": "Run the production verification queries this audit could not run",
+      "description": "Several audit findings cannot be scored without reading production state, and this session had no prod access (the Supabase MCP connector is unauthorized). Doing these first prevents building the wrong fix.",
+      "acceptanceCriteria": [
+        "SELECT proname, proacl FROM pg_proc WHERE pronamespace='public'::regnamespace AND prosecdef; — how many SECURITY DEFINER functions are world-callable.",
+        "Actual applied schema version, to settle the 00504-00506 held-migration question.",
+        "Does grading_eval_cases have any rows, and which ai_prompt_versions rows are active with what qualified_model.",
+        "Does users_billing_source_chk still exclude 'googleplay', and has any Play purchase ever succeeded.",
+        "Do the three dead cron schedules exist in Coolify, and what do their run histories show.",
+        "Are ops_alert_webhook_url and ops_alert_email set in system_settings, and is PGRST_DB_MAX_ROWS set on the stack.",
+        "Are EBAY_TOKEN_REVOKE_URL and EBAY_CATEGORY_TREE_ID set; what is EDGE_ENV in staging and is WEBHOOK_PAYOUT_DEBUG on.",
+        "Record every answer in this story so the dependent stories can be scored."
+      ],
+      "notes": "[P0][Ops/Verification] [Audit 2026-07-30 module/platform sweep] Blocks accurate sizing of at least eight other stories in this batch. Human-run, not code."
+    },
+    {
+      "id": "US-2348",
+      "passes": false,
+      "title": "Admin SPA writes ai_prompt_versions straight to Postgres, bypassing scope, step-up and the edge audit",
+      "description": "00003_admin_tables.sql:143-161 grants any is_admin() caller full SELECT/INSERT/UPDATE/DELETE on ai_prompt_versions via RLS, and no later migration through 00480 tightens it. The admin SPA uses that grant directly: src/pages/admin/ai-models.tsx:559-563 INSERT, :666-669 DELETE, :708-711 UPDATE prompt_text, :629-632 UPDATE is_active:false. So an admin whose grading:review scope was deliberately revoked can still open /admin/ai-models and rewrite the prompt_text of the LIVE active grading prompt — biasing every grade the platform issues — or delete the version row. The edge guard (admin-grading.ts:150), the step-up on activate (:518-520) and the whole shadow/eval/canary lifecycle are all routed around. This falsifies the premise stated in lib/admin-scope-map.ts:11-13 that revoking a scope closes the surface.",
+      "acceptanceCriteria": [
+        "The RLS write policies on ai_prompt_versions are narrowed to service_role, so the table is only mutable through the edge.",
+        "The admin SPA's four direct writes go through the existing edge routes, which already carry the scope and step-up checks.",
+        "Sweep every other admin SPA surface for direct-to-Postgres writes on tables the edge also guards, and close the same way.",
+        "A test asserts no admin page mutates a scope-guarded table through the browser client."
+      ],
+      "notes": "[P0][Admin/Security] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Admin-class, not user-class: no path was found where a normal user can do anything admin. The role model itself is sound."
+    },
+    {
+      "id": "US-2349",
+      "passes": false,
+      "title": "The admin audit log is forgeable by any admin and can be attributed to someone else",
+      "description": "00003_admin_tables.sql:121-123 defines the INSERT policy as `WITH CHECK (public.is_admin())` with no `admin_user_id = auth.uid()` constraint. Any admin can insert rows with an arbitrary admin_user_id, action, target_id and details straight from the browser. This is not theoretical: the SPA already writes audit rows client-side at ai-models.tsx:538, submissions.tsx:324 and user-detail.tsx:126-128. An admin can grant themselves comp credits and then insert a dozen admin.change_role rows stamped with the super_admin's user id. Non-repudiation is gone for the whole table, and the anomaly detectors added in 00227 fire on the forged actor.",
+      "acceptanceCriteria": [
+        "The INSERT policy requires admin_user_id = auth.uid(), or audit writes become service_role-only and the SPA stops writing them.",
+        "The three client-side audit writes move server-side.",
+        "Existing rows are reviewed for implausible actor/action pairs before the policy changes.",
+        "Migration triple honoured."
+      ],
+      "notes": "[P0][Admin/Audit] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. The audit log is the control everything else depends on. Fix this before relying on it to investigate anything else in this batch."
+    },
+    {
+      "id": "US-2350",
+      "passes": false,
+      "title": "Deleting a user cascades away every audit row that user authored",
+      "description": "00003_admin_tables.sql:57 declares admin_user_id with ON DELETE CASCADE. The append-only guarantee (00065:108, 00227:18, tests/audit-append-only_test.ts) only covers UPDATE and DELETE policies; a cascade is a legitimate DELETE and goes straight through it. POST /api/account/delete (routes/account.ts:381) is self-serve and for an admin actor needs only a fresh step-up (:405-409) before auth.admin.deleteUser (:612), which cascades to public.users and then to admin_audit_log. An admin can issue refunds and credit grants for a week, self-delete, and erase every row they authored. The forensic export at admin-audit.ts:124 then returns nothing about them.",
+      "acceptanceCriteria": [
+        "admin_user_id becomes ON DELETE SET NULL with the actor's identity denormalized onto the row, or the FK is dropped.",
+        "Audit rows survive deletion of the acting admin. Test proves it.",
+        "Consider blocking self-serve deletion for admin and super_admin accounts entirely.",
+        "Migration triple honoured."
+      ],
+      "notes": "[P0][Admin/Audit] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Pairs with the forgeable-audit-log story — together they mean the audit trail cannot currently be trusted."
+    },
+    {
+      "id": "US-2351",
+      "passes": false,
+      "title": "Impersonation is unbounded, unmarked, non-revocable, and allows account deletion as the user",
+      "description": "admin-impersonation.ts:43-132 gets the entry right: super_admin only (:44), users:role scope (:38), fresh step-up (:49), self and privileged targets refused (:54, :68-73), start audited (:116). Everything after the token is minted is open. No time limit — generateLink type magiclink (:90) yields a normal Supabase session for the target, access token plus long-lived refresh token, in the admin's browser, with no cap anywhere. No revocation on stop — src/lib/impersonation.ts:126-129 only redeems the resume token and never calls auth.admin.signOut(targetId), so a copied refresh token outlives the session. No marker — there is no impersonated_by claim and no server-side active-impersonation row, so every request made while impersonating is indistinguishable from the real user's. And destructive actions are fully available: POST /api/account/delete's only server-side control is the confirm string (account.ts:390); the password re-auth at :625-631 is client-side only. A super_admin can impersonate a disputing customer, cancel their subscription and delete their account, and every downstream record shows the customer did it.",
+      "acceptanceCriteria": [
+        "A hard maximum impersonation duration, enforced server-side.",
+        "Stopping impersonation revokes the target's sessions.",
+        "The impersonated session carries a server-visible marker, and destructive routes (account delete, subscription cancel, marketplace disconnect, grading spend) refuse or require additional authorization while it is set.",
+        "The account-delete password re-auth moves server-side.",
+        "PRIVILEGED_ROLES (:40) is {admin, super_admin} so a reviewer can be impersonated — decide whether that is intended.",
+        "admin-impersonation.ts:137 writes target_id straight from the request body with no check against the start record, so the stop audit row is client-controlled. Fix.",
+        "Confirm the GoTrue OTP TTL in prod — it sets the real lifetime of the impersonation and resume tokens."
+      ],
+      "notes": "[P0][Admin/Security] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. A target's own MFA does not protect them: a magiclink redemption yields an aal1 session."
+    },
+    {
+      "id": "US-2352",
+      "passes": false,
+      "title": "Any plain admin can export the entire audit log, defeating the super_admin export gate",
+      "description": "admin-audit.ts:126 restricts GET /export to super_admin and self-audits the export (:165). But the RPC it wraps, admin_audit_log_search (00227_audit_log_search_export.sql:69), is guarded only by is_admin() and is GRANTed to authenticated (00227:108-110), accepting p_limit up to 50,000 (:60). src/lib/admin-aggregates.ts:179 calls it with the browser anon client from src/pages/admin/audit-log.tsx:144, and the isSuperAdmin check at :116/:142/:182 is a react-query enabled flag, not a boundary. Any admin can run the RPC from devtools with p_limit 50000, get the full forensic log including every other admin's IPs and details payloads, and leave no audit_log.export row behind.",
+      "acceptanceCriteria": [
+        "The RPC's EXECUTE grant is narrowed, or the function itself enforces super_admin.",
+        "p_limit has a sane ceiling.",
+        "Every call is recorded, whether it came through the edge route or the RPC.",
+        "Sweep the other admin RPCs for the same authenticated grant pattern."
+      ],
+      "notes": "[P1][Admin/Security] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2353",
+      "passes": false,
+      "title": "High-impact admin routes have no step-up: feature flags, money, grade voiding, agent execution",
+      "description": "Step-up coverage is inconsistent in a way that inverts the risk ordering. PUT /api/admin/flags (admin-flags.ts:68) toggles ANY feature flag with only the router-wide ops:write, while the far less impactful PUT /:key/rule (:210) requires both super_admin and step-up; a second unguarded write into the same table exists at admin-waitlist.ts:235. POST /claims/:id/resolve (admin-guarantee-pool.ts:89) draws the pool and grants reward credit with no step-up and no super_admin, the only money-moving route in the service without step-up. POST /:id/approve (admin-claims.ts:473) refunds the grading fee and grants a free re-grade with no step-up, and sits under grading:review, so revoking billing:write does not stop an admin paying claims. POST /regrade (admin-bulk.ts:380) supersedes up to 200 issued grade reports with no step-up while its siblings /credits:260 and /suspend:316 both have it. POST /retry with kind grading (admin-jobs.ts:387) voids grades under ops:write without ever holding grading:review. Prompt and exemplar DEACTIVATE (admin-grading.ts:530, :2083) have no step-up while activate does. PUT /baselines/:id (:3145) overwrites the expectation baseline the grader compares against. POST /agents/proposals/:id/approve (admin-agents.ts:267) executes agent-authored operational writes with no step-up and no super_admin.",
+      "acceptanceCriteria": [
+        "Produce one table of every admin mutation route with its scope, step-up requirement and super_admin requirement, and get it reviewed as a policy rather than fixed route by route.",
+        "Apply step-up to every money-moving, grade-voiding, kill-switch and agent-executing route.",
+        "Deactivate is as dangerous as activate — gate it the same.",
+        "Cross-scope holes are closed: paying a claim needs billing:write, voiding a grade needs grading:review, regardless of which router the route lives in.",
+        "STEP_UP_MAX_AGE_SEC defaults to 24 hours (env.ts:76-79), so step-up is a once-a-day control, not a per-action one. Decide the real intent and set it accordingly — the file's own comment acknowledges this."
+      ],
+      "notes": "[P1][Admin/Security] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Grouped deliberately: fixing these one at a time will re-create the same inconsistency. Decide the policy first."
+    },
+    {
+      "id": "US-2354",
+      "passes": false,
+      "title": "The admin scope drift-guard cannot catch an unguarded mutation, and one already shipped",
+      "description": "admin-scope-coverage_test.ts:50 computes hasGuard as src.includes('requireScope('), so a single occurrence anywhere in the file satisfies mode 'mutations'. Router mode correctly asserts the use('*') shape (:81-83), but admin-users.ts, admin-bulk.ts, admin-scopes.ts and admin-guarantee-pool.ts are all mutations mode, so a new unguarded .post() in any of them passes CI. This has already happened: admin-bulk.ts:199 POST /resolve has no requireScope at all and adminBulkRoutes has no router-wide guard (:38). It resolves up to 200 arbitrary emails to {id, email, full_name, suspended} — a user-enumeration and email-confirmation oracle available to any admin regardless of scope.",
+      "acceptanceCriteria": [
+        "The guard parses per-route rather than doing a whole-file substring match.",
+        "admin-bulk.ts:199 gets a scope.",
+        "A deliberate no-scope route must be explicitly registered as exempt with a reason, not silently pass.",
+        "Note the wider context: the default admin role holds 8 of 9 scopes (rbac-scopes.ts:123-132) and the test actively pins it that way, so scope enforcement is a no-op for a default admin and only becomes a real control once an operator narrows a role. Decide whether that default is right."
+      ],
+      "notes": "[P1][Admin/Security] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2355",
+      "passes": false,
+      "title": "Whole admin subsystems mutate with no audit trail at all",
+      "description": "admin-tasks.ts has 12 mutation routes with no writeAuditLog anywhere in the file and no step-up; DELETE /projects/:id:112 is a bare delete with no existence check and no before-image, and :178 and :231 are the same. admin-ads.ts:521/:535/:487 apply and revert bid and budget changes and upload offline conversions to the LIVE Google and Apple ad accounts — real spend — with no writeAuditLog in the entire file, only a domain-local ads_change_audit and only for apply/revert; :554, :565 and :473 have no trail at all. admin-ops.ts:1208 POST /events/acknowledge-all mass-clears every unacknowledged critical ops event with no step-up, no super_admin and no audit — an efficient way to erase the operational alert record. admin-newsletter.ts:174 flips the newsletter send kill switch with super_admin and step-up but no audit row. admin-measure-cards.ts:124 bulk-transitions up to 500 requests and writes onto each owner's users row with no audit and no step-up.",
+      "acceptanceCriteria": [
+        "Every admin mutation writes an audit row. Enforce with the same drift-guard approach used for scopes.",
+        "Deletes capture a before-image.",
+        "acknowledge-all is audited and gated.",
+        "Live ad-spend changes are audited to the central log, not only to a domain table."
+      ],
+      "notes": "[P1][Admin/Audit] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2356",
+      "passes": false,
+      "title": "Two-person controls and bulk-email gates are splittable or missing",
+      "description": "POST /issues/:id/send (admin-newsletter.ts:909) correctly requires super_admin plus step-up and only accepts an approved issue, but POST /issues/:id/transition (:766), which sets that approved state, has no super_admin check and no step-up — a plain content:publish admin can stage the blast. Bulk email to real users without step-up: admin-waitlist.ts:171 sends 500 invites with no step-up and no super_admin; admin-drip.ts:397 and admin-newsletter.ts:726 test-send to an operator-supplied arbitrary address, which is a content-exfiltration channel; admin-messages.ts:85 and admin-moderation.ts:603 send arbitrary subject and body to a real user from the platform address. admin-growth.ts:405 requires both for the same class of action, so the inconsistency is internal. Separately, admin-compliance.ts:321 POST /data-requests/:id/process gates its DELETE branch with super_admin, step-up and a typed confirm string, but its EXPORT branch (processExport, :344) assembles and signs a URL to a user's complete data archive — submissions, inventory, listings, sales, storage objects — with none of the three.",
+      "acceptanceCriteria": [
+        "The approval transition that unlocks a send carries the same authority as the send.",
+        "Bulk and arbitrary-recipient email requires step-up.",
+        "The GDPR export branch is gated like the delete branch.",
+        "admin-safety.ts:233 and admin-passport-integrity.ts:253 apply step-up only on the resolve branch; dismiss and reopen skip it. Decide and make it consistent.",
+        "admin-brand-knowledge.ts:249 DELETE /:table/:id deletes from a caller-supplied table name constrained only by the KB_TABLES allow-list at :251. Confirm the allow-list is a sufficient control."
+      ],
+      "notes": "[P2][Admin/Security] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2357",
+      "passes": false,
+      "title": "Two admin UI actions are probably broken: users.plan and submissions.status write direct to Postgres with no policy",
+      "description": "src/pages/admin/user-detail.tsx:249 writes users.plan and src/pages/admin/submissions.tsx:362 writes submissions.status through the browser client. Neither table has an admin UPDATE policy — the only UPDATE policy on public.users is auth.uid() = id (00076:22-25) — so RLS should silently affect zero rows, and users.plan would additionally trip the 00076 guard trigger. This is probably a broken feature rather than a security hole, but it fails silently, so the operator believes the change landed.",
+      "acceptanceCriteria": [
+        "Confirm by running both actions against a test admin whether the write succeeds or silently no-ops.",
+        "If broken: route both through an edge endpoint with the appropriate scope, step-up and audit.",
+        "Supabase writes in admin pages check the returned error and surface it rather than assuming success.",
+        "/admin/incentives is flagged superAdminOnly in the nav (src/layouts/admin-layout.tsx:105) but src/pages/admin/incentives.tsx has no client check and renders fully if the URL is typed. Cosmetic — its writes go through the edge — but fix the nav claim."
+      ],
+      "notes": "[P2][Admin/UX] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Verify before fixing — this may be a no-op, in which case the story is 'restore a broken feature', not 'close a hole'."
+    },
+    {
+      "id": "US-2358",
+      "passes": false,
+      "title": "A super_admin role grant is silently also an unmetered-spend grant",
+      "description": "00110_super_admin_business_plan.sql:37 auto-elevates any row with role super_admin to Business/enterprise, and lib/grade-billing.ts:138-157 gives super_admins uncapped free grading. Granting the role therefore also grants unlimited Claude Vision spend with no ceiling and no separate decision. The bootstrap itself is clean — no seed migration, no env allowlist, no script creates a super_admin, so the first one must be set by direct DB access, which is correct.",
+      "acceptanceCriteria": [
+        "Decide whether unmetered grading should follow the role automatically or be a separate, audited grant.",
+        "If it stays automatic, super_admin grading spend is tracked and reported so it cannot hide a runaway.",
+        "Document the coupling in the runbook so a role grant is understood as a spend grant."
+      ],
+      "notes": "[P3][Admin/Cost] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2359",
+      "passes": false,
+      "title": "Buyer plan gating is never enforced: requireBuyerFeature has zero callers",
+      "description": "lib/buyer-entitlements.ts:221 defines requireBuyerFeature, the 402 upgrade-required guard, and nothing calls it. Its helper buyerFeatureEnabled is used only by it and by tests. So no buyer route enforces plan gating except buyer-authenticity.ts:24, which does its own inline check. buyer-wants.ts — the demand board, a Connoisseur-tier feature — has no gate at all. Every buyer paid feature is available on the free tier.",
+      "acceptanceCriteria": [
+        "Inventory which buyer routes are supposed to be tier-gated, and against which tier.",
+        "requireBuyerFeature is applied to each of them.",
+        "A test asserts every tier-gated buyer route returns 402 for a free-tier user.",
+        "Measure how many free-tier buyers have been using paid features before deciding whether to grandfather them."
+      ],
+      "notes": "[P1][Buyer/Billing] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. The dead-code sweep called this its top finding. Revenue leak, not just dead code."
+    },
+    {
+      "id": "US-2360",
+      "passes": false,
+      "title": "src/lib/storage.ts uploadSubmissionImage is a working trap that bypasses the US-276 upload contract",
+      "description": "src/lib/storage.ts:35 exports uploadSubmissionImage, a client-direct-to-storage upload that validates on client MIME only. That contradicts the US-276 contract, which requires magic-byte sniffing and EXIF stripping server-side before storage.upload(). It has no callers today, so it is not live — but it works, it looks correct, and someone will re-import it. deleteSubmissionImage at :96 is also unused; only getImageUrl from this module has a caller.",
+      "acceptanceCriteria": [
+        "Delete uploadSubmissionImage and deleteSubmissionImage.",
+        "If a client-side upload path is genuinely wanted, it goes through the edge validated path instead.",
+        "A test or lint rule prevents a new client-direct upload to submission-images."
+      ],
+      "notes": "[P2][Web/Security] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Not exploitable today. Delete it before it becomes exploitable."
+    },
+    {
+      "id": "US-2361",
+      "passes": false,
+      "title": "No client-side experiment is actually running: useFeatureFlag has zero callers",
+      "description": "src/hooks/use-feature-flag.ts:31 is the whole US-2109 PostHog experiment binding and nothing calls it. Any experiment believed to be running on the client is not.",
+      "acceptanceCriteria": [
+        "Confirm against PostHog which experiments are believed to be live.",
+        "Either wire the hook into the surfaces that need it, or delete it and close US-2109 with the reason.",
+        "If experiments matter, add a check that a flag defined in PostHog with no client consumer is reported."
+      ],
+      "notes": "[P2][Web/Growth] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. DECISION-then-build."
+    },
+    {
+      "id": "US-2362",
+      "passes": false,
+      "title": "Delete or route the three orphaned inventory pages (~98 KB of unreachable source)",
+      "description": "src/pages/inventory-detail.tsx:157 InventoryDetailPage (62 KB) is unreachable — /dashboard/inventory/:id is a redirect at src/routes/index.tsx:427. src/pages/inventory.tsx:130 InventoryPage (21 KB) is superseded by /dashboard/flipdesk/inventory, old path a Navigate at routes/index.tsx:425. src/pages/inventory-add.tsx:69 InventoryAddPage (15 KB) is superseded by the /dashboard/flipdesk/intake redirect at :426.",
+      "acceptanceCriteria": [
+        "Confirm nothing in the FlipDesk replacements is missing relative to the old pages, then delete all three.",
+        "Also clear the smaller unreferenced components that were found: src/components/flipdesk/comp-editor.tsx:27 (303 lines, rendered nowhere), src/components/flipdesk/pnl-panel.tsx:16 (143 lines, rendered nowhere).",
+        "src/lib/stripe.ts:5 stripePromise is unused, so the whole module and its @stripe/stripe-js import are dead — removing it drops a dependency from the bundle.",
+        "The 12 unreferenced route-matcher guards in src/lib/seo/ look like a matcher layer written and never wired — decide wire-or-delete as one batch.",
+        "Three fully-wired eBay mutations have no UI: use-ebay.ts:1070 useEbayUpdateListingPrice, :1570 useSaveEbayCategoryMapping, :1683 useSetListingCondition. Decide whether they were meant to ship."
+      ],
+      "notes": "[P3][Web/Cleanup] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. The TODO/FIXME sweep came back genuinely CLEAN across web, edge, functions, iOS and Android — zero real markers."
+    },
+    {
+      "id": "US-2363",
+      "passes": false,
+      "title": "Abandoned newsletter issues leak public storage objects: cleanupIssueAssets is never called",
+      "description": "lib/newsletter-imagery.ts:219 defines cleanupIssueAssets and nothing invokes it, so an abandoned or deleted newsletter issue leaves its objects in the public content-images bucket forever.",
+      "acceptanceCriteria": [
+        "cleanupIssueAssets is called when an issue is deleted or abandoned.",
+        "A one-off sweep removes already-orphaned objects.",
+        "Also unused and worth a wire-or-delete decision: authenticity-references.ts:243 signReferenceUrl, email.ts:1525/:1576 sendNorthStarWeeklyEmail and sendNorthStarMilestoneEmail, content-ai-email.ts:254 generateAndPersistEmailIssue, guarantee-pool.ts:178 getPoolPeriodState, ebay-postorder.ts:141/:235 getReturn and getCancellation.",
+        "ebay-client.ts:2427/:2439/:2451 — the three bulk eBay helpers are unused and publish runs one at a time. Using them would cut publish latency; decide."
+      ],
+      "notes": "[P3][Edge/Cleanup] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2364",
+      "passes": false,
+      "title": "A failed agent autonomy demotion is silently dropped after a policy breach",
+      "description": "lib/agent-policy.ts:313 does `await d.saveAutonomy(agent.id, next).catch(() => {})`, so a failed write leaves the agent at its OLD privilege level after a policy breach, with no signal. Line :314 swallows the breach event too. Error swallowing is otherwise clean across the repo — nearly every catch carries a justification and the fire-and-forget pattern is deliberate — so this is a genuine outlier, not a style issue.",
+      "acceptanceCriteria": [
+        "A failed demotion retries or hard-fails the agent, and always emits an ops event.",
+        "The breach event write is not swallowed.",
+        "Three lesser swallows to review: src/lib/offline-queue.ts:105 discards the error so a persistent RLS or schema rejection retries forever undiagnosably; src/pages/admin/disputes.tsx:422 silently drops dispute evidence photos so a reviewer cannot tell a missing photo from a failed signed URL; lib/publish-preflight.ts:613 treats a network error as reachable and does not block, a documented fail-open."
+      ],
+      "notes": "[P2][Agents/Safety] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2365",
+      "passes": false,
+      "title": "Finish the PLANS deprecation: two live callers remain",
+      "description": "src/lib/constants.ts:646 PLANS is marked @deprecated with removal blocked on US-211 and US-220, but src/components/admin/platform-analytics.tsx:4 and src/components/flipdesk/bulk-ai-enrich-dialog.tsx:23 still import it.",
+      "acceptanceCriteria": [
+        "Both callers migrate to the current source.",
+        "PLANS is removed and the blocking stories are updated.",
+        "Separately: 85 exports in src/ are exported but used only inside their own file — dropping the export keyword is safe and shrinks the public surface. Batch it with this."
+      ],
+      "notes": "[P3][Web/Cleanup] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+    },
+    {
+      "id": "US-2366",
+      "passes": false,
+      "title": "Re-archive prd.json: 31 completed stories are sitting in the active backlog",
+      "description": "prd.json holds 31 stories with passes:true. Per CLAUDE.md these belong in prd.archive.json so the active file stays small and the Ralph loop stays fast.",
+      "acceptanceCriteria": [
+        "Stop the Ralph loop first (scripts/ralph/stop-ralph.*) so it cannot clobber the rewrite.",
+        "Move every passes:true story to prd.archive.json.",
+        "nextId is untouched by the move — never use max(id)+1, the high-id done stories live in the archive.",
+        "Confirm prd.json still parses and the story count reconciles."
+      ],
+      "notes": "[P3][Backlog integrity] [Audit 2026-07-30 module/platform sweep] VERIFIED directly against the code in this session. — 31 passes:true confirmed in prd.json this session."
     }
   ]
 }
