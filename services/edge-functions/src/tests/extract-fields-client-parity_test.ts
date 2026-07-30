@@ -65,6 +65,50 @@ Deno.test("US-2269: every EXTRACT_FIELDS name is persistable by the iOS writer",
   );
 });
 
+// US-2268: `known_fields` is the seller's own values, and the extract route
+// DELETES every known key from its suggestions before responding. So the set a
+// client sends decides which fields the AI is allowed to compete on — and the two
+// clients must agree, or the same item behaves differently depending on which app
+// ran the fill.
+Deno.test("US-2268: iOS and web send the same known_fields set", async () => {
+  const swift = await Deno.readTextFile(
+    new URL("ios/GradeThread/AIExtract/AIExtractInputs.swift", REPO_ROOT),
+  );
+  // The tuple list inside `var knownFields` — ("brand", brand), ("style", style)…
+  const knownBlock = /var knownFields: \[String: KnownFieldValue\]\?\s*\{([\s\S]*?)\n\s{4}\}/
+    .exec(swift)?.[1] ?? "";
+  assert(knownBlock.length > 0, "could not locate AIExtractInputs.knownFields");
+  const iosKeys = [...knownBlock.matchAll(/\("([a-z_]+)",/g)].map((m) => m[1]!).sort();
+  assert(iosKeys.length >= 8, `expected the full known set, saw ${iosKeys.join(",")}`);
+
+  // The web composer's ENRICHABLE list: { key: "brand", value: … } entries.
+  const composer = await Deno.readTextFile(
+    new URL("src/pages/flipdesk/composer.tsx", REPO_ROOT),
+  );
+  const enrichable = /const ENRICHABLE: \{[\s\S]*?\n\s{4}\? \[([\s\S]*?)\n\s{6}\]/
+    .exec(composer)?.[1] ?? "";
+  assert(enrichable.length > 0, "could not locate ENRICHABLE in composer.tsx");
+  const webKeys = [...enrichable.matchAll(/key:\s*"([a-z_]+)"/g)].map((m) => m[1]!).sort();
+
+  assertEquals(
+    iosKeys,
+    webKeys,
+    "AIExtractInputs.knownFields (iOS) and ENRICHABLE (web composer) disagree — " +
+      "the same item would let the AI overwrite different fields depending on " +
+      "which client ran the fill",
+  );
+
+  // And every one of them must be a field the server can actually return,
+  // otherwise it is a key the delete-step will never match.
+  const extractSrc = await Deno.readTextFile(EXTRACT_LIB);
+  const fields = arrayLiteral(
+    extractSrc,
+    /const EXTRACT_FIELDS = \[([\s\S]*?)\] as const;/,
+  );
+  const unknown = iosKeys.filter((k) => !fields.includes(k));
+  assertEquals(unknown, [], `known_fields keys the server never suggests: ${unknown}`);
+});
+
 Deno.test("US-2269: the web intake applies every EXTRACT_FIELDS name too", async () => {
   const extractSrc = await Deno.readTextFile(EXTRACT_LIB);
   const fields = arrayLiteral(

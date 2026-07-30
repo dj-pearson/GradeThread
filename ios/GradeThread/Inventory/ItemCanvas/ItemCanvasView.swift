@@ -1092,7 +1092,7 @@ struct ItemCanvasView: View {
     /// The AI needs photos or text. Mirrors the web composer's `canCompleteWithAi`
     /// so the disabled state means the same thing on both platforms.
     private var canCompleteWithAi: Bool {
-        !aiRerunPhotoRefs.isEmpty || !aiRerunText.isEmpty
+        !aiRerunPhotoRefs.isEmpty || aiRerunInputs.text != nil
     }
 
     /// This item's persisted photos as plain refs, in `sortOrder` (the @Query is
@@ -1108,36 +1108,28 @@ struct ItemCanvasView: View {
         }
     }
 
-    /// Free text for the extract: what the seller has already written. The server
-    /// prefers text over photos for condition notes, so sending it makes the fill
-    /// better rather than just cheaper.
-    private var aiRerunText: String {
-        [state?.draft.title, state?.draft.itemDescription, state?.draft.conditionNotes]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-    }
-
-    /// Fields the item ALREADY has. The server deletes every `known_fields` key
-    /// from its suggestions, so this is what stops a re-run from contradicting
-    /// (or silently overwriting) values the seller set by hand.
-    private var aiRerunKnownFields: [String: KnownFieldValue] {
-        guard let draft = state?.draft else { return [:] }
-        var known: [String: KnownFieldValue] = [:]
-        func put(_ key: String, _ value: String?) {
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !trimmed.isEmpty else { return }
-            known[key] = .string(trimmed)
-        }
-        put("brand", draft.brand)
-        put("style", draft.style)
-        put("size", draft.size)
-        put("color", draft.color)
-        put("material", draft.material)
-        put("item_category", draft.category?.rawValue)
-        put("garment_type", draft.garmentType)
-        put("garment_category", draft.garmentCategory)
-        return known
+    /// What the item already holds, shaped by the SAME rules the post-capture path
+    /// uses (US-2268's ``AIExtractInputs``) so the two entry points can't drift on
+    /// which fields count as known or what goes into the text blob.
+    ///
+    /// Built from the live DRAFT rather than the server row on purpose: the seller
+    /// may have typed something they haven't saved yet, and telling the AI about it
+    /// is strictly better than letting it propose a competing value.
+    private var aiRerunInputs: AIExtractInputs {
+        guard let draft = state?.draft else { return AIExtractInputs() }
+        return AIExtractInputs(
+            title: draft.title,
+            itemDescription: draft.itemDescription,
+            conditionNotes: draft.conditionNotes,
+            brand: draft.brand,
+            style: draft.style,
+            size: draft.size,
+            color: draft.color,
+            material: draft.material,
+            itemCategory: draft.category?.rawValue,
+            garmentType: draft.garmentType,
+            garmentCategory: draft.garmentCategory
+        )
     }
 
     /// Kicks off the re-run. The manager keeps it alive past this view, and its
@@ -1152,12 +1144,12 @@ struct ItemCanvasView: View {
             return
         }
         AppRouter.haptic()
-        let known = aiRerunKnownFields
+        let inputs = aiRerunInputs
         aiManager.startRerun(
             itemId: item.id,
             photos: aiRerunPhotoRefs,
-            knownFields: known.isEmpty ? nil : known,
-            text: aiRerunText.isEmpty ? nil : aiRerunText,
+            knownFields: inputs.knownFields,
+            text: inputs.text,
             isOffline: NetworkMonitor.isOffline(networkMonitor)
         )
     }

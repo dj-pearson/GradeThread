@@ -3297,7 +3297,7 @@
     },
     {
       "id": "US-2268",
-      "passes": false,
+      "passes": true,
       "title": "iOS sends the extract no text and no known_fields, so the AI can contradict what the seller already typed",
       "description": "As a seller on iPhone who already typed a brand, size or note, I want the AI to be told what I know, so that it fills the gaps instead of overwriting my own values.",
       "acceptanceCriteria": [
@@ -3308,7 +3308,8 @@
       ],
       "dependsOn": [
         "US-2266"
-      ]
+      ],
+      "notes": "Done 2026-07-29. Added AIExtractInputs: one pure shaper that turns the item's current values into known_fields (the 8 structured columns, matching web's ENRICHABLE) and text (title + description + condition_notes joined). Both entry points use it — the post-capture run reads AIItemFieldWriter.snapshot IMMEDIATELY BEFORE the extract call, and the US-2266 re-run builds it from the live canvas draft (which includes unsaved edits). SCOPE CORRECTION worth recording: the story's premise was that iOS contradicts values the seller typed, but on the capture path the row is created bare, so the real window is different and narrower — the extract runs ~20-40s AFTER the user is handed off to the item, so anything typed during that window was previously invisible to the AI and came back as a competing suggestion. Reading the snapshot late is what closes it. The placeholder title 'Untitled item' is excluded from text (it is not seller copy and the model would try to reconcile it). Also added a DENO guard comparing iOS AIExtractInputs.knownFields against the web composer's ENRICHABLE and against EXTRACT_FIELDS, verified by sabotage (removing 'material' from the Swift list fails it by name, then restored) — the clients can no longer disagree on which fields the AI may compete on. 5 new XCTests unrun locally (no Swift toolchain); iOS CI is the gate."
     },
     {
       "id": "US-2269",

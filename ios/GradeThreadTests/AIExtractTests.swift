@@ -580,6 +580,124 @@ final class AIExtractTests: XCTestCase {
         XCTAssertFalse(mgr.isRunning(id))
     }
 
+    // MARK: - known_fields + text on both entry points (US-2268)
+
+    /// The server deletes every `known_fields` key from its suggestions, so sending
+    /// what the seller already filled is what stops the AI competing with it.
+    func test_inputs_knownFieldsCoverTheStructuredColumns() throws {
+        let inputs = AIExtractInputs(
+            title: "Nike windbreaker",
+            brand: "Nike",
+            size: "L",
+            itemCategory: "clothing"
+        )
+        let known = try XCTUnwrap(inputs.knownFields)
+        XCTAssertEqual(Set(known.keys), ["brand", "size", "item_category"])
+
+        // Encoded shape: flat strings under the server's column names.
+        let request = AIExtractRequest(
+            itemId: "i", photos: [], knownFields: known, text: inputs.text
+        )
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+        )
+        let sent = try XCTUnwrap(json["known_fields"] as? [String: Any])
+        XCTAssertEqual(sent["brand"] as? String, "Nike")
+        XCTAssertEqual(sent["size"] as? String, "L")
+        // Free text never doubles as a known field — the AI is meant to read it.
+        XCTAssertNil(sent["title"])
+        XCTAssertNil(sent["description"])
+        XCTAssertNil(sent["condition_notes"])
+    }
+
+    /// Mirrors the server contract in flipdesk-ai.ts: a known key is stripped from
+    /// `suggestions` before the response is built, so a known field can never come
+    /// back and reach the auto-apply path.
+    func test_knownField_cannotComeBackAsAnAppliedSuggestion() throws {
+        // What the server returns for known brand+size: those keys are gone.
+        let store = readyStore([
+            "color": .init(value: "Navy", confidence: 0.9, source: "photo:front"),
+        ])
+        var snapshot = AIItemFieldWriter.Snapshot()
+        snapshot.brand = "Nike"
+        snapshot.size = "L"
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: snapshot))
+
+        XCTAssertEqual(review.applied.map(\.field), ["color"])
+        XCTAssertFalse(review.applied.contains { $0.field == "brand" || $0.field == "size" })
+        XCTAssertFalse(review.lowConfidence.contains { $0.field == "brand" || $0.field == "size" })
+    }
+
+    /// Text is the WINNING source for condition notes server-side, so the seller's
+    /// own words have to reach it. The placeholder title must not: it isn't
+    /// something they wrote, and the model would try to reconcile it.
+    func test_inputs_textJoinsSellerCopyAndDropsThePlaceholderTitle() {
+        let written = AIExtractInputs(
+            title: "Patagonia Nano Puff",
+            itemDescription: "Light wear, no holes.",
+            conditionNotes: "Small mark on the left cuff"
+        )
+        XCTAssertEqual(
+            written.text,
+            "Patagonia Nano Puff\nLight wear, no holes.\nSmall mark on the left cuff"
+        )
+
+        // A brand-new photo-first row: title is the placeholder, nothing else set.
+        let fresh = AIExtractInputs(title: AIExtractStore.placeholderTitle)
+        XCTAssertNil(fresh.text, "the placeholder is not seller copy")
+        XCTAssertNil(fresh.knownFields)
+        XCTAssertTrue(fresh.isEmpty)
+
+        // Blank and whitespace-only values contribute nothing.
+        let blank = AIExtractInputs(title: "  ", itemDescription: "", brand: "   ")
+        XCTAssertNil(blank.text)
+        XCTAssertNil(blank.knownFields)
+    }
+
+    /// A bare capture still sends photos and omits both keys entirely, preserving
+    /// today's photo-only behaviour rather than sending empty objects.
+    func test_bareCapture_omitsKnownFieldsAndText() throws {
+        let inputs = AIExtractInputs(snapshot: {
+            var s = AIItemFieldWriter.Snapshot()
+            s.title = AIExtractStore.placeholderTitle
+            return s
+        }())
+        XCTAssertNil(inputs.knownFields)
+        XCTAssertNil(inputs.text)
+
+        let request = AIExtractRequest(
+            itemId: "i",
+            photos: [ExtractPhoto(url: "https://pub/front.jpg", type: "front")],
+            knownFields: inputs.knownFields,
+            text: inputs.text
+        )
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+        )
+        XCTAssertNil(json["known_fields"])
+        XCTAssertNil(json["text"])
+        XCTAssertEqual((json["photos"] as? [[String: Any]])?.count, 1)
+    }
+
+    /// The snapshot initialiser is what the post-capture path uses, so it has to map
+    /// every column the shaper reads.
+    func test_inputs_fromSnapshot_mapsEveryColumn() throws {
+        var s = AIItemFieldWriter.Snapshot()
+        s.title = "T"; s.description = "D"; s.conditionNotes = "C"
+        s.brand = "B"; s.style = "S"; s.size = "M"; s.color = "Blue"
+        s.material = "Cotton"; s.itemCategory = "clothing"
+        s.garmentType = "tops"; s.garmentCategory = "t-shirt"
+
+        let inputs = AIExtractInputs(snapshot: s)
+        XCTAssertEqual(inputs.text, "T\nD\nC")
+        let known = try XCTUnwrap(inputs.knownFields)
+        XCTAssertEqual(
+            Set(known.keys),
+            ["brand", "style", "size", "color", "material",
+             "item_category", "garment_type", "garment_category"]
+        )
+    }
+
     // MARK: - Write bar vs pre-tick bar (US-2267)
 
     private func readyStore(

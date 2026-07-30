@@ -336,7 +336,24 @@ final class AIExtractionManager {
 
         // Required photos are confirmed in the DB — now run the AI itself.
         phases[itemId] = .running
-        let request = AIExtractRequest(itemId: itemId, photos: extractPhotos, knownFields: nil, text: nil)
+
+        // US-2268: send what the item already holds. This used to pass
+        // knownFields/text as nil, which was wrong even for a just-created row: the
+        // user is handed off to the item as soon as the gate clears and this call
+        // takes ~20-40s, so anything they typed in the meantime was invisible to
+        // the AI — and a suggestion for a field they'd just filled would come back
+        // and compete with it. Read the row HERE, not at creation time, so the
+        // window is as small as possible. A failed read degrades to photos-only.
+        let inputs = AIExtractInputs(
+            snapshot: (try? await AIItemFieldWriter.snapshot(itemId: itemId))
+                ?? AIItemFieldWriter.Snapshot()
+        )
+        let request = AIExtractRequest(
+            itemId: itemId,
+            photos: extractPhotos,
+            knownFields: inputs.knownFields,
+            text: inputs.text
+        )
         do {
             let response = try await AIExtractService().extract(request)
             store.applyResponse(response)
