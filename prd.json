@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2275",
+  "nextId": "US-2276",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3399,6 +3399,22 @@
         "A deno or vitest drift guard asserts the iOS column-to-aspect name mapping matches the web/edge registry (services/edge-functions/src/lib/aspect-registry.ts, vendored to src/lib/ebay-aspect-registry.json), so the two platforms cannot disagree on which aspect a column owns.",
         "Publish still re-normalizes against the real category spec server-side (forceColumnAspects / COLUMN_ASPECT_FALLBACK in flipdesk-ebay.ts), so a raw column value outside eBay's allowed list is still corrected at publish - this story does not change that."
       ]
+    },
+    {
+      "id": "US-2275",
+      "passes": true,
+      "title": "Composer: Save/publish sat at the bottom of a thirteen-card page, so every save meant scrolling the whole form",
+      "description": "As a seller editing a listing on the web, I want Save and Submit to eBay reachable without scrolling, so that saving a small change costs one click instead of a full-page scroll.",
+      "acceptanceCriteria": [
+        "The Save/publish action row renders inside the composer's sticky preview rail (the @4xl:sticky column), FIRST in that rail so it stays on screen while the seller works anywhere in the form; the Listing preview follows it, because the sticky container clips at the viewport bottom and the button must never be what gets cut.",
+        "Exactly one instance of the row exists: declared once as actionRow and rendered once. No small-screen duplicate, which would put two identically-labelled Save buttons in the accessibility tree.",
+        "The notices that explain a blocked save (missing required specifics, the spec-vs-description mismatch, the live-listing warning) render in the rail directly BELOW the row, so a disabled button and its reason are visible together; they sit below the row so the button does not move as notices appear and clear.",
+        "The publish CONFIG cards stay editable and stay in the editor column: PushToCard, ListingKit and ScheduleCard render after StorageSkuCard and before the rail. ScheduleCard stays out of price-card.tsx.",
+        "US-2252/US-2253's guarantee is preserved by the control rather than by card order: the publish button names its destination in its own label and is disabled with 'Pick at least one marketplace' when pushPlatforms is empty. Asserted against the button's own source.",
+        "src/lib/__tests__/composer-anchors.test.ts is updated, not deleted: it now anchors on the {actionRow} render site rather than a className (the old anchor broke on a class change and took three tests with it), and asserts rail composition, notice placement, config-card placement and the button-level gate.",
+        "npx impeccable detect on composer.tsx stays clean, and the row wraps rather than overflowing the narrower rail (the publish label can read 'Save & schedule for Jul 30, 2026, 3:00 PM CDT')."
+      ],
+      "notes": "Done 2026-07-29. actionRow extracted to a const and rendered first in the sticky rail, with the blocker notices moved in under it; PushToCard/ListingKit/ScheduleCard relocated INTO the editor column (they were left stranded below the grid with no button under them once the CTA moved up). Reframed US-2252/US-2253's guarantee honestly rather than deleting it: 'config directly above the CTA' was a layout expression of 'the CTA cannot outrun the channel picker', and a sticky CTA has no 'below' — so the invariant is now asserted against the button itself (names its destination, disables with a reason when pushPlatforms is empty). composer-anchors.test.ts rewritten to anchor on the {actionRow} render site instead of a className; the old anchor was a className string and my class change alone took three tests down, which is the real lesson. 14 tests pass; full web suite back to its single pre-existing failure (heading-outline needs a built dist). tsc, eslint and impeccable clean."
     }
   ]
 }

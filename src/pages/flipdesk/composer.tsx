@@ -1892,6 +1892,127 @@ export function FlipdeskComposerPage({
     returnPolicyId ?? ebayPolicies?.defaults?.return_policy_id ?? null,
   );
 
+  // The Save / publish row. Declared here and RENDERED in the sticky preview
+  // column (see below) rather than inline at the bottom of the page, so the
+  // button the seller presses most is not thirteen cards away from wherever
+  // they are editing. Kept as one instance on purpose: duplicating it for a
+  // small-screen copy would put two identically-labelled Save buttons in the
+  // accessibility tree.
+  const actionRow = (
+    // Wraps: the publish label can run long ("Save & schedule for Jul 30, 2026,
+    // 3:00 PM CDT"), and the preview column is narrower than the full page this
+    // row used to span.
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {/* US-2256: navigate(-1) is intercepted by the navigation guard when
+          there is unsaved work, so this stays a plain navigation and the
+          confirm lives in one place. */}
+      <Button variant="outline" onClick={() => navigate(-1)} disabled={saving}>
+        {isDirty ? "Close without saving" : "Close"}
+      </Button>
+      {editorMode === "live" ? (
+        <>
+          {/* An edit that isn't worth an eBay round-trip (cost, bin, sourcing)
+              still needs somewhere to land — otherwise the only Save on a live
+              listing is a ~5-8s revise the seller may not want. */}
+          <Button
+            variant="outline"
+            onClick={() => void saveLiveListing()}
+            disabled={saving || reviseListing.isPending}
+            title="Saves your edits in GradeThread without pushing to eBay."
+          >
+            {saving ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="mr-2 h-4 w-4" />
+            )}
+            Save without pushing
+          </Button>
+          <Button
+            onClick={() => void handleResubmitClick()}
+            disabled={saving || reviseListing.isPending || !ebayConnection}
+            title={
+              !ebayConnection
+                ? "Connect eBay first on the Marketplaces page."
+                : "Saves your edits, then pushes them to the live eBay listing."
+            }
+          >
+            {saving || reviseListing.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Rocket className="mr-2 h-4 w-4" />
+            )}
+            Save &amp; resubmit to eBay
+          </Button>
+        </>
+      ) : editorMode === "closed" ? (
+        // Sold / shipped / returned / archived: the same form, but there is no
+        // live offer to push to and nothing to publish. Save is the only verb.
+        <Button onClick={saveDraft} disabled={saving}>
+          {saving ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="mr-2 h-4 w-4" />
+          )}
+          Save
+        </Button>
+      ) : (
+        <>
+          <Button variant="outline" onClick={saveDraft} disabled={saving}>
+            {saving ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="mr-2 h-4 w-4" />
+            )}
+            Save draft
+          </Button>
+          <Button
+            onClick={() => void handlePublishClick()}
+            // US-2257: also blocked on the two things eBay is CERTAIN to
+            // reject, so the seller learns it here rather than from eBay's
+            // error message after a round-trip.
+            disabled={
+              saving ||
+              crossPush.isPending ||
+              pushPlatforms.size === 0 ||
+              (pushPlatforms.has("ebay") && !ebayConnection) ||
+              publishBlocker != null
+            }
+            title={
+              pushPlatforms.has("ebay") && !ebayConnection
+                ? "Connect eBay first on the Marketplaces page."
+                : pushPlatforms.size === 0
+                  ? "Pick at least one marketplace in the Push to card."
+                  : (publishBlocker ??
+                    (scheduledAt
+                      ? "Saves the draft; it publishes itself at your drop time."
+                      : "Saves the draft, then publishes."))
+            }
+          >
+            {crossPush.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : scheduledAt ? (
+              <CalendarClock className="mr-2 h-4 w-4" />
+            ) : (
+              <Rocket className="mr-2 h-4 w-4" />
+            )}
+            {/* US-2253: a scheduled drop isn't a publish — say what the click
+                actually does, and when it happens. */}
+            {scheduledAt
+              ? `Save & schedule for ${formatInZone(
+                  localInputToIso(scheduledAt) ?? "",
+                  dropTimezone,
+                )}`
+              : pushPlatforms.size === 1 && pushPlatforms.has("ebay")
+                ? "Save & publish to eBay"
+                : `Save & push to ${pushPlatforms.size} marketplace${
+                    pushPlatforms.size === 1 ? "" : "s"
+                  }`}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+
   return (
     // @container: this editor renders at three very different widths — the full
     // item page (wide), the quick-look sheet (max-w-2xl / 672px), and the item
@@ -2312,13 +2433,125 @@ export function FlipdeskComposerPage({
             container={storageContainer}
             onContainerChange={setStorageContainer}
           />
+
+          {/* ── Publish configuration ────────────────────────────────
+              US-2252/US-2253 put these directly above the CTA, because the
+              things that decide HOW a listing goes live belong next to the
+              button that does it. The CTA has since moved into the sticky rail
+              so it's reachable without scrolling, and these stayed EDITABLE —
+              so they belong with the rest of the form, last, as the final
+              decision before the button: which channels, and when. The button
+              still can't outrun them: it names the channels in its own label
+              and disables itself with a reason when none are picked. */}
+          <PushToCard
+            pushPlatforms={pushPlatforms}
+            togglePushPlatform={togglePushPlatform}
+            platformPrices={platformPrices}
+            setPlatformPrices={setPlatformPrices}
+            price={price}
+          />
+
+          <ListingKit
+            itemId={item.id}
+            baseName={item.item_number ?? item.item_title ?? item.id}
+          />
+
+          {editorMode === "draft" && (
+            <ScheduleCard
+              scheduledAt={scheduledAt}
+              setScheduledAt={setScheduledAt}
+              dropTimezone={dropTimezone}
+              setDropTimezone={setDropTimezone}
+            />
+          )}
         </div>
 
         {/* ── Preview column ──────────────────────────────────────── */}
         {/* Sticks only when it's actually beside the editor (same @4xl threshold
             as the two-column split) — a stuck preview in one-column flow would
             just cover the fields below it. */}
-        <div className="@4xl:sticky @4xl:top-4 @4xl:self-start">
+        <div className="space-y-4 @4xl:sticky @4xl:top-4 @4xl:self-start">
+          {/* The actions sit ABOVE the preview, first thing in the sticky column,
+              so Save is reachable from anywhere in a thirteen-card form. They used
+              to live at the very bottom of the page: every save meant scrolling
+              past the whole editor to reach the button, which is a tax on the
+              action sellers take most often. Ordered actions-then-preview because
+              the sticky container clips at the viewport bottom — whatever is last
+              is what gets cut off, and that must never be the button. */}
+          {actionRow}
+
+          {/* The reasons a save or publish is blocked belong WITH the button, not
+              a page-length away from it. Below the row so the button never moves
+              as notices appear and clear. */}
+          {/* US-825: pre-publish required-aspect check — warn inline (using the same
+              required-aspect rule the server blocks on) instead of failing at publish.
+              Non-blocking: publish stays server-validated. */}
+          {missingRequired.length > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-2 text-right">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-destructive">
+                  {missingRequired.length} required{" "}
+                  {missingRequired.length === 1 ? "specific" : "specifics"} missing
+                </span>{" "}
+                ({missingRequired.slice(0, 4).join(", ")}
+                {missingRequired.length > 4 ? "…" : ""}) — eBay will reject publish
+                until these are filled in.
+              </p>
+              {/* US-2257: "above" was doing a lot of work from the bottom of a very
+                  long page. Take the seller there instead. */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const el = document.getElementById("composer-category");
+                  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                Go to item specifics
+              </Button>
+            </div>
+          )}
+
+          {/* US-1490: a published listing edits in place — re-pushing to eBay rather
+              than re-publishing. Swap the draft/publish actions for "Save &
+              resubmit", and explain that edits go live on eBay. */}
+          {isLiveListing && (
+            <div className="flex items-start justify-end gap-2 text-right">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  This listing is live on eBay.
+                </span>{" "}
+                Saving will push your edits — including category, condition, and item
+                specifics — to the active listing.
+              </p>
+            </div>
+          )}
+
+          {/* Pre-push reminder: item specifics and the description are edited on
+              separate tracks, so a specific changed this session can leave the
+              description stale. Non-blocking — publish/revise stays enabled; this
+              just heads off a needless eBay revise/relist. Clears live as the seller
+              updates the description. */}
+          {specDescMismatches.length > 0 && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">
+                  Item specifics changed — the description may be out of date.
+                </p>
+                <p className="mt-0.5 text-amber-800 dark:text-amber-300/90">
+                  You changed{" "}
+                  {specDescMismatches
+                    .map((m) => `${SHARED_FIELD_LABELS[m.field]} (${m.value})`)
+                    .join(", ")}
+                  , but the description doesn&apos;t mention{" "}
+                  {specDescMismatches.length === 1 ? "it" : "them"}. Update the
+                  description before pushing to eBay to avoid a needless revise.
+                </p>
+              </div>
+            </div>
+          )}
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -2356,217 +2589,6 @@ export function FlipdeskComposerPage({
             </CardContent>
           </Card>
         </div>
-      </div>
-
-      {/* ── Publish ──────────────────────────────────────────────
-          US-2252/US-2253: everything that decides HOW this goes live sits
-          together, directly above the button that does it. The channel picker
-          used to live four cards up in the editor column while gating the CTA at
-          the bottom, and the drop schedule was buried inside "Condition &
-          price" — neither a condition nor a price. */}
-        <PushToCard
-          pushPlatforms={pushPlatforms}
-          togglePushPlatform={togglePushPlatform}
-          platformPrices={platformPrices}
-          setPlatformPrices={setPlatformPrices}
-          price={price}
-        />
-
-      {/* US-2252: the Listing Kit is editable content, so it belongs ABOVE the
-          Save/Publish row rather than after it — nothing actionable should sit
-          below the button that ends the task. */}
-      <ListingKit
-        itemId={item.id}
-        baseName={item.item_number ?? item.item_title ?? item.id}
-      />
-
-      {editorMode === "draft" && (
-        <ScheduleCard
-          scheduledAt={scheduledAt}
-          setScheduledAt={setScheduledAt}
-          dropTimezone={dropTimezone}
-          setDropTimezone={setDropTimezone}
-        />
-      )}
-
-      {/* US-825: pre-publish required-aspect check — warn inline (using the same
-          required-aspect rule the server blocks on) instead of failing at publish.
-          Non-blocking: publish stays server-validated. */}
-      {missingRequired.length > 0 && (
-        <div className="flex flex-wrap items-center justify-end gap-2 text-right">
-          <p className="text-xs text-muted-foreground">
-            <span className="font-medium text-destructive">
-              {missingRequired.length} required{" "}
-              {missingRequired.length === 1 ? "specific" : "specifics"} missing
-            </span>{" "}
-            ({missingRequired.slice(0, 4).join(", ")}
-            {missingRequired.length > 4 ? "…" : ""}) — eBay will reject publish
-            until these are filled in.
-          </p>
-          {/* US-2257: "above" was doing a lot of work from the bottom of a very
-              long page. Take the seller there instead. */}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const el = document.getElementById("composer-category");
-              el?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }}
-          >
-            Go to item specifics
-          </Button>
-        </div>
-      )}
-
-      {/* US-1490: a published listing edits in place — re-pushing to eBay rather
-          than re-publishing. Swap the draft/publish actions for "Save &
-          resubmit", and explain that edits go live on eBay. */}
-      {isLiveListing && (
-        <div className="flex items-start justify-end gap-2 text-right">
-          <p className="text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">
-              This listing is live on eBay.
-            </span>{" "}
-            Saving will push your edits — including category, condition, and item
-            specifics — to the active listing.
-          </p>
-        </div>
-      )}
-
-      {/* Pre-push reminder: item specifics and the description are edited on
-          separate tracks, so a specific changed this session can leave the
-          description stale. Non-blocking — publish/revise stays enabled; this
-          just heads off a needless eBay revise/relist. Clears live as the seller
-          updates the description. */}
-      {specDescMismatches.length > 0 && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <div>
-            <p className="font-medium">
-              Item specifics changed — the description may be out of date.
-            </p>
-            <p className="mt-0.5 text-amber-800 dark:text-amber-300/90">
-              You changed{" "}
-              {specDescMismatches
-                .map((m) => `${SHARED_FIELD_LABELS[m.field]} (${m.value})`)
-                .join(", ")}
-              , but the description doesn&apos;t mention{" "}
-              {specDescMismatches.length === 1 ? "it" : "them"}. Update the
-              description before pushing to eBay to avoid a needless revise.
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div className="flex justify-end gap-2">
-        {/* US-2256: navigate(-1) is intercepted by the navigation guard when
-            there is unsaved work, so this stays a plain navigation and the
-            confirm lives in one place. */}
-        <Button variant="outline" onClick={() => navigate(-1)} disabled={saving}>
-          {isDirty ? "Close without saving" : "Close"}
-        </Button>
-        {editorMode === "live" ? (
-          <>
-            {/* An edit that isn't worth an eBay round-trip (cost, bin, sourcing)
-                still needs somewhere to land — otherwise the only Save on a live
-                listing is a ~5-8s revise the seller may not want. */}
-            <Button
-              variant="outline"
-              onClick={() => void saveLiveListing()}
-              disabled={saving || reviseListing.isPending}
-              title="Saves your edits in GradeThread without pushing to eBay."
-            >
-              {saving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-4 w-4" />
-              )}
-              Save without pushing
-            </Button>
-            <Button
-              onClick={() => void handleResubmitClick()}
-              disabled={saving || reviseListing.isPending || !ebayConnection}
-              title={
-                !ebayConnection
-                  ? "Connect eBay first on the Marketplaces page."
-                  : "Saves your edits, then pushes them to the live eBay listing."
-              }
-            >
-              {saving || reviseListing.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Rocket className="mr-2 h-4 w-4" />
-              )}
-              Save &amp; resubmit to eBay
-            </Button>
-          </>
-        ) : editorMode === "closed" ? (
-          // Sold / shipped / returned / archived: the same form, but there is no
-          // live offer to push to and nothing to publish. Save is the only verb.
-          <Button onClick={saveDraft} disabled={saving}>
-            {saving ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="mr-2 h-4 w-4" />
-            )}
-            Save
-          </Button>
-        ) : (
-          <>
-            <Button variant="outline" onClick={saveDraft} disabled={saving}>
-              {saving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-4 w-4" />
-              )}
-              Save draft
-            </Button>
-            <Button
-              onClick={() => void handlePublishClick()}
-              // US-2257: also blocked on the two things eBay is CERTAIN to
-              // reject, so the seller learns it here rather than from eBay's
-              // error message after a round-trip.
-              disabled={
-                saving ||
-                crossPush.isPending ||
-                pushPlatforms.size === 0 ||
-                (pushPlatforms.has("ebay") && !ebayConnection) ||
-                publishBlocker != null
-              }
-              title={
-                pushPlatforms.has("ebay") && !ebayConnection
-                  ? "Connect eBay first on the Marketplaces page."
-                  : pushPlatforms.size === 0
-                    ? "Pick at least one marketplace in the Push to card."
-                    : (publishBlocker ??
-                      (scheduledAt
-                        ? "Saves the draft; it publishes itself at your drop time."
-                        : "Saves the draft, then publishes."))
-              }
-            >
-              {crossPush.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : scheduledAt ? (
-                <CalendarClock className="mr-2 h-4 w-4" />
-              ) : (
-                <Rocket className="mr-2 h-4 w-4" />
-              )}
-              {/* US-2253: a scheduled drop isn't a publish — say what the click
-                  actually does, and when it happens. */}
-              {scheduledAt
-                ? `Save & schedule for ${formatInZone(
-                    localInputToIso(scheduledAt) ?? "",
-                    dropTimezone,
-                  )}`
-                : pushPlatforms.size === 1 && pushPlatforms.has("ebay")
-                  ? "Save & publish to eBay"
-                  : `Save & push to ${pushPlatforms.size} marketplace${
-                      pushPlatforms.size === 1 ? "" : "s"
-                    }`}
-            </Button>
-          </>
-        )}
       </div>
 
       <PublishToEbayDialog
