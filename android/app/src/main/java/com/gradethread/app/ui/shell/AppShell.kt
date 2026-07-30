@@ -249,6 +249,12 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
             )
         }
+        // US-1375: verified-seller status (read-only).
+        composable(ShellRoutes.VERIFIED) {
+            com.gradethread.app.verified.VerifiedScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
         // US-1374: ScoutAI + in-store prospecting.
         composable(ShellRoutes.SCOUT) {
             com.gradethread.app.scout.ScoutScreen(
@@ -405,6 +411,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onTemplates = { navController.navigate(ShellRoutes.TEMPLATES) },
                 onScout = { navController.navigate(ShellRoutes.SCOUT) },
                 onProspect = { navController.navigate(ShellRoutes.PROSPECT) },
+                onVerified = { navController.navigate(ShellRoutes.VERIFIED) },
             )
         }
         // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops

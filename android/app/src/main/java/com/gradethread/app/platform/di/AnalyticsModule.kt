@@ -10,6 +10,8 @@ import com.gradethread.app.scout.ScoutScanning
 import com.gradethread.app.scout.ScoutService
 import com.gradethread.app.templates.TemplateProviding
 import com.gradethread.app.templates.TemplateService
+import com.gradethread.app.verified.VerifiedProviding
+import com.gradethread.app.verified.VerifiedService
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -53,4 +55,9 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindScout(impl: ScoutService): ScoutScanning
+
+    /** US-1375: the verified-seller status read. */
+    @Binds
+    @Singleton
+    abstract fun bindVerified(impl: VerifiedService): VerifiedProviding
 }

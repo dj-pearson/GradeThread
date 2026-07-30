@@ -79,6 +79,9 @@ object ShellRoutes {
     /** US-1374: in-store prospecting, reached from Scout or Tools. */
     const val PROSPECT = "prospect"
 
+    /** US-1375: verified-seller status, reached from Tools. */
+    const val VERIFIED = "verified"
+
     /**
      * US-1354: the offers + messages inbox, reached from Marketplaces or from
      * a `gradethread.com/app/negotiation/<itemId>` deep link.

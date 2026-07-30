@@ -29,6 +29,7 @@ fun ToolsScreen(
     onTemplates: () -> Unit = {},
     onScout: () -> Unit = {},
     onProspect: () -> Unit = {},
+    onVerified: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -69,6 +70,11 @@ fun ToolsScreen(
             title = "Prospect",
             subtitle = "In a shop? Photograph it and find out if it's worth buying",
             onClick = onProspect,
+        )
+        ToolRow(
+            title = "Verified seller",
+            subtitle = "Your badge status and what's left to set up",
+            onClick = onVerified,
         )
     }
 }
