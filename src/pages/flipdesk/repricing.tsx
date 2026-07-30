@@ -263,6 +263,14 @@ export function FlipdeskRepricingPage() {
 
   // Bulk apply, cents-safe: reuse useBulkRepriceApply (US-962), whose payload is
   // already {listing_id, price_cents} — no unit conversion, no per-row round trip.
+  function revertRows(priors: Array<{ listing_id: string; price_cents: number }>) {
+    if (priors.length === 0) return;
+    bulkApply.mutate(priors, {
+      onSuccess: (res) =>
+        toast.success(`Reverted ${res.applied} price${res.applied === 1 ? "" : "s"}.`),
+    });
+  }
+
   async function applyRows(rows: RepriceSuggestion[]) {
     if (rows.length === 0) return;
     const ok = await confirm({
@@ -278,13 +286,28 @@ export function FlipdeskRepricingPage() {
       listing_id: s.listing_id,
       price_cents: s.suggested_price_cents,
     }));
+    // US-2171 AC5: capture each row's PRIOR price so the apply is reversible —
+    // re-applying these restores exactly what changed, cents-for-cents.
+    const priorByListing = new Map(
+      rows.map((s) => [s.listing_id, s.current_price_cents]),
+    );
     bulkApply.mutate(items, {
       onSuccess: (res) => {
         setSelected(new Set());
         const parts = [`${res.applied} applied`];
         if (res.skipped.length) parts.push(`${res.skipped.length} skipped`);
         if (res.errors.length) parts.push(`${res.errors.length} failed`);
-        toast.success(`Repricing: ${parts.join(" · ")}.`);
+        // Undo only the rows that actually changed (skips never moved).
+        const skipped = new Set(res.skipped.map((x) => x.listing_id));
+        const priors = [...priorByListing.entries()]
+          .filter(([id]) => !skipped.has(id))
+          .map(([listing_id, price_cents]) => ({ listing_id, price_cents }));
+        toast.success(`Repricing: ${parts.join(" · ")}.`, {
+          action:
+            res.applied > 0
+              ? { label: "Undo", onClick: () => revertRows(priors) }
+              : undefined,
+        });
       },
     });
   }
