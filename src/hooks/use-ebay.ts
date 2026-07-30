@@ -1754,6 +1754,12 @@ export function useEbayBestOffers(enabled = true) {
   return useQuery({
     queryKey: ["ebay_best_offers", tenantKey],
     enabled,
+    // US-2236 AC4: Best Offers carry short (often 48h) deadlines, so a stale
+    // inbox can cost a sale. Refresh in the background every 90s and on window
+    // focus — but only while the tab is visible (refetchIntervalInBackground
+    // stays false) so a parked tab doesn't burn the eBay call budget.
+    refetchInterval: 90_000,
+    refetchOnWindowFocus: true,
     queryFn: async (): Promise<EbayBestOffer[]> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/offers`,
