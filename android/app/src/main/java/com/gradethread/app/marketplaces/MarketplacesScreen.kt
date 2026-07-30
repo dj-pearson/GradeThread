@@ -47,6 +47,8 @@ fun MarketplacesScreen(
     onOpenPostSale: () -> Unit = {},
     /** US-1358: opens repricing rules + suggestions. */
     onOpenRepricing: () -> Unit = {},
+    /** US-1359: opens the AutoLister drafts library. */
+    onOpenDrafts: () -> Unit = {},
     viewModel: MarketplacesViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -153,6 +155,10 @@ fun MarketplacesScreen(
                 text = "Repricing",
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenRepricing() }
+            BrandSecondaryButton(
+                text = "Draft listings",
+                modifier = Modifier.fillMaxWidth(),
+            ) { onOpenDrafts() }
         }
 
         BrandSecondaryButton(text = "Refresh", modifier = Modifier.fillMaxWidth()) {

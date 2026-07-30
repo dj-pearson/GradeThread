@@ -21,6 +21,7 @@ category specifics and a live profit estimate · the negotiation inbox (offers,
 send-offer, buyer messages) · bulk pricing · orphan-listing reconciliation with
 the shell-wide banner · per-listing promotions and markdown sales · post-sale
 shipping and feedback · repricing rules with scan-driven suggestions ·
+AutoLister batches, photo QA and the drafts library ·
 credit-pack Play Billing ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
@@ -29,7 +30,6 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| AutoLister (batch jobs, photo classify/QA, drafts) | US-1359 |
 | Disclosure, scheduled drops, automations | US-1360–1362 |
 | Payout reconciliation | US-1365 |
 | Subscription billing + paywall / plan gates | US-1366, US-1367 |

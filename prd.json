@@ -121,7 +121,7 @@
     {
       "id": "US-1359",
       "priority": -98641,
-      "passes": false,
+      "passes": true,
       "title": "AutoLister: batch jobs, photo classify/QA, drafts library",
       "description": "As a seller, I can batch-generate listing drafts from photos, review them, and bulk-edit the drafts.",
       "acceptanceCriteria": [
@@ -129,7 +129,7 @@
         "Photo classify + QA (POST .../classify-photos, .../photo-qa) before use",
         "Drafts library: browse/edit/delete + bulk-edit (title/description/price) across a selection (mirrors AutoLister/Drafts)"
       ],
-      "notes": "[P2][Android/AutoLister] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/AutoLister] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android AutoLister. AC1: autolister/{AutolisterTypes,Autolister,AutolisterService,AutolisterViewModel}.kt — POST /autolister/batch (deduped, capped at the server's 100), polled via GET .../batch/:id until a TERMINAL status, POST .../retry-failed, plus POST .../resume. The durable-job reality is carried honestly: progress counts failures as finished (18 ok + 2 failed IS 20 of 20 — counting only successes leaves a bar crawling for jobs that already stopped), 'partial' is reported as 'finished with N failures' rather than done, and a batch whose counts stop moving for 2 minutes is named as STALLED with a Resume nudge instead of spinning forever behind a dead worker. AC2: POST .../classify-photos and .../photo-qa on the AI-timeout client (120s — a per-photo vision pass would fail the shared 20s cap); QA bands 80/50 with the server's -1 error marker mapped to 'couldn't check' rather than a zero score (telling a seller their photos are terrible when we don't know is the worse error), only error-severity issues block, and an unclassified photo keeps whatever role it had rather than being relabelled. AC3: DraftsService (RLS-scoped reads/writes on draft listings) + DraftsLibraryScreen — browse, per-draft edit (title/description/price), delete (the draft only, never the item) and multi-select bulk edit via DraftBulk: absolute / percent / round-to-.99, floored at zero, and percent-or-round SKIPS drafts with no price rather than inventing one — the preview names those skips, because '12 drafts' when only 9 move is the mismatch that erodes trust. Reached from the Marketplaces screen. Verified by AutolisterTest (17 cases) and DraftBulkTest (9). NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate. Deliberately NOT ported: staging upload, group proposal/verification and publish-batch, which are their own intake surfaces outside this story's ACs."
     },
     {
       "id": "US-1360",

@@ -234,6 +234,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onOpenBulkPricing = { navController.navigate(ShellRoutes.BULK_PRICING) },
                 onOpenPostSale = { navController.navigate(ShellRoutes.POST_SALE) },
                 onOpenRepricing = { navController.navigate(ShellRoutes.REPRICING) },
+                onOpenDrafts = { navController.navigate(ShellRoutes.DRAFTS) },
             )
         }
         // US-1354: the offers + messages inbox. The item argument is optional —
@@ -250,6 +251,12 @@ private fun ShellNavHost(navController: NavHostController) {
         ) { entry ->
             com.gradethread.app.marketplaces.negotiation.NegotiationInboxScreen(
                 filterItemId = entry.arguments?.getString("item"),
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1359: the AutoLister drafts library.
+        composable(ShellRoutes.DRAFTS) {
+            com.gradethread.app.autolister.DraftsLibraryScreen(
                 onClose = { navController.popBackStack() },
             )
         }

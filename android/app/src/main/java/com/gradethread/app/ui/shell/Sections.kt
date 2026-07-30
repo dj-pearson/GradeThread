@@ -73,6 +73,9 @@ object ShellRoutes {
 
     /** US-1358: repricing rules + the scan's suggestions. */
     const val REPRICING = "repricing"
+
+    /** US-1359: the AutoLister drafts library. */
+    const val DRAFTS = "drafts"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */
