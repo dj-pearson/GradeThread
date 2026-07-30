@@ -39,10 +39,27 @@ export interface AiResearchIdentification {
   identification_confidence: number;
 }
 
+// US-821: one canonical listing attribute captured in the same extract pass
+// (department, size_type, sleeve_length, …). Always an array; the server has
+// ALREADY gap-fill-persisted these onto inventory_items, so clients use them for
+// display and telemetry, not to re-persist.
+export interface AiAttributeSuggestion {
+  values: string[];
+  confidence: number;
+  source: string;
+}
+
 export interface AiExtractResponse {
   suggestions: Record<string, AiFieldSuggestion>;
   // US-1527: null when no identification cleared the confidence floor.
   research?: AiResearchIdentification | null;
+  // US-821: canonical attributes captured this pass, keyed by canonical name
+  // (NOT eBay aspect names — the per-category mapping happens server-side).
+  attributes?: Record<string, AiAttributeSuggestion>;
+  // US-821: the generic eBay category search phrase the AI derived (item type +
+  // department, no brand/size/colour). Persisted server-side so a later category
+  // change can re-resolve without spending another AI action.
+  ebay_category_query?: string | null;
   condition_summary: string | null;
   conflicts: AiFieldConflict[];
   // Brand-spec flat measurements (inches) the AI inferred from brand+size+
@@ -51,9 +68,17 @@ export interface AiExtractResponse {
   model: string;
   log_id: string | null;
   actions_remaining: number;
-  // One-call listing prep: the eBay category + item-specifics the server
-  // resolved and persisted onto the item (null when skipped/unavailable).
+  // Listing prep, resolved from the photos and persisted onto the item.
+  //
+  // US-2270: this is now ALWAYS null. The category + item-specifics pass runs a
+  // SECOND model call (~20s) which doubled the extract's latency, so the server
+  // moved it to a background task and returns `ebay_pending: true` instead. Any
+  // client branch gated on `ebay` being non-null is dead code — read
+  // `ebay_pending` and re-read the item once the pass has had time to land.
+  // Kept in the type because an older edge build can still fill it.
   ebay: AiExtractEbayBlock | null;
+  // True when the background category/aspects pass was started for this item.
+  ebay_pending?: boolean;
 }
 
 export interface AiExtractInput {

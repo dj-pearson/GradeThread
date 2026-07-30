@@ -83,6 +83,8 @@ struct AIFillReviewSheet: View {
             }
             if let ebay = review.ebayCategory {
                 ebaySection(ebay)
+            } else if review.ebayCategoryPending == true {
+                ebayPendingSection
             }
             if !review.applied.isEmpty {
                 appliedSection(review)
@@ -146,6 +148,33 @@ struct AIFillReviewSheet: View {
             Text("eBay category")
         } footer: {
             Text("Auto-selected and saved. Edit the category or its specifics from the item's Specifics section.")
+                .font(.caption)
+        }
+    }
+
+    /// US-2270: the category/aspects pass runs server-side in the BACKGROUND (it's
+    /// a second ~20s model call that used to double the extract's latency), so
+    /// there's nothing to show inline yet. Saying so beats the old behaviour of
+    /// omitting the section entirely, which made a category that WAS being
+    /// resolved read as a silent failure.
+    private var ebayPendingSection: some View {
+        Section {
+            HStack(alignment: .top, spacing: 12) {
+                ProgressView()
+                    .controlSize(.small)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Finding the eBay category…")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Item specifics are being filled from your photos.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+        } header: {
+            Text("eBay category")
+        } footer: {
+            Text("This finishes on its own — it'll be saved on the item in a moment. You don't have to wait.")
                 .font(.caption)
         }
     }

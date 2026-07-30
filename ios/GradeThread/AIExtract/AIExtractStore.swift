@@ -83,6 +83,11 @@ final class AIExtractStore {
     /// the item during extraction. Display-only here — the specifics editor
     /// reads the saved values.
     var ebayPrep: AIExtractEbayBlock?
+    /// US-2270: the category/aspects pass is running in the BACKGROUND
+    /// server-side. `ebayPrep` is nil in that case — not because the phase was
+    /// skipped, but because the result isn't inline any more. Drives the review's
+    /// "resolving" state and the follow-up item pull.
+    var ebayPendingCategory = false
     /// US-821 canonical attributes captured this pass (department, size_type,
     /// vintage, …). Drives the US-826 high-value confirm chips.
     var attributes: [String: AttributeSuggestion] = [:]
@@ -250,6 +255,7 @@ final class AIExtractStore {
         // Measurements default-on per AC.
         acceptMeasurements = !measurements.isEmpty
         ebayPrep = response.ebay
+        ebayPendingCategory = response.ebayPending
         attributes = response.attributes
         research = response.research
         logId = response.logId
@@ -334,6 +340,9 @@ final class AIExtractStore {
             // in the review so "selected eBay category / required info" is
             // visible right after intake (it's already saved on the item).
             ebayCategory: AIFillReview.EbaySummary(from: ebayPrep),
+            // US-2270: nothing inline to show yet, but the seller should see the
+            // category IS being resolved rather than assume the phase failed.
+            ebayCategoryPending: ebayPrep == nil && ebayPendingCategory,
             // US-1527: the identification rationale for research-tier rows.
             researchRationale: research?.identificationRationale,
             // US-1531: lets the review report acceptance + corrections.

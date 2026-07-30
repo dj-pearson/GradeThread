@@ -109,6 +109,34 @@ Deno.test("US-2268: iOS and web send the same known_fields set", async () => {
   assertEquals(unknown, [], `known_fields keys the server never suggests: ${unknown}`);
 });
 
+// US-2270: both clients now decide whether to re-read the item's eBay category
+// from `ebay_pending`. If the route stopped sending it, iOS's `?? false` and web's
+// optional field would both silently read "nothing pending" — no error, no
+// refresh, and a resolved category that never appears. Pin the contract.
+Deno.test("US-2270: the extract route still emits ebay_pending alongside ebay", async () => {
+  const route = await Deno.readTextFile(
+    new URL("services/edge-functions/src/routes/flipdesk-ai.ts", REPO_ROOT),
+  );
+  assert(
+    /ebay_pending:\s*ebayPending/.test(route),
+    "POST /extract must return ebay_pending — both clients drive their " +
+      "category refresh off it (planEbayPrepRefresh on web, ebayPendingCategory " +
+      "on iOS)",
+  );
+  assert(
+    /ebay:\s*null,/.test(route),
+    "the inline `ebay` block is expected to stay null while the aspects pass is " +
+      "backgrounded; if it is inlined again, revisit planEbayPrepRefresh's " +
+      "precedence (inline wins over pending)",
+  );
+
+  // And the flag has to actually be reachable: it is set from includeEbayAspects.
+  assert(
+    /const ebayPending = includeEbayAspects && itemId != null/.test(route),
+    "ebay_pending must reflect whether the background pass was really started",
+  );
+});
+
 Deno.test("US-2269: the web intake applies every EXTRACT_FIELDS name too", async () => {
   const extractSrc = await Deno.readTextFile(EXTRACT_LIB);
   const fields = arrayLiteral(

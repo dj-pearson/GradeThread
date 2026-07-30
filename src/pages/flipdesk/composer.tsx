@@ -80,6 +80,7 @@ import {
   deriveGarmentDefaults,
   deriveGarmentType,
 } from "@/lib/garment-mapping";
+import { planEbayPrepRefresh } from "@/lib/ai-ebay-prep";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
 import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
@@ -1403,16 +1404,27 @@ export function FlipdeskComposerPage({
       });
       setAiFillResult(result);
       setAiFillOpen(true);
-      if (result.ebay) {
+      // US-2270: the category/aspects pass runs in the BACKGROUND now, so the old
+      // `if (result.ebay)` branch never fired — the category was resolved and
+      // persisted while this picker kept showing the values it seeded with, and
+      // nothing told the seller either way. Refresh now and again once the pass
+      // has had time to land.
+      const plan = planEbayPrepRefresh(result);
+      if (plan.refreshNow) {
         await qc.invalidateQueries({
           queryKey: ["inventory_item_ebay", item.id],
         });
-        const filled = Object.keys(result.ebay.aspects).length;
-        if (filled > 0) {
-          toast.success(
-            `eBay category + ${filled} item specific${filled === 1 ? "" : "s"} filled from photos.`,
-          );
-        }
+      }
+      if (plan.message) {
+        if (plan.pending) toast.message(plan.message);
+        else toast.success(plan.message);
+      }
+      if (plan.refreshAfterMs != null) {
+        const itemId = item.id;
+        window.setTimeout(() => {
+          void qc.invalidateQueries({ queryKey: ["inventory_item_ebay", itemId] });
+          void qc.invalidateQueries({ queryKey: ["items_full"] });
+        }, plan.refreshAfterMs);
       }
     } catch {
       /* error toast handled by the hook */

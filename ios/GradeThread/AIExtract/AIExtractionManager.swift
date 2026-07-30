@@ -54,6 +54,28 @@ final class AIExtractionManager {
     /// two AI actions, and a no-op is otherwise unobservable from outside.
     var inFlightCount: Int { tasks.count }
 
+    /// US-2270: how long to wait before the FOLLOW-UP item pull that picks up the
+    /// server's background eBay category/aspects pass (a second ~20s model call).
+    /// Without it the category is persisted but never appears until something else
+    /// happens to re-sync — which is why a resolved category looked like a failure.
+    /// `var` so tests can shrink it; never changed in the app.
+    static var ebayFollowUpPullDelaySeconds: Double = 25
+
+    /// Requests a delayed inventory pull so the background-persisted
+    /// `ebay_category_id` / `ebay_aspects` land in the local cache on their own.
+    /// Detached from the run's task map: the extract is already finished, and this
+    /// must survive the canvas being dismissed.
+    ///
+    /// Not `private` so a test can drive it directly — the alternative is standing
+    /// up the whole network path just to observe one notification.
+    func scheduleEbayFollowUpPull() {
+        let delay = Self.ebayFollowUpPullDelaySeconds
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        }
+    }
+
     /// US-1519: compare-before-assign. `phases` is one `@Observable` dictionary,
     /// and @Observable fires on every SET regardless of equality — so the 250ms
     /// upload-gate poll re-rendered every visible InventoryRow 4×/s for up to
@@ -213,6 +235,8 @@ final class AIExtractionManager {
 
         await finish(itemId: itemId, store: store)
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        // US-2270: the eBay category/aspects pass is still running server-side.
+        if store.ebayPendingCategory { scheduleEbayFollowUpPull() }
         phases[itemId] = .ready
     }
 
@@ -383,6 +407,13 @@ final class AIExtractionManager {
         // "Untitled" with no info: its dismiss-time pull ran ~immediately, long
         // before this ~40s extraction's write landed, and nothing else re-syncs.
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+
+        // US-2270: that pull is too EARLY for the eBay category. The server kicked
+        // the category/aspects pass off as a background task (a second ~20s model
+        // call) and persists ebay_category_id / ebay_aspects when it lands — well
+        // after this. Schedule a follow-up pull so it shows up on its own instead
+        // of only appearing whenever the next unrelated sync happens to run.
+        if store.ebayPendingCategory { scheduleEbayFollowUpPull() }
 
         phases[itemId] = .ready
     }

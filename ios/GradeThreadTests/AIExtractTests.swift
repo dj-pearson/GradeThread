@@ -580,6 +580,145 @@ final class AIExtractTests: XCTestCase {
         XCTAssertFalse(mgr.isRunning(id))
     }
 
+    // MARK: - Background eBay category pass (US-2270)
+
+    /// The current edge build always returns `ebay: null` + `ebay_pending: true`,
+    /// because the category/aspects pass moved to a background task. A client that
+    /// only reads `ebay` concludes the phase failed.
+    func test_response_decodesEbayPending() throws {
+        let json = #"""
+        {
+          "suggestions": {"brand": {"value": "Nike", "confidence": 0.9, "source": "photo:tag"}},
+          "condition_summary": null,
+          "conflicts": [],
+          "measurements": null,
+          "model": "claude",
+          "log_id": "l1",
+          "actions_remaining": 4,
+          "ebay": null,
+          "ebay_pending": true
+        }
+        """#
+        let response = try JSONDecoder().decode(AIExtractResponse.self, from: Data(json.utf8))
+        XCTAssertNil(response.ebay)
+        XCTAssertTrue(response.ebayPending)
+
+        // An older edge build omits the key — that is NOT pending.
+        let older = #"""
+        {"suggestions": {}, "conflicts": [], "actions_remaining": 0}
+        """#
+        let legacy = try JSONDecoder().decode(AIExtractResponse.self, from: Data(older.utf8))
+        XCTAssertFalse(legacy.ebayPending)
+        XCTAssertNil(legacy.ebay)
+    }
+
+    /// The review must distinguish "still resolving" from "skipped/failed" — they
+    /// looked identical before, and the review said nothing at all.
+    func test_buildFillReview_marksEbayCategoryPending() throws {
+        var response = AIExtractResponse(
+            suggestions: ["brand": .init(value: "Nike", confidence: 0.9, source: "photo:tag")],
+            conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        )
+        response.ebayPending = true
+
+        let store = AIExtractStore()
+        store.applyResponse(response)
+        XCTAssertTrue(store.ebayPendingCategory)
+
+        let review = try XCTUnwrap(
+            store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot())
+        )
+        XCTAssertNil(review.ebayCategory, "nothing inline to show yet")
+        XCTAssertEqual(review.ebayCategoryPending, true)
+    }
+
+    /// A resolved INLINE block wins: there is nothing pending to announce.
+    func test_buildFillReview_inlineEbayBlockIsNotPending() throws {
+        var response = AIExtractResponse(
+            suggestions: [:],
+            conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        )
+        response.ebay = AIExtractEbayBlock(
+            categoryId: "57990",
+            categoryPath: "Clothing > Men > Shirts",
+            aspects: ["Brand": ["Nike"], "Size": []]
+        )
+        response.ebayPending = true
+
+        let store = AIExtractStore()
+        store.applyResponse(response)
+        let review = try XCTUnwrap(
+            store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot())
+        )
+        XCTAssertEqual(review.ebayCategory?.categoryId, "57990")
+        XCTAssertEqual(review.ebayCategory?.filledAspectCount, 1, "an empty array isn't a specific")
+        XCTAssertEqual(review.ebayCategoryPending, false)
+    }
+
+    /// A review persisted BEFORE this field existed must still decode (US-1171
+    /// keeps them on disk). This is the trap that broke AIExtractResponse.attributes:
+    /// a non-Optional stored property still requires its key.
+    func test_review_decodesWithoutTheNewPendingKey() throws {
+        let json = #"""
+        {
+          "itemId": "i1",
+          "applied": [],
+          "lowConfidence": [],
+          "measurements": [],
+          "measurementsApplied": false,
+          "usedLiveTextFallback": false
+        }
+        """#
+        let review = try JSONDecoder().decode(AIFillReview.self, from: Data(json.utf8))
+        XCTAssertEqual(review.itemId, "i1")
+        XCTAssertNil(review.ebayCategoryPending)
+        XCTAssertNil(review.ebayCategory)
+    }
+
+    /// The category is persisted server-side ~20s after the extract returns, so the
+    /// pull fired at completion is too early. A follow-up pull is what makes it
+    /// appear without the seller opening the specifics editor.
+    func test_pendingEbayPass_schedulesAFollowUpPull() async {
+        let original = AIExtractionManager.ebayFollowUpPullDelaySeconds
+        AIExtractionManager.ebayFollowUpPullDelaySeconds = 0.05
+        defer { AIExtractionManager.ebayFollowUpPullDelaySeconds = original }
+
+        let expectation = expectation(forNotification: .inventoryPullRequested, object: nil)
+
+        let mgr = AIExtractionManager.shared
+        let id = "ebay-followup-\(UUID().uuidString)"
+        mgr.clear(for: id)
+        // isOffline short-circuits before the network; the offline branch does NOT
+        // schedule a follow-up, so drive the scheduler through the store state the
+        // real path uses.
+        var response = AIExtractResponse(
+            suggestions: [:], conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        )
+        response.ebayPending = true
+        let store = AIExtractStore()
+        store.applyResponse(response)
+        XCTAssertTrue(store.ebayPendingCategory)
+
+        mgr.scheduleEbayFollowUpPull()
+        await fulfillment(of: [expectation], timeout: 2)
+    }
+
+    /// And it must NOT fire when there is no background pass to wait for.
+    func test_noPendingEbayPass_meansNoPendingFlag() {
+        let response = AIExtractResponse(
+            suggestions: [:], conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        )
+        let store = AIExtractStore()
+        store.applyResponse(response)
+        XCTAssertFalse(store.ebayPendingCategory)
+        let review = store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot())
+        XCTAssertEqual(review?.ebayCategoryPending, false)
+    }
+
     // MARK: - known_fields + text on both entry points (US-2268)
 
     /// The server deletes every `known_fields` key from its suggestions, so sending

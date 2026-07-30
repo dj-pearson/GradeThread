@@ -117,11 +117,20 @@ struct AIExtractResponse: Decodable, Equatable {
     /// no server call, so the quota isn't known. Distinct from -1 ("unlimited");
     /// any future quota UI should treat this as "not available", not a count.
     static let actionsRemainingUnknown = Int.min
-    /// nil when the server skipped the eBay phase (no category resolvable,
-    /// AI budget exhausted, taxonomy hiccup, or an older edge build).
+    /// US-2270: now ALWAYS nil from the current edge build. The category +
+    /// item-specifics pass runs a SECOND model call (~20s) which doubled the
+    /// extract's latency, so it moved to a background task that persists
+    /// `ebay_category_id` / `ebay_aspects` on the item when it finishes — see
+    /// ``ebayPending``. Kept because an older edge build can still fill it, and
+    /// because a filled block means the work is already done.
     /// Defaulted `var` so the synthesized memberwise init keeps working for
     /// callers that build synthetic responses (Live Text fallback, tests).
     var ebay: AIExtractEbayBlock? = nil
+    /// US-2270: true when the background category/aspects pass was STARTED for
+    /// this item. The client can't read the result inline any more; it shows a
+    /// "resolving" state and re-reads the item once the pass has had time to land.
+    /// Defaulted so synthetic responses and older edge builds still decode.
+    var ebayPending: Bool = false
     /// US-821: canonical listing attributes captured in the SAME extract pass
     /// (department, size_type, sleeve_length, …). Keyed by canonical name. The
     /// server has ALREADY gap-fill-persisted these onto inventory_items, so the
@@ -147,6 +156,7 @@ struct AIExtractResponse: Decodable, Equatable {
         case logId = "log_id"
         case actionsRemaining = "actions_remaining"
         case ebay
+        case ebayPending = "ebay_pending"
         case attributes
         case ebayCategoryQuery = "ebay_category_query"
         case research
@@ -192,7 +202,8 @@ extension AIExtractResponse {
         model = try c.decodeIfPresent(String.self, forKey: .model)
         logId = try c.decodeIfPresent(String.self, forKey: .logId)
         actionsRemaining = try c.decode(Int.self, forKey: .actionsRemaining)
-        ebay = try c.decodeIfPresent(AIExtractEbayBlock.self, forKey: .ebay)
+ebay = try c.decodeIfPresent(AIExtractEbayBlock.self, forKey: .ebay)
+        ebayPending = try c.decodeIfPresent(Bool.self, forKey: .ebayPending) ?? false
         attributes = try c.decodeIfPresent([String: AttributeSuggestion].self, forKey: .attributes) ?? [:]
         ebayCategoryQuery = try c.decodeIfPresent(String.self, forKey: .ebayCategoryQuery)
         research = try c.decodeIfPresent(ResearchIdentification.self, forKey: .research)

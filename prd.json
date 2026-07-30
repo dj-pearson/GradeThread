@@ -3327,7 +3327,7 @@
     },
     {
       "id": "US-2270",
-      "passes": false,
+      "passes": true,
       "title": "The extract's ebay block is always null since the aspects pass moved to the background: the iOS review shows no category and the web toast is dead code",
       "description": "As a seller, I want to see that my eBay category and item specifics were resolved after an AI fill, so that a background pass that succeeded does not look like it failed.",
       "acceptanceCriteria": [
@@ -3337,7 +3337,8 @@
         "The dead branch in handleCompleteWithAi (src/pages/flipdesk/composer.tsx, currently gated on result.ebay) is replaced with an ebay_pending-driven refresh of the inventory_item_ebay query key plus honest copy, so the specifics picker stops showing the values it seeded with.",
         "A vitest asserts the composer refreshes the inventory_item_ebay query for the item when the extract response carries ebay_pending: true.",
         "AiExtractResponse in src/hooks/use-ai-extract.ts declares ebay_pending, attributes and ebay_category_query, which the server already returns but the web type omits."
-      ]
+      ],
+      "notes": "Done 2026-07-29. Server already emitted ebay: null + ebay_pending: true; both clients now read the flag instead of the dead ebay branch. WEB: extracted planEbayPrepRefresh into src/lib/ai-ebay-prep.ts (pure) and replaced the never-firing 'if (result.ebay)' block in composer.tsx with it — refresh inventory_item_ebay immediately AND again after 25s, plus honest pending copy; inline-block precedence kept so an older/future edge that inlines the result still works. AiExtractResponse now declares ebay_pending, attributes and ebay_category_query. iOS: AIExtractResponse decodes ebay_pending (decodeIfPresent ?? false, so an older edge is NOT pending), the store carries ebayPendingCategory, AIFillReview gained ebayCategoryPending as an OPTIONAL Bool (a non-Optional defaulted property would break synthesized decode of disk-cached reviews — the AIExtractResponse.attributes trap), the review sheet renders a 'Finding the eBay category' section instead of omitting it, and the manager schedules a follow-up inventory pull 25s after completion so the background-persisted category appears without opening the specifics editor. AC5 DEVIATION worth recording: the vitest asserts the refresh DECISION (planEbayPrepRefresh) rather than the composer's queryClient call — this repo's web tests are pure-logic files under src/lib, there is no composer render harness, and the decision is the part that was wrong. Also added a deno guard pinning the route's ebay_pending contract, since if it silently disappeared both clients would read 'not pending' with no error. 5 vitest + 6 XCTest; vitest green locally, XCTests unrun (no Swift toolchain), iOS CI is the gate."
     },
     {
       "id": "US-2271",

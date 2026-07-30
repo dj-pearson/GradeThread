@@ -76,6 +76,18 @@ struct AIFillReview: Equatable, Codable {
     /// in reviews persisted before this field existed (US-1171 disk cache), and
     /// (b) the memberwise init stays callable without it (tests / synthetic uses).
     var ebayCategory: EbaySummary? = nil
+    /// US-2270: true when ``ebayCategory`` is absent because the server's
+    /// category/aspects pass is still RUNNING (it moved to a background task), as
+    /// opposed to having been skipped or failed. Those two look identical without
+    /// this, and the review said nothing at all — so a category that was in fact
+    /// resolved read as a silent failure.
+    ///
+    /// Optional (not a defaulted Bool) on purpose: Swift's synthesized Decodable
+    /// requires a key for every NON-optional stored property even when it has a
+    /// default, which is exactly what broke `AIExtractResponse.attributes`. An
+    /// Optional decodes via decodeIfPresent, so disk-cached reviews written before
+    /// this field existed still load.
+    var ebayCategoryPending: Bool? = nil
     /// US-1527: the product-identification rationale, shown under research-tier
     /// ("Identified") rows so the user can verify the named product. Optional +
     /// defaulted for pre-existing disk-cached reviews and synthetic callers.
