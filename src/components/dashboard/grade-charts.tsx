@@ -51,9 +51,25 @@ interface ChartData {
   hasData: boolean;
 }
 
+// US-2204: the charts read four submission columns and three report columns, so
+// the queries project exactly those. Naming the projection in the types — rather
+// than casting the rows back to the full Row — is what makes the narrowing safe:
+// tsc fails here if a chart later reaches for a column the select stopped
+// fetching, instead of the field silently arriving as undefined at runtime.
+type ChartSubmission = Pick<
+  SubmissionRow,
+  "id" | "status" | "created_at" | "garment_type"
+>;
+type ChartReport = Pick<GradeReportRow, "grade_tier" | "overall_score"> & {
+  submission_id: string;
+};
+
+const CHART_SUBMISSION_COLUMNS = "id, status, created_at, garment_type";
+const CHART_REPORT_COLUMNS = "submission_id, grade_tier, overall_score";
+
 function processChartData(
-  submissions: SubmissionRow[],
-  reports: Array<GradeReportRow & { submission_id: string }>
+  submissions: ChartSubmission[],
+  reports: ChartReport[]
 ): ChartData {
   const completedSubmissions = submissions.filter((s) => s.status === "completed");
 
@@ -139,30 +155,30 @@ export function GradeCharts() {
       // Fetch all user submissions
       const { data: subs, error: subsError } = await supabase
         .from("submissions")
-        .select("*")
+        .select(CHART_SUBMISSION_COLUMNS)
         .order("created_at", { ascending: false });
 
       if (subsError) throw subsError;
-      const submissions = (subs ?? []) as SubmissionRow[];
+      const submissions = (subs ?? []) as ChartSubmission[];
 
       // Fetch all grade reports for completed submissions
       const completedIds = submissions
         .filter((s) => s.status === "completed")
         .map((s) => s.id);
 
-      let reports: Array<GradeReportRow & { submission_id: string }> = [];
+      let reports: ChartReport[] = [];
       if (completedIds.length > 0) {
         // Batch fetch in chunks of 100 to avoid query limits
         for (let i = 0; i < completedIds.length; i += 100) {
           const chunk = completedIds.slice(i, i + 100);
           const { data: reportData, error: reportError } = await supabase
             .from("grade_reports")
-            .select("*")
+            .select(CHART_REPORT_COLUMNS)
             .in("submission_id", chunk)
             .is("superseded_at", null); // US-479: active report per submission
 
           if (reportError) throw reportError;
-          const rows = (reportData ?? []) as Array<GradeReportRow & { submission_id: string }>;
+          const rows = (reportData ?? []) as ChartReport[];
           reports = reports.concat(rows);
         }
       }

@@ -59,7 +59,16 @@ import { InviteFriendCard } from "@/components/referral/invite-friend-card";
 import { ImpactTile } from "@/components/impact/impact-tile";
 import { UsageMeters } from "@/components/billing/usage-meter";
 
-interface RecentSubmission extends SubmissionRow {
+// US-2204: the recent-submissions list renders four columns. Typing the rows as
+// the projection (not SubmissionRow) makes a dropped column a tsc error instead
+// of a blank cell.
+type RecentSubmissionRow = Pick<
+  SubmissionRow,
+  "id" | "title" | "status" | "created_at"
+>;
+const RECENT_SUBMISSION_COLUMNS = "id, title, status, created_at";
+
+interface RecentSubmission extends RecentSubmissionRow {
   grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
 }
 
@@ -277,14 +286,14 @@ export function DashboardPage() {
       // Fetch last 5 submissions
       const { data: recent, error: recentError } = await supabase
         .from("submissions")
-        .select("*")
+        .select(RECENT_SUBMISSION_COLUMNS)
         .is("superseded_at", null)
         .order("created_at", { ascending: false })
         .limit(5);
 
       if (recentError) throw recentError;
 
-      const recentRows = (recent ?? []) as SubmissionRow[];
+      const recentRows = (recent ?? []) as RecentSubmissionRow[];
 
       // Fetch grade reports for completed submissions
       const completedIds = recentRows

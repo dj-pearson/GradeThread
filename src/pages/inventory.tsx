@@ -45,6 +45,17 @@ import type { InventoryItemRow } from "@/types/database";
 
 const PAGE_SIZE = 25;
 
+// US-2204: the grid renders five columns of an inventory row, so the paged
+// query fetches exactly those. The rows are typed as the projection, which is
+// what makes the narrowing safe — a cell reaching for a column the select
+// stopped fetching fails tsc rather than rendering blank. (Sorting by
+// created_at still works; ordering does not require selecting the column.)
+type InventoryListRow = Pick<
+  InventoryItemRow,
+  "id" | "title" | "brand" | "status" | "acquired_price"
+>;
+const INVENTORY_LIST_COLUMNS = "id, title, brand, status, acquired_price";
+
 type SortField = "created_at" | "acquired_price" | "status";
 type SortDirection = "asc" | "desc";
 
@@ -186,7 +197,7 @@ export function InventoryPage() {
     queryFn: async () => {
       let query = supabase
         .from("inventory_items")
-        .select("*", { count: "exact" });
+        .select(INVENTORY_LIST_COLUMNS, { count: "exact" });
 
       if (statusFilter !== "all") {
         query = query.eq("status", statusFilter);
@@ -218,7 +229,7 @@ export function InventoryPage() {
 
       if (error) throw error;
 
-      const itemRows = (items ?? []) as InventoryItemRow[];
+      const itemRows = (items ?? []) as InventoryListRow[];
 
       return { items: itemRows, totalCount: count ?? 0 };
     },

@@ -72,7 +72,17 @@ function formatLabel(value: string): string {
     .join(" ");
 }
 
-interface SubmissionWithGrade extends SubmissionRow {
+// US-2204: the table renders five submission columns, so the list query fetches
+// exactly those. Typing the rows as the projection (rather than SubmissionRow)
+// is what makes it safe: a cell that later reaches for a column the select
+// stopped fetching is a tsc error, not a blank cell at runtime.
+type SubmissionListRow = Pick<
+  SubmissionRow,
+  "id" | "title" | "brand" | "status" | "created_at"
+>;
+const SUBMISSION_LIST_COLUMNS = "id, title, brand, status, created_at";
+
+interface SubmissionWithGrade extends SubmissionListRow {
   grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
 }
 
@@ -89,15 +99,32 @@ function LoadingSkeleton() {
 }
 
 async function exportSubmissionsCsv() {
+  // US-2204: the export is unpaginated by design, so it is the one submissions
+  // read whose row width scales with the whole account. It writes seven columns
+  // out of the row, and the grade_reports side is already projected — so project
+  // this side too and type it as the projection, which makes tsc (not a runtime
+  // blank cell) the thing that catches a new CSV column reaching for a field the
+  // query stopped fetching.
+  type ExportSubmission = Pick<
+    SubmissionRow,
+    | "id"
+    | "created_at"
+    | "title"
+    | "brand"
+    | "garment_type"
+    | "garment_category"
+    | "status"
+  >;
+
   // Fetch ALL submissions (no pagination)
   const { data: submissions, error: subError } = await supabase
     .from("submissions")
-    .select("*")
+    .select("id, created_at, title, brand, garment_type, garment_category, status")
     .order("created_at", { ascending: false });
 
   if (subError) throw subError;
 
-  const allSubmissions = (submissions ?? []) as SubmissionRow[];
+  const allSubmissions = (submissions ?? []) as ExportSubmission[];
 
   if (allSubmissions.length === 0) {
     toast.info("No submissions to export.");
@@ -270,7 +297,7 @@ export function SubmissionsPage() {
       if (sortField === "overall_score") {
         let scoreQuery = supabase
           .from("submissions")
-          .select("*", { count: "exact" })
+          .select(SUBMISSION_LIST_COLUMNS, { count: "exact" })
           .is("superseded_at", null);
         if (statusFilter !== "all")
           scoreQuery = scoreQuery.eq("status", statusFilter);
@@ -285,7 +312,7 @@ export function SubmissionsPage() {
           .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
         const { data: pageRows, error, count } = await scoreQuery;
         if (error) throw error;
-        const rows = (pageRows ?? []) as SubmissionRow[];
+        const rows = (pageRows ?? []) as SubmissionListRow[];
         // Grade tier/score for display on the page's rows only.
         const scoreMap = await fetchGradeMap(rows.map((s) => s.id));
         const merged: SubmissionWithGrade[] = rows.map((s) => ({
@@ -298,7 +325,7 @@ export function SubmissionsPage() {
       // ── Default sort (created_at): a single paged, server-ordered query. ──
       let query = supabase
         .from("submissions")
-        .select("*", { count: "exact" })
+        .select(SUBMISSION_LIST_COLUMNS, { count: "exact" })
         // US-949: superseded (retaken) submissions are history — exclude them
         // from the active list + count so a retake doesn't leave a dead row.
         .is("superseded_at", null);
@@ -318,7 +345,7 @@ export function SubmissionsPage() {
 
       if (error) throw error;
 
-      const submissionRows = (submissions ?? []) as SubmissionRow[];
+      const submissionRows = (submissions ?? []) as SubmissionListRow[];
 
       const gradeMap = await fetchGradeMap(
         submissionRows.filter((s) => s.status === "completed").map((s) => s.id)

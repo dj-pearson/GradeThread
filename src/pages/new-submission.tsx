@@ -73,6 +73,25 @@ import { GradePricingSummary } from "@/components/submission/grade-pricing-summa
 import { CoverageMeter } from "@/components/submission/coverage-meter";
 import { coverageFromImageTypes, COVERAGE_GUARANTEE_FLOOR } from "@/lib/coverage";
 
+// US-2204: the "link to inventory item" dropdown loads EVERY ungraded item in
+// the workspace, so it is the widest read on this page and it grows with the
+// account. Eight columns feed the option label, the garment-info prefill and the
+// post-submit status write — so fetch those and type the rows as the projection,
+// which turns a later reach for a dropped column into a tsc error.
+type LinkableItem = Pick<
+  InventoryItemRow,
+  | "id"
+  | "user_id"
+  | "title"
+  | "brand"
+  | "description"
+  | "status"
+  | "garment_type"
+  | "garment_category"
+>;
+const LINKABLE_ITEM_COLUMNS =
+  "id, user_id, title, brand, description, status, garment_type, garment_category";
+
 const STEPS = [
   { label: "Garment Info", description: "Describe your garment" },
   { label: "Photos", description: "Upload garment photos" },
@@ -193,7 +212,7 @@ export function NewSubmissionPage() {
   );
   const [packDialogOpen, setPackDialogOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
-  const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<LinkableItem[]>([]);
   // US-949: one-tap retake bridge from submission-detail. Carries the prior
   // submission's garment details, inventory linkage, the grader's flagged photo
   // types, and the passing photos (signed URLs) so the seller only redoes the
@@ -219,7 +238,7 @@ export function NewSubmissionPage() {
     (async () => {
       const { data, error } = await supabase
         .from("inventory_items")
-        .select("*")
+        .select(LINKABLE_ITEM_COLUMNS)
         .eq("user_id", workspaceOwnerId)
         .is("grade_report_id", null)
         .order("created_at", { ascending: false });
@@ -230,7 +249,7 @@ export function NewSubmissionPage() {
         toast.error("Couldn't load your inventory items to link.");
         return;
       }
-      setInventoryItems((data ?? []) as InventoryItemRow[]);
+      setInventoryItems((data ?? []) as LinkableItem[]);
     })();
     return () => {
       cancelled = true;
