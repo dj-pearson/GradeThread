@@ -70,6 +70,9 @@ object ShellRoutes {
 
     /** US-1357: what still needs posting, and who to thank. */
     const val POST_SALE = "post-sale"
+
+    /** US-1358: repricing rules + the scan's suggestions. */
+    const val REPRICING = "repricing"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */

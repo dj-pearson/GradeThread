@@ -109,14 +109,14 @@
     {
       "id": "US-1358",
       "priority": -98642,
-      "passes": false,
+      "passes": true,
       "title": "Repricing rules + AI suggestions + scan",
       "description": "As a seller, I can set condition-aware repricing rules and act on AI price suggestions.",
       "acceptanceCriteria": [
         "Rules CRUD (GET/POST/PUT/DELETE /api/flipdesk/pricing/rules) with floor/ceiling/% logic",
         "Suggestions list (GET .../suggestions) with apply/dismiss (POST .../:id/apply|dismiss) and a scan trigger (POST .../scan)"
       ],
-      "notes": "[P2][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android repricing. AC1: pricing/{RepricingTypes,Repricing,RepricingService,RepricingViewModel,RepricingScreen}.kt — full rules CRUD over GET/POST/PUT/DELETE /api/flipdesk/pricing/rules (EdgeApi gained putRaw; the route is PUT, and patch would have 405'd), with drop %, interval, brand/category/min-age scope, floor price and auto-accept. Repricing.request mirrors the server's normalizeRuleInput EXACTLY — drop clamped 0-90, interval floored at 1, blank filters omitted, and auto-accept OFF sends null rather than 0.0 (a 0.0 confidence would auto-accept every offer, the precise opposite of off). A live rule with a drop and no floor is flagged on its card, because nothing stops it. AC2: suggestions list with per-row apply (POST .../:id/apply, then a sync pull so the local listing row isn't left showing the old price) and dismiss (POST .../:id/dismiss), plus a scan trigger (POST .../scan, limit clamped to the server's 1-50) on its own busy flag since a scan is one eBay call per listing. Each suggestion shows its direction, its reason in plain language, and the COMP COUNT behind it — 'based on 2 comparable listings' is something a seller can weigh, where a bare confidence score isn't — and the scan reports what it could NOT check (no-category skips, errors) so a quiet 'nothing worth changing' can't hide a fixable gap. One failed section doesn't blank the other two. Reached from the Marketplaces screen. Verified by RepricingTest (20 cases across validity, server-matching normalisation, rule/suggestion wording, delta rounding, zero-price guard and scan reporting). NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1359",

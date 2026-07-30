@@ -45,6 +45,8 @@ fun MarketplacesScreen(
     onOpenBulkPricing: () -> Unit = {},
     /** US-1357: opens the post-sale shipping + feedback surface. */
     onOpenPostSale: () -> Unit = {},
+    /** US-1358: opens repricing rules + suggestions. */
+    onOpenRepricing: () -> Unit = {},
     viewModel: MarketplacesViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -147,6 +149,10 @@ fun MarketplacesScreen(
                 text = "After the sale",
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenPostSale() }
+            BrandSecondaryButton(
+                text = "Repricing",
+                modifier = Modifier.fillMaxWidth(),
+            ) { onOpenRepricing() }
         }
 
         BrandSecondaryButton(text = "Refresh", modifier = Modifier.fillMaxWidth()) {

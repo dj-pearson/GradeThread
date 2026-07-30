@@ -107,6 +107,10 @@ class EdgeApi(
     suspend fun patchRaw(path: String, jsonBody: String): String =
         perform("PATCH", path, emptyMap(), jsonBody.toRequestBody(JSON_MEDIA))
 
+    /** US-1358: some edge resources are replaced wholesale (repricing rules). */
+    suspend fun putRaw(path: String, jsonBody: String): String =
+        perform("PUT", path, emptyMap(), jsonBody.toRequestBody(JSON_MEDIA))
+
     suspend fun deleteRaw(path: String): String =
         perform("DELETE", path, emptyMap(), null)
 
