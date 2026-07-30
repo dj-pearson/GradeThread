@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2279",
+  "nextId": "US-2282",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2150,7 +2150,7 @@
     },
     {
       "id": "US-2149",
-      "passes": false,
+      "passes": true,
       "priority": 1900,
       "dependsOn": [],
       "title": "Three AGENT_LEVELUP_ROADMAP proposals have no covering story",
@@ -2161,7 +2161,7 @@
         "S5 PROMO-VIDEO SKILL: zero hits in either prd file. Decide whether it is wanted at all before building — it is the only one of the three that is not grading work, and it may simply be out of scope now.",
         "Each is a DECISION-then-build, not a build: confirm the proposal is still wanted before starting. The roadmap dates from before much of the grading moat shipped."
       ],
-      "notes": "[P3][EPIC: Knowledge Vault] Filed by US-2094 on 2026-07-19, following the US-2090 precedent (extract uncovered items BEFORE the document stops being read). The roadmap moved to the vault as a current reference rather than to 90-archive, so these are not strictly buried — but a proposal living only in a reference note is not tracked work, and the whole point of the check was to find out which ones nobody had filed."
+      "notes": "[P3][EPIC: Knowledge Vault] Filed by US-2094 on 2026-07-19, following the US-2090 precedent (extract uncovered items BEFORE the document stops being read). The roadmap moved to the vault as a current reference rather than to 90-archive, so these are not strictly buried — but a proposal living only in a reference note is not tracked work, and the whole point of the check was to find out which ones nobody had filed. | Done 2026-07-30. The three uncovered AGENT_LEVELUP_ROADMAP proposals now have covering stories in prd.json: S6.2 selective second-opinion ensemble = US-2279, S6.5 outcome-grounded truth = US-2280, S5 promo-video skill = US-2281. Each is framed DECISION-then-build (confirm still wanted before building) per the AC, so moving vault/70-agent/agent-levelup-roadmap.md into the vault no longer retires them silently. Created via scripts/prd-story.mjs new (nextId-based). VERIFIED via prd:lint."
     },
     {
       "id": "US-2150",
@@ -3458,6 +3458,40 @@
         "OPEN, needs one fact from the seller: whether the two photos in their example item are typed tag / tag_2. If they are, the confusion is compounded by US-2273 (those photos also render blank on web because there is no signed-URL read path) and fixing that removes most of it. If they are not, the null-storage_path branch is the live cause and the upload path needs its own story."
       ],
       "notes": "Done 2026-07-29 (presentation half only; the diagnosis half is recorded as an OPEN AC). Edit control is now always rendered and disabled-with-reason. Established while investigating: REQUIRED_PHOTO_TYPES is only front+back, so the web bulk-add path assigns detail (editable) and cannot produce tag/tag_2 - meaning photos added after generation only become non-editable if the seller uploaded them into the Tag slots explicitly, or if storage_path is null. Could not confirm which applies to the reported item without prod DB access, so both branches are named in the UI and the question is recorded rather than guessed. Full web suite: the three source-scanning tests that failed in a full run (dialog-dynamic-viewport, status-enum-parity, composer-locks) all PASS in isolation - concurrent-agent tree churn during the 5-8s directory walks, not this change."
+    },
+    {
+      "id": "US-2279",
+      "passes": false,
+      "title": "Selective second-opinion ensemble: re-run composite on borderline/high-value items with a second model",
+      "description": "As grading, on borderline confidence or high-value items we want a second allowlisted model to re-run the composite stage and route disagreement > epsilon to human review, raising accuracy where it matters most. Infra exists (model-comparison + shadow). DECISION-then-build: confirm still wanted before building (the roadmap predates much of the grading moat). NOT the buyer-facing browser-extension 'second opinion' (US-1753/1754/1755). Filed from AGENT_LEVELUP_ROADMAP S6.2 via US-2149.",
+      "acceptanceCriteria": [
+        "Decision recorded: is a selective second-opinion ensemble still wanted given the current grading moat? If no, close with the rationale.",
+        "If yes: define the trigger (confidence band + high-value threshold), the second allowlisted model, and epsilon for disagreement routing to human review.",
+        "Reuse the existing model-comparison / shadow infra rather than a new pipeline.",
+        "Cost + latency budget for the extra composite pass documented — only borderline/high-value items pay it."
+      ]
+    },
+    {
+      "id": "US-2280",
+      "passes": false,
+      "title": "Outcome-grounded grading truth: regress realized FlipDesk outcomes against assigned grades",
+      "description": "As grading accuracy, we want claim-accuracy extended beyond SNAD by correlating realized FlipDesk outcomes (sale price vs comp, returns, disputes) against assigned grades — the internal correlation that would give the public data reports (US-976/US-1691) something true to say. DECISION-then-build. Filed from AGENT_LEVELUP_ROADMAP S6.5 via US-2149.",
+      "acceptanceCriteria": [
+        "Decision recorded: pursue outcome-grounded correlation now, or defer? If defer, close with the rationale.",
+        "If yes: define the outcome signals (final sale price vs comp, return reason, dispute/SNAD) and the join from grade_reports to FlipDesk sales/returns.",
+        "Internal correlation only — distinct from the PUBLIC data reports US-976/US-1691.",
+        "Tenant scoping + privacy preserved for any per-seller outcome data used in the correlation."
+      ]
+    },
+    {
+      "id": "US-2281",
+      "passes": false,
+      "title": "Decide whether a promo-video generation skill is in scope (non-grading roadmap proposal)",
+      "description": "As a maintainer, we want an explicit decision on the AGENT_LEVELUP_ROADMAP S5 promo-video skill — the only non-grading proposal of the three — before any build. Zero coverage in prd today; it may simply be out of scope now. Filed from AGENT_LEVELUP_ROADMAP S5 via US-2149.",
+      "acceptanceCriteria": [
+        "Decision recorded: is a promo-video skill wanted at all? Default to out-of-scope unless a concrete use is named.",
+        "If wanted: file a build story with scope. If not: close this with the out-of-scope rationale so the proposal is not silently retired when the roadmap moves into the vault."
+      ]
     }
   ]
 }
