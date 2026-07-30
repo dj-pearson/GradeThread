@@ -240,12 +240,38 @@ export function FlipdeskCommunityInsightsPage() {
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">
                         Community median
                       </p>
-                      <p className="text-3xl font-bold">
-                        {pct(cmp?.peerMedianSellThrough)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {cmp ? `across ${cmp.peerCount} sellers` : "not enough peers yet"}
-                      </p>
+                      {cmp ? (
+                        <>
+                          <p className="text-3xl font-bold">
+                            {pct(cmp.peerMedianSellThrough)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            across {cmp.peerCount} sellers
+                          </p>
+                        </>
+                      ) : (
+                        // US-2235 AC3: too few peers LIKE YOU for a k-anon cohort
+                        // median — fall back to the community-wide activity signal
+                        // that IS available, instead of a dead "not enough data".
+                        (() => {
+                          const w =
+                            data.trends.windows.d365 ??
+                            data.trends.windows.d90 ??
+                            data.trends.windows.d30;
+                          return w ? (
+                            <>
+                              <p className="text-lg font-semibold">Community-wide</p>
+                              <p className="text-xs text-muted-foreground">
+                                {w.sellers} sellers · {w.sold} sold this window
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              not enough community data yet
+                            </p>
+                          );
+                        })()
+                      )}
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">
