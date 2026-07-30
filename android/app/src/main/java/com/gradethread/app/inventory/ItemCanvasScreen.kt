@@ -185,8 +185,28 @@ fun ItemCanvasScreen(
         Field("Location bin", draft.locationBin) { v ->
             viewModel.edit { it.copy(locationBin = v) }
         }
-        Field("Consignor split %", draft.consignmentSplitText, numeric = true) { v ->
-            viewModel.edit { it.copy(consignmentSplitText = v) }
+        // US-1372: the picker renders nothing when there are no consignors, so
+        // the split field is only ever shown next to something that explains it.
+        com.gradethread.app.consignment.ConsignorPickerSection(
+            selectedId = draft.consignorId,
+            splitText = draft.consignmentSplitText,
+            onSelect = { id ->
+                viewModel.edit {
+                    // Clearing the consignor clears the override with it: a
+                    // stray 70% left on an un-consigned item would silently
+                    // apply again the moment someone re-assigned it.
+                    if (id == null) {
+                        it.copy(consignorId = null, consignmentSplitText = "")
+                    } else {
+                        it.copy(consignorId = id)
+                    }
+                }
+            },
+        )
+        if (draft.consignorId != null) {
+            Field("Split % (optional)", draft.consignmentSplitText, numeric = true) { v ->
+                viewModel.edit { it.copy(consignmentSplitText = v) }
+            }
         }
 
         CompsSection(

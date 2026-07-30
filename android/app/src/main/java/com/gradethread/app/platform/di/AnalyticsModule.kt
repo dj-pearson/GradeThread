@@ -4,6 +4,8 @@ import com.gradethread.app.analytics.CommunityInsightsProviding
 import com.gradethread.app.analytics.CommunityInsightsService
 import com.gradethread.app.analytics.ListingPerformanceProviding
 import com.gradethread.app.analytics.ListingPerformanceService
+import com.gradethread.app.consignment.ConsignorProviding
+import com.gradethread.app.consignment.ConsignorService
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -32,4 +34,9 @@ abstract class AnalyticsModule {
     abstract fun bindCommunityInsights(
         impl: CommunityInsightsService,
     ): CommunityInsightsProviding
+
+    /** US-1372: consignor CRUD, RLS-scoped. */
+    @Binds
+    @Singleton
+    abstract fun bindConsignors(impl: ConsignorService): ConsignorProviding
 }

@@ -25,6 +25,7 @@ fun ToolsScreen(
     onSnap: () -> Unit,
     onGrades: () -> Unit = {},
     onAnalytics: () -> Unit = {},
+    onConsignors: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -45,6 +46,11 @@ fun ToolsScreen(
             title = "Analytics",
             subtitle = "Grades, brands, sell-through, inventory value and listing performance",
             onClick = onAnalytics,
+        )
+        ToolRow(
+            title = "Consignors",
+            subtitle = "Who you sell for, their split, and what you owe them",
+            onClick = onConsignors,
         )
     }
 }

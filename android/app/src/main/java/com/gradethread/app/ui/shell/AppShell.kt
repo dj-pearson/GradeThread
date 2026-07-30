@@ -249,6 +249,18 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
             )
         }
+        // US-1372: consignors + the payout report.
+        composable(ShellRoutes.CONSIGNORS) {
+            com.gradethread.app.consignment.ConsignorsScreen(
+                onOpenReport = { navController.navigate(ShellRoutes.CONSIGNMENT_REPORT) },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        composable(ShellRoutes.CONSIGNMENT_REPORT) {
+            com.gradethread.app.consignment.ConsignmentReportScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
         // US-1369: community benchmarks. A brand tap files a filter request and
         // switches to the inventory TAB, so the seller lands on the real list
         // with its own back stack rather than a one-off copy of it.
@@ -370,6 +382,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onSnap = { navController.navigate(ShellRoutes.SNAP) },
                 onGrades = { navController.navigate(ShellRoutes.GRADES) },
                 onAnalytics = { navController.navigate(ShellRoutes.ANALYTICS) },
+                onConsignors = { navController.navigate(ShellRoutes.CONSIGNORS) },
             )
         }
         // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops
