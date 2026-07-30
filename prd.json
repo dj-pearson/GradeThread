@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2277",
+  "nextId": "US-2278",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3429,6 +3429,20 @@
         "FOLLOW-UP, not closed by this story: WHY the row is deleted mid-session is still unknown. mergeItems prunes only when isFullItemSync (itemWatermark == nil), and grade completion posts .inventoryPullRequested; the paginated item fetch and SyncEngine.resetWatermarks are the two candidates to examine once the telemetry lands."
       ],
       "notes": "Done 2026-07-29. Guard + telemetry only; the root cause is deliberately still open (see the follow-up AC). ItemCanvasView gained a @Query on its own item id and a staleRowReason computed from REFERENCE identity (live === item), because delete-and-reinsert leaves a live row with the same id — an id-based check would miss exactly the case that blanks the screen. Renders an honest ContentUnavailableView with a Back button instead of a form of empty fields, and fires a breadcrumb + item_canvas_stale_row event (item_id, reason, live_rows) once per appearance. Chose the guard over re-resolving the object into the view: threading a replacement row through a 2000-line view that holds the item as a let, with its own @State form snapshot, is a refactor I cannot compile or test on this host. Diagnosis evidence: iOS DOES report to Sentry (8 cocoa events in gradethread-frontend, newest 2026-07-24, release com.gradethread.app@1.0.4+318) and there is NO event for this — so it is not a crash and not a throw, which is what pointed at an empty-rendering view rather than an error. 1 new XCTest, unrun locally (no Swift toolchain); five ios/Scripts checks pass."
+    },
+    {
+      "id": "US-2277",
+      "passes": true,
+      "title": "The AI description never lands on iOS: a composed paragraph is judged by a confidence bar meant for observations",
+      "description": "As a seller on iPhone, I want the AI description to actually be filled in after an add, so that I am not left with a blank description to write myself.",
+      "acceptanceCriteria": [
+        "AIExtractStore.composedProseFields exempts 'description' from autoApplyConfidenceThreshold: it is written whenever the column is unset, regardless of the reported confidence. The set is narrow and asserted to contain exactly that one field.",
+        "The never-overwrite rule still applies to it: a description the seller already wrote is NOT replaced, whatever confidence the AI reports. Asserted by a test at 0.99 confidence against a non-empty snapshot.",
+        "An OBSERVED field at the same confidence still stays an opt-in row, so this is not a blanket lowering of the bar. Asserted with brand and description both at 0.6: description applies, brand does not.",
+        "condition_notes stays subject to the bar - the prompt defines it as 'condition hints explicitly mentioned or visible', which is an observation, not composed prose.",
+        "RATIONALE recorded in code: the whole chain was verified working first (the extract tool schema declares description, the prompt instructs 'always return a description when there is enough signal', decodeExtraction keeps it, iOS FieldUpdate.assign has a case for it, and the iOS item sync both selects description and maps it to itemDescription via resolveUserOwned). The confidence bar was the only thing stopping it, and US-2267 raising that bar from 0.5 to 0.8 would have turned an intermittent miss into the norm."
+      ],
+      "notes": "Done 2026-07-29. Verified the whole description chain BEFORE changing anything: the extract tool schema declares description, the prompt says always return one, decodeExtraction keeps it, iOS assign has a case, and the iOS sync selects description and maps it to itemDescription. Everything worked except the gate. Fix is a narrow exemption (composedProseFields = [\"description\"]) from the confidence bar, because the bar judges OBSERVATIONS - a brand guessed off a blurry tag is a claim that can be wrong - while the description is composed FROM the already-extracted fields, so its confidence measures the model rating its own prose and is not comparable. Never-overwrite still applies, which is the rule that actually protects the seller here. This also corrects a defect I introduced in US-2267: raising the write bar to 0.8 would have made a missing description the norm rather than an intermittent miss, so that story shipped a regression for prose fields that this closes. 3 new XCTests, unrun locally (no Swift toolchain); four ios/Scripts checks pass."
     }
   ]
 }

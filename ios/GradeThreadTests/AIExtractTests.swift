@@ -580,6 +580,49 @@ final class AIExtractTests: XCTestCase {
         XCTAssertFalse(mgr.isRunning(id))
     }
 
+    // MARK: - The AI description must actually land (US-2277)
+
+    /// The reported symptom: after an iOS add, the description is blank. The server
+    /// composes one, iOS can write it, and the sync pulls it back — the only thing
+    /// stopping it was the confidence bar, which a composed paragraph rates itself
+    /// below far more often than a tag read does.
+    func test_description_isAppliedBelowTheConfidenceBar() throws {
+        let store = readyStore([
+            "description": .init(
+                value: "Patagonia Nano Puff in navy. Men's medium, ripstop shell, full zip. Light wear, no holes or stains.",
+                confidence: 0.6,
+                source: "photo:front"
+            ),
+            // An OBSERVED field at the same confidence stays an opt-in row — the
+            // exemption is for composed prose only, not a blanket lowering.
+            "brand": .init(value: "Patagonia", confidence: 0.6, source: "photo:tag"),
+        ])
+        let review = try XCTUnwrap(
+            store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot())
+        )
+        XCTAssertEqual(review.applied.map(\.field), ["description"])
+        XCTAssertEqual(review.lowConfidence.map(\.field), ["brand"])
+    }
+
+    /// The never-overwrite rule still wins: a description the seller wrote is not
+    /// replaced, however the AI rates its own.
+    func test_description_doesNotOverwriteTheSellersOwnCopy() throws {
+        let store = readyStore([
+            "description": .init(value: "AI copy", confidence: 0.99, source: "photo:front"),
+        ])
+        var snapshot = AIItemFieldWriter.Snapshot()
+        snapshot.description = "The seller's own description"
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: snapshot))
+        XCTAssertTrue(review.applied.isEmpty)
+        XCTAssertEqual(review.lowConfidence.map(\.field), ["description"])
+    }
+
+    func test_composedProseSet_isNarrow() {
+        // Deliberately just the one field. condition_notes is an OBSERVATION
+        // ("condition hints explicitly mentioned or visible"), so it stays barred.
+        XCTAssertEqual(AIExtractStore.composedProseFields, ["description"])
+    }
+
     // MARK: - Stale SwiftData row on the item canvas (US-2276)
 
     /// The rule the canvas now applies before drawing anything. Pulled out as a

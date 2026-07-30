@@ -53,6 +53,25 @@ final class AIExtractStore {
     /// panel's "Med" tier (`confidenceTier` in ai-fill-panel.tsx).
     static let defaultAcceptConfidenceThreshold = 0.5
 
+    /// Fields the AI COMPOSES rather than reads, which the confidence bar cannot
+    /// judge (US-2277).
+    ///
+    /// The bar exists to stop a doubtful *observation* being written unasked — a
+    /// brand guessed off a blurry tag at 0.6 is a claim that can be wrong. A
+    /// description is not an observation: the prompt writes it FROM the fields
+    /// already extracted ("opening line, key attributes, then an honest condition
+    /// statement"), so its confidence tracks how sure the model is about its own
+    /// prose, which is both lower than a tag read and not comparable to one.
+    ///
+    /// Held to the same bar it was landing in the opt-in list instead of the item,
+    /// so sellers saw a blank description and reported that it "does not
+    /// generate". Raising the write bar to 0.8 would have made that the norm.
+    ///
+    /// These still never overwrite text the seller wrote — that rule is separate,
+    /// and it is the one that matters here. An empty description is strictly worse
+    /// than a generated one they can edit.
+    static let composedProseFields: Set<String> = ["description"]
+
     var phase: Phase = .waitingForUploads(complete: 0, total: 0)
     /// Field names the user has checked for acceptance.
     var acceptedFields: Set<String> = []
@@ -296,8 +315,14 @@ final class AIExtractStore {
         // had typed, and the only trace was an undo buried in the review.
         // Everything else becomes an opt-in row, whatever its confidence.
         func isAutoApplicable(_ entry: FieldSuggestionEntry) -> Bool {
-            guard entry.confidence >= Self.autoApplyConfidenceThreshold else { return false }
-            return AIItemFieldWriter.isUnset(snapshot.value(for: entry.field), field: entry.field)
+            // Never overwrite what the seller already has — this half applies to
+            // every field, composed or observed.
+            guard AIItemFieldWriter.isUnset(snapshot.value(for: entry.field), field: entry.field)
+            else { return false }
+            // US-2277: composed prose isn't an observation, so the confidence bar
+            // doesn't apply to it. See `composedProseFields`.
+            if Self.composedProseFields.contains(entry.field) { return true }
+            return entry.confidence >= Self.autoApplyConfidenceThreshold
         }
         let applied = result.entries
             .filter(isAutoApplicable)
