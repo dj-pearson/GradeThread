@@ -69,6 +69,10 @@ class SessionScope(
         // Watermarks BEFORE rows — the crash-safety ordering rule.
         resetWatermarks()
         wipeRows(true)
+        // US-1369: a pending "show me this brand" request names a brand from the
+        // OUTGOING account's inventory. Left set, it would apply to whoever
+        // signs in next.
+        com.gradethread.app.inventory.InventoryFilterRequests.clear()
         hooks.clearances.forEach { it() }
     }
 

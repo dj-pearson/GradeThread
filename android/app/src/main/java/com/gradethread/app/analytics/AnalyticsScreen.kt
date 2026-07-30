@@ -49,6 +49,7 @@ import com.gradethread.app.ui.theme.cardStyle
 @Composable
 fun AnalyticsScreen(
     onOpenListingPerformance: () -> Unit = {},
+    onOpenCommunity: () -> Unit = {},
     onClose: () -> Unit = {},
     viewModel: AnalyticsViewModel = hiltViewModel(),
 ) {
@@ -181,6 +182,12 @@ fun AnalyticsScreen(
                     text = "Listing performance",
                     modifier = Modifier.fillMaxWidth(),
                 ) { onOpenListingPerformance() }
+            }
+            item {
+                BrandSecondaryButton(
+                    text = "Community benchmarks",
+                    modifier = Modifier.fillMaxWidth(),
+                ) { onOpenCommunity() }
             }
         }
 

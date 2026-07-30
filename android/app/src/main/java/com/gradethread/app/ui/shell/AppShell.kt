@@ -245,6 +245,16 @@ private fun ShellNavHost(navController: NavHostController) {
                 onOpenListingPerformance = {
                     navController.navigate(ShellRoutes.LISTING_PERFORMANCE)
                 },
+                onOpenCommunity = { navController.navigate(ShellRoutes.COMMUNITY) },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1369: community benchmarks. A brand tap files a filter request and
+        // switches to the inventory TAB, so the seller lands on the real list
+        // with its own back stack rather than a one-off copy of it.
+        composable(ShellRoutes.COMMUNITY) {
+            com.gradethread.app.analytics.CommunityInsightsScreen(
+                onOpenInventory = { toSection(ShellSection.INVENTORY) },
                 onClose = { navController.popBackStack() },
             )
         }

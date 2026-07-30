@@ -1,5 +1,7 @@
 package com.gradethread.app.platform.di
 
+import com.gradethread.app.analytics.CommunityInsightsProviding
+import com.gradethread.app.analytics.CommunityInsightsService
 import com.gradethread.app.analytics.ListingPerformanceProviding
 import com.gradethread.app.analytics.ListingPerformanceService
 import dagger.Binds
@@ -24,4 +26,10 @@ abstract class AnalyticsModule {
     abstract fun bindListingPerformance(
         impl: ListingPerformanceService,
     ): ListingPerformanceProviding
+
+    @Binds
+    @Singleton
+    abstract fun bindCommunityInsights(
+        impl: CommunityInsightsService,
+    ): CommunityInsightsProviding
 }

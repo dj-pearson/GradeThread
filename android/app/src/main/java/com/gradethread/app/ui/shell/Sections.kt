@@ -61,6 +61,9 @@ object ShellRoutes {
     /** US-1368: the per-listing engagement drill-down, reached from Analytics. */
     const val LISTING_PERFORMANCE = "listing-performance"
 
+    /** US-1369: anonymized community benchmarks, reached from Analytics. */
+    const val COMMUNITY = "community"
+
     /**
      * US-1354: the offers + messages inbox, reached from Marketplaces or from
      * a `gradethread.com/app/negotiation/<itemId>` deep link.

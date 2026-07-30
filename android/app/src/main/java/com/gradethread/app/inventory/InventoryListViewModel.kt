@@ -148,6 +148,20 @@ class InventoryListViewModel @Inject constructor(
         _criteria.value = InventoryFilterCriteria()
     }
 
+    /**
+     * US-1369 AC3: apply a pending "show me this brand" request, once.
+     *
+     * REPLACES the brand facet rather than adding to it — arriving from a
+     * community benchmark for Patagonia and landing on a list still filtered to
+     * three brands from an hour ago would look like the deep link did nothing.
+     * Every other facet is left alone; the seller set those on purpose.
+     */
+    fun applyPendingBrandFilter() {
+        val brand = InventoryFilterRequests.consumeBrand() ?: return
+        _stage.value = InventoryStage.ALL
+        _criteria.value = _criteria.value.copy(brands = setOf(brand))
+    }
+
     fun toggleViewMode() {
         _viewMode.value =
             if (_viewMode.value == InventoryViewMode.LIST) InventoryViewMode.BOARD

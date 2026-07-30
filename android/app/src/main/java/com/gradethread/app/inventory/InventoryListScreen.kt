@@ -78,6 +78,15 @@ fun InventoryListScreen(
     val bulkResult by viewModel.bulkResult.collectAsStateWithLifecycle()
     val bulkUndo by viewModel.bulkUndo.collectAsStateWithLifecycle()
 
+    // US-1369 AC3: arriving from a community brand benchmark. Keyed on the
+    // pending request rather than Unit, so a second deep link during the same
+    // composition still lands.
+    val pendingBrand by com.gradethread.app.inventory.InventoryFilterRequests.brand
+        .collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(pendingBrand) {
+        if (pendingBrand != null) viewModel.applyPendingBrandFilter()
+    }
+
     // One cache per screen, NOT per composition — a per-composition instance
     // would defeat the entire point.
     val derivation = remember { InventoryDerivation() }
