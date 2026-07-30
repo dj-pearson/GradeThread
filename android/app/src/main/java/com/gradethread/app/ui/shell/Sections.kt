@@ -67,6 +67,9 @@ object ShellRoutes {
 
     /** US-1356: the orphan-listing queue, reached from the shell banner. */
     const val RECONCILE = "reconcile"
+
+    /** US-1357: what still needs posting, and who to thank. */
+    const val POST_SALE = "post-sale"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */

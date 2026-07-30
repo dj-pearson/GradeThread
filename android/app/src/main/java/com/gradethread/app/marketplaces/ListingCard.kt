@@ -123,6 +123,8 @@ fun ListingCard(
     model: ListingCardModel,
     modifier: Modifier = Modifier,
     onOpenExternal: ((String) -> Unit)? = null,
+    /** US-1357: opens the promotion + sale sheet. Null hides the action. */
+    onPromote: (() -> Unit)? = null,
 ) {
     Column(
         modifier
@@ -166,12 +168,20 @@ fun ListingCard(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        model.externalUrl?.let { url ->
-            onOpenExternal?.let { open ->
+        Row {
+            model.externalUrl?.let { url ->
+                onOpenExternal?.let { open ->
+                    TextButton(
+                        onClick = { open(url) },
+                        modifier = Modifier.padding(top = Spacing.xxs),
+                    ) { Text("View on ${model.platformLabel}") }
+                }
+            }
+            onPromote?.let { promote ->
                 TextButton(
-                    onClick = { open(url) },
+                    onClick = promote,
                     modifier = Modifier.padding(top = Spacing.xxs),
-                ) { Text("View on ${model.platformLabel}") }
+                ) { Text("Promote or discount") }
             }
         }
     }

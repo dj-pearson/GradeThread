@@ -43,6 +43,8 @@ fun MarketplacesScreen(
     onOpenNegotiation: () -> Unit = {},
     /** US-1355: opens the bulk price editor. */
     onOpenBulkPricing: () -> Unit = {},
+    /** US-1357: opens the post-sale shipping + feedback surface. */
+    onOpenPostSale: () -> Unit = {},
     viewModel: MarketplacesViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -72,6 +74,8 @@ fun MarketplacesScreen(
 
     var renaming by remember { mutableStateOf<MarketplaceConnection?>(null) }
     var disconnecting by remember { mutableStateOf<MarketplaceConnection?>(null) }
+    // US-1357: the promotion + sale sheet, opened from a listing card.
+    var promoting by remember { mutableStateOf<ListingCardModel?>(null) }
 
     Column(
         modifier.fillMaxSize().padding(Spacing.md),
@@ -139,6 +143,10 @@ fun MarketplacesScreen(
                 text = "Bulk pricing",
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenBulkPricing() }
+            BrandSecondaryButton(
+                text = "After the sale",
+                modifier = Modifier.fillMaxWidth(),
+            ) { onOpenPostSale() }
         }
 
         BrandSecondaryButton(text = "Refresh", modifier = Modifier.fillMaxWidth()) {
@@ -168,10 +176,23 @@ fun MarketplacesScreen(
                     ListingCard(
                         listing,
                         onOpenExternal = { url -> CustomTabsLauncher.open(context, url) },
+                        // Promotions only apply to listings GradeThread
+                        // published — an imported one has no offer to advertise.
+                        onPromote = if (listing.isImported) null else {
+                            { promoting = listing }
+                        },
                     )
                 }
             }
         }
+    }
+
+    promoting?.let { listing ->
+        com.gradethread.app.marketplaces.promotions.PromotionSheet(
+            listingId = listing.id,
+            listingTitle = listing.platformLabel + " · " + listing.priceText,
+            onDismiss = { promoting = null },
+        )
     }
 
     renaming?.let { connection ->

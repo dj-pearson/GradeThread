@@ -19,7 +19,8 @@ eBay OAuth connect · eBay listing sync (pull → poll → provenance-aware merg
 the unified listing card, and publish/relist with pre-flight, listing-time
 category specifics and a live profit estimate · the negotiation inbox (offers,
 send-offer, buyer messages) · bulk pricing · orphan-listing reconciliation with
-the shell-wide banner · credit-pack Play Billing ·
+the shell-wide banner · per-listing promotions and markdown sales · post-sale
+shipping and feedback · credit-pack Play Billing ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -27,7 +28,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Post-sale actions, repricing rules | US-1356–1358 |
+| Repricing rules + AI suggestions | US-1358 |
 | AutoLister (batch jobs, photo classify/QA, drafts) | US-1359 |
 | Disclosure, scheduled drops, automations | US-1360–1362 |
 | Payout reconciliation | US-1365 |

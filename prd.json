@@ -97,14 +97,14 @@
     {
       "id": "US-1357",
       "priority": -98643,
-      "passes": false,
+      "passes": true,
       "title": "Post-sale actions + promotions/sale boosts",
       "description": "As a seller, I can run post-sale steps and per-listing promotions/markdowns.",
       "acceptanceCriteria": [
         "Promotions + sale boosts per listing (GET/POST/DELETE .../promotion, .../sale)",
         "Post-sale shipping/feedback surface fed from sync"
       ],
-      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P3][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android post-sale + promotions. AC1: marketplaces/promotions/{Promotions,PromotionTypes,PromotionService,PromotionViewModel,PromotionSheet}.kt — GET/POST/DELETE listings/:id/promotion and POST/DELETE listings/:id/sale, opened from the listing card and hidden for imported listings (no offer to advertise). Ad rate 2-20% and markdown 5-70% are clamped client-side to the SAME bounds the edge applies, so the number shown is the number the listing actually pays; every action re-reads the server state afterwards rather than echoing the request, because eBay clamps and can decline. The tri-state promote_override is carried honestly: null-inheriting an off-by-default setting reads 'Not promoted', never 'promoted', and a category-heuristic suggestion is never described as eBay's trending rate. NOTE: the server exposes no GET .../sale — sale_active/sale_pct ride the promotion GET, so the panel reads both from one call. AC2: marketplaces/postsale/{PostSale,PostSaleService,PostSaleViewModel,PostSaleScreen}.kt — both lists are derived from the SYNCED sales rows (Room flows, no extra fetch, works offline); to-post excludes cancelled/refunded orders and any sale with no eBay order id (the server would refuse it) and sorts oldest-first, feedback is offered on shipped completed sales with a known buyer. Mark-shipped posts tracking (whitespace stripped, since labels wrap them) to /orders/:saleId/ship and is idempotent server-side; feedback posts to /feedback and reports already_left as a fact rather than an error, since eBay owns that truth. Both actions pull afterwards so a shipped sale leaves the list immediately instead of inviting a second label. Verified by PromotionsTest (13 cases on bounds, parsing and the claim wording) and PostSaleTest (11 cases on both filters, tracking normalisation and feedback copy). NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1358",
