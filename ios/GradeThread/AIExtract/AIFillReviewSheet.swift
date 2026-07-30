@@ -223,7 +223,10 @@ struct AIFillReviewSheet: View {
         } header: {
             Text("Suggestions to review")
         } footer: {
-            Text("Lower-confidence suggestions weren't applied automatically. Check any you want to add.")
+            // US-2267: two reasons a suggestion lands here now — it was below the
+            // write bar, OR it would have replaced something already filled in. Say
+            // both, so a checked-but-not-applied row doesn't read as a bug.
+            Text("These weren't applied for you — either the AI wasn't sure enough, or the field already had a value. Checked ones will be added when you apply.")
                 .font(.caption)
         }
     }
@@ -306,13 +309,46 @@ struct AIFillReviewSheet: View {
         }
         review = stored
         keptApplied = Set(stored.applied.map(\.field))
-        acceptedLow = []
+        // US-2267: pre-tick the opt-in rows that are safe to accept — medium
+        // confidence or better, and the column is still unset. Raising the WRITE
+        // bar moved these rows out of the auto-applied set; leaving them all
+        // unticked would have turned a good fill into a row-by-row chore. Mirrors
+        // the web panel, which default-checks a suggestion for any empty field and
+        // writes nothing until Apply.
+        acceptedLow = Set(
+            stored.lowConfidence
+                .filter { entry in
+                    entry.confidence >= AIExtractStore.defaultAcceptConfidenceThreshold
+                        && AIExtractStore.isUnset(currentValue(for: entry.field), field: entry.field)
+                }
+                .map(\.field)
+        )
         keepMeasurements = stored.measurementsApplied
     }
 
     private func finish() {
         AIFillReviewStore.shared.clear(for: item.id)
         dismiss()
+    }
+
+    /// This item's CURRENT value for a server field name — live truth, so the
+    /// pre-tick decision reflects any edit made since the extraction ran (rather
+    /// than the snapshot taken when the review was built).
+    private func currentValue(for field: String) -> String? {
+        switch field {
+        case "title":            return item.title
+        case "brand":            return item.brand
+        case "size":             return item.size
+        case "color":            return item.color
+        case "material":         return item.material
+        case "style":            return item.style
+        case "description":      return item.itemDescription
+        case "condition_notes":  return item.conditionNotes
+        case "garment_type":     return item.garmentType
+        case "garment_category": return item.garmentCategory
+        case "item_category":    return item.itemCategory
+        default:                 return nil
+        }
     }
 
     // MARK: - Mutations

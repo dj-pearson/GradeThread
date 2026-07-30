@@ -3283,7 +3283,7 @@
     },
     {
       "id": "US-2267",
-      "passes": false,
+      "passes": true,
       "title": "iOS auto-writes AI fields at 0.5 confidence before the seller ever sees them; web writes nothing until accepted",
       "description": "As a seller on iPhone, I want to approve the AI's answers before they are saved onto my item, so that a medium-confidence wrong brand or size is never silently written to my catalog.",
       "acceptanceCriteria": [
@@ -3292,7 +3292,8 @@
         "The reversible review still auto-presents (AIFillReviewStore.register(autoPresent: true)) and every field the seller accepts there is written through AIItemFieldWriter with its ai_field_sources entry, so provenance and the AI badge are unchanged.",
         "An XCTest over buildFillReview asserts a suggestion at 0.5 confidence lands in AIFillReview.lowConfidence (opt-in), not AIFillReview.applied.",
         "The threshold value and the reasoning live in one place with a comment, and AIExtractTests covers the conflict clamps (conflict:tag, conflict:photo) still sorting below the new bar."
-      ]
+      ],
+      "notes": "Done 2026-07-29. Split the single confidence number into two bars, because it was doing two jobs that pull opposite ways: autoApplyConfidenceThreshold (now 0.8) is what gets WRITTEN unasked; defaultAcceptConfidenceThreshold (0.5) is what starts TICKED in the review. Both documented together in AIExtractStore with the reasoning. Beyond the ACs, added the web's actual core promise, which iOS was not keeping: a field is auto-written only if it ALSO clears the never-overwrite check, so a 0.97-confidence brand no longer clobbers a brand the seller typed (it becomes an opt-in row instead). The photo-first placeholder title 'Untitled item' is treated as unset (AIExtractStore.isUnset) so the US-682 naming guarantee survives the higher bar; verified separately that the title seed still writes when NOTHING clears it. The review sheet pre-ticks safe opt-in rows against LIVE item values so raising the bar did not turn a good fill into a row-by-row chore, and the section footer now states both reasons a row can land there. Two existing tests encoded the old policy and were rewritten, not deleted: the 0.5-bar assertion became a 0.8 boundary test, and the partition test now demonstrates previousValue via the placeholder title (an applied field is previously-unset by definition now). 8 new/updated XCTests; unrun locally (no Swift toolchain on Windows), iOS CI is the gate. All five ios/Scripts checks pass."
     },
     {
       "id": "US-2268",

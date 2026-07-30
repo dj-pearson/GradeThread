@@ -239,24 +239,45 @@ final class AIExtractTests: XCTestCase {
             model: nil, logId: nil, actionsRemaining: 10
         ))
 
+        // US-2267: the placeholder title is treated as unset, so it auto-applies
+        // and carries its prior value for undo. brand/size/color start empty.
         var snapshot = AIItemFieldWriter.Snapshot()
-        snapshot.brand = "Old Brand"   // had a prior value; size/color were empty
+        snapshot.title = AIExtractStore.placeholderTitle
 
         let review = try XCTUnwrap(store.buildFillReview(itemId: "item-1", snapshot: snapshot))
 
         XCTAssertEqual(review.itemId, "item-1")
-        // brand 0.95 + size 0.82 clear the 0.5 bar; color 0.45 stays opt-in.
+        // brand 0.95 + size 0.82 clear the 0.8 write bar; color 0.45 stays opt-in.
         XCTAssertEqual(Set(review.applied.map(\.field)), ["brand", "size"])
         XCTAssertEqual(review.lowConfidence.map(\.field), ["color"])
         XCTAssertEqual(review.conditionSummary, "Light wear.")
         XCTAssertTrue(review.measurementsApplied)
 
+        // Applied fields were previously UNSET (that is now a precondition of
+        // auto-applying at all), so there is nothing to restore on undo.
         let brand = review.applied.first { $0.field == "brand" }
-        XCTAssertEqual(brand?.previousValue, "Old Brand")
+        XCTAssertNil(brand?.previousValue)
         let size = review.applied.first { $0.field == "size" }
         XCTAssertNil(size?.previousValue)
         // applied fields (2) + applied measurements (1)
         XCTAssertEqual(review.appliedCount, 3)
+    }
+
+    /// The placeholder title is the one applied field that DOES carry a prior
+    /// value, so undoing it restores the placeholder rather than nulling a NOT NULL
+    /// column.
+    func test_buildFillReview_appliedTitleCarriesPlaceholderForUndo() throws {
+        let store = AIExtractStore()
+        store.applyResponse(AIExtractResponse(
+            suggestions: ["title": .init(value: "Patagonia Nano Puff", confidence: 0.9, source: "photo:front")],
+            conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+        var snapshot = AIItemFieldWriter.Snapshot()
+        snapshot.title = AIExtractStore.placeholderTitle
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: snapshot))
+        let title = try XCTUnwrap(review.applied.first { $0.field == "title" })
+        XCTAssertEqual(title.previousValue, AIExtractStore.placeholderTitle)
     }
 
     func test_buildFillReview_returnsNilWhenNotReady() {
@@ -404,17 +425,23 @@ final class AIExtractTests: XCTestCase {
         )
     }
 
-    // MARK: - Lowered auto-apply bar (0.5) + resolved eBay category (US-822)
+    // MARK: - Write-bar boundary + resolved eBay category (US-822, US-2267)
 
-    /// Medium-confidence fields (≥0.5) now auto-apply; the bar is exclusive at
-    /// 0.5 so a 0.49 field stays an opt-in suggestion.
-    func test_buildFillReview_appliesMediumConfidence_aboveLoweredBar() throws {
-        XCTAssertEqual(AIExtractStore.autoApplyConfidenceThreshold, 0.5, accuracy: 0.0001)
+    /// The write bar is exclusive at 0.8: 0.8 writes, 0.79 doesn't.
+    ///
+    /// This replaces the old 0.5-bar assertion. That bar was set low so a
+    /// moderate-confidence capture would fill the listing rather than land on a
+    /// near-empty item — but the cost was writing guesses the seller hadn't seen,
+    /// which is not what the web does. The near-empty worry is now covered by the
+    /// title seed (US-682), the auto-presenting review, the pre-ticked opt-in rows,
+    /// and the re-run (US-2266).
+    func test_buildFillReview_writeBarIsExclusiveAt08() throws {
+        XCTAssertEqual(AIExtractStore.autoApplyConfidenceThreshold, 0.8, accuracy: 0.0001)
         let store = AIExtractStore()
         store.applyResponse(AIExtractResponse(
             suggestions: [
-                "brand": .init(value: "Patagonia", confidence: 0.55, source: "photo:front"),
-                "size":  .init(value: "M",         confidence: 0.49, source: "photo:front"),
+                "brand": .init(value: "Patagonia", confidence: 0.80, source: "photo:front"),
+                "size":  .init(value: "M",         confidence: 0.79, source: "photo:front"),
             ],
             conditionSummary: nil, conflicts: [], measurements: nil,
             model: nil, logId: nil, actionsRemaining: 0
@@ -551,6 +578,131 @@ final class AIExtractTests: XCTestCase {
         mgr.clear(for: id)            // must be a safe no-op for an unknown id
         XCTAssertNil(mgr.phase(for: id))
         XCTAssertFalse(mgr.isRunning(id))
+    }
+
+    // MARK: - Write bar vs pre-tick bar (US-2267)
+
+    private func readyStore(
+        _ suggestions: [String: FieldSuggestion],
+        conflicts: [FieldConflict] = []
+    ) -> AIExtractStore {
+        let store = AIExtractStore()
+        store.applyResponse(AIExtractResponse(
+            suggestions: suggestions,
+            conditionSummary: nil,
+            conflicts: conflicts,
+            measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+        return store
+    }
+
+    /// The behaviour difference from web: a MEDIUM-confidence guess used to be
+    /// written to the item before the seller had seen it. It must now be an opt-in
+    /// row instead.
+    func test_mediumConfidence_isOptInNotWritten() throws {
+        let store = readyStore([
+            "brand": .init(value: "Patagonia", confidence: 0.5, source: "photo:tag"),
+            "color": .init(value: "Blue", confidence: 0.79, source: "photo:front"),
+            "size": .init(value: "M", confidence: 0.8, source: "photo:tag"),
+        ])
+        let review = try XCTUnwrap(
+            store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot())
+        )
+        // Only the field at/above the write bar is applied unasked.
+        XCTAssertEqual(review.applied.map(\.field), ["size"])
+        XCTAssertEqual(Set(review.lowConfidence.map(\.field)), ["brand", "color"])
+    }
+
+    /// The web's core promise, which iOS didn't keep: a confident read must not
+    /// overwrite something the seller already filled in.
+    func test_confidentValue_doesNotOverwriteAFilledField() throws {
+        let store = readyStore([
+            "brand": .init(value: "Nike", confidence: 0.97, source: "photo:tag"),
+            "size": .init(value: "L", confidence: 0.95, source: "photo:tag"),
+        ])
+        var snapshot = AIItemFieldWriter.Snapshot()
+        snapshot.brand = "Patagonia"      // the seller typed this
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: snapshot))
+
+        XCTAssertEqual(review.applied.map(\.field), ["size"], "only the empty field is written")
+        let brand = try XCTUnwrap(review.lowConfidence.first { $0.field == "brand" })
+        XCTAssertEqual(brand.value, "Nike", "the suggestion is still offered, just not applied")
+    }
+
+    /// A brand-new photo-first row's title is the placeholder, not empty — so the
+    /// never-overwrite rule has to treat it as unset or the item stays "Untitled
+    /// item", the exact dead end US-682 exists to prevent.
+    func test_placeholderTitle_countsAsUnset() throws {
+        XCTAssertTrue(AIExtractStore.isUnset(AIExtractStore.placeholderTitle, field: "title"))
+        XCTAssertTrue(AIExtractStore.isUnset("  ", field: "brand"))
+        XCTAssertFalse(AIExtractStore.isUnset("Real Title", field: "title"))
+        // The placeholder is only special for `title`.
+        XCTAssertFalse(AIExtractStore.isUnset(AIExtractStore.placeholderTitle, field: "brand"))
+
+        let store = readyStore([
+            "title": .init(value: "Patagonia Nano Puff", confidence: 0.9, source: "photo:front"),
+        ])
+        var snapshot = AIItemFieldWriter.Snapshot()
+        snapshot.title = AIExtractStore.placeholderTitle
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: snapshot))
+        XCTAssertEqual(review.applied.map(\.field), ["title"])
+    }
+
+    /// Raising the write bar must not resurrect the bare-"Untitled item" outcome:
+    /// when NOTHING clears it, the title seed still names the row.
+    func test_nothingClearsTheWriteBar_stillSeedsATitle() throws {
+        let store = readyStore([
+            "brand": .init(value: "Patagonia", confidence: 0.55, source: "photo:tag"),
+            "style": .init(value: "Nano Puff", confidence: 0.6, source: "photo:front"),
+        ])
+        let review = try XCTUnwrap(
+            store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot())
+        )
+        XCTAssertTrue(review.applied.isEmpty)
+        XCTAssertEqual(review.lowConfidence.count, 2)
+
+        // finish() passes this seed into write(seedTitle: true), so the row is named
+        // even though no field was auto-applied.
+        let seed = try XCTUnwrap(store.bestTitleSeed())
+        XCTAssertEqual(seed, "Patagonia Nano Puff")
+        XCTAssertEqual(
+            AIItemFieldWriter.seededTitle(brand: nil, style: nil, size: nil, explicit: seed),
+            "Patagonia Nano Puff"
+        )
+        XCTAssertTrue(review.hasSomethingToReview)
+    }
+
+    /// The pre-tick bar is what keeps the review one tap. It must sit BELOW the
+    /// write bar, and the conflict/Live-Text clamps must sit below it in turn so a
+    /// disagreement is never pre-accepted.
+    func test_barsAreOrdered_andConflictClampsSitBelowBoth() {
+        XCTAssertLessThan(
+            AIExtractStore.defaultAcceptConfidenceThreshold,
+            AIExtractStore.autoApplyConfidenceThreshold,
+            "pre-ticking must be more permissive than writing, never the reverse"
+        )
+        // US-1217 / US-1530 clamps, and the US-177 Live Text stamp, are all 0.4.
+        XCTAssertLessThan(
+            AIExtractStore.conflictReviewConfidence,
+            AIExtractStore.defaultAcceptConfidenceThreshold,
+            "a conflicted field must not start ticked — the user has to choose"
+        )
+    }
+
+    /// A conflicted field can never be written unasked, whatever its confidence.
+    func test_conflictedField_isNeverAutoApplied() throws {
+        let store = readyStore(
+            ["size": .init(value: "M", confidence: 0.98, source: "photo:tag")],
+            conflicts: [FieldConflict(field: "size", textValue: "L", photoValue: "M")]
+        )
+        let review = try XCTUnwrap(
+            store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot())
+        )
+        XCTAssertTrue(review.applied.isEmpty, "a disagreement is always the user's call")
+        let size = try XCTUnwrap(review.lowConfidence.first { $0.field == "size" })
+        XCTAssertEqual(size.value, "L", "US-1217 prefers the tag reading as the candidate")
+        XCTAssertLessThanOrEqual(size.confidence, AIExtractStore.conflictReviewConfidence)
     }
 
     // MARK: - condition_notes was silently dropped (US-2269)

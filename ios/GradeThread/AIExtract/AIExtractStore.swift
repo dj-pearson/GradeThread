@@ -28,14 +28,45 @@ final class AIExtractStore {
         let valueInches: Double
     }
 
-    /// Confidence at/above which an extracted field is APPLIED automatically;
-    /// below it the field is surfaced for opt-in in the (now auto-presenting)
-    /// review. Lowered from 0.8 to 0.5 — "medium and up", matching the web's
-    /// confidence tiers — so a no-tag / moderate-confidence capture actually
-    /// fills the listing instead of landing on a near-empty item. Safe because
-    /// the review sheet now pops automatically and every applied field is
-    /// one-tap reversible there.
-    static let autoApplyConfidenceThreshold = 0.5
+    // MARK: - The two bars (US-2267)
+    //
+    // This used to be ONE number doing two jobs that pull in opposite directions:
+    // what gets WRITTEN to the item without asking, and what starts TICKED in the
+    // review. Set low (0.5) it filled more of the listing but wrote
+    // medium-confidence guesses to the database before the seller had seen them —
+    // which the web never does, it writes nothing until Apply. Set high it stopped
+    // guessing but left every row unticked, making a perfectly good fill a
+    // row-by-row chore to accept.
+    //
+    // Splitting them gets both: only near-certain values are written unasked, and
+    // everything from medium up is pre-ticked so accepting it is one tap.
+
+    /// Confidence at/above which a field is written to the item WITHOUT asking.
+    /// High deliberately — this is the only value the seller doesn't see first.
+    /// Composed with the never-overwrite rule in ``buildFillReview``: even a
+    /// confident value won't clobber something the seller already filled in.
+    static let autoApplyConfidenceThreshold = 0.8
+
+    /// Confidence at/above which an opt-in row starts TICKED in the review. Below
+    /// the write bar, so these are shown-then-accepted rather than written — but a
+    /// medium read is still worth one tap rather than a hunt. Mirrors the web
+    /// panel's "Med" tier (`confidenceTier` in ai-fill-panel.tsx).
+    static let defaultAcceptConfidenceThreshold = 0.5
+
+    /// The placeholder title a photo-first capture creates the row with
+    /// (``PhotoIntakeView.startIntakeFlow``). `title` is NOT NULL, so a brand-new
+    /// item's title is this string rather than empty — and treating it as "already
+    /// filled" would make the never-overwrite rule below refuse to name the item,
+    /// which is the exact "Untitled item" dead end US-682 exists to prevent.
+    static let placeholderTitle = "Untitled item"
+
+    /// Whether a column currently holds nothing the seller would miss. Blank, or
+    /// the placeholder title.
+    static func isUnset(_ value: String?, field: String) -> Bool {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty { return true }
+        return field == "title" && trimmed == placeholderTitle
+    }
 
     var phase: Phase = .waitingForUploads(complete: 0, total: 0)
     /// Field names the user has checked for acceptance.
@@ -209,9 +240,13 @@ final class AIExtractStore {
             .sorted { $0.key < $1.key }
             .map { Measurement(id: $0.key, key: $0.key, valueInches: $0.value) }
 
-        // Default-accept medium-and-up rows (≥ threshold). The user can flip any
-        // off before tapping Apply.
-        acceptedFields = Set(entries.filter { $0.confidence >= Self.autoApplyConfidenceThreshold }.map(\.field))
+        // Default-accept medium-and-up rows. This is the PRE-TICK bar, not the
+        // write bar (US-2267) — checking a row here still requires an Apply.
+        acceptedFields = Set(
+            entries
+                .filter { $0.confidence >= Self.defaultAcceptConfidenceThreshold }
+                .map(\.field)
+        )
         // Measurements default-on per AC.
         acceptMeasurements = !measurements.isEmpty
         ebayPrep = response.ebay
@@ -263,9 +298,18 @@ final class AIExtractStore {
     /// prior value. Returns nil when the store isn't in the ready phase.
     func buildFillReview(itemId: String, snapshot: AIItemFieldWriter.Snapshot) -> AIFillReview? {
         guard case let .ready(result) = phase else { return nil }
-        let threshold = Self.autoApplyConfidenceThreshold
+        // US-2267: a field is written unasked only when it clears the write bar
+        // AND the column is EMPTY. The second half is the web's core promise —
+        // "AI never silently overwrites something the user already filled" — which
+        // iOS didn't keep: a 0.9-confidence brand read overwrote a brand the seller
+        // had typed, and the only trace was an undo buried in the review.
+        // Everything else becomes an opt-in row, whatever its confidence.
+        func isAutoApplicable(_ entry: FieldSuggestionEntry) -> Bool {
+            guard entry.confidence >= Self.autoApplyConfidenceThreshold else { return false }
+            return Self.isUnset(snapshot.value(for: entry.field), field: entry.field)
+        }
         let applied = result.entries
-            .filter { $0.confidence >= threshold }
+            .filter(isAutoApplicable)
             .map { entry in
                 AppliedAIField(
                     field: entry.field,
@@ -275,7 +319,7 @@ final class AIExtractStore {
                     source: entry.source
                 )
             }
-        let lowConfidence = result.entries.filter { $0.confidence < threshold }
+        let lowConfidence = result.entries.filter { !isAutoApplicable($0) }
         let measurementsApplied = acceptMeasurements && !result.measurements.isEmpty
         return AIFillReview(
             itemId: itemId,
