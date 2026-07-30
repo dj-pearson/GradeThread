@@ -532,6 +532,13 @@ function SortablePhoto({
   // A photo sent for grading can't be deleted while a grade is in flight.
   const deleteBlocked = photo.used_for_grading && gradingInFlight;
   const sensitive = isSensitivePhotoType(photo.photo_type);
+  // US-2278: why editing is unavailable, or null when it's available. Both cases
+  // were previously expressed by hiding the button, which looks like a bug.
+  const editBlockedReason = sensitive
+    ? "Label, tag and certificate photos can't be edited — they're stored privately because they can show names and addresses, and an edited copy would have to be saved publicly."
+    : photo.storage_path == null
+      ? "This photo is still uploading, or its file is missing, so there's nothing to edit yet."
+      : null;
 
   return (
     <div
@@ -603,19 +610,23 @@ function SortablePhoto({
               )}
             </button>
           )}
-          {/* Sensitive close-ups (tag / certificate) are never editable — their
-              originals live in the private bucket and an edited copy would have
-              to be written back to the public one. */}
-          {!sensitive && (
-            <button
-              type="button"
-              onClick={() => onEdit(photo)}
-              className="rounded bg-background/80 p-1 text-muted-foreground hover:text-foreground"
-              aria-label="Edit photo"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
+          {/* US-2278: the control is DISABLED with its reason rather than absent.
+              Sensitive close-ups genuinely can't be edited — the original lives in
+              the private bucket and an edited copy would have to be written back
+              to the public one, republishing the PII the private bucket exists to
+              hold — and a row with no storage_path has nowhere to save to. But
+              silently omitting the pencil reads as "these two photos are broken",
+              which is exactly how it was reported. Say why instead. */}
+          <button
+            type="button"
+            onClick={() => onEdit(photo)}
+            disabled={editBlockedReason != null}
+            title={editBlockedReason ?? "Edit photo"}
+            className="rounded bg-background/80 p-1 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted-foreground"
+            aria-label={editBlockedReason ?? "Edit photo"}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
       {/* US-1571: capture guidance for the MeasureCard frame, surfaced right

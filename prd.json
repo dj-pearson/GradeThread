@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2278",
+  "nextId": "US-2279",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3443,6 +3443,20 @@
         "RATIONALE recorded in code: the whole chain was verified working first (the extract tool schema declares description, the prompt instructs 'always return a description when there is enough signal', decodeExtraction keeps it, iOS FieldUpdate.assign has a case for it, and the iOS item sync both selects description and maps it to itemDescription via resolveUserOwned). The confidence bar was the only thing stopping it, and US-2267 raising that bar from 0.5 to 0.8 would have turned an intermittent miss into the norm."
       ],
       "notes": "Done 2026-07-29. Verified the whole description chain BEFORE changing anything: the extract tool schema declares description, the prompt says always return one, decodeExtraction keeps it, iOS assign has a case, and the iOS sync selects description and maps it to itemDescription. Everything worked except the gate. Fix is a narrow exemption (composedProseFields = [\"description\"]) from the confidence bar, because the bar judges OBSERVATIONS - a brand guessed off a blurry tag is a claim that can be wrong - while the description is composed FROM the already-extracted fields, so its confidence measures the model rating its own prose and is not comparable. Never-overwrite still applies, which is the rule that actually protects the seller here. This also corrects a defect I introduced in US-2267: raising the write bar to 0.8 would have made a missing description the norm rather than an intermittent miss, so that story shipped a regression for prose fields that this closes. 3 new XCTests, unrun locally (no Swift toolchain); four ios/Scripts checks pass."
+    },
+    {
+      "id": "US-2278",
+      "passes": true,
+      "title": "Photo edit is silently unavailable rather than explained, so a photo that cannot be edited reads as broken",
+      "description": "As a seller, I want to know why I cannot edit a particular photo, so that I stop thinking those photos uploaded wrong.",
+      "acceptanceCriteria": [
+        "PhotoManager renders the edit (pencil) control for EVERY photo and disables it with the reason in title + aria-label, instead of omitting it. Omitting it is what produced the report 'those two photos will not allow me to edit them like the others'.",
+        "Two blocked cases are named distinctly: a sensitive type (tag / tag_2 / certificate) explains that the original is stored privately because it can show names and addresses and an edited copy would have to be saved publicly; a row with a null storage_path explains that the file is still uploading or missing.",
+        "The underlying refusal is unchanged - persistPhotoBlob still throws for a sensitive type, so this is presentation only and cannot republish PII.",
+        "npx impeccable detect on photo-manager.tsx stays clean and the disabled state uses opacity + not-allowed cursor rather than a colour-only signal.",
+        "OPEN, needs one fact from the seller: whether the two photos in their example item are typed tag / tag_2. If they are, the confusion is compounded by US-2273 (those photos also render blank on web because there is no signed-URL read path) and fixing that removes most of it. If they are not, the null-storage_path branch is the live cause and the upload path needs its own story."
+      ],
+      "notes": "Done 2026-07-29 (presentation half only; the diagnosis half is recorded as an OPEN AC). Edit control is now always rendered and disabled-with-reason. Established while investigating: REQUIRED_PHOTO_TYPES is only front+back, so the web bulk-add path assigns detail (editable) and cannot produce tag/tag_2 - meaning photos added after generation only become non-editable if the seller uploaded them into the Tag slots explicitly, or if storage_path is null. Could not confirm which applies to the reported item without prod DB access, so both branches are named in the UI and the question is recorded rather than guessed. Full web suite: the three source-scanning tests that failed in a full run (dialog-dynamic-viewport, status-enum-parity, composer-locks) all PASS in isolation - concurrent-agent tree churn during the 5-8s directory walks, not this change."
     }
   ]
 }
