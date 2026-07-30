@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2272",
+  "nextId": "US-2274",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3353,6 +3353,37 @@
         "The US-2265 source guard in tests/item-photo-storage_test.ts covers these files, so a future adapter that hardcodes the public bucket fails CI unless it justifies the site with an inline item-photo-url-ok marker."
       ],
       "notes": "Done 2026-07-29. Found by the US-2265 source guard, fixed in the same commit. Extracted publicItemPhotoUrl into lib/item-photo-storage.ts as the single 'may this photo go to a public marketplace' rule; flipdesk-ebay.ts's ebayPublicPhotoUrl now delegates to it (behaviour unchanged there). depop/etsy/shopify resolveImageUrls now select photo_type, run filterListablePhotos, and resolve through publicItemPhotoUrl — so 'internal' price-tag/receipt photos and the MeasureCard frame are no longer pushed, and a care-label/certificate photo in the private bucket is skipped instead of being sent as a 404 URL. Note the pre-existing eBay behaviour kept deliberately: a sensitive row with an ALREADY-POPULATED photo_url (web uploaded every type to the public bucket) is still publishable, because live listings point at those URLs; only the private-bucket case is refused."
+    },
+    {
+      "id": "US-2272",
+      "passes": true,
+      "title": "Verified-seller credential block froze at publish, so older listings advertise a stale graded count",
+      "description": "As a verified seller, I want the \"N items independently graded\" block on my live eBay listings to reflect my CURRENT grade count and average, so that a buyer comparing two of my listings does not see 13 items on one and 19 on the next.",
+      "acceptanceCriteria": [
+        "lib/seller-credentials.ts exports findSellerCredentialBlock + refreshSellerCredentialBlock: pure, walks <div> depth from the marker so ONLY the block element is replaced and the trailing \"Graded by GradeThread — Condition Grade X — Cert #GT-…\" line (appended after it by applyGradeListingPromotion) survives byte-for-byte.",
+        "refreshSellerCredentialBlock returns null when the description carries no block, an unrecognised shape after the marker, or an unclosed element — a refresh NEVER injects the block into a description that did not already have one.",
+        "POST /api/jobs/credentials-refresh (routes/jobs-credentials-refresh.ts) sweeps verified + embed-opted-in sellers and revises the LIVE eBay description of their GRADED items only: platform=ebay, a real platform_offer_id, listing_status active/relisted, listing_origin != ebay, inventory_items.grade_value not null.",
+        "The swap is applied to the LIVE offer description read back via getOffer, not to the stored copy, so a revise changes the block and cannot clobber eBay-side drift; listings.listing_description and (when it carries a block) inventory_items.description are then brought in line.",
+        "Cost control: the stored copy is compared FIRST so a steady-state run makes ZERO eBay calls; eBay writes per run are capped (default 100, system_settings credentials_refresh.max_per_run) with credentials_refresh.enabled as a kill-switch; candidates are ordered least-recently-updated first so a backlog larger than the cap rotates; a capped run reports capped:true and logs it rather than reading as \"all current\".",
+        "Job-secret gated (requireJobSecret) + overlap-locked (acquireJobLock, 600s lease); registered in CRON_REGISTRY (daily 40 5 * * *) with COOLIFY.md / CRON_SETUP.md / launch-checklist.md regenerated and the deploy.md cron count bumped; tenant-isolation_test.ts proves a user JWT and a bogus secret both 401.",
+        "Deno tests cover the swap: stale->fresh count, cert line and disclosure block preserved, idempotent second pass, null for no-block/unrecognised/unclosed, nested divs, and a stats-less block gaining a stats line."
+      ],
+      "notes": "Done 2026-07-29. eBay bans active content in descriptions (no script/iframe/remote include) and bans off-eBay links, so a published block can never self-update — a scheduled REVISE is the only compliant fix (eBay allows description revises any time, free, even on a listing with sales). Scoped to graded listings per the operator ask. No migration: the kill-switch/cap read through getSetting with code fallbacks, and the round-robin uses listings.updated_at (bumped by the write itself) instead of a new last-refreshed column. Pre-existing Windows-only test failures on this host (brand-style-coverage readdir path, sizing-chart-parity + authenticity-references CRLF diffs) verified to fail on a clean tree too."
+    },
+    {
+      "id": "US-2273",
+      "passes": false,
+      "title": "iOS-captured tag/tag_2/certificate photos render blank on web: the private bucket has no web display path",
+      "description": "As a seller who catalogs on iPhone and finishes the listing on my laptop, I want my Garment Tag photos to actually appear on the web, so that I can see and reorder the shots I took.",
+      "acceptanceCriteria": [
+        "A web helper resolves a display URL for a PRIVATE-bucket item photo: when isSensitivePhotoType(photo_type) is true (src/lib/constants.ts SENSITIVE_PHOTO_TYPES = tag, tag_2, certificate) AND photo_url is empty, it mints a signed URL on the submission-images bucket with TTL <= 900s (reusing SIGNED_URL_TTL_SECONDS from src/lib/storage.ts), never getPublicUrl - the existing src/lib/__tests__/signed-url-ttl.test.ts scan must keep passing.",
+        "itemPhotoThumb (src/lib/images.ts) no longer returns an empty string for these rows. Today: iOS writes photo_url as '' for private uploads and never writes thumbnail_url (ios/GradeThread/Upload/ItemPhotoInsert.swift has no thumbnail field), so itemPhotoThumb falls through both branches and yields '' - which renders as a broken img.",
+        "Every web surface that renders item photos resolves these: photo-manager.tsx, photo-uploader.tsx, ebay-view-item-preview.tsx, autolister.tsx, listings.tsx, and the composer photos card.",
+        "Signed URLs are cached per storage_path until shortly before expiry so a scrolling gallery does not re-sign every frame (mirror of iOS PhotoSignedURLProvider's refreshSkew), and a failed mint degrades to a labelled placeholder rather than a broken image icon.",
+        "A vitest asserts the resolver: signed (path contains /object/sign/) for tag/tag_2/certificate with empty photo_url; the stored photo_url untouched for a web-uploaded tag that HAS one; the public URL for front/back; and empty input yields no request.",
+        "A vitest asserts a private-bucket photo is never handed to a PUBLIC destination from the client (eBay preview, share, export) - the display URL is short-lived and must not be persisted onto a listing.",
+        "The DB is NOT the problem and no migration is needed: the item_photos row, storage_path and bytes are all correct today. This is purely a client read path."
+      ]
     }
   ]
 }
