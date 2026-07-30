@@ -3198,7 +3198,8 @@
         "A coverage banner shows the total number of sellers feeding the aggregates",
         "When personal cohorts miss k-anonymity, a global fallback signal is shown instead of only a not-enough-data message",
         "Recommendations link into Scout or Buyer Demand to act on them and can be dismissed, with a see-all control"
-      ]
+      ],
+      "notes": "Partial 2026-07-30 (AC4 recommendations UX): community-insights-widget.tsx RecommendationRow gains an optional onDismiss (X button); the community-insights page filters dismissed recs (persisted in localStorage 'flipdesk.community.dismissedRecs') and shows a 6-item preview with a 'See all N / Show fewer' toggle. Each rec already links via rec.deepLink (comps scan / filtered inventory), so the actionable CTA existed — the literal 'Scout / Buyer Demand' targets in AC4 are not rewired (would need those routes). Verified: tsc -b + eslint clean; browser not verified. REMAINING: AC1 brand/category/size/price filtering (needs the community_benchmarks query/RPC to accept filters server-side with the min-5-seller k-anon still enforced — not a client-only change), AC2 a total-seller coverage banner (needs a total-sellers figure in the benchmarks payload), AC3 a global fallback signal when a personal cohort misses k-anonymity."
     },
     {
       "id": "US-2236",

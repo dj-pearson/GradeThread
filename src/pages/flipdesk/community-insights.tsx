@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -75,9 +76,45 @@ function presetStart(p: Preset): string | null {
   return from.toISOString().slice(0, 10);
 }
 
+// US-2235: dismissed recommendations persist across refreshes (keyed by rec id,
+// which is stable for a given cohort signal). Best-effort — a storage failure
+// just means nothing is remembered, never a crash.
+const DISMISSED_RECS_KEY = "flipdesk.community.dismissedRecs";
+const RECS_PREVIEW_COUNT = 6;
+
+function loadDismissedRecs(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DISMISSED_RECS_KEY);
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissedRecs(ids: Set<string>): void {
+  try {
+    localStorage.setItem(DISMISSED_RECS_KEY, JSON.stringify([...ids]));
+  } catch {
+    // ignore — dismissal simply won't persist
+  }
+}
+
 export function FlipdeskCommunityInsightsPage() {
   const [preset, setPreset] = useState<Preset>("12mo");
   const periodStart = useMemo(() => presetStart(preset), [preset]);
+  // US-2235: recommendations are dismissible + expandable beyond the preview.
+  const [dismissedRecs, setDismissedRecs] = useState<Set<string>>(loadDismissedRecs);
+  const [showAllRecs, setShowAllRecs] = useState(false);
+
+  function dismissRec(id: string) {
+    setDismissedRecs((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      saveDismissedRecs(next);
+      return next;
+    });
+  }
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["community-benchmarks", periodStart],
@@ -134,8 +171,12 @@ export function FlipdeskCommunityInsightsPage() {
           {/* Recommendations (US-1064): actionable sourcing/pricing suggestions
               derived from the benchmarks below, each with confidence + cohort. */}
           {(() => {
-            const recs = deriveRecommendations(data).slice(0, 6);
-            if (recs.length === 0) return null;
+            const all = deriveRecommendations(data).filter(
+              (r) => !dismissedRecs.has(r.id),
+            );
+            if (all.length === 0) return null;
+            const shown = showAllRecs ? all : all.slice(0, RECS_PREVIEW_COUNT);
+            const hiddenCount = all.length - shown.length;
             return (
               <Card>
                 <CardHeader>
@@ -149,10 +190,22 @@ export function FlipdeskCommunityInsightsPage() {
                 </CardHeader>
                 <CardContent>
                   <ul className="space-y-2">
-                    {recs.map((rec) => (
-                      <RecommendationRow key={rec.id} rec={rec} />
+                    {shown.map((rec) => (
+                      <RecommendationRow key={rec.id} rec={rec} onDismiss={dismissRec} />
                     ))}
                   </ul>
+                  {(hiddenCount > 0 || showAllRecs) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => setShowAllRecs((v) => !v)}
+                    >
+                      {showAllRecs
+                        ? "Show fewer"
+                        : `See all ${all.length} recommendations`}
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             );

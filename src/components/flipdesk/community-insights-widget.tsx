@@ -10,6 +10,7 @@ import {
   PackageSearch,
   Tag,
   Users,
+  X,
 } from "lucide-react";
 import {
   Card,
@@ -51,8 +52,16 @@ const CONFIDENCE_LABEL: Record<ConfidenceLevel, string> = {
   low: "Low confidence",
 };
 
-/** One recommendation, rendered as an actionable row. Reused on the full page. */
-export function RecommendationRow({ rec }: { rec: Recommendation }) {
+/** One recommendation, rendered as an actionable row. Reused on the full page.
+ * US-2235: pass onDismiss to let the reseller clear a recommendation they've
+ * acted on or don't want; omitted (e.g. the dashboard widget) hides the control. */
+export function RecommendationRow({
+  rec,
+  onDismiss,
+}: {
+  rec: Recommendation;
+  onDismiss?: (id: string) => void;
+}) {
   const Icon = rec.kind === "source" ? PackageSearch : Tag;
   return (
     <li className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -77,17 +86,25 @@ export function RecommendationRow({ rec }: { rec: Recommendation }) {
           </p>
         </div>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        asChild
-        className="shrink-0 self-start sm:self-center"
-      >
-        <Link to={rec.deepLink}>
-          {rec.deepLinkLabel}
-          <ArrowRight className="ml-1 h-3 w-3" />
-        </Link>
-      </Button>
+      <div className="flex shrink-0 items-center gap-1 self-start sm:self-center">
+        <Button variant="outline" size="sm" asChild>
+          <Link to={rec.deepLink}>
+            {rec.deepLinkLabel}
+            <ArrowRight className="ml-1 h-3 w-3" />
+          </Link>
+        </Button>
+        {onDismiss && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground"
+            aria-label="Dismiss recommendation"
+            onClick={() => onDismiss(rec.id)}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
     </li>
   );
 }
