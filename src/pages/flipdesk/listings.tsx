@@ -155,6 +155,8 @@ import {
 import { cn } from "@/lib/utils";
 import { deriveListingOrigin } from "@/lib/listing-origin";
 import { itemPhotoThumb } from "@/lib/images";
+import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
+import { needsSignedDisplayUrl } from "@/lib/item-photo-url";
 import type {
   AspectReviewEntry,
   ItemFullRow,
@@ -2593,9 +2595,16 @@ export function FlipdeskListingsPage() {
                           <TableCell className="px-1">
                             {(() => {
                               const cover = coverByItem?.get(it.id);
-                              return cover && itemPhotoThumb(cover) ? (
-                                <img
-                                  src={itemPhotoThumb(cover)}
+                              // US-2273: a private-bucket cover (iOS tag/cert with
+                              // an empty photo_url) has no thumbnail but can still
+                              // be shown via a signed URL, so admit it here too.
+                              const canShow =
+                                cover &&
+                                (itemPhotoThumb(cover) || needsSignedDisplayUrl(cover));
+                              return canShow ? (
+                                <ItemPhotoImg
+                                  photo={cover}
+                                  displayWidth={40}
                                   alt=""
                                   loading="lazy"
                                   width={40}

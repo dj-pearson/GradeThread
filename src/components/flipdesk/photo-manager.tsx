@@ -50,7 +50,7 @@ import { firstPhotoNudge } from "@/lib/photo-standards";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { BulkToneDialog } from "@/components/flipdesk/bulk-tone-dialog";
 import { useRemoveBackground, useRemoveBgCapability } from "@/hooks/use-remove-bg";
-import { itemPhotoThumb } from "@/lib/images";
+import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import {
   persistRetag,
   persistDelete,
@@ -439,8 +439,9 @@ export function PhotoManager({
             {viewingPhoto ? PHOTO_TYPE_LABELS[viewingPhoto.photo_type] : "Photo"}
           </DialogTitle>
           {viewingPhoto && (
-            <img
-              src={viewingPhoto.photo_url}
+            <ItemPhotoImg
+              photo={viewingPhoto}
+              full
               alt={PHOTO_TYPE_LABELS[viewingPhoto.photo_type]}
               className="max-h-[80dvh] w-full rounded object-contain"
             />
@@ -557,8 +558,8 @@ function SortablePhoto({
           className="block h-full w-full cursor-zoom-in"
           aria-label="View photo full size"
         >
-          <img
-            src={itemPhotoThumb(photo)}
+          <ItemPhotoImg
+            photo={photo}
             alt={PHOTO_TYPE_LABELS[photo.photo_type]}
             loading="lazy"
             decoding="async"

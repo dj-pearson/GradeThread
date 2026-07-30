@@ -22,7 +22,7 @@ import { advanceItemStatus } from "@/lib/status-writer";
 import { nextUploadSortOrder } from "@/lib/photo-order";
 import { compressImage } from "@/lib/image-utils";
 import { normalizeToImageFile } from "@/lib/media-intake";
-import { itemPhotoThumb } from "@/lib/images";
+import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import { persistPhotoEdit, revertPhotoEdit } from "@/lib/photo-mutations";
 import {
   parseEditRecipe,
@@ -579,8 +579,8 @@ function PhotoSlot({
       <div className="aspect-square bg-muted/40">
         {filled && first ? (
           <div className="group relative h-full w-full">
-            <img
-              src={itemPhotoThumb(first)}
+            <ItemPhotoImg
+              photo={first}
               alt={label}
               loading="lazy"
               className="h-full w-full object-cover"

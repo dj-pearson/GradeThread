@@ -3372,7 +3372,7 @@
     },
     {
       "id": "US-2273",
-      "passes": false,
+      "passes": true,
       "title": "iOS-captured tag/tag_2/certificate photos render blank on web: the private bucket has no web display path",
       "description": "As a seller who catalogs on iPhone and finishes the listing on my laptop, I want my Garment Tag photos to actually appear on the web, so that I can see and reorder the shots I took.",
       "acceptanceCriteria": [
@@ -3383,7 +3383,8 @@
         "A vitest asserts the resolver: signed (path contains /object/sign/) for tag/tag_2/certificate with empty photo_url; the stored photo_url untouched for a web-uploaded tag that HAS one; the public URL for front/back; and empty input yields no request.",
         "A vitest asserts a private-bucket photo is never handed to a PUBLIC destination from the client (eBay preview, share, export) - the display URL is short-lived and must not be persisted onto a listing.",
         "The DB is NOT the problem and no migration is needed: the item_photos row, storage_path and bytes are all correct today. This is purely a client read path."
-      ]
+      ],
+      "notes": "Done 2026-07-29. New async resolver src/lib/item-photo-url.ts (resolveItemPhotoDisplayUrl + needsSignedDisplayUrl + itemPhotoPublishUrl), hook src/hooks/use-item-photo-url.ts, and drop-in <ItemPhotoImg> (src/components/flipdesk/item-photo-img.tsx). Sensitive (tag/tag_2/certificate) rows with an empty photo_url are signed via storage.ts getImageUrl (submission-images, SIGNED_URL_TTL_SECONDS now exported = 900s), cached per storage_path with a 60s refresh skew; a failed mint degrades to a labelled placeholder. itemPhotoThumb (src/lib/images.ts) is intentionally UNCHANGED because it is synchronous and cannot mint a signed URL; instead every named surface routes through ItemPhotoImg: photo-manager grid + full-size viewer, photo-uploader, ebay-view-item-preview hero + thumbs, listings cover (guard admits sensitive covers), composer photos card (delegates to PhotoManager/PhotoUploader). autolister StagedThumb left as-is: StagedPhoto (src/stores/autolister-upload-store.ts) has no photo_type and holds web-session public uploads, so the private-bucket case never occurs there and the resolver is a no-op. AC6 pinned by itemPhotoPublishUrl (returns persisted public photo_url, never a signed URL). Verified: 17 vitest cases in src/lib/__tests__/item-photo-url.test.ts (AC5 table + AC6 guard + cache + full-original), signed-url-ttl guard still green, tsc -b clean, eslint clean on touched files. NOT browser-verified. VERIFIED."
     },
     {
       "id": "US-2274",

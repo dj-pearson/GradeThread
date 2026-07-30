@@ -74,8 +74,12 @@ export async function uploadSubmissionImage(
  * dispute dialog opens and dropped when it closes, so only a review session
  * left open past 15 minutes sees broken images — reopening the dialog re-signs
  * them. That is the intended trade against the exposure window.
+ *
+ * US-2273: exported so the item-photo display resolver reuses the same lifetime
+ * for its private-bucket (tag/tag_2/certificate) reads rather than re-deriving a
+ * cap the signed-url-ttl guard would then have to re-police in a new file.
  */
-const SIGNED_URL_TTL_SECONDS = 15 * 60;
+export const SIGNED_URL_TTL_SECONDS = 15 * 60;
 
 export async function getImageUrl(storagePath: string): Promise<string> {
   const { data, error } = await supabase.storage

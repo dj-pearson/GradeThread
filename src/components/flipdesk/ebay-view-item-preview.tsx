@@ -8,7 +8,7 @@ import {
   Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { itemPhotoThumb } from "@/lib/images";
+import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import { splitSellerCredentials } from "@/lib/listing-templates";
 import type { ItemPhotoRow } from "@/types/database";
 
@@ -96,8 +96,9 @@ export function EbayViewItemPreview(props: EbayViewItemPreviewProps) {
   const hero = (
     <div className="relative aspect-square w-full overflow-hidden rounded-lg border bg-muted/40">
       {heroFromActive ? (
-        <img
-          src={heroFromActive.photo_url}
+        <ItemPhotoImg
+          photo={heroFromActive}
+          full
           alt={title || "Listing photo"}
           className="h-full w-full object-contain"
         />
@@ -145,8 +146,9 @@ export function EbayViewItemPreview(props: EbayViewItemPreviewProps) {
                 : "hover:ring-1 hover:ring-muted-foreground/40",
             )}
           >
-            <img
-              src={itemPhotoThumb(photo, 96)}
+            <ItemPhotoImg
+              photo={photo}
+              displayWidth={96}
               alt=""
               loading="lazy"
               className="h-full w-full object-cover"
