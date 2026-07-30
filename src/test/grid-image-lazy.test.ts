@@ -16,24 +16,36 @@ import { itemPhotoThumb } from "@/lib/images";
 // full-screen lightboxes, and in-memory client previews are intentionally NOT
 // listed here — they are not off-screen grid cards.
 
-/** Read a source file and return the full `<img ... />` tag whose attributes
- * contain `srcNeedle`. Throws if no such tag is found (keeps the guard honest:
+/** Read a source file and return the full `<Tag ... />` element whose attributes
+ * contain `needle`. Throws if no such tag is found (keeps the guard honest:
  * a rename that drops the src will fail loudly rather than silently pass). */
-function imgTagWithSrc(relPath: string, srcNeedle: string): string {
+function tagWith(relPath: string, tagName: string, needle: string): string {
   const full = readFileSync(resolve(process.cwd(), relPath), "utf8");
-  for (const match of full.matchAll(/<img\b[\s\S]*?\/>/g)) {
-    if (match[0].includes(srcNeedle)) return match[0];
+  const open = new RegExp(`<${tagName}\\b[\\s\\S]*?\\/>`, "g");
+  for (const match of full.matchAll(open)) {
+    if (match[0].includes(needle)) return match[0];
   }
-  throw new Error(`No <img> with src \`${srcNeedle}\` found in ${relPath}`);
+  throw new Error(`No <${tagName}> with \`${needle}\` found in ${relPath}`);
 }
+
+const imgTagWithSrc = (relPath: string, srcNeedle: string) =>
+  tagWith(relPath, "img", srcNeedle);
+
+// item_photos grids render through <ItemPhotoImg> (US-2273), which resolves the
+// display URL via itemPhotoThumb() for public photos and mints a short-lived
+// signed URL for the private-bucket iOS cases. It spreads the remaining props
+// onto its inner <img>, so loading="lazy" set here reaches the DOM.
+// Each entry: [file, the `photo={…}` expression that identifies the GRID usage].
+// Full-screen viewers pass `full` and are deliberately not lazy — matching on the
+// grid's own photo expression keeps them out of this list.
+const ITEM_PHOTO_GRIDS: ReadonlyArray<readonly [string, string]> = [
+  ["src/components/flipdesk/photo-manager.tsx", "photo={photo}"],
+  ["src/components/flipdesk/photo-uploader.tsx", "photo={first}"],
+  ["src/pages/flipdesk/listings.tsx", "photo={cover}"],
+];
 
 // Each entry: [file, the dynamic src expression that identifies the grid img].
 const GRID_IMAGES: ReadonlyArray<readonly [string, string]> = [
-  // item_photos grids — render via itemPhotoThumb(), which prefers thumbnail_url
-  // and falls back to photo_url (the fallback is asserted on the helper below).
-  ["src/components/flipdesk/photo-manager.tsx", "itemPhotoThumb(photo)"],
-  ["src/components/flipdesk/photo-uploader.tsx", "itemPhotoThumb(first)"],
-  ["src/pages/flipdesk/listings.tsx", "itemPhotoThumb(cover)"],
   // AutoLister grids render through the StagedThumb retry wrapper — the actual
   // <img> lives inside it, fed the itemPhotoThumb-resolved `url`.
   ["src/pages/flipdesk/autolister.tsx", "src={url}"],
@@ -58,24 +70,50 @@ describe("grid/card images lazy-load (US-413)", () => {
       expect(tag).toContain('loading="lazy"');
     });
   }
+
+  for (const [file, expr] of ITEM_PHOTO_GRIDS) {
+    it(`${file}: grid <ItemPhotoImg> for \`${expr}\` sets loading="lazy"`, () => {
+      const tag = tagWith(file, "ItemPhotoImg", expr);
+      expect(tag).toContain('loading="lazy"');
+    });
+  }
+
+  it("ItemPhotoImg forwards loading/decoding through to its <img>", () => {
+    // The lazy attribute above is only real if the component spreads it on.
+    const src = readFileSync(
+      resolve(process.cwd(), "src/components/flipdesk/item-photo-img.tsx"),
+      "utf8",
+    );
+    const tag = tagWith("src/components/flipdesk/item-photo-img.tsx", "img", "src={url}");
+    expect(tag).toContain("{...imgProps}");
+    // …and only after `src` is pulled out of the props, so it cannot be overridden.
+    expect(src).toContain('Omit<ImgHTMLAttributes<HTMLImageElement>, "src">');
+  });
 });
 
 describe("item_photos grids prefer the stored thumbnail (US-413)", () => {
   // These three render from item_photos, which carries a generated thumbnail_url
   // (migration 00035). The thumbnail-first fallback (thumbnail_url ?? photo_url)
-  // is centralized in itemPhotoThumb() (src/lib/images.ts); assert each grid
-  // reaches for that helper rather than inlining the full-res original.
-  const USES_THUMB_HELPER: ReadonlyArray<readonly [string, string]> = [
-    ["src/components/flipdesk/photo-manager.tsx", "itemPhotoThumb(photo)"],
-    ["src/components/flipdesk/photo-uploader.tsx", "itemPhotoThumb(first)"],
-    ["src/pages/flipdesk/listings.tsx", "itemPhotoThumb(cover)"],
-  ];
-  for (const [file, expr] of USES_THUMB_HELPER) {
-    it(`${file}: grid <img> renders via itemPhotoThumb`, () => {
-      const tag = imgTagWithSrc(file, expr);
-      expect(tag).toContain("itemPhotoThumb");
+  // is centralized in itemPhotoThumb() (src/lib/images.ts). Since US-2273 the
+  // grids no longer call it directly — they render <ItemPhotoImg>, which routes
+  // the non-`full` path through the same helper. So assert the two halves:
+  // the grids use the component, and the component reaches for the helper.
+  for (const [file, expr] of ITEM_PHOTO_GRIDS) {
+    it(`${file}: grid renders via <ItemPhotoImg>, not a raw full-res <img>`, () => {
+      const tag = tagWith(file, "ItemPhotoImg", expr);
+      // `full` serves photo_url instead of the thumbnail — never right for a grid.
+      expect(tag).not.toMatch(/(^|\s)full(\s|=|\/|>)/);
     });
   }
+
+  it("ItemPhotoImg resolves non-full photos through itemPhotoThumb", () => {
+    for (const path of ["src/hooks/use-item-photo-url.ts", "src/lib/item-photo-url.ts"]) {
+      const src = readFileSync(resolve(process.cwd(), path), "utf8");
+      expect(src).toContain("itemPhotoThumb");
+      // The full-res original is reachable only behind the explicit `full` opt-in.
+      expect(src).toMatch(/full\s*\?\s*\(?photo\.photo_url/);
+    }
+  });
 
   it("autolister grids resolve thumbnails via itemPhotoThumb into StagedThumb", () => {
     // The AutoLister <img> lives inside the StagedThumb retry wrapper, so the
