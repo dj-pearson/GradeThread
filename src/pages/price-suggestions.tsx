@@ -1,15 +1,20 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import {
   Lightbulb,
-  ArrowRight,
   TrendingDown,
   TrendingUp,
+  Clock,
   Minus,
-  AlertTriangle,
+  RefreshCw,
+  Check,
+  X,
+  Loader2,
+  ExternalLink,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -28,165 +33,139 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryBoundary } from "@/components/ui/query-boundary";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
-import { useAuthStore } from "@/stores/auth-store";
-import { useWorkspace } from "@/hooks/use-workspace";
-import { calculateSuggestedPrice } from "@/lib/price-suggestions";
-import type {
-  InventoryItemRow,
-  ListingRow,
-  SaleRow,
-  GradeReportRow,
-} from "@/types/database";
+import {
+  useRepricingSuggestions,
+  useScanRepricing,
+  useApplyReprice,
+  useDismissReprice,
+  type ReasonCode,
+  type RepriceSuggestion,
+} from "@/hooks/use-repricing";
 
-function formatCurrency(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(amount);
+// US-2159: Price Suggestions now reads the ONE server pricing engine
+// (/api/flipdesk/pricing/suggestions) — comp-driven, with reason codes — the same
+// source the Repricing page uses, so the two screens can no longer compute
+// different numbers from different data ("two engines that disagree").
+//
+// The old client-side heuristic (src/lib/price-suggestions.ts:
+// calculateSuggestedPrice — own-sales-history comps × grade-tier multipliers ×
+// fixed time-based % cuts) is retired. Deliberately DROPPED with it, and noted on
+// the story: (a) suggestions for UNLISTED inventory — the server scans active
+// listings against live comps, so items not yet listed have no comp-driven
+// signal; and (b) the client-only "days listed" column. Staleness itself is not
+// lost — it survives as the server's STALE reason code.
+
+function money(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
 }
 
-function formatLabel(value: string): string {
-  return value
-    .split(/[-_]/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
+const REASON_META: Record<
+  ReasonCode,
+  { label: string; icon: typeof TrendingUp; classes: string }
+> = {
+  UNDERPRICED: {
+    label: "Underpriced",
+    icon: TrendingUp,
+    classes: "border-green-200 text-green-700 dark:text-green-300",
+  },
+  OVERPRICED: {
+    label: "Overpriced",
+    icon: TrendingDown,
+    classes: "border-amber-200 text-amber-700 dark:text-amber-300",
+  },
+  STALE: {
+    label: "Stale",
+    icon: Clock,
+    classes: "border-orange-200 text-orange-700 dark:text-orange-300",
+  },
+  OK: { label: "OK", icon: Minus, classes: "text-muted-foreground" },
+  NO_COMPS: { label: "No comps", icon: X, classes: "text-muted-foreground" },
+};
+
+function changePercent(s: RepriceSuggestion): number | null {
+  if (s.current_price_cents <= 0) return null;
+  return Math.round(
+    ((s.suggested_price_cents - s.current_price_cents) / s.current_price_cents) * 100,
+  );
+}
+
+function SuggestionActions({ s }: { s: RepriceSuggestion }) {
+  const confirm = useConfirm();
+  const apply = useApplyReprice();
+  const dismiss = useDismissReprice();
+  // No comps / already-OK → nothing to apply; the row still renders (AC5).
+  const canApply = s.reason_code !== "NO_COMPS" && s.reason_code !== "OK";
+
+  async function onApply() {
+    const ok = await confirm({
+      title: "Apply this new price?",
+      description: `Reprice "${s.inventory_items?.title ?? "this item"}" from ${money(
+        s.current_price_cents,
+      )} to ${money(s.suggested_price_cents)}. This updates the live eBay listing.`,
+      confirmLabel: "Apply new price",
+    });
+    if (ok) apply.mutate(s.id);
+  }
+
+  return (
+    <div className="flex justify-end gap-1">
+      {canApply && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8"
+          disabled={apply.isPending}
+          onClick={onApply}
+          aria-label="Apply suggested price"
+        >
+          {apply.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Check className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      )}
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-8"
+        disabled={dismiss.isPending}
+        aria-label="Dismiss suggestion"
+        onClick={() =>
+          dismiss.mutate(s.id, {
+            onSuccess: () => toast.success("Suggestion dismissed."),
+          })
+        }
+      >
+        <X className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
 }
 
 export function PriceSuggestionsPage() {
-  const { user } = useAuthStore();
-  const { workspaceOwnerId } = useWorkspace();
-  const ready = Boolean(user && workspaceOwnerId);
+  const {
+    data: suggestions = [],
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useRepricingSuggestions();
+  const scan = useScanRepricing();
 
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["price-suggestions", workspaceOwnerId],
-    enabled: ready,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async () => {
-      const [itemsRes, listingsRes, salesRes, gradesRes] = await Promise.all([
-        supabase
-          .from("inventory_items")
-          .select("*")
-          .eq("user_id", workspaceOwnerId!)
-          .in("status", ["acquired", "grading", "graded", "listed"]),
-        supabase.from("listings").select("*"),
-        supabase.from("sales").select("*"),
-        supabase.from("grade_reports").select("*"),
-      ]);
-
-      // Surface any failed call as an error so an outage routes to ErrorState
-      // instead of being disguised as an empty "no suggestions" result.
-      if (itemsRes.error) throw itemsRes.error;
-      if (listingsRes.error) throw listingsRes.error;
-      if (salesRes.error) throw salesRes.error;
-      if (gradesRes.error) throw gradesRes.error;
-
-      return {
-        items: (itemsRes.data ?? []) as InventoryItemRow[],
-        listings: (listingsRes.data ?? []) as ListingRow[],
-        sales: (salesRes.data ?? []) as SaleRow[],
-        gradeReports: (gradesRes.data ?? []) as GradeReportRow[],
-      };
-    },
-  });
-
-  const items = useMemo(() => data?.items ?? [], [data]);
-  const listings = useMemo(() => data?.listings ?? [], [data]);
-  const sales = useMemo(() => data?.sales ?? [], [data]);
-  const gradeReports = useMemo(() => data?.gradeReports ?? [], [data]);
-
-  // The query stays "pending" until the workspace owner is resolved; treat that
-  // not-ready window as loading rather than as an error or empty result.
-  const showLoading = !ready || isLoading;
-
-  // Build suggestions for each item
-  const suggestions = useMemo(() => {
-    // Build sales history lookup
-    const salesHistory = sales.map((sale) => {
-      const saleItem = items.find((i) => i.id === sale.inventory_item_id);
-      return saleItem
-        ? { item: saleItem, sale, grade: null as number | null }
-        : null;
-    }).filter((h): h is NonNullable<typeof h> => h !== null);
-
-    // Also include items from ALL user inventory for comparison (items already fetched)
-    const allItemsMap = new Map(items.map((i) => [i.id, i]));
-
-    // Build full sales history using all available items
-    const fullSalesHistory = sales
-      .map((sale) => {
-        const saleItem = allItemsMap.get(sale.inventory_item_id);
-        return saleItem
-          ? { item: saleItem, sale, grade: null as number | null }
-          : null;
-      })
-      .filter((h): h is NonNullable<typeof h> => h !== null);
-
-    const gradeMap = new Map(gradeReports.map((g) => [g.id, g]));
-    const listingsByItem = new Map<string, ListingRow[]>();
-    for (const listing of listings) {
-      const existing = listingsByItem.get(listing.inventory_item_id) ?? [];
-      existing.push(listing);
-      listingsByItem.set(listing.inventory_item_id, existing);
+  const counts = useMemo(() => {
+    let raise = 0;
+    let lower = 0;
+    for (const s of suggestions) {
+      if (s.reason_code === "UNDERPRICED") raise++;
+      else if (s.reason_code === "OVERPRICED" || s.reason_code === "STALE") lower++;
     }
+    return { raise, lower };
+  }, [suggestions]);
 
-    return items
-      .map((item) => {
-        const itemListings = listingsByItem.get(item.id) ?? [];
-        const gradeReport = item.grade_report_id
-          ? gradeMap.get(item.grade_report_id) ?? null
-          : null;
-        const grade = gradeReport?.overall_score ?? null;
-
-        const suggestion = calculateSuggestedPrice(
-          item,
-          grade,
-          itemListings,
-          fullSalesHistory.length > 0 ? fullSalesHistory : salesHistory
-        );
-
-        const activeListings = itemListings.filter((l) => l.is_active);
-        const daysListed =
-          activeListings.length > 0
-            ? Math.max(
-                ...activeListings.map((l) => {
-                  const d = new Date(l.listed_at);
-                  return Math.floor(
-                    (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)
-                  );
-                })
-              )
-            : 0;
-
-        return {
-          item,
-          suggestion,
-          grade,
-          daysListed,
-          currentPrice: suggestion.currentPrice,
-        };
-      })
-      .sort((a, b) => {
-        // Sort by severity: urgent first, then warning, then info
-        const severityOrder = { urgent: 0, warning: 1, info: 2 };
-        const aSev = severityOrder[a.suggestion.severity];
-        const bSev = severityOrder[b.suggestion.severity];
-        if (aSev !== bSev) return aSev - bSev;
-        // Then by days listed descending
-        return b.daysListed - a.daysListed;
-      });
-  }, [items, listings, sales, gradeReports]);
-
-  const urgentCount = suggestions.filter(
-    (s) => s.suggestion.severity === "urgent"
-  ).length;
-  const warningCount = suggestions.filter(
-    (s) => s.suggestion.severity === "warning"
-  ).length;
-
-  if (showLoading) {
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <div>
@@ -205,61 +184,70 @@ export function PriceSuggestionsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Price Suggestions"
-        subtitle="Pricing recommendations based on grade, brand, category, and time on market."
-      />
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <PageHeader
+          title="Price Suggestions"
+          subtitle="Comp-driven pricing from the shared repricing engine — the same numbers as the Repricing page, matched to each item's grade."
+        />
+        <Button onClick={() => scan.mutate(undefined)} disabled={scan.isPending}>
+          {scan.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-2 h-4 w-4" />
+          )}
+          Scan now
+        </Button>
+      </div>
 
-      {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Items</CardDescription>
+            <CardDescription>Suggestions</CardDescription>
             <CardTitle className="text-2xl">{suggestions.length}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">
-              Active inventory with suggestions
+              Active listings scanned against condition-matched comps
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Urgent Actions</CardDescription>
-            <CardTitle className="text-2xl text-red-600 dark:text-red-400">
-              {urgentCount}
+            <CardDescription>Room to raise</CardDescription>
+            <CardTitle className="text-2xl text-green-600 dark:text-green-400">
+              {counts.raise}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">
-              Items listed 60+ days needing attention
+              Underpriced vs comparable sold-condition listings
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Warnings</CardDescription>
-            <CardTitle className="text-2xl text-yellow-600 dark:text-yellow-400">
-              {warningCount}
+            <CardDescription>Consider lowering</CardDescription>
+            <CardTitle className="text-2xl text-amber-600 dark:text-amber-400">
+              {counts.lower}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">
-              Items that may benefit from price adjustment
+              Overpriced or stale listings that may need a nudge
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Suggestions Table */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Lightbulb className="h-4 w-4" />
-            All Recommendations
+            Recommendations
           </CardTitle>
           <CardDescription>
-            Click any item to view its detail page and adjust pricing.
+            Apply a suggested price or dismiss it. Comps are active asking prices,
+            so real sales usually land lower.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -277,11 +265,10 @@ export function PriceSuggestionsPage() {
             empty={
               <div className="py-12 text-center">
                 <Lightbulb className="mx-auto h-12 w-12 text-muted-foreground/40" />
-                <h3 className="mt-4 text-lg font-medium">
-                  No active inventory items
-                </h3>
+                <h3 className="mt-4 text-lg font-medium">No suggestions yet</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Add items to your inventory to get pricing recommendations.
+                  Run a scan to check your active listings against
+                  condition-matched comps.
                 </p>
               </div>
             }
@@ -290,112 +277,104 @@ export function PriceSuggestionsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Status</TableHead>
+                    <TableHead>Signal</TableHead>
                     <TableHead>Item</TableHead>
                     <TableHead>Grade</TableHead>
-                    <TableHead className="text-right">Current Price</TableHead>
-                    <TableHead className="text-right">
-                      Suggested Price
-                    </TableHead>
+                    <TableHead className="text-right">Current</TableHead>
+                    <TableHead className="text-right">Suggested</TableHead>
                     <TableHead className="text-right">Change</TableHead>
-                    <TableHead>Days Listed</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead />
+                    <TableHead>Comps</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {suggestions.map(({ item, suggestion, grade, daysListed }) => (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        {suggestion.severity === "urgent" ? (
-                          <AlertTriangle className="h-4 w-4 text-red-500" />
-                        ) : suggestion.severity === "warning" ? (
-                          <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                        ) : (
-                          <Minus className="h-4 w-4 text-blue-400" />
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{item.title}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {[item.brand, item.garment_category ? formatLabel(item.garment_category) : null]
-                              .filter(Boolean)
-                              .join(" · ") || "—"}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {grade !== null ? (
-                          <Badge variant="outline">{grade.toFixed(1)}</Badge>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            N/A
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatCurrency(suggestion.currentPrice)}
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {suggestion.suggestedPrice !== null
-                          ? formatCurrency(suggestion.suggestedPrice)
-                          : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {suggestion.adjustmentPercent !== null ? (
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1 text-sm font-medium",
-                              suggestion.adjustmentPercent > 0
-                                ? "text-green-600 dark:text-green-400"
-                                : "text-red-600 dark:text-red-400"
-                            )}
+                  {suggestions.map((s) => {
+                    const meta = REASON_META[s.reason_code] ?? REASON_META.OK;
+                    const Icon = meta.icon;
+                    const change = changePercent(s);
+                    return (
+                      <TableRow key={s.id}>
+                        <TableCell>
+                          <Badge variant="outline" className={cn("gap-1", meta.classes)}>
+                            <Icon className="h-3.5 w-3.5" />
+                            {meta.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Link
+                            to={`/dashboard/inventory/${s.inventory_item_id}`}
+                            className="block hover:underline"
                           >
-                            {suggestion.adjustmentPercent > 0 ? (
-                              <TrendingUp className="h-3 w-3" />
-                            ) : (
-                              <TrendingDown className="h-3 w-3" />
-                            )}
-                            {suggestion.adjustmentPercent > 0 ? "+" : ""}
-                            {suggestion.adjustmentPercent}%
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            —
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={cn(
-                            "text-sm",
-                            daysListed > 60
-                              ? "font-medium text-red-600 dark:text-red-400"
-                              : daysListed > 30
-                                ? "font-medium text-yellow-600 dark:text-yellow-400"
-                                : ""
+                            <p className="font-medium">
+                              {s.inventory_items?.title ?? "Untitled item"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {s.inventory_items?.brand ?? "—"}
+                            </p>
+                          </Link>
+                        </TableCell>
+                        <TableCell>
+                          {s.inventory_items?.grade_value != null ? (
+                            <Badge variant="outline">
+                              {s.inventory_items.grade_value.toFixed(1)}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">N/A</span>
                           )}
-                        >
-                          {daysListed > 0 ? `${daysListed}d` : "—"}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <p className="max-w-[200px] truncate text-xs text-muted-foreground">
-                          {suggestion.action}
-                        </p>
-                      </TableCell>
-                      <TableCell>
-                        <Link
-                          to={`/dashboard/inventory/${item.id}`}
-                          aria-label={`View ${item.title ?? "item"}`}
-                          className="inline-flex items-center text-sm text-brand-navy hover:underline dark:text-foreground"
-                        >
-                          <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {money(s.current_price_cents)}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {s.reason_code === "NO_COMPS"
+                            ? "—"
+                            : money(s.suggested_price_cents)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {change !== null && s.reason_code !== "NO_COMPS" ? (
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 text-sm font-medium",
+                                change > 0
+                                  ? "text-green-600 dark:text-green-400"
+                                  : "text-red-600 dark:text-red-400",
+                              )}
+                            >
+                              {change > 0 ? (
+                                <TrendingUp className="h-3 w-3" />
+                              ) : (
+                                <TrendingDown className="h-3 w-3" />
+                              )}
+                              {change > 0 ? "+" : ""}
+                              {change}%
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">
+                            {s.comp_count} comps
+                            {s.comp_median_cents != null &&
+                              ` · med ${money(s.comp_median_cents)}`}
+                            {s.listings?.listing_url && (
+                              <a
+                                href={s.listings.listing_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="ml-1 inline-flex items-center text-brand-navy hover:underline dark:text-foreground"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <SuggestionActions s={s} />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
