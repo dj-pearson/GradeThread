@@ -147,6 +147,22 @@ interface SaleDao {
     suspend fun clearAll()
 }
 
+/** US-1365: the payout side of reconciliation. */
+@Dao
+interface PayoutDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(payouts: List<PayoutEntity>)
+
+    @Query("SELECT * FROM ebay_payouts ORDER BY payoutDate DESC")
+    fun observeAll(): kotlinx.coroutines.flow.Flow<List<PayoutEntity>>
+
+    @Query("SELECT * FROM ebay_payouts ORDER BY payoutDate DESC")
+    suspend fun all(): List<PayoutEntity>
+
+    @Query("DELETE FROM ebay_payouts")
+    suspend fun clearAll()
+}
+
 @Dao
 interface ExpenseDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)

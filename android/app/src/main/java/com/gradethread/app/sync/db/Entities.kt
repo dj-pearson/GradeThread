@@ -137,12 +137,40 @@ data class SaleEntity(
     val buyerUsername: String?,
     val platformOrderId: String?,
     val payoutReference: String?,
+    /**
+     * US-1365: what this sale was actually paid out, when eBay reported it.
+     * Null means unknown — reconciliation then falls back to price minus fees
+     * and SAYS it estimated, rather than presenting a guess as a fact.
+     */
+    @ColumnInfo(defaultValue = "NULL") val payoutAmount: Double? = null,
     val saleDate: Long,
     val soldAt: Long?,
     val shippedAt: Long?,
     val trackingNumber: String?,
     @ColumnInfo(defaultValue = "0") val hasLocalChanges: Boolean = false,
     val createdAt: Long,
+)
+
+/**
+ * US-1365: an eBay payout — the lump-sum bank deposit, keyed by eBay's own
+ * payoutId. Sales point back at it through `payoutReference`, which is what
+ * makes reconciliation possible without another network call.
+ */
+@Entity(
+    tableName = "ebay_payouts",
+    indices = [Index("payoutId", unique = true), Index("payoutDate")],
+)
+data class PayoutEntity(
+    @PrimaryKey val id: String,
+    /** eBay's id — the value `sales.payoutReference` carries. */
+    val payoutId: String,
+    /** Stored in CENTS, as the server does: a deposit compared in floats drifts. */
+    val amountCents: Int?,
+    val currency: String?,
+    val status: String?,
+    val payoutDate: Long?,
+    val transactionCount: Int?,
+    val updatedAt: Long,
 )
 
 @Entity(

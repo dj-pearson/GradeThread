@@ -219,12 +219,20 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellSection.MONEY.route) {
             com.gradethread.app.money.MoneyScreen(
                 onOpenSales = { navController.navigate(ShellRoutes.SALES) },
+                onOpenPayouts = { navController.navigate(ShellRoutes.PAYOUTS) },
             )
         }
         // US-1371: the sales list with per-item P&L.
         composable(ShellRoutes.SALES) {
             com.gradethread.app.money.SalesScreen(
                 onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+            )
+        }
+        // US-1365: payouts reconciled against the recorded sales.
+        composable(ShellRoutes.PAYOUTS) {
+            com.gradethread.app.money.PayoutReconciliationScreen(
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+                onClose = { navController.popBackStack() },
             )
         }
         // US-1350: eBay connections replace the placeholder.

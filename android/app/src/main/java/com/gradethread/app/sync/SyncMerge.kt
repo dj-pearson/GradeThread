@@ -7,6 +7,7 @@ import com.gradethread.app.sync.db.GradeThreadDb
 import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.sync.db.ItemPhotoEntity
 import com.gradethread.app.sync.db.ListingEntity
+import com.gradethread.app.sync.db.PayoutEntity
 import com.gradethread.app.sync.db.SaleEntity
 import com.gradethread.app.sync.db.SourceEntity
 import kotlinx.coroutines.Dispatchers
@@ -161,6 +162,7 @@ class SyncMerger(private val db: GradeThreadDb) {
         val expenses: List<ExpenseEntity> = emptyList(),
         val listings: List<ListingEntity> = emptyList(),
         val sources: List<SourceEntity> = emptyList(),
+        val payouts: List<PayoutEntity> = emptyList(),
     )
 
     /** US-1321: a realtime DELETE is server-authoritative — remove the local
@@ -196,6 +198,9 @@ class SyncMerger(private val db: GradeThreadDb) {
                 db.listings().upsert(batch.listings.map { mergeListing(cached[it.id], it) })
             }
             if (batch.sources.isNotEmpty()) db.sources().upsert(batch.sources)
+            // US-1365: payouts are wholly server-authored — there is no local
+            // edit to protect, so a plain upsert is correct here.
+            if (batch.payouts.isNotEmpty()) db.payouts().upsert(batch.payouts)
         }
     }
 }

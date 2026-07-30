@@ -94,6 +94,7 @@ class SessionScope(
                     db.expenses().clearAll()
                     db.listings().clearAll()
                     db.sources().clearAll()
+                    db.payouts().clearAll() // US-1365: deposits are tenant data too
                     db.captureDrafts().clearAll() // an in-flight capture is tenant data
                     if (includeQueue) db.pendingMutations().clearAll()
                 }

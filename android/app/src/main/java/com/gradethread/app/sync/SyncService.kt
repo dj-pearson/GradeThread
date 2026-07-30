@@ -6,6 +6,7 @@ import com.gradethread.app.sync.db.GradeThreadDb
 import com.gradethread.app.sync.db.ExpenseEntity
 import com.gradethread.app.sync.db.ItemPhotoEntity
 import com.gradethread.app.sync.db.ListingEntity
+import com.gradethread.app.sync.db.PayoutEntity
 import com.gradethread.app.sync.db.SaleEntity
 import com.gradethread.app.sync.db.SourceEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -63,6 +64,7 @@ class SyncService @Inject constructor(
             listingsPlan(owner),
             salesPlan(owner),
             expensesPlan(owner),
+            payoutsPlan(owner),
         ),
         readCursor = { table -> watermark.cursor(table) },
         advanceCursor = { table, cursor -> watermark.advance(table, cursor) },
@@ -80,6 +82,20 @@ class SyncService @Inject constructor(
         fetchPage = { cursor, offset -> page("listings", owner, cursor, offset) },
         decode = { raw -> (raw as? JsonObject)?.let(SyncRows::decodeListingRow) },
         apply = { rows -> merger.apply(SyncMerger.PulledBatch(listings = rows)) },
+    )
+
+    /**
+     * US-1365: payouts, so reconciliation works offline.
+     *
+     * Pulled like any other table rather than fetched on demand: the whole
+     * point of the reconciliation screen is comparing what was recorded against
+     * what was actually deposited, and that has to hold up on a train.
+     */
+    private fun payoutsPlan(owner: String) = SyncCoordinator.TablePlan(
+        table = SyncWatermark.Table.PAYOUTS,
+        fetchPage = { cursor, offset -> page("ebay_payouts", owner, cursor, offset) },
+        decode = { raw -> (raw as? JsonObject)?.let(SyncRows::decodePayoutRow) },
+        apply = { rows -> merger.apply(SyncMerger.PulledBatch(payouts = rows)) },
     )
 
     private fun salesPlan(owner: String) = SyncCoordinator.TablePlan(
@@ -314,6 +330,8 @@ object SyncRows {
         @SerialName("buyer_username") val buyerUsername: String? = null,
         @SerialName("platform_order_id") val platformOrderId: String? = null,
         @SerialName("payout_reference") val payoutReference: String? = null,
+        /** US-1365: what eBay actually paid out for this sale, when known. */
+        @SerialName("payout_amount") val payoutAmount: Double? = null,
         @SerialName("sale_date") val saleDate: String? = null,
         @SerialName("sold_at") val soldAt: String? = null,
         @SerialName("shipped_at") val shippedAt: String? = null,
@@ -345,11 +363,41 @@ object SyncRows {
             buyerUsername = row.buyerUsername,
             platformOrderId = row.platformOrderId,
             payoutReference = row.payoutReference,
+            payoutAmount = row.payoutAmount,
             saleDate = RealtimeRows.parseTimestamp(row.saleDate) ?: 0L,
             soldAt = RealtimeRows.parseTimestamp(row.soldAt),
             shippedAt = RealtimeRows.parseTimestamp(row.shippedAt),
             trackingNumber = row.trackingNumber,
             createdAt = RealtimeRows.parseTimestamp(row.createdAt) ?: 0L,
+        )
+    }.getOrNull()
+
+    @Serializable
+    private data class RemotePayoutRow(
+        val id: String,
+        @SerialName("payout_id") val payoutId: String,
+        @SerialName("amount_cents") val amountCents: Int? = null,
+        val currency: String? = null,
+        val status: String? = null,
+        @SerialName("payout_date") val payoutDate: String? = null,
+        @SerialName("transaction_count") val transactionCount: Int? = null,
+        @SerialName("updated_at") val updatedAt: String? = null,
+    )
+
+    fun decodePayoutRow(record: JsonObject): PayoutEntity? = runCatching {
+        val row = json.decodeFromJsonElement(RemotePayoutRow.serializer(), record)
+        PayoutEntity(
+            id = row.id.lowercase(),
+            // NOT lowercased: eBay's payout id is matched against
+            // `sales.payout_reference` verbatim, and case-folding one side of a
+            // join is how rows quietly stop matching.
+            payoutId = row.payoutId,
+            amountCents = row.amountCents,
+            currency = row.currency,
+            status = row.status,
+            payoutDate = RealtimeRows.parseTimestamp(row.payoutDate),
+            transactionCount = row.transactionCount,
+            updatedAt = RealtimeRows.parseTimestamp(row.updatedAt) ?: 0L,
         )
     }.getOrNull()
 

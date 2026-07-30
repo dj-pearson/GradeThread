@@ -49,6 +49,9 @@ object ShellRoutes {
     /** US-1371: the sales list, reached from [ShellSection.MONEY]. */
     const val SALES = "sales"
 
+    /** US-1365: payouts against the books, reached from [ShellSection.MONEY]. */
+    const val PAYOUTS = "payouts"
+
     /**
      * US-1354: the offers + messages inbox, reached from Marketplaces or from
      * a `gradethread.com/app/negotiation/<itemId>` deep link.

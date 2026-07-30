@@ -48,6 +48,7 @@ import java.util.Locale
 @Composable
 fun MoneyScreen(
     onOpenSales: () -> Unit,
+    onOpenPayouts: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MoneyViewModel = hiltViewModel(),
 ) {
@@ -222,6 +223,9 @@ fun MoneyScreen(
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = onOpenSales) { Text("All sales") }
+                // US-1365: the "did I actually get paid" question sits next to
+                // the sales it is about, not in a settings screen.
+                TextButton(onClick = onOpenPayouts) { Text("Payouts") }
             }
         }
         item {

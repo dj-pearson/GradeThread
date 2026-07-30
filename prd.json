@@ -171,7 +171,7 @@
     {
       "id": "US-1365",
       "priority": -98635,
-      "passes": false,
+      "passes": true,
       "title": "Payout reconciliation",
       "description": "As a seller, I can reconcile recorded sales against actual eBay payouts and spot mismatches.",
       "acceptanceCriteria": [
@@ -179,7 +179,7 @@
         "Mismatches (recorded sale total vs actual payout) are flagged with the delta and the related item/sale",
         "Reconciliation reads from the local cache (offline-capable) and refreshes after sync"
       ],
-      "notes": "[P2][Android/Money] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Money] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android payout reconciliation shipped. Data: sync/db/Entities.kt adds PayoutEntity (ebay_payouts) plus SaleEntity.payoutAmount; sync/db/Daos.kt adds PayoutDao (observeAll/all/clearAll); GradeThreadDb goes to version 4 with an explicit MIGRATION_3_4 (ALTER sales + CREATE ebay_payouts + its two indexes), no destructive fallback. Sync: SyncWatermark.Table.PAYOUTS, SyncService.payoutsPlan/decodePayoutRow (payout_id kept verbatim so it joins exactly against sales.payout_reference), payout_amount added to RemoteSaleRow, SyncMerger.PulledBatch.payouts upserted in the same transaction, SessionScope wipes payouts on sign-out. Logic: money/PayoutReconciliation.kt is pure and unit-tested - reconcile() groups completed sales by payout_reference, expectedCents() prefers the reported payout and flags the price-minus-fees fallback as estimated, TOLERANCE_CENTS=1 absorbs dollar-vs-cent rounding, mismatches/salesWithUnknownPayout/salesAwaitingPayout keep 'not paid yet' and 'deposit not synced' separate from a real delta. UI: money/PayoutReconciliationViewModel.kt combines db.payouts().observeAll() and db.sales().observeAll() so the screen is Room-backed and offline (AC3) and re-emits after a sync; syncAndRefresh() calls SyncTrigger.refresh() and never clears the cached comparison on failure. money/PayoutReconciliationScreen.kt shows the delta wording plus the contributing sales, each tapping through to its item (AC2). Wired at ShellRoutes.PAYOUTS in AppShell.kt, entered from MoneyScreen next to All sales. Verified: 15 JUnit cases in app/src/test/java/com/gradethread/app/money/PayoutReconciliationTest.kt cover the one-cent tolerance, the two-cent mismatch, over- and under-payment wording, the estimated fallback and its note, case-sensitive payout id matching, cancelled/refunded exclusion, unsynced-payout separation, awaiting-payout, an unexplained payout, date sorting and the summary string; currency assertions are built through Money.format so they survive a non-US CI locale. No Android SDK in this container, so compilation is proved by the Android CI workflow (assembleDebug + testDebugUnitTest + lintDebug), not locally. Server side needed no migration: 00327_ebay_payouts.sql and sales.payout_amount already exist. android/README.md moved this off the Not built table."
     },
     {
       "id": "US-1366",

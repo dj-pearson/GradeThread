@@ -25,10 +25,11 @@ import kotlinx.coroutines.flow.StateFlow
         ExpenseEntity::class,
         ListingEntity::class,
         SourceEntity::class,
+        PayoutEntity::class,
         PendingMutationEntity::class,
         CaptureDraftEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class GradeThreadDb : RoomDatabase() {
@@ -38,6 +39,7 @@ abstract class GradeThreadDb : RoomDatabase() {
     abstract fun expenses(): ExpenseDao
     abstract fun listings(): ListingDao
     abstract fun sources(): SourceDao
+    abstract fun payouts(): PayoutDao
     abstract fun pendingMutations(): PendingMutationDao
     abstract fun captureDrafts(): CaptureDraftDao
 
@@ -99,7 +101,7 @@ object DatabaseProvider {
 
     private fun build(context: Context, dbName: String): GradeThreadDb =
         Room.databaseBuilder(context, GradeThreadDb::class.java, dbName)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     /**
@@ -131,6 +133,40 @@ object DatabaseProvider {
     internal val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
         override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE listings ADD COLUMN quantity INTEGER DEFAULT NULL")
+        }
+    }
+
+    /**
+     * US-1365: the payouts table + the per-sale payout amount.
+     *
+     * Explicit, like its predecessors — a version bump with no migration is a
+     * crash on launch for every device already holding a v3 file.
+     */
+    internal val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE sales ADD COLUMN payoutAmount REAL DEFAULT NULL")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS ebay_payouts (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    payoutId TEXT NOT NULL,
+                    amountCents INTEGER,
+                    currency TEXT,
+                    status TEXT,
+                    payoutDate INTEGER,
+                    transactionCount INTEGER,
+                    updatedAt INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_ebay_payouts_payoutId " +
+                    "ON ebay_payouts(payoutId)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_ebay_payouts_payoutDate " +
+                    "ON ebay_payouts(payoutDate)",
+            )
         }
     }
 }
