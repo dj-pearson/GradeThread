@@ -15,19 +15,39 @@
 // eBay taxonomy, seven hooks and a query client — and the failure mode here
 // (silent no-op) is exactly what a blunt guard is for.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
+// US-2263: anchors and markup can live in any section file (`all`); the card
+// ORDER is a property of the page's JSX, where the call sites sit (`src`).
+import {
+  composerPage as src,
+  composerAll as all,
+  composerSections,
+} from "./helpers/composer-source";
 
-const src = readFileSync(
-  join(process.cwd(), "src/pages/flipdesk/composer.tsx"),
-  "utf8",
-);
+// US-2263: the sections are components now, so the order is the order of their
+// CALL SITES in the page — which is exactly where a reorder would happen, and
+// reads as the workflow it encodes.
+const ORDER: [string, string][] = [
+  ["Photos", "<PhotosCard"],
+  ["Measurements", "<MeasurementsCard"],
+  ["Title", "<TitleCard"],
+  ["eBay specifics", "<SpecificsSection"],
+  ["Grade this item", "<GradeThisItemCard"],
+  ["Comps", "<EbayCompsPanel"],
+  ["Condition & price", "<PriceCard"],
+  ["Cost & margin", "<CostMarginCard"],
+  ["Format & variations", "<ListingFormatControls"],
+  ["Shipping & returns", "<PoliciesCard"],
+  ["Promote", "<PromoteCard"],
+  ["Description", "<DescriptionCard"],
+  ["Item details", "<ItemDetailsCard"],
+  ["Storage & SKU", "<StorageSkuCard"],
+];
 
 describe("composer focus anchors (US-954)", () => {
   it("renders an element for every anchor COMPOSER_FOCUS_ANCHORS points at", () => {
     const missing = Object.entries(COMPOSER_FOCUS_ANCHORS)
-      .filter(([, anchorId]) => !src.includes(`id="${anchorId}"`))
+      .filter(([, anchorId]) => !all.includes(`id="${anchorId}"`))
       .map(([focus, anchorId]) => `${focus} → #${anchorId}`);
     expect(missing).toEqual([]);
   });
@@ -46,24 +66,6 @@ describe("composer focus anchors (US-954)", () => {
 });
 
 describe("composer card order follows the workflow (US-2252)", () => {
-  // Ordered by the marker each card renders. Every entry must appear exactly
-  // once, in this order, in the editor column.
-  const ORDER: [string, string][] = [
-    ["Photos", `<Card id="composer-photos">`],
-    ["Measurements", `<Card id="composer-measurements">`],
-    ["Title", `<CardTitle>Title</CardTitle>`],
-    ["eBay specifics", `<div id="composer-category">`],
-    ["Grade this item", `<GradeThisItemCard`],
-    ["Comps", `<EbayCompsPanel`],
-    ["Condition & price", `<CardTitle>Condition &amp; price</CardTitle>`],
-    ["Cost & margin", `<CardTitle>Cost &amp; margin</CardTitle>`],
-    ["Format & variations", `<CardTitle>Format &amp; variations</CardTitle>`],
-    ["Shipping & returns", `<CardTitle>Shipping &amp; returns</CardTitle>`],
-    ["Promote", `<CardTitle>Promote on eBay</CardTitle>`],
-    ["Description", `<CardTitle>Description</CardTitle>`],
-    ["Item details", `<CardTitle>Item details</CardTitle>`],
-    ["Storage & SKU", `<CardTitle>Storage &amp; SKU</CardTitle>`],
-  ];
 
   it("places every card exactly once", () => {
     for (const [name, marker] of ORDER) {
@@ -84,27 +86,25 @@ describe("composer card order follows the workflow (US-2252)", () => {
   // The specific inversions the reorder fixed. Spelled out so a future move that
   // recreates one fails with a reason rather than a diff of a name list.
   it("puts measurements before the specifics editor that syncs them", () => {
-    expect(src.indexOf(`<Card id="composer-measurements">`)).toBeLessThan(
-      src.indexOf(`<div id="composer-category">`),
+    expect(src.indexOf("<MeasurementsCard")).toBeLessThan(
+      src.indexOf("<SpecificsSection"),
     );
   });
 
   it("puts photos before the AI actions and the grade card that need them", () => {
-    expect(src.indexOf(`<Card id="composer-photos">`)).toBeLessThan(
-      src.indexOf(`<GradeThisItemCard`),
+    expect(src.indexOf("<PhotosCard")).toBeLessThan(
+      src.indexOf("<GradeThisItemCard"),
     );
   });
 
   it("puts the grade card before the condition the grade maps to", () => {
-    expect(src.indexOf(`<GradeThisItemCard`)).toBeLessThan(
-      src.indexOf(`<CardTitle>Condition &amp; price</CardTitle>`),
+    expect(src.indexOf("<GradeThisItemCard")).toBeLessThan(
+      src.indexOf("<PriceCard"),
     );
   });
 
   it("puts comps before the price input they inform", () => {
-    expect(src.indexOf(`<EbayCompsPanel`)).toBeLessThan(
-      src.indexOf(`id="listing-price"`),
-    );
+    expect(src.indexOf("<EbayCompsPanel")).toBeLessThan(src.indexOf("<PriceCard"));
   });
 });
 
@@ -116,21 +116,21 @@ describe("the publish area holds everything that decides how it goes live (US-22
   });
 
   it("puts the channel picker below the editor cards and above the CTA", () => {
-    const pushTo = src.indexOf(`<CardTitle>Push to</CardTitle>`);
-    expect(pushTo).toBeGreaterThan(
-      src.indexOf(`<CardTitle>Storage &amp; SKU</CardTitle>`),
-    );
+    const pushTo = src.indexOf("<PushToCard");
+    expect(pushTo).toBeGreaterThan(src.indexOf("<StorageSkuCard"));
     expect(pushTo).toBeLessThan(footer);
   });
 
   it("puts the drop schedule next to the button that publishes", () => {
-    const schedule = src.indexOf(`<CardTitle>When it goes live</CardTitle>`);
+    const schedule = src.indexOf("<ScheduleCard");
     expect(schedule).toBeGreaterThan(0);
     expect(schedule).toBeLessThan(footer);
     // …and out of the pricing card it used to hide in.
-    expect(schedule).toBeGreaterThan(
-      src.indexOf(`<CardTitle>Cost &amp; margin</CardTitle>`),
-    );
+    expect(schedule).toBeGreaterThan(src.indexOf("<CostMarginCard"));
+    expect(
+      composerSections["price-card.tsx"],
+      "the drop schedule crept back into the pricing card",
+    ).not.toContain('id="schedule-at"');
   });
 
   it("leaves nothing editable below the Save/Publish row", () => {
@@ -138,5 +138,8 @@ describe("the publish area holds everything that decides how it goes live (US-22
     // Dialogs are fine below it (they render in a portal); cards are not.
     expect(after).not.toContain("<ListingKit");
     expect(after).not.toContain("<CardTitle>");
+    for (const name of ORDER.map(([, marker]) => marker)) {
+      expect(after, `${name} renders below the CTA`).not.toContain(name);
+    }
   });
 });

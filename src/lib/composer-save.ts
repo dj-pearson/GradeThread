@@ -54,6 +54,25 @@ export type ComposerListingState = {
   returnPolicyId: string | null;
 };
 
+/** eBay's hard cap on a listing title. Enforced on the input, not at save. */
+export const TITLE_MAX = 80;
+/** eBay's cap on the buyer-facing condition description (Sell Inventory API). */
+export const CONDITION_DESC_MAX = 1000;
+
+/**
+ * US-2260: statuses a SALE owns. Reaching one of these means a sales row exists
+ * (RecordSaleDialog / the eBay order sync writes it and advances the status), so
+ * the composer's status dropdown must not offer them as words to pick — a bare
+ * status write leaves Sold totals, P&L and reconciliation disagreeing with
+ * inventory, with nothing to surface the gap.
+ */
+export const SALE_OWNED_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
+  "sold",
+  "shipped",
+  "completed",
+  "returned",
+]);
+
 /**
  * US-568: turn the format editor state into the listings columns. Dollar strings
  * convert to integer cents; auction columns null out for fixed-price listings,

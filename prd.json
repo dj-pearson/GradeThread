@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2263",
+  "nextId": "US-2265",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3213,6 +3213,35 @@
       ],
       "dependsOn": [
         "US-2156"
+      ]
+    },
+    {
+      "id": "US-2263",
+      "passes": false,
+      "title": "Split the composer: 3400 lines in one file, one component",
+      "description": "As a developer, I want the composer broken into section components, so that changing the pricing card doesn't mean scrolling a 3400-line file and every card's inputs are a readable prop list instead of a closure over 40 useStates.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/composer.tsx drops below 1400 lines; the extracted sections live under src/components/flipdesk/composer/ and each takes explicit props (no context, no prop-drilled setState bags beyond the fields that section owns).",
+        "The page keeps ownership of form state, the save paths and the card ORDER — the order is the contract src/lib/__tests__/composer-anchors.test.ts asserts, and it must still pass unchanged.",
+        "All five existing composer test files pass without edits to their assertions: composer-save, composer-anchors, composer-dirty-guard, composer-locks, preview-specifics. Where an assertion greps composer.tsx for markup that moved, the assertion is repointed at the new file rather than weakened.",
+        "npx tsc -b, npm run lint and npm run build are clean, and npx impeccable detect on every new file reports no violations."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-2264",
+      "passes": false,
+      "title": "Features stranded on the unmounted ItemCanvas, then delete it",
+      "description": "As a seller, I want the workflow actions that only ever existed on the retired ItemCanvas, so that Complete with AI, Size AI, the next-action CTA and the fit preview aren't shipped to nobody in a 2200-line component no route renders.",
+      "acceptanceCriteria": [
+        "Audit src/components/flipdesk/item-canvas.tsx against src/pages/flipdesk/composer.tsx and port every seller-facing feature the composer lacks. Known gaps: Complete with AI (handleCompleteWithAi, item-canvas.tsx:732), Size AI (runSizeAi, :530, shown only while size is blank), the pinned next-action CTA (runNextAction, :1370, from nextAction() in src/lib/workflow.ts), the US-1779 fit preview (:1848, src/components/fit/fit-widget.tsx), Mark listed (MarkListedDialog), duplicate item (:1272) and relist (:1305).",
+        "Anything deliberately NOT ported is listed in the story note with the reason — a feature dropped silently is the same bug this story is fixing.",
+        "src/components/flipdesk/item-canvas.tsx is deleted, and the iOS/Android parity comments that cite it by name are repointed: ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift, ios/GradeThread/Persistence/Models/LocalInventoryItem.swift, plus the references in src/lib/title-sync.ts and src/pages/flipdesk/listings.tsx.",
+        "A test asserts no file under src/ imports ItemCanvas and that the file is gone, so it cannot come back as dead code."
+      ],
+      "priority": 1,
+      "dependsOn": [
+        "US-2263"
       ]
     }
   ]

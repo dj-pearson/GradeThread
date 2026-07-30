@@ -4,19 +4,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowLeft,
-  Wand2,
   Save,
   Loader2,
-  Plus,
   Award,
   Rocket,
   Sparkles,
-  Link2,
   Store,
   BadgeCheck,
   AlertTriangle,
   CalendarClock,
-  DollarSign,
 } from "lucide-react";
 import {
   Card,
@@ -26,13 +22,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
+import { LoadingRegion } from "@/components/ui/skeletons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,24 +36,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  COMMON_TIMEZONES,
-  DROP_PRESETS,
   detectTimezone,
   formatInZone,
-  nextPresetUtc,
 } from "@/lib/scheduling";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -74,27 +50,21 @@ import {
   ensureSellerCredentials,
   interpolateDescription,
   splitSellerCredentials,
-  suggestTitle,
   templateGroupFor,
   titleKeywords,
 } from "@/lib/listing-templates";
 import { titleQuality } from "@/lib/title-quality";
 import {
-  API_CROSS_LISTING_PLATFORMS,
   EBAY_CONDITION_OPTIONS,
   ITEM_CATEGORIES,
-  ITEM_CATEGORY_LABELS,
-  ITEM_STATUSES,
   ITEM_STATUS_LABELS,
-  EXTENSION_CROSS_LISTING_PLATFORMS,
   MARKETPLACE_LABELS,
   MARKETPLACE_TIER,
-  MARKETPLACE_TIER_LABEL,
   type CrossListingPlatform,
   isNonListablePhotoType,
 } from "@/lib/constants";
 import { resolveStatus, factsOf } from "@/lib/workflow";
-import { cn, errorMessage, isoToLocalInput, localInputToIso } from "@/lib/utils";
+import { errorMessage, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import {
@@ -111,16 +81,9 @@ import {
   deriveGarmentType,
 } from "@/lib/garment-mapping";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
-import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
 import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
-import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
-import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
-import { PhotoManager } from "@/components/flipdesk/photo-manager";
-import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
-import { MeasurementForm } from "@/components/flipdesk/measurement-form";
-import { MeasurementPhotoEditor } from "@/components/flipdesk/measurement-photo-editor";
 import {
   AiFillPanel,
   type AcceptedField,
@@ -131,11 +94,7 @@ import {
   type RewriteAction,
 } from "@/hooks/use-ai-extract";
 import {
-  aiPriceInput,
   conditionLabel,
-  formatAiPrice,
-  priceChanged,
-  textChanged,
 } from "@/lib/listing-ai-diff";
 import {
   centsToDollarInput,
@@ -171,6 +130,19 @@ import type {
 } from "@/types/database";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
+import { ItemDetailsCard } from "@/components/flipdesk/composer/item-details-card";
+import { StorageSkuCard } from "@/components/flipdesk/composer/storage-sku-card";
+import { PhotosCard } from "@/components/flipdesk/composer/photos-card";
+import { MeasurementsCard } from "@/components/flipdesk/composer/measurements-card";
+import { TitleCard } from "@/components/flipdesk/composer/title-card";
+import { SpecificsSection } from "@/components/flipdesk/composer/specifics-section";
+import { PriceCard } from "@/components/flipdesk/composer/price-card";
+import { CostMarginCard } from "@/components/flipdesk/composer/cost-margin-card";
+import { PoliciesCard } from "@/components/flipdesk/composer/policies-card";
+import { PromoteCard } from "@/components/flipdesk/composer/promote-card";
+import { DescriptionCard } from "@/components/flipdesk/composer/description-card";
+import { PushToCard } from "@/components/flipdesk/composer/push-to-card";
+import { ScheduleCard } from "@/components/flipdesk/composer/schedule-card";
 import { rowToMergeValues, type MergeValues } from "@/lib/merge-values";
 // US-2248/US-2249: the save payloads live in one pure module so the draft and
 // live paths cannot drift apart again (see src/lib/composer-save.ts).
@@ -179,22 +151,10 @@ import {
   buildLiveListingPatch,
   buildItemPatch,
   resolveQuantity,
+  TITLE_MAX,
   type ComposerListingState,
 } from "@/lib/composer-save";
 
-// US-2260: statuses a SALE owns. Reaching one of these means a sales row exists
-// (RecordSaleDialog / the eBay order sync writes it and advances the status), so
-// the composer's status dropdown must not offer them as words to pick.
-const SALE_OWNED_STATUSES = new Set<ItemStatus>([
-  "sold",
-  "shipped",
-  "completed",
-  "returned",
-]);
-
-const TITLE_MAX = 80;
-// eBay's cap on the buyer-facing condition description (Sell Inventory API).
-const CONDITION_DESC_MAX = 1000;
 
 // Legacy rows can carry a coarse category string that predates ITEM_CATEGORIES.
 // Anything unrecognized is clothing (the only vertical FlipDesk shipped with).
@@ -799,6 +759,19 @@ export function FlipdeskComposerPage({
   useEffect(() => {
     if (initialised && savedSnapshot === null) setSavedSnapshot(formSnapshot);
   }, [initialised, savedSnapshot, formSnapshot]);
+  // The picker reports its aspect map up on mount, AFTER its own prefill — so the
+  // first report is the baseline, not a seller edit (US-2256). Lives here rather
+  // than in SpecificsSection because the dirty state belongs to the form.
+  function handleAspectsChange(next: Record<string, string[]> | null) {
+    setLivePickedAspects(next);
+    const encoded = JSON.stringify(next ?? null);
+    if (aspectBaseline.current === null) {
+      aspectBaseline.current = encoded;
+    } else if (encoded !== aspectBaseline.current) {
+      setAspectsDirty(true);
+    }
+  }
+
   // The aspect map as the picker FIRST reported it (post-mount, post-prefill).
   const aspectBaseline = useRef<string | null>(null);
   const [aspectsDirty, setAspectsDirty] = useState(false);
@@ -1977,448 +1950,67 @@ export function FlipdeskComposerPage({
       <div className="grid gap-6 @4xl:grid-cols-2">
         {/* ── Editor column ───────────────────────────────────────── */}
         <div className="space-y-6">
-          {/* Photos */}
-          <Card id="composer-photos">
-            <CardHeader>
-              <CardTitle>Photos</CardTitle>
-              <CardDescription>
-                Drag to reorder, click a photo to view it full size, and use
-                the pencil to rotate, straighten, or crop. The star picks the
-                primary image.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* US-1567: the full shared photo toolkit — upload, reorder,
-                  rotate/crop/straighten, retag, delete, background removal,
-                  and click-to-view — identical to the item page, so the
-                  drafts flow never sends the seller elsewhere for photo
-                  work. The star keeps the composer's primary-photo pick. */}
-              <PhotoUploader
-                itemId={item.id}
-                currentStatus={item.status}
-                category={item.category as ItemCategory | null}
-              />
-              <PhotoManager
-                itemId={item.id}
-                liveListingId={isLiveListing ? listing?.id : null}
-                primaryPhotoId={primaryPhoto?.id ?? null}
-                onPickPrimary={setPrimaryPhotoId}
-              />
+          <PhotosCard
+            item={item}
+            liveListingId={isLiveListing ? (listing?.id ?? null) : null}
+            primaryPhoto={primaryPhoto}
+            setPrimaryPhotoId={setPrimaryPhotoId}
+            badgeEnabled={badgeEnabled}
+            setBadgeEnabled={setBadgeEnabled}
+            slabImageMode={slabImageMode}
+            setSlabImageMode={setSlabImageMode}
+          />
 
-              {item.grade_value != null && (
-                <div className="rounded-md border p-3">
-                  <p className="text-sm font-medium">
-                    Grade shown on this listing
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Graded items automatically add the grade to the description
-                    and a “Condition Grade: {item.grade_value.toFixed(1)}{" "}
-                    (GradeThread)” item specific, plus a link to the certificate
-                    page buyers can verify. Your own photos are never altered —
-                    no watermarks or QR codes burned into them, which protects
-                    your marketplace account.
-                  </p>
-                  {/* US-2247: publish has always read listings.badge_enabled and
-                      slab_image_mode, but nothing in the app wrote either — so
-                      the grade banner told sellers to "enable the grade badge
-                      below" and no such control existed anywhere. The grade card
-                      is a SEPARATE gallery image, not an overlay on the seller's
-                      own shots, which is why the copy above still holds. */}
-                  <div className="mt-3 space-y-2 rounded-md border bg-muted/20 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <Label htmlFor="grade-badge" className="text-sm">
-                          Add a grade card image to the gallery
-                        </Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          A generated image showing the {item.grade_value.toFixed(1)}
-                          /10 grade and certificate link, added alongside your
-                          photos.
-                        </p>
-                      </div>
-                      <Switch
-                        id="grade-badge"
-                        checked={badgeEnabled}
-                        onCheckedChange={(on) => {
-                          setBadgeEnabled(on);
-                          // Turning the card on with mode "off" would store a
-                          // contradiction publish can't act on; seed a real mode.
-                          if (on && slabImageMode === "off") {
-                            setSlabImageMode("extra");
-                          }
-                          if (!on) setSlabImageMode("off");
-                        }}
-                        aria-label="Add a grade card image to this listing's gallery"
-                      />
-                    </div>
-                    {badgeEnabled && (
-                      <div className="space-y-1.5">
-                        <Label htmlFor="slab-mode" className="text-xs">
-                          Where it goes
-                        </Label>
-                        <Select
-                          value={slabImageMode === "off" ? "extra" : slabImageMode}
-                          onValueChange={(v) =>
-                            setSlabImageMode(v as SlabImageMode)
-                          }
-                        >
-                          <SelectTrigger id="slab-mode" className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="extra" className="text-xs">
-                              Extra gallery image (after your photos)
-                            </SelectItem>
-                            <SelectItem value="hero" className="text-xs">
-                              First image buyers see
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-[11px] text-muted-foreground">
-                          “First image” maximises the grade's visibility in
-                          search results; “extra” keeps your own hero shot.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  {/* US-1665 growth loop: one-click copy of the public
-                      certificate link, so a seller can paste the verifiable
-                      grade into ANY marketplace listing (not just eBay). Each
-                      shared link is an indexable inbound reference to the cert. */}
-                  {item.certificate_url && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
-                      onClick={() => {
-                        const certUrl = item.certificate_url;
-                        if (!certUrl) return;
-                        void navigator.clipboard
-                          .writeText(certUrl)
-                          .then(() =>
-                            toast.success("Certificate link copied", {
-                              description:
-                                "Paste it into your listing so buyers can verify the grade.",
-                            }),
-                          )
-                          .catch(() =>
-                            toast.error("Couldn't copy the link"),
-                          );
-                      }}
-                    >
-                      <Link2 className="mr-2 h-4 w-4" />
-                      Copy certificate link for your listing
-                    </Button>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <MeasurementsCard
+            item={item}
+            measurements={measurements}
+            setMeasurements={setMeasurements}
+          />
 
-          {/* US-1567: measurements — same form as the item canvas. */}
-          <Card id="composer-measurements">
-            <CardHeader>
-              <CardTitle>Measurements</CardTitle>
-              <CardDescription>
-                Flat measurements buyers ask about. Synced live with matching
-                free-text eBay item specifics (Inseam, Length, Chest, …).
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <MeasurementForm
-                category={item.category}
-                brand={item.brand}
-                values={measurements}
-                onChange={setMeasurements}
-                aiSources={item.ai_field_sources ?? null}
-              />
-              {/* US-1574: calibrated photo measuring — renders only when the
-                  item has a MeasureCard shot; drag-adjust + save syncs the
-                  same measurements state the form above edits. */}
-              <MeasurementPhotoEditor
-                itemId={item.id}
-                category={item.category}
-                values={measurements}
-                aiSources={item.ai_field_sources ?? null}
-                onApply={(next) => setMeasurements(next)}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Title */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Title</CardTitle>
-              <CardDescription>
-                eBay caps titles at {TITLE_MAX} characters and every word is
-                searchable — front-load the brand for click-through, fill the
-                space with real keywords, and don't repeat words (duplicates add
-                no ranking benefit). Filled item specifics are also searchable.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="relative">
-                <Input
-                  id="composer-title"
-                  value={title}
-                  maxLength={TITLE_MAX}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Brand Item Size Category"
-                  disabled={isEbayOrigin}
-                  title={
-                    isEbayOrigin
-                      ? "eBay owns this listing's title — edit it on eBay."
-                      : undefined
-                  }
-                />
-                <span
-                  className={cn(
-                    "absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums",
-                    titleMeter.utilization.band === "full"
-                      ? "font-semibold text-destructive"
-                      : titleMeter.utilization.band === "good"
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-muted-foreground",
-                  )}
-                >
-                  {titleLen}/{TITLE_MAX}
-                </span>
-              </div>
-              {/* US-1892: utilization bar — green in the 70–80 sweet spot. */}
-              <div
-                className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-                role="progressbar"
-                aria-valuenow={titleMeter.utilization.pct}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label="Title length utilization"
-              >
-                <div
-                  className={cn(
-                    "h-full rounded-full transition-all",
-                    titleMeter.utilization.band === "good"
-                      ? "bg-emerald-500"
-                      : titleMeter.utilization.band === "full"
-                        ? "bg-destructive"
-                        : "bg-amber-500",
-                  )}
-                  style={{ width: `${titleMeter.utilization.pct}%` }}
-                />
-              </div>
-              {(!titleMeter.brandFirst ||
-                titleMeter.lint.warnings.length > 0 ||
-                titleMeter.lint.policyViolations.length > 0) && (
-                <ul className="space-y-1 text-xs">
-                  {titleMeter.lint.policyViolations.map((v) => (
-                    <li key={v} className="text-destructive">⚠ {v}</li>
-                  ))}
-                  {!titleMeter.brandFirst && item?.brand && (
-                    <li className="text-amber-600 dark:text-amber-400">
-                      Lead with the brand ({item.brand}) — front-loading it lifts
-                      click-through.
-                    </li>
-                  )}
-                  {titleMeter.lint.warnings.map((w) => (
-                    <li key={w} className="text-amber-600 dark:text-amber-400">
-                      {w}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {aiSnapshot && (
-                <AiDiffChip
-                  changed={textChanged(aiSnapshot.title, title)}
-                  aiDisplay={aiSnapshot.title ?? ""}
-                  onRevert={() => setTitle((aiSnapshot.title ?? "").slice(0, TITLE_MAX))}
-                />
-              )}
-              {/* US-2258: every write action here is gated on the same lock as
-                  the input. Offering "AI rewrite" on a field eBay owns produced a
-                  reviewed, accepted rewrite the save would then refuse. */}
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isEbayOrigin}
-                  title={ebayOwnedHint}
-                  onClick={() => setTitle(suggestTitle(item))}
-                >
-                  <Wand2 className="mr-2 h-3 w-3" />
-                  Suggest title
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!title.trim() || aiRewrite.isPending || isEbayOrigin}
-                      title={ebayOwnedHint}
-                    >
-                      {aiRewrite.isPending &&
-                      rewriteAction?.startsWith("title_") ? (
-                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                      ) : (
-                        <Sparkles className="mr-2 h-3 w-3" />
-                      )}
-                      AI rewrite
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={() => void runRewrite("title_seo")}>
-                      Punch up for SEO
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => void runRewrite("title_shorten")}
-                    >
-                      Shorten to 80
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => void runRewrite("title_keywords")}
-                    >
-                      Add buyer keywords
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                {titleChips.map((kw) => {
-                  const fits = chipFits(kw) && !isEbayOrigin;
-                  return (
-                    <button
-                      key={kw}
-                      type="button"
-                      disabled={!fits}
-                      onClick={() => appendKeyword(kw)}
-                      title={
-                        isEbayOrigin
-                          ? ebayOwnedHint
-                          : fits
-                            ? undefined
-                            : "Won't fit in 80 characters"
-                      }
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs",
-                        fits
-                          ? "hover:bg-muted"
-                          : "cursor-not-allowed opacity-40",
-                      )}
-                    >
-                      <Plus className="h-3 w-3" />
-                      {kw}
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* eBay category + item specifics — prefer the listing-row override
-              when present (the editor / bulk-edit writes here), then fall
-              back to the inventory_items mirror for legacy single-item flows.
-              US-557: gate the mount until both saved sources have loaded, so the
-              picker seeds its (now lifted) aspect state from the real values —
-              never from a transient empty map that a save would persist as a
-              wipe. */}
-          <div id="composer-category">
-          {/* US-1895: recommended-aspect coverage (non-blocking). eBay's
-              RECOMMENDED specifics ranked by 30-day buyer search volume — filling
-              them lifts findability. Required specifics stay a publish blocker. */}
-          {aspectCoverage && aspectCoverage.total > 0 && (
-            <Card className="mb-4">
-              <CardContent className="space-y-2 py-3">
-                <div className="flex items-center justify-between text-sm font-medium">
-                  <span>Recommended specifics</span>
-                  <span
-                    className={cn(
-                      "tabular-nums",
-                      aspectCoverage.filled >= aspectCoverage.total
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-muted-foreground",
-                    )}
-                  >
-                    {aspectCoverage.filled}/{aspectCoverage.total}
-                  </span>
-                </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all"
-                    style={{
-                      width: `${Math.round((aspectCoverage.filled / aspectCoverage.total) * 100)}%`,
-                    }}
-                  />
-                </div>
-                {aspectCoverage.missing.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Most-searched still empty:{" "}
-                    <span className="text-foreground">
-                      {aspectCoverage.missing.slice(0, 6).join(", ")}
-                    </span>
-                    . Fill them in the specifics below (use “Derive from item” to
-                    autofill what we can).
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
-          {/* US-2258: platform_category_id is eBay-owned on a mirror, but the item
-              specifics in the same editor are not — so warn rather than lock, or
-              the seller loses the specifics editor along with the category. */}
-          {isEbayOrigin && (
-            <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
-              eBay owns this listing&apos;s category, so a change here is
-              overwritten by the next sync — change it on eBay. Item specifics
-              below are yours and save normally.
-            </p>
-          )}
-          {listingLoading || ebayMappingLoading ? (
-            <Card>
-              <CardContent className="py-6">
-                <LoadingRegion label="Loading eBay item specifics">
-                  <SkeletonRows rows={4} />
-                </LoadingRegion>
-              </CardContent>
-            </Card>
-          ) : (
-            <EbayCategoryPicker
-              itemId={item.id}
-              initialCategoryId={savedCategoryId}
-              initialAspects={savedAspects}
-              initialAspectSources={
-                (listing?.item_specifics_sources ??
-                  ebayMapping?.ebay_aspect_sources ??
-                  null) as AspectSourceMap | null
-              }
-              seedQuery={item.item_title ?? ""}
-              itemFields={itemAspectSource}
-              measurements={initialised ? measurements : undefined}
-              onMeasurementsChange={
-                initialised ? setMeasurements : undefined
-              }
-              measurementUnit={measurementUnit}
-              onCategoryChange={(id, path) => {
-                setLivePickedCategoryId(id);
-                setLivePickedCategoryPath(path ?? null);
-              }}
-              onAspectsChange={(next) => {
-                setLivePickedAspects(next);
-                // US-2256: the picker reports on mount (after its own prefill),
-                // so that FIRST report is the baseline — not a seller edit.
-                const encoded = JSON.stringify(next ?? null);
-                if (aspectBaseline.current === null) {
-                  aspectBaseline.current = encoded;
-                } else if (encoded !== aspectBaseline.current) {
-                  setAspectsDirty(true);
-                }
-              }}
-              onSourcesChange={setLivePickedSources}
-              onMissingRequiredChange={setMissingRequired}
-              // US-828: highlight the aspect rows generation reconciliation
-              // flagged (a value not in eBay's allowed set / an invented aspect).
-              needsReviewAspects={(listing?.aspect_review ?? []).map(
-                (a) => a.aspect,
-              )}
-            />
-          )}
-          </div>
+          <TitleCard
+            title={title}
+            setTitle={setTitle}
+            item={item}
+            titleLen={titleLen}
+            titleMeter={titleMeter}
+            titleChips={titleChips}
+            chipFits={chipFits}
+            appendKeyword={appendKeyword}
+            aiSnapshot={aiSnapshot}
+            aiRewrite={aiRewrite}
+            rewriteAction={rewriteAction}
+            runRewrite={(a) => void runRewrite(a)}
+            isEbayOrigin={isEbayOrigin}
+            ebayOwnedHint={ebayOwnedHint}
+          />
+          <SpecificsSection
+            item={item}
+            aspectCoverage={aspectCoverage}
+            loading={listingLoading || ebayMappingLoading}
+            isEbayOrigin={isEbayOrigin}
+            savedCategoryId={savedCategoryId}
+            savedAspects={savedAspects}
+            savedSources={
+              (listing?.item_specifics_sources ??
+                ebayMapping?.ebay_aspect_sources ??
+                null) as AspectSourceMap | null
+            }
+            needsReviewAspects={(listing?.aspect_review ?? []).map(
+              (a) => a.aspect,
+            )}
+            initialised={initialised}
+            measurements={measurements}
+            setMeasurements={setMeasurements}
+            measurementUnit={measurementUnit}
+            itemAspectSource={itemAspectSource}
+            onCategoryChange={(id, path) => {
+              setLivePickedCategoryId(id);
+              setLivePickedCategoryPath(path ?? null);
+            }}
+            onAspectsChange={handleAspectsChange}
+            onSourcesChange={setLivePickedSources}
+            onMissingRequiredChange={setMissingRequired}
+          />
 
           {/* Grade this item — restores the "Submit for grading" action in the
               drafts editor (it lived on the item canvas, which the AutoLister/
@@ -2479,371 +2071,46 @@ export function FlipdeskComposerPage({
             }}
           />
 
-          {/* Condition & price */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Condition &amp; price</CardTitle>
-              <CardDescription>
-                The eBay condition and starting price for this listing.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="ebay-condition">eBay condition</Label>
-                {/* US-2262: a shadcn Select like every other dropdown on the page.
-                    This was the one raw <select> left, on the field most likely to
-                    get a listing bounced. The id stays `ebay-condition` so the
-                    AutoLister pre-flight deep link (COMPOSER_FOCUS_ANCHORS.condition)
-                    still lands on it. */}
-                <Select
-                  value={ebayCondition || "__none"}
-                  onValueChange={(v) =>
-                    setEbayCondition(v === "__none" ? "" : v)
-                  }
-                >
-                  <SelectTrigger id="ebay-condition">
-                    <SelectValue placeholder="Select condition…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">Select condition…</SelectItem>
-                    {conditionOptions.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {conditionRejected && (
-                  <p className="text-xs text-destructive">
-                    This condition isn't accepted by the selected eBay category —
-                    pick one of the allowed conditions above, or eBay will reject
-                    the listing at publish.
-                  </p>
-                )}
-                {categoryConditions?.restricted &&
-                  categoryConditions.allowedLabels.length > 0 && (
-                    <p className="text-[11px] text-muted-foreground">
-                      This category accepts: {categoryConditions.allowedLabels.join(", ")}.
-                    </p>
-                  )}
-                {aiSnapshot && (
-                  <AiDiffChip
-                    changed={textChanged(aiSnapshot.ebay_condition, ebayCondition)}
-                    aiDisplay={conditionLabel(aiSnapshot.ebay_condition)}
-                    onRevert={() => setEbayCondition(aiSnapshot.ebay_condition ?? "")}
-                  />
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-baseline justify-between gap-2">
-                  <Label htmlFor="condition-desc">Condition description</Label>
-                  {/* US-2257: eBay caps this at 1000 characters. A hard cap plus
-                      a counter beats losing the tail of a long flaw list to a
-                      server-side truncation nobody sees. */}
-                  <span
-                    className={cn(
-                      "text-[10px] tabular-nums",
-                      conditionDesc.length >= CONDITION_DESC_MAX
-                        ? "font-semibold text-destructive"
-                        : "text-muted-foreground",
-                    )}
-                  >
-                    {conditionDesc.length}/{CONDITION_DESC_MAX}
-                  </span>
-                </div>
-                <Textarea
-                  id="condition-desc"
-                  value={conditionDesc}
-                  maxLength={CONDITION_DESC_MAX}
-                  onChange={(e) => setConditionDesc(e.target.value)}
-                  rows={3}
-                  placeholder="Honest, buyer-facing condition notes — call out any flaws."
-                />
-                {aiSnapshot && (
-                  <AiDiffChip
-                    changed={textChanged(
-                      aiSnapshot.condition_description,
-                      conditionDesc,
-                    )}
-                    aiDisplay={aiSnapshot.condition_description ?? ""}
-                    onRevert={() =>
-                      setConditionDesc(aiSnapshot.condition_description ?? "")
-                    }
-                  />
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="listing-price">Price (USD)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="listing-price"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={price}
-                    onChange={(e) => {
-                      setPrice(e.target.value);
-                      setPriceEstimated(false);
-                      setPriceCompSource(null);
-                    }}
-                    placeholder="0.00"
-                    className="max-w-[10rem]"
-                    disabled={isEbayOrigin}
-                    title={
-                      isEbayOrigin
-                        ? "eBay owns this listing's price — change it on eBay."
-                        : undefined
-                    }
-                  />
-                  {priceEstimated && (
-                    <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
-                      {priceCompSource === "active_asking"
-                        ? "Asking-price comp — may run high"
-                        : "AI estimate — verify"}
-                    </Badge>
-                  )}
-                  {aiSnapshot && (
-                    <AiDiffChip
-                      changed={priceChanged(aiSnapshot.price_cents, price)}
-                      aiDisplay={formatAiPrice(aiSnapshot.price_cents)}
-                      onRevert={() => {
-                        setPrice(aiPriceInput(aiSnapshot.price_cents));
-                        setPriceEstimated(true);
-                        setPriceCompSource(null);
-                      }}
-                    />
-                  )}
-                </div>
-                {priceEstimated && (
-                  <p className="text-xs text-muted-foreground">
-                    {priceCompSource === "active_asking"
-                      ? "No sold comps were available, so this price is based on active eBay asking prices, which tend to run high. Verify before publishing."
-                      : "No eBay comps were found, so this price is the AI's estimate. Edit it to confirm."}
-                  </p>
-                )}
-              </div>
-              {/* US-2250: quantity. listings.quantity was already read at
-                  publish and settable from AutoLister bulk-edit, but the
-                  single-item composer had no field — so five identical tees
-                  meant five items. An auction is single-quantity by definition,
-                  and a variation matrix owns the total, so both cases explain
-                  the number instead of offering a box that would be ignored. */}
-              <div className="space-y-1.5">
-                <Label htmlFor="listing-quantity">Quantity</Label>
-                {listingFormat.format === "auction" ? (
-                  <p className="text-xs text-muted-foreground">
-                    Auctions sell one item. Switch to fixed price in Format
-                    &amp; variations to list more than one.
-                  </p>
-                ) : variationQuantity != null ? (
-                  <p className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">
-                      {variationQuantity}
-                    </span>{" "}
-                    across your{" "}
-                    {listingFormat.variations?.variants.length ?? 0} variations —
-                    edit the per-variation counts in Format &amp; variations.
-                  </p>
-                ) : (
-                  <>
-                    <Input
-                      id="listing-quantity"
-                      type="number"
-                      inputMode="numeric"
-                      min="1"
-                      step="1"
-                      value={quantity}
-                      onChange={(e) => setQuantity(e.target.value)}
-                      className="max-w-[7rem]"
-                      // US-2258: quantity is on EBAY_OWNED_LISTING_FIELDS, so on
-                      // a mirror the next inbound sync overwrites whatever is
-                      // typed here.
-                      disabled={isEbayOrigin}
-                      title={ebayOwnedHint}
-                    />
-                    {quantityInvalid ? (
-                      <p className="text-xs text-destructive">
-                        Quantity must be at least 1.
-                      </p>
-                    ) : (
-                      <p className="text-[11px] text-muted-foreground">
-                        How many of this item you have. Leave at 1 for a
-                        one-of-a-kind piece.
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-              {/* US-1898: Best Offer — a conversion/negotiation lever, NOT a
-                  ranking factor. Fixed-price only (auctions use their own
-                  reserve/BIN terms). */}
-              {listingFormat.format === "fixed_price" && (
-                <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <Label htmlFor="best-offer" className="text-sm">
-                        Accept Best Offers
-                      </Label>
-                      <p className="text-[11px] text-muted-foreground">
-                        Let buyers negotiate — offers auto-clear within your limits. A
-                        conversion lever, not a ranking factor.
-                      </p>
-                    </div>
-                    <Switch
-                      id="best-offer"
-                      checked={bestOfferEnabled}
-                      onCheckedChange={setBestOfferEnabled}
-                      aria-label="Accept Best Offers on this listing"
-                    />
-                  </div>
-                  {bestOfferEnabled && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <Label htmlFor="bo-accept" className="text-xs">
-                          Auto-accept ≥ ($)
-                        </Label>
-                        <Input
-                          id="bo-accept"
-                          type="number"
-                          inputMode="decimal"
-                          min="0"
-                          step="0.01"
-                          value={bestOfferAccept}
-                          onChange={(e) => setBestOfferAccept(e.target.value)}
-                          placeholder={
-                            centsToDollarInput(listing?.price_range_high_cents) || "auto"
-                          }
-                          className="h-8"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor="bo-decline" className="text-xs">
-                          Auto-decline ≤ ($)
-                        </Label>
-                        <Input
-                          id="bo-decline"
-                          type="number"
-                          inputMode="decimal"
-                          min="0"
-                          step="0.01"
-                          value={bestOfferDecline}
-                          onChange={(e) => setBestOfferDecline(e.target.value)}
-                          placeholder={
-                            centsToDollarInput(listing?.price_range_low_cents) || "auto"
-                          }
-                          className="h-8"
-                        />
-                      </div>
-                      <p className="col-span-2 text-[11px] text-muted-foreground">
-                        Blank uses your comp band (p75 accept / p25 decline). Clamped to
-                        eBay&apos;s rule: decline &lt; accept &lt; price.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <PriceCard
+            ebayCondition={ebayCondition}
+            setEbayCondition={setEbayCondition}
+            conditionOptions={conditionOptions}
+            conditionRejected={conditionRejected}
+            categoryConditions={categoryConditions}
+            conditionDesc={conditionDesc}
+            setConditionDesc={setConditionDesc}
+            price={price}
+            setPrice={setPrice}
+            priceEstimated={priceEstimated}
+            setPriceEstimated={setPriceEstimated}
+            priceCompSource={priceCompSource}
+            setPriceCompSource={setPriceCompSource}
+            quantity={quantity}
+            setQuantity={setQuantity}
+            quantityInvalid={quantityInvalid}
+            variationQuantity={variationQuantity}
+            listingFormat={listingFormat}
+            bestOfferEnabled={bestOfferEnabled}
+            setBestOfferEnabled={setBestOfferEnabled}
+            bestOfferAccept={bestOfferAccept}
+            setBestOfferAccept={setBestOfferAccept}
+            bestOfferDecline={bestOfferDecline}
+            setBestOfferDecline={setBestOfferDecline}
+            listing={listing}
+            aiSnapshot={aiSnapshot}
+            isEbayOrigin={isEbayOrigin}
+            ebayOwnedHint={ebayOwnedHint}
+          />
 
-          {/* US-2254: cost basis and the analysis it drives, out of "Condition
-              & price". Purchase price is an inventory_items column rather than a
-              listing field, and profit / sell-through / index value are read-outs
-              rather than inputs — all four used to be nested INSIDE the
-              purchase-price label group, inheriting its spacing and its meaning. */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Cost &amp; margin</CardTitle>
-              <CardDescription>
-                What you paid, and what this price leaves you. Saved to the item
-                with everything else on this page.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Label htmlFor="purchase-cost">Purchase price (what you paid)</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="purchase-cost"
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={cost}
-                  onChange={(e) => setCost(e.target.value)}
-                  placeholder="0.00"
-                  className="max-w-[10rem]"
-                />
-                <span className="text-xs text-muted-foreground">
-                  Saves with the draft · drives margin + ROI
-                </span>
-              </div>
-              {/* US-553: live profit/margin so pricing is a margin decision. */}
-              {parsedPreviewPrice > 0 && (
-                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Est. net profit</span>
-                    <span
-                      className={cn(
-                        "font-semibold tabular-nums",
-                        profitEstimate.net < 0
-                          ? "text-destructive"
-                          : profitEstimate.marginPct < 20
-                            ? "text-amber-600 dark:text-amber-400"
-                            : "text-emerald-600 dark:text-emerald-400",
-                      )}
-                    >
-                      ${profitEstimate.net.toFixed(2)} ·{" "}
-                      {profitEstimate.marginPct.toFixed(0)}% margin
-                    </span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-                    <span>eBay fees ~${profitEstimate.fees.toFixed(2)}</span>
-                    <span>Cost ${(effectiveCost ?? 0).toFixed(2)}</span>
-                    {(item.shipping_cost ?? 0) > 0 && (
-                      <span>Shipping ${(item.shipping_cost ?? 0).toFixed(2)}</span>
-                    )}
-                  </div>
-                  {effectiveCost == null && (
-                    <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                      Enter the purchase price above to see true margin — this
-                      is the ceiling until you do.
-                    </p>
-                  )}
-                </div>
-              )}
-              {/* US-623: condition-aware sell-through forecast at this price. */}
-              {sellThroughForecast && sellThroughForecast.label !== "unknown" && parsedPreviewPrice > 0 && (
-                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Est. sell-through</span>
-                    <span
-                      className={cn(
-                        "font-semibold tabular-nums",
-                        sellThroughForecast.label === "fast"
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : sellThroughForecast.label === "moderate"
-                            ? "text-amber-600 dark:text-amber-400"
-                            : "text-muted-foreground",
-                      )}
-                    >
-                      ~{Math.round(sellThroughForecast.sellThroughPct * 100)}% in{" "}
-                      {sellThroughForecast.daysLow}–{sellThroughForecast.daysHigh} days
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    Estimate from {sellThroughForecast.sampleSize} condition-matched comps — a lower price sells faster.
-                  </p>
-                </div>
-              )}
-              {/* US-848: grade-anchored value from the public Condition Index. */}
-              <ConditionIndexValueHint
-                brand={item.brand}
-                category={item.category}
-                title={item.item_title}
-                grade={item.grade_value}
-              />
-            </CardContent>
-          </Card>
+          <CostMarginCard
+            item={item}
+            cost={cost}
+            setCost={setCost}
+            effectiveCost={effectiveCost}
+            parsedPreviewPrice={parsedPreviewPrice}
+            profitEstimate={profitEstimate}
+            sellThroughForecast={sellThroughForecast}
+          />
 
           {/* Listing format + variations (US-568) */}
           <Card>
@@ -2862,451 +2129,67 @@ export function FlipdeskComposerPage({
             </CardContent>
           </Card>
 
-          {/* US-2251: per-listing eBay business policies. Bulk-edit could set
-              these and publish has always honoured them, but the single-item
-              composer couldn't — so shipping and returns for one item meant a
-              detour through bulk edit or Seller Hub. NULL = account default,
-              which is exactly what publish falls back to. */}
           {ebayConnection && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Shipping &amp; returns</CardTitle>
-                <CardDescription>
-                  Which of your eBay business policies this listing uses. Leave
-                  them on your account default unless this item needs different
-                  terms.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3 sm:grid-cols-3">
-                {(
-                  [
-                    {
-                      id: "policy-shipping",
-                      label: "Shipping",
-                      type: "fulfillment" as const,
-                      value: shippingPolicyId,
-                      set: setShippingPolicyId,
-                    },
-                    {
-                      id: "policy-payment",
-                      label: "Payment",
-                      type: "payment" as const,
-                      value: paymentPolicyId,
-                      set: setPaymentPolicyId,
-                    },
-                    {
-                      id: "policy-return",
-                      label: "Returns",
-                      type: "return" as const,
-                      value: returnPolicyId,
-                      set: setReturnPolicyId,
-                    },
-                  ]
-                ).map((row) => {
-                  const options = (ebayPolicies?.policies ?? []).filter(
-                    (p) => p.policy_type === row.type,
-                  );
-                  return (
-                    <div key={row.id} className="space-y-1.5">
-                      <Label htmlFor={row.id}>{row.label}</Label>
-                      <Select
-                        value={row.value ?? "__default"}
-                        onValueChange={(v) =>
-                          row.set(v === "__default" ? null : v)
-                        }
-                      >
-                        <SelectTrigger id={row.id}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__default">
-                            Use account default
-                          </SelectItem>
-                          {options.map((p) => (
-                            <SelectItem key={p.policy_id} value={p.policy_id}>
-                              {p.policy_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  );
-                })}
-                {(ebayPolicies?.policies ?? []).length === 0 && (
-                  <p className="text-xs text-muted-foreground sm:col-span-3">
-                    No business policies loaded yet. Create them in eBay Seller
-                    Hub, then reconnect on the Marketplaces page.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <PoliciesCard
+              ebayPolicies={ebayPolicies}
+              shippingPolicyId={shippingPolicyId}
+              setShippingPolicyId={setShippingPolicyId}
+              paymentPolicyId={paymentPolicyId}
+              setPaymentPolicyId={setPaymentPolicyId}
+              returnPolicyId={returnPolicyId}
+              setReturnPolicyId={setReturnPolicyId}
+            />
           )}
 
-          {/* Promoted Listings ad rate (US-561) */}
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle>Promote on eBay</CardTitle>
-                  <CardDescription>
-                    Attach a Promoted Listings ad rate at publish for more
-                    visibility. You’re only charged this % of the sale price
-                    when the item sells through the ad.
-                  </CardDescription>
-                </div>
-                <Switch
-                  id="promote-toggle"
-                  checked={promoteEnabled}
-                  onCheckedChange={setPromoteEnabled}
-                  aria-label="Promote this listing on eBay"
-                />
-              </div>
-            </CardHeader>
-            {promoteEnabled && (
-              <CardContent className="space-y-2">
-                {/* US-1447: campaign type — Cost-Per-Sale vs Cost-Per-Click. */}
-                <Label>Campaign type</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant={promoMode === "cps" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setPromoMode("cps")}
-                    className={promoMode === "cps" ? "bg-brand-navy" : undefined}
-                  >
-                    Cost-Per-Sale
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={promoMode === "cpc" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setPromoMode("cpc")}
-                    className={promoMode === "cpc" ? "bg-brand-navy" : undefined}
-                  >
-                    Cost-Per-Click (Priority)
-                  </Button>
-                  {/* US-1447: Smart Targeting — eBay auto-targets under a
-                      suggested max-CPC ceiling. */}
-                  <Button
-                    type="button"
-                    variant={promoMode === "smart" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setPromoMode("smart")}
-                    className={promoMode === "smart" ? "bg-brand-navy" : undefined}
-                  >
-                    Smart Targeting
-                  </Button>
-                </div>
-                {promoMode === "cpc" ? (
-                  <p className="text-xs text-muted-foreground">
-                    Priority ads bid per click (charged when a shopper clicks,
-                    not only on sale). The bid uses your eBay Priority ad group&apos;s
-                    max cost-per-click. You can fine-tune bids in eBay Seller Hub.
-                  </p>
-                ) : promoMode === "smart" ? (
-                  <p className="text-xs text-muted-foreground">
-                    Smart Targeting lets eBay pick placements and bids
-                    automatically, capped at a max cost-per-click seeded from
-                    eBay&apos;s suggestion for this listing. Charged per click; tune
-                    the ceiling any time in eBay Seller Hub.
-                  </p>
-                ) : (
-                  <>
-                <Label htmlFor="promo-rate">Ad rate (%)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="promo-rate"
-                    type="number"
-                    inputMode="decimal"
-                    min="2"
-                    max="20"
-                    step="0.5"
-                    value={promoRate}
-                    onChange={(e) => setPromoRate(e.target.value)}
-                    className="h-9 max-w-[7rem]"
-                  />
-                  {promoSuggested != null && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setPromoRate(String(promoSuggested))}
-                      disabled={promoRate === String(promoSuggested)}
-                    >
-                      Use suggested ({promoSuggested}%)
-                    </Button>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {promoSuggested != null
-                    ? `Suggested ${promoSuggested}% for this category. Adjust between 2% and 20%, or turn off to opt out.`
-                    : "Adjust between 2% and 20%, or turn off to opt out."}
-                </p>
-                  </>
-                )}
-                {listing?.promo_status === "failed" && (
-                  <p className="text-xs text-destructive">
-                    The last publish couldn’t attach the ad on eBay. It’ll retry
-                    on your next publish.
-                  </p>
-                )}
-                {listing?.promo_ad_id && listing.promo_status &&
-                  listing.promo_status !== "failed" && (
-                    <p className="text-xs text-muted-foreground">
-                      Live ad status:{" "}
-                      <span className="font-medium">{listing.promo_status}</span>
-                      {listing.promo_rate_pct != null
-                        ? ` at ${listing.promo_rate_pct}%`
-                        : ""}
-                      .
-                    </p>
-                  )}
-              </CardContent>
-            )}
-          </Card>
+          <PromoteCard
+            promoteEnabled={promoteEnabled}
+            setPromoteEnabled={setPromoteEnabled}
+            promoMode={promoMode}
+            setPromoMode={setPromoMode}
+            promoRate={promoRate}
+            setPromoRate={setPromoRate}
+            promoSuggested={promoSuggested}
+            listing={listing}
+          />
 
-          {/* Description */}
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle>Description</CardTitle>
-                  <CardDescription>
-                    Apply the{" "}
-                    <Badge variant="outline" className="capitalize">
-                      {group}
-                    </Badge>{" "}
-                    template, then edit freely.
-                  </CardDescription>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={isEbayOrigin}
-                    title={ebayOwnedHint}
-                    onClick={applyTemplate}
-                  >
-                    <Wand2 className="mr-2 h-3 w-3" />
-                    Apply template
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={aiRewrite.isPending || isEbayOrigin}
-                        title={ebayOwnedHint}
-                      >
-                        {aiRewrite.isPending &&
-                        rewriteAction?.startsWith("description_") ? (
-                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                        ) : (
-                          <Sparkles className="mr-2 h-3 w-3" />
-                        )}
-                        AI rewrite
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        disabled={!description.trim()}
-                        onClick={() => void runRewrite("description_tighten")}
-                      >
-                        Tighten &amp; polish
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={photos.length === 0}
-                        onClick={() => void runRewrite("description_regen")}
-                      >
-                        Regenerate from photos
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={14}
-                placeholder="Apply the template above, or write your own."
-                className="font-mono text-xs"
-                disabled={isEbayOrigin}
-                title={
-                  isEbayOrigin
-                    ? "eBay owns this listing's description — edit it on eBay."
-                    : undefined
-                }
-              />
-              {aiSnapshot?.description && (
-                <AiDiffChip
-                  changed={textChanged(aiSnapshot.description, description)}
-                  aiDisplay="AI draft"
-                  onRevert={() => setDescription(aiSnapshot.description ?? "")}
-                />
-              )}
-            </CardContent>
-          </Card>
+          <DescriptionCard
+            description={description}
+            setDescription={setDescription}
+            group={group}
+            applyTemplate={applyTemplate}
+            photoCount={photos.length}
+            aiRewrite={aiRewrite}
+            rewriteAction={rewriteAction}
+            runRewrite={(a) => void runRewrite(a)}
+            aiSnapshot={aiSnapshot}
+            isEbayOrigin={isEbayOrigin}
+            ebayOwnedHint={ebayOwnedHint}
+          />
 
-          {/* Item details — the bookkeeping that used to live only on the
-              status-gated item canvas. Saved by the main Save below, at every
-              status, so nothing here is reachable at one status and not another.
-              Brand / size / color / material deliberately aren't repeated here:
-              they're owned by the eBay item specifics editor and folded back
-              into their columns on save (single-entry rule, US-557). */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Item details</CardTitle>
-              <CardDescription>
-                Pipeline status and sourcing — saved to the item alongside your
-                listing edits.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="item-status">Status</Label>
-                {/* US-2260: the terminal sale statuses are NOT selectable here.
-                    resolveStatus lets a deliberate non-prep pick win outright, so
-                    choosing "Sold" wrote inventory_items.status='sold' with no
-                    sales row behind it — Sold totals, P&L and reconciliation then
-                    disagree with inventory, and nothing surfaces the discrepancy.
-                    Recording the sale is what makes an item sold; picking a word
-                    from a dropdown isn't. */}
-                <Select
-                  value={itemStatus}
-                  onValueChange={(v) => setItemStatus(v as ItemStatus)}
-                >
-                  <SelectTrigger id="item-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ITEM_STATUSES.filter(
-                      (s) =>
-                        // Keep the CURRENT status listed even when terminal, so an
-                        // already-sold item's select isn't showing a lie.
-                        s === item.status || !SALE_OWNED_STATUSES.has(s),
-                    ).map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {ITEM_STATUS_LABELS[s]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Prep stages only move forward — completed work can't be undone
-                  by picking an earlier stage.
-                </p>
-                {!SALE_OWNED_STATUSES.has(item.status) && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[11px] text-muted-foreground">
-                      Sold this item?
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => setRecordSaleOpen(true)}
-                    >
-                      <DollarSign className="mr-1 h-3 w-3" />
-                      Record the sale
-                    </Button>
-                    <p className="text-[11px] text-muted-foreground">
-                      That captures the price and fees, and sets the status.
-                    </p>
-                  </div>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="item-category">Category</Label>
-                <Select
-                  value={itemCategory || "__none"}
-                  onValueChange={(v) => {
-                    setItemCategory(v === "__none" ? "" : (v as ItemCategory));
-                    setCategoryTouched(true);
-                  }}
-                >
-                  <SelectTrigger id="item-category">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">— None —</SelectItem>
-                    {ITEM_CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {ITEM_CATEGORY_LABELS[c]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  The coarse grading category. Picking an eBay category below
-                  keeps this in sync unless you set it here yourself.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="item-sourced-by">Sourced by</Label>
-                <Input
-                  id="item-sourced-by"
-                  value={sourcedBy}
-                  onChange={(e) => setSourcedBy(e.target.value)}
-                  placeholder="Who picked it up"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="item-acquired-date">Purchase date</Label>
-                <Input
-                  id="item-acquired-date"
-                  type="date"
-                  value={acquiredDate}
-                  onChange={(e) => setAcquiredDate(e.target.value)}
-                />
-              </div>
-            </CardContent>
-          </Card>
+          <ItemDetailsCard
+            currentStatus={item.status}
+            status={itemStatus}
+            onStatusChange={setItemStatus}
+            category={itemCategory}
+            onCategoryChange={(next) => {
+              setItemCategory(next);
+              setCategoryTouched(true);
+            }}
+            sourcedBy={sourcedBy}
+            onSourcedByChange={setSourcedBy}
+            acquiredDate={acquiredDate}
+            onAcquiredDateChange={setAcquiredDate}
+            onRecordSale={() => setRecordSaleOpen(true)}
+          />
 
-          {/* Storage & SKU — item-level logistics (parity with the iOS canvas).
-              Saves to the item, not the eBay listing. */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Storage &amp; SKU</CardTitle>
-              <CardDescription>
-                Where this item lives and how it's labeled. Saved to the item
-                rather than the eBay listing, by the same Save button as
-                everything else on this page.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="storage-sku">SKU / Item #</Label>
-                  <Input
-                    id="storage-sku"
-                    value={storageSku}
-                    onChange={(e) => setStorageSku(e.target.value)}
-                    placeholder="e.g. FD-1a2b"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="storage-location">Location / Bin</Label>
-                  <Input
-                    id="storage-location"
-                    value={storageLocation}
-                    onChange={(e) => setStorageLocation(e.target.value)}
-                    placeholder="e.g. Tote A3"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="storage-container">Container</Label>
-                  <Input
-                    id="storage-container"
-                    value={storageContainer}
-                    onChange={(e) => setStorageContainer(e.target.value)}
-                    placeholder="e.g. Bin 7"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <StorageSkuCard
+            sku={storageSku}
+            onSkuChange={setStorageSku}
+            location={storageLocation}
+            onLocationChange={setStorageLocation}
+            container={storageContainer}
+            onContainerChange={setStorageContainer}
+          />
         </div>
 
         {/* ── Preview column ──────────────────────────────────────── */}
@@ -3359,103 +2242,13 @@ export function FlipdeskComposerPage({
           used to live four cards up in the editor column while gating the CTA at
           the bottom, and the drop schedule was buried inside "Condition &
           price" — neither a condition nor a price. */}
-        {/* Push to marketplaces (US-149 + US-717). API platforms fan out via
-            cross-push; the extension platforms list from the seller's own
-            browser through the Listing Kit below. */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Push to</CardTitle>
-            <CardDescription>
-              Cross-list this draft. Each platform gets its own price — leave it
-              blank to use the price above.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {API_CROSS_LISTING_PLATFORMS.map((p) => {
-              // US-1114: a channel whose connector is built but awaiting
-              // platform approval (tier "api_pending", e.g. Depop) has no
-              // connect/publish path yet — publishing would 503. Show it
-              // disabled with honest copy instead of a live "Connected via
-              // API" checkbox that fails on click.
-              const pending = MARKETPLACE_TIER[p] === "api_pending";
-              const checked = pushPlatforms.has(p) && !pending;
-              return (
-                <div
-                  key={p}
-                  className={cn(
-                    "flex items-center justify-between gap-3 rounded-md border p-2.5",
-                    pending && "opacity-60",
-                  )}
-                >
-                  <label
-                    className={cn(
-                      "flex items-center gap-2 text-sm",
-                      pending ? "cursor-not-allowed" : "cursor-pointer",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={pending}
-                      onChange={() => togglePushPlatform(p)}
-                      className={cn(
-                        "h-3.5 w-3.5",
-                        pending ? "cursor-not-allowed" : "cursor-pointer",
-                      )}
-                    />
-                    <span className="font-medium">
-                      {MARKETPLACE_LABELS[p]}
-                    </span>
-                    <Badge variant="outline" className="text-[10px]">
-                      {pending
-                        ? MARKETPLACE_TIER_LABEL.api_pending
-                        : "Connected via API"}
-                    </Badge>
-                  </label>
-                  {checked && (
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="0.01"
-                      value={platformPrices[p] ?? ""}
-                      onChange={(e) =>
-                        setPlatformPrices((prev) => ({
-                          ...prev,
-                          [p]: e.target.value,
-                        }))
-                      }
-                      placeholder={price || "Price"}
-                      className="h-8 max-w-[7rem] text-right"
-                      aria-label={`${MARKETPLACE_LABELS[p]} price`}
-                    />
-                  )}
-                </div>
-              );
-            })}
-
-            {/* US-717: extension marketplaces are offered with their real
-                mechanism badge. They have no write API, so they list from the
-                seller's own logged-in tab via the Listing Kit below — not
-                cross-push. */}
-            <div className="rounded-md border border-dashed p-2.5">
-              <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                {EXTENSION_CROSS_LISTING_PLATFORMS.map((p) => (
-                  <span key={p} className="font-medium">
-                    {MARKETPLACE_LABELS[p]}
-                  </span>
-                ))}
-                <Badge variant="outline" className="text-[10px]">
-                  Via browser extension
-                </Badge>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                No public API — list these from your own logged-in tab with the
-                GradeThread Lister extension in the Listing Kit below.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <PushToCard
+          pushPlatforms={pushPlatforms}
+          togglePushPlatform={togglePushPlatform}
+          platformPrices={platformPrices}
+          setPlatformPrices={setPlatformPrices}
+          price={price}
+        />
 
       {/* US-2252: the Listing Kit is editable content, so it belongs ABOVE the
           Save/Publish row rather than after it — nothing actionable should sit
@@ -3465,95 +2258,13 @@ export function FlipdeskComposerPage({
         baseName={item.item_number ?? item.item_title ?? item.id}
       />
 
-      {/* US-2253: the drop schedule, next to the button that publishes.
-          It used to live inside "Condition & price", which it is neither of. */}
       {editorMode === "draft" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>When it goes live</CardTitle>
-            <CardDescription>
-              Publish as soon as you hit the button, or pick a peak buying time
-              and let it go live on its own.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-1.5">
-            <Label htmlFor="schedule-at">Drop time (optional)</Label>
-            <div className="flex items-center gap-2">
-              <Input
-                id="schedule-at"
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={(e) => setScheduledAt(e.target.value)}
-                className="max-w-[16rem]"
-              />
-              {scheduledAt && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setScheduledAt("")}
-                >
-                  Clear
-                </Button>
-              )}
-            </div>
-            {/* US-563: timezone-aware peak-time presets. The picker only
-                controls how the presets below are evaluated; the input
-                stays in your browser's local time. */}
-            <div className="flex flex-wrap items-center gap-2 pt-0.5">
-              <Select value={dropTimezone} onValueChange={setDropTimezone}>
-                <SelectTrigger className="h-8 w-[15rem] text-xs">
-                  <SelectValue placeholder="Timezone" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(COMMON_TIMEZONES.some((t) => t.id === dropTimezone)
-                    ? COMMON_TIMEZONES
-                    : [{ id: dropTimezone, label: `${dropTimezone} (your timezone)` }, ...COMMON_TIMEZONES]
-                  ).map((tz) => (
-                    <SelectItem key={tz.id} value={tz.id} className="text-xs">
-                      {tz.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {DROP_PRESETS.map((preset) => (
-                <Button
-                  key={preset.id}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  title={preset.hint}
-                  onClick={() => {
-                    const utc = nextPresetUtc(preset, dropTimezone);
-                    setScheduledAt(isoToLocalInput(utc.toISOString()));
-                    toast.success(
-                      `Drop set for ${formatInZone(utc.toISOString(), dropTimezone)}`,
-                    );
-                  }}
-                >
-                  {preset.label}
-                </Button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Leave it empty to go live the moment you hit the button below.
-              {scheduledAt && (
-                <>
-                  {" "}Set: this listing goes live{" "}
-                  <span className="font-medium text-foreground">
-                    {formatInZone(
-                      localInputToIso(scheduledAt) ?? "",
-                      dropTimezone,
-                    )}
-                  </span>{" "}
-                  on its own — you don&apos;t need to come back.
-                </>
-              )}
-            </p>
-          </CardContent>
-        </Card>
+        <ScheduleCard
+          scheduledAt={scheduledAt}
+          setScheduledAt={setScheduledAt}
+          dropTimezone={dropTimezone}
+          setDropTimezone={setDropTimezone}
+        />
       )}
 
       {/* US-825: pre-publish required-aspect check — warn inline (using the same

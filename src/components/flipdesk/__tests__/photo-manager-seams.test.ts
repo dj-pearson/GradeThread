@@ -2,8 +2,7 @@
 // for drafts and items), and a retag + delete round-trip through the mocked
 // network seam.
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { composerAll } from "@/lib/__tests__/helpers/composer-source";
 
 import {
   persistRetag,
@@ -87,10 +86,10 @@ describe("PhotoManager mutation seams (US-1567)", () => {
 });
 
 describe("composer embeds the shared photo toolkit (US-1567)", () => {
-  const composerSrc = readFileSync(
-    join(process.cwd(), "src/pages/flipdesk/composer.tsx"),
-    "utf8",
-  );
+  // US-2263: the photo toolkit moved into its own section component, and the
+  // save payload into src/lib/composer-save.ts. `composerAll` spans the page and
+  // every section, so these assertions follow the markup rather than the file.
+  const composerSrc = composerAll;
 
   it("renders PhotoManager + PhotoUploader + MeasurementForm — not a bespoke strip", () => {
     expect(composerSrc).toContain("<PhotoManager");
@@ -104,7 +103,12 @@ describe("composer embeds the shared photo toolkit (US-1567)", () => {
 
   it("keeps the primary-photo pick and the live-listing sync contract", () => {
     expect(composerSrc).toContain("onPickPrimary={setPrimaryPhotoId}");
-    expect(composerSrc).toMatch(/liveListingId=\{isLiveListing \? listing\?\.id : null\}/);
+    // The live-listing id is resolved by the page and handed down, so the
+    // gallery re-sync still only fires for a genuinely live listing.
+    expect(composerSrc).toContain("liveListingId={liveListingId}");
+    expect(composerSrc).toMatch(
+      /liveListingId=\{isLiveListing \? \(listing\?\.id \?\? null\) : null\}/,
+    );
   });
 
   // US-2248 moved the payload assembly into src/lib/composer-save.ts, so the

@@ -15,13 +15,18 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+// US-2263: the composer is a directory now — these assertions are about what the
+// composer DOES, not which of its files does it.
+import { composerAll as composer } from "./helpers/composer-source";
 
-const composer = readFileSync(
-  join(process.cwd(), "src/pages/flipdesk/composer.tsx"),
-  "utf8",
-);
 const syncPrecedence = readFileSync(
   join(process.cwd(), "services/edge-functions/src/lib/sync-precedence.ts"),
+  "utf8",
+);
+// US-2263: the terminal-status set moved to the shared payload module, so the
+// page and the extracted card cannot disagree about which statuses a sale owns.
+const composerSave = readFileSync(
+  join(process.cwd(), "src/lib/composer-save.ts"),
   "utf8",
 );
 
@@ -103,9 +108,9 @@ describe("eBay-origin field locks (US-2258)", () => {
 
 describe("sale-owned statuses (US-2260)", () => {
   it("defines the terminal set the status dropdown must not offer", () => {
-    const block = composer.slice(
-      composer.indexOf("const SALE_OWNED_STATUSES"),
-      composer.indexOf("const TITLE_MAX"),
+    const block = composerSave.slice(
+      composerSave.indexOf("export const SALE_OWNED_STATUSES"),
+      composerSave.indexOf("]", composerSave.indexOf("export const SALE_OWNED_STATUSES")),
     );
     for (const s of ["sold", "shipped", "completed", "returned"]) {
       expect(block).toContain(`"${s}"`);
@@ -119,14 +124,16 @@ describe("sale-owned statuses (US-2260)", () => {
   it("still shows the current status when the item is already terminal", () => {
     // Filtering unconditionally would leave a sold item's dropdown displaying
     // some other status — a lie about the row it is editing.
-    expect(composer).toContain("s === item.status || !SALE_OWNED_STATUSES.has(s)");
+    expect(composer).toContain(
+      "s === currentStatus || !SALE_OWNED_STATUSES.has(s)",
+    );
   });
 
   it("offers the real sold path instead", () => {
     expect(composer).toContain("<RecordSaleDialog");
     expect(composer).toContain("Record the sale");
     // …and only while the item hasn't already been sold.
-    expect(composer).toContain("!SALE_OWNED_STATUSES.has(item.status) && (");
+    expect(composer).toContain("!SALE_OWNED_STATUSES.has(currentStatus) && (");
   });
 });
 

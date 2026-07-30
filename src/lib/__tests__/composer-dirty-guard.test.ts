@@ -10,11 +10,9 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+// The dirty guard is the PAGE's job — it owns the form state and the blocker.
+import { composerPage as composer } from "./helpers/composer-source";
 
-const composer = readFileSync(
-  join(process.cwd(), "src/pages/flipdesk/composer.tsx"),
-  "utf8",
-);
 const sheet = readFileSync(
   join(process.cwd(), "src/components/flipdesk/item-detail-dialog.tsx"),
   "utf8",
