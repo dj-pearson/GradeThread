@@ -44,6 +44,7 @@ import com.gradethread.app.ui.theme.Spacing
 fun SettingsScreen(
     onOpenMarketplaces: () -> Unit,
     onOpenCredits: () -> Unit,
+    onOpenPlans: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -114,6 +115,9 @@ fun SettingsScreen(
             SettingRow(
                 title = "Plan",
                 subtitle = profile.plan.replaceFirstChar { it.uppercase() },
+                // US-1367: the plan row is where someone looks when they want to
+                // change it, so it opens the paywall rather than just reporting.
+                onClick = onOpenPlans,
             )
             SettingRow(
                 title = "Grading credits",

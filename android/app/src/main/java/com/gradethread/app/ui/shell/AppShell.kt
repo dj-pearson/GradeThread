@@ -32,7 +32,9 @@ import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.gradethread.app.billing.PlanStepHost
 import com.gradethread.app.marketplaces.reconciliation.ReconcileBanner
+import com.gradethread.app.plangate.PlanGateHost
 import androidx.navigation.compose.rememberNavController
 import com.gradethread.app.R
 import androidx.compose.runtime.LaunchedEffect
@@ -145,6 +147,11 @@ fun AppShell(
             }
             androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
                 statusBar()
+                // US-1367: a 402 raised by ANY request in ANY tab has to reach
+                // the seller, so the gate lives here rather than per-screen.
+                // PlanGateNotifier has been publishing since US-1306 with
+                // nothing subscribed to it.
+                PlanGateHost(onUpgrade = { navController.navigate(ShellRoutes.PAYWALL) })
                 if (reconcileBanner != null) {
                     reconcileBanner()
                 } else {
@@ -156,6 +163,10 @@ fun AppShell(
             }
         }
     }
+
+    // US-1367: the one-time post-signup plan step, over everything. It decides
+    // for itself whether it should appear and renders nothing otherwise.
+    PlanStepHost()
 
     if (addSheetOpen) {
         AddMethodSheet(
@@ -226,6 +237,12 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellRoutes.SALES) {
             com.gradethread.app.money.SalesScreen(
                 onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+            )
+        }
+        // US-1367: plans + credit packs.
+        composable(ShellRoutes.PAYWALL) {
+            com.gradethread.app.billing.PaywallScreen(
+                onClose = { navController.popBackStack() },
             )
         }
         // US-1365: payouts reconciled against the recorded sales.
@@ -306,7 +323,8 @@ private fun ShellNavHost(navController: NavHostController) {
                 onOpenMarketplaces = { toSection(ShellSection.MARKETPLACES) },
                 // The credit top-up lives in the grading flow; Tools is the
                 // stable surface that reaches it without an item in hand.
-                onOpenCredits = { navController.navigate(ShellRoutes.TOOLS) },
+                onOpenCredits = { navController.navigate(ShellRoutes.PAYWALL) },
+                onOpenPlans = { navController.navigate(ShellRoutes.PAYWALL) },
             )
         }
         // US-1349: global search replaces the placeholder.

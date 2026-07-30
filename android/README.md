@@ -26,6 +26,7 @@ annotated photos · timezone-aware scheduled drops · trigger/action/scope
 automations ·
 payout reconciliation against the recorded sales ·
 Play Billing for credit packs and FlipDesk subscriptions ·
+the paywall, the one-time post-signup plan step and the shell-wide plan gate ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -33,7 +34,6 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Paywall / post-signup plan step / plan-gate presentation | US-1367 |
 | Analytics, community insights | US-1368, US-1369 |
 | Consignment, templates, Scout/Prospect, verified badge, passport, fulfilment | US-1372–1377 |
 | FCM push, Glance widgets, onboarding, referrals, feedback, workspaces, CSV import | US-1378–1389 |
@@ -82,7 +82,8 @@ opened the project (US-2015). Add a row when the code lands, not before.
 | `money` | `Money/` + `Sales/` + `Dashboard/` | rollups (KPIs, cash flow, aging, ROI, P&L), sales list, expenses |
 | `home` | `Dashboard/` + `Onboarding/` | snapshot, sparkline, quick actions, activation checklist |
 | `settings` | `Settings/` | profile, plan, preferences, diagnostics, sign-out |
-| `billing` | `Billing/` | Play Billing credit packs + FlipDesk subscriptions, server-verified |
+| `billing` | `Billing/` | Play Billing credit packs + FlipDesk subscriptions, paywall, post-signup plan step |
+| `plangate` | `PlanGate.swift` | shell-wide 402 upgrade dialog + 80% soft-warning banner |
 | `platform` | `Networking/` + `Telemetry/` | EdgeAPI, Supabase, Sentry/PostHog, workspace scope, app lock |
 
 ## Play Billing (US-1338, US-1366)
@@ -117,6 +118,13 @@ purchase always goes through a real Play Store on a real signed build:
    Billing checks the install source.
 4. Google's reserved ids (`android.test.purchased` and friends) work only for the
    deprecated AIDL flow and are **not** usable with Billing 7. Use real test SKUs.
+
+**Where the plans are shown.** `PaywallScreen` (route `ShellRoutes.PAYWALL`,
+reached from Settings → Plan, Settings → Grading credits, or any plan gate),
+`PlanStepHost` (the one-time post-signup step, rendered over the shell and
+recorded per ACCOUNT so a shared tablet still asks the second person), and
+`PlanGateHost` (the 402 dialog + 80% banner, mounted once above the section
+content so a cap hit in any tab reaches the seller).
 
 Settlement rules the tests hold to: consumables are **consumed** (so they can be
 bought again), subscriptions are **acknowledged** (Play auto-refunds an
