@@ -2,6 +2,11 @@ package com.gradethread.app.marketplaces.publish
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.inventory.AspectSpecService
+import com.gradethread.app.inventory.AspectSync
+import com.gradethread.app.inventory.AspectSpecState
+import com.gradethread.app.inventory.EbayAspect
+import com.gradethread.app.inventory.MeasurementCatalog
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.db.GradeThreadDb
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,6 +28,7 @@ import javax.inject.Inject
 class PublishViewModel @Inject constructor(
     private val drafts: ListingDraftService,
     private val publish: EbayPublishService,
+    private val specs: AspectSpecService,
     private val db: GradeThreadDb,
 ) : ViewModel() {
 
@@ -38,8 +44,32 @@ class PublishViewModel @Inject constructor(
         val costBasis: Double? = null,
         /** True when the item has been on eBay before, so publish means relist. */
         val relist: Boolean = false,
+        /** US-1353: the category's aspect spec, or why there isn't one. */
+        val specState: AspectSpecState = AspectSpecState.Idle,
+        /** US-1353: listing-time specifics, keyed by aspect name. */
+        val specifics: Map<String, List<String>> = emptyMap(),
+        /** The item's measurements — what the publish auto-fills aspects from. */
+        val measurements: Map<String, Double> = emptyMap(),
         val errorMessage: String? = null,
     ) {
+
+        private val aspects: List<EbayAspect>
+            get() = (specState as? AspectSpecState.Loaded)?.aspects.orEmpty()
+
+        /** The specifics editor's rows, required first. */
+        val specificFields: List<ListingSpecifics.Field>
+            get() = ListingSpecifics.fields(aspects, specifics, measurements)
+
+        /**
+         * Required aspects still empty. A LOCAL mirror of the server's rule so
+         * the button is off before the round trip; the server re-checks and its
+         * answer is the one that counts.
+         */
+        val specificBlockers: List<String>
+            get() = ListingSpecifics.blockers(
+                ListingSpecifics.missingRequired(aspects, specifics, measurements),
+            )
+
         /**
          * Live estimate at the price currently typed. Recomputed from the
          * composer text, not from the saved draft, so the number moves as the
@@ -52,7 +82,14 @@ class PublishViewModel @Inject constructor(
             )
 
         val busy: Boolean get() = PublishFlow.isBusy(phase)
-        val canPublish: Boolean get() = PublishFlow.canPublish(phase) && !busy
+
+        /**
+         * A missing required specific keeps the button off even when pre-flight
+         * came back clean — the seller may have cleared one since. The server
+         * would reject it anyway; refusing here saves them the failed publish.
+         */
+        val canPublish: Boolean
+            get() = PublishFlow.canPublish(phase) && !busy && specificBlockers.isEmpty()
     }
 
     private val _state = MutableStateFlow(State())
@@ -82,9 +119,36 @@ class PublishViewModel @Inject constructor(
                 conditionDescription = draft?.conditionDescription.orEmpty(),
                 costBasis = item?.acquiredPrice,
                 relist = draft?.needsRelist == true,
+                // US-1353: the listing's own override, falling back to the
+                // item-level aspects the canvas editor filled (US-1347). The
+                // listing override wins because that is the map the edge reads
+                // first when it assembles the publish.
+                specifics = draft?.specifics?.takeIf { it.isNotEmpty() }
+                    ?: AspectSync.decodeAspects(item?.ebayAspectsJson),
+                measurements = MeasurementCatalog.decode(item?.measurementsJson),
             )
+            loadSpecifics(item?.ebayCategoryId)
             validate()
         }
+    }
+
+    /**
+     * US-1353: fetch the category's aspect spec.
+     *
+     * Failure is NOT fatal to the composer: pre-flight still runs and the server
+     * still enforces required aspects, so a taxonomy blip must not stop a seller
+     * from publishing an item whose specifics are already complete.
+     */
+    private suspend fun loadSpecifics(categoryId: String?) {
+        _state.value = _state.value.copy(specState = AspectSpecState.Loading)
+        _state.value = _state.value.copy(specState = specs.fetch(categoryId))
+    }
+
+    /** Set one aspect's values, normalised against the category spec. */
+    fun setSpecific(aspect: EbayAspect, values: List<String>) {
+        _state.value = _state.value.copy(
+            specifics = ListingSpecifics.set(_state.value.specifics, aspect, values),
+        )
     }
 
     fun editTitle(value: String) {
@@ -122,6 +186,11 @@ class PublishViewModel @Inject constructor(
                         priceText = state.priceText,
                         condition = state.condition,
                         conditionDescription = state.conditionDescription,
+                        // Only written once the spec actually loaded. Sending an
+                        // empty map after a failed fetch would read as "the
+                        // seller cleared every specific" and wipe the override.
+                        specifics = state.specifics
+                            .takeIf { state.specState is AspectSpecState.Loaded },
                     ),
                 )
             }

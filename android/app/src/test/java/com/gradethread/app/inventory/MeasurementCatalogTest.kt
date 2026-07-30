@@ -159,4 +159,43 @@ class MeasurementCatalogTest {
         assertEquals(100, SizeEstimate(size = "M", confidence = 4.0).confidencePercent)
         assertEquals(0, SizeEstimate(size = "M", confidence = -1.0).confidencePercent)
     }
+
+    // ── US-1353: the published form of a measurement ─────────────────────────
+
+    @Test
+    fun `publishValue formats the way the marketplace sees it`() {
+        assertEquals("21 in", MeasurementCatalog.publishValue("chest", 21.0))
+        assertEquals("25.5 in", MeasurementCatalog.publishValue("sleeve", 25.5))
+        assertEquals("US 10", MeasurementCatalog.publishValue("size_us", 10.0))
+        assertEquals("42 mm", MeasurementCatalog.publishValue("case_diameter", 42.0))
+    }
+
+    @Test
+    fun `publishValue never uses the device's decimal separator`() {
+        // The editing formatter is locale-aware on purpose; this one must not
+        // be. "20,5 in" is not what the server would publish, and showing it
+        // would misreport the listing.
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.GERMANY)
+            assertEquals("20.5 in", MeasurementCatalog.publishValue("chest", 20.5))
+        } finally {
+            Locale.setDefault(previous)
+        }
+    }
+
+    @Test
+    fun `a non-positive measurement has no published form`() {
+        assertNull(MeasurementCatalog.publishValue("chest", 0.0))
+        assertNull(MeasurementCatalog.publishValue("chest", -3.0))
+    }
+
+    @Test
+    fun `every measurement key offers at least one aspect candidate`() {
+        // A key with no candidates silently never auto-fills at publish.
+        val missing = MeasurementCatalog.specs
+            .map { it.key }
+            .filter { MeasurementCatalog.aspectCandidates[it].isNullOrEmpty() }
+        assertEquals(emptyList<String>(), missing)
+    }
 }

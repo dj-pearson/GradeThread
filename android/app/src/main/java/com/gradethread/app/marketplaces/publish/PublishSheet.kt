@@ -138,6 +138,17 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
 
     ProfitEstimate(state)
 
+    // US-1353: the category's specifics, edited here so they are on the draft
+    // before pre-flight runs.
+    SpecificsSection(state, viewModel::setSpecific)
+    if (state.specificBlockers.isNotEmpty()) {
+        InfoCard(
+            "Still needed for this category",
+            state.specificBlockers.joinToString("\n") { "• $it" },
+            tone = InfoTone.Error,
+        )
+    }
+
     val phase = state.phase
     if (phase is PublishPhase.Review) {
         if (phase.blockers.isNotEmpty()) {
@@ -175,7 +186,7 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
         modifier = Modifier.fillMaxWidth(),
     ) { viewModel.publishNow() }
 
-    if (phase is PublishPhase.Review && !phase.publishable) {
+    if (!state.canPublish && !state.busy && phase !is PublishPhase.Composing) {
         Text(
             "Publishing stays off until the blockers above are cleared.",
             style = MaterialTheme.typography.bodySmall,

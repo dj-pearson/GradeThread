@@ -6,6 +6,8 @@ import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -37,6 +39,15 @@ class ListingDraftService @Inject constructor(
         val priceText: String,
         val condition: EbayCondition,
         val conditionDescription: String = "",
+        /**
+         * US-1353: listing-time item specifics (`item_specifics_override`).
+         *
+         * Null means the editor never loaded — leave the column alone. An EMPTY
+         * MAP is different: it means the seller cleared every specific, and
+         * writing null for that would resurrect the old override on the next
+         * publish.
+         */
+        val specifics: Map<String, List<String>>? = null,
     )
 
     @Serializable
@@ -47,6 +58,7 @@ class ListingDraftService @Inject constructor(
         val listing_price: Double? = null,
         val ebay_condition: String? = null,
         val ebay_condition_description: String? = null,
+        val item_specifics_override: Map<String, List<String>>? = null,
     )
 
     companion object {
@@ -66,6 +78,19 @@ class ListingDraftService @Inject constructor(
                 ?.takeIf { it > 0L }
                 ?.let { it / 100.0 }
 
+        /**
+         * US-1353: `{ name: [values] }`, blanks dropped. An empty map encodes as
+         * an empty object, NOT null — "the seller cleared them" has to be
+         * distinguishable from "never edited".
+         */
+        internal fun encodeSpecifics(specifics: Map<String, List<String>>): JsonObject =
+            JsonObject(
+                specifics
+                    .mapValues { (_, values) -> values.map { it.trim() }.filter { it.isNotEmpty() } }
+                    .filterValues { it.isNotEmpty() }
+                    .mapValues { (_, values) -> JsonArray(values.map { JsonPrimitive(it) }) },
+            )
+
         /** A blank narrative means "clear it", which is a null, not an empty string. */
         internal fun nullableText(value: String) =
             value.trim().takeIf { it.isNotEmpty() }?.let { JsonPrimitive(it) } ?: JsonNull
@@ -81,12 +106,17 @@ class ListingDraftService @Inject constructor(
         val price = validatedPrice(draft.priceText)
             ?: throw IllegalArgumentException("Enter a listing price greater than zero.")
 
-        val fields = mutableMapOf(
+        val fields = mutableMapOf<String, JsonElement>(
             "listing_price" to JsonPrimitive(price),
             "listing_title" to JsonPrimitive(draft.title.trim()),
             "ebay_condition" to JsonPrimitive(draft.condition.wire),
             "ebay_condition_description" to nullableText(draft.conditionDescription),
         )
+        // US-1353: written as `{ name: [values] }`, the shape every edge
+        // publish/revise consumer expects. A bare `{name: value}` throws in the
+        // aspect-reconcile path and surfaces as a bogus "could not load eBay
+        // specifics" blocker (the iOS US-1505 incident).
+        draft.specifics?.let { fields["item_specifics_override"] = encodeSpecifics(it) }
 
         val existing = existingDraft(inventoryItemId)
         if (existing != null) {
@@ -115,7 +145,7 @@ class ListingDraftService @Inject constructor(
         client.from(TABLE).select(
             Columns.raw(
                 "id, listing_status, listing_title, listing_price, " +
-                    "ebay_condition, ebay_condition_description",
+                    "ebay_condition, ebay_condition_description, item_specifics_override",
             ),
         ) {
             filter {
@@ -132,6 +162,10 @@ class ListingDraftService @Inject constructor(
                 price = it.listing_price,
                 condition = it.ebay_condition,
                 conditionDescription = it.ebay_condition_description,
+                specifics = it.item_specifics_override
+                    ?.mapValues { (_, values) -> values.filter { v -> v.isNotBlank() } }
+                    ?.filterValues { values -> values.isNotEmpty() }
+                    .orEmpty(),
             )
         }
 
@@ -148,6 +182,7 @@ class ListingDraftService @Inject constructor(
         val price: Double? = null,
         val condition: String? = null,
         val conditionDescription: String? = null,
+        val specifics: Map<String, List<String>> = emptyMap(),
     ) {
         /**
          * Relist, not first publish: anything past draft has been on eBay, so

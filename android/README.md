@@ -16,15 +16,15 @@ staged uploads · AI attribute extraction · Snap-to-Value · the full certified
 grading path (validate → submit → poll → report → dispute, plus bulk) · inventory
 list and item canvas (photos, measurements, comps, eBay specifics) · global search ·
 eBay OAuth connect · eBay listing sync (pull → poll → provenance-aware merge),
-the unified listing card, and publish/relist with pre-flight + live profit
-estimate · credit-pack Play Billing · Home, Money (KPIs, cash flow,
-aging, time-on-market, ROI-by-source, per-item P&L), Sales, Expenses, Settings.
+the unified listing card, and publish/relist with pre-flight, listing-time
+category specifics and a live profit estimate · credit-pack Play Billing ·
+Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
+P&L), Sales, Expenses, Settings.
 
 **Not built.** The remaining work is the expensive half, not a polish pass:
 
 | Area | Owning story |
 |---|---|
-| eBay listing-time category specifics (sync US-1351 and publish/relist US-1352 are done) | US-1353 |
 | Negotiation inbox, bulk pricing, post-sale actions, repricing | US-1354–1358 |
 | AutoLister (batch jobs, photo classify/QA, drafts) | US-1359 |
 | Disclosure, scheduled drops, automations | US-1360–1362 |

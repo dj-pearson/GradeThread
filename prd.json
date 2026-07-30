@@ -47,7 +47,7 @@
     {
       "id": "US-1353",
       "priority": -98647,
-      "passes": false,
+      "passes": true,
       "title": "eBay category specifics editor (listing-time)",
       "description": "As a seller, I can fill category-specific aspects when composing a listing.",
       "acceptanceCriteria": [
@@ -55,7 +55,7 @@
         "Aspect values map into the listing payload (resolveMeasurementAspects parity at publish time)",
         "Editor handles enum/free-text aspects and shows which are required"
       ],
-      "notes": "[P2][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android listing-time eBay specifics. AC1/AC3: marketplaces/publish/SpecificsSection.kt renders the category spec fetched by the existing AspectSpecService (US-1347) — SELECTION_ONLY single as a picker, SELECTION_ONLY multi as chips, everything else free text (comma-split for MULTI), required aspects sorted first and labelled; ListingSpecifics.missingRequired feeds PublishViewModel.State.canPublish and a blocker card, a LOCAL mirror of the server rule so the button is off before the round trip. AC2: values persist to listings.item_specifics_override as {name:[values]} (the shape the edge publish/revise path expects — a bare {name:value} throws in aspect-reconcile and surfaces as a bogus specifics blocker, iOS US-1505), written only once the spec actually loaded so a failed fetch can't wipe an override; ListingSpecifics.measurementAspects is a faithful port of the edge's resolveMeasurementAspects (free-text aspects only, seller value wins over derived, first candidate name wins, one aspect per measurement) and the editor SHOWS those as 'filled at publish from your measurements' rather than as gaps — deliberately conservative, since claiming an aspect is handled when the server won't fill it is a publish that fails after the seller commits. Prefill: listing override, else item-level ebay_aspects. MeasurementCatalog gains aspectCandidates (the MEASUREMENT_SPECS aspect arrays) and publishValue (Locale.US '21 in' / 'US 10' / '42 mm' — never the locale-aware editing formatter). Verified by ListingSpecificsTest (17 cases across auto-fill parity, blockers and closed-list editing) and 4 new MeasurementCatalogTest cases incl. a German-locale guard. NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1354",
