@@ -29,6 +29,24 @@ export function itemsFullQueryKey(userId: string | undefined) {
   return ["items_full", userId] as const;
 }
 
+// US-2188: page through the read instead of issuing one unbounded request.
+//
+// PostgREST caps a response at its `db-max-rows` and says so ONLY in the
+// Content-Range header — supabase-js surfaces no error, so a seller past the cap
+// just gets a short array. Every FlipDesk surface would then be quietly wrong in
+// the same direction: items missing from the kanban, from the prep queue, and
+// from reconciliation matching, with nothing anywhere reporting a problem. The
+// rest of the app already treats this as real (bulk-pricing.tsx and grid.tsx
+// both chunk with .range()); this was the one heavy read that did not.
+//
+// Behaviour is UNCHANGED on purpose. Same query key, same queryFn, same
+// canonical newest-first order, same fully-materialized ItemFullRow[] — so the
+// six consumers that group/filter/sort client-side see exactly what they saw
+// before. Projecting the columns and splitting list-vs-detail is the rest of
+// US-2188 and cannot ship without driving the app, because a shared key with
+// divergent queryFns silently hands every route the first mounter's data.
+const ITEMS_FULL_PAGE = 1000;
+
 export function useItemsFull() {
   const user = useAuthStore((s) => s.user);
   return useQuery({
@@ -37,22 +55,37 @@ export function useItemsFull() {
     staleTime: ITEMS_FULL_STALE_TIME,
     gcTime: ITEMS_FULL_GC_TIME,
     queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
+      const from = supabase.from as unknown as (
+        name: "items_full",
+      ) => {
+        select: (cols: string) => {
+          order: (
+            col: string,
+            opts?: { ascending?: boolean },
+          ) => {
+            range: (
+              start: number,
+              end: number,
             ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
           };
-        }
-      )("items_full")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
+        };
+      };
+
+      const all: ItemFullRow[] = [];
+      for (let start = 0; ; start += ITEMS_FULL_PAGE) {
+        const { data, error } = await from("items_full")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .range(start, start + ITEMS_FULL_PAGE - 1);
+        if (error) throw error;
+        const batch = data ?? [];
+        all.push(...batch);
+        // A short page means the end. A full page might be the last one, so we
+        // pay one extra empty request rather than guess — stopping early here is
+        // the same silent truncation this exists to remove.
+        if (batch.length < ITEMS_FULL_PAGE) break;
+      }
+      return all;
     },
   });
 }
