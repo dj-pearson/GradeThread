@@ -85,14 +85,14 @@
     {
       "id": "US-1356",
       "priority": -98644,
-      "passes": false,
+      "passes": true,
       "title": "Reconciliation of orphan eBay listings + shell banner",
       "description": "As a seller, eBay listings with no matching item are surfaced so I can create, link, or ignore them.",
       "acceptanceCriteria": [
         "Orphan list → create item (mint from orphan), link to existing, or ignore; updates match_status (mirrors Reconciliation)",
         "A tab-independent orphan-count banner appears on every section and opens reconciliation (mirrors US-749 ReconcileBadge)"
       ],
-      "notes": "[P2][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P2][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android orphan reconciliation. AC1: marketplaces/reconciliation/{ReconciliationTypes,ReconciliationService,ReconciliationViewModel,ReconciliationScreen}.kt — unmatched flipdesk_ebay_listings rows with create / link / ignore, each flipping match_status. Create mints inventory_items with a CLIENT-generated id so the write is an idempotent upsert (a retry after a lost response can't mint a second item for one eBay listing), starts the item in 'listed' because eBay says the listing is live, and mirrors the listing into the listings table with listing_origin='ebay' (US-751/US-1077) best-effort so a mirror blip can't strand a created item. Link carries the US-1509 guard: it refuses when the target item already has a DIFFERENT active eBay listing, which is how duplicate active rows are born, while re-linking the same listing stays allowed. Create-all runs 4 at a time with per-chunk progress; failures stay attached to their rows and the summary names a partial run ('Created 8 of 10'). Every write is tenant-scoped by user_id as well as row id (US-268 convention). AC2: ReconcileBanner + ReconcileBadgeState render above every section through AppShell's existing reconcileBanner slot (now defaulting to the real banner) and open ShellRoutes.RECONCILE; a snooze hides it for 24h but NEW orphans past the snooze baseline re-surface it, and a failed count read keeps the last known count rather than blinking the banner away. The count is read with a 200-row ceiling and labelled '200+' past it rather than claiming an exact total that was never measured. Verified by ReconcileBadgeTest (8 cases: visibility, snooze window, baseline re-surface, count wording) and ReconciliationTest (title fallbacks, outcome success, bulk summaries). NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1357",

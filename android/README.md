@@ -18,7 +18,8 @@ list and item canvas (photos, measurements, comps, eBay specifics) · global sea
 eBay OAuth connect · eBay listing sync (pull → poll → provenance-aware merge),
 the unified listing card, and publish/relist with pre-flight, listing-time
 category specifics and a live profit estimate · the negotiation inbox (offers,
-send-offer, buyer messages) · bulk pricing · credit-pack Play Billing ·
+send-offer, buyer messages) · bulk pricing · orphan-listing reconciliation with
+the shell-wide banner · credit-pack Play Billing ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 

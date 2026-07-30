@@ -32,6 +32,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.gradethread.app.marketplaces.reconciliation.ReconcileBanner
 import androidx.navigation.compose.rememberNavController
 import com.gradethread.app.R
 import androidx.compose.runtime.LaunchedEffect
@@ -59,7 +60,11 @@ fun AppShell(
     isCompactWidth: Boolean,
     // Chrome slots the platform stories fill in; empty by default.
     statusBar: @Composable () -> Unit = {},
-    reconcileBanner: @Composable () -> Unit = {},
+    /**
+     * US-1356: override the shell-wide orphan banner. Null uses the real one,
+     * which reads the count itself and navigates into the queue.
+     */
+    reconcileBanner: (@Composable () -> Unit)? = null,
 ) {
     val navController = rememberNavController()
     val haptics = rememberHapticFeedback()
@@ -140,7 +145,13 @@ fun AppShell(
             }
             androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
                 statusBar()
-                reconcileBanner()
+                if (reconcileBanner != null) {
+                    reconcileBanner()
+                } else {
+                    ReconcileBanner(
+                        onOpen = { navController.navigate(ShellRoutes.RECONCILE) },
+                    )
+                }
                 ShellNavHost(navController)
             }
         }
@@ -237,6 +248,12 @@ private fun ShellNavHost(navController: NavHostController) {
         ) { entry ->
             com.gradethread.app.marketplaces.negotiation.NegotiationInboxScreen(
                 filterItemId = entry.arguments?.getString("item"),
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1356: the orphan-listing queue.
+        composable(ShellRoutes.RECONCILE) {
+            com.gradethread.app.marketplaces.reconciliation.ReconciliationScreen(
                 onClose = { navController.popBackStack() },
             )
         }

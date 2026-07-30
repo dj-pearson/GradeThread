@@ -64,6 +64,9 @@ object ShellRoutes {
 
     /** US-1355: the bulk price editor, reached from Marketplaces. */
     const val BULK_PRICING = "bulk-pricing"
+
+    /** US-1356: the orphan-listing queue, reached from the shell banner. */
+    const val RECONCILE = "reconcile"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */
