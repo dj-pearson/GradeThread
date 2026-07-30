@@ -38,7 +38,10 @@ import {
   useApplyReprice,
   useBulkRepriceApply,
   useDismissReprice,
+  useRepriceRules,
+  useRunRepriceRules,
   type ReasonCode,
+  type RepriceRule,
   type RepriceSuggestion,
 } from "@/hooks/use-repricing";
 
@@ -196,6 +199,91 @@ function SuggestionRow({
   );
 }
 
+// US-2171 AC4: a compact one-line summary of a rule's markdown behaviour.
+function ruleSummary(r: RepriceRule): string {
+  const parts = [`Drop ${r.drop_pct}% every ${r.interval_days}d`];
+  if (r.filter_brand) parts.push(r.filter_brand);
+  if (r.min_age_days > 0) parts.push(`${r.min_age_days}d+ old`);
+  if (r.floor_price_cents != null) parts.push(`floor ${money(r.floor_price_cents)}`);
+  return parts.join(" · ");
+}
+
+// US-2171 AC4: surface the previously server-only repricing rules and let the
+// seller run them on demand. Create/edit/delete remain a follow-up.
+function RepriceRulesCard() {
+  const { data: rules = [], isLoading } = useRepriceRules();
+  const run = useRunRepriceRules();
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+        <div className="space-y-1">
+          <CardTitle className="text-base">Automation rules</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Scheduled markdowns behind these nudges. Run them now to apply any
+            drops that are due.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={run.isPending}
+          onClick={() =>
+            run.mutate(undefined, {
+              onSuccess: (res) =>
+                toast.success(
+                  `Rules run — ${res.applied} price${res.applied === 1 ? "" : "s"} changed.`,
+                ),
+            })
+          }
+        >
+          {run.isPending ? (
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-1.5 h-4 w-4" />
+          )}
+          Run rules now
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-10 w-full" />
+        ) : rules.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No automation rules yet. Rules created via the API appear here; the
+            on-demand run above applies any that are due.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {rules.map((r) => (
+              <li
+                key={r.id}
+                className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-medium">{r.name}</span>
+                    {!r.enabled && (
+                      <Badge variant="outline" className="text-[10px]">
+                        Paused
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{ruleSummary(r)}</p>
+                </div>
+                {r.last_run_at && (
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    ran {new Date(r.last_run_at).toLocaleDateString()}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function FlipdeskRepricingPage() {
   const {
     data: suggestions = [],
@@ -338,6 +426,8 @@ export function FlipdeskRepricingPage() {
           Scan now
         </Button>
       </div>
+
+      <RepriceRulesCard />
 
       {/* US-2171: queue controls — filter, sort, bulk select + apply. */}
       {hasSuggestions && (

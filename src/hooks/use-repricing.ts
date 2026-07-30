@@ -231,3 +231,61 @@ export function useDismissReprice() {
     onError: (err: Error) => toast.error(err.message),
   });
 }
+
+// US-2171 AC4: the repricing RULES that generate nudges automatically. The
+// /api/flipdesk/pricing/rules + /rules/run endpoints were server-only; the
+// repricing page now surfaces the rules and lets the seller run them on demand
+// (create/edit/delete remain a follow-up — see the story note).
+export interface RepriceRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  filter_brand: string | null;
+  filter_category_id: string | null;
+  min_age_days: number;
+  drop_pct: number;
+  interval_days: number;
+  floor_price_cents: number | null;
+  last_run_at: string | null;
+}
+
+export function useRepriceRules() {
+  return useQuery({
+    queryKey: ["repricing_rules"],
+    queryFn: async (): Promise<RepriceRule[]> => {
+      const res = await edgeFetch("/api/flipdesk/pricing/rules");
+      const data = (await res.json().catch(() => ({}))) as {
+        rules?: RepriceRule[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Couldn't load repricing rules.");
+      return data.rules ?? [];
+    },
+  });
+}
+
+export interface RunRulesResult {
+  applied: number;
+}
+
+export function useRunRepriceRules() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<RunRulesResult> => {
+      const res = await edgeFetch("/api/flipdesk/pricing/rules/run", {
+        method: "POST",
+        json: {},
+      });
+      const data = (await res.json().catch(() => ({}))) as
+        & Partial<RunRulesResult>
+        & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Couldn't run the rules.");
+      return { applied: data.applied ?? 0 };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
+      queryClient.invalidateQueries({ queryKey: ["repricing_rules"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
