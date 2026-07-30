@@ -34,7 +34,7 @@
     {
       "id": "US-1352",
       "priority": -98648,
-      "passes": false,
+      "passes": true,
       "title": "Listing publish / relist with profit estimate",
       "description": "As a seller, I can publish (or relist) an item to eBay with a pre-flight validation and live profit estimate.",
       "acceptanceCriteria": [
@@ -42,7 +42,7 @@
         "Composer (title/condition/price) with live profit estimate from cost basis + fees; validate (POST .../listings/validate) then push (POST .../listings/push, relist=true ends the live one first)",
         "Returns listing URL/id/offer id; surfaced on the item"
       ],
-      "notes": "[P1][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Marketplaces] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | Done 2026-07-30. Android publish/relist. AC1: marketplaces/publish/PublishFlow.kt — PublishPhase (Composing/Validating/Review/Pushing/Published/PlanLimit/Failed) plus PublishFlow.afterValidate/afterPush, total over every PublishOutcome so a new case can't leave the sheet spinning; a 422 during pre-flight renders as blockers rather than an error, and blockers arriving on PUSH send the seller back to review (something changed since pre-flight) instead of a dead end. AC2: PublishSheet.kt composer (title/condition/condition notes/price) with a live ListingProfit estimate (port of web estimateListingProfit + iOS ListingProfit: 13.25% FVF + $0.40 fixed, costs clamped, netCents/marginPctCents so the two shown lines agree); ListingDraftService.save persists listing_price/listing_title/ebay_condition/ebay_condition_description onto the item's eBay draft row BEFORE validate, because /listings/validate and /listings/push assemble from the listings row and would otherwise publish stale values — price goes through CurrencyAmount so a garbled price can never become a $0 draft (US-789). EbayPublishService.validate/push with relist sent only when true; relist inferred from the existing draft's status. AC3: PushResponse listing id/URL/offer id/SKU surfaced in the sheet's published panel with a View-on-eBay Custom Tab, and sync_pending shown as 'live, syncing shortly' (US-783). Entry point: a Selling section on ItemCanvasScreen, disabled while the canvas is dirty (publishing over unsaved edits would list the old values). Also: EdgeApiError.BadRequest now carries the untruncated body — detail is a 240-char preview, which silently dropped blockers off the end of a long list. Verified by PublishFlowTest (state machine + error mapping incl. a 12-blocker body), ListingProfitTest (fee model, loss case, price refusal) and EbayConditionTest. NOT compiled locally — no Android SDK in this container; android-ci.yml is the gate."
     },
     {
       "id": "US-1353",

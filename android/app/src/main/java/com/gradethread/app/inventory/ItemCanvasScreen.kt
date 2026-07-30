@@ -22,8 +22,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -32,6 +36,8 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.capture.FlipdeskCategory
+import com.gradethread.app.marketplaces.CustomTabsLauncher
+import com.gradethread.app.marketplaces.publish.PublishSheet
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -53,6 +59,8 @@ fun ItemCanvasScreen(
 ) {
     LaunchedEffect(itemId) { viewModel.bind(itemId) }
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+    var publishing by remember { mutableStateOf(false) }
 
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -232,7 +240,26 @@ fun ItemCanvasScreen(
             }
         }
 
+        // US-1352: publish from the canvas, where the fields the listing is
+        // built from already are. Disabled while there are unsaved edits — the
+        // server publishes what's in the database, so publishing over a dirty
+        // canvas would list the OLD values and look like the app ignored them.
+        SectionHeader("Selling")
+        BrandSecondaryButton(
+            text = if (state.isDirty) "Save your changes to list" else "List on eBay",
+            enabled = !state.isDirty,
+            modifier = Modifier.fillMaxWidth(),
+        ) { publishing = true }
+
         BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+    }
+
+    if (publishing) {
+        PublishSheet(
+            itemId = itemId,
+            onDismiss = { publishing = false },
+            onOpenListing = { url -> CustomTabsLauncher.open(context, url) },
+        )
     }
 }
 

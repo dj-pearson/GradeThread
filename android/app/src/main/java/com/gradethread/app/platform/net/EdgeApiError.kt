@@ -21,7 +21,14 @@ sealed class EdgeApiError : Exception() {
     data class RateLimited(val retryAfterSeconds: Long? = null) : EdgeApiError()
 
     data class NotFound(val detail: String?) : EdgeApiError()
-    data class BadRequest(val detail: String?) : EdgeApiError()
+    /**
+     * Any unhandled 4xx. [body] is the UNTRUNCATED response body, kept because
+     * some 4xx bodies are structured payloads a caller must read in full — the
+     * publish pre-flight's 422 `{ blockers: [...] }` (US-1352) is the case that
+     * forced it: [detail] falls back to a 240-char preview, which would silently
+     * drop blockers off the end of a long list.
+     */
+    data class BadRequest(val detail: String?, val body: String? = null) : EdgeApiError()
     data class ServerError(val detail: String?) : EdgeApiError()
     data class Decoding(val reason: String) : EdgeApiError()
     data class Network(val reason: String) : EdgeApiError()
@@ -126,7 +133,7 @@ sealed class EdgeApiError : Exception() {
                 401, 403 -> Unauthorized
                 404 -> NotFound(detail)
                 429 -> RateLimited()
-                in 400..499 -> BadRequest(detail)
+                in 400..499 -> BadRequest(detail, body)
                 else -> ServerError(detail)
             }
         }
