@@ -1,20 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowLeft,
-  Wand2,
   Save,
   Loader2,
-  Plus,
   Award,
   Rocket,
   Sparkles,
-  Link2,
   Store,
   BadgeCheck,
   AlertTriangle,
+  CalendarClock,
 } from "lucide-react";
 import {
   Card,
@@ -24,32 +22,22 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
+import { LoadingRegion } from "@/components/ui/skeletons";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  COMMON_TIMEZONES,
-  DROP_PRESETS,
   detectTimezone,
   formatInZone,
-  nextPresetUtc,
 } from "@/lib/scheduling";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -62,27 +50,21 @@ import {
   ensureSellerCredentials,
   interpolateDescription,
   splitSellerCredentials,
-  suggestTitle,
   templateGroupFor,
   titleKeywords,
 } from "@/lib/listing-templates";
 import { titleQuality } from "@/lib/title-quality";
 import {
-  API_CROSS_LISTING_PLATFORMS,
   EBAY_CONDITION_OPTIONS,
   ITEM_CATEGORIES,
-  ITEM_CATEGORY_LABELS,
-  ITEM_STATUSES,
   ITEM_STATUS_LABELS,
-  EXTENSION_CROSS_LISTING_PLATFORMS,
   MARKETPLACE_LABELS,
   MARKETPLACE_TIER,
-  MARKETPLACE_TIER_LABEL,
   type CrossListingPlatform,
   isNonListablePhotoType,
 } from "@/lib/constants";
-import { resolveStatus, factsOf } from "@/lib/workflow";
-import { cn, errorMessage, isoToLocalInput, localInputToIso } from "@/lib/utils";
+import { resolveStatus, factsOf, nextAction } from "@/lib/workflow";
+import { errorMessage, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import {
@@ -99,14 +81,9 @@ import {
   deriveGarmentType,
 } from "@/lib/garment-mapping";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
-import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
-import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
+import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
+import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
 import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
-import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
-import { PhotoManager } from "@/components/flipdesk/photo-manager";
-import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
-import { MeasurementForm } from "@/components/flipdesk/measurement-form";
-import { MeasurementPhotoEditor } from "@/components/flipdesk/measurement-photo-editor";
 import {
   AiFillPanel,
   type AcceptedField,
@@ -117,11 +94,7 @@ import {
   type RewriteAction,
 } from "@/hooks/use-ai-extract";
 import {
-  aiPriceInput,
   conditionLabel,
-  formatAiPrice,
-  priceChanged,
-  textChanged,
 } from "@/lib/listing-ai-diff";
 import {
   centsToDollarInput,
@@ -146,18 +119,44 @@ import {
 } from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import type {
   ItemCategory,
   ItemPhotoRow,
   ItemStatus,
-  ListingInsert,
   ListingRow,
-  InventoryItemRow,
+  SlabImageMode,
 } from "@/types/database";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
-import { rowToMergeValues, type MergeValues } from "@/lib/merge-values";
+import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
+import { ItemDetailsCard } from "@/components/flipdesk/composer/item-details-card";
+import { StorageSkuCard } from "@/components/flipdesk/composer/storage-sku-card";
+import { PhotosCard } from "@/components/flipdesk/composer/photos-card";
+import { MeasurementsCard } from "@/components/flipdesk/composer/measurements-card";
+import { TitleCard } from "@/components/flipdesk/composer/title-card";
+import { SpecificsSection } from "@/components/flipdesk/composer/specifics-section";
+import { PriceCard } from "@/components/flipdesk/composer/price-card";
+import { CostMarginCard } from "@/components/flipdesk/composer/cost-margin-card";
+import { PoliciesCard } from "@/components/flipdesk/composer/policies-card";
+import { PromoteCard } from "@/components/flipdesk/composer/promote-card";
+import { DescriptionCard } from "@/components/flipdesk/composer/description-card";
+import { PushToCard } from "@/components/flipdesk/composer/push-to-card";
+import { ScheduleCard } from "@/components/flipdesk/composer/schedule-card";
+import { useSkuMerge } from "@/hooks/use-sku-merge";
+import { WorkflowActionsCard } from "@/components/flipdesk/composer/workflow-actions-card";
+import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
+import { useAiExtract, useAiSizeEstimate } from "@/hooks/use-ai-extract";
+// US-2248/US-2249: the save payloads live in one pure module so the draft and
+// live paths cannot drift apart again (see src/lib/composer-save.ts).
+import {
+  buildDraftListingPayload,
+  buildLiveListingPatch,
+  buildItemPatch,
+  resolveQuantity,
+  TITLE_MAX,
+  type ComposerListingState,
+} from "@/lib/composer-save";
 
-const TITLE_MAX = 80;
 
 // Legacy rows can carry a coarse category string that predates ITEM_CATEGORIES.
 // Anything unrecognized is clothing (the only vertical FlipDesk shipped with).
@@ -188,35 +187,6 @@ const DEFAULT_LISTING_FORMAT_VALUE: ListingFormatValue = {
   auctionDuration: "DAYS_7",
   variations: null,
 };
-
-// US-568: turn the composer's format editor state into the listings columns.
-// Dollar strings convert to integer cents; auction columns null out for
-// fixed-price drafts, and variations null out for auctions / empty matrices.
-function buildFormatPayload(v: ListingFormatValue): Partial<ListingInsert> {
-  const dollarsToCents = (s: string): number | null => {
-    const n = Number.parseFloat(s);
-    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
-  };
-  const isAuction = v.format === "auction";
-  return {
-    listing_format: v.format,
-    auction_start_price_cents: isAuction
-      ? dollarsToCents(v.auctionStartPrice)
-      : null,
-    auction_reserve_price_cents: isAuction
-      ? dollarsToCents(v.auctionReservePrice)
-      : null,
-    auction_buy_it_now_price_cents: isAuction
-      ? dollarsToCents(v.auctionBuyItNowPrice)
-      : null,
-    auction_duration: isAuction ? v.auctionDuration : null,
-    // Variations only apply to fixed-price listings; drop empty matrices.
-    variations:
-      !isAuction && v.variations && v.variations.variants.length > 0
-        ? v.variations
-        : null,
-  };
-}
 
 // Shared item specifics whose value the buyer expects to also see reflected in
 // the free-text description. Item specifics and the description are edited on
@@ -276,7 +246,18 @@ function descriptionMentions(description: string, value: string): boolean {
 export function FlipdeskComposerPage({
   itemId,
   showHeader = true,
-}: { itemId?: string; showHeader?: boolean } = {}) {
+  onDirtyChange,
+}: {
+  itemId?: string;
+  showHeader?: boolean;
+  /**
+   * US-2256: reported whenever the form's unsaved state changes. A host that can
+   * dismiss this editor WITHOUT navigating — the item detail dialog, the quick-look
+   * sheet — has to run its own confirm, because React Router's blocker only sees
+   * route changes and a closing dialog isn't one.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
+} = {}) {
   const { id: routeId } = useParams<{ id: string }>();
   const id = itemId ?? routeId;
   const navigate = useNavigate();
@@ -317,7 +298,6 @@ export function FlipdeskComposerPage({
   const [storageSku, setStorageSku] = useState("");
   const [storageLocation, setStorageLocation] = useState("");
   const [storageContainer, setStorageContainer] = useState("");
-  const [savingStorage, setSavingStorage] = useState(false);
   // Item-level bookkeeping that used to live only on the retired ItemCanvas.
   // These are inventory_items columns, saved by the same single Save as the
   // listing fields — the whole point of one editor is that nothing is stranded
@@ -330,16 +310,17 @@ export function FlipdeskComposerPage({
   const [categoryTouched, setCategoryTouched] = useState(false);
   const [sourcedBy, setSourcedBy] = useState("");
   const [acquiredDate, setAcquiredDate] = useState("");
-  // Duplicate-SKU merge: set when a storage save hits the (user_id, sku) unique
-  // index — holds the field-shaped values of both records so the MergeSkuDialog
-  // can resolve conflicts, then merge_inventory_items combines them in place.
-  const [mergeState, setMergeState] = useState<{
-    sku: string;
-    existingId: string;
-    current: MergeValues;
-    existing: MergeValues;
-  } | null>(null);
-  const [merging, setMerging] = useState(false);
+  // US-2260: recording the sale is what makes an item sold — offered here instead
+  // of letting the status dropdown claim it without the money behind it.
+  const [recordSaleOpen, setRecordSaleOpen] = useState(false);
+  // US-2264: the workflow actions ported off the unmounted ItemCanvas.
+  const [markListedOpen, setMarkListedOpen] = useState(false);
+  const [aiFillResult, setAiFillResult] = useState<AiExtractResponse | null>(
+    null,
+  );
+  const [aiFillOpen, setAiFillOpen] = useState(false);
+  const aiExtract = useAiExtract();
+  const sizeAi = useAiSizeEstimate();
   // US-561: Promoted Listings. promoteEnabled mirrors !promo_opt_out (promote by
   // default); promoRate is the seller's accepted/adjusted ad rate (%) seeded
   // from the category suggestion; promoSuggested holds the fetched suggestion so
@@ -360,8 +341,29 @@ export function FlipdeskComposerPage({
   const [bestOfferEnabled, setBestOfferEnabled] = useState(false);
   const [bestOfferAccept, setBestOfferAccept] = useState("");
   const [bestOfferDecline, setBestOfferDecline] = useState("");
+  // US-2250: how many of this item are for sale. listings.quantity was already
+  // read at publish and settable from AutoLister bulk-edit, but the single-item
+  // composer had no field — so a seller with five identical tees had to create
+  // five items. Auctions and variation matrices override it (resolveQuantity).
+  const [quantity, setQuantity] = useState("1");
+  // US-2247: the grade badge on the hero photo + how the slab image is attached.
+  // publish reads listings.badge_enabled / slab_image_mode, but nothing in the
+  // app wrote either — so the grade banner told sellers to "enable the grade
+  // badge below" and there was no such control anywhere.
+  const [badgeEnabled, setBadgeEnabled] = useState(false);
+  const [slabImageMode, setSlabImageMode] = useState<SlabImageMode>("off");
+  // US-2251: per-listing eBay business policies. null = fall back to the
+  // account default, which is exactly what publish does when these are NULL.
+  const [shippingPolicyId, setShippingPolicyId] = useState<string | null>(null);
+  const [paymentPolicyId, setPaymentPolicyId] = useState<string | null>(null);
+  const [returnPolicyId, setReturnPolicyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [initialised, setInitialised] = useState(false);
+  // US-2256: a serialized snapshot of every editable field as it was seeded (and
+  // re-stamped after each successful save). Anything other than a byte-identical
+  // match means there is unsaved work worth warning about. null until seeding
+  // completes, so a still-loading form can never look dirty.
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
   // Lifted from the category picker so the comps panel reacts to a pick
   // before the user commits via "Save eBay specifics".
   const [livePickedCategoryId, setLivePickedCategoryId] = useState<
@@ -423,6 +425,11 @@ export function FlipdeskComposerPage({
     () => items.find((it) => it.id === id) ?? null,
     [items, id],
   );
+
+  // Duplicate-SKU recovery lives in its own hook: ANY save that writes a SKU can
+  // hit the (user_id, sku) index, and the useful answer is almost never "pick a
+  // different SKU" — it is "you scanned the same garment twice, merge them".
+  const skuMerge = useSkuMerge(item);
 
   // US-1895: recommended-aspect coverage for the composer meter (edge single
   // source). Refetched when its key is invalidated after an aspect save below.
@@ -658,6 +665,19 @@ export function FlipdeskComposerPage({
     setBestOfferEnabled(listing?.best_offer_enabled ?? false);
     setBestOfferAccept(centsToDollarInput(listing?.best_offer_auto_accept_cents));
     setBestOfferDecline(centsToDollarInput(listing?.best_offer_auto_decline_cents));
+    // US-2250: quantity defaults to 1 for a brand-new draft.
+    setQuantity(
+      listing?.quantity != null && listing.quantity > 0
+        ? String(listing.quantity)
+        : "1",
+    );
+    // US-2247: grade badge + slab image mode.
+    setBadgeEnabled(listing?.badge_enabled ?? false);
+    setSlabImageMode(listing?.slab_image_mode ?? "off");
+    // US-2251: business policies; null means "use my account default".
+    setShippingPolicyId(listing?.shipping_policy_id ?? null);
+    setPaymentPolicyId(listing?.payment_policy_id ?? null);
+    setReturnPolicyId(listing?.return_policy_id ?? null);
     const seededPrimary =
       listing?.primary_photo_id &&
       photos.some((p) => p.id === listing.primary_photo_id)
@@ -688,13 +708,123 @@ export function FlipdeskComposerPage({
     promoDefaults,
   ]);
 
-  // US-561: the category that publish will use, for the Promoted Listings ad-rate
-  // suggestion (mirrors the resolution order in saveDraft / assemblePublishContext).
-  const resolvedCategoryId =
-    livePickedCategoryId ??
-    listing?.platform_category_id ??
-    ebayMapping?.ebay_category_id ??
-    null;
+  // US-2256: everything this page owns and could lose, in one string. Compared
+  // against the snapshot taken at seed time (and re-stamped after each save) to
+  // decide whether leaving costs the seller anything.
+  //
+  // The eBay aspect map is deliberately NOT in here: the picker reports its
+  // aspects up on mount and prefills derivable ones, so folding that into the
+  // snapshot would make a freshly-opened composer look dirty before the seller
+  // touched it — which is how a guard stops working. Aspect edits are tracked
+  // separately against the picker's FIRST report (aspectBaseline below).
+  const formSnapshot = useMemo(
+    () =>
+      JSON.stringify([
+        title,
+        description,
+        ebayCondition,
+        conditionDesc,
+        price,
+        cost,
+        quantity,
+        scheduledAt,
+        primaryPhotoId,
+        promoteEnabled,
+        promoMode,
+        promoRate,
+        listingFormat,
+        bestOfferEnabled,
+        bestOfferAccept,
+        bestOfferDecline,
+        badgeEnabled,
+        slabImageMode,
+        shippingPolicyId,
+        paymentPolicyId,
+        returnPolicyId,
+        measurements,
+        storageSku,
+        storageLocation,
+        storageContainer,
+        itemStatus,
+        itemCategory,
+        sourcedBy,
+        acquiredDate,
+      ]),
+    [
+      title, description, ebayCondition, conditionDesc, price, cost, quantity,
+      scheduledAt, primaryPhotoId, promoteEnabled, promoMode, promoRate,
+      listingFormat, bestOfferEnabled, bestOfferAccept, bestOfferDecline,
+      badgeEnabled, slabImageMode, shippingPolicyId, paymentPolicyId,
+      returnPolicyId, measurements, storageSku, storageLocation,
+      storageContainer, itemStatus, itemCategory, sourcedBy, acquiredDate,
+    ],
+  );
+  // Stamped once seeding finishes — computing it inside the seed effect would
+  // read the pre-setState values and bake in a snapshot that never matches.
+  useEffect(() => {
+    if (initialised && savedSnapshot === null) setSavedSnapshot(formSnapshot);
+  }, [initialised, savedSnapshot, formSnapshot]);
+  // The picker reports its aspect map up on mount, AFTER its own prefill — so the
+  // first report is the baseline, not a seller edit (US-2256). Lives here rather
+  // than in SpecificsSection because the dirty state belongs to the form.
+  function handleAspectsChange(next: Record<string, string[]> | null) {
+    setLivePickedAspects(next);
+    const encoded = JSON.stringify(next ?? null);
+    if (aspectBaseline.current === null) {
+      aspectBaseline.current = encoded;
+    } else if (encoded !== aspectBaseline.current) {
+      setAspectsDirty(true);
+    }
+  }
+
+  // The aspect map as the picker FIRST reported it (post-mount, post-prefill).
+  const aspectBaseline = useRef<string | null>(null);
+  const [aspectsDirty, setAspectsDirty] = useState(false);
+  const isDirty =
+    (savedSnapshot !== null && formSnapshot !== savedSnapshot) || aspectsDirty;
+  // Re-stamp both baselines: a save makes the current form the saved form.
+  function markSaved() {
+    setSavedSnapshot(formSnapshot);
+    aspectBaseline.current = JSON.stringify(livePickedAspects ?? null);
+    setAspectsDirty(false);
+  }
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+  // US-2256: in-app navigation (the Close button's navigate(-1), a sidebar click)
+  // is intercepted for a real confirm; refresh/tab-close falls back to the
+  // browser's own prompt. Both live in useNavigationGuard (US-2032).
+  const guard = useNavigationGuard(isDirty && !saving);
+
+  // The category publish will actually use: the seller's live pick, else the
+  // saved listing override, else the inventory mirror. US-2261: derived ONCE —
+  // this cascade used to be re-typed in five places (the ad-rate suggestion, the
+  // save path, the spec/description diff, the comps panel), so changing the
+  // resolution order meant finding all five.
+  const resolvedCategoryId = useMemo(
+    () =>
+      livePickedCategoryId ??
+      listing?.platform_category_id ??
+      ebayMapping?.ebay_category_id ??
+      null,
+    [livePickedCategoryId, listing?.platform_category_id, ebayMapping?.ebay_category_id],
+  );
+  // The category/aspect values the picker seeds FROM — deliberately the saved
+  // pair only (no live pick), so the picker owns its own edit state.
+  const savedCategoryId =
+    listing?.platform_category_id ?? ebayMapping?.ebay_category_id ?? null;
+  const savedAspects =
+    listing?.item_specifics_override ?? ebayMapping?.ebay_aspects ?? null;
+
+  // The cost being EDITED, not the saved one, so margin moves as you type.
+  // Declared here (not beside the profit panel) because both save paths close
+  // over it — reading it from a closure defined above its own declaration was a
+  // temporal-dead-zone hazard waiting for someone to call a save earlier.
+  const parsedCost = cost.trim() === "" ? null : Number.parseFloat(cost);
+  const effectiveCost =
+    parsedCost != null && Number.isFinite(parsedCost) && parsedCost >= 0
+      ? parsedCost
+      : null;
 
   // eBay condition/category awareness: many apparel leaves (Dresses, Women's
   // Sweaters, …) accept only {New, New other, New with defects, Pre-owned -
@@ -755,7 +885,9 @@ export function FlipdeskComposerPage({
     };
   }, [resolvedCategoryId]);
 
-  const keywords = item ? titleKeywords(item) : [];
+  // Memoized so the title-chip memo below has a stable dependency — a fresh
+  // array identity every render defeated it entirely.
+  const keywords = useMemo(() => (item ? titleKeywords(item) : []), [item]);
   const group = item ? templateGroupFor(item) : "generic";
   const primaryPhoto =
     photos.find((p) => p.id === primaryPhotoId) ?? photos[0] ?? null;
@@ -763,37 +895,44 @@ export function FlipdeskComposerPage({
     ? interpolateDescription(description, item, measurementUnit)
     : description;
 
+  // US-2255: EVERY filled item specific, not a fixed six. The preview used to
+  // render a hardcoded Brand/Style/Size/Category/Condition/Grade table, so a
+  // seller who carefully filled fifteen specifics saw four of them and had no way
+  // to check their work — the preview quietly disagreed with what would publish.
+  //
+  // Row order is the aspect map's own key order, which the picker builds from
+  // eBay's taxonomy response, so required-and-prominent aspects lead the way they
+  // do on eBay. The item-column fallbacks stay for never-edited drafts whose
+  // aspect map is still empty.
   const specifics = useMemo(() => {
     if (!item) return [] as { label: string; value: string }[];
     // Prefer the LIVE aspect values (what publish will actually send) over the
     // item columns, so the preview can never disagree with the editable eBay
-    // specifics below it while the user types. Falls back through the saved
-    // override / inventory mirror to the columns for never-edited drafts.
-    const aspects =
-      livePickedAspects ??
-      listing?.item_specifics_override ??
-      ebayMapping?.ebay_aspects ??
-      {};
-    const aspectVal = (...names: string[]): string | null => {
-      for (const n of names) {
-        const v = aspects[n]?.find((x) => x.trim() !== "");
-        if (v) return v;
-      }
-      return null;
+    // specifics below it while the user types.
+    const aspects = livePickedAspects ?? savedAspects ?? {};
+    const rows: { label: string; value: string | null }[] = [];
+    const seen = new Set<string>();
+    for (const [name, values] of Object.entries(aspects)) {
+      // eBay joins multi-value aspects with a comma on the view-item page.
+      const value = (values ?? [])
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .join(", ");
+      if (!value) continue;
+      rows.push({ label: name, value });
+      seen.add(name.toLowerCase());
+    }
+    // Column fallbacks — only for a field the aspect map doesn't already carry,
+    // so an edited Brand is never shadowed by a stale column.
+    const fallback = (label: string, value: string | null | undefined) => {
+      if (seen.has(label.toLowerCase())) return;
+      rows.push({ label, value: value ?? null });
     };
-    const rows: { label: string; value: string | null }[] = [
-      { label: "Brand", value: aspectVal("Brand") ?? item.brand },
-      { label: "Style", value: aspectVal("Style", "Type") ?? item.style },
-      {
-        label: "Size",
-        value: aspectVal("Size", "US Shoe Size", "Shoe Size") ?? item.size,
-      },
-      { label: "Category", value: item.category },
-      {
-        label: "Condition",
-        value: item.grade_label ?? "Pre-owned",
-      },
-    ];
+    fallback("Brand", item.brand);
+    fallback("Style", item.style);
+    fallback("Size", item.size);
+    fallback("Category", item.category);
+    fallback("Condition", item.grade_label ?? "Pre-owned");
     if (item.grade_value != null) {
       rows.push({
         label: "GradeThread Grade",
@@ -804,7 +943,7 @@ export function FlipdeskComposerPage({
       (r): r is { label: string; value: string } =>
         !!r.value && r.value.trim() !== "",
     );
-  }, [item, livePickedAspects, listing, ebayMapping]);
+  }, [item, livePickedAspects, savedAspects]);
 
   // US-551: the AI's original draft, snapshotted at generation. Drives the
   // per-field diff chips + revert-to-AI. Null for manually-created drafts.
@@ -904,6 +1043,28 @@ export function FlipdeskComposerPage({
   // A brand-new draft (no listing row yet) is GradeThread-originated by definition.
   const listingOrigin = listing ? deriveListingOrigin(listing) : "gradethread";
   const isEbayOrigin = listingOrigin === "ebay";
+  // US-2258: WHICH fields eBay owns on a mirror is not a judgement call — the
+  // edge has one list, EBAY_OWNED_LISTING_FIELDS in
+  // services/edge-functions/src/lib/sync-precedence.ts, and an inbound pull
+  // overwrites exactly those while origin='ebay'. That list is:
+  //
+  //   listing_title · listing_price · listing_description · quantity ·
+  //   platform_category_id · listing_status · is_active · listed_at ·
+  //   platform_listing_id · platform_offer_id · listing_url
+  //
+  // Of the ones this form edits: title, price, description and QUANTITY are
+  // locked below (quantity was editable here and would have been silently
+  // reverted by the next sync). platform_category_id is eBay-owned too, but its
+  // editor also holds the item specifics — which are NOT on the list and must
+  // stay editable — so the picker warns instead of locking.
+  //
+  // Deliberately NOT locked, because eBay does not own them: ebay_condition,
+  // ebay_condition_description, item_specifics_override, the listing format,
+  // Promoted Listings, Best Offer, the business policies, measurements, cost,
+  // and everything on inventory_items.
+  const ebayOwnedHint = isEbayOrigin
+    ? "eBay owns this field on a listing it created — change it on eBay."
+    : undefined;
   // US-1080: on an eBay-ORIGINATED mirror, eBay owns title/price/description —
   // the server rejects edits to them. This editor is now the only one an
   // eBay-created listing ever opens in, so the lock (and the way out of it) has
@@ -928,17 +1089,10 @@ export function FlipdeskComposerPage({
   const specDescMismatches = useMemo<
     { field: SharedDescField; value: string }[]
   >(() => {
-    const category =
-      livePickedCategoryId ??
-      listing?.platform_category_id ??
-      ebayMapping?.ebay_category_id ??
-      null;
-    const savedAspects =
-      listing?.item_specifics_override ?? ebayMapping?.ebay_aspects ?? null;
     const currentAspects = livePickedAspects ?? savedAspects;
     if (!currentAspects) return [];
-    const base = sharedValuesFromAspects(savedAspects, category);
-    const cur = sharedValuesFromAspects(currentAspects, category);
+    const base = sharedValuesFromAspects(savedAspects, resolvedCategoryId);
+    const cur = sharedValuesFromAspects(currentAspects, resolvedCategoryId);
     const out: { field: SharedDescField; value: string }[] = [];
     for (const field of SHARED_DESC_FIELDS) {
       const val = cur[field];
@@ -949,13 +1103,7 @@ export function FlipdeskComposerPage({
       if (!descriptionMentions(description, val)) out.push({ field, value: val });
     }
     return out;
-  }, [
-    livePickedAspects,
-    livePickedCategoryId,
-    listing,
-    ebayMapping,
-    description,
-  ]);
+  }, [livePickedAspects, savedAspects, resolvedCategoryId, description]);
 
   // Resolve the eBay-owned fields from the live picker state, falling back to the
   // saved listing override and the inventory mirror — shared by the draft save
@@ -970,16 +1118,7 @@ export function FlipdeskComposerPage({
         item?.target_price,
         item?.list_price,
       ].find((p): p is number => p != null && p > 0) ?? 0;
-    const resolvedCategoryId =
-      livePickedCategoryId ??
-      listing?.platform_category_id ??
-      ebayMapping?.ebay_category_id ??
-      null;
-    const liveAspects =
-      livePickedAspects ??
-      listing?.item_specifics_override ??
-      ebayMapping?.ebay_aspects ??
-      null;
+    const liveAspects = livePickedAspects ?? savedAspects;
     const resolvedAspects =
       liveAspects && Object.keys(liveAspects).length > 0 ? liveAspects : null;
     const liveSources =
@@ -989,6 +1128,88 @@ export function FlipdeskComposerPage({
       null;
     const resolvedSources = resolvedAspects ? (liveSources ?? {}) : {};
     return { resolvedPrice, resolvedCategoryId, resolvedAspects, resolvedSources };
+  }
+
+  // The whole listing-side form, in the shape the pure payload builders take.
+  // Both save paths read this one object, so a field can't be wired into the
+  // draft save and forgotten in the live one (US-2248).
+  function composerListingState(): ComposerListingState {
+    const { resolvedPrice, resolvedAspects, resolvedSources } =
+      resolveListingFields();
+    // US-1898: seller overrides win over the comp-derived default, then clamp to
+    // eBay's constraints (decline < accept < price). Same math the edge
+    // re-applies at publish (best-offer.ts).
+    const bestOffer = bestOfferEnabled
+      ? resolveBestOfferThresholds({
+          priceCents: resolvedPrice > 0 ? Math.round(resolvedPrice * 100) : 0,
+          p25Cents: listing?.price_range_low_cents ?? null,
+          p75Cents: listing?.price_range_high_cents ?? null,
+          acceptOverrideCents: dollarInputToCents(bestOfferAccept),
+          declineOverrideCents: dollarInputToCents(bestOfferDecline),
+        })
+      : { autoAcceptCents: null, autoDeclineCents: null };
+    return {
+      title,
+      description,
+      ebayCondition,
+      conditionDesc,
+      resolvedPrice,
+      resolvedCategoryId,
+      resolvedAspects,
+      resolvedSources,
+      scheduledPublishAt: localInputToIso(scheduledAt),
+      primaryPhotoId,
+      promoteEnabled,
+      promoMode,
+      promoRate,
+      listingFormat,
+      bestOfferEnabled,
+      bestOfferAcceptCents: bestOffer.autoAcceptCents,
+      bestOfferDeclineCents: bestOffer.autoDeclineCents,
+      quantity,
+      badgeEnabled,
+      slabImageMode,
+      shippingPolicyId,
+      paymentPolicyId,
+      returnPolicyId,
+    };
+  }
+
+  // The whole item-side patch, assembled from the same state every save path
+  // sees — including the Storage & SKU fields that used to need a second Save
+  // button and were silently dropped by "Save draft" (US-2249).
+  function composerItemPatch(
+    resolvedAspects: Record<string, string[]> | null,
+    resolvedSources: Record<string, string | undefined>,
+  ): Record<string, unknown> {
+    return buildItemPatch(
+      {
+        resolvedCategoryId,
+        resolvedAspects,
+        resolvedSources,
+        measurements,
+        effectiveCost,
+        sourcedBy,
+        acquiredDate,
+        categoryTouched,
+        itemCategory,
+        storageSku,
+        storageLocation,
+        storageContainer,
+        // Forward-only: never regress a listed/sold item back to "drafted". The
+        // seller's Item details pick is the `selected` input — resolveStatus
+        // lets a deliberate non-prep choice (archived, sold) win outright and
+        // otherwise takes the furthest of current / picked / earned.
+        resolvedStatus: resolveStatus(item!.status, itemStatus, {
+          ...factsOf(item!),
+          hasDraftListing: true,
+        }),
+      },
+      {
+        ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
+        ...categoryCascadePatch(),
+      },
+    );
   }
 
   // Category coupling: when the seller fixes the eBay category here, derive the
@@ -1014,19 +1235,6 @@ export function FlipdeskComposerPage({
       patch.garment_category = g.garment_category;
     }
     return patch;
-  }
-
-  // The inventory_items bookkeeping edited in the Item details card. Written by
-  // every save path (draft, live revise) so these fields behave identically at
-  // every status — the split editor is exactly what let them drift.
-  function itemDetailsPatch(): Record<string, unknown> {
-    return {
-      sourced_by: sourcedBy.trim() || null,
-      acquired_date: acquiredDate || null,
-      ...(categoryTouched
-        ? { item_category: itemCategory === "" ? null : itemCategory }
-        : {}),
-    };
   }
 
   // Reverse-sync shared fields: fold manual/AI edits made in the eBay specifics
@@ -1068,77 +1276,12 @@ export function FlipdeskComposerPage({
       // publish reads first) AND the inventory mirror (ebay_aspects — the
       // fallback) in the same save, so the two stores never diverge and a
       // picker edit can't vanish by skipping a separate save.
-      const {
-        resolvedPrice,
-        resolvedCategoryId,
-        resolvedAspects,
-        resolvedSources,
-      } = resolveListingFields();
-      // US-1898: resolve Best Offer thresholds — seller overrides win over the
-      // comp-derived default, then clamp to eBay's constraints (decline < accept
-      // < price). Same math the edge re-applies at publish (best-offer.ts).
-      const bestOffer = bestOfferEnabled
-        ? resolveBestOfferThresholds({
-            priceCents: resolvedPrice != null && resolvedPrice > 0
-              ? Math.round(resolvedPrice * 100)
-              : 0,
-            p25Cents: listing?.price_range_low_cents ?? null,
-            p75Cents: listing?.price_range_high_cents ?? null,
-            acceptOverrideCents: dollarInputToCents(bestOfferAccept),
-            declineOverrideCents: dollarInputToCents(bestOfferDecline),
-          })
-        : { autoAcceptCents: null, autoDeclineCents: null };
-      const payload: ListingInsert = {
-        inventory_item_id: item.id,
-        platform: "ebay",
-        // Only a row we're creating (or one still a draft) may be stamped
-        // "draft". Now that this editor opens at EVERY status, hard-coding it
-        // would demote an ended/sold listing to a draft on an ordinary save.
-        listing_status: listing?.listing_status ?? "draft",
-        listing_price: resolvedPrice,
-        listing_title: title.trim(),
-        listing_description: description.trim() || null,
-        ebay_condition: ebayCondition || null,
-        ebay_condition_description: conditionDesc.trim() || null,
-        platform_category_id: resolvedCategoryId,
-        item_specifics_override: resolvedAspects,
-        item_specifics_sources: resolvedSources,
-        scheduled_publish_at: localInputToIso(scheduledAt),
-        // Saving = a human reviewed the price, so it's no longer an unverified
-        // AI estimate.
-        price_is_estimated: false,
-        // US-1568: a composer Save IS the human review — the draft leaves the
-        // AutoLister 'needs review' queue and lives on in Inventory → Drafts.
-        reviewed_at: new Date().toISOString(),
-        // Draft-only. A live row's is_active is owned by the publish/end flow.
-        ...(listing?.listing_status && listing.listing_status !== "draft"
-          ? {}
-          : { is_active: false }),
-        primary_photo_id: primaryPhotoId,
-        // 00432: persist the Promoted Listings choice as an EXPLICIT per-listing
-        // override (saving the composer is a deliberate decision, so it no longer
-        // inherits the seller default). Keep promo_opt_out in sync for the legacy
-        // read sites (item page, marketplaces, scheduled drops).
-        promote_override: promoteEnabled,
-        promo_opt_out: !promoteEnabled,
-        // US-1447: persist the chosen mode; CPC ignores the % (bid is the
-        // ad-group max-CPC), so only store a rate in CPS mode.
-        promo_mode: promoMode,
-        promo_rate_pct:
-          promoteEnabled && promoMode === "cps"
-            ? (() => {
-                const r = Number.parseFloat(promoRate);
-                return Number.isFinite(r) && r > 0 ? r : null;
-              })()
-            : null,
-        // US-568: persist format + auction terms + variation matrix. Auction
-        // prices convert dollars → cents; null when blank or non-auction.
-        ...buildFormatPayload(listingFormat),
-        // US-1898: Best Offer (publish already consumes these columns).
-        best_offer_enabled: bestOfferEnabled,
-        best_offer_auto_accept_cents: bestOffer.autoAcceptCents,
-        best_offer_auto_decline_cents: bestOffer.autoDeclineCents,
-      };
+      const state = composerListingState();
+      const payload = buildDraftListingPayload(state, {
+        inventoryItemId: item.id,
+        existingStatus: listing?.listing_status ?? null,
+        reviewedAt: new Date().toISOString(),
+      });
 
       let listingId: string;
       // Update whenever a listing row EXISTS, whatever its status. The old
@@ -1163,38 +1306,26 @@ export function FlipdeskComposerPage({
         listingId = (created as { id: string }).id;
       }
 
-      // Forward-only: never regress a listed/sold item back to "drafted". The
-      // seller's own Item details pick is the `selected` input — resolveStatus
-      // lets a deliberate non-prep choice (archived, sold) win outright and
-      // otherwise takes the furthest of current / picked / earned.
-      const resolvedStatus = resolveStatus(item.status, itemStatus, {
-        ...factsOf(item),
-        hasDraftListing: true,
-      });
       // Mirror the category + aspects onto the item in the same save so the
       // inventory store stays in lockstep with the listing override (US-557),
-      // and fold specifics edits back into their backing item fields so shared
-      // values (Brand & co.) stay single-entry.
+      // fold specifics edits back into their backing item fields so shared
+      // values (Brand & co.) stay single-entry, and carry the Storage & SKU
+      // fields that used to be stranded behind their own Save (US-2249).
       const { error: sErr } = await supabase
         .from("inventory_items")
-        .update({
-          status: resolvedStatus,
-          ebay_category_id: resolvedCategoryId,
-          ebay_aspects: resolvedAspects,
-          ebay_aspect_sources: resolvedSources,
-          // US-1567: measurements edited in the composer save with the draft.
-          measurements:
-            Object.keys(measurements).length > 0 ? measurements : null,
-          // Cost basis, edited in Condition & price. Written unconditionally
-          // (including back to null when cleared) so the field behaves like
-          // every other one in this form rather than being write-once.
-          acquired_price: effectiveCost,
-          ...itemDetailsPatch(),
-          ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
-          ...categoryCascadePatch(),
-        } as never)
+        .update(
+          composerItemPatch(
+            state.resolvedAspects,
+            state.resolvedSources,
+          ) as never,
+        )
         .eq("id", item.id);
-      if (sErr) throw sErr;
+      // US-2249: the SKU rides the main save now, so the main save is where a
+      // duplicate-SKU collision has to offer the merge.
+      if (sErr) {
+        if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
+        throw sErr;
+      }
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
@@ -1203,6 +1334,7 @@ export function FlipdeskComposerPage({
       });
       // US-1895: refresh the recommended-coverage meter after an aspect save.
       await qc.invalidateQueries({ queryKey: ["recommended-coverage", item.id] });
+      markSaved();
       toast.success(item.listing_id ? "Saved." : "Draft saved.");
       return listingId;
     } catch (err) {
@@ -1213,175 +1345,232 @@ export function FlipdeskComposerPage({
     }
   }
 
-  // Save the item-level logistics (SKU / location / container) to inventory_items.
-  // Independent of the eBay draft save so a physical-label edit doesn't require
-  // touching the listing.
-  async function saveStorage() {
+  // US-2249: the Storage & SKU fields ride the main save now, so the duplicate-SKU
+  // recovery has to be reachable from every save path rather than living inside a
+  // storage-only handler. Returns true when the error WAS a SKU collision and the
+  // merge dialog has been opened (the caller stops there — the update rolled back);
+  // false means "not mine, keep throwing".
+  // ── US-2264: workflow actions ported off the unmounted ItemCanvas ──────────
+  // Fields "Complete with AI" targets. Blank ones are what it offers to fill.
+  const ENRICHABLE: {
+    key: string;
+    value: string | null | undefined;
+  }[] = item
+    ? [
+        { key: "brand", value: item.brand },
+        { key: "style", value: item.style },
+        { key: "size", value: item.size },
+        { key: "color", value: ebayMapping?.color },
+        { key: "material", value: ebayMapping?.material },
+        { key: "item_category", value: item.category },
+        { key: "garment_type", value: ebayMapping?.garment_type },
+        { key: "garment_category", value: ebayMapping?.garment_category },
+      ]
+    : [];
+  const missingFields = ENRICHABLE.filter((f) => !String(f.value ?? "").trim());
+  const hasAiText = [title, description, conditionDesc].some((t) => t.trim());
+  const canCompleteWithAi = photos.length > 0 || hasAiText;
+
+  // Read the garment from its own photos and fill what's blank. The server also
+  // resolves the eBay category + item specifics and persists them on the item,
+  // which is why a successful fill remounts the specifics picker below (its
+  // `key`) — otherwise the picker would keep showing the values it seeded with.
+  async function handleCompleteWithAi() {
     if (!item) return;
-    setSavingStorage(true);
+    const photoRefs = photos.map((ph) => ({
+      url: supabase.storage
+        .from("item-photos")
+        .getPublicUrl(ph.storage_path ?? "").data.publicUrl,
+      type: ph.photo_type,
+    }));
+    const text = [title, description, conditionDesc]
+      .filter((t) => t.trim())
+      .join("\n");
+    if (photoRefs.length === 0 && !text.trim()) {
+      toast.error("Add photos or a description for the AI to work from.");
+      return;
+    }
+    const known: Record<string, unknown> = {};
+    for (const f of ENRICHABLE) {
+      if (String(f.value ?? "").trim()) known[f.key] = f.value;
+    }
     try {
-      const { error } = await supabase
-        .from("inventory_items")
-        .update({
-          sku: storageSku.trim() || null,
-          location_bin: storageLocation.trim() || null,
-          container: storageContainer.trim() || null,
-        } as never)
-        .eq("id", item.id);
-      if (error) throw error;
-      await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success("Storage details saved.");
-    } catch (err) {
-      // Duplicate-SKU partial unique index (user_id, sku) → offer to merge the
-      // two records in place (same flow as the item page). supabase-js rejects
-      // with a PostgrestError PLAIN OBJECT (not an Error instance), so read the
-      // pg code/message/details directly — an `err instanceof Error` gate here
-      // would stringify to "[object Object]" and miss the constraint match.
-      const pgErr = err as { code?: string; message?: string; details?: string };
-      const dupText = `${pgErr.message ?? ""} ${pgErr.details ?? ""}`;
-      const isSkuDuplicate =
-        pgErr.code === "23505" &&
-        (dupText.includes("idx_inventory_items_user_sku") ||
-          dupText.toLowerCase().includes("sku"));
-      if (isSkuDuplicate) {
-        const newSku = storageSku.trim();
-        // Load both raw rows (the pre-existing SKU owner + this survivor) so the
-        // dialog can compare field-by-field. `.limit(1)` (not `.maybeSingle()`)
-        // so a stray >1-row state can't itself throw and mask the duplicate.
-        const [dupRes, survRes] = await Promise.all([
-          supabase
-            .from("inventory_items")
-            .select("*")
-            .eq("user_id", item.user_id)
-            .eq("sku", newSku)
-            .neq("id", item.id)
-            .order("updated_at", { ascending: false })
-            .limit(1),
-          supabase
-            .from("inventory_items")
-            .select("*")
-            .eq("id", item.id)
-            .limit(1),
-        ]);
-        const dupRow = ((dupRes.data ?? [])[0] as InventoryItemRow | undefined);
-        const survRow = ((survRes.data ?? [])[0] as InventoryItemRow | undefined);
-        if (dupRow && survRow) {
-          setMergeState({
-            sku: newSku,
-            existingId: dupRow.id,
-            current: rowToMergeValues(survRow),
-            existing: rowToMergeValues(dupRow),
-          });
-        } else {
-          // The index says the SKU is taken, but we couldn't load the other row
-          // (RLS, a filter, or it was just deleted). Say so plainly.
-          toast.error(
-            `SKU "${newSku}" is already used by another item, but it couldn't be loaded to merge — refresh and try again.`,
+      const result = await aiExtract.mutateAsync({
+        text: text || undefined,
+        photos: photoRefs,
+        known_fields: known,
+        item_id: item.id,
+      });
+      setAiFillResult(result);
+      setAiFillOpen(true);
+      if (result.ebay) {
+        await qc.invalidateQueries({
+          queryKey: ["inventory_item_ebay", item.id],
+        });
+        const filled = Object.keys(result.ebay.aspects).length;
+        if (filled > 0) {
+          toast.success(
+            `eBay category + ${filled} item specific${filled === 1 ? "" : "s"} filled from photos.`,
           );
         }
-      } else {
-        toast.error(`Save failed: ${errorMessage(err)}`);
       }
-    } finally {
-      setSavingStorage(false);
+    } catch {
+      /* error toast handled by the hook */
     }
   }
 
-  // Map the merge dialog's chosen field values back to inventory_items columns.
-  // Only the keys the user took from the EXISTING record are written; everything
-  // else already carries the survivor's value. Mirrors the item canvas's persist
-  // conventions (trim → null, numeric prices, empties → null).
-  function mergeOverridesToItemUpdate(
-    v: Partial<MergeValues>,
-  ): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
-    const strTrim = (s: string) => (s.trim() === "" ? null : s.trim());
-    const priceNum = (s: string) => {
-      const t = s.trim();
-      if (t === "") return null;
-      const n = Number(t);
-      return Number.isFinite(n) ? n : null;
-    };
-    if (v.title !== undefined)
-      out.title = v.title.trim() || item?.item_title || "";
-    if (v.container !== undefined) out.container = strTrim(v.container);
-    if (v.brand !== undefined) out.brand = strTrim(v.brand);
-    if (v.style !== undefined) out.style = strTrim(v.style);
-    if (v.size !== undefined) out.size = strTrim(v.size);
-    if (v.color !== undefined) out.color = strTrim(v.color);
-    if (v.material !== undefined) out.material = strTrim(v.material);
-    if (v.description !== undefined) out.description = strTrim(v.description);
-    if (v.condition_notes !== undefined)
-      out.condition_notes = strTrim(v.condition_notes);
-    if (v.item_category !== undefined)
-      out.item_category = v.item_category === "" ? null : v.item_category;
-    if (v.sourced_by !== undefined) out.sourced_by = strTrim(v.sourced_by);
-    if (v.status !== undefined) out.status = v.status;
-    if (v.acquired_date !== undefined)
-      out.acquired_date = v.acquired_date || null;
-    if (v.acquired_price !== undefined)
-      out.acquired_price = priceNum(v.acquired_price);
-    if (v.target_price !== undefined)
-      out.target_price = priceNum(v.target_price);
-    if (v.comp_set !== undefined)
-      out.comp_set = v.comp_set.filter(
-        (c) => Number.isFinite(c.price) && c.price > 0,
-      );
-    if (v.measurements !== undefined)
-      out.measurements =
-        Object.keys(v.measurements).length > 0 ? v.measurements : null;
-    return out;
+  // Accepted AI values are written to the ITEM, not to composer state: brand,
+  // size, colour and material are owned by the eBay specifics editor (US-557
+  // single-entry), and the picker re-seeds from the item on remount.
+  async function applyAiFill(accepted: AcceptedField[]) {
+    if (!item || accepted.length === 0) return;
+    const patch: Record<string, unknown> = {};
+    for (const f of accepted) {
+      const v = f.value.trim();
+      if (!v) continue;
+      patch[f.field === "item_category" ? "item_category" : f.field] = v;
+    }
+    if (Object.keys(patch).length === 0) return;
+    const { error } = await supabase
+      .from("inventory_items")
+      .update(patch as never)
+      .eq("id", item.id);
+    if (error) {
+      toast.error(`Couldn't save the AI's answers: ${errorMessage(error)}`);
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
+    toast.success("Applied to this item.");
   }
 
-  // Confirmed duplicate-SKU merge: the RPC atomically re-points photos, listings,
-  // sales and grading history onto this item, deletes the duplicate, and CLAIMS
-  // the SKU. Then the user's field choices (plus this composer's location/
-  // container edits, which the rolled-back save never persisted) are written.
-  async function handleMergeConfirm(overrides: Partial<MergeValues>) {
-    if (!item || !mergeState) return;
-    setMerging(true);
+  // US-1088: a cut-off or missing size label is common on thrifted stock, and the
+  // flat-lay photos already carry the answer.
+  async function handleEstimateSize() {
+    if (!item) return;
     try {
-      const rpcClient = supabase as unknown as {
-        rpc: (
-          fn: string,
-          args: Record<string, unknown>,
-        ) => Promise<{ data: unknown; error: Error | null }>;
-      };
-      const { error } = await rpcClient.rpc("merge_inventory_items", {
-        p_survivor_id: item.id,
-        p_duplicate_id: mergeState.existingId,
-        p_sku: mergeState.sku,
-      });
-      if (error) throw error;
-
-      // The RPC already claimed the SKU; persist the resolved field choices and
-      // the location/container the original save couldn't commit.
-      const patch = mergeOverridesToItemUpdate(overrides);
-      patch.location_bin = storageLocation.trim() || null;
-      patch.container = storageContainer.trim() || null;
-      setStorageSku(mergeState.sku);
-      setMergeState(null);
-      // Photos/listings/sales were re-pointed server-side — refresh broadly.
-      await qc.invalidateQueries();
-      try {
-        const { error: upErr } = await supabase
-          .from("inventory_items")
-          .update(patch as never)
-          .eq("id", item.id);
-        if (upErr) throw upErr;
-        toast.success("Records merged — this item now owns the SKU.");
-      } catch (persistErr) {
-        // The merge committed; only the field choices failed to save.
-        toast.error(
-          `Records merged, but saving your field choices failed: ${errorMessage(
-            persistErr,
-          )}. Review the item and save again.`,
+      const r = await sizeAi.mutateAsync({ item_id: item.id });
+      if (!r.size) {
+        toast.info(
+          "Size AI couldn't read a size — add a measurement or flat-lay photo and retry.",
         );
+        return;
+      }
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ size: r.size } as never)
+        .eq("id", item.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
+      const genderNote = r.gender ? ` · ${r.gender}` : "";
+      if (r.low_confidence) {
+        toast.info(`Best guess: ${r.size}${genderNote}`, {
+          description:
+            r.rationale || "Low confidence — double-check before listing.",
+        });
+      } else {
+        toast.success(`Size AI: ${r.size}${genderNote}`, {
+          description: r.rationale || undefined,
+        });
       }
     } catch (err) {
-      toast.error(`Merge failed: ${errorMessage(err)}`);
-    } finally {
-      setMerging(false);
+      toast.error(`Couldn't save the size: ${errorMessage(err)}`);
+    }
+  }
+
+  // Duplicate: a second, near-identical piece from the same haul. Copies the
+  // catalog fields and nothing transactional — no photos, no listing, no cost
+  // history, and it starts at "cataloged" rather than inheriting a status it
+  // hasn't earned.
+  async function handleDuplicate() {
+    if (!item) return;
+    try {
+      const { data: created, error } = await supabase
+        .from("inventory_items")
+        .insert({
+          user_id: item.user_id,
+          title: item.item_title,
+          brand: item.brand,
+          style: item.style,
+          size: item.size,
+          item_category: item.category,
+          source_id: item.source_id,
+          sourced_by: item.sourced_by,
+          acquired_price: item.purchase_price,
+          acquired_date: item.purchase_date,
+          description: item.item_description,
+          condition_notes: item.notes,
+          measurements: item.measurements,
+          status: "cataloged",
+        } as never)
+        .select("id")
+        .single();
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Duplicated — opening the copy.");
+      navigate(`/dashboard/flipdesk/items/${(created as { id: string }).id}`);
+    } catch (err) {
+      toast.error(`Duplicate failed: ${errorMessage(err)}`);
+    }
+  }
+
+  // Relist: an ended or unsold item goes back to the top of the pipeline with its
+  // catalog work intact, so it can be re-priced and pushed again.
+  async function handleRelist() {
+    if (!item) return;
+    try {
+      // Deliberately a direct write, not advanceItemStatus: that helper is
+      // forward-only by design, and a relist is the one legitimate case for
+      // moving an item BACKWARD — an ended or returned piece returns to the
+      // pipeline at "comped" with its catalog work intact, to be re-priced.
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ status: "comped" } as never)
+        .eq("id", item.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Ready to relist — review the price and publish again.");
+    } catch (err) {
+      toast.error(`Relist failed: ${errorMessage(err)}`);
+    }
+  }
+
+  function scrollToSection(id: string) {
+    const el = document.getElementById(id);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // The pinned CTA either takes the seller to the section that is blocking, or
+  // performs the step outright when there is nothing to fill in.
+  function runNextAction(kind: string) {
+    switch (kind) {
+      case "measure":
+        scrollToSection("composer-measurements");
+        break;
+      case "photograph":
+        scrollToSection("composer-photos");
+        break;
+      case "grade":
+      case "grading":
+      case "review_grade":
+        scrollToSection("composer-grading");
+        break;
+      case "comp":
+      case "draft":
+        scrollToSection("composer-category");
+        break;
+      case "list":
+        setMarkListedOpen(true);
+        break;
+      case "sell":
+        setRecordSaleOpen(true);
+        break;
+      case "relist":
+        void handleRelist();
+        break;
+      default:
+        break;
     }
   }
 
@@ -1409,21 +1598,14 @@ export function FlipdeskComposerPage({
     }
     setSaving(true);
     try {
-      const { resolvedPrice, resolvedCategoryId, resolvedAspects, resolvedSources } =
-        resolveListingFields();
+      // US-2248: the SAME content columns as a draft save. This path used to be
+      // a hand-written subset that had fallen a dozen columns behind — a seller
+      // could change the promote rate, Best Offer limits, format, quantity or
+      // primary photo on a live listing, get a success toast, and lose all of it.
+      const state = composerListingState();
       const { error } = await supabase
         .from("listings")
-        .update({
-          listing_price: resolvedPrice,
-          listing_title: title.trim(),
-          listing_description: description.trim() || null,
-          ebay_condition: ebayCondition || null,
-          ebay_condition_description: conditionDesc.trim() || null,
-          platform_category_id: resolvedCategoryId,
-          item_specifics_override: resolvedAspects,
-          item_specifics_sources: resolvedSources,
-          price_is_estimated: false,
-        } as never)
+        .update(buildLiveListingPatch(state) as never)
         .eq("id", item.listing_id);
       if (error) throw error;
       // Mirror onto the item. Status still comes from resolveStatus (forward-
@@ -1432,28 +1614,21 @@ export function FlipdeskComposerPage({
       // same Item details card they use on a draft.
       const { error: sErr } = await supabase
         .from("inventory_items")
-        .update({
-          status: resolveStatus(item.status, itemStatus, {
-            ...factsOf(item),
-            hasDraftListing: true,
-          }),
-          ebay_category_id: resolvedCategoryId,
-          ebay_aspects: resolvedAspects,
-          ebay_aspect_sources: resolvedSources,
-          // US-1567 parity: measurements + cost are editable at every status now,
-          // so the live save must persist them like the draft save does.
-          measurements:
-            Object.keys(measurements).length > 0 ? measurements : null,
-          acquired_price: effectiveCost,
-          ...itemDetailsPatch(),
-          ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
-          ...categoryCascadePatch(),
-        } as never)
+        .update(
+          composerItemPatch(
+            state.resolvedAspects,
+            state.resolvedSources,
+          ) as never,
+        )
         .eq("id", item.id);
-      if (sErr) throw sErr;
+      if (sErr) {
+        if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
+        throw sErr;
+      }
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
+      markSaved();
       return item.listing_id;
     } catch (err) {
       toast.error(`Save failed: ${errorMessage(err)}`);
@@ -1498,6 +1673,20 @@ export function FlipdeskComposerPage({
   // the preflight dialog; any other selection dispatches through cross-push
   // (US-149), which fans the draft out to one listings row per platform.
   async function handlePublishClick() {
+    // US-2257: the button is disabled for these, but a keyboard/programmatic
+    // path must not slip past — and saving first would leave a draft eBay is
+    // about to bounce.
+    const { resolvedPrice } = resolveListingFields();
+    if (!(resolvedPrice > 0)) {
+      toast.error("Set a price above $0 before publishing.");
+      return;
+    }
+    if (conditionRejected) {
+      toast.error(
+        "That eBay condition isn't accepted by this category — pick an allowed one before publishing.",
+      );
+      return;
+    }
     const listingId = await saveDraft();
     if (!listingId) return;
 
@@ -1561,6 +1750,47 @@ export function FlipdeskComposerPage({
     enabled: !!item,
   });
 
+  // US-1892: title quality meter — utilization band, brand-first, policy/quality
+  // lint, and pack-to-80 suggestions from the listing's mined demand terms +
+  // high-value filled aspects. Pure (src/lib/title-quality.ts, lockstep with the
+  // edge publish lint).
+  // US-2261: memoized, and hoisted above the early returns so it CAN be — it ran
+  // unconditionally on every keystroke of every field in a 3000-line form.
+  const titleMeter = useMemo(
+    () =>
+      titleQuality({
+        title,
+        brand: item?.brand ?? null,
+        demandTerms: listing?.demand_terms ?? [],
+        aspects: livePickedAspects ?? savedAspects ?? {},
+      }),
+    [title, item?.brand, listing?.demand_terms, livePickedAspects, savedAspects],
+  );
+  // Merge the existing titleKeywords() chips with the pack suggestions (demand
+  // terms + aspects), dropping any token already in the title and de-duping —
+  // extends the chips rather than duplicating them (AC2).
+  const titleChips = useMemo<string[]>(() => {
+    const present = new Set(
+      title
+        .toLowerCase()
+        .split(/\s+/)
+        .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+        .filter(Boolean),
+    );
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of [
+      ...keywords,
+      ...titleMeter.suggestions.map((s) => s.token),
+    ]) {
+      const key = t.toLowerCase();
+      if (!t.trim() || seen.has(key) || present.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+    return out;
+  }, [title, keywords, titleMeter]);
+
   if (isLoading) {
     return (
       <LoadingRegion label="Loading item" className="space-y-4 p-6">
@@ -1583,51 +1813,40 @@ export function FlipdeskComposerPage({
   }
 
   const titleLen = title.length;
-  // US-1892: title quality meter — utilization band, brand-first, policy/quality
-  // lint, and pack-to-80 suggestions from the listing's mined demand terms +
-  // high-value filled aspects. Pure (src/lib/title-quality.ts, lockstep with the
-  // edge publish lint).
-  const titleMeter = titleQuality({
-    title,
-    brand: item?.brand ?? null,
-    demandTerms: listing?.demand_terms ?? [],
-    aspects:
-      livePickedAspects ??
-      listing?.item_specifics_override ??
-      ebayMapping?.ebay_aspects ??
-      {},
-  });
-  // Merge the existing titleKeywords() chips with the pack suggestions (demand
-  // terms + aspects), dropping any token already in the title and de-duping —
-  // extends the chips rather than duplicating them (AC2).
-  const titleChips: string[] = (() => {
-    const present = new Set(
-      title.toLowerCase().split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}]/gu, "")).filter(Boolean),
-    );
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const t of [...keywords, ...titleMeter.suggestions.map((s) => s.token)]) {
-      const key = t.toLowerCase();
-      if (!t.trim() || seen.has(key) || present.has(key)) continue;
-      seen.add(key);
-      out.push(t);
-    }
-    return out;
-  })();
   // A chip that would push the title past 80 is disabled, never truncated (AC2).
   const chipFits = (kw: string) =>
     (title.trim() ? title.trim().length + 1 + kw.length : kw.length) <= TITLE_MAX;
+  // US-2257: the things eBay is CERTAIN to reject, checked before the round-trip.
+  // Deliberately only these two: everything softer (missing recommended aspects,
+  // a stale description, a thin title) stays a warning, and publish stays
+  // server-validated — this is a courtesy gate, not the authority.
+  const publishBlocker: string | null = (() => {
+    const { resolvedPrice } = resolveListingFields();
+    if (!(resolvedPrice > 0)) {
+      return "Set a price above $0 before publishing.";
+    }
+    if (conditionRejected) {
+      return "The eBay condition you picked isn't accepted by this category — pick an allowed one.";
+    }
+    return null;
+  })();
+
+  // US-2250: when a variation matrix exists it owns the total quantity, so the
+  // composer states the derived number instead of showing an input that
+  // resolveQuantity would override. null = no matrix, use the input.
+  const variationQuantity =
+    listingFormat.format !== "auction" &&
+    (listingFormat.variations?.variants.length ?? 0) > 0
+      ? resolveQuantity({ quantity, listingFormat })
+      : null;
+  // A blank/0/negative box saves as 1; say so rather than silently coercing.
+  const quantityInvalid =
+    quantity.trim() !== "" &&
+    !(Number.parseInt(quantity, 10) > 0);
   const parsedPreviewPrice = Number.parseFloat(price);
   const previewPrice = Number.isFinite(parsedPreviewPrice)
     ? parsedPreviewPrice
     : (item.target_price ?? item.list_price ?? null);
-  // The cost being EDITED, not the saved one, so margin moves as you type.
-  // Falls back to the persisted value until the field is touched.
-  const parsedCost = cost.trim() === "" ? null : Number.parseFloat(cost);
-  const effectiveCost =
-    parsedCost != null && Number.isFinite(parsedCost) && parsedCost >= 0
-      ? parsedCost
-      : null;
   // US-553: forward profit/margin at the current list price.
   const profitEstimate = estimateListingProfit({
     price: Number.isFinite(parsedPreviewPrice) ? parsedPreviewPrice : 0,
@@ -1649,13 +1868,16 @@ export function FlipdeskComposerPage({
   };
   // `defaults` is optional-chained too: a policies response without it (edge
   // degradation / unexpected shape) must not crash the whole composer route.
+  // US-2251: this listing's OWN policy pick wins over the account default, so
+  // the preview shows what will actually publish rather than the default the
+  // seller just overrode.
   const shippingPolicyName = policyName(
     "fulfillment",
-    ebayPolicies?.defaults?.fulfillment_policy_id ?? null,
+    shippingPolicyId ?? ebayPolicies?.defaults?.fulfillment_policy_id ?? null,
   );
   const returnPolicyName = policyName(
     "return",
-    ebayPolicies?.defaults?.return_policy_id ?? null,
+    returnPolicyId ?? ebayPolicies?.defaults?.return_policy_id ?? null,
   );
 
   return (
@@ -1798,9 +2020,9 @@ export function FlipdeskComposerPage({
           <Award className="h-4 w-4 text-brand-navy dark:text-foreground" />
           <span>
             Graded {item.grade_value.toFixed(1)}/10
-            {item.grade_label ? ` · ${item.grade_label}` : ""}. Enable the grade
-            badge below to publish with the badge on the hero photo and a
-            certificate link in the description.
+            {item.grade_label ? ` · ${item.grade_label}` : ""}. The grade and a
+            certificate link publish in the description automatically. Add a
+            grade card to the photo gallery in the Photos card below.
           </span>
         </div>
       )}
@@ -1811,1130 +2033,99 @@ export function FlipdeskComposerPage({
       <div className="grid gap-6 @4xl:grid-cols-2">
         {/* ── Editor column ───────────────────────────────────────── */}
         <div className="space-y-6">
-          {/* Storage & SKU — item-level logistics (parity with the iOS canvas).
-              Saves to the item, not the eBay listing. */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Storage &amp; SKU</CardTitle>
-              <CardDescription>
-                Where this item lives and how it's labeled — saved to the item,
-                not the eBay listing.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="storage-sku">SKU / Item #</Label>
-                  <Input
-                    id="storage-sku"
-                    value={storageSku}
-                    onChange={(e) => setStorageSku(e.target.value)}
-                    placeholder="e.g. FD-1a2b"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="storage-location">Location / Bin</Label>
-                  <Input
-                    id="storage-location"
-                    value={storageLocation}
-                    onChange={(e) => setStorageLocation(e.target.value)}
-                    placeholder="e.g. Tote A3"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="storage-container">Container</Label>
-                  <Input
-                    id="storage-container"
-                    value={storageContainer}
-                    onChange={(e) => setStorageContainer(e.target.value)}
-                    placeholder="e.g. Bin 7"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void saveStorage()}
-                  disabled={
-                    savingStorage ||
-                    (storageSku === (item.item_number ?? "") &&
-                      storageLocation === (item.location_bin ?? "") &&
-                      storageContainer === (item.container ?? ""))
-                  }
-                >
-                  {savingStorage ? (
-                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                  ) : (
-                    <Save className="mr-2 h-3 w-3" />
-                  )}
-                  Save storage
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Item details — the bookkeeping that used to live only on the
-              status-gated item canvas. Saved by the main Save below, at every
-              status, so nothing here is reachable at one status and not another.
-              Brand / size / color / material deliberately aren't repeated here:
-              they're owned by the eBay item specifics editor and folded back
-              into their columns on save (single-entry rule, US-557). */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Item details</CardTitle>
-              <CardDescription>
-                Pipeline status and sourcing — saved to the item alongside your
-                listing edits.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="item-status">Status</Label>
-                <Select
-                  value={itemStatus}
-                  onValueChange={(v) => setItemStatus(v as ItemStatus)}
-                >
-                  <SelectTrigger id="item-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ITEM_STATUSES.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {ITEM_STATUS_LABELS[s]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Prep stages only move forward — completed work can't be undone
-                  by picking an earlier stage.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="item-category">Category</Label>
-                <Select
-                  value={itemCategory || "__none"}
-                  onValueChange={(v) => {
-                    setItemCategory(v === "__none" ? "" : (v as ItemCategory));
-                    setCategoryTouched(true);
-                  }}
-                >
-                  <SelectTrigger id="item-category">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">— None —</SelectItem>
-                    {ITEM_CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {ITEM_CATEGORY_LABELS[c]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  The coarse grading category. Picking an eBay category below
-                  keeps this in sync unless you set it here yourself.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="item-sourced-by">Sourced by</Label>
-                <Input
-                  id="item-sourced-by"
-                  value={sourcedBy}
-                  onChange={(e) => setSourcedBy(e.target.value)}
-                  placeholder="Who picked it up"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="item-acquired-date">Purchase date</Label>
-                <Input
-                  id="item-acquired-date"
-                  type="date"
-                  value={acquiredDate}
-                  onChange={(e) => setAcquiredDate(e.target.value)}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Title */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Title</CardTitle>
-              <CardDescription>
-                eBay caps titles at {TITLE_MAX} characters and every word is
-                searchable — front-load the brand for click-through, fill the
-                space with real keywords, and don't repeat words (duplicates add
-                no ranking benefit). Filled item specifics are also searchable.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="relative">
-                <Input
-                  id="composer-title"
-                  value={title}
-                  maxLength={TITLE_MAX}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Brand Item Size Category"
-                  disabled={isEbayOrigin}
-                  title={
-                    isEbayOrigin
-                      ? "eBay owns this listing's title — edit it on eBay."
-                      : undefined
-                  }
-                />
-                <span
-                  className={cn(
-                    "absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums",
-                    titleMeter.utilization.band === "full"
-                      ? "font-semibold text-destructive"
-                      : titleMeter.utilization.band === "good"
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-muted-foreground",
-                  )}
-                >
-                  {titleLen}/{TITLE_MAX}
-                </span>
-              </div>
-              {/* US-1892: utilization bar — green in the 70–80 sweet spot. */}
-              <div
-                className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-                role="progressbar"
-                aria-valuenow={titleMeter.utilization.pct}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label="Title length utilization"
-              >
-                <div
-                  className={cn(
-                    "h-full rounded-full transition-all",
-                    titleMeter.utilization.band === "good"
-                      ? "bg-emerald-500"
-                      : titleMeter.utilization.band === "full"
-                        ? "bg-destructive"
-                        : "bg-amber-500",
-                  )}
-                  style={{ width: `${titleMeter.utilization.pct}%` }}
-                />
-              </div>
-              {(!titleMeter.brandFirst ||
-                titleMeter.lint.warnings.length > 0 ||
-                titleMeter.lint.policyViolations.length > 0) && (
-                <ul className="space-y-1 text-xs">
-                  {titleMeter.lint.policyViolations.map((v) => (
-                    <li key={v} className="text-destructive">⚠ {v}</li>
-                  ))}
-                  {!titleMeter.brandFirst && item?.brand && (
-                    <li className="text-amber-600 dark:text-amber-400">
-                      Lead with the brand ({item.brand}) — front-loading it lifts
-                      click-through.
-                    </li>
-                  )}
-                  {titleMeter.lint.warnings.map((w) => (
-                    <li key={w} className="text-amber-600 dark:text-amber-400">
-                      {w}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {aiSnapshot && (
-                <AiDiffChip
-                  changed={textChanged(aiSnapshot.title, title)}
-                  aiDisplay={aiSnapshot.title ?? ""}
-                  onRevert={() => setTitle((aiSnapshot.title ?? "").slice(0, TITLE_MAX))}
-                />
-              )}
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setTitle(suggestTitle(item))}
-                >
-                  <Wand2 className="mr-2 h-3 w-3" />
-                  Suggest title
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!title.trim() || aiRewrite.isPending}
-                    >
-                      {aiRewrite.isPending &&
-                      rewriteAction?.startsWith("title_") ? (
-                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                      ) : (
-                        <Sparkles className="mr-2 h-3 w-3" />
-                      )}
-                      AI rewrite
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={() => void runRewrite("title_seo")}>
-                      Punch up for SEO
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => void runRewrite("title_shorten")}
-                    >
-                      Shorten to 80
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => void runRewrite("title_keywords")}
-                    >
-                      Add buyer keywords
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                {titleChips.map((kw) => {
-                  const fits = chipFits(kw);
-                  return (
-                    <button
-                      key={kw}
-                      type="button"
-                      disabled={!fits}
-                      onClick={() => appendKeyword(kw)}
-                      title={fits ? undefined : "Won't fit in 80 characters"}
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs",
-                        fits
-                          ? "hover:bg-muted"
-                          : "cursor-not-allowed opacity-40",
-                      )}
-                    >
-                      <Plus className="h-3 w-3" />
-                      {kw}
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* eBay category + item specifics — prefer the listing-row override
-              when present (the editor / bulk-edit writes here), then fall
-              back to the inventory_items mirror for legacy single-item flows.
-              US-557: gate the mount until both saved sources have loaded, so the
-              picker seeds its (now lifted) aspect state from the real values —
-              never from a transient empty map that a save would persist as a
-              wipe. */}
-          <div id="composer-category">
-          {/* US-1895: recommended-aspect coverage (non-blocking). eBay's
-              RECOMMENDED specifics ranked by 30-day buyer search volume — filling
-              them lifts findability. Required specifics stay a publish blocker. */}
-          {aspectCoverage && aspectCoverage.total > 0 && (
-            <Card className="mb-4">
-              <CardContent className="space-y-2 py-3">
-                <div className="flex items-center justify-between text-sm font-medium">
-                  <span>Recommended specifics</span>
-                  <span
-                    className={cn(
-                      "tabular-nums",
-                      aspectCoverage.filled >= aspectCoverage.total
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-muted-foreground",
-                    )}
-                  >
-                    {aspectCoverage.filled}/{aspectCoverage.total}
-                  </span>
-                </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all"
-                    style={{
-                      width: `${Math.round((aspectCoverage.filled / aspectCoverage.total) * 100)}%`,
-                    }}
-                  />
-                </div>
-                {aspectCoverage.missing.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Most-searched still empty:{" "}
-                    <span className="text-foreground">
-                      {aspectCoverage.missing.slice(0, 6).join(", ")}
-                    </span>
-                    . Fill them in the specifics below (use “Derive from item” to
-                    autofill what we can).
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
-          {listingLoading || ebayMappingLoading ? (
-            <Card>
-              <CardContent className="py-6">
-                <LoadingRegion label="Loading eBay item specifics">
-                  <SkeletonRows rows={4} />
-                </LoadingRegion>
-              </CardContent>
-            </Card>
-          ) : (
-            <EbayCategoryPicker
-              itemId={item.id}
-              initialCategoryId={
-                listing?.platform_category_id ??
-                ebayMapping?.ebay_category_id ??
-                null
-              }
-              initialAspects={
-                listing?.item_specifics_override ??
-                ebayMapping?.ebay_aspects ??
-                null
-              }
-              initialAspectSources={
-                (listing?.item_specifics_sources ??
-                  ebayMapping?.ebay_aspect_sources ??
-                  null) as AspectSourceMap | null
-              }
-              seedQuery={item.item_title ?? ""}
-              itemFields={itemAspectSource}
-              measurements={initialised ? measurements : undefined}
-              onMeasurementsChange={
-                initialised ? setMeasurements : undefined
-              }
-              measurementUnit={measurementUnit}
-              onCategoryChange={(id, path) => {
-                setLivePickedCategoryId(id);
-                setLivePickedCategoryPath(path ?? null);
-              }}
-              onAspectsChange={setLivePickedAspects}
-              onSourcesChange={setLivePickedSources}
-              onMissingRequiredChange={setMissingRequired}
-              // US-828: highlight the aspect rows generation reconciliation
-              // flagged (a value not in eBay's allowed set / an invented aspect).
-              needsReviewAspects={(listing?.aspect_review ?? []).map(
-                (a) => a.aspect,
-              )}
-            />
-          )}
-          </div>
-
-          {/* Live comps + price recommendation */}
-          <EbayCompsPanel
-            itemId={item.id}
-            categoryId={
-              livePickedCategoryId ??
-              listing?.platform_category_id ??
-              ebayMapping?.ebay_category_id ??
-              null
-            }
-            brand={item.brand ?? null}
-            size={item.size ?? null}
-            q={item.item_title ?? ""}
-            styleCode={compStyleCode}
-            grade={item.grade_value ?? null}
-            onTargetPriceUpdated={(value) => {
-              // US-1449: flow an applied comp/recommended price straight into the
-              // price input so the seller doesn't retype it — and so it wins at
-              // save over the stale seeded value (resolveListingFields reads this
-              // `price` state first). Clear the estimated/comp-source markers: the
-              // seller has now explicitly adopted this price.
-              setPrice(String(value));
-              setPriceEstimated(false);
-              setPriceCompSource(null);
-            }}
+          {/* US-2264: what to do next with this item, and the AI gap-fills —
+              ported off the unmounted ItemCanvas, where they shipped to nobody. */}
+          <WorkflowActionsCard
+            item={item}
+            action={nextAction(item)}
+            onRunNextAction={() => runNextAction(nextAction(item).kind)}
+            missingCount={missingFields.length}
+            canComplete={canCompleteWithAi}
+            completing={aiExtract.isPending}
+            onCompleteWithAi={() => void handleCompleteWithAi()}
+            sizeMissing={!String(item.size ?? "").trim()}
+            sizeEstimating={sizeAi.isPending}
+            onEstimateSize={() => void handleEstimateSize()}
+            onDuplicate={() => void handleDuplicate()}
+            onMarkListed={() => setMarkListedOpen(true)}
+            onRelist={() => void handleRelist()}
+            showMarkListed={!item.listing_id && item.status !== "listed"}
+            showRelist={item.status === "archived" || item.status === "returned"}
+            busy={saving}
           />
 
-          {/* Condition & price */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Condition &amp; price</CardTitle>
-              <CardDescription>
-                The eBay condition and starting price for this listing.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="ebay-condition">eBay condition</Label>
-                {/* bg-background/text-foreground (not bg-transparent) + the global
-                    `select option` rule keep the native list legible in dark mode. */}
-                <select
-                  id="ebay-condition"
-                  value={ebayCondition}
-                  onChange={(e) => setEbayCondition(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <option value="">Select condition…</option>
-                  {conditionOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                {conditionRejected && (
-                  <p className="text-xs text-destructive">
-                    This condition isn't accepted by the selected eBay category —
-                    pick one of the allowed conditions above, or eBay will reject
-                    the listing at publish.
-                  </p>
-                )}
-                {categoryConditions?.restricted &&
-                  categoryConditions.allowedLabels.length > 0 && (
-                    <p className="text-[11px] text-muted-foreground">
-                      This category accepts: {categoryConditions.allowedLabels.join(", ")}.
-                    </p>
-                  )}
-                {aiSnapshot && (
-                  <AiDiffChip
-                    changed={textChanged(aiSnapshot.ebay_condition, ebayCondition)}
-                    aiDisplay={conditionLabel(aiSnapshot.ebay_condition)}
-                    onRevert={() => setEbayCondition(aiSnapshot.ebay_condition ?? "")}
-                  />
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="condition-desc">Condition description</Label>
-                <Textarea
-                  id="condition-desc"
-                  value={conditionDesc}
-                  onChange={(e) => setConditionDesc(e.target.value)}
-                  rows={3}
-                  placeholder="Honest, buyer-facing condition notes — call out any flaws."
-                />
-                {aiSnapshot && (
-                  <AiDiffChip
-                    changed={textChanged(
-                      aiSnapshot.condition_description,
-                      conditionDesc,
-                    )}
-                    aiDisplay={aiSnapshot.condition_description ?? ""}
-                    onRevert={() =>
-                      setConditionDesc(aiSnapshot.condition_description ?? "")
-                    }
-                  />
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="listing-price">Price (USD)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="listing-price"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={price}
-                    onChange={(e) => {
-                      setPrice(e.target.value);
-                      setPriceEstimated(false);
-                      setPriceCompSource(null);
-                    }}
-                    placeholder="0.00"
-                    className="max-w-[10rem]"
-                    disabled={isEbayOrigin}
-                    title={
-                      isEbayOrigin
-                        ? "eBay owns this listing's price — change it on eBay."
-                        : undefined
-                    }
-                  />
-                  {priceEstimated && (
-                    <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
-                      {priceCompSource === "active_asking"
-                        ? "Asking-price comp — may run high"
-                        : "AI estimate — verify"}
-                    </Badge>
-                  )}
-                  {aiSnapshot && (
-                    <AiDiffChip
-                      changed={priceChanged(aiSnapshot.price_cents, price)}
-                      aiDisplay={formatAiPrice(aiSnapshot.price_cents)}
-                      onRevert={() => {
-                        setPrice(aiPriceInput(aiSnapshot.price_cents));
-                        setPriceEstimated(true);
-                        setPriceCompSource(null);
-                      }}
-                    />
-                  )}
-                </div>
-                {priceEstimated && (
-                  <p className="text-xs text-muted-foreground">
-                    {priceCompSource === "active_asking"
-                      ? "No sold comps were available, so this price is based on active eBay asking prices, which tend to run high. Verify before publishing."
-                      : "No eBay comps were found, so this price is the AI's estimate. Edit it to confirm."}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="purchase-cost">Purchase price (what you paid)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="purchase-cost"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={cost}
-                    onChange={(e) => setCost(e.target.value)}
-                    placeholder="0.00"
-                    className="max-w-[10rem]"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Saves with the draft · drives margin + ROI
-                  </span>
-                </div>
-                {/* US-553: live profit/margin so pricing is a margin decision. */}
-                {parsedPreviewPrice > 0 && (
-                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Est. net profit</span>
-                      <span
-                        className={cn(
-                          "font-semibold tabular-nums",
-                          profitEstimate.net < 0
-                            ? "text-destructive"
-                            : profitEstimate.marginPct < 20
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-emerald-600 dark:text-emerald-400",
-                        )}
-                      >
-                        ${profitEstimate.net.toFixed(2)} ·{" "}
-                        {profitEstimate.marginPct.toFixed(0)}% margin
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-                      <span>eBay fees ~${profitEstimate.fees.toFixed(2)}</span>
-                      <span>Cost ${(effectiveCost ?? 0).toFixed(2)}</span>
-                      {(item.shipping_cost ?? 0) > 0 && (
-                        <span>Shipping ${(item.shipping_cost ?? 0).toFixed(2)}</span>
-                      )}
-                    </div>
-                    {effectiveCost == null && (
-                      <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                        Enter the purchase price above to see true margin — this
-                        is the ceiling until you do.
-                      </p>
-                    )}
-                  </div>
-                )}
-                {/* US-623: condition-aware sell-through forecast at this price. */}
-                {sellThroughForecast && sellThroughForecast.label !== "unknown" && parsedPreviewPrice > 0 && (
-                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Est. sell-through</span>
-                      <span
-                        className={cn(
-                          "font-semibold tabular-nums",
-                          sellThroughForecast.label === "fast"
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : sellThroughForecast.label === "moderate"
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-muted-foreground",
-                        )}
-                      >
-                        ~{Math.round(sellThroughForecast.sellThroughPct * 100)}% in{" "}
-                        {sellThroughForecast.daysLow}–{sellThroughForecast.daysHigh} days
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      Estimate from {sellThroughForecast.sampleSize} condition-matched comps — a lower price sells faster.
-                    </p>
-                  </div>
-                )}
-                {/* US-848: grade-anchored value from the public Condition Index. */}
-                <ConditionIndexValueHint
-                  brand={item.brand}
-                  category={item.category}
-                  title={item.item_title}
-                  grade={item.grade_value}
-                />
-                {/* US-1898: Best Offer — a conversion/negotiation lever, NOT a
-                    ranking factor. Fixed-price only (auctions use their own
-                    reserve/BIN terms). */}
-                {listingFormat.format === "fixed_price" && (
-                  <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <Label htmlFor="best-offer" className="text-sm">
-                          Accept Best Offers
-                        </Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          Let buyers negotiate — offers auto-clear within your limits. A
-                          conversion lever, not a ranking factor.
-                        </p>
-                      </div>
-                      <Switch
-                        id="best-offer"
-                        checked={bestOfferEnabled}
-                        onCheckedChange={setBestOfferEnabled}
-                        aria-label="Accept Best Offers on this listing"
-                      />
-                    </div>
-                    {bestOfferEnabled && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label htmlFor="bo-accept" className="text-xs">
-                            Auto-accept ≥ ($)
-                          </Label>
-                          <Input
-                            id="bo-accept"
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            value={bestOfferAccept}
-                            onChange={(e) => setBestOfferAccept(e.target.value)}
-                            placeholder={
-                              centsToDollarInput(listing?.price_range_high_cents) || "auto"
-                            }
-                            className="h-8"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label htmlFor="bo-decline" className="text-xs">
-                            Auto-decline ≤ ($)
-                          </Label>
-                          <Input
-                            id="bo-decline"
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            value={bestOfferDecline}
-                            onChange={(e) => setBestOfferDecline(e.target.value)}
-                            placeholder={
-                              centsToDollarInput(listing?.price_range_low_cents) || "auto"
-                            }
-                            className="h-8"
-                          />
-                        </div>
-                        <p className="col-span-2 text-[11px] text-muted-foreground">
-                          Blank uses your comp band (p75 accept / p25 decline). Clamped to
-                          eBay&apos;s rule: decline &lt; accept &lt; price.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="schedule-at">Schedule publish (optional)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="schedule-at"
-                    type="datetime-local"
-                    value={scheduledAt}
-                    onChange={(e) => setScheduledAt(e.target.value)}
-                    className="max-w-[16rem]"
-                  />
-                  {scheduledAt && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setScheduledAt("")}
-                    >
-                      Clear
-                    </Button>
-                  )}
-                </div>
-                {/* US-563: timezone-aware peak-time presets. The picker only
-                    controls how the presets below are evaluated; the input
-                    stays in your browser's local time. */}
-                <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                  <Select value={dropTimezone} onValueChange={setDropTimezone}>
-                    <SelectTrigger className="h-8 w-[15rem] text-xs">
-                      <SelectValue placeholder="Timezone" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(COMMON_TIMEZONES.some((t) => t.id === dropTimezone)
-                        ? COMMON_TIMEZONES
-                        : [{ id: dropTimezone, label: `${dropTimezone} (your timezone)` }, ...COMMON_TIMEZONES]
-                      ).map((tz) => (
-                        <SelectItem key={tz.id} value={tz.id} className="text-xs">
-                          {tz.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {DROP_PRESETS.map((preset) => (
-                    <Button
-                      key={preset.id}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      title={preset.hint}
-                      onClick={() => {
-                        const utc = nextPresetUtc(preset, dropTimezone);
-                        setScheduledAt(isoToLocalInput(utc.toISOString()));
-                        toast.success(
-                          `Drop set for ${formatInZone(utc.toISOString(), dropTimezone)}`,
-                        );
-                      }}
-                    >
-                      {preset.label}
-                    </Button>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Leave empty to publish immediately when you hit “Publish”.
-                  If set, save the draft and it goes live automatically at that time.
-                  {scheduledAt && (
-                    <>
-                      {" "}Goes live{" "}
-                      <span className="font-medium text-foreground">
-                        {formatInZone(
-                          localInputToIso(scheduledAt) ?? "",
-                          dropTimezone,
-                        )}
-                      </span>
-                      .
-                    </>
-                  )}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <PhotosCard
+            item={item}
+            liveListingId={isLiveListing ? (listing?.id ?? null) : null}
+            primaryPhoto={primaryPhoto}
+            setPrimaryPhotoId={setPrimaryPhotoId}
+            badgeEnabled={badgeEnabled}
+            setBadgeEnabled={setBadgeEnabled}
+            slabImageMode={slabImageMode}
+            setSlabImageMode={setSlabImageMode}
+          />
 
-          {/* Listing format + variations (US-568) */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Format &amp; variations</CardTitle>
-              <CardDescription>
-                List as a fixed-price Buy It Now or a timed auction, or offer one
-                listing in multiple sizes/colors.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ListingFormatControls
-                value={listingFormat}
-                onChange={setListingFormat}
-              />
-            </CardContent>
-          </Card>
+          <MeasurementsCard
+            item={item}
+            measurements={measurements}
+            setMeasurements={setMeasurements}
+          />
 
-          {/* Promoted Listings ad rate (US-561) */}
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle>Promote on eBay</CardTitle>
-                  <CardDescription>
-                    Attach a Promoted Listings ad rate at publish for more
-                    visibility. You’re only charged this % of the sale price
-                    when the item sells through the ad.
-                  </CardDescription>
-                </div>
-                <Switch
-                  id="promote-toggle"
-                  checked={promoteEnabled}
-                  onCheckedChange={setPromoteEnabled}
-                  aria-label="Promote this listing on eBay"
-                />
-              </div>
-            </CardHeader>
-            {promoteEnabled && (
-              <CardContent className="space-y-2">
-                {/* US-1447: campaign type — Cost-Per-Sale vs Cost-Per-Click. */}
-                <Label>Campaign type</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant={promoMode === "cps" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setPromoMode("cps")}
-                    className={promoMode === "cps" ? "bg-brand-navy" : undefined}
-                  >
-                    Cost-Per-Sale
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={promoMode === "cpc" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setPromoMode("cpc")}
-                    className={promoMode === "cpc" ? "bg-brand-navy" : undefined}
-                  >
-                    Cost-Per-Click (Priority)
-                  </Button>
-                  {/* US-1447: Smart Targeting — eBay auto-targets under a
-                      suggested max-CPC ceiling. */}
-                  <Button
-                    type="button"
-                    variant={promoMode === "smart" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setPromoMode("smart")}
-                    className={promoMode === "smart" ? "bg-brand-navy" : undefined}
-                  >
-                    Smart Targeting
-                  </Button>
-                </div>
-                {promoMode === "cpc" ? (
-                  <p className="text-xs text-muted-foreground">
-                    Priority ads bid per click (charged when a shopper clicks,
-                    not only on sale). The bid uses your eBay Priority ad group&apos;s
-                    max cost-per-click. You can fine-tune bids in eBay Seller Hub.
-                  </p>
-                ) : promoMode === "smart" ? (
-                  <p className="text-xs text-muted-foreground">
-                    Smart Targeting lets eBay pick placements and bids
-                    automatically, capped at a max cost-per-click seeded from
-                    eBay&apos;s suggestion for this listing. Charged per click; tune
-                    the ceiling any time in eBay Seller Hub.
-                  </p>
-                ) : (
-                  <>
-                <Label htmlFor="promo-rate">Ad rate (%)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="promo-rate"
-                    type="number"
-                    inputMode="decimal"
-                    min="2"
-                    max="20"
-                    step="0.5"
-                    value={promoRate}
-                    onChange={(e) => setPromoRate(e.target.value)}
-                    className="h-9 max-w-[7rem]"
-                  />
-                  {promoSuggested != null && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setPromoRate(String(promoSuggested))}
-                      disabled={promoRate === String(promoSuggested)}
-                    >
-                      Use suggested ({promoSuggested}%)
-                    </Button>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {promoSuggested != null
-                    ? `Suggested ${promoSuggested}% for this category. Adjust between 2% and 20%, or turn off to opt out.`
-                    : "Adjust between 2% and 20%, or turn off to opt out."}
-                </p>
-                  </>
-                )}
-                {listing?.promo_status === "failed" && (
-                  <p className="text-xs text-destructive">
-                    The last publish couldn’t attach the ad on eBay. It’ll retry
-                    on your next publish.
-                  </p>
-                )}
-                {listing?.promo_ad_id && listing.promo_status &&
-                  listing.promo_status !== "failed" && (
-                    <p className="text-xs text-muted-foreground">
-                      Live ad status:{" "}
-                      <span className="font-medium">{listing.promo_status}</span>
-                      {listing.promo_rate_pct != null
-                        ? ` at ${listing.promo_rate_pct}%`
-                        : ""}
-                      .
-                    </p>
-                  )}
-              </CardContent>
+          <TitleCard
+            title={title}
+            setTitle={setTitle}
+            item={item}
+            titleLen={titleLen}
+            titleMeter={titleMeter}
+            titleChips={titleChips}
+            chipFits={chipFits}
+            appendKeyword={appendKeyword}
+            aiSnapshot={aiSnapshot}
+            aiRewrite={aiRewrite}
+            rewriteAction={rewriteAction}
+            runRewrite={(a) => void runRewrite(a)}
+            isEbayOrigin={isEbayOrigin}
+            ebayOwnedHint={ebayOwnedHint}
+          />
+          <SpecificsSection
+            // US-2264: "Complete with AI" persists a resolved category + aspects
+            // server-side. The picker seeds ONCE from its initial props, so
+            // without this key it would keep showing the pre-AI values.
+            key={ebayMapping?.ai_generated_aspects_at ?? "seed"}
+            item={item}
+            aspectCoverage={aspectCoverage}
+            loading={listingLoading || ebayMappingLoading}
+            isEbayOrigin={isEbayOrigin}
+            savedCategoryId={savedCategoryId}
+            savedAspects={savedAspects}
+            savedSources={
+              (listing?.item_specifics_sources ??
+                ebayMapping?.ebay_aspect_sources ??
+                null) as AspectSourceMap | null
+            }
+            needsReviewAspects={(listing?.aspect_review ?? []).map(
+              (a) => a.aspect,
             )}
-          </Card>
-
-          {/* Push to marketplaces (US-149 + US-717). API platforms fan out via
-              cross-push; the extension platforms list from the seller's own
-              browser through the Listing Kit below. */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Push to</CardTitle>
-              <CardDescription>
-                Cross-list this draft. Each platform gets its own price — leave it
-                blank to use the price above.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {API_CROSS_LISTING_PLATFORMS.map((p) => {
-                // US-1114: a channel whose connector is built but awaiting
-                // platform approval (tier "api_pending", e.g. Depop) has no
-                // connect/publish path yet — publishing would 503. Show it
-                // disabled with honest copy instead of a live "Connected via
-                // API" checkbox that fails on click.
-                const pending = MARKETPLACE_TIER[p] === "api_pending";
-                const checked = pushPlatforms.has(p) && !pending;
-                return (
-                  <div
-                    key={p}
-                    className={cn(
-                      "flex items-center justify-between gap-3 rounded-md border p-2.5",
-                      pending && "opacity-60",
-                    )}
-                  >
-                    <label
-                      className={cn(
-                        "flex items-center gap-2 text-sm",
-                        pending ? "cursor-not-allowed" : "cursor-pointer",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={pending}
-                        onChange={() => togglePushPlatform(p)}
-                        className={cn(
-                          "h-3.5 w-3.5",
-                          pending ? "cursor-not-allowed" : "cursor-pointer",
-                        )}
-                      />
-                      <span className="font-medium">
-                        {MARKETPLACE_LABELS[p]}
-                      </span>
-                      <Badge variant="outline" className="text-[10px]">
-                        {pending
-                          ? MARKETPLACE_TIER_LABEL.api_pending
-                          : "Connected via API"}
-                      </Badge>
-                    </label>
-                    {checked && (
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="0.01"
-                        value={platformPrices[p] ?? ""}
-                        onChange={(e) =>
-                          setPlatformPrices((prev) => ({
-                            ...prev,
-                            [p]: e.target.value,
-                          }))
-                        }
-                        placeholder={price || "Price"}
-                        className="h-8 max-w-[7rem] text-right"
-                        aria-label={`${MARKETPLACE_LABELS[p]} price`}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* US-717: extension marketplaces are offered with their real
-                  mechanism badge. They have no write API, so they list from the
-                  seller's own logged-in tab via the Listing Kit below — not
-                  cross-push. */}
-              <div className="rounded-md border border-dashed p-2.5">
-                <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                  {EXTENSION_CROSS_LISTING_PLATFORMS.map((p) => (
-                    <span key={p} className="font-medium">
-                      {MARKETPLACE_LABELS[p]}
-                    </span>
-                  ))}
-                  <Badge variant="outline" className="text-[10px]">
-                    Via browser extension
-                  </Badge>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  No public API — list these from your own logged-in tab with the
-                  GradeThread Lister extension in the Listing Kit below.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Photos */}
-          <Card id="composer-photos">
-            <CardHeader>
-              <CardTitle>Photos</CardTitle>
-              <CardDescription>
-                Drag to reorder, click a photo to view it full size, and use
-                the pencil to rotate, straighten, or crop. The star picks the
-                primary image.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* US-1567: the full shared photo toolkit — upload, reorder,
-                  rotate/crop/straighten, retag, delete, background removal,
-                  and click-to-view — identical to the item page, so the
-                  drafts flow never sends the seller elsewhere for photo
-                  work. The star keeps the composer's primary-photo pick. */}
-              <PhotoUploader
-                itemId={item.id}
-                currentStatus={item.status}
-                category={item.category as ItemCategory | null}
-              />
-              <PhotoManager
-                itemId={item.id}
-                liveListingId={isLiveListing ? listing?.id : null}
-                primaryPhotoId={primaryPhoto?.id ?? null}
-                onPickPrimary={setPrimaryPhotoId}
-              />
-
-              {item.grade_value != null && (
-                <div className="rounded-md border p-3">
-                  <p className="text-sm font-medium">
-                    Grade shown on this listing
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Graded items automatically add the grade to the description
-                    and a “Condition Grade: {item.grade_value.toFixed(1)}{" "}
-                    (GradeThread)” item specific, plus a link to the certificate
-                    page buyers can verify. We never add badges, watermarks, or
-                    QR codes to your photos — that protects your marketplace
-                    account.
-                  </p>
-                  {/* US-1665 growth loop: one-click copy of the public
-                      certificate link, so a seller can paste the verifiable
-                      grade into ANY marketplace listing (not just eBay). Each
-                      shared link is an indexable inbound reference to the cert. */}
-                  {item.certificate_url && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
-                      onClick={() => {
-                        const certUrl = item.certificate_url;
-                        if (!certUrl) return;
-                        void navigator.clipboard
-                          .writeText(certUrl)
-                          .then(() =>
-                            toast.success("Certificate link copied", {
-                              description:
-                                "Paste it into your listing so buyers can verify the grade.",
-                            }),
-                          )
-                          .catch(() =>
-                            toast.error("Couldn't copy the link"),
-                          );
-                      }}
-                    >
-                      <Link2 className="mr-2 h-4 w-4" />
-                      Copy certificate link for your listing
-                    </Button>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* US-1567: measurements — same form as the item canvas. */}
-          <Card id="composer-measurements">
-            <CardHeader>
-              <CardTitle>Measurements</CardTitle>
-              <CardDescription>
-                Flat measurements buyers ask about. Synced live with matching
-                free-text eBay item specifics (Inseam, Length, Chest, …).
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <MeasurementForm
-                category={item.category}
-                brand={item.brand}
-                values={measurements}
-                onChange={setMeasurements}
-                aiSources={item.ai_field_sources ?? null}
-              />
-              {/* US-1574: calibrated photo measuring — renders only when the
-                  item has a MeasureCard shot; drag-adjust + save syncs the
-                  same measurements state the form above edits. */}
-              <MeasurementPhotoEditor
-                itemId={item.id}
-                category={item.category}
-                values={measurements}
-                aiSources={item.ai_field_sources ?? null}
-                onApply={(next) => setMeasurements(next)}
-              />
-            </CardContent>
-          </Card>
+            initialised={initialised}
+            measurements={measurements}
+            setMeasurements={setMeasurements}
+            measurementUnit={measurementUnit}
+            itemAspectSource={itemAspectSource}
+            onCategoryChange={(id, path) => {
+              setLivePickedCategoryId(id);
+              setLivePickedCategoryPath(path ?? null);
+            }}
+            onAspectsChange={handleAspectsChange}
+            onSourcesChange={setLivePickedSources}
+            onMissingRequiredChange={setMissingRequired}
+          />
 
           {/* Grade this item — restores the "Submit for grading" action in the
               drafts editor (it lived on the item canvas, which the AutoLister/
               Inventory drafts consolidation routed around). Self-contained: shows
               the existing grade + certificate when graded, submission status when
               in flight, or the tier picker + Submit when eligible. */}
+          <div id="composer-grading" className="scroll-mt-4">
           <GradeThisItemCard
             item={item}
             preview={gradingPreview}
@@ -2958,83 +2149,157 @@ export function FlipdeskComposerPage({
               })();
             }}
           />
+          </div>
 
-          {/* Description */}
+          {/* US-2259: both of these were mounted ONLY on ItemCanvas, which no
+              route renders any more — this editor replaced it. Two working
+              features (adopt an eBay Catalog product to auto-fill authoritative
+              specifics; check the chosen category against the Taxonomy API's
+              current suggestion) were unreachable. They belong right under the
+              category + specifics editor they act on. */}
+          <EbayCatalogMatchCard itemId={item.id} />
+          {item.listing_id && <CategoryCheckCard listingId={item.listing_id} />}
+
+          {/* Live comps + price recommendation */}
+          <EbayCompsPanel
+            itemId={item.id}
+            categoryId={resolvedCategoryId}
+            brand={item.brand ?? null}
+            size={item.size ?? null}
+            q={item.item_title ?? ""}
+            styleCode={compStyleCode}
+            grade={item.grade_value ?? null}
+            onTargetPriceUpdated={(value) => {
+              // US-1449: flow an applied comp/recommended price straight into the
+              // price input so the seller doesn't retype it — and so it wins at
+              // save over the stale seeded value (resolveListingFields reads this
+              // `price` state first). Clear the estimated/comp-source markers: the
+              // seller has now explicitly adopted this price.
+              setPrice(String(value));
+              setPriceEstimated(false);
+              setPriceCompSource(null);
+            }}
+          />
+
+          <PriceCard
+            ebayCondition={ebayCondition}
+            setEbayCondition={setEbayCondition}
+            conditionOptions={conditionOptions}
+            conditionRejected={conditionRejected}
+            categoryConditions={categoryConditions}
+            conditionDesc={conditionDesc}
+            setConditionDesc={setConditionDesc}
+            price={price}
+            setPrice={setPrice}
+            priceEstimated={priceEstimated}
+            setPriceEstimated={setPriceEstimated}
+            priceCompSource={priceCompSource}
+            setPriceCompSource={setPriceCompSource}
+            quantity={quantity}
+            setQuantity={setQuantity}
+            quantityInvalid={quantityInvalid}
+            variationQuantity={variationQuantity}
+            listingFormat={listingFormat}
+            bestOfferEnabled={bestOfferEnabled}
+            setBestOfferEnabled={setBestOfferEnabled}
+            bestOfferAccept={bestOfferAccept}
+            setBestOfferAccept={setBestOfferAccept}
+            bestOfferDecline={bestOfferDecline}
+            setBestOfferDecline={setBestOfferDecline}
+            listing={listing}
+            aiSnapshot={aiSnapshot}
+            isEbayOrigin={isEbayOrigin}
+            ebayOwnedHint={ebayOwnedHint}
+          />
+
+          <CostMarginCard
+            item={item}
+            cost={cost}
+            setCost={setCost}
+            effectiveCost={effectiveCost}
+            parsedPreviewPrice={parsedPreviewPrice}
+            profitEstimate={profitEstimate}
+            sellThroughForecast={sellThroughForecast}
+          />
+
+          {/* Listing format + variations (US-568) */}
           <Card>
             <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <CardTitle>Description</CardTitle>
-                  <CardDescription>
-                    Apply the{" "}
-                    <Badge variant="outline" className="capitalize">
-                      {group}
-                    </Badge>{" "}
-                    template, then edit freely.
-                  </CardDescription>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={applyTemplate}>
-                    <Wand2 className="mr-2 h-3 w-3" />
-                    Apply template
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={aiRewrite.isPending}
-                      >
-                        {aiRewrite.isPending &&
-                        rewriteAction?.startsWith("description_") ? (
-                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                        ) : (
-                          <Sparkles className="mr-2 h-3 w-3" />
-                        )}
-                        AI rewrite
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        disabled={!description.trim()}
-                        onClick={() => void runRewrite("description_tighten")}
-                      >
-                        Tighten &amp; polish
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={photos.length === 0}
-                        onClick={() => void runRewrite("description_regen")}
-                      >
-                        Regenerate from photos
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
+              <CardTitle>Format &amp; variations</CardTitle>
+              <CardDescription>
+                List as a fixed-price Buy It Now or a timed auction, or offer one
+                listing in multiple sizes/colors.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
-              <Textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={14}
-                placeholder="Apply the template above, or write your own."
-                className="font-mono text-xs"
-                disabled={isEbayOrigin}
-                title={
-                  isEbayOrigin
-                    ? "eBay owns this listing's description — edit it on eBay."
-                    : undefined
-                }
+            <CardContent>
+              <ListingFormatControls
+                value={listingFormat}
+                onChange={setListingFormat}
               />
-              {aiSnapshot?.description && (
-                <AiDiffChip
-                  changed={textChanged(aiSnapshot.description, description)}
-                  aiDisplay="AI draft"
-                  onRevert={() => setDescription(aiSnapshot.description ?? "")}
-                />
-              )}
             </CardContent>
           </Card>
+
+          {ebayConnection && (
+            <PoliciesCard
+              ebayPolicies={ebayPolicies}
+              shippingPolicyId={shippingPolicyId}
+              setShippingPolicyId={setShippingPolicyId}
+              paymentPolicyId={paymentPolicyId}
+              setPaymentPolicyId={setPaymentPolicyId}
+              returnPolicyId={returnPolicyId}
+              setReturnPolicyId={setReturnPolicyId}
+            />
+          )}
+
+          <PromoteCard
+            promoteEnabled={promoteEnabled}
+            setPromoteEnabled={setPromoteEnabled}
+            promoMode={promoMode}
+            setPromoMode={setPromoMode}
+            promoRate={promoRate}
+            setPromoRate={setPromoRate}
+            promoSuggested={promoSuggested}
+            listing={listing}
+          />
+
+          <DescriptionCard
+            description={description}
+            setDescription={setDescription}
+            group={group}
+            applyTemplate={applyTemplate}
+            photoCount={photos.length}
+            aiRewrite={aiRewrite}
+            rewriteAction={rewriteAction}
+            runRewrite={(a) => void runRewrite(a)}
+            aiSnapshot={aiSnapshot}
+            isEbayOrigin={isEbayOrigin}
+            ebayOwnedHint={ebayOwnedHint}
+          />
+
+          <ItemDetailsCard
+            currentStatus={item.status}
+            status={itemStatus}
+            onStatusChange={setItemStatus}
+            category={itemCategory}
+            onCategoryChange={(next) => {
+              setItemCategory(next);
+              setCategoryTouched(true);
+            }}
+            sourcedBy={sourcedBy}
+            onSourcedByChange={setSourcedBy}
+            acquiredDate={acquiredDate}
+            onAcquiredDateChange={setAcquiredDate}
+            onRecordSale={() => setRecordSaleOpen(true)}
+          />
+
+          <StorageSkuCard
+            sku={storageSku}
+            onSkuChange={setStorageSku}
+            location={storageLocation}
+            onLocationChange={setStorageLocation}
+            container={storageContainer}
+            onContainerChange={setStorageContainer}
+          />
         </div>
 
         {/* ── Preview column ──────────────────────────────────────── */}
@@ -3081,11 +2346,42 @@ export function FlipdeskComposerPage({
         </div>
       </div>
 
+      {/* ── Publish ──────────────────────────────────────────────
+          US-2252/US-2253: everything that decides HOW this goes live sits
+          together, directly above the button that does it. The channel picker
+          used to live four cards up in the editor column while gating the CTA at
+          the bottom, and the drop schedule was buried inside "Condition &
+          price" — neither a condition nor a price. */}
+        <PushToCard
+          pushPlatforms={pushPlatforms}
+          togglePushPlatform={togglePushPlatform}
+          platformPrices={platformPrices}
+          setPlatformPrices={setPlatformPrices}
+          price={price}
+        />
+
+      {/* US-2252: the Listing Kit is editable content, so it belongs ABOVE the
+          Save/Publish row rather than after it — nothing actionable should sit
+          below the button that ends the task. */}
+      <ListingKit
+        itemId={item.id}
+        baseName={item.item_number ?? item.item_title ?? item.id}
+      />
+
+      {editorMode === "draft" && (
+        <ScheduleCard
+          scheduledAt={scheduledAt}
+          setScheduledAt={setScheduledAt}
+          dropTimezone={dropTimezone}
+          setDropTimezone={setDropTimezone}
+        />
+      )}
+
       {/* US-825: pre-publish required-aspect check — warn inline (using the same
           required-aspect rule the server blocks on) instead of failing at publish.
           Non-blocking: publish stays server-validated. */}
       {missingRequired.length > 0 && (
-        <div className="flex items-start justify-end gap-2 text-right">
+        <div className="flex flex-wrap items-center justify-end gap-2 text-right">
           <p className="text-xs text-muted-foreground">
             <span className="font-medium text-destructive">
               {missingRequired.length} required{" "}
@@ -3093,8 +2389,21 @@ export function FlipdeskComposerPage({
             </span>{" "}
             ({missingRequired.slice(0, 4).join(", ")}
             {missingRequired.length > 4 ? "…" : ""}) — eBay will reject publish
-            until these are filled in the specifics editor above.
+            until these are filled in.
           </p>
+          {/* US-2257: "above" was doing a lot of work from the bottom of a very
+              long page. Take the seller there instead. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const el = document.getElementById("composer-category");
+              el?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+          >
+            Go to item specifics
+          </Button>
         </div>
       )}
 
@@ -3139,8 +2448,11 @@ export function FlipdeskComposerPage({
       )}
 
       <div className="flex justify-end gap-2">
+        {/* US-2256: navigate(-1) is intercepted by the navigation guard when
+            there is unsaved work, so this stays a plain navigation and the
+            confirm lives in one place. */}
         <Button variant="outline" onClick={() => navigate(-1)} disabled={saving}>
-          Close
+          {isDirty ? "Close without saving" : "Close"}
         </Button>
         {editorMode === "live" ? (
           <>
@@ -3200,39 +2512,50 @@ export function FlipdeskComposerPage({
             </Button>
             <Button
               onClick={() => void handlePublishClick()}
+              // US-2257: also blocked on the two things eBay is CERTAIN to
+              // reject, so the seller learns it here rather than from eBay's
+              // error message after a round-trip.
               disabled={
                 saving ||
                 crossPush.isPending ||
                 pushPlatforms.size === 0 ||
-                (pushPlatforms.has("ebay") && !ebayConnection)
+                (pushPlatforms.has("ebay") && !ebayConnection) ||
+                publishBlocker != null
               }
               title={
                 pushPlatforms.has("ebay") && !ebayConnection
                   ? "Connect eBay first on the Marketplaces page."
                   : pushPlatforms.size === 0
                     ? "Pick at least one marketplace in the Push to card."
-                    : "Saves the draft, then publishes."
+                    : (publishBlocker ??
+                      (scheduledAt
+                        ? "Saves the draft; it publishes itself at your drop time."
+                        : "Saves the draft, then publishes."))
               }
             >
               {crossPush.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : scheduledAt ? (
+                <CalendarClock className="mr-2 h-4 w-4" />
               ) : (
                 <Rocket className="mr-2 h-4 w-4" />
               )}
-              {pushPlatforms.size === 1 && pushPlatforms.has("ebay")
-                ? "Save & publish to eBay"
-                : `Save & push to ${pushPlatforms.size} marketplace${
-                    pushPlatforms.size === 1 ? "" : "s"
-                  }`}
+              {/* US-2253: a scheduled drop isn't a publish — say what the click
+                  actually does, and when it happens. */}
+              {scheduledAt
+                ? `Save & schedule for ${formatInZone(
+                    localInputToIso(scheduledAt) ?? "",
+                    dropTimezone,
+                  )}`
+                : pushPlatforms.size === 1 && pushPlatforms.has("ebay")
+                  ? "Save & publish to eBay"
+                  : `Save & push to ${pushPlatforms.size} marketplace${
+                      pushPlatforms.size === 1 ? "" : "s"
+                    }`}
             </Button>
           </>
         )}
       </div>
-
-      <ListingKit
-        itemId={item.id}
-        baseName={item.item_number ?? item.item_title ?? item.id}
-      />
 
       <PublishToEbayDialog
         open={publishOpen}
@@ -3251,15 +2574,74 @@ export function FlipdeskComposerPage({
         onApply={applyRewrite}
       />
 
-      {mergeState && (
+      {/* US-2256: thirteen cards of edits used to vanish on one stray click —
+          Close had no confirm, and neither did a sidebar click or a refresh. */}
+      <AlertDialog
+        open={guard.blocked}
+        onOpenChange={(open) => {
+          if (!open) guard.cancelLeave();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have changes to this listing that haven&apos;t been saved. If
+              you leave now they&apos;ll be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={guard.cancelLeave}>
+              Keep editing
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={guard.confirmLeave}>
+              Leave and discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* US-2264: the manual "it's live somewhere else" bridge. */}
+      <MarkListedDialog
+        item={markListedOpen ? item : null}
+        onClose={() => setMarkListedOpen(false)}
+      />
+
+      {/* US-2264: review/accept what the AI read off the photos. Reuses the
+          extract panel, so accept-all, confidence tiers and acceptance logging
+          all carry over. */}
+      <AiFillPanel
+        open={aiFillOpen}
+        onOpenChange={setAiFillOpen}
+        result={aiFillResult}
+        currentValues={Object.fromEntries(
+          ENRICHABLE.map((f) => [f.key, String(f.value ?? "")]),
+        )}
+        onApply={(accepted) => void applyAiFill(accepted)}
+      />
+
+      {/* US-2260: the real sold path — captures price, fees and date, then
+          advances the status via advanceItemStatus. */}
+      <RecordSaleDialog
+        item={recordSaleOpen ? item : null}
+        onClose={() => setRecordSaleOpen(false)}
+      />
+
+      {skuMerge.mergeState && (
         <MergeSkuDialog
           open
-          sku={mergeState.sku}
-          current={mergeState.current}
-          existing={mergeState.existing}
-          merging={merging}
-          onCancel={() => setMergeState(null)}
-          onConfirm={(overrides) => void handleMergeConfirm(overrides)}
+          sku={skuMerge.mergeState.sku}
+          current={skuMerge.mergeState.current}
+          existing={skuMerge.mergeState.existing}
+          merging={skuMerge.merging}
+          onCancel={skuMerge.cancelMerge}
+          onConfirm={(overrides) =>
+            void skuMerge.confirmMerge(overrides, {
+              // The rolled-back save never committed these.
+              location_bin: storageLocation.trim() || null,
+              container: storageContainer.trim() || null,
+            })
+          }
         />
       )}
     </div>

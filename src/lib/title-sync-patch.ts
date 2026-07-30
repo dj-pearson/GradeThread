@@ -3,7 +3,7 @@
 // title-sync.ts owns the substitution. This owns the decisions WRAPPED around
 // it — which base title to start from, whether both A/B variants move, and
 // whether the change needs review — because those were previously written out
-// longhand inside item-canvas.tsx and would otherwise be copy-pasted into every
+// longhand inside the retired item canvas and would otherwise be copy-pasted into every
 // other surface that edits an item.
 //
 // That is the whole lesson of this story: the pure helper was shared and the

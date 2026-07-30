@@ -193,7 +193,7 @@ export function SnapCatalog() {
       // US-1423: derive garment_type/garment_category (which grading requires
       // but Snap never captured) from the just-applied item_category, preferring
       // any garment values the AI returned — so a snapped item can be graded
-      // without a manual re-classification in ItemCanvas. Only fill when absent.
+      // without a manual re-classification in the composer. Only fill when absent.
       const itemCategory =
         typeof update.item_category === "string" ? update.item_category : null;
       const garment = deriveGarmentDefaults(itemCategory, {

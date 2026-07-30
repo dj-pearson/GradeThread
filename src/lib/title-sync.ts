@@ -1,6 +1,6 @@
 // US-1891: backwards title sync (FRONTEND mirror of the edge lib).
 //
-// The web item-canvas save is a direct supabase write (no edge round-trip), so
+// The web composer save is a direct supabase write (no edge round-trip), so
 // it needs this logic client-side. Edge and web run as separate projects and
 // can't import each other — keep this in LOCKSTEP with
 // services/edge-functions/src/lib/title-sync.ts (same convention as the
