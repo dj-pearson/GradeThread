@@ -52,6 +52,8 @@ fun ItemCanvasScreen(
     onClose: () -> Unit,
     onGrade: (String) -> Unit,
     onOpenReport: (String) -> Unit,
+    /** US-1376: the item's pedigree timeline. */
+    onOpenPassport: (String) -> Unit = {},
     /** US-1344: a duplicate opens as its own canvas. */
     onOpenItem: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -269,6 +271,12 @@ fun ItemCanvasScreen(
             BrandSecondaryButton(text = "Report", modifier = Modifier.weight(1f)) {
                 onOpenReport(itemId)
             }
+        }
+        // US-1376: always offered, even for an ungraded item — the passport
+        // screen explains that grading is what starts one, which is more use
+        // than a button that isn't there.
+        BrandSecondaryButton(text = "Passport", modifier = Modifier.fillMaxWidth()) {
+            onOpenPassport(itemId)
         }
 
         // US-1352: publish from the canvas, where the fields the listing is

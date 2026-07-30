@@ -6,6 +6,8 @@ import com.gradethread.app.analytics.ListingPerformanceProviding
 import com.gradethread.app.analytics.ListingPerformanceService
 import com.gradethread.app.consignment.ConsignorProviding
 import com.gradethread.app.consignment.ConsignorService
+import com.gradethread.app.passport.PassportProviding
+import com.gradethread.app.passport.PassportService
 import com.gradethread.app.scout.ScoutScanning
 import com.gradethread.app.scout.ScoutService
 import com.gradethread.app.templates.TemplateProviding
@@ -60,4 +62,9 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindVerified(impl: VerifiedService): VerifiedProviding
+
+    /** US-1376: the item passport chain. */
+    @Binds
+    @Singleton
+    abstract fun bindPassport(impl: PassportService): PassportProviding
 }

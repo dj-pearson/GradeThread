@@ -469,6 +469,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
                 onGrade = { navController.navigate("grade/$itemId") },
                 onOpenReport = { navController.navigate("report/$itemId") },
+                onOpenPassport = { navController.navigate("passport/$itemId") },
                 onOpenItem = { newId ->
                     // Replaces this canvas rather than stacking: back from a
                     // duplicate should reach the list, not the item it copied.
@@ -476,6 +477,13 @@ private fun ShellNavHost(navController: NavHostController) {
                         popUpTo("item/{itemId}") { inclusive = true }
                     }
                 },
+            )
+        }
+        // US-1376: the item's pedigree timeline.
+        composable("passport/{itemId}") { entry ->
+            com.gradethread.app.passport.PassportScreen(
+                itemId = entry.arguments?.getString("itemId").orEmpty(),
+                onClose = { navController.popBackStack() },
             )
         }
         // US-1341: the certified-grades history.

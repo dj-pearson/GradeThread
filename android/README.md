@@ -35,6 +35,7 @@ consignors, per-item splits and the payout report ·
 listing templates applied from the publish composer ·
 Scout (graded, profit-ranked eBay candidates) and in-store Prospect ·
 verified-seller status with an offline-tolerant requirements checklist ·
+the item passport (pedigree timeline with confidence per hop) ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -42,7 +43,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Passport, fulfilment | US-1376–1377 |
+| Fulfilment | US-1377 |
 | FCM push, Glance widgets, onboarding, referrals, feedback, workspaces, CSV import | US-1378–1389 |
 | Localization (`values-*`, plurals, locale selector) | US-1393 |
 
@@ -96,6 +97,7 @@ opened the project (US-2015). Add a row when the code lands, not before.
 | `templates` | `Templates/` | listing-preset CRUD (RLS-scoped), editor, apply-to-composer |
 | `scout` | `Scout/` + `Prospect/` | ScoutAI deal finder, in-store photo prospecting, buy-or-walk verdict |
 | `verified` | `Verified/` | read-only badge status, requirements checklist, cached-offline standing |
+| `passport` | `Passport/` | PII-free pedigree timeline, confidence taxonomy, chain strength |
 | `platform` | `Networking/` + `Telemetry/` | EdgeAPI, Supabase, Sentry/PostHog, workspace scope, app lock |
 
 ## Play Billing (US-1338, US-1366)
