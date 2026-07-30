@@ -55,6 +55,12 @@ object ShellRoutes {
     /** US-1367: plans + credit packs, reached from a plan gate or Settings. */
     const val PAYWALL = "paywall"
 
+    /** US-1368: the analytics tab, reached from Tools or Money. */
+    const val ANALYTICS = "analytics"
+
+    /** US-1368: the per-listing engagement drill-down, reached from Analytics. */
+    const val LISTING_PERFORMANCE = "listing-performance"
+
     /**
      * US-1354: the offers + messages inbox, reached from Marketplaces or from
      * a `gradethread.com/app/negotiation/<itemId>` deep link.

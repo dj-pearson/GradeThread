@@ -211,4 +211,69 @@ fun GroupedBarChart(
     }
 }
 
+/** One row of a ranked list: a name, a bar, and the number it stands for. */
+data class RankedDatum(val label: String, val value: Double, val valueLabel: String)
+
+/**
+ * US-1368: a horizontal ranked bar list — top brands, sell-through, inventory
+ * by status.
+ *
+ * Horizontal because the labels are BRAND NAMES, not months. Vertical bars would
+ * put "Ralph Lauren" under a 40dp-wide column and truncate it to "Ral…", which
+ * makes the chart unreadable at exactly the point it becomes useful.
+ *
+ * Negative values (a brand that lost money) are drawn as an empty track rather
+ * than a mirrored bar: the ranking already puts them last, and a chart that
+ * grows leftward from an invisible axis reads as a bigger number, not a worse
+ * one. The value label still carries the sign.
+ */
+@Composable
+fun RankedBars(
+    rows: List<RankedDatum>,
+    description: String,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.primary,
+) {
+    if (rows.isEmpty()) return
+    val max = rows.maxOf { it.value }
+    Column(modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = description }) {
+        rows.forEach { row ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Text(
+                    row.label,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    modifier = Modifier.weight(0.38f),
+                )
+                Canvas(Modifier.weight(0.42f).height(TRACK_HEIGHT)) {
+                    val fraction = if (max <= 0) 0.0 else (row.value / max).coerceIn(0.0, 1.0)
+                    drawRect(
+                        color = tint.copy(alpha = 0.14f),
+                        size = Size(size.width, size.height),
+                    )
+                    if (fraction > 0) {
+                        drawRect(
+                            color = tint,
+                            size = Size((size.width * fraction).toFloat(), size.height),
+                        )
+                    }
+                }
+                Text(
+                    row.valueLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    modifier = Modifier.weight(0.20f).padding(start = Spacing.xxs),
+                )
+            }
+        }
+    }
+}
+
+private val TRACK_HEIGHT = 10.dp
+
 private const val STROKE = 4f

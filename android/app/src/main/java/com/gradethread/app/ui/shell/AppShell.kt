@@ -239,6 +239,21 @@ private fun ShellNavHost(navController: NavHostController) {
                 onOpenItem = { itemId -> navController.navigate("item/$itemId") },
             )
         }
+        // US-1368: analytics + the listing-performance drill-down.
+        composable(ShellRoutes.ANALYTICS) {
+            com.gradethread.app.analytics.AnalyticsScreen(
+                onOpenListingPerformance = {
+                    navController.navigate(ShellRoutes.LISTING_PERFORMANCE)
+                },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        composable(ShellRoutes.LISTING_PERFORMANCE) {
+            com.gradethread.app.analytics.ListingPerformanceScreen(
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+                onClose = { navController.popBackStack() },
+            )
+        }
         // US-1367: plans + credit packs.
         composable(ShellRoutes.PAYWALL) {
             com.gradethread.app.billing.PaywallScreen(
@@ -344,6 +359,7 @@ private fun ShellNavHost(navController: NavHostController) {
             ToolsScreen(
                 onSnap = { navController.navigate(ShellRoutes.SNAP) },
                 onGrades = { navController.navigate(ShellRoutes.GRADES) },
+                onAnalytics = { navController.navigate(ShellRoutes.ANALYTICS) },
             )
         }
         // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops

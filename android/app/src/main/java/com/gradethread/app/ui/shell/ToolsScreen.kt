@@ -24,6 +24,7 @@ import com.gradethread.app.ui.theme.Spacing
 fun ToolsScreen(
     onSnap: () -> Unit,
     onGrades: () -> Unit = {},
+    onAnalytics: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -39,6 +40,11 @@ fun ToolsScreen(
             title = "Certified grades",
             subtitle = "Every graded item, its report and its certificate",
             onClick = onGrades,
+        )
+        ToolRow(
+            title = "Analytics",
+            subtitle = "Grades, brands, sell-through, inventory value and listing performance",
+            onClick = onAnalytics,
         )
     }
 }

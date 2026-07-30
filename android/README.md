@@ -27,6 +27,9 @@ automations ·
 payout reconciliation against the recorded sales ·
 Play Billing for credit packs and FlipDesk subscriptions ·
 the paywall, the one-time post-signup plan step and the shell-wide plan gate ·
+analytics (grade distribution, brands, sell-through, inventory value, grading ROI,
+a range selector and an on-demand AI summary) with the listing-performance
+drill-down ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -34,7 +37,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Analytics, community insights | US-1368, US-1369 |
+| Community insights / benchmarks | US-1369 |
 | Consignment, templates, Scout/Prospect, verified badge, passport, fulfilment | US-1372–1377 |
 | FCM push, Glance widgets, onboarding, referrals, feedback, workspaces, CSV import | US-1378–1389 |
 | Localization (`values-*`, plurals, locale selector) | US-1393 |
@@ -84,6 +87,7 @@ opened the project (US-2015). Add a row when the code lands, not before.
 | `settings` | `Settings/` | profile, plan, preferences, diagnostics, sign-out |
 | `billing` | `Billing/` | Play Billing credit packs + FlipDesk subscriptions, paywall, post-signup plan step |
 | `plangate` | `PlanGate.swift` | shell-wide 402 upgrade dialog + 80% soft-warning banner |
+| `analytics` | `Analytics/` | grade/brand/sell-through/value/ROI rollups, AI narrative, listing performance |
 | `platform` | `Networking/` + `Telemetry/` | EdgeAPI, Supabase, Sentry/PostHog, workspace scope, app lock |
 
 ## Play Billing (US-1338, US-1366)
