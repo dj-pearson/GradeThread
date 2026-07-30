@@ -742,10 +742,11 @@ flipdeskListingsRoutes.delete("/item/:id", async (c) => {
 
   // GUARD 1: a genuinely LIVE listing must be ended first (never orphan a live
   // marketplace offer). "Live" keys off the lifecycle STATUS + whether it was
-  // actually published — NOT the denormalized `is_active` flag, which the
-  // listings table defaults to TRUE on every row (so an ordinary, never-published
-  // DRAFT is born is_active=true). Trusting is_active blocked deleting normal
-  // draft duplicates.
+  // actually published. This still reads listing_status directly rather than the
+  // is_active mirror (US-2176 made it a lockstep mirror of the status, so a draft
+  // is now correctly is_active=false) because the published-DRAFT case below —
+  // a row still in 'draft' status that nonetheless reached the marketplace — is
+  // live yet is_active=false, so is_active alone would under-report it.
   const { data: listings } = await supabaseAdmin
     .from("listings")
     .select(
@@ -893,10 +894,10 @@ async function loadOwnedListing(
   return row;
 }
 
-// Was this row ever actually published to its marketplace? Mirrors the liveness
-// test in DELETE /item/:id — deliberately NOT the denormalized `is_active` flag,
-// which defaults to TRUE on every row so an ordinary never-published draft looks
-// live (US-2176 tracks removing that trap).
+// Was this row ever actually published to its marketplace? This is orthogonal to
+// is_active: a row can sit in 'draft' status (is_active=false since US-2176) yet
+// have reached the marketplace, and that published-draft must still count as
+// live. So liveness is status + this upstream check, not the is_active mirror.
 function wasPublishedUpstream(row: OwnedListingRow): boolean {
   return Boolean(
     row.platform_offer_id || row.platform_listing_id || row.synced_to_ebay_at,

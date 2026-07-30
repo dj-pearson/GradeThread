@@ -1,14 +1,36 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Queue is empty.** Nothing is held. Schema is at **00503**, applied to prod on
-**2026-07-29**, and `EXPECTED_SCHEMA_VERSION`
-(`services/edge-functions/src/lib/schema-version.ts`) matches.
+**One migration held.** Schema on prod is at **00503** (applied 2026-07-29);
+this branch bumps `EXPECTED_SCHEMA_VERSION` to **00504** and holds one migration
+below. Apply it to prod, then OK the push.
 
-The last apply cleared `00493` → `00503`: the grade-dispute uniqueness index,
-`submissions.overall_score` + its sync trigger, the non-destructive photo-edit
-columns, `grade_reports.tag_read` and `.size_verification`, the sizing-chart
-backfill and size-system columns, the authenticity reference table + private
-bucket, and the registered-number / style-code observation tables.
+---
+
+## ⏳ HELD: 00504_listings_is_active_lockstep.sql (US-2176 is_active lockstep, 2026-07-30)
+
+- **Apply order.** Follows 00503. Idempotent (CREATE OR REPLACE FUNCTION, DROP
+  TRIGGER IF EXISTS then CREATE TRIGGER, a guarded backfill DO block) — safe to
+  re-run.
+- **What it does.** Makes `listings.is_active` a derived mirror of
+  `listing_status`: a BEFORE INSERT/UPDATE trigger (`trg_listings_sync_is_active`)
+  sets `is_active := listing_status IN ('active','relisted')`, so the column is
+  no longer independently writable, and a never-published draft is no longer born
+  `is_active=true`. A backfill corrects existing rows where the two disagree and
+  `RAISE NOTICE`s the corrected row count.
+- **CLIENT reads/writes.** No NEW client read of a new column — `is_active` and
+  `listing_status` already exist. The same commit DROPS the redundant
+  `.eq("is_active", true)` from the storefront query
+  (`content-public.ts loadStorefrontListings`), which keeps the authoritative
+  `.eq("listing_status","active")` — so the storefront is correct whether or not
+  the trigger has been applied yet. Nothing 42703s if this lands unapplied.
+- **If it stays unapplied.** No breakage: existing code already writes `is_active`
+  in lockstep by hand, so behaviour is unchanged until the trigger takes over
+  enforcement. The backfill is the only thing that needs prod to run.
+- **`NOTIFY pgrst, 'reload schema';`** after applying (a function + trigger changed).
+- **Verification note.** The US-1108 triple is green (`schema-version_test.ts`,
+  18/18). The throwaway db-lane (`verify:db`) did NOT run — Docker was down on the
+  authoring machine — so the fresh-schema apply has not been proven locally; run
+  `npm run verify:db` (or apply + eyeball) before/at prod apply.
 
 ---
 

@@ -1463,7 +1463,11 @@ async function loadStorefrontListings(
       "id, inventory_item_id, listing_title, listing_price, listing_url, platform, primary_photo_id, inventory_items!inner(user_id, title, brand, grade_report_id)",
     )
     .eq("inventory_items.user_id", sellerId)
-    .eq("is_active", true)
+    // US-2176: listing_status is the single source of truth for "live"; is_active
+    // is now a derived mirror of it (trigger trg_listings_sync_is_active), so the
+    // former defensive .eq("is_active", true) double-filter is dropped. Kept the
+    // status filter rather than is_active because the storefront shows only
+    // 'active' (not 'relisted'), which is_active would also admit.
     .eq("listing_status", "active")
     .order("listed_at", { ascending: false })
     .limit(SELLER_MAX_LISTINGS);
