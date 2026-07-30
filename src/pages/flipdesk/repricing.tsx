@@ -40,10 +40,27 @@ import {
   useDismissReprice,
   useRepriceRules,
   useRunRepriceRules,
+  useCreateRepriceRule,
+  useUpdateRepriceRule,
+  useDeleteRepriceRule,
+  useRepriceActions,
+  ruleToInput,
   type ReasonCode,
   type RepriceRule,
+  type RepriceRuleInput,
   type RepriceSuggestion,
 } from "@/hooks/use-repricing";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Plus, Trash2 } from "lucide-react";
 
 // US-2171: the queue can carry dozens of nudges. Paginate the client-side list
 // so the page renders a bounded slice, and let the reseller filter/sort/bulk-act
@@ -210,9 +227,207 @@ function ruleSummary(r: RepriceRule): string {
 
 // US-2171 AC4: surface the previously server-only repricing rules and let the
 // seller run them on demand. Create/edit/delete remain a follow-up.
+// US-2171 AC4: create a markdown rule from the page (the POST /rules endpoint
+// was server-only). Kept to the fields normalizeRuleInput accepts; the server
+// re-validates, so this only needs to send a sane shape.
+function CreateRuleDialog() {
+  const create = useCreateRepriceRule();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [dropPct, setDropPct] = useState("10");
+  const [intervalDays, setIntervalDays] = useState("14");
+  const [brand, setBrand] = useState("");
+  const [minAge, setMinAge] = useState("0");
+  const [floor, setFloor] = useState("");
+
+  function reset() {
+    setName("");
+    setDropPct("10");
+    setIntervalDays("14");
+    setBrand("");
+    setMinAge("0");
+    setFloor("");
+  }
+
+  function submit() {
+    const drop = Number(dropPct);
+    const interval = Number(intervalDays);
+    if (!name.trim()) return toast.error("Give the rule a name.");
+    if (!Number.isFinite(drop) || drop <= 0) return toast.error("Drop % must be a positive number.");
+    if (!Number.isFinite(interval) || interval <= 0) return toast.error("Interval (days) must be a positive number.");
+    const floorDollars = Number(floor);
+    const input: RepriceRuleInput = {
+      name: name.trim(),
+      enabled: true,
+      inventory_item_id: null,
+      filter_brand: brand.trim() || null,
+      filter_category_id: null,
+      min_age_days: Math.max(0, Math.trunc(Number(minAge) || 0)),
+      drop_pct: drop,
+      interval_days: Math.trunc(interval),
+      floor_price_cents:
+        floor.trim() !== "" && Number.isFinite(floorDollars) && floorDollars >= 0
+          ? Math.round(floorDollars * 100)
+          : null,
+      auto_accept_confidence: null,
+    };
+    create.mutate(input, {
+      onSuccess: () => {
+        toast.success("Rule created.");
+        reset();
+        setOpen(false);
+      },
+    });
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) reset();
+      }}
+    >
+      <Button size="sm" onClick={() => setOpen(true)}>
+        <Plus className="mr-1.5 h-4 w-4" /> New rule
+      </Button>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New repricing rule</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="rule-name">Name</Label>
+            <Input
+              id="rule-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Age out winter coats"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="rule-drop">Drop %</Label>
+              <Input
+                id="rule-drop"
+                type="number"
+                min="1"
+                value={dropPct}
+                onChange={(e) => setDropPct(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="rule-interval">Every N days</Label>
+              <Input
+                id="rule-interval"
+                type="number"
+                min="1"
+                value={intervalDays}
+                onChange={(e) => setIntervalDays(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="rule-age">Only if older than (days)</Label>
+              <Input
+                id="rule-age"
+                type="number"
+                min="0"
+                value={minAge}
+                onChange={(e) => setMinAge(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="rule-floor">Price floor ($, optional)</Label>
+              <Input
+                id="rule-floor"
+                type="number"
+                min="0"
+                step="0.01"
+                value={floor}
+                onChange={(e) => setFloor(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="rule-brand">Brand filter (optional)</Label>
+            <Input
+              id="rule-brand"
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+              placeholder="All brands"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={create.isPending}>
+            {create.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Create rule
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// US-2171 AC4: the /rules/actions audit feed — what the automation actually did.
+function RepriceActionsFeed() {
+  const { data: actions = [] } = useRepriceActions();
+  if (actions.length === 0) return null;
+  return (
+    <div className="mt-3 border-t pt-3">
+      <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+        Recent automatic changes
+      </p>
+      <ul className="space-y-1">
+        {actions.slice(0, 5).map((a) => (
+          <li
+            key={a.id}
+            className="flex items-center justify-between gap-2 text-xs"
+          >
+            <span className="min-w-0 truncate text-muted-foreground">
+              {a.inventory_items?.title ?? "Item"}
+            </span>
+            <span className="shrink-0 tabular-nums">
+              {a.old_price_cents != null && (
+                <span className="text-muted-foreground line-through">
+                  {money(a.old_price_cents)}
+                </span>
+              )}
+              {a.new_price_cents != null && (
+                <span className="ml-1 font-medium">{money(a.new_price_cents)}</span>
+              )}
+              <span className="ml-1 text-muted-foreground">
+                {new Date(a.created_at).toLocaleDateString()}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function RepriceRulesCard() {
   const { data: rules = [], isLoading } = useRepriceRules();
   const run = useRunRepriceRules();
+  const update = useUpdateRepriceRule();
+  const del = useDeleteRepriceRule();
+  const confirm = useConfirm();
+
+  async function onDelete(r: RepriceRule) {
+    const ok = await confirm({
+      title: "Delete this rule?",
+      description: `"${r.name}" will stop running. This can't be undone.`,
+      confirmLabel: "Delete rule",
+    });
+    if (ok) del.mutate(r.id);
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
@@ -223,34 +438,37 @@ function RepriceRulesCard() {
             drops that are due.
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={run.isPending}
-          onClick={() =>
-            run.mutate(undefined, {
-              onSuccess: (res) =>
-                toast.success(
-                  `Rules run — ${res.applied} price${res.applied === 1 ? "" : "s"} changed.`,
-                ),
-            })
-          }
-        >
-          {run.isPending ? (
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-1.5 h-4 w-4" />
-          )}
-          Run rules now
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <CreateRuleDialog />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={run.isPending}
+            onClick={() =>
+              run.mutate(undefined, {
+                onSuccess: (res) =>
+                  toast.success(
+                    `Rules run — ${res.applied} price${res.applied === 1 ? "" : "s"} changed.`,
+                  ),
+              })
+            }
+          >
+            {run.isPending ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1.5 h-4 w-4" />
+            )}
+            Run rules now
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
           <Skeleton className="h-10 w-full" />
         ) : rules.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No automation rules yet. Rules created via the API appear here; the
-            on-demand run above applies any that are due.
+            No automation rules yet. Create one to age out slow inventory
+            automatically.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -260,25 +478,38 @@ function RepriceRulesCard() {
                 className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
               >
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">{r.name}</span>
-                    {!r.enabled && (
-                      <Badge variant="outline" className="text-[10px]">
-                        Paused
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">{ruleSummary(r)}</p>
+                  <span className="truncate font-medium">{r.name}</span>
+                  <p className="text-xs text-muted-foreground">
+                    {ruleSummary(r)}
+                    {r.last_run_at &&
+                      ` · ran ${new Date(r.last_run_at).toLocaleDateString()}`}
+                  </p>
                 </div>
-                {r.last_run_at && (
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    ran {new Date(r.last_run_at).toLocaleDateString()}
-                  </span>
-                )}
+                <div className="flex shrink-0 items-center gap-2">
+                  <Switch
+                    checked={r.enabled}
+                    disabled={update.isPending}
+                    aria-label={r.enabled ? "Pause rule" : "Enable rule"}
+                    onCheckedChange={(v) =>
+                      update.mutate({ id: r.id, input: { ...ruleToInput(r), enabled: v } })
+                    }
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-muted-foreground"
+                    aria-label="Delete rule"
+                    disabled={del.isPending}
+                    onClick={() => void onDelete(r)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
         )}
+        <RepriceActionsFeed />
       </CardContent>
     </Card>
   );

@@ -240,13 +240,46 @@ export interface RepriceRule {
   id: string;
   name: string;
   enabled: boolean;
+  inventory_item_id: string | null;
   filter_brand: string | null;
   filter_category_id: string | null;
   min_age_days: number;
   drop_pct: number;
   interval_days: number;
   floor_price_cents: number | null;
+  auto_accept_confidence: number | null;
   last_run_at: string | null;
+}
+
+// The create/update wire shape (snake_case) the server's normalizeRuleInput
+// expects. PUT is a FULL replace, so an edit/toggle must round-trip every field
+// or it silently wipes the ones it omits — ruleToInput() carries them all.
+export interface RepriceRuleInput {
+  name: string;
+  enabled: boolean;
+  inventory_item_id: string | null;
+  filter_brand: string | null;
+  filter_category_id: string | null;
+  min_age_days: number;
+  drop_pct: number;
+  interval_days: number;
+  floor_price_cents: number | null;
+  auto_accept_confidence: number | null;
+}
+
+export function ruleToInput(r: RepriceRule): RepriceRuleInput {
+  return {
+    name: r.name,
+    enabled: r.enabled,
+    inventory_item_id: r.inventory_item_id,
+    filter_brand: r.filter_brand,
+    filter_category_id: r.filter_category_id,
+    min_age_days: r.min_age_days,
+    drop_pct: r.drop_pct,
+    interval_days: r.interval_days,
+    floor_price_cents: r.floor_price_cents,
+    auto_accept_confidence: r.auto_accept_confidence,
+  };
 }
 
 export function useRepriceRules() {
@@ -285,7 +318,96 @@ export function useRunRepriceRules() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
       queryClient.invalidateQueries({ queryKey: ["repricing_rules"] });
+      queryClient.invalidateQueries({ queryKey: ["repricing_actions"] });
     },
     onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useCreateRepriceRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: RepriceRuleInput): Promise<RepriceRule> => {
+      const res = await edgeFetch("/api/flipdesk/pricing/rules", {
+        method: "POST",
+        json: input,
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        rule?: RepriceRule;
+        error?: string;
+      };
+      if (!res.ok || !data.rule) throw new Error(data.error ?? "Couldn't create the rule.");
+      return data.rule;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repricing_rules"] }),
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useUpdateRepriceRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      args: { id: string; input: RepriceRuleInput },
+    ): Promise<RepriceRule> => {
+      const res = await edgeFetch(`/api/flipdesk/pricing/rules/${args.id}`, {
+        method: "PUT",
+        json: args.input,
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        rule?: RepriceRule;
+        error?: string;
+      };
+      if (!res.ok || !data.rule) throw new Error(data.error ?? "Couldn't update the rule.");
+      return data.rule;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repricing_rules"] }),
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useDeleteRepriceRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string): Promise<void> => {
+      const res = await edgeFetch(`/api/flipdesk/pricing/rules/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "Couldn't delete the rule.");
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repricing_rules"] }),
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export interface RepriceAction {
+  id: string;
+  listing_id: string | null;
+  old_price_cents: number | null;
+  new_price_cents: number | null;
+  reason: string | null;
+  ebay_synced: boolean;
+  created_at: string;
+  inventory_items: { title: string | null; brand: string | null } | null;
+}
+
+// US-2171 AC4: the applied-changes feed (/rules/actions) — what the automation
+// actually did, so a run-now isn't a black box.
+export function useRepriceActions() {
+  return useQuery({
+    queryKey: ["repricing_actions"],
+    staleTime: 30_000,
+    queryFn: async (): Promise<RepriceAction[]> => {
+      const res = await edgeFetch("/api/flipdesk/pricing/rules/actions");
+      const data = (await res.json().catch(() => ({}))) as {
+        actions?: RepriceAction[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Couldn't load applied changes.");
+      return data.actions ?? [];
+    },
   });
 }
