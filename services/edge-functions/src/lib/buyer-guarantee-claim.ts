@@ -25,8 +25,82 @@ import {
   GUARANTEE_FRAUD_SETTING_KEY,
   normalizeGuaranteeFraudConfig,
 } from "./guarantee-fraud.ts";
+import { CLUSTER_WINDOW_DAYS, correlatedBatchHold } from "./authenticity-seller-signal.ts";
 
 const ARRIVAL_TYPE_COUNT = 4; // front/back/label/detail
+
+/**
+ * US-2148 AC5: is the SELLER behind this purchase in a confirmed-counterfeit
+ * batch right now? Service-role.
+ *
+ * This is the ADR's flaw #2 turned into a control. A per-period budget with a
+ * loss-ratio breaker "handles correlated bursts worst — the breaker trips AFTER
+ * the batch has already drawn down", so the first claims of a batch auto-pay and
+ * the rest of that seller's buyers meet an exhausted pool. Holding a claim that
+ * belongs to a live batch moves the protection ahead of the drawdown.
+ *
+ * Four things this deliberately does NOT do:
+ *
+ *   • It does not touch the fraud score. Those signals are about the CLAIMANT
+ *     and are retained on the row for dispute defense; a buyer who bought from a
+ *     bad seller is not a suspicious buyer, and filing seller conduct under
+ *     `fraud_flags` would say exactly that. Same subject-conflation mistake the
+ *     correction on US-2148 exists to prevent.
+ *   • It does not reject anything. A held claim goes to a human, who can approve
+ *     it. The worst case of a false hold is a wait, which is the trade the ADR
+ *     asks for.
+ *   • It never fires on a raw model verdict (AC3) — only `reviewer_verdict =
+ *     'counterfeit'`, a human outcome.
+ *   • It fails OPEN. A seller we cannot resolve, or a failed query, must not
+ *     block a payout on a risk signal we did not actually read.
+ *
+ * The clustering clock is the grade report's `created_at` (when the item was
+ * assessed), not the review's `reviewed_at`. A reviewer clearing a week-old
+ * backlog in one afternoon would manufacture a batch signature out of our own
+ * queue latency; and `created_at` is what the /admin/authenticity console ranks
+ * on, so an operator sees the same number that caused the hold.
+ */
+async function evaluateSellerBatchRisk(
+  gradeReportId: string,
+  nowMs: number,
+): Promise<{ held: boolean; sellerId: string | null; confirmedInWindow: number }> {
+  const open = { held: false, sellerId: null, confirmedInWindow: 0 };
+  try {
+    // The seller behind this purchase. Cross-tenant BY DESIGN: the risk question
+    // is about the counterparty, not the claimant. Nothing read here is ever
+    // returned to the buyer — see the opaque decision reason at the call site.
+    const { data: report, error: repErr } = await supabaseAdmin
+      .from("grade_reports")
+      .select("submissions!inner(user_id)")
+      .eq("id", gradeReportId)
+      .maybeSingle();
+    if (repErr) throw new Error(repErr.message);
+    const sellerId =
+      (report as unknown as { submissions?: { user_id?: string | null } } | null)
+        ?.submissions?.user_id ?? null;
+    if (!sellerId) return open;
+
+    // Bounded by the window, so this stays a small read however long the seller
+    // has been on the platform.
+    const since = new Date(nowMs - CLUSTER_WINDOW_DAYS * 86_400_000).toISOString();
+    const { data: confirmed, error: confErr } = await supabaseAdmin
+      .from("grade_reports")
+      .select("created_at, submissions!inner(user_id), authenticity_review_outcomes!inner(reviewer_verdict)")
+      .eq("submissions.user_id", sellerId)
+      .eq("authenticity_review_outcomes.reviewer_verdict", "counterfeit")
+      .gte("created_at", since);
+    if (confErr) throw new Error(confErr.message);
+
+    const times = ((confirmed ?? []) as unknown as { created_at: string }[])
+      .map((r) => Date.parse(r.created_at));
+    return { ...correlatedBatchHold(times, nowMs), sellerId };
+  } catch (err) {
+    // Fail open, but loudly: a risk control that silently stopped evaluating is
+    // indistinguishable from one that keeps finding nothing.
+    captureException(err, { route: "buyer-guarantee.seller_batch_risk", extra: { gradeReportId } });
+    return open;
+  }
+}
 
 /** Gather + score the fraud signals for a claim (US-1823). Service-role. */
 async function evaluateClaimFraud(
@@ -303,7 +377,13 @@ export async function fileBuyerGuaranteeClaim(
 
   // US-1823: fraud signals — evaluated for EVERY claim (retained on the row for
   // dispute defense); a suspicious claim never auto-pays.
-  const fraud = await evaluateClaimFraud(userId, purchase, period);
+  // US-2148 AC5: the seller-side batch signal, gathered concurrently. Kept as a
+  // separate verdict rather than folded into `fraud` because the two are about
+  // different people.
+  const [fraud, sellerRisk] = await Promise.all([
+    evaluateClaimFraud(userId, purchase, period),
+    evaluateSellerBatchRisk(purchase.grade_report_id, nowMs),
+  ]);
 
   // US-1822: the claims-pool gate — a would-be auto-payout that breaches the
   // per-account cap, the period budget, or the loss-ratio circuit-breaker is
@@ -314,6 +394,19 @@ export async function fileBuyerGuaranteeClaim(
     if (fraud.suspicious) {
       finalDecision = "manual_review";
       finalReason = `fraud:${fraud.reasons.join(",")}`;
+    } else if (sellerRisk.held) {
+      // US-2148 AC5. The reason is OPAQUE on purpose: the buyer owns this row and
+      // can read it, and "seller_cluster:4" would tell them how many confirmed
+      // counterfeits another user has. The count goes to operators as a metric.
+      //
+      // Ahead of the pool reserve, not after: a held claim must not draw the
+      // budget down, which is the whole point of moving the protection earlier.
+      finalDecision = "manual_review";
+      finalReason = "correlated_batch_review";
+      recordMetric("guarantee.seller_batch_hold", sellerRisk.confirmedInWindow, {
+        seller_id: sellerRisk.sellerId ?? "unknown",
+        purchase_id: purchase.id,
+      });
     } else {
       // US-2144: RESERVE rather than read-then-decide. The old sequence read
       // pool state here and recorded the drawdown after the claim insert, so two

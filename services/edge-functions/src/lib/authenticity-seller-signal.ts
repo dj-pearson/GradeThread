@@ -120,6 +120,36 @@ export function summarizeSellerAuthenticity(
 }
 
 /**
+ * US-2148 AC5: is this seller in the middle of a correlated batch RIGHT NOW?
+ *
+ * The operator view (above) slides a window over all history to rank sellers.
+ * A guarantee claim asks a narrower question — the ADR's flaw #2 is that the
+ * claims budget "handles correlated bursts worst — the breaker trips AFTER the
+ * batch has already drawn down, so the protection arrives late by construction."
+ * The fix is a leading indicator, so the window here is anchored to now: how
+ * many of this seller's items has a human confirmed counterfeit in the last
+ * CLUSTER_WINDOW_DAYS. Same threshold as the console on purpose — an operator
+ * triaging a held claim should see the same number that caused the hold.
+ *
+ * PURE (nowMs injected). Timestamps are the ASSESSMENT time, not the review
+ * time; see the caller for why.
+ */
+export function correlatedBatchHold(
+  confirmedAtMs: readonly number[],
+  nowMs: number,
+): { held: boolean; confirmedInWindow: number } {
+  const windowMs = CLUSTER_WINDOW_DAYS * DAY_MS;
+  let confirmedInWindow = 0;
+  for (const t of confirmedAtMs) {
+    if (!Number.isFinite(t)) continue;
+    // Not upper-bounded: a report stamped a moment into the future by clock skew
+    // is part of the batch, and excluding it would under-count the live case.
+    if (nowMs - t <= windowMs) confirmedInWindow += 1;
+  }
+  return { held: confirmedInWindow >= CLUSTER_THRESHOLD, confirmedInWindow };
+}
+
+/**
  * Largest count of timestamps inside any window of `windowMs`. Pure + exported.
  * Two-pointer over the sorted list — a fixed calendar bucket would split a batch
  * that straddles a boundary and miss exactly the case this exists to catch.

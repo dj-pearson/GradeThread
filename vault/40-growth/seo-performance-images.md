@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - src/lib/images.ts
   - functions/_shared/blog-render.ts
-reviewed: 2026-07-22
+reviewed: 2026-07-30
 tags: [seo, performance, images, cwv]
 summary: The shipped performance levers, the Cloudflare toggles still to enable, and how responsive images are actually gated.
 ---
@@ -242,7 +242,12 @@ without more the colo re-renders on every request. We wrap each render in the
 requests:
 
 - Keyed on **origin + pathname** (query string ignored) so `?utm_*`-tagged share
-  links collapse onto one entry and can't fragment or poison the cache.
+  links collapse onto one entry and can't fragment or poison the cache. The flip
+  side is a hard rule: **nothing per-visitor may be rendered into these bytes**,
+  because the first arriver's copy is served to everyone after them. US-2108 hit
+  this with affiliate `?ref=` codes and resolved it by emitting a fixed,
+  nonce-stamped script (`functions/_shared/affiliate-capture.ts`) that reads the
+  param client-side from the visitor's own URL — the HTML stays identical.
 - Only `GET` `200` responses with a public `Cache-Control` are stored — the blog
   `preview` route (`private, no-store`) and 404/503s are passed through untouched.
 - Adds `x-gt-cache: HIT|MISS` so a HIT is verifiable, and stores via `waitUntil()`

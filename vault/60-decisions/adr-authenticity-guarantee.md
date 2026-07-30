@@ -6,7 +6,8 @@ source_of_truth: vault
 code_refs:
   - services/edge-functions/src/lib/guarantee-pool.ts
   - services/edge-functions/src/lib/buyer-guarantee-claim.ts
-reviewed: 2026-07-19
+  - services/edge-functions/src/lib/authenticity-seller-signal.ts
+reviewed: 2026-07-30
 revisit_by: 2027-01-31
 tags: [decision, authenticity, guarantee, risk]
 summary: Why GradeThread does not financially back its authenticity assessments yet, and the four things that would have to be true to revisit.
@@ -39,6 +40,18 @@ loss-ratio breaker handles independent, spread-out claims well and correlated
 bursts worst — the breaker trips *after* the batch has already drawn down, so the
 protection arrives late by construction.
 
+> *Partially mitigated 2026-07-30 (US-2148 AC5), and only partially.* A claim
+> whose seller has ≥ `CLUSTER_THRESHOLD` human-confirmed counterfeits inside the
+> trailing `CLUSTER_WINDOW_DAYS` no longer auto-pays; it routes to manual review
+> *before* the pool reserve, so a live batch stops drawing the budget down while
+> a human looks. That moves the protection ahead of the drawdown for the case we
+> can see. It does **not** resize the pool, and it is blind to the first batch
+> from a seller with no confirmed history — which is every new bad seller. The
+> threshold is deliberately the same one `/admin/authenticity` ranks on, so an
+> operator triaging a hold sees the number that caused it. The hold is kept out
+> of the claim's `fraud_flags`: those signals are about the *claimant*, and a
+> buyer who bought from a bad seller is not a suspicious buyer.
+
 **3. The verdict backing it has never cleared an accuracy gate.** The eval gate
 did not run at all until US-2130, and it cannot pass until a golden set exists
 (US-2131). Guaranteeing a number whose error rate is unmeasured is not a pricing
@@ -50,21 +63,30 @@ caps below what authentication tells require, and verified per-brand tells cover
 a handful of brands. US-2134 caps confidence when no macro frame is present
 precisely because the evidence is thin.
 
-## Two flaws to fix regardless
+## Two flaws to fix regardless — both now FIXED (US-2144)
 
-These are live in the **existing buyer guarantee** today and are not contingent
-on this decision:
+These were live in the **existing buyer guarantee** and were never contingent on
+this decision. Kept here rather than deleted, because revisit criterion 4 below
+is written against them and a reader needs to see what it refers to.
 
-- **The pool drawdown races.** `lib/buyer-guarantee-claim.ts` reads pool state
-  *before* the claim insert and records the drawdown *after*, so two concurrent
-  claims can both pass against the same pre-drawdown state. The period budget is
-  advisory under concurrency — there is no transactional reserve.
-- **Credit-grant failure is swallowed.** A failed grant is logged with
-  `console.error` while the claim already reads `auto_approved` and the pool has
-  already been drawn down. The buyer is owed credits nobody knows are missing.
+- **~~The pool drawdown races.~~** *Fixed.* `fileBuyerGuaranteeClaim` now calls
+  `reservePoolDrawdown`, a single `reserve_guarantee_pool_drawdown` RPC that
+  checks the caps and records the drawdown in one transaction, keyed on
+  `purchase:<id>` so a retry reuses the reservation. The old sequence read pool
+  state before the claim insert and recorded the drawdown after, so two
+  concurrent claims could both pass the same budget — the correlated-batch case
+  the budget exists to bound. `recordPoolDrawdown` survives as a no-op-on-
+  conflict reconciler for claims reserved under the old flow.
+- **~~Credit-grant failure is swallowed.~~** *Fixed.* A failed
+  `grant_buyer_reward_credit` now raises through `captureException` +
+  `guarantee.remedy_grant_failed`, and flips the claim to `manual_review` with
+  reason `grant_failed` so something revisits it. The drawdown is deliberately
+  **kept**: silently undoing a payout is worse than silently succeeding, and the
+  money stays conservatively reserved. If the flip itself fails,
+  `guarantee.grant_failure_unrecoverable` is the record.
 
-An authenticity guarantee would make both materially worse, since its claims are
-larger and more correlated — but they are worth fixing on their own merits.
+An authenticity guarantee would have made both materially worse, since its claims
+are larger and more correlated.
 
 ## What would have to be true to revisit
 
@@ -78,8 +100,11 @@ All four, not any:
    what damages sellers.
 3. **Claim-severity modelling** against item value, not fee value, with a pool
    sized to a correlated-batch scenario rather than an average month.
-4. The two flaws above are fixed, with a **transactional reserve** replacing the
-   read-then-write pool gate.
+4. ~~The two flaws above are fixed, with a **transactional reserve** replacing the
+   read-then-write pool gate.~~ **Met 2026-07-30** — see the section above. This
+   is the only one of the four that is met; the park stands on 1–3, and criterion
+   3 is *not* satisfied by the US-2148 batch hold, which bounds when we pay but
+   says nothing about how large the pool should be.
 
 ## Consequences of parking
 

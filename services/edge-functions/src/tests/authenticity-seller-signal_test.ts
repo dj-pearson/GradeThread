@@ -3,6 +3,8 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   CLUSTER_THRESHOLD,
+  CLUSTER_WINDOW_DAYS,
+  correlatedBatchHold,
   peakClusterSize,
   summarizeSellerAuthenticity,
   type SellerAuthenticityRecord,
@@ -102,6 +104,52 @@ Deno.test("last_confirmed_at is the most recent confirmation, null when none", (
 
   const [clean] = summarizeSellerAuthenticity([rec("s2", 1, "likely_authentic", null)]);
   assertEquals(clean.last_confirmed_at, null);
+});
+
+// ── AC5: the guarantee's correlated-batch hold ──────────────────────────────
+//
+// The ADR's flaw #2 is that the claims budget's breaker "trips AFTER the batch
+// has already drawn down". These assert the leading indicator that moves the
+// protection ahead of the drawdown.
+
+const NOW = Date.UTC(2026, 5, 1);
+const agoDays = (n: number) => NOW - n * 86_400_000;
+
+Deno.test("hold: a live batch holds, the same count long past does not", () => {
+  const live = Array.from({ length: CLUSTER_THRESHOLD }, (_, i) => agoDays(i * 2));
+  assertEquals(correlatedBatchHold(live, NOW).held, true);
+
+  // Identical count, but the batch is over — the budget is no longer at risk
+  // from it, and holding here would just delay unrelated buyers forever.
+  const old = live.map((t) => t - (CLUSTER_WINDOW_DAYS + 5) * 86_400_000);
+  const past = correlatedBatchHold(old, NOW);
+  assertEquals(past.confirmedInWindow, 0);
+  assertEquals(past.held, false);
+});
+
+Deno.test("hold: one under the threshold does not hold", () => {
+  const near = Array.from({ length: CLUSTER_THRESHOLD - 1 }, (_, i) => agoDays(i));
+  const r = correlatedBatchHold(near, NOW);
+  assertEquals(r.confirmedInWindow, CLUSTER_THRESHOLD - 1);
+  assertEquals(r.held, false, "the console's cluster definition is the hold's definition");
+});
+
+Deno.test("hold: a clean seller never holds", () => {
+  assertEquals(correlatedBatchHold([], NOW), { held: false, confirmedInWindow: 0 });
+});
+
+Deno.test("hold: the window boundary is inclusive, and skew does not drop a report", () => {
+  // Exactly on the edge counts — an off-by-one here silently shrinks the window.
+  assertEquals(correlatedBatchHold([agoDays(CLUSTER_WINDOW_DAYS)], NOW).confirmedInWindow, 1);
+  assertEquals(correlatedBatchHold([agoDays(CLUSTER_WINDOW_DAYS) - 1], NOW).confirmedInWindow, 0);
+  // A row stamped a moment ahead of our clock is part of the live batch.
+  assertEquals(correlatedBatchHold([NOW + 1000], NOW).confirmedInWindow, 1);
+});
+
+Deno.test("hold: an unparseable timestamp is skipped, not counted", () => {
+  // Date.parse of junk is NaN; counting it would fabricate a batch member.
+  const times = [agoDays(1), Number.NaN, agoDays(2)];
+  assertEquals(correlatedBatchHold(times, NOW).confirmedInWindow, 2);
 });
 
 Deno.test("peakClusterSize slides rather than bucketing", () => {
