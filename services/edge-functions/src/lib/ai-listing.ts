@@ -38,7 +38,11 @@ import {
   searchBrowseComps,
   suggestCategories,
 } from "./ebay-client.ts";
-import { filterListablePhotos } from "./item-photo-storage.ts";
+import {
+  filterListablePhotos,
+  type ItemPhotoUrlRow,
+  itemPhotoAiUrls,
+} from "./item-photo-storage.ts";
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { ensurePassportForGradeReport } from "./passport-write.ts";
@@ -1129,20 +1133,24 @@ const MAX_TAG_OCR_PHOTOS = 4;
 async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
   const { data } = await supabaseAdmin
     .from("item_photos")
-    .select("photo_type, storage_path, sort_order")
+    .select("photo_type, storage_path, sort_order, photo_url")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
   // US-1549: 'internal' photos (price tags, receipts) are seller-reference
   // only — the AI must never read them (they'd leak cost basis into copy).
-  return filterListablePhotos(
-    (data ?? []) as Array<{ photo_type: string; storage_path: string | null }>,
-  )
-    .filter((p) => !!p.storage_path)
-    .map((p) => ({
-      url: supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path!)
-        .data.publicUrl,
-      type: p.photo_type,
-    }));
+  const listable = filterListablePhotos(
+    (data ?? []) as ItemPhotoUrlRow[],
+  );
+  // US-2265: the sensitive types (tag / tag_2 / certificate) live in the PRIVATE
+  // bucket when the photo was captured on iOS, so a public URL 404s and the
+  // model silently reads the item without its care/size label. Resolve each row
+  // to a fetchable URL instead — sort_order is preserved, which selectListingPhotos
+  // and the tag-OCR pass both depend on.
+  const resolved = await itemPhotoAiUrls(listable);
+  return resolved.map(({ row, url }) => ({
+    url,
+    type: row.photo_type ?? "",
+  }));
 }
 
 /**

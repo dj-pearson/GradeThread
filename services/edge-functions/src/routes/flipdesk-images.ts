@@ -179,6 +179,9 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
   if (upErr) {
     return failSafe(c, 500, "Failed to save processed photo", upErr, "flipdesk-images.bg-remove.upload");
   }
+  // item-photo-url-ok: `newPath` is the background-removed PNG this handler just
+  // uploaded to the public bucket, not an item_photos row — there is no private
+  // variant to resolve. (bg-remove already refuses the sensitive types upstream.)
   const { data: pub } = supabaseAdmin.storage
     .from("item-photos")
     .getPublicUrl(newPath);

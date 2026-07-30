@@ -16,6 +16,10 @@ import {
 } from "../lib/marketplace-specs.ts";
 import { classifyPhotoRoles } from "../lib/ai-photo-roles.ts";
 import {
+  type ItemPhotoUrlRow,
+  itemPhotoAiUrls,
+} from "../lib/item-photo-storage.ts";
+import {
   type VerifyGroup,
   verifyGroupBoundaries,
 } from "../lib/ai-group-verify.ts";
@@ -917,6 +921,8 @@ flipdeskAutolisterRoutes.post("/staging/upload", async (c) => {
   if (upErr) {
     return c.json({ error: `Upload failed: ${upErr.message}` }, 500);
   }
+  // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+  // not an item_photos row — there is no private variant to resolve.
   const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(path)
     .data.publicUrl;
 
@@ -942,6 +948,8 @@ flipdeskAutolisterRoutes.post("/staging/upload", async (c) => {
         });
       if (!tErr) {
         thumbnailStoragePath = tpath;
+        // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+        // not an item_photos row — there is no private variant to resolve.
         thumbnailUrl = supabaseAdmin.storage.from("item-photos")
           .getPublicUrl(tpath).data.publicUrl;
       }
@@ -1172,6 +1180,8 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
     if (!path.startsWith(`${ownerId}/_staging/`)) {
       return c.json({ error: "A photo is not owned by the caller." }, 403);
     }
+    // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+    // not an item_photos row — there is no private variant to resolve.
     const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(path)
       .data.publicUrl;
     photos.push({ id, url });
@@ -1255,6 +1265,8 @@ flipdeskAutolisterRoutes.post("/verify-groups", async (c) => {
       }
       photos.push({
         id,
+        // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+        // not an item_photos row — there is no private variant to resolve.
         url: supabaseAdmin.storage.from("item-photos").getPublicUrl(path).data.publicUrl,
       });
     }
@@ -1346,6 +1358,8 @@ flipdeskAutolisterRoutes.post("/propose-groups", async (c) => {
     }
     photos.push({
       id,
+      // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+      // not an item_photos row — there is no private variant to resolve.
       url: supabaseAdmin.storage.from("item-photos").getPublicUrl(path).data.publicUrl,
     });
   }
@@ -1450,6 +1464,8 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
     const coverWorker = async (): Promise<void> => {
       while (coverQueue.length > 0) {
         const cover = coverQueue.shift()!;
+        // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+        // not an item_photos row — there is no private variant to resolve.
         const url = supabaseAdmin.storage
           .from("item-photos")
           .getPublicUrl(cover.storage_path).data.publicUrl;
@@ -1531,26 +1547,22 @@ flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
   // Load each item's photos (front-first via sort_order), capped per item.
   const { data: photoRows } = await supabaseAdmin
     .from("item_photos")
-    .select("inventory_item_id, storage_path, photo_type, sort_order")
+    .select("inventory_item_id, storage_path, photo_type, sort_order, photo_url")
     .in("inventory_item_id", ownedIds)
     .order("sort_order", { ascending: true });
+  // US-2265: resolve each row to a URL the vision pass can actually fetch — the
+  // sensitive types (tag / tag_2 / certificate) sit in the PRIVATE bucket for an
+  // iOS capture, so a public URL 404s and the QA pass silently scored the item
+  // without its label shot.
+  const resolvedQaPhotos = await itemPhotoAiUrls(
+    (photoRows ?? []) as Array<ItemPhotoUrlRow & { inventory_item_id: string }>,
+  );
   const byItem = new Map<string, { url: string; type: string }[]>();
-  for (
-    const r of (photoRows ?? []) as Array<{
-      inventory_item_id: string;
-      storage_path: string | null;
-      photo_type: string;
-    }>
-  ) {
-    if (!r.storage_path) continue;
-    const arr = byItem.get(r.inventory_item_id) ?? [];
+  for (const { row, url } of resolvedQaPhotos) {
+    const arr = byItem.get(row.inventory_item_id) ?? [];
     if (arr.length >= MAX_QA_PHOTOS) continue;
-    arr.push({
-      url: supabaseAdmin.storage.from("item-photos").getPublicUrl(r.storage_path)
-        .data.publicUrl,
-      type: r.photo_type,
-    });
-    byItem.set(r.inventory_item_id, arr);
+    arr.push({ url, type: row.photo_type ?? "" });
+    byItem.set(row.inventory_item_id, arr);
   }
 
   type QaPersistIssue = {

@@ -272,6 +272,8 @@ flipdeskDisclosureRoutes.post("/item/:itemId/annotated-photo", async (c) => {
     .upload(path, stripped.bytes, { contentType: verdict.contentType, upsert: false });
   if (upErr) return c.json({ error: "Failed to store annotated photo." }, 500);
 
+  // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+  // not an item_photos row — there is no private variant to resolve.
   const { data: pub } = supabaseAdmin.storage.from("item-photos").getPublicUrl(path);
 
   const { data: maxSort } = await supabaseAdmin

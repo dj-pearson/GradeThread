@@ -597,6 +597,8 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
       502,
     );
   }
+  // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+  // not an item_photos row — there is no private variant to resolve.
   const publicUrl = supabaseAdmin.storage.from("item-photos").getPublicUrl(path)
     .data.publicUrl;
 

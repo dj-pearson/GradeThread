@@ -496,6 +496,8 @@ flipdeskGooglePhotosRoutes.post("/import", async (c) => {
         .upload(path, clean.bytes, { upsert: false, contentType: valid.contentType });
       if (upErr) throw new Error(upErr.message);
 
+      // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+      // not an item_photos row — there is no private variant to resolve.
       const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(path).data.publicUrl;
       const createMs = m.createTime ? Date.parse(m.createTime) : NaN;
       imported.push({

@@ -17,6 +17,11 @@ import {
 } from "../etsy-api.ts";
 import { handleEtsyReceiptEvent } from "../etsy-orders.ts";
 import { supabaseAdmin } from "../supabase.ts";
+import {
+  filterListablePhotos,
+  type ItemPhotoUrlRow,
+  publicItemPhotoUrl,
+} from "../item-photo-storage.ts";
 import { mapSiblingListingFields } from "../cross-listing-fields.ts";
 import type { StoredPlatformVariant } from "../cross-listing-fields.ts";
 import { buildGtGradeField, embedGtGradeBlock } from "../gt-grade-standard.ts";
@@ -100,21 +105,17 @@ async function loadOwnedEtsyListing(
 async function resolveImageUrls(itemId: string, maxPhotos: number): Promise<string[]> {
   const { data: photoRows } = await supabaseAdmin
     .from("item_photos")
-    .select("storage_path, photo_url, sort_order")
+    .select("storage_path, photo_url, sort_order, photo_type")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
   const urls: string[] = [];
-  for (
-    const p of (photoRows ?? []) as Array<{
-      storage_path: string | null;
-      photo_url: string | null;
-    }>
-  ) {
-    let url = p.photo_url ?? null;
-    if (!url && p.storage_path) {
-      url = supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path)
-        .data.publicUrl;
-    }
+  // US-2271: this pushed listing imagery to a public marketplace without the
+  // two exclusions every other publish path applies. filterListablePhotos drops
+  // 'internal' (price tags, receipts — the seller's cost basis) and the
+  // MeasureCard frame; publicItemPhotoUrl refuses a care-label/certificate photo
+  // that lives in the private bucket instead of minting a public URL that 404s.
+  for (const p of filterListablePhotos((photoRows ?? []) as ItemPhotoUrlRow[])) {
+    const url = publicItemPhotoUrl(p);
     if (url) urls.push(url);
     if (urls.length >= maxPhotos) break;
   }

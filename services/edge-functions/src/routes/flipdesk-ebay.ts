@@ -6,7 +6,7 @@ import { lintTitle } from "../lib/title-lint.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import {
   filterListablePhotos,
-  SENSITIVE_ITEM_PHOTO_TYPES,
+  publicItemPhotoUrl,
 } from "../lib/item-photo-storage.ts";
 import {
   maybeFireImmediateConsignorPayout,
@@ -6708,18 +6708,17 @@ function toEbayImageUrls(urls: Array<string | null | undefined>): string[] {
 /// `photo_url` is empty (private bucket) is skipped rather than turned into a
 /// broken `item-photos` public URL that 404s — eBay can't fetch a short-TTL
 /// signed URL anyway, so these simply aren't pushed (US-979).
+/// US-2265: the rule now lives in `publicItemPhotoUrl` (lib/item-photo-storage.ts)
+/// so eBay, Depop, Etsy and Shopify share ONE definition of "may this photo be
+/// handed to a public marketplace" — the adapters had drifted into minting a
+/// public URL for private-bucket tag photos. Kept as a named wrapper because the
+/// call sites read as `.map(ebayPublicPhotoUrl)`.
 function ebayPublicPhotoUrl(p: {
   photo_url: string | null;
   storage_path: string | null;
   photo_type?: string | null;
 }): string | null {
-  if (p.photo_url) return p.photo_url;
-  if (p.storage_path && !SENSITIVE_ITEM_PHOTO_TYPES.has(p.photo_type ?? "")) {
-    return supabaseAdmin.storage
-      .from("item-photos")
-      .getPublicUrl(p.storage_path).data.publicUrl;
-  }
-  return null;
+  return publicItemPhotoUrl(p);
 }
 
 // US-473: HEAD-probe an image URL for the pre-publish reachability check. Short

@@ -1,5 +1,10 @@
 import { supabaseAdmin } from "../supabase.ts";
 import {
+  filterListablePhotos,
+  type ItemPhotoUrlRow,
+  publicItemPhotoUrl,
+} from "../item-photo-storage.ts";
+import {
   buildConsentUrl,
   getShopifyConnection,
   isShopifyConfigured,
@@ -71,29 +76,27 @@ async function loadOwnedShopifyListing(
 }
 
 // Resolves the item's photos to PUBLIC image URLs Shopify can ingest by `src`.
-// item-photos is the public listing-image bucket (CLAUDE.md), so getPublicUrl
-// is the correct accessor here (NOT the private submission-images bucket).
+// item-photos is the public listing-image bucket (CLAUDE.md) — but NOT every
+// item_photos row lives there: an iOS capture writes the care-label / second-tag
+// / certificate close-ups to the PRIVATE submission-images bucket, so this must
+// go through publicItemPhotoUrl rather than assuming the public bucket.
 async function resolveImageUrls(
   itemId: string,
   spec: { maxPhotos: number },
 ): Promise<string[]> {
   const { data: photoRows } = await supabaseAdmin
     .from("item_photos")
-    .select("storage_path, photo_url, sort_order")
+    .select("storage_path, photo_url, sort_order, photo_type")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
   const urls: string[] = [];
-  for (
-    const p of (photoRows ?? []) as Array<{
-      storage_path: string | null;
-      photo_url: string | null;
-    }>
-  ) {
-    let url = p.photo_url ?? null;
-    if (!url && p.storage_path) {
-      url = supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path)
-        .data.publicUrl;
-    }
+  // US-2271: this pushed listing imagery to a public marketplace without the
+  // two exclusions every other publish path applies. filterListablePhotos drops
+  // 'internal' (price tags, receipts — the seller's cost basis) and the
+  // MeasureCard frame; publicItemPhotoUrl refuses a care-label/certificate photo
+  // that lives in the private bucket instead of minting a public URL that 404s.
+  for (const p of filterListablePhotos((photoRows ?? []) as ItemPhotoUrlRow[])) {
+    const url = publicItemPhotoUrl(p);
     if (url) urls.push(url);
     if (urls.length >= spec.maxPhotos) break;
   }

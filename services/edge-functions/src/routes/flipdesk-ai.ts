@@ -25,6 +25,10 @@ import {
   estimateSize,
   SIZE_ESTIMATE_LOW_CONFIDENCE,
 } from "../lib/ai-size-estimate.ts";
+import {
+  type ItemPhotoUrlRow,
+  itemPhotoAiUrls,
+} from "../lib/item-photo-storage.ts";
 import { getCategoryAspects, suggestCategories } from "../lib/ebay-client.ts";
 import { buildEbayPrepUpdate } from "../lib/ebay-prep.ts";
 import { verifyIdentificationAgainstMarket } from "../lib/identification-verify.ts";
@@ -1106,20 +1110,23 @@ async function persistCanonicalAttributes(args: {
   return { attributes: merged };
 }
 
-// Item photos as typed { url, type } pairs from the public item-photos bucket.
+// Item photos as typed { url, type } pairs, each resolved to a URL that is
+// actually fetchable: public for listing imagery, a short-TTL signed URL for the
+// private-bucket sensitive types (tag / tag_2 / certificate) an iOS capture
+// writes. Hardcoding the public bucket here silently dropped the tag photo from
+// every AI pass on an iOS-sourced item (US-2265).
 async function loadItemPhotos(itemId: string): Promise<ExtractPhoto[]> {
   const { data } = await supabaseAdmin
     .from("item_photos")
-    .select("photo_type, storage_path")
+    .select("photo_type, storage_path, photo_url")
     .eq("inventory_item_id", itemId);
-  return ((data ?? []) as { photo_type: string; storage_path: string }[]).map(
-    (p) => ({
-      url: supabaseAdmin.storage
-        .from("item-photos")
-        .getPublicUrl(p.storage_path).data.publicUrl,
-      type: p.photo_type,
-    })
+  const resolved = await itemPhotoAiUrls(
+    (data ?? []) as ItemPhotoUrlRow[],
   );
+  return resolved.map(({ row, url }) => ({
+    url,
+    type: row.photo_type ?? undefined,
+  }));
 }
 
 // US-1088: Size AI — best-guess a missing/cut-off size (and gender/department)
@@ -1880,15 +1887,20 @@ flipdeskAiRoutes.post("/classify-photos", async (c) => {
     }
     const { data: rows } = await supabaseAdmin
       .from("item_photos")
-      .select("id, storage_path, photo_type")
+      .select("id, storage_path, photo_type, photo_url")
       .eq("inventory_item_id", itemId)
       .order("sort_order", { ascending: true });
-    const photos = (rows ?? []) as { id: string; storage_path: string; photo_type: string }[];
+    // US-2265: resolve each row to a fetchable URL (signed for the private
+    // sensitive types) and classify only what resolved — an unresolvable photo
+    // would otherwise consume an index in the model's answer and mis-key the
+    // classification write-back below.
+    const resolved = await itemPhotoAiUrls(
+      (rows ?? []) as Array<ItemPhotoUrlRow & { id: string }>,
+    );
+    const photos = resolved.map(({ row }) => row);
     if (photos.length === 0) return c.json({ classifications: [] });
 
-    const images: VisionImage[] = photos.map((p) => ({
-      url: supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path).data.publicUrl,
-    }));
+    const images: VisionImage[] = resolved.map(({ url }) => ({ url }));
 
     // US-387: reserve the action atomically before the vision call.
     if (!(await reserveAiAction(userId, quota.limit))) {

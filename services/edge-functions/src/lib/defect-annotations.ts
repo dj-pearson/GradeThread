@@ -348,6 +348,8 @@ export async function applyAutoDefectAnnotations(
         .from("item-photos")
         .upload(destPath, out, { contentType: "image/jpeg", upsert: true });
       if (upErr) continue;
+      // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
+      // not an item_photos row — there is no private variant to resolve.
       const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(destPath)
         .data.publicUrl;
       // US-1896: record dimensions for the picture-standards preflight.

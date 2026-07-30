@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2265",
+  "nextId": "US-2272",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3245,6 +3245,109 @@
         "US-2263"
       ],
       "notes": "Done 2026-07-30 (branch claude/dazzling-lamport-80g2os). US-2263: composer.tsx 3803 -> 2368 lines, 13 section components under src/components/flipdesk/composer/ plus src/hooks/use-sku-merge.ts. JSX moved byte-identical (re-indented only) so no logic slip could hide in the churn; props named as the page names them, callbacks only where a prop does more than set state. TITLE_MAX/CONDITION_DESC_MAX/SALE_OWNED_STATUSES moved into composer-save.ts. New src/lib/__tests__/helpers/composer-source.ts names which source each guard is about (composerPage for order/state, composerAll for markup), so all five test files were repointed rather than weakened — two got stronger (order now reads the call sites; nothing-below-the-CTA checks all 14 sections). PARTIAL vs AC1: landed at 2368, not <1400. The remaining page is imports 240 / state+queries 350 / seeding+derived 530 / saves 380 / JSX 700 — all genuinely the page's job. Getting under 1400 would mean a save hook taking a ~35-field parameter object, trading one large file for one large parameter list; judged motion rather than improvement, and left for a follow-up if the number itself matters. US-2264: the earlier audit found 2 stranded features, the real count was 9. Ported the next-action CTA (+ new #composer-grading anchor), Complete with AI (writes to the item, not composer state, per US-557 single-entry; specifics picker now keyed on ai_generated_aspects_at so it remounts with the AI's category/aspects), Size AI, the US-1779 fit preview, Mark listed, duplicate and relist (direct status write, since advanceItemStatus is forward-only and a relist is the one legitimate backward move). NOT ported, deliberately: useListingCopy — the US-552 AI rewrite already covers title+description with review/accept and acceptance logging. ItemCanvas (2232 lines) deleted; iOS ItemCanvasView.swift, LocalInventoryItem.swift, title-sync.ts, title-sync-patch.ts and listings.tsx repointed at the composer. Two guards replace its header warning: the file must not exist, and nothing under src/ may import it."
+    },
+    {
+      "id": "US-2265",
+      "passes": true,
+      "title": "Edge AI photo URLs hardcode the public bucket, so iOS tag photos are invisible to every server-side AI pass",
+      "description": "As a seller who catalogs on iPhone, I want every AI pass to be able to read my tag photo, so that Size AI and listing generation are as accurate on iOS-captured items as on web-captured ones.",
+      "acceptanceCriteria": [
+        "A bucket-aware helper (e.g. itemPhotoAiUrl) is added to services/edge-functions/src/lib/item-photo-storage.ts: it returns a signed URL with TTL <= 900s for photo types in SENSITIVE_ITEM_PHOTO_TYPES (tag, tag_2, certificate) and a public item-photos URL otherwise, and falls back to the other bucket when the object is absent from the primary (same both-buckets rule as downloadItemPhoto).",
+        "loadItemPhotos in services/edge-functions/src/routes/flipdesk-ai.ts (feeds POST /api/flipdesk/ai/size) uses the helper instead of supabaseAdmin.storage.from('item-photos').getPublicUrl(...).",
+        "loadItemPhotoUrls in services/edge-functions/src/lib/ai-listing.ts (feeds listing generation, AutoLister, and the tag-OCR pass) uses the helper.",
+        "The /classify-photos photo loader in services/edge-functions/src/routes/flipdesk-ai.ts uses the helper.",
+        "A deno test asserts the helper produces a signed URL (path contains /object/sign/) for photo_type tag, tag_2 and certificate, and a public URL (path contains /object/public/item-photos/) for front.",
+        "A source-guard deno test fails when any file under services/edge-functions/src/routes or src/lib builds an item-photo URL for an AI pass via .from('item-photos').getPublicUrl(, mirroring the existing downloadItemPhoto guard rule documented in item-photo-storage.ts.",
+        "A deno test for the /size photo loader, using an item whose only tag row points at an object in submission-images, asserts the tag photo is present in the URL list handed to the model rather than skipped by buildPhotoContent's non-2xx branch.",
+        "No new route or helper accepts a caller-supplied storage_path: every call site still resolves item_photos rows from an item already ownership-verified against c.get('workspaceOwnerId') ?? c.get('userId') (US-268)."
+      ],
+      "notes": "Done 2026-07-29. Added readBucketForItemPhoto + itemPhotoAiUrl/itemPhotoAiUrls to lib/item-photo-storage.ts (signed URL, 600s, for private-bucket sensitive types; public otherwise; public-URL fallback when a sensitive row's blob turns out to be public). Keyed on item_photos.photo_url being '' for exactly the iOS private uploads, so resolution costs no extra round trip for public photos. Wired into loadItemPhotos (/size), loadItemPhotoUrls (listing generation + AutoLister + tag-OCR), /classify-photos, and the AutoLister photo-QA loader. Marker-based source guard (item-photo-url-ok) added: it flagged 6 more sites, of which 5 were legitimate write-then-URL cases (now marked) and 1 was the photo-QA loader (fixed). PARTIAL on the /size end-to-end AC: loadItemPhotos is a private DB-touching function, so the assertion lands on the resolver it delegates to (itemPhotoAiUrls preserves order and keeps a private tag photo) rather than on loadItemPhotos itself. The injectable seam is publicUrl/signUrl functions, not a mini storage client, because the US-276 TTL guard fails closed on any signing call whose TTL it cannot resolve from source."
+    },
+    {
+      "id": "US-2266",
+      "passes": false,
+      "title": "iOS: the AI extract runs once at capture and can never be re-run on an existing item",
+      "description": "As a seller on iPhone, I want to re-run the AI on an item after the first pass came back thin or after I added better photos, so that I do not have to type the whole listing by hand.",
+      "acceptanceCriteria": [
+        "The iOS item editor (ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift) exposes a Complete with AI action that POSTs /api/flipdesk/ai/extract for the open item, mirroring handleCompleteWithAi in src/pages/flipdesk/composer.tsx.",
+        "The re-run sends the item's PERSISTED item_photos (not just this session's captures), typed by photo_type, minting a signed URL for sensitive types via PhotoSignedURLProvider the same way AIExtractionManager does.",
+        "The re-run is disabled with an explanatory label when the item has zero photos AND no title/description/condition text, matching the web guard toast 'Add photos or a description for the AI to work from.'",
+        "The result registers an AIFillReview through AIFillReviewStore and presents AIFillReviewSheet, so keep/undo/opt-in and PATCH /api/flipdesk/ai/log/:id acceptance reporting are identical to the post-capture path.",
+        "A re-run while one is already in flight for the same item is a no-op (no second AI action spent), asserted by an XCTest against the manager's task map.",
+        "An XCTest asserts the re-run request body carries item_id plus a non-empty photos array built from the persisted rows."
+      ],
+      "dependsOn": [
+        "US-2265"
+      ]
+    },
+    {
+      "id": "US-2267",
+      "passes": false,
+      "title": "iOS auto-writes AI fields at 0.5 confidence before the seller ever sees them; web writes nothing until accepted",
+      "description": "As a seller on iPhone, I want to approve the AI's answers before they are saved onto my item, so that a medium-confidence wrong brand or size is never silently written to my catalog.",
+      "acceptanceCriteria": [
+        "AIExtractStore.autoApplyConfidenceThreshold (ios/GradeThread/AIExtract/AIExtractStore.swift) is raised to a high-confidence bar, and any suggestion below it is surfaced for opt-in instead of written by AIExtractionManager.writeAutoApplied.",
+        "The US-682 title seed still writes on every successful extract so the row is never left 'Untitled item', and an XCTest asserts a run where every field lands below the new bar still produces a seeded title.",
+        "The reversible review still auto-presents (AIFillReviewStore.register(autoPresent: true)) and every field the seller accepts there is written through AIItemFieldWriter with its ai_field_sources entry, so provenance and the AI badge are unchanged.",
+        "An XCTest over buildFillReview asserts a suggestion at 0.5 confidence lands in AIFillReview.lowConfidence (opt-in), not AIFillReview.applied.",
+        "The threshold value and the reasoning live in one place with a comment, and AIExtractTests covers the conflict clamps (conflict:tag, conflict:photo) still sorting below the new bar."
+      ]
+    },
+    {
+      "id": "US-2268",
+      "passes": false,
+      "title": "iOS sends the extract no text and no known_fields, so the AI can contradict what the seller already typed",
+      "description": "As a seller on iPhone who already typed a brand, size or note, I want the AI to be told what I know, so that it fills the gaps instead of overwriting my own values.",
+      "acceptanceCriteria": [
+        "AIExtractionManager.run builds AIExtractRequest with knownFields populated from the item's already-filled columns (brand, style, size, color, material, item_category, garment_type, garment_category), mirroring the ENRICHABLE map in src/pages/flipdesk/composer.tsx.",
+        "AIExtractionManager.run builds AIExtractRequest.text by joining the item's non-empty title, description and condition_notes, mirroring the web's text assembly, and sends nil only when all three are empty.",
+        "An XCTest asserts a request built for an item with brand='Nike' and size='L' carries those in known_fields, and that the server contract (flipdesk-ai.ts deletes known_fields keys from result.suggestions) means neither field can come back as a suggestion.",
+        "An XCTest asserts an item with no text and no filled columns still sends photos with text=nil and known_fields=nil, preserving today's photo-first behaviour."
+      ],
+      "dependsOn": [
+        "US-2266"
+      ]
+    },
+    {
+      "id": "US-2269",
+      "passes": false,
+      "title": "iOS silently drops the AI's condition_notes: the review says applied, nothing is saved",
+      "description": "As a seller on iPhone, I want the condition notes the AI read off my defect photos to actually save, so that the review screen is not lying to me about what it applied.",
+      "acceptanceCriteria": [
+        "AIItemFieldWriter.FieldUpdate (ios/GradeThread/AIExtract/AIItemFieldWriter.swift) gains a condition_notes column plus its case in assign(field:value:), so the field the edge returns in EXTRACT_FIELDS (services/edge-functions/src/lib/ai-extract.ts) is persisted.",
+        "AIItemFieldWriter.Snapshot gains condition_notes in its select list and its value(for:) switch, so an undo restores the prior notes instead of leaving the AI text in place.",
+        "An XCTest asserts assign(field: 'condition_notes', value: 'small pill on left cuff') encodes a condition_notes key in the update payload.",
+        "assign's default branch logs or counts an unmapped field name rather than dropping it in silence, so the next server-side field addition surfaces instead of vanishing.",
+        "An XCTest enumerates the edge's EXTRACT_FIELDS list and asserts every entry maps to a FieldUpdate column, so the two lists cannot drift again."
+      ]
+    },
+    {
+      "id": "US-2270",
+      "passes": false,
+      "title": "The extract's ebay block is always null since the aspects pass moved to the background: the iOS review shows no category and the web toast is dead code",
+      "description": "As a seller, I want to see that my eBay category and item specifics were resolved after an AI fill, so that a background pass that succeeded does not look like it failed.",
+      "acceptanceCriteria": [
+        "Clients stop reading the always-null ebay field for this purpose and read ebay_pending instead: POST /api/flipdesk/ai/extract returns ebay: null and ebay_pending: true (services/edge-functions/src/routes/flipdesk-ai.ts) once includeEbayAspects is on.",
+        "AIExtractResponse (ios/GradeThread/AIExtract/AIExtractTypes.swift) decodes ebay_pending, and the iOS review shows a 'resolving eBay category' state instead of omitting the category summary entirely when ebayPending is true.",
+        "iOS refreshes the item once the background pass can have landed, so inventory_items.ebay_category_id and ebay_aspects appear without the seller having to open the specifics editor: assert via an XCTest that a pull is requested after the extract completes when ebay_pending was true.",
+        "The dead branch in handleCompleteWithAi (src/pages/flipdesk/composer.tsx, currently gated on result.ebay) is replaced with an ebay_pending-driven refresh of the inventory_item_ebay query key plus honest copy, so the specifics picker stops showing the values it seeded with.",
+        "A vitest asserts the composer refreshes the inventory_item_ebay query for the item when the extract response carries ebay_pending: true.",
+        "AiExtractResponse in src/hooks/use-ai-extract.ts declares ebay_pending, attributes and ebay_category_query, which the server already returns but the web type omits."
+      ]
+    },
+    {
+      "id": "US-2271",
+      "passes": true,
+      "title": "Depop/Etsy/Shopify publish pushed item photos with neither exclusion every other publish path applies",
+      "description": "As a seller cross-listing to Depop, Etsy or Shopify, I want my care-label and price-tag photos kept off the marketplace, so that a name on a care label or my cost basis is never published as listing imagery.",
+      "acceptanceCriteria": [
+        "resolveImageUrls in services/edge-functions/src/lib/marketplace-adapters/{depop,etsy,shopify}.ts runs filterListablePhotos, so 'internal' (price tags, receipts) and 'measurement' (the MeasureCard frame) are never pushed, matching flipdesk-ebay.ts.",
+        "Those three adapters resolve each URL through publicItemPhotoUrl (services/edge-functions/src/lib/item-photo-storage.ts) instead of getPublicUrl on the hardcoded item-photos bucket, so a sensitive photo whose bytes are in the private bucket is skipped rather than pushed as a URL that 404s.",
+        "publicItemPhotoUrl is the ONE definition of 'may this photo go to a public marketplace': flipdesk-ebay.ts's ebayPublicPhotoUrl delegates to it, so eBay's existing behaviour is unchanged and the four platforms cannot drift again.",
+        "A deno test asserts publicItemPhotoUrl returns null for a tag/tag_2/certificate row with an empty photo_url, returns the stored photo_url when one is present, and returns a public item-photos URL for a non-sensitive row.",
+        "The US-2265 source guard in tests/item-photo-storage_test.ts covers these files, so a future adapter that hardcodes the public bucket fails CI unless it justifies the site with an inline item-photo-url-ok marker."
+      ],
+      "notes": "Done 2026-07-29. Found by the US-2265 source guard, fixed in the same commit. Extracted publicItemPhotoUrl into lib/item-photo-storage.ts as the single 'may this photo go to a public marketplace' rule; flipdesk-ebay.ts's ebayPublicPhotoUrl now delegates to it (behaviour unchanged there). depop/etsy/shopify resolveImageUrls now select photo_type, run filterListablePhotos, and resolve through publicItemPhotoUrl — so 'internal' price-tag/receipt photos and the MeasureCard frame are no longer pushed, and a care-label/certificate photo in the private bucket is skipped instead of being sent as a 404 URL. Note the pre-existing eBay behaviour kept deliberately: a sensitive row with an ALREADY-POPULATED photo_url (web uploaded every type to the public bucket) is still publishable, because live listings point at those URLs; only the private-bucket case is refused."
     }
   ]
 }
