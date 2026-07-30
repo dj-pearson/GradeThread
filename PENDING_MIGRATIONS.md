@@ -1,10 +1,29 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Two migrations held.** Schema on prod is at **00503** (applied 2026-07-29);
-this branch bumps `EXPECTED_SCHEMA_VERSION` to **00505** and holds two migrations
-below (apply **00504 then 00505**, in order). Both are **db-lane verified** —
-`npm run verify:db` applied the whole tree from zero on 2026-07-30 (30.2s, green).
-Apply to prod, then OK the push.
+**Three migrations held.** Schema on prod is at **00503** (applied 2026-07-29);
+this branch bumps `EXPECTED_SCHEMA_VERSION` to **00506** and holds three
+migrations below (apply **00504 → 00505 → 00506**, in order). All are **db-lane
+verified** — `npm run verify:db` applied the whole tree from zero on 2026-07-30
+(green). Apply to prod, then OK the push.
+
+---
+
+## ⏳ HELD: 00506_items_full_quality_score.sql (US-2170 sortable quality score, 2026-07-30)
+
+- **Apply order.** After 00505. Idempotent `CREATE OR REPLACE VIEW` (no DROP, so
+  the analytics RPCs that SELECT from items_full are never observably absent).
+- **What it does.** Exposes `listings.quality_score` (00476) as a new LAST column
+  `quality_score` on the `items_full` view, so the inventory table can sort by
+  the Listing Quality Score. Body is verbatim from 00438 plus the one column.
+- **CLIENT reads/writes.** The SPA now reads `quality_score` off items_full rows
+  (`ItemFullRow`, listings.tsx Quality column). If the frontend deploys before
+  this applies, the column is simply absent → the row reads it as `undefined` and
+  the Quality column sorts as "unscored"; it does NOT 42703 (the value is read
+  from the already-selected row set, not a new filter). Low blast radius, but
+  apply in order anyway.
+- **If it stays unapplied.** Sorting by Quality is inert (all rows unscored)
+  until applied; nothing breaks.
+- **`NOTIFY pgrst, 'reload schema';`** after applying (the view changed).
 
 ---
 

@@ -1706,6 +1706,9 @@ export interface ItemFullRow {
   listing_needs_review: boolean | null;
   listing_reviewed_at: string | null;
   listing_title: string | null;
+  // US-2170 (00506): the persisted Listing Quality Score of the most-recent
+  // listing, exposed on the row so the inventory table can sort by it.
+  quality_score: number | null;
 }
 
 // ── Admin task / project management (00047) ──────────────────────────────

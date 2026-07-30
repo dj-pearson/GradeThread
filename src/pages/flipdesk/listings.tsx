@@ -2483,13 +2483,23 @@ export function FlipdeskListingsPage() {
                         <TableHead className="w-28">Platforms</TableHead>
                       )}
                       {/* US-2170: the Listing Quality Score, next to the other
-                          listing-health columns. Not sortable yet — see the
-                          comment on the quality query for why that needs the
-                          items_full view to expose the column. */}
+                          listing-health columns. Sortable now that items_full
+                          exposes quality_score (00506) — surfaces the weakest
+                          live listings on the Active tab and the weakest drafts,
+                          so a seller fixes the lowest scores first. */}
                       {(isDrafts || isActive) && (
                         <TableHead className="w-20 text-center">
-                          <span title="Listing Quality Score — 0-100 across every ranking lever">
-                            Quality
+                          <span
+                            className="inline-flex"
+                            title="Listing Quality Score — 0-100 across every ranking lever"
+                          >
+                            <SortHeader
+                              field="quality_score"
+                              columnSort={columnSort}
+                              onToggle={toggleColumnSort}
+                            >
+                              Quality
+                            </SortHeader>
                           </span>
                         </TableHead>
                       )}
