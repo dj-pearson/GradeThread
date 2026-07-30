@@ -2038,7 +2038,8 @@ struct ItemCanvasView: View {
         } catch {
             // Duplicate SKU (partial unique index on user_id, sku) → offer to
             // merge the two records instead of dead-ending on the raw Postgres
-            // error (web parity — see item-canvas.tsx `save()`).
+            // error (web parity — see the composer's saveDraft(), src/pages/flipdesk/
+            // composer.tsx, and the payload builders in src/lib/composer-save.ts).
             let sku = state.draft.sku.trimmingCharacters(in: .whitespacesAndNewlines)
             if ItemMergePlan.isDuplicateSkuError(error), !sku.isEmpty,
                let existing = await fetchExistingSkuOwner(sku) {

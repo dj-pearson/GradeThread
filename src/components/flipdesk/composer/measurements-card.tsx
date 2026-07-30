@@ -1,5 +1,6 @@
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { MeasurementPhotoEditor } from "@/components/flipdesk/measurement-photo-editor";
+import { FitWidget } from "@/components/fit/fit-widget";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ItemFullRow } from "@/types/database";
 export interface MeasurementsCardProps {
@@ -42,6 +43,10 @@ export function MeasurementsCard({
           aiSources={item.ai_field_sources ?? null}
           onApply={(next) => setMeasurements(next)}
         />
+        {/* US-1779/US-2264: buyer fit preview from these flat-lay measurements vs
+            the viewer's saved body profile. Renders nothing without measurements.
+            It only ever existed on the unmounted ItemCanvas. */}
+        <FitWidget garmentMeasurements={measurements} category={item.category} />
       </CardContent>
     </Card>
   );

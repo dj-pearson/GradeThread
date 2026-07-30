@@ -353,7 +353,8 @@ const VIRTUALIZE_ROW_THRESHOLD = 60;
 // per-row photo correlated-subqueries (photo_count, has_required_photos) and
 // the AI-provenance fields (ai_field_sources, ai_enriched_at) — which lets
 // Postgres prune those subqueries from the plan. The detail canvas lazy-loads
-// those four for the single open item (see item-canvas.tsx). comps/measurements
+// those four for the single open item (see src/pages/flipdesk/composer.tsx).
+// comps/measurements
 // stay: listability scoring + the editor need them across the loaded set.
 const LISTINGS_COLUMNS = [
   "id",

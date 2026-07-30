@@ -13,11 +13,20 @@
 //     sales row behind it, and Sold totals / P&L / reconciliation drifted from
 //     inventory with nothing to surface the gap.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 // US-2263: the composer is a directory now — these assertions are about what the
 // composer DOES, not which of its files does it.
 import { composerAll as composer } from "./helpers/composer-source";
+
+/** Every .ts/.tsx file under a directory, recursively. */
+function walk(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) return walk(full);
+    return /\.tsx?$/.test(entry) ? [full] : [];
+  });
+}
 
 const syncPrecedence = readFileSync(
   join(process.cwd(), "services/edge-functions/src/lib/sync-precedence.ts"),
@@ -151,13 +160,23 @@ describe("stranded cards are mounted again (US-2259)", () => {
     );
   });
 
-  it("warns at the top of ItemCanvas that no route mounts it", () => {
-    const canvas = readFileSync(
-      join(process.cwd(), "src/components/flipdesk/item-canvas.tsx"),
-      "utf8",
-    );
-    expect(canvas.slice(0, 400)).toContain("NOT MOUNTED BY ANY WEB ROUTE");
-    // …and says what still depends on it, so nobody deletes it blind.
-    expect(canvas.slice(0, 2000)).toContain("ItemCanvasView.swift");
+  // US-2264: ItemCanvas is deleted. It was kept one story longer only because
+  // iOS and Android cited it as their web-parity spec; those comments now point
+  // at the composer, so the 2200-line component has no reason to exist. This
+  // asserts it cannot come back as dead code — which is exactly how
+  // EbayCatalogMatchCard and CategoryCheckCard became unreachable.
+  it("has no ItemCanvas left to strand features on", () => {
+    expect(existsSync(join(process.cwd(), "src/components/flipdesk/item-canvas.tsx")))
+      .toBe(false);
+  });
+
+  it("has no importer of ItemCanvas anywhere under src/", () => {
+    const IMPORTS_CANVAS =
+      /(?:^|\n)\s*import[\s\S]{0,200}?from\s+["'][^"']*item-canvas["']/;
+    const offenders = walk(join(process.cwd(), "src"))
+      .filter((f) => !f.endsWith("composer-locks.test.ts"))
+      .filter((f) => IMPORTS_CANVAS.test(readFileSync(f, "utf8")))
+      .map((f) => f.replace(process.cwd() + "/", ""));
+    expect(offenders).toEqual([]);
   });
 });

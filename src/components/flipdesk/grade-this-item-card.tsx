@@ -232,7 +232,7 @@ export function GradeThisItemCard({
   }
 
   // US-1423: persist the inline garment picker, then re-validate so the card
-  // flips straight to "Ready to grade" without a trip to ItemCanvas.
+  // flips straight to "Ready to grade" without leaving the composer.
   async function saveGarment(gt: GarmentType | "", gc: GarmentCategory | "") {
     if (!gt || !gc) {
       toast.error("Pick a garment type and category.");
@@ -398,7 +398,7 @@ export function GradeThisItemCard({
   const lastFailed = latest && latest.status === "failed" ? latest : null;
 
   // US-1423: when the garment fields are the ONLY thing blocking grading, show a
-  // one-tap inline picker instead of the amber "fix it in ItemCanvas" list.
+  // one-tap inline picker instead of an amber "go fix it elsewhere" list.
   // (Edge blocker strings are "Missing garment_type"/"Missing garment_category".)
   const onlyGarmentBlocks =
     blockers.length > 0 &&

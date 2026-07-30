@@ -63,7 +63,7 @@ import {
   type CrossListingPlatform,
   isNonListablePhotoType,
 } from "@/lib/constants";
-import { resolveStatus, factsOf } from "@/lib/workflow";
+import { resolveStatus, factsOf, nextAction } from "@/lib/workflow";
 import { errorMessage, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
@@ -143,6 +143,9 @@ import { DescriptionCard } from "@/components/flipdesk/composer/description-card
 import { PushToCard } from "@/components/flipdesk/composer/push-to-card";
 import { ScheduleCard } from "@/components/flipdesk/composer/schedule-card";
 import { useSkuMerge } from "@/hooks/use-sku-merge";
+import { WorkflowActionsCard } from "@/components/flipdesk/composer/workflow-actions-card";
+import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
+import { useAiExtract, useAiSizeEstimate } from "@/hooks/use-ai-extract";
 // US-2248/US-2249: the save payloads live in one pure module so the draft and
 // live paths cannot drift apart again (see src/lib/composer-save.ts).
 import {
@@ -310,6 +313,14 @@ export function FlipdeskComposerPage({
   // US-2260: recording the sale is what makes an item sold — offered here instead
   // of letting the status dropdown claim it without the money behind it.
   const [recordSaleOpen, setRecordSaleOpen] = useState(false);
+  // US-2264: the workflow actions ported off the unmounted ItemCanvas.
+  const [markListedOpen, setMarkListedOpen] = useState(false);
+  const [aiFillResult, setAiFillResult] = useState<AiExtractResponse | null>(
+    null,
+  );
+  const [aiFillOpen, setAiFillOpen] = useState(false);
+  const aiExtract = useAiExtract();
+  const sizeAi = useAiSizeEstimate();
   // US-561: Promoted Listings. promoteEnabled mirrors !promo_opt_out (promote by
   // default); promoRate is the seller's accepted/adjusted ad rate (%) seeded
   // from the category suggestion; promoSuggested holds the fetched suggestion so
@@ -1339,6 +1350,230 @@ export function FlipdeskComposerPage({
   // storage-only handler. Returns true when the error WAS a SKU collision and the
   // merge dialog has been opened (the caller stops there — the update rolled back);
   // false means "not mine, keep throwing".
+  // ── US-2264: workflow actions ported off the unmounted ItemCanvas ──────────
+  // Fields "Complete with AI" targets. Blank ones are what it offers to fill.
+  const ENRICHABLE: {
+    key: string;
+    value: string | null | undefined;
+  }[] = item
+    ? [
+        { key: "brand", value: item.brand },
+        { key: "style", value: item.style },
+        { key: "size", value: item.size },
+        { key: "color", value: ebayMapping?.color },
+        { key: "material", value: ebayMapping?.material },
+        { key: "item_category", value: item.category },
+        { key: "garment_type", value: ebayMapping?.garment_type },
+        { key: "garment_category", value: ebayMapping?.garment_category },
+      ]
+    : [];
+  const missingFields = ENRICHABLE.filter((f) => !String(f.value ?? "").trim());
+  const hasAiText = [title, description, conditionDesc].some((t) => t.trim());
+  const canCompleteWithAi = photos.length > 0 || hasAiText;
+
+  // Read the garment from its own photos and fill what's blank. The server also
+  // resolves the eBay category + item specifics and persists them on the item,
+  // which is why a successful fill remounts the specifics picker below (its
+  // `key`) — otherwise the picker would keep showing the values it seeded with.
+  async function handleCompleteWithAi() {
+    if (!item) return;
+    const photoRefs = photos.map((ph) => ({
+      url: supabase.storage
+        .from("item-photos")
+        .getPublicUrl(ph.storage_path ?? "").data.publicUrl,
+      type: ph.photo_type,
+    }));
+    const text = [title, description, conditionDesc]
+      .filter((t) => t.trim())
+      .join("\n");
+    if (photoRefs.length === 0 && !text.trim()) {
+      toast.error("Add photos or a description for the AI to work from.");
+      return;
+    }
+    const known: Record<string, unknown> = {};
+    for (const f of ENRICHABLE) {
+      if (String(f.value ?? "").trim()) known[f.key] = f.value;
+    }
+    try {
+      const result = await aiExtract.mutateAsync({
+        text: text || undefined,
+        photos: photoRefs,
+        known_fields: known,
+        item_id: item.id,
+      });
+      setAiFillResult(result);
+      setAiFillOpen(true);
+      if (result.ebay) {
+        await qc.invalidateQueries({
+          queryKey: ["inventory_item_ebay", item.id],
+        });
+        const filled = Object.keys(result.ebay.aspects).length;
+        if (filled > 0) {
+          toast.success(
+            `eBay category + ${filled} item specific${filled === 1 ? "" : "s"} filled from photos.`,
+          );
+        }
+      }
+    } catch {
+      /* error toast handled by the hook */
+    }
+  }
+
+  // Accepted AI values are written to the ITEM, not to composer state: brand,
+  // size, colour and material are owned by the eBay specifics editor (US-557
+  // single-entry), and the picker re-seeds from the item on remount.
+  async function applyAiFill(accepted: AcceptedField[]) {
+    if (!item || accepted.length === 0) return;
+    const patch: Record<string, unknown> = {};
+    for (const f of accepted) {
+      const v = f.value.trim();
+      if (!v) continue;
+      patch[f.field === "item_category" ? "item_category" : f.field] = v;
+    }
+    if (Object.keys(patch).length === 0) return;
+    const { error } = await supabase
+      .from("inventory_items")
+      .update(patch as never)
+      .eq("id", item.id);
+    if (error) {
+      toast.error(`Couldn't save the AI's answers: ${errorMessage(error)}`);
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
+    toast.success("Applied to this item.");
+  }
+
+  // US-1088: a cut-off or missing size label is common on thrifted stock, and the
+  // flat-lay photos already carry the answer.
+  async function handleEstimateSize() {
+    if (!item) return;
+    try {
+      const r = await sizeAi.mutateAsync({ item_id: item.id });
+      if (!r.size) {
+        toast.info(
+          "Size AI couldn't read a size — add a measurement or flat-lay photo and retry.",
+        );
+        return;
+      }
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ size: r.size } as never)
+        .eq("id", item.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
+      const genderNote = r.gender ? ` · ${r.gender}` : "";
+      if (r.low_confidence) {
+        toast.info(`Best guess: ${r.size}${genderNote}`, {
+          description:
+            r.rationale || "Low confidence — double-check before listing.",
+        });
+      } else {
+        toast.success(`Size AI: ${r.size}${genderNote}`, {
+          description: r.rationale || undefined,
+        });
+      }
+    } catch (err) {
+      toast.error(`Couldn't save the size: ${errorMessage(err)}`);
+    }
+  }
+
+  // Duplicate: a second, near-identical piece from the same haul. Copies the
+  // catalog fields and nothing transactional — no photos, no listing, no cost
+  // history, and it starts at "cataloged" rather than inheriting a status it
+  // hasn't earned.
+  async function handleDuplicate() {
+    if (!item) return;
+    try {
+      const { data: created, error } = await supabase
+        .from("inventory_items")
+        .insert({
+          user_id: item.user_id,
+          title: item.item_title,
+          brand: item.brand,
+          style: item.style,
+          size: item.size,
+          item_category: item.category,
+          source_id: item.source_id,
+          sourced_by: item.sourced_by,
+          acquired_price: item.purchase_price,
+          acquired_date: item.purchase_date,
+          description: item.item_description,
+          condition_notes: item.notes,
+          measurements: item.measurements,
+          status: "cataloged",
+        } as never)
+        .select("id")
+        .single();
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Duplicated — opening the copy.");
+      navigate(`/dashboard/flipdesk/items/${(created as { id: string }).id}`);
+    } catch (err) {
+      toast.error(`Duplicate failed: ${errorMessage(err)}`);
+    }
+  }
+
+  // Relist: an ended or unsold item goes back to the top of the pipeline with its
+  // catalog work intact, so it can be re-priced and pushed again.
+  async function handleRelist() {
+    if (!item) return;
+    try {
+      // Deliberately a direct write, not advanceItemStatus: that helper is
+      // forward-only by design, and a relist is the one legitimate case for
+      // moving an item BACKWARD — an ended or returned piece returns to the
+      // pipeline at "comped" with its catalog work intact, to be re-priced.
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ status: "comped" } as never)
+        .eq("id", item.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Ready to relist — review the price and publish again.");
+    } catch (err) {
+      toast.error(`Relist failed: ${errorMessage(err)}`);
+    }
+  }
+
+  function scrollToSection(id: string) {
+    const el = document.getElementById(id);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // The pinned CTA either takes the seller to the section that is blocking, or
+  // performs the step outright when there is nothing to fill in.
+  function runNextAction(kind: string) {
+    switch (kind) {
+      case "measure":
+        scrollToSection("composer-measurements");
+        break;
+      case "photograph":
+        scrollToSection("composer-photos");
+        break;
+      case "grade":
+      case "grading":
+      case "review_grade":
+        scrollToSection("composer-grading");
+        break;
+      case "comp":
+      case "draft":
+        scrollToSection("composer-category");
+        break;
+      case "list":
+        setMarkListedOpen(true);
+        break;
+      case "sell":
+        setRecordSaleOpen(true);
+        break;
+      case "relist":
+        void handleRelist();
+        break;
+      default:
+        break;
+    }
+  }
+
   function togglePushPlatform(platform: CrossListingPlatform) {
     // US-1114: never select a channel awaiting platform approval — publishing it
     // would 503. The UI disables it too; this guards persisted/programmatic state.
@@ -1798,6 +2033,27 @@ export function FlipdeskComposerPage({
       <div className="grid gap-6 @4xl:grid-cols-2">
         {/* ── Editor column ───────────────────────────────────────── */}
         <div className="space-y-6">
+          {/* US-2264: what to do next with this item, and the AI gap-fills —
+              ported off the unmounted ItemCanvas, where they shipped to nobody. */}
+          <WorkflowActionsCard
+            item={item}
+            action={nextAction(item)}
+            onRunNextAction={() => runNextAction(nextAction(item).kind)}
+            missingCount={missingFields.length}
+            canComplete={canCompleteWithAi}
+            completing={aiExtract.isPending}
+            onCompleteWithAi={() => void handleCompleteWithAi()}
+            sizeMissing={!String(item.size ?? "").trim()}
+            sizeEstimating={sizeAi.isPending}
+            onEstimateSize={() => void handleEstimateSize()}
+            onDuplicate={() => void handleDuplicate()}
+            onMarkListed={() => setMarkListedOpen(true)}
+            onRelist={() => void handleRelist()}
+            showMarkListed={!item.listing_id && item.status !== "listed"}
+            showRelist={item.status === "archived" || item.status === "returned"}
+            busy={saving}
+          />
+
           <PhotosCard
             item={item}
             liveListingId={isLiveListing ? (listing?.id ?? null) : null}
@@ -1832,6 +2088,10 @@ export function FlipdeskComposerPage({
             ebayOwnedHint={ebayOwnedHint}
           />
           <SpecificsSection
+            // US-2264: "Complete with AI" persists a resolved category + aspects
+            // server-side. The picker seeds ONCE from its initial props, so
+            // without this key it would keep showing the pre-AI values.
+            key={ebayMapping?.ai_generated_aspects_at ?? "seed"}
             item={item}
             aspectCoverage={aspectCoverage}
             loading={listingLoading || ebayMappingLoading}
@@ -1865,6 +2125,7 @@ export function FlipdeskComposerPage({
               Inventory drafts consolidation routed around). Self-contained: shows
               the existing grade + certificate when graded, submission status when
               in flight, or the tier picker + Submit when eligible. */}
+          <div id="composer-grading" className="scroll-mt-4">
           <GradeThisItemCard
             item={item}
             preview={gradingPreview}
@@ -1888,6 +2149,7 @@ export function FlipdeskComposerPage({
               })();
             }}
           />
+          </div>
 
           {/* US-2259: both of these were mounted ONLY on ItemCanvas, which no
               route renders any more — this editor replaced it. Two working
@@ -2338,6 +2600,25 @@ export function FlipdeskComposerPage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* US-2264: the manual "it's live somewhere else" bridge. */}
+      <MarkListedDialog
+        item={markListedOpen ? item : null}
+        onClose={() => setMarkListedOpen(false)}
+      />
+
+      {/* US-2264: review/accept what the AI read off the photos. Reuses the
+          extract panel, so accept-all, confidence tiers and acceptance logging
+          all carry over. */}
+      <AiFillPanel
+        open={aiFillOpen}
+        onOpenChange={setAiFillOpen}
+        result={aiFillResult}
+        currentValues={Object.fromEntries(
+          ENRICHABLE.map((f) => [f.key, String(f.value ?? "")]),
+        )}
+        onApply={(accepted) => void applyAiFill(accepted)}
+      />
 
       {/* US-2260: the real sold path — captures price, fees and date, then
           advances the status via advanceItemStatus. */}

@@ -47,13 +47,15 @@ final class LocalInventoryItem {
     /// `garment_category`). REQUIRED to grade a clothing item — the grading
     /// validate gate (flipdesk-grading.ts) blocks on a missing value. Only
     /// meaningful when `itemCategory == "clothing"`; user-owned on sync, edited
-    /// in the canvas. Web parity (item-canvas.tsx garment pickers).
+    /// in the canvas. Web parity: the composer's grade card
+    /// (src/components/flipdesk/grade-this-item-card.tsx garment pickers).
     var garmentType: String?
     var garmentCategory: String?
 
     /// Buyer-facing listing copy (`inventory_items.description`), the seller's
     /// style/variant note (`style`), and who sourced the item (`sourced_by`).
-    /// All free-form, user-owned on sync (web parity — item-canvas.tsx). Named
+    /// All free-form, user-owned on sync (web parity — the composer's
+    /// Item details + Storage & SKU cards, src/components/flipdesk/composer/). Named
     /// `itemDescription` to avoid shadowing `CustomStringConvertible.description`.
     var itemDescription: String?
     var style: String?
