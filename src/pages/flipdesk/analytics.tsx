@@ -407,17 +407,21 @@ function SellThroughReport() {
 
 function GradingRoiReport() {
   const user = useAuthStore((s) => s.user);
+  // US-2234 (AC3): honour the same period presets as the sibling tabs. The RPCs
+  // now take p_period_start (migration 00505); periodStart flows into both.
+  const [preset, setPreset] = usePresetParam();
+  const periodStart = useMemo(() => presetStart(preset), [preset]);
   const { data: buckets = [], isLoading } = useQuery({
-    queryKey: ["items_full", "analytics", "grading-roi", user?.id],
+    queryKey: ["items_full", "analytics", "grading-roi", user?.id, preset],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchGradingRoi(),
+    queryFn: () => fetchGradingRoi(periodStart),
   });
   const { data: summary = null, isLoading: summaryLoading } = useQuery({
-    queryKey: ["items_full", "analytics", "grading-roi-summary", user?.id],
+    queryKey: ["items_full", "analytics", "grading-roi-summary", user?.id, preset],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchGradingRoiSummary(),
+    queryFn: () => fetchGradingRoiSummary(periodStart),
   });
 
   if (isLoading || summaryLoading) return <Loading />;
@@ -473,10 +477,22 @@ function GradingRoiReport() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
+          <SelectTrigger className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All time</SelectItem>
+            <SelectItem value="30d">Last 30 days</SelectItem>
+            <SelectItem value="90d">Last 90 days</SelectItem>
+            <SelectItem value="12mo">Last 12 months</SelectItem>
+          </SelectContent>
+        </Select>
         <Button
           variant="outline"
           size="sm"
+          className="ml-auto"
           disabled={buckets.length === 0}
           onClick={exportCsv}
         >

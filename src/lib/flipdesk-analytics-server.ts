@@ -25,14 +25,14 @@ type RpcClient = {
   }>) &
     ((
       fn: "flipdesk_grading_roi",
-      args?: Record<string, never>,
+      args?: { p_period_start: string | null },
     ) => Promise<{
       data: RoiBucket[] | null;
       error: { message: string } | null;
     }>) &
     ((
       fn: "flipdesk_grading_roi_summary",
-      args?: Record<string, never>,
+      args?: { p_period_start: string | null },
     ) => Promise<{
       data: GradingRoiSummary | null;
       error: { message: string } | null;
@@ -62,9 +62,13 @@ export async function fetchSellThrough(
  * items. Rows arrive pre-sorted by category then band, with `meaningful` already
  * computed against MIN_BUCKET_SIZE.
  */
-export async function fetchGradingRoi(): Promise<RoiBucket[]> {
+export async function fetchGradingRoi(
+  periodStart: string | null = null,
+): Promise<RoiBucket[]> {
   const client = supabase as unknown as RpcClient;
-  const { data, error } = await client.rpc("flipdesk_grading_roi");
+  const { data, error } = await client.rpc("flipdesk_grading_roi", {
+    p_period_start: periodStart,
+  });
   if (error) throw new Error(error.message);
   return data ?? [];
 }
@@ -75,9 +79,13 @@ export async function fetchGradingRoi(): Promise<RoiBucket[]> {
  * jsonb object — independent of inventory size. Returns null when the function
  * has no data to summarize (empty account).
  */
-export async function fetchGradingRoiSummary(): Promise<GradingRoiSummary | null> {
+export async function fetchGradingRoiSummary(
+  periodStart: string | null = null,
+): Promise<GradingRoiSummary | null> {
   const client = supabase as unknown as RpcClient;
-  const { data, error } = await client.rpc("flipdesk_grading_roi_summary");
+  const { data, error } = await client.rpc("flipdesk_grading_roi_summary", {
+    p_period_start: periodStart,
+  });
   if (error) throw new Error(error.message);
   return data ?? null;
 }

@@ -1,8 +1,30 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**One migration held.** Schema on prod is at **00503** (applied 2026-07-29);
-this branch bumps `EXPECTED_SCHEMA_VERSION` to **00504** and holds one migration
-below. Apply it to prod, then OK the push.
+**Two migrations held.** Schema on prod is at **00503** (applied 2026-07-29);
+this branch bumps `EXPECTED_SCHEMA_VERSION` to **00505** and holds two migrations
+below (apply **00504 then 00505**, in order). Both are **db-lane verified** —
+`npm run verify:db` applied the whole tree from zero on 2026-07-30 (30.2s, green).
+Apply to prod, then OK the push.
+
+---
+
+## ⏳ HELD: 00505_grading_roi_period_filter.sql (US-2234 AC3 grading-ROI presets, 2026-07-30)
+
+- **Apply order.** After 00504. Idempotent (DROP FUNCTION IF EXISTS the 0-arg
+  overloads, then CREATE OR REPLACE the 1-arg versions; grants; footer).
+- **What it does.** Adds `p_period_start date default null` to
+  `flipdesk_grading_roi()` and `flipdesk_grading_roi_summary()` so the Grading-ROI
+  analytics tab can honour period presets like its siblings. Filters exactly like
+  `flipdesk_sell_through` (sale_date/list_date `>= p_period_start`).
+- **CLIENT reads/writes — SAY IT LOUD.** The SPA now CALLS these RPCs WITH
+  `p_period_start` (`src/lib/flipdesk-analytics-server.ts` fetchGradingRoi /
+  fetchGradingRoiSummary, driven by `analytics.tsx` GradingRoiReport). If the
+  frontend auto-deploys before this migration is applied, the argless overload is
+  gone and the new call passes an arg the old function never had → the Grading-ROI
+  tab errors. **Apply 00505 to prod BEFORE the push.**
+- **If it stays unapplied.** The Grading-ROI tab breaks once the frontend deploys
+  (see above). Until the frontend deploys, prod is unaffected.
+- **`NOTIFY pgrst, 'reload schema';`** after applying (functions changed).
 
 ---
 
@@ -27,10 +49,9 @@ below. Apply it to prod, then OK the push.
   in lockstep by hand, so behaviour is unchanged until the trigger takes over
   enforcement. The backfill is the only thing that needs prod to run.
 - **`NOTIFY pgrst, 'reload schema';`** after applying (a function + trigger changed).
-- **Verification note.** The US-1108 triple is green (`schema-version_test.ts`,
-  18/18). The throwaway db-lane (`verify:db`) did NOT run — Docker was down on the
-  authoring machine — so the fresh-schema apply has not been proven locally; run
-  `npm run verify:db` (or apply + eyeball) before/at prod apply.
+- **Verification.** US-1108 triple green (`schema-version_test.ts` 18/18) AND
+  db-lane verified — `npm run verify:db` re-applied the whole tree from zero
+  (2026-07-30, green), so 00504 provably applies on a fresh schema.
 
 ---
 
