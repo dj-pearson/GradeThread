@@ -3265,7 +3265,7 @@
     },
     {
       "id": "US-2266",
-      "passes": false,
+      "passes": true,
       "title": "iOS: the AI extract runs once at capture and can never be re-run on an existing item",
       "description": "As a seller on iPhone, I want to re-run the AI on an item after the first pass came back thin or after I added better photos, so that I do not have to type the whole listing by hand.",
       "acceptanceCriteria": [
@@ -3278,7 +3278,8 @@
       ],
       "dependsOn": [
         "US-2265"
-      ]
+      ],
+      "notes": "Done 2026-07-29. Added AIRerunPhotos (pure, injectable signer) + AIExtractionManager.startRerun, and a 'Complete with AI' action in the ItemCanvasView overflow menu. The re-run works from PERSISTED item_photos rather than in-memory captures: sensitive types are signed via PhotoSignedURLProvider, non-listable ('internal'/'measurement') rows are dropped per US-1549/US-1571, order is preserved for the server's 8-photo cap, and unresolvable rows are skipped rather than sent as a 404 URL. Everything after the call reuses the post-capture path (finish -> auto-apply -> AIFillReviewStore.register(autoPresent:) -> AIFillReviewSheet -> PATCH /ai/log/:id), so there is no second review UI. Disabled state carries its reason in the label. Manager idempotence guard prevents a double tap spending two AI actions. Scope note: this also sends known_fields + text on the RE-RUN path (the web guard copy and the server's known_fields-deletion rule both require it), so US-2268 is reduced to wiring the same two inputs into the post-CAPTURE path. VERIFICATION LIMIT: Swift cannot be built or unit-tested on this Windows host, so the 4 new XCTests are unrun locally — iOS CI on macOS is the gate. All six ios/Scripts static checks pass (print gating, bare strings, force unwrap, shared session, raw JPEG, ATS) and the file is free of curly-quote delimiters."
     },
     {
       "id": "US-2267",

@@ -59,6 +59,12 @@ struct ItemCanvasView: View {
     // when the user lands here straight after an AI-extract auto-apply.
     @State private var aiReviewStore = AIFillReviewStore.shared
     @State private var showingAIReview = false
+    // US-2266: "Complete with AI" — re-run the extract on THIS item from its
+    // persisted photos (web composer parity). The manager owns the run so it
+    // survives this view going away; these two drive the local spinner + the
+    // failure message.
+    @State private var aiManager = AIExtractionManager.shared
+    @State private var aiRerunMessage: String?
 
     // US-650 item-level actions
     @State private var showingDeleteConfirmation = false
@@ -325,6 +331,15 @@ struct ItemCanvasView: View {
                 } label: {
                     Label("Add from library", systemImage: "photo.badge.plus")
                 }
+                // US-2266: re-read this item with the AI. Available at every
+                // status — a listing can always be improved, and the AI is the
+                // fastest way to fill a specific the seller left blank.
+                Button {
+                    runAiComplete()
+                } label: {
+                    Label(aiCompleteMenuLabel, systemImage: "sparkles")
+                }
+                .disabled(aiRerunRunning || !canCompleteWithAi)
                 Button {
                     guard !isDuplicating else { return }
                     isDuplicating = true
@@ -486,6 +501,22 @@ struct ItemCanvasView: View {
             Button("OK", role: .cancel) { sizeAiMessage = nil }
         } message: {
             Text(sizeAiMessage ?? "")
+        }
+        // US-2266: the re-run's terminal phase — a failure alerts here, a success
+        // opens the same reversible review the post-capture fill uses.
+        .onChange(of: aiManager.phase(for: item.id)) { _, phase in
+            handleAiRerunPhase(phase)
+        }
+        .alert(
+            "Complete with AI",
+            isPresented: Binding(
+                get: { aiRerunMessage != nil },
+                set: { if !$0 { aiRerunMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { aiRerunMessage = nil }
+        } message: {
+            Text(aiRerunMessage ?? "")
         }
         // US-650/US-687: add photos straight into THIS item (not a new intake).
         // selectionLimit 0 = unlimited, so users can add extra/detail shots
@@ -1039,6 +1070,122 @@ struct ItemCanvasView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    // MARK: - Complete with AI (US-2266)
+
+    /// True while THIS item's extract is in flight (the manager owns the run, so
+    /// this stays true even if the canvas is dismissed and reopened).
+    private var aiRerunRunning: Bool {
+        aiManager.isRunning(item.id)
+    }
+
+    /// A disabled menu row with no reason reads as broken. Say why instead — the
+    /// AI has nothing to read until there's a photo or some text.
+    private var aiCompleteMenuLabel: String {
+        if aiRerunRunning { return "AI is reading…" }
+        if !canCompleteWithAi { return "Complete with AI (add a photo first)" }
+        return "Complete with AI"
+    }
+
+    /// The AI needs photos or text. Mirrors the web composer's `canCompleteWithAi`
+    /// so the disabled state means the same thing on both platforms.
+    private var canCompleteWithAi: Bool {
+        !aiRerunPhotoRefs.isEmpty || !aiRerunText.isEmpty
+    }
+
+    /// This item's persisted photos as plain refs, in `sortOrder` (the @Query is
+    /// sorted), so the server's photo cap keeps front/back/tag rather than
+    /// whatever happened to be first.
+    private var aiRerunPhotoRefs: [PersistedPhotoRef] {
+        allPhotos.map {
+            PersistedPhotoRef(
+                photoType: $0.photoType,
+                storagePath: $0.storagePath,
+                photoURL: $0.photoURL
+            )
+        }
+    }
+
+    /// Free text for the extract: what the seller has already written. The server
+    /// prefers text over photos for condition notes, so sending it makes the fill
+    /// better rather than just cheaper.
+    private var aiRerunText: String {
+        [state?.draft.title, state?.draft.itemDescription, state?.draft.conditionNotes]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    /// Fields the item ALREADY has. The server deletes every `known_fields` key
+    /// from its suggestions, so this is what stops a re-run from contradicting
+    /// (or silently overwriting) values the seller set by hand.
+    private var aiRerunKnownFields: [String: KnownFieldValue] {
+        guard let draft = state?.draft else { return [:] }
+        var known: [String: KnownFieldValue] = [:]
+        func put(_ key: String, _ value: String?) {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmed.isEmpty else { return }
+            known[key] = .string(trimmed)
+        }
+        put("brand", draft.brand)
+        put("style", draft.style)
+        put("size", draft.size)
+        put("color", draft.color)
+        put("material", draft.material)
+        put("item_category", draft.category?.rawValue)
+        put("garment_type", draft.garmentType)
+        put("garment_category", draft.garmentCategory)
+        return known
+    }
+
+    /// Kicks off the re-run. The manager keeps it alive past this view, and its
+    /// completion registers the same reversible ``AIFillReview`` the post-capture
+    /// fill does — so the result surfaces through the existing banner/sheet
+    /// instead of a second, parallel review UI.
+    private func runAiComplete() {
+        guard !aiRerunRunning else { return }
+        guard canCompleteWithAi else {
+            aiRerunMessage =
+                "Add a photo or a description first — the AI reads those to fill the rest."
+            return
+        }
+        AppRouter.haptic()
+        let known = aiRerunKnownFields
+        aiManager.startRerun(
+            itemId: item.id,
+            photos: aiRerunPhotoRefs,
+            knownFields: known.isEmpty ? nil : known,
+            text: aiRerunText.isEmpty ? nil : aiRerunText,
+            isOffline: NetworkMonitor.isOffline(networkMonitor)
+        )
+    }
+
+    /// Surfaces the manager's terminal phase for this item: a failure becomes the
+    /// alert, a success pops the review sheet. Cleared afterwards so reopening the
+    /// canvas doesn't replay a stale outcome.
+    private func handleAiRerunPhase(_ phase: AIExtractionManager.Phase?) {
+        switch phase {
+        case .failed(let message):
+            aiRerunMessage = message
+            aiManager.clear(for: item.id)
+        case .ready:
+            aiManager.clear(for: item.id)
+            // finish() registered the review with autoPresent, which the onAppear
+            // path above consumes when the user comes BACK to a run that finished
+            // while they were away. This canvas is already on screen, so open it
+            // directly and consume the queue entry so it can't double-pop.
+            if let review = aiReviewStore.review(for: item.id),
+               review.hasSomethingToReview {
+                aiReviewStore.markAutoPresented(item.id)
+                showingAIReview = true
+            } else {
+                aiRerunMessage =
+                    "The AI didn't find anything new to add. Try a clearer tag or front photo."
+            }
+        case .running, .uploading, .none:
+            break
         }
     }
 

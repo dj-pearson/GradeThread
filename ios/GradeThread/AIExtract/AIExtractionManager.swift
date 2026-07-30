@@ -49,6 +49,11 @@ final class AIExtractionManager {
 
     func phase(for itemId: String) -> Phase? { phases[itemId] }
 
+    /// Number of runs currently in flight. Test visibility only: the idempotence
+    /// guard in ``start``/``startRerun`` is what stops a double tap from spending
+    /// two AI actions, and a no-op is otherwise unobservable from outside.
+    var inFlightCount: Int { tasks.count }
+
     /// US-1519: compare-before-assign. `phases` is one `@Observable` dictionary,
     /// and @Observable fires on every SET regardless of equality — so the 250ms
     /// upload-gate poll re-rendered every visible InventoryRow 4×/s for up to
@@ -100,6 +105,115 @@ final class AIExtractionManager {
             )
         }
         tasks[itemId] = task
+    }
+
+    /// US-2266: re-runs the extract on an item that ALREADY EXISTS, from its
+    /// persisted photos — the web composer's "Complete with AI", which iOS had no
+    /// equivalent of. Until this, the AI ran exactly once (right after capture),
+    /// so a thin first pass or better photos added later left the seller typing
+    /// the whole listing by hand.
+    ///
+    /// Differences from ``start``: there are no in-memory captures, so there's no
+    /// upload gate to wait on and no on-device Live Text fallback (that reads the
+    /// capture bytes). Everything after the call — auto-apply, the reversible
+    /// review, acceptance logging, the inventory pull — is the SAME code path, so
+    /// a re-run behaves exactly like a post-capture fill.
+    ///
+    /// Idempotent per item, like ``start``: a second tap while one is in flight is
+    /// a no-op, so a slow connection can't double-spend an AI action.
+    func startRerun(
+        itemId: String,
+        photos: [PersistedPhotoRef],
+        knownFields: [String: KnownFieldValue]?,
+        text: String?,
+        isOffline: Bool
+    ) {
+        guard tasks[itemId] == nil else { return }
+        phases[itemId] = .running
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.rerun(
+                itemId: itemId,
+                photos: photos,
+                knownFields: knownFields,
+                text: text,
+                isOffline: isOffline
+            )
+        }
+        tasks[itemId] = task
+    }
+
+    private func rerun(
+        itemId: String,
+        photos: [PersistedPhotoRef],
+        knownFields: [String: KnownFieldValue]?,
+        text: String?,
+        isOffline: Bool
+    ) async {
+        let bgTask = UIApplication.shared.beginBackgroundTask(withName: "ai-rerun-\(itemId)")
+        defer {
+            tasks[itemId] = nil
+            if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) }
+        }
+
+        if isOffline {
+            phases[itemId] = .failed(
+                "You're offline. Reconnect and try again — your photos are already saved."
+            )
+            return
+        }
+
+        let extractPhotos = await AIRerunPhotos.build(from: photos)
+        let hasText = !(text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+
+        Telemetry.event("ai_extract_rerun_begin", props: [
+            "item_id": itemId,
+            "rows": photos.count,
+            "resolved": extractPhotos.count,
+            "has_text": hasText,
+        ])
+
+        // The server needs photos OR text. Nothing to send is a user-facing state,
+        // not a silent no-op — the canvas surfaces this message.
+        guard !extractPhotos.isEmpty || hasText else {
+            Telemetry.event("ai_extract_bail", props: [
+                "reason": "rerun_no_input",
+                "item_id": itemId,
+                "rows": photos.count,
+            ])
+            phases[itemId] = .failed(
+                "There's nothing for the AI to read yet. Add a photo or a description, then try again."
+            )
+            return
+        }
+
+        let store = AIExtractStore()
+        let request = AIExtractRequest(
+            itemId: itemId,
+            photos: extractPhotos,
+            knownFields: knownFields,
+            text: hasText ? text : nil
+        )
+        do {
+            let response = try await AIExtractService().extract(request)
+            store.applyResponse(response)
+        } catch let error as EdgeAPIError {
+            phases[itemId] = .failed(error.errorDescription ?? "Unknown error")
+            return
+        } catch {
+            phases[itemId] = .failed(error.localizedDescription)
+            return
+        }
+
+        Telemetry.event("ai_extract_succeeded", props: [
+            "item_id": itemId,
+            "photos_sent": extractPhotos.count,
+            "rerun": true,
+        ])
+
+        await finish(itemId: itemId, store: store)
+        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        phases[itemId] = .ready
     }
 
     // MARK: - Run

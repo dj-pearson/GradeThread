@@ -553,6 +553,129 @@ final class AIExtractTests: XCTestCase {
         XCTAssertFalse(mgr.isRunning(id))
     }
 
+    // MARK: - Complete with AI: re-run from persisted photos (US-2266)
+
+    /// The tag photo is the one the AI reads brand/size/material off, and on iOS
+    /// it lives in the PRIVATE bucket with NO public URL — so a re-run has to sign
+    /// it. Non-listable types must never reach an AI pass (US-1549 / US-1571).
+    func test_rerunPhotos_signsPrivateTagAndDropsNonListable() async {
+        var signed: [String] = []
+        let signer: AIRerunPhotos.Signer = { bucket, path in
+            signed.append("\(bucket)/\(path)")
+            return URL(string: "https://api.gradethread.com/sign/\(path)?token=jwt")
+        }
+
+        let refs = [
+            PersistedPhotoRef(photoType: "front", storagePath: "o/i/front.jpg", photoURL: "https://pub/front.jpg"),
+            // Private: empty photoURL is exactly how iOS marks a private object.
+            PersistedPhotoRef(photoType: "tag", storagePath: "o/i/tag.jpg", photoURL: ""),
+            // US-1549: the seller's price tag / receipt. Never fed to AI.
+            PersistedPhotoRef(photoType: "internal", storagePath: "o/i/cost.jpg", photoURL: "https://pub/cost.jpg"),
+            // US-1571: the MeasureCard calibration frame.
+            PersistedPhotoRef(photoType: "measurement", storagePath: "o/i/card.jpg", photoURL: "https://pub/card.jpg"),
+        ]
+
+        let out = await AIRerunPhotos.build(from: refs, signer: signer)
+
+        XCTAssertEqual(out.map(\.type), ["front", "tag"])
+        XCTAssertEqual(out[0].url, "https://pub/front.jpg")
+        XCTAssertTrue(out[1].url.contains("/sign/"), "the tag must be sent as a signed URL")
+        // Only the private object was signed — a public photo costs no round trip.
+        XCTAssertEqual(signed, ["submission-images/o/i/tag.jpg"])
+    }
+
+    /// A sensitive type whose bytes are PUBLIC (web uploaded every type to
+    /// item-photos, and so did pre-US-979 iOS builds) keeps its stored URL rather
+    /// than being signed against a bucket it isn't in.
+    func test_rerunPhotos_sensitiveTypeWithPublicBytesUsesStoredUrl() async {
+        var signCalls = 0
+        let signer: AIRerunPhotos.Signer = { _, _ in
+            signCalls += 1
+            return nil
+        }
+        let refs = [
+            PersistedPhotoRef(photoType: "tag", storagePath: "o/i/tag.jpg", photoURL: "https://pub/tag.jpg"),
+        ]
+        let out = await AIRerunPhotos.build(from: refs, signer: signer)
+        XCTAssertEqual(out.count, 1)
+        XCTAssertEqual(out[0].url, "https://pub/tag.jpg")
+        XCTAssertEqual(signCalls, 0)
+    }
+
+    /// Order is load-bearing: the server caps the set at 8 photos by taking the
+    /// FIRST 8, so the canvas passes them in sort_order and front/back/tag must
+    /// stay at the front. An unresolvable row is dropped, never sent as a URL that
+    /// would 404 (the server skips a non-2xx image with only a log line).
+    func test_rerunPhotos_preservesOrderAndDropsUnresolvable() async {
+        let signer: AIRerunPhotos.Signer = { _, _ in nil }   // signing always fails
+        let refs = [
+            PersistedPhotoRef(photoType: "front", storagePath: "p1", photoURL: "https://pub/1"),
+            PersistedPhotoRef(photoType: "tag", storagePath: "p2", photoURL: ""),      // unsignable
+            PersistedPhotoRef(photoType: "back", storagePath: "p3", photoURL: "https://pub/3"),
+            PersistedPhotoRef(photoType: "detail", storagePath: nil, photoURL: ""),    // nothing to go on
+        ]
+        let out = await AIRerunPhotos.build(from: refs, signer: signer)
+        XCTAssertEqual(out.map(\.type), ["front", "back"])
+        XCTAssertEqual(out.map(\.url), ["https://pub/1", "https://pub/3"])
+    }
+
+    /// The wire contract the re-run depends on: `item_id` (the server 404s a
+    /// foreign one before spending any AI) plus a non-empty typed photos array.
+    func test_rerunRequest_carriesItemIdAndPhotosFromPersistedRows() async throws {
+        let signer: AIRerunPhotos.Signer = { _, path in
+            URL(string: "https://api.gradethread.com/sign/\(path)?token=jwt")
+        }
+        let refs = [
+            PersistedPhotoRef(photoType: "front", storagePath: "o/i/front.jpg", photoURL: "https://pub/front.jpg"),
+            PersistedPhotoRef(photoType: "tag", storagePath: "o/i/tag.jpg", photoURL: ""),
+        ]
+        let photos = await AIRerunPhotos.build(from: refs, signer: signer)
+        let request = AIExtractRequest(
+            itemId: "item-42",
+            photos: photos,
+            knownFields: ["brand": .string("Nike"), "size": .string("L")],
+            text: "Nike windbreaker, small mark on the left cuff"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        XCTAssertEqual(json["item_id"] as? String, "item-42")
+        let sent = try XCTUnwrap(json["photos"] as? [[String: Any]])
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertEqual(sent.map { $0["type"] as? String }, ["front", "tag"])
+        XCTAssertFalse((sent[1]["url"] as? String ?? "").isEmpty)
+
+        // known_fields is what stops the server contradicting the seller: the
+        // extract route deletes every known key from its suggestions.
+        let known = try XCTUnwrap(json["known_fields"] as? [String: Any])
+        XCTAssertEqual(known["brand"] as? String, "Nike")
+        XCTAssertEqual(known["size"] as? String, "L")
+        XCTAssertFalse((json["text"] as? String ?? "").isEmpty)
+    }
+
+    /// A double tap must not spend two AI actions. The guard is `tasks[itemId] ==
+    /// nil`, so a second call while one is in flight has to be a no-op.
+    func test_startRerun_isIdempotentWhileInFlight() {
+        let mgr = AIExtractionManager.shared
+        let id = "rerun-idem-\(UUID().uuidString)"
+        mgr.clear(for: id)
+        let before = mgr.inFlightCount
+
+        let refs = [
+            PersistedPhotoRef(photoType: "front", storagePath: "p1", photoURL: "https://pub/1"),
+        ]
+        // isOffline short-circuits inside the task, so nothing hits the network.
+        mgr.startRerun(itemId: id, photos: refs, knownFields: nil, text: nil, isOffline: true)
+        mgr.startRerun(itemId: id, photos: refs, knownFields: nil, text: nil, isOffline: true)
+
+        XCTAssertEqual(mgr.inFlightCount, before + 1, "the second call must be a no-op")
+        XCTAssertTrue(mgr.isRunning(id))
+        mgr.clear(for: id)
+        XCTAssertFalse(mgr.isRunning(id))
+    }
+
     // MARK: - Auto-present queue (US-686 follow-up)
 
     func test_fillReviewStore_autoPresentQueue_isOnceOnly() {
