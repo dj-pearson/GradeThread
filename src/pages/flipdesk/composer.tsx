@@ -125,7 +125,6 @@ import type {
   ItemPhotoRow,
   ItemStatus,
   ListingRow,
-  InventoryItemRow,
   SlabImageMode,
 } from "@/types/database";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
@@ -143,7 +142,7 @@ import { PromoteCard } from "@/components/flipdesk/composer/promote-card";
 import { DescriptionCard } from "@/components/flipdesk/composer/description-card";
 import { PushToCard } from "@/components/flipdesk/composer/push-to-card";
 import { ScheduleCard } from "@/components/flipdesk/composer/schedule-card";
-import { rowToMergeValues, type MergeValues } from "@/lib/merge-values";
+import { useSkuMerge } from "@/hooks/use-sku-merge";
 // US-2248/US-2249: the save payloads live in one pure module so the draft and
 // live paths cannot drift apart again (see src/lib/composer-save.ts).
 import {
@@ -308,16 +307,6 @@ export function FlipdeskComposerPage({
   const [categoryTouched, setCategoryTouched] = useState(false);
   const [sourcedBy, setSourcedBy] = useState("");
   const [acquiredDate, setAcquiredDate] = useState("");
-  // Duplicate-SKU merge: set when a storage save hits the (user_id, sku) unique
-  // index — holds the field-shaped values of both records so the MergeSkuDialog
-  // can resolve conflicts, then merge_inventory_items combines them in place.
-  const [mergeState, setMergeState] = useState<{
-    sku: string;
-    existingId: string;
-    current: MergeValues;
-    existing: MergeValues;
-  } | null>(null);
-  const [merging, setMerging] = useState(false);
   // US-2260: recording the sale is what makes an item sold — offered here instead
   // of letting the status dropdown claim it without the money behind it.
   const [recordSaleOpen, setRecordSaleOpen] = useState(false);
@@ -425,6 +414,11 @@ export function FlipdeskComposerPage({
     () => items.find((it) => it.id === id) ?? null,
     [items, id],
   );
+
+  // Duplicate-SKU recovery lives in its own hook: ANY save that writes a SKU can
+  // hit the (user_id, sku) index, and the useful answer is almost never "pick a
+  // different SKU" — it is "you scanned the same garment twice, merge them".
+  const skuMerge = useSkuMerge(item);
 
   // US-1895: recommended-aspect coverage for the composer meter (edge single
   // source). Refetched when its key is invalidated after an aspect save below.
@@ -1318,7 +1312,7 @@ export function FlipdeskComposerPage({
       // US-2249: the SKU rides the main save now, so the main save is where a
       // duplicate-SKU collision has to offer the merge.
       if (sErr) {
-        if (await offerSkuMerge(sErr)) return null;
+        if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
         throw sErr;
       }
 
@@ -1345,152 +1339,6 @@ export function FlipdeskComposerPage({
   // storage-only handler. Returns true when the error WAS a SKU collision and the
   // merge dialog has been opened (the caller stops there — the update rolled back);
   // false means "not mine, keep throwing".
-  async function offerSkuMerge(err: unknown): Promise<boolean> {
-    if (!item) return false;
-    // Duplicate-SKU partial unique index (user_id, sku) → offer to merge the
-    // two records in place (same flow as the item page). supabase-js rejects
-    // with a PostgrestError PLAIN OBJECT (not an Error instance), so read the
-    // pg code/message/details directly — an `err instanceof Error` gate here
-    // would stringify to "[object Object]" and miss the constraint match.
-    const pgErr = err as { code?: string; message?: string; details?: string };
-    const dupText = `${pgErr.message ?? ""} ${pgErr.details ?? ""}`;
-    const isSkuDuplicate =
-      pgErr.code === "23505" &&
-      (dupText.includes("idx_inventory_items_user_sku") ||
-        dupText.toLowerCase().includes("sku"));
-    if (!isSkuDuplicate) return false;
-    const newSku = storageSku.trim();
-    // Load both raw rows (the pre-existing SKU owner + this survivor) so the
-    // dialog can compare field-by-field. `.limit(1)` (not `.maybeSingle()`)
-    // so a stray >1-row state can't itself throw and mask the duplicate.
-    const [dupRes, survRes] = await Promise.all([
-      supabase
-        .from("inventory_items")
-        .select("*")
-        .eq("user_id", item.user_id)
-        .eq("sku", newSku)
-        .neq("id", item.id)
-        .order("updated_at", { ascending: false })
-        .limit(1),
-      supabase.from("inventory_items").select("*").eq("id", item.id).limit(1),
-    ]);
-    const dupRow = (dupRes.data ?? [])[0] as InventoryItemRow | undefined;
-    const survRow = (survRes.data ?? [])[0] as InventoryItemRow | undefined;
-    if (dupRow && survRow) {
-      setMergeState({
-        sku: newSku,
-        existingId: dupRow.id,
-        current: rowToMergeValues(survRow),
-        existing: rowToMergeValues(dupRow),
-      });
-    } else {
-      // The index says the SKU is taken, but we couldn't load the other row
-      // (RLS, a filter, or it was just deleted). Say so plainly.
-      toast.error(
-        `SKU "${newSku}" is already used by another item, but it couldn't be loaded to merge — refresh and try again.`,
-      );
-    }
-    return true;
-  }
-
-  // Map the merge dialog's chosen field values back to inventory_items columns.
-  // Only the keys the user took from the EXISTING record are written; everything
-  // else already carries the survivor's value. Mirrors the item canvas's persist
-  // conventions (trim → null, numeric prices, empties → null).
-  function mergeOverridesToItemUpdate(
-    v: Partial<MergeValues>,
-  ): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
-    const strTrim = (s: string) => (s.trim() === "" ? null : s.trim());
-    const priceNum = (s: string) => {
-      const t = s.trim();
-      if (t === "") return null;
-      const n = Number(t);
-      return Number.isFinite(n) ? n : null;
-    };
-    if (v.title !== undefined)
-      out.title = v.title.trim() || item?.item_title || "";
-    if (v.container !== undefined) out.container = strTrim(v.container);
-    if (v.brand !== undefined) out.brand = strTrim(v.brand);
-    if (v.style !== undefined) out.style = strTrim(v.style);
-    if (v.size !== undefined) out.size = strTrim(v.size);
-    if (v.color !== undefined) out.color = strTrim(v.color);
-    if (v.material !== undefined) out.material = strTrim(v.material);
-    if (v.description !== undefined) out.description = strTrim(v.description);
-    if (v.condition_notes !== undefined)
-      out.condition_notes = strTrim(v.condition_notes);
-    if (v.item_category !== undefined)
-      out.item_category = v.item_category === "" ? null : v.item_category;
-    if (v.sourced_by !== undefined) out.sourced_by = strTrim(v.sourced_by);
-    if (v.status !== undefined) out.status = v.status;
-    if (v.acquired_date !== undefined)
-      out.acquired_date = v.acquired_date || null;
-    if (v.acquired_price !== undefined)
-      out.acquired_price = priceNum(v.acquired_price);
-    if (v.target_price !== undefined)
-      out.target_price = priceNum(v.target_price);
-    if (v.comp_set !== undefined)
-      out.comp_set = v.comp_set.filter(
-        (c) => Number.isFinite(c.price) && c.price > 0,
-      );
-    if (v.measurements !== undefined)
-      out.measurements =
-        Object.keys(v.measurements).length > 0 ? v.measurements : null;
-    return out;
-  }
-
-  // Confirmed duplicate-SKU merge: the RPC atomically re-points photos, listings,
-  // sales and grading history onto this item, deletes the duplicate, and CLAIMS
-  // the SKU. Then the user's field choices (plus this composer's location/
-  // container edits, which the rolled-back save never persisted) are written.
-  async function handleMergeConfirm(overrides: Partial<MergeValues>) {
-    if (!item || !mergeState) return;
-    setMerging(true);
-    try {
-      const rpcClient = supabase as unknown as {
-        rpc: (
-          fn: string,
-          args: Record<string, unknown>,
-        ) => Promise<{ data: unknown; error: Error | null }>;
-      };
-      const { error } = await rpcClient.rpc("merge_inventory_items", {
-        p_survivor_id: item.id,
-        p_duplicate_id: mergeState.existingId,
-        p_sku: mergeState.sku,
-      });
-      if (error) throw error;
-
-      // The RPC already claimed the SKU; persist the resolved field choices and
-      // the location/container the original save couldn't commit.
-      const patch = mergeOverridesToItemUpdate(overrides);
-      patch.location_bin = storageLocation.trim() || null;
-      patch.container = storageContainer.trim() || null;
-      setStorageSku(mergeState.sku);
-      setMergeState(null);
-      // Photos/listings/sales were re-pointed server-side — refresh broadly.
-      await qc.invalidateQueries();
-      try {
-        const { error: upErr } = await supabase
-          .from("inventory_items")
-          .update(patch as never)
-          .eq("id", item.id);
-        if (upErr) throw upErr;
-        toast.success("Records merged — this item now owns the SKU.");
-      } catch (persistErr) {
-        // The merge committed; only the field choices failed to save.
-        toast.error(
-          `Records merged, but saving your field choices failed: ${errorMessage(
-            persistErr,
-          )}. Review the item and save again.`,
-        );
-      }
-    } catch (err) {
-      toast.error(`Merge failed: ${errorMessage(err)}`);
-    } finally {
-      setMerging(false);
-    }
-  }
-
   function togglePushPlatform(platform: CrossListingPlatform) {
     // US-1114: never select a channel awaiting platform approval — publishing it
     // would 503. The UI disables it too; this guards persisted/programmatic state.
@@ -1539,7 +1387,7 @@ export function FlipdeskComposerPage({
         )
         .eq("id", item.id);
       if (sErr) {
-        if (await offerSkuMerge(sErr)) return null;
+        if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
         throw sErr;
       }
       await qc.invalidateQueries({ queryKey: ["items_full"] });
@@ -2498,15 +2346,21 @@ export function FlipdeskComposerPage({
         onClose={() => setRecordSaleOpen(false)}
       />
 
-      {mergeState && (
+      {skuMerge.mergeState && (
         <MergeSkuDialog
           open
-          sku={mergeState.sku}
-          current={mergeState.current}
-          existing={mergeState.existing}
-          merging={merging}
-          onCancel={() => setMergeState(null)}
-          onConfirm={(overrides) => void handleMergeConfirm(overrides)}
+          sku={skuMerge.mergeState.sku}
+          current={skuMerge.mergeState.current}
+          existing={skuMerge.mergeState.existing}
+          merging={skuMerge.merging}
+          onCancel={skuMerge.cancelMerge}
+          onConfirm={(overrides) =>
+            void skuMerge.confirmMerge(overrides, {
+              // The rolled-back save never committed these.
+              location_bin: storageLocation.trim() || null,
+              container: storageContainer.trim() || null,
+            })
+          }
         />
       )}
     </div>
