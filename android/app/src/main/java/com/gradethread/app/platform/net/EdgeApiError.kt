@@ -66,6 +66,17 @@ sealed class EdgeApiError : Exception() {
     object PurchaseNotOwned : EdgeApiError()
 
     /**
+     * US-1374: HTTP 402 with a decodable plan-gate body.
+     *
+     * Typed so a caller can tell "the shell is already showing an upgrade
+     * dialog for this" from a transient failure. The difference matters for one
+     * concrete reason: a Try-again button on a plan wall does nothing but hit
+     * the same wall, and offering it reads as the app being broken rather than
+     * the plan being the limit.
+     */
+    data class PlanGated(val gate: PlanGateError) : EdgeApiError()
+
+    /**
      * US-1335: any status carrying `action: "upgrade"` — a plan or quota wall,
      * not a transport failure.
      *
@@ -112,10 +123,11 @@ sealed class EdgeApiError : Exception() {
         // The server's copy names the actual limit and what lifts it, so it
         // beats anything generic we could write here.
         is UpgradeRequired -> detail ?: "You've reached a limit on your plan. Upgrade to keep going."
+        is PlanGated -> "${gate.title}. ${gate.recommendation}"
     }
 
     /** Whether the UI should offer an upgrade route rather than a retry. */
-    val isUpgradePrompt: Boolean get() = this is UpgradeRequired
+    val isUpgradePrompt: Boolean get() = this is UpgradeRequired || this is PlanGated
 
     companion object {
 
@@ -170,6 +182,13 @@ sealed class EdgeApiError : Exception() {
             // errors whose copy actively misleads here.
             if (payload?.action == "upgrade") {
                 return UpgradeRequired(detail, payload.discriminator)
+            }
+
+            // US-1374: a 402 carrying a plan-gate body. The shell has already
+            // been handed the same gate by EdgeApi and is showing the dialog;
+            // this only tells the CALLER not to offer a retry that can't work.
+            if (statusCode == 402) {
+                PlanGateError.decode(body)?.let { return PlanGated(it) }
             }
 
             return when (statusCode) {

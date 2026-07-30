@@ -73,6 +73,12 @@ object ShellRoutes {
     /** US-1373: saved listing presets, reached from Tools. */
     const val TEMPLATES = "templates"
 
+    /** US-1374: ScoutAI deal finder, reached from Tools. */
+    const val SCOUT = "scout"
+
+    /** US-1374: in-store prospecting, reached from Scout or Tools. */
+    const val PROSPECT = "prospect"
+
     /**
      * US-1354: the offers + messages inbox, reached from Marketplaces or from
      * a `gradethread.com/app/negotiation/<itemId>` deep link.

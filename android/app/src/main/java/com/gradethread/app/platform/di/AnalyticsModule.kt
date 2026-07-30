@@ -6,6 +6,8 @@ import com.gradethread.app.analytics.ListingPerformanceProviding
 import com.gradethread.app.analytics.ListingPerformanceService
 import com.gradethread.app.consignment.ConsignorProviding
 import com.gradethread.app.consignment.ConsignorService
+import com.gradethread.app.scout.ScoutScanning
+import com.gradethread.app.scout.ScoutService
 import com.gradethread.app.templates.TemplateProviding
 import com.gradethread.app.templates.TemplateService
 import dagger.Binds
@@ -46,4 +48,9 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindTemplates(impl: TemplateService): TemplateProviding
+
+    /** US-1374: Scout + Prospect. */
+    @Binds
+    @Singleton
+    abstract fun bindScout(impl: ScoutService): ScoutScanning
 }

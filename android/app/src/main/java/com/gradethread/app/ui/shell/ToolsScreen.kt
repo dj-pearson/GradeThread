@@ -27,6 +27,8 @@ fun ToolsScreen(
     onAnalytics: () -> Unit = {},
     onConsignors: () -> Unit = {},
     onTemplates: () -> Unit = {},
+    onScout: () -> Unit = {},
+    onProspect: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -57,6 +59,16 @@ fun ToolsScreen(
             title = "Listing templates",
             subtitle = "Save the condition, specifics and boilerplate you reuse",
             onClick = onTemplates,
+        )
+        ToolRow(
+            title = "Scout",
+            subtitle = "Find underpriced listings on eBay, graded and ranked by profit",
+            onClick = onScout,
+        )
+        ToolRow(
+            title = "Prospect",
+            subtitle = "In a shop? Photograph it and find out if it's worth buying",
+            onClick = onProspect,
         )
     }
 }

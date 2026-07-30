@@ -249,6 +249,19 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
             )
         }
+        // US-1374: ScoutAI + in-store prospecting.
+        composable(ShellRoutes.SCOUT) {
+            com.gradethread.app.scout.ScoutScreen(
+                onOpenProspect = { navController.navigate(ShellRoutes.PROSPECT) },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        composable(ShellRoutes.PROSPECT) {
+            com.gradethread.app.scout.ProspectScreen(
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+                onClose = { navController.popBackStack() },
+            )
+        }
         // US-1373: saved listing presets.
         composable(ShellRoutes.TEMPLATES) {
             com.gradethread.app.templates.TemplatesScreen(
@@ -390,6 +403,8 @@ private fun ShellNavHost(navController: NavHostController) {
                 onAnalytics = { navController.navigate(ShellRoutes.ANALYTICS) },
                 onConsignors = { navController.navigate(ShellRoutes.CONSIGNORS) },
                 onTemplates = { navController.navigate(ShellRoutes.TEMPLATES) },
+                onScout = { navController.navigate(ShellRoutes.SCOUT) },
+                onProspect = { navController.navigate(ShellRoutes.PROSPECT) },
             )
         }
         // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops

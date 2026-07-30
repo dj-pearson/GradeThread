@@ -46,6 +46,8 @@ class EbayPublishService @Inject constructor(
             // A plan/capacity wall. The server's copy names the actual limit and
             // what lifts it, so it beats anything generic we could write.
             is EdgeApiError.UpgradeRequired -> PublishOutcome.PlanLimit(error.userMessage())
+            // US-1374: a 402 plan wall is the same news in a different shape.
+            is EdgeApiError.PlanGated -> PublishOutcome.PlanLimit(error.userMessage())
             // 409 offer_not_open: no live offer to act on.
             is EdgeApiError.OfferNotOpen -> PublishOutcome.NoOfferId
             is EdgeApiError.BadRequest ->
