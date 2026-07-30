@@ -134,6 +134,13 @@ class MutationReplayer @Inject constructor(
             MutationKind.DELETE_INVENTORY_ITEM.wire -> db.items().delete(id)
             MutationKind.DELETE_PHOTO.wire -> db.photos().delete(id)
             MutationKind.DELETE_EXPENSE.wire -> db.expenses().deleteByIds(listOf(id))
+
+            // US-1377: the sale is no longer ahead of the server, so clearing
+            // the dirty flag lets a later pull correct it if eBay disagreed.
+            MutationKind.MARK_SHIPPED.wire ->
+                db.sales().all().firstOrNull { it.id == id }?.let {
+                    db.sales().upsert(listOf(it.copy(hasLocalChanges = false)))
+                }
             else -> Unit
         }
     }
@@ -154,6 +161,8 @@ object MutationReplayPlan {
 
     /** The SERVER table is `flipdesk_expenses`; Room's local one is `expenses`. */
     const val EXPENSES = "flipdesk_expenses"
+
+    const val SALES = "sales"
 
     sealed interface Write {
         /**
@@ -236,6 +245,16 @@ object MutationReplayPlan {
 
         MutationKind.DELETE_EXPENSE.wire ->
             Write.Delete(EXPENSES, requireId(decode(mutation), mutation, "expense delete"), owner)
+
+        // US-1377: a parcel marked shipped with no signal. Same
+        // {"id","patch"} shape as an item edit, so the same Update write
+        // applies — and the same re-stamped tenant scope.
+        MutationKind.MARK_SHIPPED.wire -> {
+            val body = decode(mutation)
+            val patch = body["patch"] as? JsonObject
+                ?: terminal("Queued mark-shipped has no patch object")
+            Write.Update(SALES, requireId(body, mutation, "mark shipped"), patch, owner)
+        }
 
         // CREATE_SALE / CREATE_LISTING / REVISE_LISTING have no enqueue site yet
         // (no Android surface creates them). Terminal rather than retried:

@@ -36,6 +36,7 @@ listing templates applied from the publish composer ·
 Scout (graded, profit-ranked eBay candidates) and in-store Prospect ·
 verified-seller status with an offline-tolerant requirements checklist ·
 the item passport (pedigree timeline with confidence per hop) ·
+the shipping queue with tracking entry and offline-queued mark-shipped ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -43,7 +44,6 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Fulfilment | US-1377 |
 | FCM push, Glance widgets, onboarding, referrals, feedback, workspaces, CSV import | US-1378–1389 |
 | Localization (`values-*`, plurals, locale selector) | US-1393 |
 
@@ -98,6 +98,7 @@ opened the project (US-2015). Add a row when the code lands, not before.
 | `scout` | `Scout/` + `Prospect/` | ScoutAI deal finder, in-store photo prospecting, buy-or-walk verdict |
 | `verified` | `Verified/` | read-only badge status, requirements checklist, cached-offline standing |
 | `passport` | `Passport/` | PII-free pedigree timeline, confidence taxonomy, chain strength |
+| `fulfillment` | `Fulfillment/` | shipping queue, tracking entry, mark-shipped (eBay or local, offline-queued) |
 | `platform` | `Networking/` + `Telemetry/` | EdgeAPI, Supabase, Sentry/PostHog, workspace scope, app lock |
 
 ## Play Billing (US-1338, US-1366)

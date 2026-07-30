@@ -249,6 +249,13 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
             )
         }
+        // US-1377: the shipping queue.
+        composable(ShellRoutes.FULFILLMENT) {
+            com.gradethread.app.fulfillment.FulfillmentScreen(
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+                onClose = { navController.popBackStack() },
+            )
+        }
         // US-1375: verified-seller status (read-only).
         composable(ShellRoutes.VERIFIED) {
             com.gradethread.app.verified.VerifiedScreen(
@@ -412,6 +419,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onScout = { navController.navigate(ShellRoutes.SCOUT) },
                 onProspect = { navController.navigate(ShellRoutes.PROSPECT) },
                 onVerified = { navController.navigate(ShellRoutes.VERIFIED) },
+                onShipping = { navController.navigate(ShellRoutes.FULFILLMENT) },
             )
         }
         // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops

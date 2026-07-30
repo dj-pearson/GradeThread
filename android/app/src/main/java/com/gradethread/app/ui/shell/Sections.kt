@@ -82,6 +82,9 @@ object ShellRoutes {
     /** US-1375: verified-seller status, reached from Tools. */
     const val VERIFIED = "verified"
 
+    /** US-1377: the shipping queue, reached from Tools or a mark-shipped push. */
+    const val FULFILLMENT = "fulfillment"
+
     /**
      * US-1354: the offers + messages inbox, reached from Marketplaces or from
      * a `gradethread.com/app/negotiation/<itemId>` deep link.

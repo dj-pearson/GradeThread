@@ -30,6 +30,7 @@ fun ToolsScreen(
     onScout: () -> Unit = {},
     onProspect: () -> Unit = {},
     onVerified: () -> Unit = {},
+    onShipping: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -75,6 +76,11 @@ fun ToolsScreen(
             title = "Verified seller",
             subtitle = "Your badge status and what's left to set up",
             onClick = onVerified,
+        )
+        ToolRow(
+            title = "Shipping",
+            subtitle = "What's sold and still needs posting, with tracking",
+            onClick = onShipping,
         )
     }
 }

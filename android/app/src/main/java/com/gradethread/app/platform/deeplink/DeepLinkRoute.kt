@@ -29,6 +29,9 @@ sealed class DeepLinkRoute {
     object AddItem : DeepLinkRoute()
     data class SupportTickets(val ticketId: String?) : DeepLinkRoute()
 
+    /** US-1377: the shipping queue, where a mark-shipped push lands. */
+    object Shipping : DeepLinkRoute()
+
     companion object {
 
         /** Parse an inbound Uri; null = not ours (fall through to other handlers). */
@@ -46,6 +49,7 @@ sealed class DeepLinkRoute {
             return when (uri.pathSegments.firstOrNull()) {
                 "marketplaces" -> MarketplacesTab
                 "money" -> SalesTab(inventoryItemId = null)
+                "shipping" -> Shipping
                 else -> null
             }
         }
@@ -67,6 +71,7 @@ sealed class DeepLinkRoute {
                 "support" -> SupportTickets(ticketId = segments.getOrNull(2))
                 "capture" -> CaptureItem
                 "add" -> AddItem
+                "shipping" -> Shipping
                 else -> null
             }
         }
@@ -92,5 +97,8 @@ sealed class DeepLinkRoute {
         CaptureItem -> "capture/photos"
         AddItem -> ShellSection.ADD.route
         is SupportTickets -> ShellRoutes.SETTINGS
+        // US-1377: a mark-shipped notification action resolves HERE, on the
+        // queue itself, rather than on a tab the seller then has to search.
+        Shipping -> ShellRoutes.FULFILLMENT
     }
 }
