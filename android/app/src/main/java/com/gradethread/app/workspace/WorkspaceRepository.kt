@@ -87,6 +87,7 @@ class WorkspaceSwitcher @Inject constructor(
     private val db: GradeThreadDb,
     private val client: SupabaseClient,
     private val replayer: MutationReplayer,
+    private val realtime: com.gradethread.app.sync.RealtimeCoordinator,
     private val syncTrigger: SyncTrigger,
 ) {
 
@@ -109,12 +110,10 @@ class WorkspaceSwitcher @Inject constructor(
             newOwnerId = ownerId,
             hooks = SessionScope.Hooks(
                 flushPending = { runCatching { replayer.replay() } },
-                // Deliberately empty: RealtimeService exposes rehome(ownerId)
-                // but has NO production instance anywhere in the app — nothing
-                // constructs it, so there is no channel to re-home. Wiring a
-                // fake one here would look like the switch re-homes realtime
-                // when it does not. Filed as a separate gap.
-                rehomeRealtime = {},
+                // US-2367: a real channel to re-home at last. The coordinator
+                // no-ops when the socket is down, so a switch made in the
+                // background does not open one.
+                rehomeRealtime = { runCatching { realtime.rehome() } },
                 pullForOwner = { runCatching { syncTrigger.refresh(reason = "workspace_switch") } },
             ),
         )

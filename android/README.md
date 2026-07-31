@@ -517,6 +517,39 @@ Four rules that exist because the failure is invisible until it isn't:
 `layoutChanged` exists so a foldable's hinge animation — which reports a width
 change per degree — only triggers work on a real compact↔expanded crossing.
 
+## Realtime (US-1321 built it, US-2367 turned it on)
+
+`RealtimeService` has been complete since US-1321 — owner-scoped channel,
+off-main decode, catch-up on every re-subscribe — and had **no caller anywhere
+in the app**. So the client had no live updates at all, and nobody noticed,
+because the failure mode of missing realtime is "the list is a bit stale", which
+is indistinguishable from a slow sync.
+
+`RealtimeCoordinator` is the caller: start on sign-in + foreground, pause on
+background, tear down on sign-out. Every decision is in `RealtimeLifecycle` so
+it can be tested; the coordinator is only plumbing around it.
+
+Four rules worth knowing:
+
+- **Signed-out and the user's toggle are checked before foreground.** A socket
+  open under a session being thrown away is authenticated with a token the
+  server is about to reject, and racing that close is not a state to be in.
+- **SUBSCRIBING and RECONNECTING count as up.** Otherwise a second foreground
+  event opens a duplicate channel for the same rows.
+- **The socket is torn down FIRST on sign-out** (`SessionScope.Hooks.stopRealtime`),
+  before the cache wipe — an event arriving mid-wipe would write the outgoing
+  account's rows into a database being emptied.
+- **A workspace switch re-homes only when the channel is up**, and only from
+  `WorkspaceSwitcher` (after the wipe, so the catch-up pull is scoped to the new
+  tenant). The coordinator watches `WorkspaceScope.events` for the *involuntary*
+  revoked path only; re-homing on both would fire once too early and once too
+  often.
+
+The catch-up hook is the load-bearing argument to the constructor: Postgres
+change events emitted while the socket was down are never replayed by the
+server, so every transition into SUBSCRIBED must pull or the gap is lost until
+someone refreshes by hand.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

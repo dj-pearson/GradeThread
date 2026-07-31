@@ -15,6 +15,7 @@ import com.gradethread.app.intake.IntakeDrainer
 import com.gradethread.app.sync.BackgroundRefreshStore
 import com.gradethread.app.sync.BackgroundRefreshWorker
 import com.gradethread.app.sync.ConnectivityMonitor
+import com.gradethread.app.sync.RealtimeCoordinator
 import com.gradethread.app.sync.SyncTrigger
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -79,6 +80,10 @@ class GradeThreadApp : Application(), Configuration.Provider {
             // registers on change would never come back after a prune.
             appScope.launch { pushRegistration.register() }
         }
+        // US-2367: live inventory updates. RealtimeService has been complete
+        // since US-1321 with NO caller, so the app had no realtime at all —
+        // which looks exactly like a slow sync and so went unnoticed.
+        realtimeCoordinator.start(authRepository)
         // US-1382: photos shared in from another app become a capture
         // session on the next foreground.
         intakeDrainer.observeForeground()
@@ -113,4 +118,7 @@ class GradeThreadApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var intakeDrainer: IntakeDrainer
+
+    @Inject
+    lateinit var realtimeCoordinator: RealtimeCoordinator
 }

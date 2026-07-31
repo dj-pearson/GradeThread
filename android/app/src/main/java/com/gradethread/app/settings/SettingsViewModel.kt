@@ -57,6 +57,7 @@ class SettingsViewModel @Inject constructor(
     private val pushRegistration: com.gradethread.app.platform.push.PushRegistration,
     private val backgroundRefresh: com.gradethread.app.sync.BackgroundRefreshStore,
     private val onboarding: com.gradethread.app.onboarding.OnboardingStore,
+    private val realtime: com.gradethread.app.sync.RealtimeService,
 ) : ViewModel() {
 
     data class State(
@@ -235,7 +236,12 @@ class SettingsViewModel @Inject constructor(
             val wiped = runCatching {
                 sessionScope.signOutWipe(
                     SessionScope.Hooks(
-                        // Realtime/upload teardown belong to their own stories;
+                        // US-2367: the socket goes FIRST. It is authenticated
+                        // with the session being thrown away, and an event
+                        // arriving mid-wipe would write the outgoing account's
+                        // rows back into a database we are emptying.
+                        stopRealtime = { runCatching { realtime.pause() } },
+                        // Upload teardown belongs to its own story;
                         // the row + watermark wipe is what AC2 requires and what
                         // leaks tenant data without it.
                         clearances = emptyList(),
