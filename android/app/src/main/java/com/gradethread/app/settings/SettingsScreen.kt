@@ -63,7 +63,7 @@ fun SettingsScreen(
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text(
-            "Settings",
+            stringResource(R.string.settings_title),
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
         )
@@ -78,18 +78,18 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::dismissNotice) { Text("OK") }
+                TextButton(onClick = viewModel::dismissNotice) { Text(stringResource(R.string.settings_ok)) }
             }
         }
 
         // ── Profile ──────────────────────────────────────────────────────────
-        SectionHeader("Account")
+        SectionHeader(stringResource(R.string.settings_section_account))
         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs)) {
             Column(Modifier.weight(1f)) {
                 Text(
                     state.profile?.fullName?.takeIf { it.isNotBlank() }
                         ?: state.email
-                        ?: "Signed in",
+                        ?: stringResource(R.string.settings_signed_in),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -107,87 +107,93 @@ fun SettingsScreen(
         com.gradethread.app.workspace.WorkspaceSwitcherRow()
 
         // ── Plan & credits ───────────────────────────────────────────────────
-        SectionHeader("Plan & credits")
+        SectionHeader(stringResource(R.string.settings_section_plan))
         val profile = state.profile
         if (profile == null) {
             Text(
-                if (state.loadingProfile) {
-                    "Loading your plan…"
-                } else {
-                    // Named as unavailable rather than shown as "Free": telling a
-                    // paying seller they're on the free plan because a request
-                    // failed is worse than admitting we don't know.
-                    "Plan details aren't available offline. Pull down to retry when you're online."
-                },
+                stringResource(
+                    if (state.loadingProfile) {
+                        R.string.settings_plan_loading
+                    } else {
+                        // Named as unavailable rather than shown as "Free":
+                        // telling a paying seller they're on the free plan
+                        // because a request failed is worse than admitting we
+                        // don't know.
+                        R.string.settings_plan_unavailable
+                    },
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Spacing.md),
             )
         } else {
             SettingRow(
-                title = "Plan",
+                title = stringResource(R.string.settings_plan),
                 subtitle = profile.plan.replaceFirstChar { it.uppercase() },
                 // US-1367: the plan row is where someone looks when they want to
                 // change it, so it opens the paywall rather than just reporting.
                 onClick = onOpenPlans,
             )
             SettingRow(
-                title = "Grading credits",
-                subtitle = "${profile.creditBalance} available · " +
-                    "${profile.gradesUsedThisMonth} used this month",
+                title = stringResource(R.string.settings_grading_credits),
+                subtitle = stringResource(
+                    R.string.settings_credits_subtitle,
+                    profile.creditBalance,
+                    profile.gradesUsedThisMonth,
+                ),
                 onClick = onOpenCredits,
             )
         }
 
         // ── Connections ──────────────────────────────────────────────────────
-        SectionHeader("Connections")
+        SectionHeader(stringResource(R.string.settings_section_connections))
         SettingRow(
-            title = "eBay",
-            subtitle = "Connect or manage your linked accounts",
+            title = stringResource(R.string.settings_ebay),
+            subtitle = stringResource(R.string.settings_ebay_subtitle),
             onClick = onOpenMarketplaces,
         )
 
         // ── Preferences ──────────────────────────────────────────────────────
-        SectionHeader("Preferences")
+        SectionHeader(stringResource(R.string.settings_section_preferences))
         ToggleRow(
-            title = "Show cost and profit on rows",
-            subtitle = "Off by default — sourcing happens in public.",
+            title = stringResource(R.string.settings_show_cost),
+            subtitle = stringResource(R.string.settings_show_cost_subtitle),
             checked = state.showCostOnRows,
             onChange = viewModel::setShowCostOnRows,
         )
         ToggleRow(
-            title = "Confirm bulk actions",
-            subtitle = "Ask before changing several items at once.",
+            title = stringResource(R.string.settings_confirm_bulk),
+            subtitle = stringResource(R.string.settings_confirm_bulk_subtitle),
             checked = state.confirmBulkActions,
             onChange = viewModel::setConfirmBulkActions,
         )
         ToggleRow(
-            title = "Haptic feedback",
-            subtitle = "Vibrate on section changes and key actions.",
+            title = stringResource(R.string.settings_haptics),
+            subtitle = stringResource(R.string.settings_haptics_subtitle),
             checked = state.hapticsEnabled,
             onChange = viewModel::setHapticsEnabled,
         )
         ToggleRow(
-            title = "Background refresh",
-            subtitle = "Check for sales and finished grades about every 30 minutes.",
+            title = stringResource(R.string.settings_background_refresh),
+            subtitle = stringResource(R.string.settings_background_refresh_subtitle),
             checked = state.backgroundRefreshEnabled,
             onChange = viewModel::setBackgroundRefreshEnabled,
         )
         ToggleRow(
-            title = "Share usage analytics",
+            title = stringResource(R.string.settings_analytics),
             // Precise about the split: crash reports are how we find the bug
             // that lost someone's photos, and conflating the two would make
             // opting out of product analytics feel riskier than it is.
-            subtitle = "Product analytics only. Crash reports are always sent.",
+            subtitle = stringResource(R.string.settings_analytics_subtitle),
             checked = state.analyticsEnabled,
             onChange = viewModel::setAnalyticsEnabled,
         )
 
         // ── Security ─────────────────────────────────────────────────────────
-        SectionHeader("Security")
+        SectionHeader(stringResource(R.string.settings_section_security))
         SettingRow(
-            title = "Change password",
-            subtitle = "We'll email you a link to set a new one.",
+            title = stringResource(R.string.settings_change_password),
+            subtitle = stringResource(R.string.settings_change_password_subtitle),
             enabled = !state.busy,
             onClick = viewModel::changePassword,
         )
@@ -207,44 +213,51 @@ fun SettingsScreen(
         }
 
         // ── Help ─────────────────────────────────────────────────────────────
-        SectionHeader("Help")
+        SectionHeader(stringResource(R.string.settings_section_help))
         SettingRow(
-            title = "Support requests",
-            subtitle = "Open a request and read our replies",
+            title = stringResource(R.string.settings_support),
+            subtitle = stringResource(R.string.settings_support_subtitle),
             onClick = onOpenSupport,
         )
         // US-1387: the sheet's ViewModel is hoisted to THIS screen, so closing
         // the sheet to go and check a version number does not throw away what
         // was typed.
         SettingRow(
-            title = "Send feedback",
-            subtitle = "Tell us what worked, what didn't, what you wish existed",
+            title = stringResource(R.string.settings_feedback),
+            subtitle = stringResource(R.string.settings_feedback_subtitle),
             onClick = feedbackViewModel::open,
         )
 
         // ── Diagnostics ──────────────────────────────────────────────────────
-        SectionHeader("Diagnostics")
+        SectionHeader(stringResource(R.string.settings_section_diagnostics))
         SettingRow(
-            title = "App version",
-            subtitle = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            title = stringResource(R.string.settings_app_version),
+            subtitle = stringResource(
+                R.string.settings_app_version_value,
+                BuildConfig.VERSION_NAME,
+                BuildConfig.VERSION_CODE,
+            ),
         )
         // The endpoint, not the keys: which backend a build points at is a
         // routing fact worth seeing in a support thread, and it's already public
         // (CLAUDE.md). Anything secret stays out of this screen.
-        SettingRow(title = "Edge endpoint", subtitle = AppConfig.edgeApiUrl)
+        SettingRow(
+            title = stringResource(R.string.settings_edge_endpoint),
+            subtitle = AppConfig.edgeApiUrl,
+        )
 
         // ── Danger zone ──────────────────────────────────────────────────────
-        SectionHeader("Account actions")
+        SectionHeader(stringResource(R.string.settings_section_danger))
         Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
             BrandDestructiveButton(
-                text = "Sign out",
+                text = stringResource(R.string.settings_sign_out),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xs),
             ) { viewModel.ask(SettingsViewModel.Confirm.SIGN_OUT) }
             TextButton(
                 onClick = { viewModel.ask(SettingsViewModel.Confirm.DELETE_ACCOUNT) },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Delete account") }
+            ) { Text(stringResource(R.string.settings_delete_account)) }
         }
     }
 
@@ -264,39 +277,34 @@ fun SettingsScreen(
         when (confirm) {
             SettingsViewModel.Confirm.SIGN_OUT -> AlertDialog(
                 onDismissRequest = viewModel::cancelConfirm,
-                title = { Text("Sign out?") },
+                title = { Text(stringResource(R.string.settings_sign_out_2)) },
                 text = {
                     Text(
                         // Says what it costs. Anything not yet synced is lost, and
                         // the seller is the only one who can decide whether to
                         // wait for signal first.
-                        "This clears the copy of your inventory, sales and queued " +
-                            "changes stored on this device. Anything that hasn't synced " +
-                            "yet will be lost.",
+                        stringResource(R.string.settings_sign_out_body),
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = viewModel::confirmSignOut) { Text("Sign out") }
+                    TextButton(onClick = viewModel::confirmSignOut) { Text(stringResource(R.string.settings_sign_out)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = viewModel::cancelConfirm) { Text("Cancel") }
+                    TextButton(onClick = viewModel::cancelConfirm) { Text(stringResource(R.string.settings_cancel)) }
                 },
             )
 
             SettingsViewModel.Confirm.DELETE_ACCOUNT -> AlertDialog(
                 onDismissRequest = viewModel::cancelConfirm,
-                title = { Text("Delete your account?") },
+                title = { Text(stringResource(R.string.settings_delete_your_account)) },
                 text = {
-                    Text(
-                        "This removes your account, your inventory and your grade history " +
-                            "permanently. It can't be undone.",
-                    )
+                    Text(stringResource(R.string.settings_delete_account_body))
                 },
                 confirmButton = {
-                    TextButton(onClick = viewModel::confirmDeleteAccount) { Text("Continue") }
+                    TextButton(onClick = viewModel::confirmDeleteAccount) { Text(stringResource(R.string.settings_continue)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = viewModel::cancelConfirm) { Text("Cancel") }
+                    TextButton(onClick = viewModel::cancelConfirm) { Text(stringResource(R.string.settings_cancel)) }
                 },
             )
         }
@@ -352,6 +360,13 @@ private fun ToggleRow(
     checked: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
+    val spoken = stringResource(
+        R.string.settings_toggle_spoken,
+        title,
+        stringResource(
+            if (checked) R.string.settings_toggle_on else R.string.settings_toggle_off,
+        ),
+    )
     Row(
         Modifier
             .fillMaxWidth()
@@ -359,7 +374,7 @@ private fun ToggleRow(
             // miss-prone target next to a two-line label.
             .clickable { onChange(!checked) }
             .padding(horizontal = Spacing.md, vertical = Spacing.xs)
-            .semantics { contentDescription = "$title, ${if (checked) "on" else "off"}" },
+            .semantics { contentDescription = spoken },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

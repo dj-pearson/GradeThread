@@ -20,6 +20,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -61,7 +63,7 @@ fun AnalyticsScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Analytics", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.analytics_analytics), style = MaterialTheme.typography.titleLarge)
         RangePicker(
             selected = state.range,
             onPick = viewModel::setRange,
@@ -75,8 +77,8 @@ fun AnalyticsScreen(
             if (!state.hasAnything) {
                 item {
                     InfoCard(
-                        "Nothing to analyse yet",
-                        "Add items and record a few sales, and this fills in by itself.",
+                        stringResource(R.string.analytics_empty_title),
+                        stringResource(R.string.analytics_empty_body),
                     )
                 }
             }
@@ -86,20 +88,27 @@ fun AnalyticsScreen(
 
             if (state.gradeDistribution.isNotEmpty()) {
                 item {
+                    val tierItem = stringResource(R.string.analytics_pair_spoken_item)
                     Panel(
-                        "Grade distribution",
+                        stringResource(R.string.analytics_grade_distribution),
                         state.averageGrade?.let {
-                            "${state.gradedCount} graded · average ${"%.1f".format(it)}"
+                            stringResource(
+                                R.string.analytics_graded_average,
+                                state.gradedCount,
+                                "%.1f".format(it),
+                            )
                         },
                     ) {
                         BarChart(
                             bars = state.gradeDistribution.map {
                                 BarDatum(it.tier, it.count.toDouble())
                             },
-                            description = "Graded items by tier: " +
+                            description = stringResource(
+                                R.string.analytics_grade_distribution_spoken,
                                 state.gradeDistribution.joinToString {
-                                    "${it.tier} ${it.count}"
+                                    tierItem.format(it.tier, it.count)
                                 },
+                            ),
                         )
                     }
                 }
@@ -107,7 +116,14 @@ fun AnalyticsScreen(
 
             if (state.topBrands.isNotEmpty()) {
                 item {
-                    Panel("Top brands by profit", "Over ${state.range.label.lowercase()}") {
+                    val brandItem = stringResource(R.string.analytics_pair_spoken_item)
+                    Panel(
+                        stringResource(R.string.analytics_top_brands),
+                        stringResource(
+                            R.string.analytics_over_range,
+                            state.range.label.lowercase(),
+                        ),
+                    ) {
                         RankedBars(
                             rows = state.topBrands.map {
                                 RankedDatum(
@@ -116,10 +132,15 @@ fun AnalyticsScreen(
                                     Money.formatCompact(it.netProfit),
                                 )
                             },
-                            description = "Top brands by net profit: " +
+                            description = stringResource(
+                                R.string.analytics_top_brands_spoken,
                                 state.topBrands.joinToString {
-                                    "${it.brand} ${Money.formatCompact(it.netProfit)}"
+                                    brandItem.format(
+                                        it.brand,
+                                        Money.formatCompact(it.netProfit),
+                                    )
                                 },
+                            ),
                         )
                     }
                 }
@@ -127,24 +148,28 @@ fun AnalyticsScreen(
 
             if (state.sellThrough.isNotEmpty()) {
                 item {
+                    val sellItem = stringResource(R.string.analytics_sell_through_spoken_item)
+                    val ratio = stringResource(R.string.analytics_ratio)
                     Panel(
-                        "Sell-through by brand",
+                        stringResource(R.string.analytics_sell_through_title),
                         // Says what the denominator is. "60%" with no basis is a
                         // number people argue with.
-                        "Of the items that reached the market",
+                        stringResource(R.string.analytics_sell_through_basis),
                     ) {
                         RankedBars(
                             rows = state.sellThrough.map {
                                 RankedDatum(
                                     it.brand,
                                     it.rate,
-                                    "${it.sold}/${it.listed}",
+                                    ratio.format(it.sold, it.listed),
                                 )
                             },
-                            description = "Sell-through by brand: " +
+                            description = stringResource(
+                                R.string.analytics_sell_through_spoken,
                                 state.sellThrough.joinToString {
-                                    "${it.brand} ${it.sold} of ${it.listed}"
+                                    sellItem.format(it.brand, it.sold, it.listed)
                                 },
+                            ),
                         )
                     }
                 }
@@ -152,9 +177,13 @@ fun AnalyticsScreen(
 
             if (state.inventoryValue.isNotEmpty()) {
                 item {
+                    val statusItem = stringResource(R.string.analytics_pair_spoken_item)
                     Panel(
-                        "Inventory value by status",
-                        "${Money.format(state.inventoryTotal)} on hand",
+                        stringResource(R.string.analytics_inventory_value),
+                        stringResource(
+                            R.string.analytics_on_hand_total,
+                            Money.format(state.inventoryTotal),
+                        ),
                     ) {
                         RankedBars(
                             rows = state.inventoryValue.map {
@@ -164,10 +193,15 @@ fun AnalyticsScreen(
                                     Money.formatCompact(it.value),
                                 )
                             },
-                            description = "On-hand inventory value by status: " +
+                            description = stringResource(
+                                R.string.analytics_inventory_value_spoken,
                                 state.inventoryValue.joinToString {
-                                    "${it.status} ${Money.formatCompact(it.value)}"
+                                    statusItem.format(
+                                        it.status,
+                                        Money.formatCompact(it.value),
+                                    )
                                 },
+                            ),
                         )
                     }
                 }
@@ -179,19 +213,19 @@ fun AnalyticsScreen(
 
             item {
                 BrandSecondaryButton(
-                    text = "Listing performance",
+                    text = stringResource(R.string.analytics_listing_performance),
                     modifier = Modifier.fillMaxWidth(),
                 ) { onOpenListingPerformance() }
             }
             item {
                 BrandSecondaryButton(
-                    text = "Community benchmarks",
+                    text = stringResource(R.string.analytics_community_benchmarks),
                     modifier = Modifier.fillMaxWidth(),
                 ) { onOpenCommunity() }
             }
         }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.analytics_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 
     if (customOpen) {
@@ -228,7 +262,15 @@ private fun RangePicker(
             // offer, so a custom choice doesn't look unselected.
             selected = selected !in AnalyticsRange.presets,
             onClick = onCustom,
-            label = { Text(if (selected in AnalyticsRange.presets) "Custom" else selected.label) },
+            label = {
+                Text(
+                    if (selected in AnalyticsRange.presets) {
+                        stringResource(R.string.analytics_custom)
+                    } else {
+                        selected.label
+                    },
+                )
+            },
         )
     }
 }
@@ -239,10 +281,10 @@ private fun CustomRangeDialog(onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
     val days = text.toIntOrNull()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Custom range") },
+        title = { Text(stringResource(R.string.analytics_custom_range)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                Text("How many days back?")
+                Text(stringResource(R.string.analytics_how_many_days_back))
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it.filter { c -> c.isDigit() }.take(4) },
@@ -255,9 +297,9 @@ private fun CustomRangeDialog(onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
             TextButton(
                 onClick = { days?.let(onConfirm) },
                 enabled = days != null && days > 0,
-            ) { Text("Apply") }
+            ) { Text(stringResource(R.string.analytics_apply)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.analytics_cancel)) } },
     )
 }
 
@@ -269,19 +311,26 @@ private fun PeriodCard(state: AnalyticsViewModel.State) {
     ) {
         Text(state.range.label, style = MaterialTheme.typography.titleMedium)
         Text(
-            "${Money.format(state.pnl.grossProfit)} profit on " +
-                "${Money.format(state.pnl.grossRevenue)} revenue",
+            stringResource(
+                R.string.analytics_profit_on_revenue,
+                Money.format(state.pnl.grossProfit),
+                Money.format(state.pnl.grossRevenue),
+            ),
             style = MaterialTheme.typography.bodyLarge,
         )
         Text(
-            "${state.pnl.unitsSold} sold · ${Money.format(state.pnl.fees)} fees · " +
-                "${Money.format(state.pnl.cogs)} cost of goods",
+            stringResource(
+                R.string.analytics_units_fees_cogs,
+                state.pnl.unitsSold,
+                Money.format(state.pnl.fees),
+                Money.format(state.pnl.cogs),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         state.overallSellThrough?.let {
             Text(
-                "Sell-through ${Money.formatPercent(it)}",
+                stringResource(R.string.analytics_sell_through, Money.formatPercent(it)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -298,22 +347,28 @@ private fun NarrativeCard(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Text("What this means", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.analytics_what_this_means), style = MaterialTheme.typography.titleMedium)
         val narrative = state.narrative
         when {
             narrative != null -> {
                 Text(narrative.summary, style = MaterialTheme.typography.bodyMedium)
                 narrative.highlights.forEach {
-                    Text("• $it", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        stringResource(R.string.analytics_bullet, it),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 if (narrative.actions.isNotEmpty()) {
                     Text(
-                        "Next",
+                        stringResource(R.string.analytics_next),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Medium,
                     )
                     narrative.actions.forEach {
-                        Text("• $it", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                        stringResource(R.string.analytics_bullet, it),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     }
                 }
                 narrative.remainingLabel?.let {
@@ -326,23 +381,29 @@ private fun NarrativeCard(
             }
 
             state.errorMessage != null ->
-                InfoCard("No summary", state.errorMessage, tone = InfoTone.Warning)
+                InfoCard(
+                    stringResource(R.string.analytics_no_summary),
+                    state.errorMessage,
+                    tone = InfoTone.Warning,
+                )
 
             else -> Text(
                 // Naming the cost before they tap it. A quota spent by surprise
                 // is the kind of thing people remember.
-                "Get a plain-language read on these numbers. Uses one AI action.",
+                stringResource(R.string.analytics_summary_cost),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         BrandPrimaryButton(
-            text = when {
-                state.generating -> "Writing…"
-                state.narrative != null -> "Write it again"
-                else -> "Summarise"
-            },
+            text = stringResource(
+                when {
+                    state.generating -> R.string.analytics_writing
+                    state.narrative != null -> R.string.analytics_write_again
+                    else -> R.string.analytics_summarise
+                },
+            ),
             enabled = !state.generating,
             modifier = Modifier.fillMaxWidth(),
         ) { onGenerate() }
@@ -351,7 +412,10 @@ private fun NarrativeCard(
 
 @Composable
 private fun RoiPanel(buckets: List<RoiBucket>) {
-    Panel("Does grading pay?", "Graded versus ungraded, by sale price") {
+    Panel(
+        stringResource(R.string.analytics_roi_title),
+        stringResource(R.string.analytics_roi_subtitle),
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
             buckets.forEach { bucket ->
                 Text(bucket.band, style = MaterialTheme.typography.bodyMedium)
@@ -360,13 +424,26 @@ private fun RoiPanel(buckets: List<RoiBucket>) {
                         // Refusing to answer is the honest option. A "+$40 from
                         // grading" built on one sale is how someone talks
                         // themselves into a spending decision on noise.
-                        "Not enough sales yet to compare " +
-                            "(${bucket.gradedCount} graded, ${bucket.ungradedCount} not)."
+                        stringResource(
+                            R.string.analytics_roi_not_enough,
+                            bucket.gradedCount,
+                            bucket.ungradedCount,
+                        )
                     } else {
                         val lift = bucket.netProfitLift ?: 0.0
-                        val verb = if (lift >= 0) "more" else "less"
-                        "Graded items netted ${Money.format(kotlin.math.abs(lift))} $verb " +
-                            "on average (${bucket.gradedCount} vs ${bucket.ungradedCount})."
+                        // Two whole sentences rather than a swapped word: "more"
+                        // and "less" do not sit in the same place in every
+                        // language, and a spliced verb cannot be translated.
+                        stringResource(
+                            if (lift >= 0) {
+                                R.string.analytics_roi_more
+                            } else {
+                                R.string.analytics_roi_less
+                            },
+                            Money.format(kotlin.math.abs(lift)),
+                            bucket.gradedCount,
+                            bucket.ungradedCount,
+                        )
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

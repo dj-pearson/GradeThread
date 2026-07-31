@@ -45,7 +45,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Full string externalization beyond the 7 scoped files | US-1393 (partial) |
+| Full string externalization beyond the 13 scoped files | US-2368 (in progress) |
 
 US-1379–1389 have since landed (widgets, background refresh, shortcuts, share
 target, onboarding, referrals, support, feedback, workspaces, CSV import) — see
@@ -639,10 +639,29 @@ mirroring the App Store catalog. Nothing in this repo can do that.
 **Scoped, not big-bang.** `android/scripts/no-bare-strings.py` enforces
 `stringResource` for the files named in its `SCOPE` list, and that list grows as
 screens convert. A guard covering all ~90 Compose files today would either fail
-everywhere or get switched off, and a switched-off guard protects nothing. Seven
-files are converted and locked: onboarding, referrals, both support screens,
-feedback, the workspace switcher, and the importer. The guard also fails if a
-scoped file is renamed or deleted, so nothing drops out silently.
+everywhere or get switched off, and a switched-off guard protects nothing.
+Thirteen files are converted and locked: onboarding, referrals, both support
+screens, feedback, the workspace switcher, the importer, sign-in, and (US-2368)
+home, money, settings, snap and analytics. The guard also fails if a scoped file
+is renamed or deleted, so nothing drops out silently.
+
+**The guard reads two shapes, and the second one is the common one.** ktlint
+wraps any argument list past 100 columns, so most real call sites look like
+`Text(` on one line and `"Copy"` on the next. The original rule only matched the
+single-line form, and roughly ninety literals sat undetected inside files it
+reported as clean — every one of them wrapped. It now also matches an argument
+name or opening paren at end-of-line followed by a literal, skipping comments in
+between.
+
+**`check-string-formats.py` checks the arity nothing else can.** A
+`stringResource(R.string.x, a)` call against a resource holding two placeholders
+compiles, passes lint, and throws `MissingFormatArgumentException` when that
+screen is drawn — in whichever language the extra placeholder lives in. The
+script walks every call site, balances the parens, and compares the argument
+count to the resource. A call with NO format arguments is allowed on purpose: it
+reads the raw template so it can be `.format(...)`ed inside a `joinToString`
+lambda, which is not a composable scope and so cannot call `stringResource` at
+all.
 
 **Plurals are real `<plurals>`, not templates.** `"$n rows"` renders "1 rows",
 and every language past English has more than two forms.

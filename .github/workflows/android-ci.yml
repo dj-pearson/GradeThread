@@ -54,6 +54,12 @@ jobs:
       - name: No bare strings (scoped)
         run: python3 scripts/no-bare-strings.py
 
+      # US-2368: a stringResource call whose argument count disagrees with the
+      # resource compiles fine and throws when the screen is drawn — in whichever
+      # language the mismatched placeholder lives in.
+      - name: String format arity
+        run: python3 scripts/check-string-formats.py
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 

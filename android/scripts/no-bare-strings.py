@@ -32,6 +32,11 @@ SCOPE = [
     "workspace/WorkspaceSwitcherRow.kt",
     "importer/ImportScreen.kt",
     "auth/AuthScreen.kt",
+    "home/HomeScreen.kt",
+    "money/MoneyScreen.kt",
+    "settings/SettingsScreen.kt",
+    "snap/SnapScreen.kt",
+    "analytics/AnalyticsScreen.kt",
 ]
 
 # A string literal handed to something that renders or speaks it.
@@ -44,6 +49,12 @@ UI_SINKS = re.compile(
       | \blabel\s*=\s*"                      # label = "..."
       | placeholder\s*=\s*"
       | announceForAccessibility\s*\(\s*"
+      | \btitle\s*=\s*"                       # title = "..." on a row/dialog
+      | \bsubtitle\s*=\s*"
+      | \bdescription\s*=\s*"                 # chart accessibility copy
+      | SectionHeader\s*\(\s*"
+      | Panel(?:Header)?\s*\(\s*"
+      | InfoCard\s*\(\s*"
     )
     """,
     re.VERBOSE,
@@ -64,6 +75,29 @@ EXEMPT = re.compile(
 # An empty or whitespace-only literal is a spacer, not copy.
 TRIVIAL = re.compile(r'"\s*"')
 
+# The same sinks, but with the literal wrapped onto the NEXT line — which is
+# what ktlint does to any argument list over 100 columns, so it is the COMMON
+# shape, not an edge case. Missing it is how ~90 literals sat inside "converted"
+# files: every one of them was a multi-line Text(...) the single-line rule
+# could not see.
+OPEN_SINK = re.compile(
+    r"""
+    (?:
+        \bText\s*\($
+      | contentDescription\s*=$
+      | \btext\s*=$
+      | \blabel\s*=$
+      | \btitle\s*=$
+      | \bsubtitle\s*=$
+      | \bdescription\s*=$
+      | SectionHeader\s*\($
+      | Panel(?:Header)?\s*\($
+      | InfoCard\s*\($
+    )
+    """,
+    re.VERBOSE,
+)
+
 
 def scan(path):
     with open(path, "r", encoding="utf-8") as handle:
@@ -74,13 +108,22 @@ def scan(path):
         if EXEMPT.search(line):
             continue
         match = UI_SINKS.search(line)
-        if not match:
+        if match:
+            # The literal that follows the sink.
+            tail = line[match.end() - 1:]
+            if not TRIVIAL.match(tail):
+                offenders.append((i + 1, line.strip()))
             continue
-        # The literal that follows the sink.
-        tail = line[match.end() - 1:]
-        if TRIVIAL.match(tail):
+        if not OPEN_SINK.search(line.rstrip()):
             continue
-        offenders.append((i + 1, line.strip()))
+        # Walk past comment lines to the first line that carries an argument.
+        for offset, following in enumerate(lines[i + 1:], start=i + 2):
+            stripped = following.strip()
+            if not stripped or stripped.startswith(("//", "*", "/*")):
+                continue
+            if stripped.startswith('"') and not TRIVIAL.match(stripped):
+                offenders.append((offset, stripped))
+            break
     return offenders
 
 

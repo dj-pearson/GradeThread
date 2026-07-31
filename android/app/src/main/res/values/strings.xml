@@ -156,4 +156,202 @@
         <item quantity="one">%1$d item</item>
         <item quantity="other">%1$d items</item>
     </plurals>
+
+    <!-- US-2368: batch-externalized UI text. -->
+    <string name="analytics_analytics">Analytics</string>
+    <string name="analytics_apply">Apply</string>
+    <string name="analytics_back">Back</string>
+    <string name="analytics_cancel">Cancel</string>
+    <string name="analytics_community_benchmarks">Community benchmarks</string>
+    <string name="analytics_custom_range">Custom range</string>
+    <string name="analytics_how_many_days_back">How many days back?</string>
+    <string name="analytics_listing_performance">Listing performance</string>
+    <string name="analytics_what_this_means">What this means</string>
+    <string name="home_add_item">Add item</string>
+    <string name="home_certified_grades">Certified grades</string>
+    <string name="home_dismiss">Dismiss</string>
+    <string name="home_inventory_value">Inventory value</string>
+    <string name="home_listed">Listed</string>
+    <string name="home_net_profit_7_days">Net profit (7 days)</string>
+    <string name="home_nothing_here_yet">Nothing here yet</string>
+    <string name="home_quick_actions">Quick actions</string>
+    <string name="home_sitting_too_long">Sitting too long</string>
+    <string name="home_snap_to_value">Snap to Value</string>
+    <string name="home_sold_7_days">Sold (7 days)</string>
+    <string name="money_add">Add</string>
+    <string name="money_all_sales">All sales</string>
+    <string name="money_dismiss">Dismiss</string>
+    <string name="money_money">Money</string>
+    <string name="money_net_profit_mo">Net profit (mo)</string>
+    <string name="money_nothing_to_report_yet">Nothing to report yet</string>
+    <string name="money_payouts">Payouts</string>
+    <string name="money_remove">Remove</string>
+    <string name="money_revenue_mo">Revenue (mo)</string>
+    <string name="money_roi_mo">ROI (mo)</string>
+    <string name="settings_cancel">Cancel</string>
+    <string name="settings_continue">Continue</string>
+    <string name="settings_delete_account">Delete account</string>
+    <string name="settings_delete_your_account">Delete your account?</string>
+    <string name="settings_ok">OK</string>
+    <string name="settings_sign_out">Sign out</string>
+    <string name="settings_sign_out_2">Sign out?</string>
+    <string name="snap_brand_optional_unlocks_value">Brand (optional — unlocks value)</string>
+    <string name="snap_get_a_certified_grade">Get a certified grade</string>
+    <string name="snap_get_certified_grade">Get certified grade</string>
+    <string name="snap_item_e_g_better_sweater_optional">Item, e.g. Better Sweater (optional)</string>
+    <string name="snap_library">Library</string>
+    <string name="snap_list_it">List it</string>
+    <string name="snap_open_settings">Open Settings</string>
+    <string name="snap_take_photo">Take photo</string>
+    <string name="snap_the_garment_you_re_grading">The garment you\'re grading</string>
+    <string name="snap_try_again">Try again</string>
+
+    <!-- US-2368: spoken labels. A tile is three separate Texts on screen but one
+         idea to a screen reader, so it is read as a single sentence. Word order
+         differs between languages, which is exactly why these are positional. -->
+    <string name="home_tile_spoken">%1$s: %2$s, %3$s</string>
+    <string name="money_tile_spoken">%1$s: %2$s</string>
+    <string name="settings_toggle_spoken">%1$s, %2$s</string>
+    <string name="settings_toggle_on">on</string>
+    <string name="settings_toggle_off">off</string>
+    <!-- The bullet glyph is part of the resource so a locale that uses a
+         different list marker can change it without touching Kotlin. -->
+    <string name="analytics_bullet">• %1$s</string>
+    <string name="analytics_next">Next</string>
+
+    <!-- Shared across screens. -->
+    <string name="common_refresh">Refresh</string>
+    <string name="common_refreshing">Refreshing…</string>
+
+    <!-- Home. -->
+    <string name="home_today">Today</string>
+    <string name="home_refresh">Refresh</string>
+    <string name="home_refreshing">Refreshing…</string>
+    <string name="home_last_14_days">Last 14 days</string>
+    <string name="home_get_set_up">Get set up</string>
+    <string name="home_progress_of">%1$d of %2$d</string>
+    <string name="home_active_listings">active listings</string>
+    <string name="home_after_fees">after fees &amp; cost</string>
+    <string name="home_empty_body">Add your first item and your inventory value, sales and profit will appear here.</string>
+    <string name="home_trend_spoken">Revenue trend over the last 14 days, total %1$s</string>
+    <string name="home_step_done_spoken">%1$s, done</string>
+    <plurals name="home_on_hand">
+        <item quantity="one">%1$d on hand</item>
+        <item quantity="other">%1$d on hand</item>
+    </plurals>
+    <plurals name="home_aging_body">
+        <item quantity="one">%1$d item on hand hasn\'t moved in %2$d days. Reprice or relist it.</item>
+        <item quantity="other">%1$d items on hand haven\'t moved in %2$d days. Reprice or relist them.</item>
+    </plurals>
+
+    <!-- Money. -->
+    <string name="money_expenses">Expenses</string>
+    <string name="money_expenses_this_month">Operating expenses this month: %1$s. Net profit is before expenses.</string>
+    <string name="money_revenue_title">Revenue, last 6 months</string>
+    <string name="money_revenue_spoken">Revenue by month: %1$s</string>
+    <string name="money_revenue_spoken_item">%1$s %2$s</string>
+    <string name="money_cash_flow_title">Cash flow — in vs out</string>
+    <string name="money_cash_flow_spoken">Cash flow by month: %1$s</string>
+    <string name="money_cash_flow_spoken_item">%1$s net %2$s</string>
+    <string name="money_this_month_summary">This month: in %1$s, out %2$s, net %3$s</string>
+    <string name="money_aging_title">Inventory aging — capital tied up</string>
+    <string name="money_aging_spoken">Inventory aging: %1$s</string>
+    <string name="money_aging_spoken_item">%1$s, %2$d items, %3$s</string>
+    <plurals name="money_aging_oldest">
+        <item quantity="one">%1$d item held 60+ days (%2$s of cost basis).</item>
+        <item quantity="other">%1$d items held 60+ days (%2$s of cost basis).</item>
+    </plurals>
+    <string name="money_time_on_market_title">Time on market</string>
+    <string name="money_time_on_market_summary">Average %1$d days to sell across %2$d sales.</string>
+    <string name="money_days_to_sell_spoken">Days to sell: %1$s</string>
+    <string name="money_days_to_sell_spoken_item">%1$s, %2$d</string>
+    <string name="money_roi_by_source">ROI by source</string>
+    <string name="money_profit_by_item">Profit by item</string>
+    <string name="money_no_completed_sales">No completed sales yet — refunded and cancelled orders don\'t count here.</string>
+    <string name="money_expenses_empty">Record supplies, shipping and software so your P&amp;L reflects what you actually spend.</string>
+    <string name="money_empty_body">Once you catalog items and record sales, your revenue, profit, cash flow and inventory aging appear here — computed on your device, so it works offline.</string>
+    <string name="money_source_row_detail">%1$d/%2$d sold · spend %3$s</string>
+    <string name="money_sale_row_detail">%1$s · sold %2$s · cost %3$s</string>
+
+    <!-- Settings. -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_signed_in">Signed in</string>
+    <string name="settings_section_account">Account</string>
+    <string name="settings_section_plan">Plan &amp; credits</string>
+    <string name="settings_section_connections">Connections</string>
+    <string name="settings_section_preferences">Preferences</string>
+    <string name="settings_section_security">Security</string>
+    <string name="settings_section_help">Help</string>
+    <string name="settings_section_diagnostics">Diagnostics</string>
+    <string name="settings_section_danger">Account actions</string>
+    <string name="settings_plan">Plan</string>
+    <string name="settings_plan_loading">Loading your plan…</string>
+    <string name="settings_plan_unavailable">Plan details aren\'t available offline. Pull down to retry when you\'re online.</string>
+    <string name="settings_grading_credits">Grading credits</string>
+    <string name="settings_credits_subtitle">%1$d available · %2$d used this month</string>
+    <string name="settings_ebay">eBay</string>
+    <string name="settings_ebay_subtitle">Connect or manage your linked accounts</string>
+    <string name="settings_show_cost">Show cost and profit on rows</string>
+    <string name="settings_show_cost_subtitle">Off by default — sourcing happens in public.</string>
+    <string name="settings_confirm_bulk">Confirm bulk actions</string>
+    <string name="settings_confirm_bulk_subtitle">Ask before changing several items at once.</string>
+    <string name="settings_haptics">Haptic feedback</string>
+    <string name="settings_haptics_subtitle">Vibrate on section changes and key actions.</string>
+    <string name="settings_background_refresh">Background refresh</string>
+    <string name="settings_background_refresh_subtitle">Check for sales and finished grades about every 30 minutes.</string>
+    <string name="settings_analytics">Share usage analytics</string>
+    <string name="settings_analytics_subtitle">Product analytics only. Crash reports are always sent.</string>
+    <string name="settings_change_password">Change password</string>
+    <string name="settings_change_password_subtitle">We\'ll email you a link to set a new one.</string>
+    <string name="settings_support">Support requests</string>
+    <string name="settings_support_subtitle">Open a request and read our replies</string>
+    <string name="settings_feedback">Send feedback</string>
+    <string name="settings_feedback_subtitle">Tell us what worked, what didn\'t, what you wish existed</string>
+    <string name="settings_app_version">App version</string>
+    <string name="settings_app_version_value">%1$s (%2$d)</string>
+    <string name="settings_edge_endpoint">Edge endpoint</string>
+    <string name="settings_sign_out_body">This clears the copy of your inventory, sales and queued changes stored on this device. Anything that hasn\'t synced yet will be lost.</string>
+    <string name="settings_delete_account_body">This removes your account, your inventory and your grade history permanently. It can\'t be undone.</string>
+
+    <!-- Snap. -->
+    <string name="snap_intro">Snap a photo of any garment for an instant AI condition grade and a resale value range.</string>
+    <string name="snap_camera_denied">Camera access is off. Turn it on in Settings to take a photo — or choose one from your library instead.</string>
+    <string name="snap_photo_placeholder">Take or choose a photo</string>
+    <string name="snap_reading">Reading the photo…</string>
+    <string name="snap_whats_it_worth">What\'s it worth?</string>
+
+    <!-- Analytics. -->
+    <string name="analytics_empty_title">Nothing to analyse yet</string>
+    <string name="analytics_empty_body">Add items and record a few sales, and this fills in by itself.</string>
+    <string name="analytics_grade_distribution">Grade distribution</string>
+    <string name="analytics_graded_average">%1$d graded · average %2$s</string>
+    <string name="analytics_grade_distribution_spoken">Graded items by tier: %1$s</string>
+    <!-- Reused wherever a chart is read out as "<label> <value>" pairs. -->
+    <string name="analytics_pair_spoken_item">%1$s %2$s</string>
+    <string name="analytics_top_brands">Top brands by profit</string>
+    <string name="analytics_over_range">Over %1$s</string>
+    <string name="analytics_top_brands_spoken">Top brands by net profit: %1$s</string>
+    <string name="analytics_sell_through_title">Sell-through by brand</string>
+    <string name="analytics_sell_through_basis">Of the items that reached the market</string>
+    <string name="analytics_sell_through_spoken">Sell-through by brand: %1$s</string>
+    <string name="analytics_sell_through_spoken_item">%1$s %2$d of %3$d</string>
+    <string name="analytics_ratio">%1$d/%2$d</string>
+    <string name="analytics_inventory_value">Inventory value by status</string>
+    <string name="analytics_on_hand_total">%1$s on hand</string>
+    <string name="analytics_inventory_value_spoken">On-hand inventory value by status: %1$s</string>
+    <string name="analytics_custom">Custom</string>
+    <string name="analytics_no_summary">No summary</string>
+    <string name="analytics_summary_cost">Get a plain-language read on these numbers. Uses one AI action.</string>
+    <string name="analytics_writing">Writing…</string>
+    <string name="analytics_write_again">Write it again</string>
+    <string name="analytics_summarise">Summarise</string>
+    <string name="analytics_profit_on_revenue">%1$s profit on %2$s revenue</string>
+    <string name="analytics_units_fees_cogs">%1$d sold · %2$s fees · %3$s cost of goods</string>
+    <string name="analytics_sell_through">Sell-through %1$s</string>
+    <string name="analytics_roi_title">Does grading pay?</string>
+    <string name="analytics_roi_subtitle">Graded versus ungraded, by sale price</string>
+    <string name="analytics_roi_not_enough">Not enough sales yet to compare (%1$d graded, %2$d not).</string>
+    <!-- Two sentences, not one with a swapped verb: word order differs. -->
+    <string name="analytics_roi_more">Graded items netted %1$s more on average (%2$d vs %3$d).</string>
+    <string name="analytics_roi_less">Graded items netted %1$s less on average (%2$d vs %3$d).</string>
 </resources>

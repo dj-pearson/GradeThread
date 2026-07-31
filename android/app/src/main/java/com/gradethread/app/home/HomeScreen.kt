@@ -19,6 +19,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -79,12 +82,16 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Today",
+                    stringResource(R.string.home_today),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
-                    Text(if (refreshing) "Refreshing…" else "Refresh")
+                    Text(
+                        stringResource(
+                            if (refreshing) R.string.home_refreshing else R.string.home_refresh,
+                        ),
+                    )
                 }
             }
         }
@@ -101,7 +108,7 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = viewModel::dismissRefreshError) { Text("Dismiss") }
+                    TextButton(onClick = viewModel::dismissRefreshError) { Text(stringResource(R.string.home_dismiss)) }
                 }
             }
         }
@@ -113,16 +120,20 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 StatTile(
-                    label = "Inventory value",
+                    label = stringResource(R.string.home_inventory_value),
                     value = Money.format(state.metrics.inventoryValue),
-                    detail = "${state.metrics.onHandCount} on hand",
+                    detail = pluralStringResource(
+                        R.plurals.home_on_hand,
+                        state.metrics.onHandCount,
+                        state.metrics.onHandCount,
+                    ),
                     modifier = Modifier.weight(1f),
                     onClick = onOpenInventory,
                 )
                 StatTile(
-                    label = "Listed",
+                    label = stringResource(R.string.home_listed),
                     value = state.metrics.listedCount.toString(),
-                    detail = "active listings",
+                    detail = stringResource(R.string.home_active_listings),
                     modifier = Modifier.weight(1f),
                     onClick = onOpenMarketplaces,
                 )
@@ -134,16 +145,16 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 StatTile(
-                    label = "Sold (7 days)",
+                    label = stringResource(R.string.home_sold_7_days),
                     value = state.metrics.soldThisWeekCount.toString(),
                     detail = Money.format(state.metrics.revenueThisWeek),
                     modifier = Modifier.weight(1f),
                     onClick = onOpenMoney,
                 )
                 StatTile(
-                    label = "Net profit (7 days)",
+                    label = stringResource(R.string.home_net_profit_7_days),
                     value = Money.format(state.metrics.netProfitThisWeek),
-                    detail = "after fees & cost",
+                    detail = stringResource(R.string.home_after_fees),
                     modifier = Modifier.weight(1f),
                     onClick = onOpenMoney,
                 )
@@ -155,7 +166,7 @@ fun HomeScreen(
             item {
                 Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md)) {
                     Text(
-                        "Last 14 days",
+                        stringResource(R.string.home_last_14_days),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -163,8 +174,10 @@ fun HomeScreen(
                         values = state.trend.map { it.revenue },
                         // A spoken sentence rather than 14 unlabeled shapes: the
                         // rising/falling cue must not be colour-only (US-1223).
-                        description = "Revenue trend over the last 14 days, " +
-                            "total ${Money.format(Money.sum(state.trend) { it.revenue })}",
+                        description = stringResource(
+                            R.string.home_trend_spoken,
+                            Money.format(Money.sum(state.trend) { it.revenue }),
+                        ),
                     )
                 }
             }
@@ -199,15 +212,15 @@ fun HomeScreen(
         // ── Quick actions ────────────────────────────────────────────────────
         item {
             Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
-                Text("Quick actions", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.home_quick_actions), style = MaterialTheme.typography.titleMedium)
                 Row(
                     Modifier.fillMaxWidth().padding(top = Spacing.xs),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                 ) {
-                    BrandSecondaryButton(text = "Add item", modifier = Modifier.weight(1f)) {
+                    BrandSecondaryButton(text = stringResource(R.string.home_add_item), modifier = Modifier.weight(1f)) {
                         onAddItem()
                     }
-                    BrandSecondaryButton(text = "Snap to Value", modifier = Modifier.weight(1f)) {
+                    BrandSecondaryButton(text = stringResource(R.string.home_snap_to_value), modifier = Modifier.weight(1f)) {
                         onSnap()
                     }
                 }
@@ -228,7 +241,7 @@ fun HomeScreen(
                         .clickable(onClick = onOpenGrades),
                 ) {
                     Column(Modifier.padding(Spacing.sm)) {
-                        Text("Certified grades", style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.home_certified_grades), style = MaterialTheme.typography.titleMedium)
                         Text(
                             state.grades.label,
                             style = MaterialTheme.typography.bodySmall,
@@ -243,11 +256,14 @@ fun HomeScreen(
         if (state.agingItems.isNotEmpty()) {
             item {
                 Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
-                    Text("Sitting too long", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.home_sitting_too_long), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "${state.metrics.agingCount} items on hand haven't moved in " +
-                            "${DashboardRollup.AGING_THRESHOLD_DAYS} days. " +
-                            "Reprice or relist them.",
+                        pluralStringResource(
+                            R.plurals.home_aging_body,
+                            state.metrics.agingCount,
+                            state.metrics.agingCount,
+                            DashboardRollup.AGING_THRESHOLD_DAYS,
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -284,10 +300,9 @@ fun HomeScreen(
         if (!state.hasAnyItems) {
             item {
                 Column(Modifier.fillMaxWidth().padding(Spacing.xl)) {
-                    Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.home_nothing_here_yet), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Add your first item and your inventory value, sales and profit will " +
-                            "appear here.",
+                        stringResource(R.string.home_empty_body),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -305,13 +320,14 @@ private fun StatTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val spoken = stringResource(R.string.home_tile_spoken, label, value, detail)
     Card(modifier.clickable(onClick = onClick)) {
         Column(
             Modifier
                 .padding(Spacing.sm)
                 // One spoken element per tile: three separate labels read out in
                 // sequence lose the relationship between them.
-                .semantics { contentDescription = "$label: $value, $detail" },
+                .semantics { contentDescription = spoken },
         ) {
             Text(
                 label,
@@ -342,27 +358,35 @@ private fun ChecklistCard(
         Column(Modifier.padding(Spacing.sm)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Get set up",
+                    stringResource(R.string.home_get_set_up),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "${state.completedCount} of ${state.totalCount}",
+                    stringResource(
+                        R.string.home_progress_of,
+                        state.completedCount,
+                        state.totalCount,
+                    ),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(onClick = onDismiss) { Text("Dismiss") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.home_dismiss)) }
             }
             state.steps.forEach { step ->
+                // "Done" is spoken as part of the step, not left to the tick
+                // glyph — a checkmark drawn in a Canvas says nothing out loud.
+                val spokenStep = if (step.done) {
+                    stringResource(R.string.home_step_done_spoken, step.title)
+                } else {
+                    step.title
+                }
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .clickable(enabled = !step.done) { onStep(step) }
                         .padding(vertical = Spacing.xxs)
-                        .semantics {
-                            contentDescription =
-                                "${step.title}${if (step.done) ", done" else ""}"
-                        },
+                        .semantics { contentDescription = spokenStep },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
