@@ -2,6 +2,8 @@ package com.gradethread.app.ui.components
 
 import com.gradethread.app.ui.theme.BrandPalette
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -16,6 +18,20 @@ class StatusStyleTest {
         assertEquals("Sold", StatusStyle.label("sold"))
         assertEquals("Photographed", StatusStyle.label("photographed"))
         assertEquals("", StatusStyle.label(""))
+    }
+
+    // US-2368: label() is the FALLBACK now. The statuses the app actually ships
+    // each have a resource, and a test that only exercised the title-caser would
+    // pass while every badge in the app rendered untranslated English.
+    @Test
+    fun `every shipped status has a string resource, unknown ones fall back`() {
+        val shipped = listOf(
+            "sourced", "cataloged", "measured", "photographed", "comped", "drafted",
+            "to_list", "listed", "active", "sold", "shipped", "completed",
+            "returned", "archived",
+        )
+        shipped.forEach { assertNotNull(it, StatusStyle.labelRes(it)) }
+        assertNull(StatusStyle.labelRes("a_status_that_shipped_ahead_of_its_string"))
     }
 
     @Test

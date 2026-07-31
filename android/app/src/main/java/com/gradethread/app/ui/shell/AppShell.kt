@@ -113,13 +113,22 @@ fun AppShell(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     IconButton(onClick = { navController.navigate(ShellRoutes.SEARCH) }) {
-                        Icon(Icons.Outlined.Search, contentDescription = "Search")
+                        Icon(
+                            Icons.Outlined.Search,
+                            contentDescription = stringResource(R.string.shell_search),
+                        )
                     }
                     IconButton(onClick = { navController.navigate(ShellRoutes.TOOLS) }) {
-                        Icon(Icons.Outlined.Build, contentDescription = "Tools")
+                        Icon(
+                            Icons.Outlined.Build,
+                            contentDescription = stringResource(R.string.shell_tools),
+                        )
                     }
                     IconButton(onClick = { navController.navigate(ShellRoutes.SETTINGS) }) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+                        Icon(
+                            Icons.Outlined.Settings,
+                            contentDescription = stringResource(R.string.shell_settings),
+                        )
                     }
                 },
             )
@@ -227,7 +236,9 @@ private fun ShellNavHost(navController: NavHostController) {
         }
         // Registered for deep links (US-1314 AddItem); the bar's Add button
         // opens the method sheet instead of navigating here.
-        composable(ShellSection.ADD.route) { SectionPlaceholder("Add an item") }
+        composable(ShellSection.ADD.route) {
+            SectionPlaceholder(stringResource(R.string.shell_placeholder_add))
+        }
         // US-1342: the real inventory list replaces the placeholder.
         composable(ShellSection.INVENTORY.route) {
             com.gradethread.app.inventory.InventoryListScreen(
@@ -506,7 +517,9 @@ private fun ShellNavHost(navController: NavHostController) {
         composable("capture/details") {
             com.gradethread.app.inventory.DetailsIntakeScreen()
         }
-        composable("capture/autolister") { SectionPlaceholder("AutoLister") }
+        composable("capture/autolister") {
+            SectionPlaceholder(stringResource(R.string.shell_placeholder_autolister))
+        }
         // US-1339: grade a multi-selection.
         composable("grade-bulk/{itemIds}") { entry ->
             val ids = entry.arguments?.getString("itemIds")
@@ -615,14 +628,16 @@ private fun AddMethodSheet(
             Modifier.padding(horizontal = Spacing.md).padding(bottom = Spacing.xl),
         ) {
             BrandPrimaryButton(
-                text = "Take photos",
+                text = stringResource(R.string.shell_add_take_photos),
                 modifier = Modifier.padding(bottom = Spacing.sm),
             ) { onPick("capture/photos") }
             BrandSecondaryButton(
-                text = "Enter details first",
+                text = stringResource(R.string.shell_add_details_first),
                 modifier = Modifier.padding(bottom = Spacing.sm),
             ) { onPick("capture/details") }
-            BrandSecondaryButton(text = "AutoLister batch") { onPick("capture/autolister") }
+            BrandSecondaryButton(text = stringResource(R.string.shell_add_autolister)) {
+                onPick("capture/autolister")
+            }
         }
     }
 }

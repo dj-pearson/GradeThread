@@ -16,9 +16,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.sync.db.SaleEntity
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
@@ -45,7 +48,7 @@ fun PayoutReconciliationScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Payouts", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.payouts_title), style = MaterialTheme.typography.titleLarge)
         Text(
             PayoutReconciliation.summary(state.reconciled),
             style = MaterialTheme.typography.bodyMedium,
@@ -53,12 +56,14 @@ fun PayoutReconciliationScreen(
         Text(
             // The offline promise, stated: this screen is built from synced
             // rows, so it works on a train and updates when the next pull lands.
-            "Read from what's already on this device. Sync to check for new deposits.",
+            stringResource(R.string.payouts_subtitle),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.common_that_didnt_work), it, tone = InfoTone.Error)
+        }
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
@@ -67,7 +72,7 @@ fun PayoutReconciliationScreen(
             if (state.mismatches.isNotEmpty()) {
                 item {
                     Text(
-                        "Don't match (${state.mismatches.size})",
+                        stringResource(R.string.payouts_mismatched, state.mismatches.size),
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }
@@ -79,20 +84,20 @@ fun PayoutReconciliationScreen(
             if (state.awaitingPayout.isNotEmpty()) {
                 item {
                     Text(
-                        "Sold, not paid out yet (${state.awaitingPayout.size})",
+                        stringResource(R.string.payouts_awaiting, state.awaitingPayout.size),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = Spacing.sm),
                     )
                 }
                 items(state.awaitingPayout, key = { "await-${it.id}" }) { sale ->
-                    SaleLine(sale, "waiting on eBay", onOpenItem)
+                    SaleLine(sale, stringResource(R.string.payouts_waiting_on_ebay), onOpenItem)
                 }
             }
 
             if (state.unknownPayout.isNotEmpty()) {
                 item {
                     Text(
-                        "Payout not synced yet (${state.unknownPayout.size})",
+                        stringResource(R.string.payouts_unknown, state.unknownPayout.size),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = Spacing.sm),
                     )
@@ -100,19 +105,23 @@ fun PayoutReconciliationScreen(
                 items(state.unknownPayout, key = { "unknown-${it.id}" }) { sale ->
                     // Not "missing money": the deposit just hasn't reached this
                     // device, which is a shrug rather than a support ticket.
-                    SaleLine(sale, "deposit not on this device yet", onOpenItem)
+                    SaleLine(
+                        sale,
+                        stringResource(R.string.payouts_deposit_not_local),
+                        onOpenItem,
+                    )
                 }
             }
 
             item {
                 Text(
-                    "Matched (${state.matched.size})",
+                    stringResource(R.string.payouts_matched, state.matched.size),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(top = Spacing.sm),
                 )
             }
             if (state.matched.isEmpty()) {
-                item { Hint("Nothing reconciled yet.") }
+                item { Hint(stringResource(R.string.payouts_empty)) }
             }
             items(state.matched, key = { "ok-${it.payout.id}" }) { entry ->
                 PayoutCard(entry, onOpenItem)
@@ -120,12 +129,19 @@ fun PayoutReconciliationScreen(
         }
 
         BrandSecondaryButton(
-            text = if (state.refreshing) "Syncing…" else "Sync and re-check",
+            text = if (state.refreshing) {
+                stringResource(R.string.payouts_syncing)
+            } else {
+                stringResource(R.string.payouts_sync_cta)
+            },
             enabled = !state.refreshing,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.syncAndRefresh() }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.common_back),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onClose() }
     }
 }
 
@@ -163,8 +179,12 @@ private fun PayoutCard(
             },
         )
         Text(
-            "${entry.saleCount} ${if (entry.saleCount == 1) "sale" else "sales"} · " +
-                "recorded ${Money.format(entry.recordedCents / 100.0)}",
+            pluralStringResource(
+                R.plurals.payouts_entry_summary,
+                entry.saleCount,
+                entry.saleCount,
+                Money.format(entry.recordedCents / 100.0),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -181,7 +201,7 @@ private fun PayoutCard(
             SaleLine(sale, Money.format(sale.salePrice), onOpenItem)
         }
         if (entry.sales.size > 5) {
-            Hint("…and ${entry.sales.size - 5} more.")
+            Hint(stringResource(R.string.payouts_more_sales, entry.sales.size - 5))
         }
     }
 }

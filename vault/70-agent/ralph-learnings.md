@@ -379,6 +379,10 @@ a learning that only matters to ONE surface, put it in that surface's file.
   story warns about.
 - New stories use `prd.json.nextId` then bump it (NOT `max(id)+1` — done stories
   live in `prd.archive.json`, so that would reuse ids).
+- `priority` sorts **ascending** — lowest number first — and a story with no
+  `priority` is unranked and sorts last. Never hand-roll the comparison; import
+  `comparePriority` from `scripts/lib/prd-priority.mjs`. Full rule and the two
+  defects it fixed: [[backlog-priority-contract]].
 - Optional per-story fields the harness understands:
   - `"hard": true` → iteration runs on `$HARD_MODEL` (Opus). The default model
     is now Opus too, so this is a no-op unless `RALPH_DEFAULT_MODEL` is lowered.
@@ -392,5 +396,6 @@ a learning that only matters to ONE surface, put it in that surface's file.
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault
+- [[backlog-priority-contract]] — which story the loop picks next, and why
 - [[ralph-brand-kb-log]] · [[ralph-ios-log]] · [[ralph-email-marketing-log]] — the on-demand topic logs
 - [[INDEX]]

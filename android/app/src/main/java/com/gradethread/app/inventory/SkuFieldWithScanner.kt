@@ -16,10 +16,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.gradethread.app.R
 import com.gradethread.app.capture.BarcodeScanScreen
 import com.gradethread.app.ui.components.ValidatedTextField
 
@@ -40,6 +42,8 @@ fun SkuFieldWithScanner(
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
     }
     var scanning by remember { mutableStateOf(false) }
+    // Hoisted: `semantics { }` is not a composable scope.
+    val scanHint = stringResource(R.string.sku_scan_hint)
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -48,13 +52,13 @@ fun SkuFieldWithScanner(
         ValidatedTextField(
             value = value,
             onValueChange = onValueChange,
-            label = "SKU",
+            label = stringResource(R.string.common_sku),
             modifier = Modifier.weight(1f),
         )
         if (hasCamera) {
             IconButton(
                 onClick = { scanning = true },
-                modifier = Modifier.semantics { contentDescription = "Scan barcode to fill SKU" },
+                modifier = Modifier.semantics { contentDescription = scanHint },
             ) {
                 Icon(
                     // Core icon set has no barcode/scan glyph; Search reads as

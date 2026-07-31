@@ -14,9 +14,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.Spacing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,7 +89,7 @@ fun ConsignorPickerSection(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Text("Consignor", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.consignor_label), style = MaterialTheme.typography.titleSmall)
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -95,7 +97,7 @@ fun ConsignorPickerSection(
             FilterChip(
                 selected = selectedId == null,
                 onClick = { onSelect(null) },
-                label = { Text("None") },
+                label = { Text(stringResource(R.string.common_none)) },
             )
             state.consignors.forEach { consignor ->
                 FilterChip(
@@ -118,20 +120,51 @@ fun ConsignorPickerSection(
 }
 
 /**
- * What the split field is actually going to do, in words.
+ * WHICH hint the split field should show, and with what numbers.
  *
  * An empty override is not "no split" — it means the consignor's default
  * applies, and leaving that unsaid is how someone thinks a blank field means
  * they keep everything.
+ *
+ * Pure and unit-tested on the CHOICE, not on the wording: US-2368 moved the
+ * sentences into strings.xml, and a test asserting English here would have been
+ * the reason not to. [splitHint] resolves it.
  */
-fun splitHint(consignor: Consignor?, splitText: String): String {
-    if (consignor == null) return "Not consigned. This item is yours."
-    val override = splitText.trim().toDoubleOrNull()
-    return if (override == null) {
-        "Using ${consignor.name}'s default of " +
-            "${ConsignorDraft.formatPct(consignor.defaultSplitPct)}%."
-    } else {
-        "${consignor.name} gets ${ConsignorDraft.formatPct(override)}% of this one, " +
-            "instead of their usual ${ConsignorDraft.formatPct(consignor.defaultSplitPct)}%."
-    }
+sealed interface SplitHint {
+    /** No consignor selected — the item is the seller's own. */
+    data object NotConsigned : SplitHint
+
+    /** The field is empty, so the consignor's standing split applies. */
+    data class UsingDefault(val name: String, val defaultPct: String) : SplitHint
+
+    /** A one-off split for this item, named against the usual one. */
+    data class Override(
+        val name: String,
+        val overridePct: String,
+        val defaultPct: String,
+    ) : SplitHint
 }
+
+fun splitHintFor(consignor: Consignor?, splitText: String): SplitHint {
+    if (consignor == null) return SplitHint.NotConsigned
+    val defaultPct = ConsignorDraft.formatPct(consignor.defaultSplitPct)
+    val override = splitText.trim().toDoubleOrNull()
+        ?: return SplitHint.UsingDefault(consignor.name, defaultPct)
+    return SplitHint.Override(consignor.name, ConsignorDraft.formatPct(override), defaultPct)
+}
+
+/** The split hint in the reader's language. */
+@Composable
+fun splitHint(consignor: Consignor?, splitText: String): String =
+    when (val hint = splitHintFor(consignor, splitText)) {
+        SplitHint.NotConsigned -> stringResource(R.string.consignor_not_consigned)
+        is SplitHint.UsingDefault ->
+            stringResource(R.string.consignor_using_default, hint.name, hint.defaultPct)
+
+        is SplitHint.Override -> stringResource(
+            R.string.consignor_override,
+            hint.name,
+            hint.overridePct,
+            hint.defaultPct,
+        )
+    }

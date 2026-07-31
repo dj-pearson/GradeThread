@@ -1,5 +1,6 @@
 package com.gradethread.app.marketplaces
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,13 +12,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import com.gradethread.app.R
 import com.gradethread.app.money.Money
 import com.gradethread.app.sync.db.ListingEntity
 import com.gradethread.app.ui.components.StatusBadge
-import com.gradethread.app.ui.components.StatusStyle
+import com.gradethread.app.ui.components.statusLabel
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
@@ -35,7 +39,7 @@ data class ListingCardModel(
     val platform: String,
     val platformLabel: String,
     val priceText: String,
-    val quantityText: String,
+    val quantity: Int?,
     val status: String,
     val externalUrl: String?,
     /** Server-owned last push failure — shown, never swallowed (US-1511). */
@@ -46,10 +50,6 @@ data class ListingCardModel(
      */
     val isImported: Boolean,
 ) {
-    /** One line for TalkBack — the card's four facts read as a sentence. */
-    val contentDescription: String
-        get() = "$platformLabel listing, $priceText, $quantityText, ${statusLabel(status)}"
-
     companion object {
 
         /** Canonical platform names, matching the web's MARKETPLACE_LABELS. */
@@ -73,21 +73,24 @@ data class ListingCardModel(
             PLATFORM_LABELS[platform.lowercase()]
                 ?: platform.replaceFirstChar { it.uppercaseChar() }
 
-        fun statusLabel(status: String): String = StatusStyle.label(status)
-
         /**
-         * Quantity wording.
+         * WHICH quantity wording applies — the decision, not the words.
          *
          * Three states, not two: `0` is out of stock — the offer is still
          * published but nothing is buyable, which is exactly when a seller needs
          * telling. Null means no sync has ever reported a quantity; saying
          * "Qty 1" there would be an invention, and "Out of stock" would be a
          * lie.
+         *
+         * Pure, so the three-way choice stays unit-tested; [quantityText]
+         * resolves it. The test asserts a resource id rather than English, which
+         * is what let this file be translated at all (US-2368).
          */
-        fun quantityText(quantity: Int?): String = when {
-            quantity == null -> "Qty —"
-            quantity <= 0 -> "Out of stock"
-            else -> "Qty $quantity"
+        @StringRes
+        fun quantityRes(quantity: Int?): Int = when {
+            quantity == null -> R.string.listing_qty_unknown
+            quantity <= 0 -> R.string.listing_out_of_stock
+            else -> R.string.listing_qty
         }
 
         fun from(
@@ -98,7 +101,7 @@ data class ListingCardModel(
             platform = listing.platform,
             platformLabel = platformLabel(listing.platform),
             priceText = Money.format(listing.listingPrice, locale),
-            quantityText = quantityText(listing.quantity),
+            quantity = listing.quantity,
             status = listing.listingStatus,
             externalUrl = listing.externalUrl?.takeIf { it.isNotBlank() },
             publishError = listing.publishError?.takeIf { it.isNotBlank() },
@@ -114,6 +117,23 @@ data class ListingCardModel(
     }
 }
 
+/** The quantity line in the reader's language. */
+@Composable
+fun quantityText(quantity: Int?): String {
+    val res = ListingCardModel.quantityRes(quantity)
+    return if (res == R.string.listing_qty) stringResource(res, quantity!!) else stringResource(res)
+}
+
+/** One line for TalkBack — the card's four facts read as a sentence. */
+@Composable
+fun ListingCardModel.spokenDescription(): String = stringResource(
+    R.string.a11y_listing_card,
+    platformLabel,
+    priceText,
+    quantityText(quantity),
+    statusLabel(status),
+)
+
 /**
  * US-1351: the unified listing card — price, quantity, status and platform, the
  * same on every surface that shows a listing.
@@ -126,11 +146,13 @@ fun ListingCard(
     /** US-1357: opens the promotion + sale sheet. Null hides the action. */
     onPromote: (() -> Unit)? = null,
 ) {
+    // Hoisted: `semantics { }` is not a composable scope.
+    val spoken = model.spokenDescription()
     Column(
         modifier
             .fillMaxWidth()
             .cardStyle()
-            .semantics(mergeDescendants = true) {},
+            .semantics(mergeDescendants = true) { contentDescription = spoken },
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -149,14 +171,14 @@ fun ListingCard(
         ) {
             Text(model.priceText, style = MaterialTheme.typography.titleMedium)
             Text(
-                model.quantityText,
+                quantityText(model.quantity),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (model.isImported) {
             Text(
-                "Imported from eBay — edit the price and quantity on eBay.",
+                stringResource(R.string.listingcard_imported_readonly),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -174,14 +196,14 @@ fun ListingCard(
                     TextButton(
                         onClick = { open(url) },
                         modifier = Modifier.padding(top = Spacing.xxs),
-                    ) { Text("View on ${model.platformLabel}") }
+                    ) { Text(stringResource(R.string.listingcard_view_on, model.platformLabel)) }
                 }
             }
             onPromote?.let { promote ->
                 TextButton(
                     onClick = promote,
                     modifier = Modifier.padding(top = Spacing.xxs),
-                ) { Text("Promote or discount") }
+                ) { Text(stringResource(R.string.listingcard_promote)) }
             }
         }
     }
@@ -201,7 +223,7 @@ private fun ListingCardPreview() {
                     platform = "ebay",
                     platformLabel = "eBay",
                     priceText = "$48.00",
-                    quantityText = "Qty 1",
+                    quantity = 1,
                     status = "active",
                     externalUrl = "https://www.ebay.com/itm/1",
                     publishError = null,
@@ -215,7 +237,7 @@ private fun ListingCardPreview() {
                     platform = "poshmark",
                     platformLabel = "Poshmark",
                     priceText = "$32.00",
-                    quantityText = "Out of stock",
+                    quantity = 0,
                     status = "drafted",
                     externalUrl = null,
                     publishError = "eBay rejected the last update: title too long.",

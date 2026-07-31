@@ -17,10 +17,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.R
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.ui.components.InfoCard
@@ -123,27 +125,31 @@ fun PassportScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Item passport", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.passport_title), style = MaterialTheme.typography.titleLarge)
         if (state.garmentName.isNotEmpty()) {
             Text(state.garmentName, style = MaterialTheme.typography.bodyLarge)
         }
 
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.common_that_didnt_work), it, tone = InfoTone.Error)
+        }
 
         when {
-            state.loading -> Text("Loading…", style = MaterialTheme.typography.bodyMedium)
+            state.loading -> Text(
+                stringResource(R.string.common_loading),
+                style = MaterialTheme.typography.bodyMedium,
+            )
 
             state.noPassport -> InfoCard(
-                "No passport yet",
+                stringResource(R.string.passport_empty_title),
                 // Says what creates one. "Nothing here" with no explanation is
                 // the same screen as a bug.
-                "A passport starts when an item is certified. Grade this one and its " +
-                    "history begins.",
+                stringResource(R.string.passport_empty_body),
             )
 
             state.emptyChain -> InfoCard(
-                "Nothing recorded yet",
-                "This item has a passport, but no history has been added to it.",
+                stringResource(R.string.passport_no_history_title),
+                stringResource(R.string.passport_no_history_body),
             )
         }
 
@@ -155,7 +161,7 @@ fun PassportScreen(
                 ) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Chain strength: ${state.strength.label}",
+                            stringResource(R.string.passport_chain_strength, state.strength.label),
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f),
                         )
@@ -169,9 +175,11 @@ fun PassportScreen(
             }
             timeline.originVerifiedSeller?.let { seller ->
                 Text(
-                    "Originally from " +
-                        (seller.displayName?.takeIf { it.isNotBlank() } ?: "@${seller.handle}") +
-                        " (verified)",
+                    stringResource(
+                        R.string.passport_origin,
+                        seller.displayName?.takeIf { it.isNotBlank() }
+                            ?: stringResource(R.string.passport_origin_handle, seller.handle),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -190,7 +198,10 @@ fun PassportScreen(
             ) { index -> EventCard(state.events[index]) }
         }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.common_back),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onClose() }
     }
 }
 
@@ -216,7 +227,10 @@ private fun EventCard(event: PassportEvent) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         PassportFormat.gradeLine(event)?.let {
-            Text("Graded $it", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                stringResource(R.string.passport_graded, it),
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
         PassportFormat.actorLine(event)?.let {
             Text(

@@ -16,10 +16,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.R
 import com.gradethread.app.money.Money
 import com.gradethread.app.sync.db.GradeThreadDb
 import com.gradethread.app.ui.components.InfoCard
@@ -114,15 +117,20 @@ fun ConsignmentReportScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Consignment payouts", style = MaterialTheme.typography.titleLarge)
+        Text(
+            stringResource(R.string.consignment_title),
+            style = MaterialTheme.typography.titleLarge,
+        )
         Text(
             // Naming what's excluded, because a consignor will ask.
-            "From completed sales only. Cancelled and refunded orders don't count.",
+            stringResource(R.string.consignment_subtitle),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        state.errorMessage?.let { InfoCard("Heads up", it, tone = InfoTone.Warning) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.consignment_heads_up), it, tone = InfoTone.Warning)
+        }
 
         if (state.rows.isNotEmpty()) {
             Column(
@@ -130,11 +138,14 @@ fun ConsignmentReportScreen(
                 verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
             ) {
                 Text(
-                    "${Money.format(state.totalOwed)} owed",
+                    stringResource(R.string.consignment_total_owed, Money.format(state.totalOwed)),
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    "You keep ${Money.format(state.totalYourCut)}",
+                    stringResource(
+                        R.string.consignment_you_keep,
+                        Money.format(state.totalYourCut),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -146,17 +157,29 @@ fun ConsignmentReportScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             if (state.rows.isEmpty()) {
-                item { InfoCard("Nothing to pay out yet", state.emptyMessage) }
+                item {
+                    InfoCard(
+                        stringResource(R.string.consignment_empty_title),
+                        state.emptyMessage,
+                    )
+                }
             }
             items(state.rows, key = { it.consignorId }) { row -> ReportCard(row) }
         }
 
         BrandSecondaryButton(
-            text = if (state.loading) "Refreshing…" else "Refresh",
+            text = if (state.loading) {
+                stringResource(R.string.common_refreshing)
+            } else {
+                stringResource(R.string.common_refresh)
+            },
             enabled = !state.loading,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.load() }
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.common_back),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onClose() }
     }
 }
 
@@ -179,17 +202,24 @@ private fun ReportCard(row: ConsignmentReportRow) {
             )
         }
         Text(
-            "${row.itemsSold} ${if (row.itemsSold == 1) "item" else "items"} · " +
-                "${Money.format(row.grossRevenue)} sold · " +
-                "${Money.format(row.fees)} fees",
+            pluralStringResource(
+                R.plurals.consignment_row_summary,
+                row.itemsSold,
+                row.itemsSold,
+                Money.format(row.grossRevenue),
+                Money.format(row.fees),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             // The three numbers side by side, so the arithmetic is checkable
             // rather than something the seller has to trust.
-            "${Money.format(row.netProceeds)} after fees · " +
-                "you keep ${Money.format(row.yourCut)}",
+            stringResource(
+                R.string.consignment_row_net,
+                Money.format(row.netProceeds),
+                Money.format(row.yourCut),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

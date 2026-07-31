@@ -24,9 +24,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
+import com.gradethread.app.R
 import com.gradethread.app.speech.DictationController
 import com.gradethread.app.ui.components.ValidatedTextField
 import com.gradethread.app.ui.theme.Spacing
@@ -53,6 +55,10 @@ fun NotesFieldWithDictation(
     val finalTranscript by controller.finalTranscript.collectAsState()
 
     val listening = dictationState is DictationController.State.Listening
+    // Hoisted: `semantics { }` is not a composable scope.
+    val dictationHint = stringResource(
+        if (listening) R.string.notes_dictate_stop else R.string.notes_dictate_start,
+    )
 
     // Always release the mic and audio focus when the screen goes away —
     // stop() is idempotent, so this is safe even if never started.
@@ -111,7 +117,7 @@ fun NotesFieldWithDictation(
             ValidatedTextField(
                 value = value,
                 onValueChange = onValueChange,
-                label = "Notes",
+                label = stringResource(R.string.common_notes),
                 singleLine = false,
                 modifier = Modifier.weight(1f),
             )
@@ -134,10 +140,7 @@ fun NotesFieldWithDictation(
                             }
                         }
                     },
-                    modifier = Modifier.semantics {
-                        contentDescription =
-                            if (listening) "Stop dictating notes" else "Dictate notes"
-                    },
+                    modifier = Modifier.semantics { contentDescription = dictationHint },
                 ) {
                     Icon(
                         // The module ships only the CORE icon set, which has
@@ -162,7 +165,7 @@ fun NotesFieldWithDictation(
         }
         if (listening) {
             Text(
-                text = "Listening…",
+                text = stringResource(R.string.notes_listening),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = Spacing.xxs),

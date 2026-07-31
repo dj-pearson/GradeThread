@@ -21,8 +21,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.marketplaces.CustomTabsLauncher
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
@@ -52,27 +54,31 @@ fun PaywallScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Plans", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.paywall_title), style = MaterialTheme.typography.titleLarge)
         state.currentPlan?.let {
             Text(
-                "You're on ${it.label}.",
+                stringResource(R.string.paywall_current_plan, it.label),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         state.conflict?.let { conflict ->
-            InfoCard("Already subscribed", conflict.message, tone = InfoTone.Warning)
+            InfoCard(
+                stringResource(R.string.paywall_already_subscribed),
+                conflict.message,
+                tone = InfoTone.Warning,
+            )
             if (conflict.routesToWeb) {
                 BrandSecondaryButton(
-                    text = "Open web billing",
+                    text = stringResource(R.string.paywall_open_web_billing),
                     modifier = Modifier.fillMaxWidth(),
                 ) { CustomTabsLauncher.open(context, viewModel.webBillingUrl()) }
             }
         }
         if (state.conflict == null) {
             state.errorMessage?.let {
-                InfoCard("That didn't work", it, tone = InfoTone.Error)
+                InfoCard(stringResource(R.string.common_that_didnt_work), it, tone = InfoTone.Error)
             }
         }
 
@@ -92,7 +98,7 @@ fun PaywallScreen(
 
             item {
                 Text(
-                    "Grading credits",
+                    stringResource(R.string.paywall_credits_title),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(top = Spacing.sm),
                 )
@@ -101,8 +107,7 @@ fun PaywallScreen(
                 Text(
                     // Says what a credit pack is FOR, because the difference
                     // between a plan and a pack is not obvious from two prices.
-                    "One-time packs. They never expire and stack on top of the " +
-                        "grades your plan includes.",
+                    stringResource(R.string.paywall_credits_body),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -118,10 +123,13 @@ fun PaywallScreen(
         // The recovery path for a purchase that was paid for and never landed —
         // without it that money is invisible and the seller has no move.
         BrandSecondaryButton(
-            text = "I already paid",
+            text = stringResource(R.string.paywall_already_paid),
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.restore() }
-        BrandSecondaryButton(text = "Close", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.common_close),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onClose() }
     }
 }
 
@@ -170,7 +178,10 @@ private fun TierCard(
                 modifier = Modifier.weight(1f),
             )
             row.savingsPercent?.let {
-                AssistChip(onClick = {}, label = { Text("Save $it%") })
+                AssistChip(
+                    onClick = {},
+                    label = { Text(stringResource(R.string.paywall_save_percent, it)) },
+                )
             }
         }
         Text(PaywallPricing.priceLine(row), style = MaterialTheme.typography.bodyLarge)
@@ -193,7 +204,11 @@ private fun TierCard(
             )
         } else {
             BrandPrimaryButton(
-                text = if (busy) "Opening Google Play…" else "Choose ${row.plan.label}",
+                text = if (busy) {
+                    stringResource(R.string.credits_opening_play)
+                } else {
+                    stringResource(R.string.planstep_choose, row.plan.label)
+                },
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { onSubscribe() }
@@ -215,6 +230,6 @@ private fun CreditRow(offer: CreditPackOffer, onBuy: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        TextButton(onClick = onBuy) { Text("Buy") }
+        TextButton(onClick = onBuy) { Text(stringResource(R.string.paywall_buy)) }
     }
 }

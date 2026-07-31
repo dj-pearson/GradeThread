@@ -275,24 +275,30 @@ class ConsignmentReportTest {
 
     // ── The split hint on the item canvas ────────────────────────────────────
 
+    // US-2368: these assert the CHOICE and its numbers, not the sentence. The
+    // wording lives in strings.xml now, and a test pinned to English would have
+    // meant this screen could never be translated.
+
     @Test
     fun `a blank override says the default applies, not that there is no split`() {
         // A blank field looks like "no split", which is how someone thinks they
         // keep everything.
-        val hint = splitHint(consignor(name = "Ada", split = 60.0), "")
-        assertTrue(hint.contains("default"))
-        assertTrue(hint.contains("60%"))
+        assertEquals(
+            SplitHint.UsingDefault(name = "Ada", defaultPct = "60"),
+            splitHintFor(consignor(name = "Ada", split = 60.0), ""),
+        )
     }
 
     @Test
     fun `an override says what it replaces`() {
-        val hint = splitHint(consignor(name = "Ada", split = 60.0), "70")
-        assertTrue(hint.contains("70%"))
-        assertTrue(hint.contains("60%"))
+        assertEquals(
+            SplitHint.Override(name = "Ada", overridePct = "70", defaultPct = "60"),
+            splitHintFor(consignor(name = "Ada", split = 60.0), "70"),
+        )
     }
 
     @Test
-    fun `no consignor says the item is yours`() {
-        assertTrue(splitHint(null, "70").contains("yours"))
+    fun `no consignor is its own case, not an empty split`() {
+        assertEquals(SplitHint.NotConsigned, splitHintFor(null, "70"))
     }
 }

@@ -19,8 +19,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 
@@ -52,12 +54,12 @@ fun MeasurementsSection(
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         Text(
-            "Measurements",
+            stringResource(R.string.measure_title),
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            "Flat measurements — chest is pit to pit.",
+            stringResource(R.string.measure_subtitle),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -115,7 +117,7 @@ private fun MeasurementField(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onRemove) { Text("Remove") }
+        TextButton(onClick = onRemove) { Text(stringResource(R.string.common_remove)) }
     }
 }
 
@@ -139,7 +141,11 @@ fun SizeEstimateCard(
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         if (estimate == null) {
             BrandSecondaryButton(
-                text = if (busy) "Estimating…" else "Estimate size from photos",
+                text = if (busy) {
+                stringResource(R.string.measure_estimating)
+            } else {
+                stringResource(R.string.measure_estimate_cta)
+            },
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { onEstimate() }
@@ -147,24 +153,34 @@ fun SizeEstimateCard(
             // An empty size is a real answer. Applying it would clear whatever
             // the seller already had.
             Text(
-                "The photos didn't show enough to guess a size. A tag or " +
-                    "flat-lay shot with a tape measure helps most.",
+                stringResource(R.string.measure_estimate_unusable),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            TextButton(onClick = onDismiss) { Text("Dismiss") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_dismiss)) }
         } else {
             Text(
-                "Suggested size: ${estimate.size}" +
-                    (estimate.gender?.let { " · $it" } ?: "") +
-                    " · ${estimate.confidencePercent}% confidence",
+                // Built by nesting format strings rather than concatenating:
+                // the separator and the order of size / gender / confidence are
+                // the translator's to move, and a chain of `+` fixes both.
+                stringResource(
+                    R.string.measure_suggested_confidence,
+                    estimate.gender?.let {
+                        stringResource(
+                            R.string.measure_suggested_gender,
+                            stringResource(R.string.measure_suggested_size, estimate.size),
+                            it,
+                        )
+                    } ?: stringResource(R.string.measure_suggested_size, estimate.size),
+                    estimate.confidencePercent,
+                ),
                 style = MaterialTheme.typography.bodyMedium,
             )
             if (estimate.lowConfidence) {
                 // The server's own verdict, not a threshold re-derived here —
                 // one place decides what "low" means.
                 Text(
-                    "Low confidence — check it against the garment before saving.",
+                    stringResource(R.string.measure_low_confidence),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -178,10 +194,10 @@ fun SizeEstimateCard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 BrandSecondaryButton(
-                    text = "Use \"${estimate.size}\"",
+                    text = stringResource(R.string.measure_use_size, estimate.size),
                     modifier = Modifier.weight(1f),
                 ) { onApply(estimate.size) }
-                TextButton(onClick = onDismiss) { Text("No thanks") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_no_thanks)) }
             }
         }
 

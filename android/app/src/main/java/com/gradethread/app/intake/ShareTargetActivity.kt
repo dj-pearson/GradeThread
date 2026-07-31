@@ -28,9 +28,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import coil.compose.AsyncImage
+import com.gradethread.app.R
 import com.gradethread.app.capture.PhotoProcessor
 import com.gradethread.app.capture.PhotoSlotType
 import com.gradethread.app.platform.telemetry.Telemetry
@@ -151,12 +153,15 @@ private fun ShareScreen(
 
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            Text("Add to GradeThread", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                stringResource(R.string.intake_share_title),
+                style = MaterialTheme.typography.headlineSmall,
+            )
             Text(
                 if (uris.size > capped.size) {
-                    "Using the first ${capped.size} of ${uris.size} photos."
+                    stringResource(R.string.intake_share_capped, capped.size, uris.size)
                 } else {
-                    "Pick which shot goes where. You can change any of it later."
+                    stringResource(R.string.intake_share_pick)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -185,7 +190,9 @@ private fun ShareScreen(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onCancel, enabled = !saving) { Text("Cancel") }
+                TextButton(onClick = onCancel, enabled = !saving) {
+                    Text(stringResource(R.string.common_cancel))
+                }
                 Button(
                     onClick = {
                         saving = true
@@ -193,7 +200,13 @@ private fun ShareScreen(
                     },
                     enabled = !saving,
                 ) {
-                    Text(if (saving) "Saving…" else "Save")
+                    Text(
+                        if (saving) {
+                            stringResource(R.string.common_saving)
+                        } else {
+                            stringResource(R.string.common_save)
+                        },
+                    )
                 }
             }
         }

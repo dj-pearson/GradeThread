@@ -17,10 +17,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.R
 import com.gradethread.app.marketplaces.CustomTabsLauncher
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
@@ -136,18 +138,22 @@ fun VerifiedScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Text("Verified seller", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.verified_title), style = MaterialTheme.typography.titleLarge)
         Text(
             // Says up front where changes are made, so a read-only screen isn't
             // mistaken for a broken one.
-            "Your badge shows buyers your grading record. Set it up on gradethread.com.",
+            stringResource(R.string.verified_subtitle),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         state.errorMessage?.let {
             InfoCard(
-                if (state.profile != null) "Might be out of date" else "That didn't work",
+                if (state.profile != null) {
+                    stringResource(R.string.verified_maybe_stale)
+                } else {
+                    stringResource(R.string.common_that_didnt_work)
+                },
                 it,
                 tone = if (state.profile != null) InfoTone.Warning else InfoTone.Error,
             )
@@ -167,7 +173,7 @@ fun VerifiedScreen(
                     )
                     if (state.stale) {
                         Text(
-                            "Offline",
+                            stringResource(R.string.common_offline),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -196,18 +202,24 @@ fun VerifiedScreen(
                     // One step, not four. A list of everything undone is a wall;
                     // the first thing is the only one that matters today.
                     Text(
-                        "Next: ${it.title.lowercase()}",
+                        stringResource(R.string.verified_next_step, it.title.lowercase()),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
         } else if (state.loading) {
-            Text("Loading…", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                stringResource(R.string.common_loading),
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
 
         if (state.requirements.isNotEmpty()) {
-            Text("What it takes", style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.verified_requirements_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
             state.requirements.forEach { requirement ->
                 Column(
                     Modifier.fillMaxWidth().cardStyle(),
@@ -220,7 +232,11 @@ fun VerifiedScreen(
                             modifier = Modifier.weight(1f),
                         )
                         Text(
-                            if (requirement.met) "Done" else "To do",
+                            if (requirement.met) {
+                                stringResource(R.string.common_done_state)
+                            } else {
+                                stringResource(R.string.common_todo_state)
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             color = if (requirement.met) {
                                 MaterialTheme.colorScheme.primary
@@ -239,15 +255,25 @@ fun VerifiedScreen(
         }
 
         state.profileUrl?.let { url ->
-            BrandSecondaryButton(text = "View my public profile", modifier = Modifier.fillMaxWidth()) {
+            BrandSecondaryButton(
+            text = stringResource(R.string.verified_view_profile),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
                 CustomTabsLauncher.open(context, url)
             }
         }
         BrandSecondaryButton(
-            text = if (state.loading) "Checking…" else "Refresh",
+            text = if (state.loading) {
+                stringResource(R.string.verified_checking)
+            } else {
+                stringResource(R.string.common_refresh)
+            },
             enabled = !state.loading,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.load() }
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.common_back),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onClose() }
     }
 }

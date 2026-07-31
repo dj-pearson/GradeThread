@@ -12,8 +12,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import com.gradethread.app.ui.theme.Spacing
 
@@ -29,7 +31,7 @@ import com.gradethread.app.ui.theme.Spacing
 @Composable
 fun ImeActionBar(
     modifier: Modifier = Modifier,
-    doneTitle: String = "Done",
+    doneTitle: String = stringResource(R.string.common_done),
     onDone: (() -> Unit)? = null,
 ) {
     val focusManager = LocalFocusManager.current

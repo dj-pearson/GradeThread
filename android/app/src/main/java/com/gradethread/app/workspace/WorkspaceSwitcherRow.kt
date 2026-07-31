@@ -112,7 +112,11 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
                             .semantics { contentDescription = rowSpoken },
                     ) {
                         Text(
-                            if (selected) "✓ ${workspace.name}" else workspace.name,
+                            if (selected) {
+                    stringResource(R.string.checked_prefix, workspace.name)
+                } else {
+                    workspace.name
+                },
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(

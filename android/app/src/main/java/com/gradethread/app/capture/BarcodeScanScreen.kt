@@ -30,9 +30,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.gradethread.app.R
 import com.gradethread.app.platform.rememberHapticFeedback
 import com.gradethread.app.ui.theme.Spacing
 import java.util.concurrent.Executors
@@ -136,11 +138,11 @@ fun BarcodeScanScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Point the camera at a barcode",
+                text = stringResource(R.string.barcode_point_camera),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         }
     }
 }
@@ -175,10 +177,10 @@ private fun ScannerMessage(
                     runCatching { context.startActivity(intent) }
                 },
                 modifier = Modifier.padding(top = Spacing.md),
-            ) { Text("Open Settings") }
+            ) { Text(stringResource(R.string.common_open_settings)) }
         }
         TextButton(onClick = onDismiss, modifier = Modifier.padding(top = Spacing.xs)) {
-            Text("Cancel")
+            Text(stringResource(R.string.common_cancel))
         }
     }
 }

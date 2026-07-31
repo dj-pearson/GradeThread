@@ -192,11 +192,15 @@ private fun PreviewStep(state: ImportViewModel.State, viewModel: ImportViewModel
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
                         Text(
                             listOfNotNull(
-                                draft.sku?.let { "SKU $it" },
+                                draft.sku?.let { stringResource(R.string.import_sku, it) },
                                 draft.brand,
                                 draft.size,
-                                draft.acquiredPrice?.let { "cost $it" },
-                                draft.targetPrice?.let { "list $it" },
+                                draft.acquiredPrice?.let {
+                                    stringResource(R.string.import_cost, it)
+                                },
+                                draft.targetPrice?.let {
+                                    stringResource(R.string.import_list, it)
+                                },
                                 draft.status,
                             ).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,

@@ -17,10 +17,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.R
 import com.gradethread.app.money.Money
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.SyncTrigger
@@ -157,18 +159,25 @@ fun FulfillmentScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Shipping", style = MaterialTheme.typography.titleLarge)
+        Text(
+            stringResource(R.string.fulfillment_title),
+            style = MaterialTheme.typography.titleLarge,
+        )
         Text(state.summary, style = MaterialTheme.typography.bodyMedium)
         if (state.labelCost > 0) {
             Text(
-                "${Money.format(state.labelCost)} of labels on these",
+                stringResource(R.string.fulfillment_label_cost, Money.format(state.labelCost)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        state.banner?.let { InfoCard("Done", it, tone = InfoTone.Success) }
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
+        state.banner?.let {
+            InfoCard(stringResource(R.string.fulfillment_banner_done), it, tone = InfoTone.Success)
+        }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.common_that_didnt_work), it, tone = InfoTone.Error)
+        }
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
@@ -189,7 +198,7 @@ fun FulfillmentScreen(
             if (state.shipped.isNotEmpty()) {
                 item {
                     Text(
-                        "Recently posted",
+                        stringResource(R.string.fulfillment_recently_posted),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = Spacing.sm),
                     )
@@ -201,11 +210,18 @@ fun FulfillmentScreen(
         }
 
         BrandSecondaryButton(
-            text = if (state.refreshing) "Refreshing…" else "Refresh",
+            text = if (state.refreshing) {
+                stringResource(R.string.common_refreshing)
+            } else {
+                stringResource(R.string.common_refresh)
+            },
             enabled = !state.refreshing,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.refresh() }
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.common_back),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onClose() }
     }
 }
 
@@ -248,7 +264,7 @@ private fun QueueCard(
             Text(
                 // Says why this one won't notify a buyer. Without it, a seller
                 // reasonably assumes every "mark shipped" reaches somebody.
-                "Recorded here only. This sale isn't linked to an eBay order.",
+                stringResource(R.string.fulfillment_local_only),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -257,7 +273,7 @@ private fun QueueCard(
         OutlinedTextField(
             value = trackingText.ifEmpty { order.existingTracking.orEmpty() },
             onValueChange = onTracking,
-            label = { Text("Tracking number") },
+            label = { Text(stringResource(R.string.fulfillment_tracking_number)) },
             singleLine = true,
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
@@ -265,11 +281,17 @@ private fun QueueCard(
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             BrandPrimaryButton(
-                text = if (busy) "Saving…" else "Mark shipped",
+                text = if (busy) {
+                stringResource(R.string.common_saving)
+            } else {
+                stringResource(R.string.fulfillment_mark_shipped)
+            },
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
             ) { onShip() }
-            TextButton(onClick = onOpenItem) { Text("Open item") }
+            TextButton(onClick = onOpenItem) {
+                Text(stringResource(R.string.fulfillment_open_item))
+            }
         }
     }
 }
@@ -283,11 +305,12 @@ private fun ShippedRow(order: FulfillmentOrder, onOpenItem: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(order.displayTitle, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
             Text(
-                order.existingTracking?.let { "Tracking $it" } ?: "No tracking recorded",
+                order.existingTracking?.let { stringResource(R.string.fulfillment_tracking, it) }
+                ?: stringResource(R.string.fulfillment_no_tracking),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        TextButton(onClick = onOpenItem) { Text("Open") }
+        TextButton(onClick = onOpenItem) { Text(stringResource(R.string.common_open)) }
     }
 }

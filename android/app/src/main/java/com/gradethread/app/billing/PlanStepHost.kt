@@ -18,9 +18,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.R
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -144,9 +146,12 @@ fun PlanStepHost(viewModel: PlanStepViewModel = hiltViewModel()) {
             Modifier.fillMaxSize().padding(Spacing.md),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            Text("Pick a plan", style = MaterialTheme.typography.titleLarge)
             Text(
-                "You can start free and change this any time in Settings.",
+                stringResource(R.string.planstep_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                stringResource(R.string.planstep_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -174,7 +179,7 @@ fun PlanStepHost(viewModel: PlanStepViewModel = hiltViewModel()) {
                         )
                         row.savingsPercent?.let {
                             Text(
-                                "Save $it% versus paying monthly",
+                                stringResource(R.string.planstep_savings, it),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                             )
@@ -188,7 +193,7 @@ fun PlanStepHost(viewModel: PlanStepViewModel = hiltViewModel()) {
                             )
                         } else {
                             BrandPrimaryButton(
-                                text = "Choose ${row.plan.label}",
+                                text = stringResource(R.string.planstep_choose, row.plan.label),
                                 enabled = !state.purchasing,
                                 modifier = Modifier.fillMaxWidth(),
                             ) { activity?.let { viewModel.choose(it, row) } }
@@ -198,7 +203,7 @@ fun PlanStepHost(viewModel: PlanStepViewModel = hiltViewModel()) {
             }
 
             BrandSecondaryButton(
-                text = "Continue on Free",
+                text = stringResource(R.string.planstep_continue_free),
                 modifier = Modifier.fillMaxWidth(),
             ) { viewModel.continueOnFree() }
         }

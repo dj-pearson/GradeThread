@@ -21,9 +21,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import com.gradethread.app.ui.theme.Spacing
@@ -41,9 +43,14 @@ import kotlinx.coroutines.launch
 fun ErrorStateView(
     message: String,
     modifier: Modifier = Modifier,
-    title: String = "Couldn't load",
+    // Compose evaluates a @Composable function's default expressions in
+    // composable context, so a default CAN be a resource. It has to be: this is
+    // the copy every data screen in the app shows when a load fails, and it was
+    // invisible to the bare-strings guard because it reaches the user through
+    // the caller's Text(title), never through a literal at a sink.
+    title: String = stringResource(R.string.common_couldnt_load),
     icon: ImageVector = Icons.Outlined.Warning,
-    retryTitle: String = "Try again",
+    retryTitle: String = stringResource(R.string.common_try_again),
     secondaryTitle: String? = null,
     onSecondary: (() -> Unit)? = null,
     retry: suspend () -> Unit,

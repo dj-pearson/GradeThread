@@ -36,6 +36,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { comparePriority } from "../lib/prd-priority.mjs";
 import { markDone, serialize } from "../prd-story.mjs";
 
 const HERE = import.meta.dirname;
@@ -71,6 +72,10 @@ const git = (...args) => {
 /**
  * Highest-priority open story whose dependsOn are all satisfied.
  *
+ * "Highest priority" means the LOWEST number — see comparePriority and
+ * vault/70-agent/backlog-priority-contract.md. This file used to sort the other
+ * way, which is why US-2371 exists.
+ *
  * A dep counts as satisfied when it is passes:true OR absent entirely (it was
  * archived to prd.archive.json). Only `dependsOn` is honored — the loose
  * [[US-xxxx]] links in `notes` prose mix "depends on" with "pairs with" and
@@ -82,9 +87,10 @@ export function selectStory(prd) {
   const eligible = open.filter(
     (s) => !(s.dependsOn ?? []).some((d) => openIds.has(d)),
   );
-  // Descending priority. Stories without one sort last rather than winning by
-  // accident — `priority` is optional in the prd.json schema.
-  eligible.sort((a, b) => (b.priority ?? -Infinity) - (a.priority ?? -Infinity));
+  // Ascending priority, missing sorts last, ties broken on id. The direction and
+  // the missing-value rule are the backlog contract, not a local choice, so they
+  // live in scripts/lib/prd-priority.mjs and every consumer imports them.
+  eligible.sort(comparePriority);
   return { openCount: open.length, story: eligible[0] ?? null, open };
 }
 

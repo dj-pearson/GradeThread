@@ -42,6 +42,7 @@
     <string name="onboarding_activation_subtitle">You can do both of these later from Settings.</string>
     <string name="onboarding_activation_done">Done.</string>
     <string name="onboarding_permission_blocked">Turn this on in your phone\'s settings.</string>
+    <string name="onboarding_permission_blocked_detail">%1$s Turn this on in your phone\'s settings.</string>
 
     <!-- Referrals (US-1385) -->
     <string name="referrals_title">Invite a friend</string>
@@ -1128,5 +1129,369 @@
     <plurals name="disclosure_preview_spoken">
         <item quantity="one">Photo with %1$d flaw marked</item>
         <item quantity="other">Photo with %1$d flaws marked</item>
+    </plurals>
+
+    <!-- US-2368: shared components and small surfaces. -->
+    <string name="common_couldnt_load">Couldn\'t load</string>
+    <string name="common_saving">Saving\u2026</string>
+    <string name="common_dismiss">Dismiss</string>
+    <string name="common_category">Category</string>
+    <string name="common_amount">Amount</string>
+
+    <!-- US-2368 batch 8: the copy objects — pure functions that used to build
+         English sentences outside a composable scope. Each one now decides only
+         WHICH wording applies (still pure, still unit-tested) and a @Composable
+         wrapper resolves it, so the tests assert a resource id instead of a
+         literal and stop being a reason not to translate. -->
+    <string name="listing_qty">Qty %1$d</string>
+    <string name="listing_qty_unknown">Qty \u2014</string>
+    <string name="listing_out_of_stock">Out of stock</string>
+    <string name="a11y_listing_card">%1$s listing, %2$s, %3$s, %4$s</string>
+    <string name="status_sourced">Sourced</string>
+    <string name="status_cataloged">Cataloged</string>
+    <string name="status_measured">Measured</string>
+    <string name="status_photographed">Photographed</string>
+    <string name="status_comped">Comped</string>
+    <string name="status_drafted">Drafted</string>
+    <string name="status_to_list">To List</string>
+    <string name="status_listed">Listed</string>
+    <string name="status_active">Active</string>
+    <string name="status_sold">Sold</string>
+    <string name="status_shipped">Shipped</string>
+    <string name="status_completed">Completed</string>
+    <string name="status_returned">Returned</string>
+    <string name="status_archived">Archived</string>
+    <string name="consignor_not_consigned">Not consigned. This item is yours.</string>
+    <string name="consignor_using_default">Using %1$s\'s default of %2$s%%.</string>
+    <string name="consignor_override">%1$s gets %2$s%% of this one, instead of their usual %3$s%%.</string>
+
+    <!-- US-2368 batch 7: sales, comps, listing performance, disputes. -->
+    <string name="common_price">Price</string>
+    <string name="sales_title">Sales</string>
+    <string name="sales_empty_title">No sales yet</string>
+    <string name="sales_empty_body">When an item sells, it lands here with its realized profit \u2014 sale price minus fees, shipping and what the item cost you.</string>
+    <string name="sales_row_detail">%1$s \u00b7 sold %2$s \u00b7 fees %3$s \u00b7 cost %4$s</string>
+    <string name="comps_title">Comparable sales</string>
+    <string name="comps_fetch">Fetch eBay comps</string>
+    <string name="comps_checking">Checking eBay\u2026</string>
+    <string name="comps_none_found">No comparable listings found in that category.</string>
+    <string name="comps_p25">25th %1$s</string>
+    <string name="comps_median">median %1$s</string>
+    <string name="comps_p75">75th %1$s</string>
+    <string name="comps_no_percentiles">no percentile data</string>
+    <string name="comps_use_median">Use median as target</string>
+    <string name="comps_saved_title">Your saved comps</string>
+    <string name="comps_your_median">Your median: %1$s</string>
+    <string name="comps_source_optional">Source (optional)</string>
+    <string name="comps_add">Add comp</string>
+    <string name="perf_title">Listing performance</string>
+    <string name="perf_no_traffic_title">eBay isn\'t sharing traffic data</string>
+    <string name="perf_no_traffic_body">Reconnect your eBay account and approve the analytics permission to see views and impressions.</string>
+    <string name="perf_no_account_title">No eBay account connected</string>
+    <string name="perf_no_account_body">Connect eBay from Marketplaces to see how your listings are doing.</string>
+    <string name="perf_sort_ascending">%1$s \u2191</string>
+    <string name="perf_sort_descending">%1$s \u2193</string>
+    <string name="perf_no_views_in">No views in</string>
+    <string name="perf_nothing_to_show">Nothing to show.</string>
+    <string name="perf_click_through">Click-through %1$s</string>
+    <string name="perf_price_and_age">%1$s \u00b7 %2$s</string>
+    <string name="perf_views_per_day"> (%1$s/day)</string>
+    <string name="perf_stale_hint">Two weeks live with no views. Try new photos, a new title, or a lower price.</string>
+    <string name="dispute_title">Dispute this grade</string>
+    <string name="dispute_filed_title">Dispute filed</string>
+    <string name="dispute_filed_body">A grader will review this and you\'ll see the outcome on the item. You don\'t need to do anything else.</string>
+    <string name="dispute_already_title">Already disputed</string>
+    <string name="dispute_already_body">You\'ve already disputed this grade \u2014 a second one would just duplicate it in the review queue. The outcome appears on the item.</string>
+    <string name="dispute_intro">Tell us what\'s wrong and a grader will take another look.</string>
+    <string name="dispute_what_happened">What happened? (required)</string>
+    <string name="dispute_anything_to_add">Anything to add? (optional)</string>
+    <string name="dispute_enough">Thanks \u2014 that\'s enough to work with.</string>
+    <string name="dispute_filing">Filing\u2026</string>
+    <string name="dispute_file">File dispute</string>
+    <plurals name="sales_summary">
+        <item quantity="one">%1$d completed \u00b7 %2$s revenue \u00b7 %3$s net</item>
+        <item quantity="other">%1$d completed \u00b7 %2$s revenue \u00b7 %3$s net</item>
+    </plurals>
+    <plurals name="sales_summary_spoken">
+        <item quantity="one">%1$d completed sale, %2$s revenue, %3$s net profit</item>
+        <item quantity="other">%1$d completed sales, %2$s revenue, %3$s net profit</item>
+    </plurals>
+    <plurals name="sales_excluded">
+        <item quantity="one">%1$d refunded, cancelled or pending \u2014 shown below, excluded from totals.</item>
+        <item quantity="other">%1$d refunded, cancelled or pending \u2014 shown below, excluded from totals.</item>
+    </plurals>
+    <plurals name="comps_count">
+        <item quantity="one">%1$d comp \u00b7 %2$s</item>
+        <item quantity="other">%1$d comps \u00b7 %2$s</item>
+    </plurals>
+    <plurals name="perf_days_live">
+        <item quantity="one">%1$d day live</item>
+        <item quantity="other">%1$d days live</item>
+    </plurals>
+    <plurals name="perf_views">
+        <item quantity="one">%1$d view</item>
+        <item quantity="other">%1$d views</item>
+    </plurals>
+    <plurals name="perf_watchers">
+        <item quantity="one"> \u00b7 %1$d watcher</item>
+        <item quantity="other"> \u00b7 %1$d watchers</item>
+    </plurals>
+    <plurals name="perf_impressions">
+        <item quantity="one"> \u00b7 %1$d impression</item>
+        <item quantity="other"> \u00b7 %1$d impressions</item>
+    </plurals>
+    <plurals name="perf_no_view_days">
+        <item quantity="one">No listings have gone %1$d day without a view.</item>
+        <item quantity="other">No listings have gone %1$d days without a view.</item>
+    </plurals>
+    <plurals name="dispute_photos_failed">
+        <item quantity="one">%1$d evidence photo couldn\'t be attached.</item>
+        <item quantity="other">%1$d evidence photos couldn\'t be attached.</item>
+    </plurals>
+    <plurals name="dispute_more_characters">
+        <item quantity="one">%1$d more character needed.</item>
+        <item quantity="other">%1$d more characters needed.</item>
+    </plurals>
+
+    <!-- US-2368 batch 6: passport, paywall, fulfillment. -->
+    <string name="common_close">Close</string>
+    <string name="common_open">Open</string>
+    <string name="passport_title">Item passport</string>
+    <string name="passport_empty_title">No passport yet</string>
+    <string name="passport_empty_body">A passport starts when an item is certified. Grade this one and its history begins.</string>
+    <string name="passport_no_history_title">Nothing recorded yet</string>
+    <string name="passport_no_history_body">This item has a passport, but no history has been added to it.</string>
+    <string name="passport_chain_strength">Chain strength: %1$s</string>
+    <string name="passport_origin">Originally from %1$s (verified)</string>
+    <string name="passport_origin_handle">\@%1$s</string>
+    <string name="passport_graded">Graded %1$s</string>
+    <string name="paywall_title">Plans</string>
+    <string name="paywall_current_plan">You\'re on %1$s.</string>
+    <string name="paywall_already_subscribed">Already subscribed</string>
+    <string name="paywall_open_web_billing">Open web billing</string>
+    <string name="paywall_credits_title">Grading credits</string>
+    <string name="paywall_credits_body">One-time packs. They never expire and stack on top of the grades your plan includes.</string>
+    <string name="paywall_already_paid">I already paid</string>
+    <string name="paywall_save_percent">Save %1$s%%</string>
+    <string name="paywall_buy">Buy</string>
+    <string name="fulfillment_title">Shipping</string>
+    <string name="fulfillment_label_cost">%1$s of labels on these</string>
+    <string name="fulfillment_banner_done">Done</string>
+    <string name="fulfillment_recently_posted">Recently posted</string>
+    <string name="fulfillment_local_only">Recorded here only. This sale isn\'t linked to an eBay order.</string>
+    <string name="fulfillment_tracking_number">Tracking number</string>
+    <string name="fulfillment_mark_shipped">Mark shipped</string>
+    <string name="fulfillment_open_item">Open item</string>
+    <string name="fulfillment_tracking">Tracking %1$s</string>
+    <string name="fulfillment_no_tracking">No tracking recorded</string>
+
+    <!-- US-2368 batch 5: measurements, verified badge, payout reconciliation. -->
+    <string name="common_remove">Remove</string>
+    <string name="common_offline">Offline</string>
+    <string name="common_loading">Loading\u2026</string>
+    <string name="common_done_state">Done</string>
+    <string name="common_todo_state">To do</string>
+    <string name="common_no_thanks">No thanks</string>
+    <string name="common_that_didnt_work">That didn\'t work</string>
+    <string name="measure_title">Measurements</string>
+    <string name="measure_subtitle">Flat measurements \u2014 chest is pit to pit.</string>
+    <string name="measure_estimating">Estimating\u2026</string>
+    <string name="measure_estimate_cta">Estimate size from photos</string>
+    <string name="measure_estimate_unusable">The photos didn\'t show enough to guess a size. A tag or flat-lay shot with a tape measure helps most.</string>
+    <string name="measure_suggested_size">Suggested size: %1$s</string>
+    <string name="measure_suggested_gender">%1$s \u00b7 %2$s</string>
+    <string name="measure_suggested_confidence">%1$s \u00b7 %2$d%% confidence</string>
+    <string name="measure_low_confidence">Low confidence \u2014 check it against the garment before saving.</string>
+    <string name="measure_use_size">Use \"%1$s\"</string>
+    <string name="verified_title">Verified seller</string>
+    <string name="verified_subtitle">Your badge shows buyers your grading record. Set it up on gradethread.com.</string>
+    <string name="verified_maybe_stale">Might be out of date</string>
+    <string name="verified_next_step">Next: %1$s</string>
+    <string name="verified_requirements_title">What it takes</string>
+    <string name="verified_view_profile">View my public profile</string>
+    <string name="verified_checking">Checking\u2026</string>
+    <string name="payouts_title">Payouts</string>
+    <string name="payouts_subtitle">Read from what\'s already on this device. Sync to check for new deposits.</string>
+    <string name="payouts_mismatched">Don\'t match (%1$d)</string>
+    <string name="payouts_awaiting">Sold, not paid out yet (%1$d)</string>
+    <string name="payouts_unknown">Payout not synced yet (%1$d)</string>
+    <string name="payouts_matched">Matched (%1$d)</string>
+    <string name="payouts_empty">Nothing reconciled yet.</string>
+    <string name="payouts_waiting_on_ebay">waiting on eBay</string>
+    <string name="payouts_deposit_not_local">deposit not on this device yet</string>
+    <string name="payouts_syncing">Syncing\u2026</string>
+    <string name="payouts_sync_cta">Sync and re-check</string>
+    <string name="payouts_more_sales">\u2026and %1$d more.</string>
+    <plurals name="payouts_entry_summary">
+        <item quantity="one">%1$d sale \u00b7 recorded %2$s</item>
+        <item quantity="other">%1$d sales \u00b7 recorded %2$s</item>
+    </plurals>
+
+    <!-- US-2368 batch 4: bulk actions, consignment report, item specifics. -->
+    <string name="common_clear">Clear</string>
+    <string name="common_undo">Undo</string>
+    <string name="common_value">Value</string>
+    <string name="bulk_selected">%1$d selected</string>
+    <string name="bulk_selected_count">%1$d items selected</string>
+    <string name="consignment_total_owed">%1$s owed</string>
+    <string name="bulk_more_failures">\u2026and %1$d more</string>
+    <string name="consignment_title">Consignment payouts</string>
+    <string name="consignment_subtitle">From completed sales only. Cancelled and refunded orders don\'t count.</string>
+    <string name="consignment_heads_up">Heads up</string>
+    <string name="consignment_you_keep">You keep %1$s</string>
+    <string name="consignment_empty_title">Nothing to pay out yet</string>
+    <string name="consignment_row_net">%1$s after fees \u00b7 you keep %2$s</string>
+    <string name="aspects_title">eBay item specifics</string>
+    <string name="aspects_required_missing">Required before publishing: %1$s</string>
+    <string name="aspects_load">Load item specifics</string>
+    <string name="aspects_loading">Loading specifics\u2026</string>
+    <string name="aspects_no_category">No eBay category on this item yet. Fetch comps above to resolve one \u2014 specifics are per-category.</string>
+    <string name="aspects_synced_with">Synced with the item\'s %1$s</string>
+    <string name="aspects_comma_separated">Comma-separated</string>
+    <string name="aspects_truncated">eBay caps this at %1$d characters \u2014 the rest will be cut.</string>
+    <!-- One sentence, not three glued fragments: the count agreement and the
+         separators both belong to the translator. -->
+    <plurals name="consignment_row_summary">
+        <item quantity="one">%1$d item \u00b7 %2$s sold \u00b7 %3$s fees</item>
+        <item quantity="other">%1$d items \u00b7 %2$s sold \u00b7 %3$s fees</item>
+    </plurals>
+
+    <!-- US-2368 batch 3: AI extract, credits, inventory filters, eBay specifics. -->
+    <string name="common_clear_all">Clear all</string>
+    <string name="aiextract_skip">Skip these suggestions</string>
+    <string name="aiextract_failed_title">AI couldn\'t read these photos</string>
+    <string name="aiextract_failed_continue">Continue to the item</string>
+    <string name="aiextract_uploading">Saving your photos\u2026</string>
+    <string name="aiextract_uploaded_count">%1$d of %2$d uploaded</string>
+    <string name="aiextract_reading">Reading your photos\u2026</string>
+    <string name="aiextract_reading_sub">This takes up to a minute.</string>
+    <string name="aiextract_background">Finish in the background</string>
+    <string name="credits_opening_play">Opening Google Play\u2026</string>
+    <string name="credits_adding">Adding your credits\u2026</string>
+    <string name="credits_timed_out">Google Play took the payment but the credits haven\'t landed yet. They will \u2014 this is usually a short delay.</string>
+    <string name="credits_check_again">Check again</string>
+    <string name="filters_title">Filters</string>
+    <string name="filters_section_grade">Grade</string>
+    <string name="filters_section_price">Price</string>
+    <string name="filters_section_photos">Photos</string>
+    <string name="filters_section_added">Added</string>
+    <string name="filters_price_min">Min</string>
+    <string name="filters_price_max">Max</string>
+    <string name="filters_added_any">Any time</string>
+    <string name="import_sku">SKU %1$s</string>
+    <string name="import_cost">cost %1$s</string>
+    <string name="import_list">list %1$s</string>
+    <plurals name="filters_added_last_days">
+        <item quantity="one">Last %1$d day</item>
+        <item quantity="other">Last %1$d days</item>
+    </plurals>
+    <string name="filters_graded_only">Graded only</string>
+    <string name="filters_min_price">%1$d+</string>
+    <string name="filters_no_price_hidden">Items with no price are hidden while a minimum is set.</string>
+    <string name="filters_photos_any">Any</string>
+    <string name="filters_photos_with">With photos</string>
+    <string name="filters_photos_missing">Missing photos</string>
+    <string name="filters_facet">%1$s (%2$d)</string>
+    <string name="specifics_title">Item specifics</string>
+    <string name="specifics_loading">Loading what this eBay category asks for\u2026</string>
+    <string name="specifics_no_category">No eBay category resolved yet, so there are no specifics to fill. Pre-flight will ask for one.</string>
+    <string name="specifics_category">Category: %1$s</string>
+    <string name="specifics_none">This category asks for no specifics.</string>
+    <string name="specifics_required">%1$s (required)</string>
+    <string name="specifics_choose_one">Choose one</string>
+    <string name="specifics_autofilled">Filled at publish from your measurements: %1$s</string>
+    <string name="specifics_truncated">eBay cuts item specifics at %1$d characters \u2014 this one will be shortened.</string>
+    <plurals name="credits_needed">
+        <item quantity="one">This grade needs %1$d credit and you have %2$d.</item>
+        <item quantity="other">This grade needs %1$d credits and you have %2$d.</item>
+    </plurals>
+    <plurals name="credits_granted">
+        <item quantity="one">Credits added \u2014 you now have %1$d.</item>
+        <item quantity="other">Credits added \u2014 you now have %1$d.</item>
+    </plurals>
+    <plurals name="filters_show_items">
+        <item quantity="one">Show %1$d item</item>
+        <item quantity="other">Show %1$d items</item>
+    </plurals>
+
+    <!-- US-2368 batch 2: plan step, grades list, expenses, shell. -->
+    <string name="planstep_title">Pick a plan</string>
+    <string name="planstep_subtitle">You can start free and change this any time in Settings.</string>
+    <string name="planstep_savings">Save %1$s%% versus paying monthly</string>
+    <string name="planstep_choose">Choose %1$s</string>
+    <string name="planstep_continue_free">Continue on Free</string>
+    <string name="grades_title">Certified grades</string>
+    <string name="grades_empty_title">No grades yet</string>
+    <string name="grades_empty_body">Grade an item from your inventory and it\'ll appear here with its certificate.</string>
+    <string name="a11y_grade">Grade %1$s</string>
+    <string name="a11y_grade_labeled">Grade %1$s, %2$s</string>
+    <string name="a11y_grade_pending">%1$s, pending review</string>
+    <string name="expense_add_title">Add expense</string>
+    <string name="expense_edit_title">Edit expense</string>
+    <string name="expense_date_spent">Date spent</string>
+    <string name="expense_date_format_hint">YYYY-MM-DD</string>
+    <string name="expense_note_optional">Note (optional)</string>
+    <string name="expense_date_invalid">Use YYYY-MM-DD.</string>
+    <string name="grades_pending_review">Pending review</string>
+    <string name="shell_placeholder_add">Add an item</string>
+    <string name="shell_placeholder_autolister">AutoLister</string>
+    <string name="shell_search">Search</string>
+    <string name="shell_tools">Tools</string>
+    <string name="shell_settings">Settings</string>
+    <string name="shell_add_take_photos">Take photos</string>
+    <string name="shell_add_details_first">Enter details first</string>
+    <string name="shell_add_autolister">AutoLister batch</string>
+    <string name="common_continue">Continue</string>
+    <!-- A tick in front of the selected row. A format string, not a
+         concatenation: the mark does not lead in every writing direction. -->
+    <string name="checked_prefix">\u2713 %1$s</string>
+    <string name="a11y_image_unavailable">Image unavailable</string>
+    <string name="notes_dictate_start">Dictate notes</string>
+    <string name="notes_dictate_stop">Stop dictating notes</string>
+    <string name="a11y_field_value">%1$s, %2$s</string>
+    <string name="a11y_status">Status: %1$s</string>
+    <string name="common_none">None</string>
+    <string name="common_later">Later</string>
+    <string name="common_sku">SKU</string>
+    <string name="common_notes">Notes</string>
+    <string name="common_open_settings">Open Settings</string>
+    <string name="shell_section_placeholder">Coming with its conversion story.</string>
+    <string name="applock_locked">GradeThread is locked</string>
+    <string name="applock_unlock">Unlock</string>
+    <string name="reconcile_banner_open">Reconcile</string>
+    <string name="consignor_label">Consignor</string>
+    <string name="notes_listening">Listening\u2026</string>
+    <string name="sku_scan_hint">Scan barcode to fill SKU</string>
+    <string name="capture_import_from_library">Import from library</string>
+    <string name="capture_add_photo_slot">Add photo slot</string>
+    <string name="capture_permission_blocked">Camera access is off. Enable it in Settings to capture photos \u2014 or add photos from your library instead.</string>
+    <string name="capture_permission_needed">Camera permission needed to capture garment photos.</string>
+    <string name="barcode_point_camera">Point the camera at a barcode</string>
+    <string name="intake_share_title">Add to GradeThread</string>
+    <string name="intake_share_pick">Pick which shot goes where. You can change any of it later.</string>
+    <string name="intake_share_capped">Using the first %1$d of %2$d photos.</string>
+    <string name="plangate_upgrade">Upgrade</string>
+    <string name="plangate_see_plans">See plans</string>
+    <string name="plangate_not_now">Not now</string>
+    <string name="sync_syncing">Syncing\u2026</string>
+    <string name="sync_reconnecting">Reconnecting\u2026</string>
+    <string name="listingcard_imported_readonly">Imported from eBay \u2014 edit the price and quantity on eBay.</string>
+    <string name="listingcard_view_on">View on %1$s</string>
+    <string name="listingcard_promote">Promote or discount</string>
+    <string name="widget_sold_today">Sold today</string>
+    <string name="widget_pending">Pending</string>
+    <string name="widget_listed">Listed</string>
+    <plurals name="sync_needs_attention">
+        <item quantity="one">%1$d change needs attention</item>
+        <item quantity="other">%1$d changes need attention</item>
+    </plurals>
+    <string name="sync_offline">Offline</string>
+    <plurals name="sync_offline_queued">
+        <item quantity="one">Offline \u2014 %1$d change queued</item>
+        <item quantity="other">Offline \u2014 %1$d changes queued</item>
+    </plurals>
+    <plurals name="sync_waiting">
+        <item quantity="one">%1$d change waiting to sync</item>
+        <item quantity="other">%1$d changes waiting to sync</item>
     </plurals>
 </resources>

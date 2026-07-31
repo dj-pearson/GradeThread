@@ -32,6 +32,7 @@ import androidx.glance.semantics.semantics
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import com.gradethread.app.R
 
 /**
  * US-1380: the seller-snapshot home-screen widget.
@@ -128,9 +129,13 @@ object SellerSnapshotWidget : GlanceAppWidget() {
     @Composable
     private fun Metrics(snapshot: WidgetSnapshot) {
         val wide = LocalSize.current.width >= 220.dp
+        // Glance is not Compose UI: androidx.compose.ui.res.stringResource needs
+        // a LocalConfiguration that a widget's composition does not provide, so
+        // the labels come off the context instead.
+        val context = LocalContext.current
         Row(modifier = GlanceModifier.fillMaxWidth()) {
             Metric(
-                label = "Sold today",
+                label = context.getString(R.string.widget_sold_today),
                 value = WidgetCopy.soldToday(snapshot),
                 sub = WidgetCopy.soldTodaySub(snapshot),
                 description = WidgetCopy.moneyActionLabel(snapshot),
@@ -138,7 +143,7 @@ object SellerSnapshotWidget : GlanceAppWidget() {
             )
             Spacer(GlanceModifier.width(12.dp))
             Metric(
-                label = "Pending",
+                label = context.getString(R.string.widget_pending),
                 value = WidgetCopy.pendingPayout(snapshot),
                 sub = WidgetCopy.pendingSub(snapshot),
                 description = WidgetCopy.pendingActionLabel(snapshot),
@@ -150,7 +155,7 @@ object SellerSnapshotWidget : GlanceAppWidget() {
             if (wide) {
                 Spacer(GlanceModifier.width(12.dp))
                 Metric(
-                    label = "Listed",
+                    label = context.getString(R.string.widget_listed),
                     value = WidgetCopy.activeListings(snapshot),
                     sub = null,
                     description = WidgetCopy.listingsActionLabel(snapshot),

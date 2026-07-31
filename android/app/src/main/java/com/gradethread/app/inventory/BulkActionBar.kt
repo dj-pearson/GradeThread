@@ -22,9 +22,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.Spacing
 import kotlinx.coroutines.delay
 
@@ -42,6 +44,9 @@ fun BulkActionBar(
     modifier: Modifier = Modifier,
 ) {
     var confirming by remember { mutableStateOf<BulkAction?>(null) }
+    // Hoisted: `semantics { }` is not a composable scope. The bar says "N
+    // selected"; TalkBack gets the noun too, since the chip has no context.
+    val selectionSpoken = stringResource(R.string.bulk_selected_count, selectedCount)
 
     Column(
         modifier
@@ -51,13 +56,15 @@ fun BulkActionBar(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "$selectedCount selected",
+                stringResource(R.string.bulk_selected, selectedCount),
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier
                     .weight(1f)
-                    .semantics { contentDescription = "$selectedCount items selected" },
+                    .semantics { contentDescription = selectionSpoken },
             )
-            TextButton(onClick = onClear, enabled = !busy) { Text("Clear") }
+            TextButton(onClick = onClear, enabled = !busy) {
+            Text(stringResource(R.string.common_clear))
+        }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
             // Stage-appropriate: a status action offered against a mixed
@@ -85,7 +92,9 @@ fun BulkActionBar(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirming = null }) { Text("Cancel") }
+                TextButton(onClick = { confirming = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
             },
         )
     }
@@ -136,7 +145,7 @@ fun BulkUndoBar(
             color = MaterialTheme.colorScheme.inverseOnSurface,
             modifier = Modifier.padding(end = Spacing.xs),
         )
-        TextButton(onClick = onUndo) { Text("Undo") }
+        TextButton(onClick = onUndo) { Text(stringResource(R.string.common_undo)) }
     }
 }
 
@@ -163,7 +172,7 @@ fun BulkResultBar(
                 },
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onDismiss) { Text("Dismiss") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_dismiss)) }
         }
         // Reasons, not just a count: "3 failed" leaves the seller to work out
         // which three and why.
@@ -176,7 +185,7 @@ fun BulkResultBar(
         }
         if (result.failures.size > 4) {
             Text(
-                "…and ${result.failures.size - 4} more",
+                stringResource(R.string.bulk_more_failures, result.failures.size - 4),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
