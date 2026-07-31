@@ -50,6 +50,10 @@ SCOPE = [
     "scout/ProspectScreen.kt",
     "inventory/ItemCanvasScreen.kt",
     "grading/GradeRequestScreen.kt",
+    "ai/AiFillReviewSheet.kt",
+    "grading/GradeReportScreen.kt",
+    "consignment/ConsignorsScreen.kt",
+    "marketplaces/postsale/PostSaleScreen.kt",
 ]
 
 # A string literal handed to something that renders or speaks it.

@@ -821,4 +821,109 @@
         <item quantity="one">%1$s grading costs %2$d credit. You have %3$d. You\'re only charged when the grade succeeds.</item>
         <item quantity="other">%1$s grading costs %2$d credits. You have %3$d. You\'re only charged when the grade succeeds.</item>
     </plurals>
+
+    <!-- US-2368: aifill screen text. -->
+    <string name="aifill_ai_fill">AI fill</string>
+    <string name="aifill_device_ocr_filled_gaps">On-device OCR filled in the gaps</string>
+    <string name="aifill_resolving_ebay_category">Resolving eBay category…</string>
+    <string name="aifill_condition_summary">Condition summary</string>
+    <string name="aifill_ai_filled_these">AI filled these</string>
+    <string name="aifill_suggestions_review">Suggestions to review</string>
+    <string name="aifill_measurements_estimated">Measurements (estimated)</string>
+    <string name="aifill_apply_changes">Apply changes</string>
+    <string name="aifill_undo_ai_fill">Undo AI fill</string>
+    <string name="aifill_cancel">Cancel</string>
+    <string name="aifill_identified">  Identified</string>
+
+    <!-- US-2368: gradereport screen text. -->
+    <string name="gradereport_couldn_t_load_this_report">Couldn\'t load this report</string>
+    <string name="gradereport_no_grade_yet">No grade yet</string>
+    <string name="gradereport_done">Done</string>
+    <string name="gradereport_share_certificate">Share certificate</string>
+    <string name="gradereport_condition_factors">Condition factors</string>
+    <string name="gradereport_detected_issues">Detected issues</string>
+    <string name="gradereport_condition_summary">Condition summary</string>
+    <string name="gradereport_pending_human_review">Pending human review</string>
+    <string name="gradereport_try_again">Try again</string>
+
+    <!-- US-2368: consignors screen text. -->
+    <string name="consignors_consignors">Consignors</string>
+    <string name="consignors_split_their_share_what_s">The split is their share of what\'s left after fees.</string>
+    <string name="consignors_that_didn_t_work">That didn\'t work</string>
+    <string name="consignors_no_consignors_yet">No consignors yet</string>
+    <string name="consignors_add_consignor">Add a consignor</string>
+    <string name="consignors_payout_report">Payout report</string>
+    <string name="consignors_back">Back</string>
+    <string name="consignors_remove">Remove</string>
+    <string name="consignors_keep">Keep</string>
+    <string name="consignors_edit">Edit</string>
+    <string name="consignors_name">Name</string>
+    <string name="consignors_default_split">Default split %</string>
+    <string name="consignors_email_optional">Email (optional)</string>
+    <string name="consignors_phone_optional">Phone (optional)</string>
+    <string name="consignors_notes_optional">Notes (optional)</string>
+    <string name="consignors_cancel">Cancel</string>
+
+    <!-- US-2368: postsale screen text. -->
+    <string name="postsale_after_sale">After the sale</string>
+    <string name="postsale_that_didn_t_work">That didn\'t work</string>
+    <string name="postsale_done">Done</string>
+    <string name="postsale_back">Back</string>
+    <string name="postsale_mark_shipped">Mark shipped</string>
+    <string name="postsale_tracking_number">Tracking number</string>
+    <string name="postsale_carrier_optional">Carrier (optional)</string>
+    <string name="postsale_cancel">Cancel</string>
+    <string name="postsale_note_optional">Note (optional)</string>
+    <string name="postsale_leave">Leave it</string>
+    <string name="aifill_low_confidence_body">AI couldn\'t read the tag confidently. The suggestions below came from on-device OCR \u2014 double-check before opting in.</string>
+    <string name="aifill_category_pending_body">We\'re still matching this item to a category. It\'ll appear on the item shortly \u2014 you don\'t need to wait.</string>
+    <string name="aifill_uncheck_hint">Uncheck a field to undo its AI fill \u2014 it\'s restored to what it was before.</string>
+    <string name="aifill_low_confidence_hint">Lower-confidence suggestions weren\'t applied automatically. Check any you want to add.</string>
+    <string name="aifill_keep_measurements">Keep measurements</string>
+    <string name="aifill_measurements_removed">Measurements removed</string>
+    <string name="aifill_measurement">%1$s: %2$s in</string>
+    <string name="aifill_field_spoken">%1$s: %2$s. %3$s</string>
+    <string name="aifill_kept">kept.</string>
+    <string name="aifill_will_undo">will be undone.</string>
+    <string name="aifill_will_revert">Will revert to \"%1$s\"</string>
+    <string name="aifill_will_clear">Will be cleared</string>
+    <string name="aifill_suggestion_spoken">%1$s: %2$s. %3$s. Confidence %4$d percent. %5$s</string>
+    <string name="aifill_accepted">accepted.</string>
+    <string name="aifill_not_accepted">not accepted.</string>
+    <string name="aifill_percent">\u0020\u0020%1$d%%</string>
+
+    <string name="gradereport_not_graded">This item hasn\'t been graded. Request a certified grade from the item\'s Grade action.</string>
+    <string name="gradereport_share_subject">GradeThread certificate \u2014 %1$s %2$s</string>
+    <string name="gradereport_share_chooser">Share certificate</string>
+    <string name="gradereport_dispute">Dispute this grade</string>
+    <string name="gradereport_disclaimer">AI-assisted condition assessment. Grades reflect the photos supplied and are not an authentication or appraisal.</string>
+    <string name="gradereport_overall_spoken">Overall grade %1$s out of 10, %2$s</string>
+    <string name="gradereport_factor_spoken">%1$s, weighted %2$s: %3$s out of 10</string>
+    <string name="gradereport_factor_label">%1$s (%2$s)</string>
+    <string name="gradereport_defect_separator">\u0020\u00b7 %1$s</string>
+    <string name="gradereport_confidence">Confidence: %1$s (%2$d%%)</string>
+    <string name="gradereport_below_threshold">This grade\'s confidence is below our certify threshold, so a reviewer is taking a look. You\'ll be able to share a public certificate once it clears.</string>
+    <plurals name="gradereport_dispute_days">
+        <item quantity="one">Dispute this grade (%1$d day left)</item>
+        <item quantity="other">Dispute this grade (%1$d days left)</item>
+    </plurals>
+
+    <string name="consignors_intro">Add whoever you sell for, then set them on an item\'s page and we\'ll track what you owe them.</string>
+    <string name="consignors_remove_title">Remove %1$s?</string>
+    <string name="consignors_remove_body">Their items stay, along with everything they\'ve already sold. The items just stop being linked to them.</string>
+    <string name="consignors_split_pct">%1$s%%</string>
+    <string name="consignors_new">New consignor</string>
+    <string name="consignors_edit_title">Edit consignor</string>
+
+    <string name="postsale_to_post">To post (%1$d)</string>
+    <string name="postsale_nothing_to_post">Nothing waiting to be posted.</string>
+    <string name="postsale_feedback_count">Feedback (%1$d)</string>
+    <string name="postsale_nobody_waiting">Nobody waiting on feedback.</string>
+    <string name="postsale_leave_feedback">Leave feedback</string>
+    <string name="postsale_tracking_note">This tells eBay and the buyer. Sending the same tracking twice is safe.</string>
+    <string name="postsale_the_buyer">the buyer</string>
+    <string name="postsale_feedback_title">Leave feedback for %1$s</string>
+    <string name="postsale_positive_only">eBay only lets sellers leave positive feedback, so there\'s no rating to pick.</string>
+    <string name="postsale_order_fallback">Order %1$s</string>
+    <string name="postsale_indented">\u0020\u0020\u0020%1$s</string>
 </resources>

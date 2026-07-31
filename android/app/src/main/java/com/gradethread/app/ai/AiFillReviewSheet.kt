@@ -24,6 +24,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
@@ -57,7 +59,7 @@ fun AiFillReviewSheet(
     var keepMeasurements by remember(review) { mutableStateOf(review.measurementsApplied) }
 
     Column(modifier.fillMaxWidth().padding(Spacing.md)) {
-        Text("AI fill", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.aifill_ai_fill), style = MaterialTheme.typography.titleLarge)
 
         review.quotaLabel?.let { quota ->
             Text(
@@ -72,28 +74,26 @@ fun AiFillReviewSheet(
             if (review.usedLiveTextFallback) {
                 item {
                     Banner(
-                        title = "On-device OCR filled in the gaps",
-                        body = "AI couldn't read the tag confidently. The suggestions below " +
-                            "came from on-device OCR — double-check before opting in.",
+                        title = stringResource(R.string.aifill_device_ocr_filled_gaps),
+                        body = stringResource(R.string.aifill_low_confidence_body),
                     )
                 }
             }
             if (review.ebayPending) {
                 item {
                     Banner(
-                        title = "Resolving eBay category…",
-                        body = "We're still matching this item to a category. It'll appear on " +
-                            "the item shortly — you don't need to wait.",
+                        title = stringResource(R.string.aifill_resolving_ebay_category),
+                        body = stringResource(R.string.aifill_category_pending_body),
                     )
                 }
             }
             review.conditionSummary?.let { summary ->
-                item { SectionHeader("Condition summary") }
+                item { SectionHeader(stringResource(R.string.aifill_condition_summary)) }
                 item { Text(summary, style = MaterialTheme.typography.bodyMedium) }
             }
 
             if (review.applied.isNotEmpty()) {
-                item { SectionHeader("AI filled these") }
+                item { SectionHeader(stringResource(R.string.aifill_ai_filled_these)) }
                 items(review.applied, key = { it.field }) { field ->
                     AppliedRow(
                         field = field,
@@ -106,14 +106,13 @@ fun AiFillReviewSheet(
                 }
                 item {
                     Footnote(
-                        "Uncheck a field to undo its AI fill — it's restored to what it " +
-                            "was before.",
+                        stringResource(R.string.aifill_uncheck_hint),
                     )
                 }
             }
 
             if (review.lowConfidence.isNotEmpty()) {
-                item { SectionHeader("Suggestions to review") }
+                item { SectionHeader(stringResource(R.string.aifill_suggestions_review)) }
                 items(review.lowConfidence, key = { it.field }) { entry ->
                     SuggestionRow(
                         entry = entry,
@@ -126,21 +125,26 @@ fun AiFillReviewSheet(
                 }
                 item {
                     Footnote(
-                        "Lower-confidence suggestions weren't applied automatically. Check " +
-                            "any you want to add.",
+                        stringResource(R.string.aifill_low_confidence_hint),
                     )
                 }
             }
 
             if (review.measurements.isNotEmpty()) {
-                item { SectionHeader("Measurements (estimated)") }
+                item { SectionHeader(stringResource(R.string.aifill_measurements_estimated)) }
                 item {
                     Row(
                         Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            if (keepMeasurements) "Keep measurements" else "Measurements removed",
+                            stringResource(
+                                if (keepMeasurements) {
+                                    R.string.aifill_keep_measurements
+                                } else {
+                                    R.string.aifill_measurements_removed
+                                },
+                            ),
                             modifier = Modifier.weight(1f),
                         )
                         Switch(checked = keepMeasurements, onCheckedChange = { keepMeasurements = it })
@@ -148,7 +152,7 @@ fun AiFillReviewSheet(
                 }
                 items(review.measurements.entries.sortedBy { it.key }.toList()) { (name, inches) ->
                     Text(
-                        text = "$name: $inches in",
+                        text = stringResource(R.string.aifill_measurement, name, inches),
                         style = MaterialTheme.typography.bodySmall,
                         // Dimmed rather than hidden when off, so the seller can
                         // still see what they're discarding.
@@ -163,14 +167,14 @@ fun AiFillReviewSheet(
         Button(
             onClick = { onApply(keptApplied, acceptedLow, keepMeasurements) },
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
-        ) { Text("Apply changes") }
+        ) { Text(stringResource(R.string.aifill_apply_changes)) }
 
         TextButton(onClick = onUndoAll, modifier = Modifier.fillMaxWidth()) {
-            Text("Undo AI fill", color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.aifill_undo_ai_fill), color = MaterialTheme.colorScheme.error)
         }
         // Cancel dismisses WITHOUT consuming the review (US-1182) — a stray
         // back-press must not silently discard the seller's edits.
-        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.aifill_cancel)) }
     }
 }
 
@@ -221,8 +225,14 @@ private fun AppliedRow(
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().semantics {
-                contentDescription = "${label.displayLabel}: ${field.value}. " +
-                    if (checked) "kept." else "will be undone."
+                contentDescription = stringResource(
+                    R.string.aifill_field_spoken,
+                    label.displayLabel,
+                    field.value,
+                    stringResource(
+                        if (checked) R.string.aifill_kept else R.string.aifill_will_undo,
+                    ),
+                )
             },
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -242,7 +252,8 @@ private fun AppliedRow(
             // the seller guessing whether they lose their own earlier edit.
             Text(
                 text = field.previousValue?.takeIf { it.isNotBlank() }
-                    ?.let { "Will revert to \"$it\"" } ?: "Will be cleared",
+                    ?.let { stringResource(R.string.aifill_will_revert, it) }
+                        ?: stringResource(R.string.aifill_will_clear),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.padding(start = Spacing.xl),
@@ -260,9 +271,16 @@ private fun SuggestionRow(
     val percent = (entry.clampedConfidence * 100).roundToInt()
     Row(
         modifier = Modifier.fillMaxWidth().semantics {
-            contentDescription = "${entry.displayLabel}: ${entry.suggestion.value}. " +
-                "${entry.sourceLabel}. Confidence $percent percent. " +
-                if (checked) "accepted." else "not accepted."
+            contentDescription = stringResource(
+                R.string.aifill_suggestion_spoken,
+                entry.displayLabel,
+                entry.suggestion.value,
+                entry.sourceLabel,
+                percent,
+                stringResource(
+                    if (checked) R.string.aifill_accepted else R.string.aifill_not_accepted,
+                ),
+            )
         },
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -272,13 +290,13 @@ private fun SuggestionRow(
                 Text(entry.displayLabel, style = MaterialTheme.typography.labelLarge)
                 if (entry.isResearch) {
                     Text(
-                        "  Identified",
+                        stringResource(R.string.aifill_identified),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
                 }
                 Text(
-                    "  $percent%",
+                    stringResource(R.string.aifill_percent, percent),
                     style = MaterialTheme.typography.labelSmall,
                     color = confidenceColor(entry.clampedConfidence),
                 )

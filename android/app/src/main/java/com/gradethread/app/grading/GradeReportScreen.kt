@@ -22,6 +22,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -61,6 +64,10 @@ fun GradeReportScreen(
             .padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
+        // Read here: the share Intent is built inside a click lambda, which is
+        // not a composable scope.
+        val shareSubject = stringResource(R.string.gradereport_share_subject)
+        val shareChooserTitle = stringResource(R.string.gradereport_share_chooser)
         val loaded = state.loaded
         when {
             state.loading -> Box(
@@ -69,20 +76,19 @@ fun GradeReportScreen(
             ) { CircularProgressIndicator() }
 
             state.errorMessage != null -> ErrorStateView(
-                title = "Couldn't load this report",
+                title = stringResource(R.string.gradereport_couldn_t_load_this_report),
                 message = state.errorMessage.orEmpty(),
                 retry = { viewModel.load() },
             )
 
             loaded == null -> Column {
-                Text("No grade yet", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.gradereport_no_grade_yet), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "This item hasn't been graded. Request a certified grade from the " +
-                        "item's Grade action.",
+                    stringResource(R.string.gradereport_not_graded),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                BrandPrimaryButton(text = "Done", modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandPrimaryButton(text = stringResource(R.string.gradereport_done), modifier = Modifier.fillMaxWidth()) { onClose() }
             }
 
             else -> {
@@ -102,7 +108,7 @@ fun GradeReportScreen(
                     if (state.canShare) {
                         val url = loaded.certificateUrl.orEmpty()
                         BrandPrimaryButton(
-                            text = "Share certificate",
+                            text = stringResource(R.string.gradereport_share_certificate),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             context.startActivity(
@@ -112,12 +118,13 @@ fun GradeReportScreen(
                                         putExtra(Intent.EXTRA_TEXT, url)
                                         putExtra(
                                             Intent.EXTRA_SUBJECT,
-                                            "GradeThread certificate — " +
-                                                score(loaded.report.overallScore) + " " +
+                                            shareSubject.format(
+                                                score(loaded.report.overallScore),
                                                 loaded.report.gradeTier,
+                                            ),
                                         )
                                     },
-                                    "Share certificate",
+                                    shareChooserTitle,
                                 ),
                             )
                         }
@@ -132,21 +139,20 @@ fun GradeReportScreen(
                     val left = GradeDisputeWindow.daysRemaining(loaded.report.createdAt)
                     BrandSecondaryButton(
                         text = if (left != null) {
-                            "Dispute this grade ($left day${if (left == 1) "" else "s"} left)"
+                            pluralStringResource(R.plurals.gradereport_dispute_days, left, left)
                         } else {
-                            "Dispute this grade"
+                            stringResource(R.string.gradereport_dispute)
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) { onDispute(loaded.report.id) }
                 }
 
                 Text(
-                    "AI-assisted condition assessment. Grades reflect the photos supplied " +
-                        "and are not an authentication or appraisal.",
+                    stringResource(R.string.gradereport_disclaimer),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                BrandSecondaryButton(text = "Done", modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandSecondaryButton(text = stringResource(R.string.gradereport_done), modifier = Modifier.fillMaxWidth()) { onClose() }
             }
         }
     }
@@ -162,8 +168,11 @@ private fun Header(loaded: LoadedGradeReport) {
             modifier = Modifier
                 .padding(end = Spacing.sm)
                 .semantics {
-                    contentDescription = "Overall grade ${score(loaded.report.overallScore)} " +
-                        "out of 10, ${loaded.report.gradeTier}"
+                    contentDescription = stringResource(
+                        R.string.gradereport_overall_spoken,
+                        score(loaded.report.overallScore),
+                        loaded.report.gradeTier,
+                    )
                 },
         )
         Column(Modifier.weight(1f)) {
@@ -184,7 +193,7 @@ private fun FactorBreakdown(report: GradeReportDto) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         HorizontalDivider()
         Text(
-            "Condition factors",
+            stringResource(R.string.gradereport_condition_factors),
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
         )
@@ -192,13 +201,17 @@ private fun FactorBreakdown(report: GradeReportDto) {
             val value = factor.score(report)
             Column(
                 Modifier.fillMaxWidth().semantics {
-                    contentDescription = "${factor.label}, weighted ${factor.weightLabel}: " +
-                        "${score(value)} out of 10"
+                    contentDescription = stringResource(
+                        R.string.gradereport_factor_spoken,
+                        factor.label,
+                        factor.weightLabel,
+                        score(value),
+                    )
                 },
             ) {
                 Row(Modifier.fillMaxWidth()) {
                     Text(
-                        "${factor.label} (${factor.weightLabel})",
+                        stringResource(R.string.gradereport_factor_label, factor.label, factor.weightLabel),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f),
                     )
@@ -230,6 +243,8 @@ private fun FactorBar(value: Double) {
 
 @Composable
 private fun DefectsCard(defects: List<GradeDefect>) {
+    // buildString's lambda is not a composable scope.
+    val separator = stringResource(R.string.gradereport_defect_separator)
     Column(
         Modifier
             .fillMaxWidth()
@@ -240,13 +255,13 @@ private fun DefectsCard(defects: List<GradeDefect>) {
             .padding(Spacing.sm),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Text("Detected issues", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.gradereport_detected_issues), style = MaterialTheme.typography.labelLarge)
         defects.forEach { defect ->
             Text(
                 buildString {
                     append(defect.defect)
-                    defect.location?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
-                    append(" · ${defect.severity}")
+                    defect.location?.takeIf { it.isNotBlank() }?.let { append(separator.format(it)) }
+                    append(separator.format(defect.severity))
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -265,7 +280,7 @@ private fun DefectsCard(defects: List<GradeDefect>) {
 private fun SummaryCard(report: GradeReportDto) {
     if (report.aiSummary.isBlank()) return
     Column(Modifier.fillMaxWidth()) {
-        Text("Condition summary", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.gradereport_condition_summary), style = MaterialTheme.typography.labelLarge)
         Text(report.aiSummary, style = MaterialTheme.typography.bodyMedium)
     }
 }
@@ -274,7 +289,11 @@ private fun SummaryCard(report: GradeReportDto) {
 private fun ConfidenceCard(report: GradeReportDto) {
     val percent = Math.round(report.confidenceScore.coerceIn(0.0, 1.0) * 100)
     Text(
-        "Confidence: ${GradeScale.confidenceLabel(report.confidenceScore)} ($percent%)",
+        stringResource(
+            R.string.gradereport_confidence,
+            GradeScale.confidenceLabel(report.confidenceScore),
+            percent,
+        ),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -291,10 +310,9 @@ private fun PendingReviewNotice() {
             )
             .padding(Spacing.sm),
     ) {
-        Text("Pending human review", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.gradereport_pending_human_review), style = MaterialTheme.typography.labelLarge)
         Text(
-            "This grade's confidence is below our certify threshold, so a reviewer is " +
-                "taking a look. You'll be able to share a public certificate once it clears.",
+            stringResource(R.string.gradereport_below_threshold),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -318,7 +336,7 @@ private fun IntegrityBadge(verification: CertVerification, onRetry: () -> Unit) 
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (display.retryable) {
-            BrandSecondaryButton(text = "Try again", modifier = Modifier.fillMaxWidth()) { onRetry() }
+            BrandSecondaryButton(text = stringResource(R.string.gradereport_try_again), modifier = Modifier.fillMaxWidth()) { onRetry() }
         }
     }
 }

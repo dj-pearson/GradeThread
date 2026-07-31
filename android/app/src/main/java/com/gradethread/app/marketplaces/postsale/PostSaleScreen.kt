@@ -20,6 +20,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -52,25 +54,28 @@ fun PostSaleScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("After the sale", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.postsale_after_sale), style = MaterialTheme.typography.titleLarge)
 
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
-        state.banner?.let { InfoCard("Done", it, tone = InfoTone.Success) }
+        state.errorMessage?.let { InfoCard(stringResource(R.string.postsale_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.banner?.let { InfoCard(stringResource(R.string.postsale_done), it, tone = InfoTone.Success) }
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             item {
-                Text("To post (${toShip.size})", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(R.string.postsale_to_post, toShip.size),
+                    style = MaterialTheme.typography.titleMedium,
+                )
             }
             if (toShip.isEmpty()) {
-                item { Hint("Nothing waiting to be posted.") }
+                item { Hint(stringResource(R.string.postsale_nothing_to_post)) }
             }
             items(toShip, key = { "ship-${it.id}" }) { sale ->
                 SaleCard(
                     sale = sale,
-                    actionLabel = "Mark shipped",
+                    actionLabel = stringResource(R.string.postsale_mark_shipped),
                     busy = state.busy,
                     onAction = { shipping = sale },
                 )
@@ -78,25 +83,25 @@ fun PostSaleScreen(
 
             item {
                 Text(
-                    "Feedback (${toThank.size})",
+                    stringResource(R.string.postsale_feedback_count, toThank.size),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(top = Spacing.sm),
                 )
             }
             if (toThank.isEmpty()) {
-                item { Hint("Nobody waiting on feedback.") }
+                item { Hint(stringResource(R.string.postsale_nobody_waiting)) }
             }
             items(toThank, key = { "thank-${it.id}" }) { sale ->
                 SaleCard(
                     sale = sale,
-                    actionLabel = "Leave feedback",
+                    actionLabel = stringResource(R.string.postsale_leave_feedback),
                     busy = state.busy,
                     onAction = { thanking = sale },
                 )
             }
         }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.postsale_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 
     shipping?.let { sale ->
@@ -104,24 +109,23 @@ fun PostSaleScreen(
         var carrier by remember(sale.id) { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { shipping = null },
-            title = { Text("Mark shipped") },
+            title = { Text(stringResource(R.string.postsale_mark_shipped)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     OutlinedTextField(
                         value = tracking,
                         onValueChange = { tracking = it },
-                        label = { Text("Tracking number") },
+                        label = { Text(stringResource(R.string.postsale_tracking_number)) },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = carrier,
                         onValueChange = { carrier = it },
-                        label = { Text("Carrier (optional)") },
+                        label = { Text(stringResource(R.string.postsale_carrier_optional)) },
                         singleLine = true,
                     )
                     Text(
-                        "This tells eBay and the buyer. Sending the same tracking twice " +
-                            "is safe.",
+                        stringResource(R.string.postsale_tracking_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -134,27 +138,34 @@ fun PostSaleScreen(
                         viewModel.markShipped(sale, tracking, carrier)
                         shipping = null
                     },
-                ) { Text("Mark shipped") }
+                ) { Text(stringResource(R.string.postsale_mark_shipped)) }
             },
-            dismissButton = { TextButton(onClick = { shipping = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { shipping = null }) { Text(stringResource(R.string.postsale_cancel)) } },
         )
     }
 
     thanking?.let { sale ->
+        val theBuyer = stringResource(R.string.postsale_the_buyer)
         var comment by remember(sale.id) { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { thanking = null },
-            title = { Text("Leave feedback for ${sale.buyerUsername ?: "the buyer"}") },
+            title = {
+                Text(
+                    stringResource(
+                        R.string.postsale_feedback_title,
+                        sale.buyerUsername ?: theBuyer,
+                    ),
+                )
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     OutlinedTextField(
                         value = comment,
                         onValueChange = { comment = it },
-                        label = { Text("Note (optional)") },
+                        label = { Text(stringResource(R.string.postsale_note_optional)) },
                     )
                     Text(
-                        "eBay only lets sellers leave positive feedback, so there's no " +
-                            "rating to pick.",
+                        stringResource(R.string.postsale_positive_only),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -167,9 +178,9 @@ fun PostSaleScreen(
                         viewModel.leaveFeedback(sale, comment.takeIf { it.isNotBlank() })
                         thanking = null
                     },
-                ) { Text("Leave it") }
+                ) { Text(stringResource(R.string.postsale_leave)) }
             },
-            dismissButton = { TextButton(onClick = { thanking = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { thanking = null }) { Text(stringResource(R.string.postsale_cancel)) } },
         )
     }
 }
@@ -186,7 +197,10 @@ private fun SaleCard(
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
         Text(
-            sale.buyerUsername ?: "Order ${sale.platformOrderId ?: sale.id.take(8)}",
+            sale.buyerUsername ?: stringResource(
+                R.string.postsale_order_fallback,
+                sale.platformOrderId ?: sale.id.take(8),
+            ),
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.SemiBold,
         )
@@ -194,7 +208,7 @@ private fun SaleCard(
             Text(Money.format(sale.salePrice), style = MaterialTheme.typography.bodyMedium)
             sale.trackingNumber?.takeIf { it.isNotBlank() }?.let {
                 Text(
-                    "   $it",
+                    stringResource(R.string.postsale_indented, it),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
