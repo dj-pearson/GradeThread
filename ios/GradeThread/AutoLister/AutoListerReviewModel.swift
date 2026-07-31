@@ -1148,7 +1148,162 @@ final class AutoListerReviewModel: ObservableObject {
         }).value
     }
 
-    // MARK: - Handoff
+    // MARK: - US-2374: send this batch to the desktop
+
+    /// Where a send-to-desktop run has got to. `.sent` sticks around as a
+    /// banner so the seller knows the batch is waiting on the other screen.
+    enum HandoffPhase: Equatable {
+        case idle
+        case uploading(done: Int, total: Int)
+        case sent(photos: Int, partial: Bool)
+        case failed(String)
+    }
+
+    @Published private(set) var handoff: HandoffPhase = .idle
+    private var handoffCancelled = false
+
+    var isSendingToDesktop: Bool {
+        if case .uploading = handoff { return true }
+        return false
+    }
+
+    /// Upload every photo in the batch to the shared `_staging/` folder and park
+    /// it, with the current grouping, for the desktop AutoLister to pick up.
+    /// Runs no AI and creates no inventory rows.
+    ///
+    /// Ungrouped photos go too — the desktop's grid is where the seller will
+    /// finish the job, so holding them back would defeat the point.
+    func sendToDesktop() async {
+        guard !isSendingToDesktop, !photosById.isEmpty else { return }
+        handoffCancelled = false
+        let stagingSessionId = UUID().uuidString.lowercased()
+        // The photos in a stable, meaningful order: each group's photos
+        // cover-first, then whatever is still ungrouped, in import order.
+        let orderedGroups = groups.map { group -> [UUID] in
+            [group.coverId] + group.photoIds.filter { $0 != group.coverId }
+        }
+        let ungroupedIds = importOrder.filter(Set(ungrouped).contains)
+        let ordered = orderedGroups.flatMap { $0 } + ungroupedIds
+        let total = ordered.count
+        handoff = .uploading(done: 0, total: total)
+
+        var uploaded: [UUID: StagedPhotoUpload] = [:]
+        for (index, id) in ordered.enumerated() {
+            if handoffCancelled { break }
+            // Runs at the end of EVERY iteration, including the skips — a photo
+            // that vanished mid-run must not leave the bar stuck.
+            defer { handoff = .uploading(done: index + 1, total: total) }
+            guard let capture = photosById[id] else { continue }
+            // The thumbnail is what the desktop grid renders, so it's worth the
+            // extra few KB per photo; a failed thumbnail is not fatal (the page
+            // falls back to the full image). Encoded through PhotoCompressor
+            // like every other JPEG in the app — it bakes orientation into the
+            // pixels, which the destinations that ignore EXIF depend on.
+            let thumbData = await PhotoCompressor.compressOffMain(
+                capture.thumbnail,
+                maxLongEdge: PhotoCompressor.defaultThumbnailLongEdge
+            )?.imageData
+            do {
+                uploaded[id] = try await service.stagePhoto(
+                    sessionId: stagingSessionId,
+                    jpegData: capture.imageData,
+                    thumbnailData: thumbData
+                )
+            } catch {
+                // Skip the photo, keep the run going: one bad upload in 200
+                // shouldn't cost the seller the whole batch.
+                Telemetry.breadcrumb(
+                    "AutoLister handoff photo upload failed — \(error.localizedDescription)",
+                    category: "autolister"
+                )
+            }
+        }
+
+        let stopped = handoffCancelled
+        handoffCancelled = false
+        guard !uploaded.isEmpty else {
+            handoff = stopped
+                ? .idle
+                : .failed("Couldn't upload these photos. Check your connection and try again.")
+            return
+        }
+
+        let photos = ordered.compactMap { id -> HandoffPhotoPayload? in
+            guard let upload = uploaded[id], let capture = photosById[id] else { return nil }
+            return HandoffPhotoPayload(
+                id: id.uuidString,
+                storagePath: upload.storagePath,
+                thumbnailStoragePath: upload.thumbnailStoragePath,
+                width: upload.width,
+                height: upload.height,
+                bytes: upload.bytes,
+                // Only a REAL capture time travels: a fabricated one would make
+                // the desktop's auto-grouping read an instantaneous burst that
+                // never happened (the US-1909 trap, on the other screen).
+                capturedAtMs: timelessIds.contains(id)
+                    ? nil
+                    : Int(capture.capturedAt.timeIntervalSince1970 * 1000),
+                sourceName: capture.sourceName,
+                phash: hashesById[id].map { String(format: "%016llx", $0) } ?? ""
+            )
+        }
+        let payloadGroups = groups.compactMap { group -> HandoffGroupPayload? in
+            let ids = ([group.coverId] + group.photoIds.filter { $0 != group.coverId })
+                .filter { uploaded[$0] != nil }
+            guard let cover = ids.first else { return nil }
+            return HandoffGroupPayload(
+                id: group.id.uuidString,
+                photoIds: ids.map(\.uuidString),
+                coverId: cover.uuidString
+            )
+        }
+
+        do {
+            _ = try await service.createHandoffSession(
+                stagingSessionId: stagingSessionId,
+                photos: photos,
+                groups: payloadGroups
+            )
+            handoff = .sent(photos: photos.count, partial: photos.count < total)
+            Telemetry.event("autolister_handoff_sent", props: [
+                "photos": photos.count,
+                "groups": payloadGroups.count,
+                "partial": photos.count < total,
+            ])
+        } catch {
+            handoff = .failed("Couldn't send this batch to your desktop. Try again.")
+        }
+    }
+
+    /// Stop a send after the photo already in flight finishes. Whatever
+    /// uploaded is still parked for the desktop — a partial batch beats none.
+    func cancelHandoff() {
+        handoffCancelled = true
+    }
+
+    func dismissHandoffNotice() {
+        handoff = .idle
+    }
+
+    /// Clear the batch off the phone once it's safely on the desktop, so the
+    /// same photos don't get generated twice.
+    func clearBatch() {
+        photosById = [:]
+        groups = []
+        ungrouped = []
+        importOrder = []
+        hashesById = [:]
+        timelessIds = []
+        stagedPathByPhotoId = [:]
+        suggestions = []
+        proposalReviews = []
+        clearSelection()
+        capNotice = nil
+        importError = nil
+        handoff = .idle
+    }
+
+    // MARK: - Generate handoff
 
     /// Snapshot for the generate pipeline: each group's photos ordered cover-first.
     func preparedGroups() -> [PreparedGroup] {

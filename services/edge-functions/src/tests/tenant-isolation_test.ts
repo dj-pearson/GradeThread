@@ -3134,6 +3134,84 @@ Deno.test({
   },
 });
 
+// US-2374: the phone → desktop handoff. A session row carries the storage paths
+// the desktop will render, so two doors need holding: B must not be able to
+// PARK a foreign tenant's staged photo (which would put A's images on B's
+// desktop grid), and B must not be able to read, claim or discard A's waiting
+// batch by id. The id doors need no seed — an id B doesn't own is a 404 whether
+// or not it exists, which is the point.
+Deno.test({
+  name: "B cannot park a handoff session over a foreign _staging path",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const foreign = "00000000-0000-0000-0000-000000000000/_staging/sess/p1.jpg";
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/sessions`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        staging_session_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        source: "ios",
+        photos: [{ id: "p1", storage_path: foreign }],
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST autolister/sessions with a foreign staging path");
+  },
+});
+
+Deno.test({
+  name: "B cannot park a handoff whose THUMBNAIL is a foreign _staging path",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // The full-size path is B's own; only the thumbnail is forged. Checking
+    // just the main path would leak A's image through the thumbnail slot.
+    const foreignThumb =
+      "00000000-0000-0000-0000-000000000000/_staging/sess/p1_thumb.jpg";
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/sessions`, {
+      method: "POST",
+      headers: { ...authHeaders(B_JWT!), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        staging_session_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        photos: [{
+          id: "p1",
+          storage_path: "no-such-owner/_staging/sess/p1.jpg",
+          thumbnail_storage_path: foreignThumb,
+        }],
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST autolister/sessions with a foreign thumbnail path");
+  },
+});
+
+Deno.test({
+  name: "B cannot read, claim or discard a handoff session it doesn't own",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const someId = "00000000-0000-0000-0000-000000000000";
+    const read = await fetch(
+      `${BASE}/api/flipdesk/autolister/sessions/${someId}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await read.body?.cancel();
+    assertDenied(read.status, "GET autolister/sessions/:id for a foreign row");
+
+    const claim = await fetch(
+      `${BASE}/api/flipdesk/autolister/sessions/${someId}/claim`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await claim.body?.cancel();
+    assertDenied(claim.status, "POST autolister/sessions/:id/claim for a foreign row");
+
+    const discard = await fetch(
+      `${BASE}/api/flipdesk/autolister/sessions/${someId}`,
+      { method: "DELETE", headers: authHeaders(B_JWT!) },
+    );
+    await discard.body?.cancel();
+    assertDenied(discard.status, "DELETE autolister/sessions/:id for a foreign row");
+  },
+});
+
 // ── Pending cross-listing delists (US-1885 AC1) ────────────────────────────
 //
 // The delist queue is the instruction list for ending listings in a browser, so

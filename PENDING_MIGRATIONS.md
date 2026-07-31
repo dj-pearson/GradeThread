@@ -1,11 +1,8 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing pending.** Prod is at **00506** — confirmed by the operator on
-2026-07-31. 00504, 00505 and 00506 were applied and their holds released; the
-three entries below are kept as history, marked ✅ APPLIED.
-
-`EXPECTED_SCHEMA_VERSION` is **00506** and the highest migration in the tree is
-`00506_items_full_quality_score.sql`, so schema and code agree.
+**⏳ ONE PENDING: 00507.** Prod is at **00506** — confirmed by the operator on
+2026-07-31. `EXPECTED_SCHEMA_VERSION` is now **00507**, so prod is one behind
+this branch until the SQL below is applied.
 
 Why the entries stayed marked HELD after they were applied: this file is edited
 by hand and nothing flips the marker when the SQL runs. The session-start hook
@@ -13,6 +10,31 @@ reads these ⏳ markers, so a stale one tells every future session the branch is
 frozen when it is not — which is exactly what happened here, and what happened
 once before (see the US-2017 note in prd.json). **When you apply a migration,
 flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00507_autolister_handoff_sessions.sql (US-2374 phone → desktop handoff, 2026-07-31)
+
+- **Apply order.** After 00506. Idempotent: `CREATE TABLE IF NOT EXISTS`,
+  `CREATE INDEX IF NOT EXISTS`, `DROP POLICY`/`CREATE POLICY`,
+  `DROP TRIGGER`/`CREATE TRIGGER`. Safe to re-run.
+- **What it does.** Adds `public.autolister_handoff_sessions` — one row per
+  batch the mobile app parks for the desktop AutoLister, holding the staged
+  photo list and the grouping as JSONB. Owner-readable + owner-deletable via
+  RLS; every write goes through the service-role edge client.
+- **Risk: LOW.** New table only. Nothing existing reads or writes it, and no
+  column, view or enum changes.
+- **CLIENT reads/writes.** The SPA does NOT query this table directly — the
+  AutoLister page calls the edge (`GET/POST/DELETE
+  /api/flipdesk/autolister/sessions*`). So a frontend deploy ahead of the SQL
+  degrades to the "Waiting from your phone" card never appearing (the list call
+  500s and TanStack Query keeps an empty array), NOT a broken page. The iOS
+  "Send to desktop" button fails with its own error banner until the table
+  exists.
+- **After applying:** `NOTIFY pgrst, 'reload schema';` — PostgREST must learn
+  the new table or every edge call against it 404s at the API layer.
+- **Deploy order.** SQL → edge redeploy (its boot guard now expects 00507) →
+  frontend. The edge is what actually needs the table.
 
 ---
 

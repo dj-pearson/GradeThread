@@ -208,6 +208,83 @@ struct AutoListerView: View {
         .accessibilityLabel(importLabel)
     }
 
+    // MARK: - Send to desktop (US-2374)
+
+    /// The upload run, then the "it's waiting on your computer" receipt. Silent
+    /// when nothing has been sent.
+    @ViewBuilder
+    private var handoffRow: some View {
+        switch model.handoff {
+        case .idle:
+            EmptyView()
+        case let .uploading(done, total):
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("Sending \(done) of \(total) photos to your desktop…")
+                        .font(.caption.weight(.medium))
+                    Spacer(minLength: 8)
+                    Button("Stop") { model.cancelHandoff() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                ProgressView(value: total > 0 ? Double(done) / Double(total) : 0)
+                    .tint(Color.brandNavy)
+            }
+            .padding(12)
+            .background(Color.brandNavy.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Sending \(done) of \(total) photos to your desktop")
+        case let .sent(photos, partial):
+            VStack(alignment: .leading, spacing: 8) {
+                Label(
+                    partial
+                        ? "\(photos) photos sent — the rest didn't upload"
+                        : "\(photos) photos sent to your desktop",
+                    systemImage: "checkmark.circle.fill"
+                )
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.brandEmerald)
+                Text("Open FlipDesk → AutoLister on your computer and tap \"Load into this session\".")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    // Clearing here is what stops the same batch being generated
+                    // twice — once on the desktop, once from the phone.
+                    Button("Clear this batch") {
+                        withAnimation { model.clearBatch() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(Color.brandNavy)
+                    Button("Keep it here") { model.dismissHandoffNotice() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Color.brandEmerald.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        case let .failed(message):
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Color.brandRed)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("Try again") {
+                    Task { await model.sendToDesktop() }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(12)
+            .background(Color.brandRed.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
     // MARK: - Error states (US-1116)
 
     private func importErrorState(_ message: String) -> some View {
@@ -276,6 +353,8 @@ struct AutoListerView: View {
                 if model.isImporting {
                     importProgressRow
                 }
+                // US-2374: the send-to-desktop run and its outcome.
+                handoffRow
                 // Cap notice — some picks were left out because a batch is bounded
                 // at `maxBatchPhotos` (keeps the serial upload from hanging).
                 // Dismissible; never blocks the review list.
@@ -712,6 +791,20 @@ struct AutoListerView: View {
             if !templateStore.templates.isEmpty {
                 templatePicker
             }
+            // US-2374: the other way out of this screen — park the batch for
+            // the desktop instead of spending AI actions here. Photos and
+            // groups both travel; the review and the Generate happen there.
+            Button {
+                HapticFeedback.light()
+                Task { await model.sendToDesktop() }
+            } label: {
+                Label("Send to desktop", systemImage: "desktopcomputer")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(model.isEmpty || model.isSendingToDesktop || model.isImporting)
+            .accessibilityHint("Uploads this batch so you can finish it in AutoLister on your computer. Uses no AI actions.")
             Button {
                 HapticFeedback.medium()
                 Telemetry.event(

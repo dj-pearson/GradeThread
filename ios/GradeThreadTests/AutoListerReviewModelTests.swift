@@ -679,6 +679,159 @@ final class AutoListerReviewModelTests: XCTestCase {
         XCTAssertEqual(AutoListerReviewModel.ImportProgress(done: 50, total: 200).fraction, 0.25)
     }
 
+    // MARK: - US-2374: send to desktop
+
+    /// Records what the handoff actually put on the wire, and can fail chosen
+    /// uploads so the partial path is exercised.
+    private final class RecordingHandoffService: AutolisterBatching, @unchecked Sendable {
+        /// Upload indexes (0-based) that should throw.
+        var failUploadsAt: Set<Int> = []
+        private(set) var uploadCount = 0
+        private(set) var stagingSessionIds: [String] = []
+        private(set) var sentPhotos: [HandoffPhotoPayload] = []
+        private(set) var sentGroups: [HandoffGroupPayload] = []
+        private(set) var sessionCreated = false
+
+        func startBatch(itemIds: [String], useComps: Bool, templateId: String?) async throws -> StartBatchResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func batchStatus(batchId: String) async throws -> BatchStatusResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func retryFailed(batchId: String) async throws -> RetryFailedResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func classifyPhotos(_ photos: [ClassifyPhotoInput]) async throws -> ClassifyPhotosResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func photoQa(itemIds: [String]) async throws -> PhotoQaResponse {
+            throw URLError(.unsupportedURL)
+        }
+        func stagePhoto(
+            sessionId: String,
+            jpegData: Data,
+            thumbnailData: Data?
+        ) async throws -> StagedPhotoUpload {
+            defer { uploadCount += 1 }
+            stagingSessionIds.append(sessionId)
+            if failUploadsAt.contains(uploadCount) { throw URLError(.timedOut) }
+            return StagedPhotoUpload(
+                storagePath: "owner/_staging/\(sessionId)/\(uploadCount).jpg",
+                url: "https://example.test/\(uploadCount).jpg",
+                thumbnailStoragePath: "owner/_staging/\(sessionId)/\(uploadCount)_thumb.jpg",
+                thumbnailUrl: "https://example.test/\(uploadCount)_thumb.jpg",
+                width: 1600,
+                height: 1200,
+                bytes: 450_000
+            )
+        }
+        func createHandoffSession(
+            stagingSessionId: String,
+            photos: [HandoffPhotoPayload],
+            groups: [HandoffGroupPayload]
+        ) async throws -> HandoffSessionResponse {
+            sessionCreated = true
+            sentPhotos = photos
+            sentGroups = groups
+            return HandoffSessionResponse(
+                id: UUID().uuidString,
+                photoCount: photos.count,
+                groupCount: groups.count
+            )
+        }
+    }
+
+    func test_sendToDesktop_uploadsEveryPhotoAndSendsTheGrouping() async {
+        let service = RecordingHandoffService()
+        let m = AutoListerReviewModel(service: service)
+        let a = cap(0), b = cap(5), c = cap(500)
+        m.ingest([a, b, c])
+        m.toggleSelection(a.id)
+        m.toggleSelection(b.id)
+        m.groupSelection()
+
+        await m.sendToDesktop()
+
+        XCTAssertEqual(service.uploadCount, 3, "ungrouped photos travel too")
+        XCTAssertEqual(service.sentPhotos.count, 3)
+        XCTAssertEqual(service.sentGroups.count, 1)
+        XCTAssertEqual(service.sentGroups[0].photoIds, [a.id.uuidString, b.id.uuidString])
+        XCTAssertEqual(service.sentGroups[0].coverId, a.id.uuidString)
+        XCTAssertEqual(m.handoff, .sent(photos: 3, partial: false))
+        // One staging folder for the whole batch — that's what the desktop
+        // sweeps when the seller discards it.
+        XCTAssertEqual(Set(service.stagingSessionIds).count, 1)
+    }
+
+    /// A fabricated capture time must NOT travel: the desktop's auto-grouping
+    /// would read it as one instantaneous burst, the exact trap US-1909 fixed
+    /// on this side.
+    func test_sendToDesktop_sendsNoCaptureTimeForTimelessPhotos() async {
+        let service = RecordingHandoffService()
+        let m = AutoListerReviewModel(service: service)
+        let timeless = named("IMG_0001.jpg", 0)
+        m.ingestTimeless([timeless])
+        await m.sendToDesktop()
+        XCTAssertEqual(service.sentPhotos.count, 1)
+        XCTAssertNil(service.sentPhotos[0].capturedAtMs)
+        XCTAssertEqual(service.sentPhotos[0].sourceName, "IMG_0001.jpg")
+
+        let timed = AutoListerReviewModel(service: RecordingHandoffService())
+        timed.ingest([cap(0)])
+        await timed.sendToDesktop()
+        XCTAssertEqual(timed.handoff, .sent(photos: 1, partial: false))
+    }
+
+    func test_sendToDesktop_oneFailedUploadStillSendsTheRest() async {
+        let service = RecordingHandoffService()
+        service.failUploadsAt = [1]
+        let m = AutoListerReviewModel(service: service)
+        let a = cap(0), b = cap(5), c = cap(10)
+        m.ingest([a, b, c])
+        m.selectAllUngrouped()
+        m.groupSelection()
+
+        await m.sendToDesktop()
+
+        XCTAssertEqual(service.sentPhotos.count, 2, "the failed photo is dropped, not the batch")
+        XCTAssertEqual(m.handoff, .sent(photos: 2, partial: true))
+        XCTAssertEqual(
+            service.sentGroups[0].photoIds.count, 2,
+            "the group travels without the photo that didn't upload"
+        )
+    }
+
+    func test_sendToDesktop_everyUploadFailing_reportsFailureAndSendsNothing() async {
+        let service = RecordingHandoffService()
+        service.failUploadsAt = [0]
+        let m = AutoListerReviewModel(service: service)
+        m.ingest([cap(0)])
+
+        await m.sendToDesktop()
+
+        XCTAssertFalse(service.sessionCreated, "no session is parked for zero photos")
+        guard case .failed = m.handoff else {
+            return XCTFail("expected a failed handoff, got \(m.handoff)")
+        }
+    }
+
+    func test_clearBatch_emptiesEverythingSoTheBatchIsNotGeneratedTwice() async {
+        let service = RecordingHandoffService()
+        let m = AutoListerReviewModel(service: service)
+        let a = cap(0), b = cap(5)
+        m.ingest([a, b])
+        m.selectAllUngrouped()
+        m.groupSelection()
+        await m.sendToDesktop()
+
+        m.clearBatch()
+        XCTAssertTrue(m.isEmpty)
+        XCTAssertTrue(m.groups.isEmpty)
+        XCTAssertTrue(m.ungrouped.isEmpty)
+        XCTAssertFalse(m.canGenerate)
+        XCTAssertEqual(m.handoff, .idle)
+    }
+
     /// Generating is gated on there being at least one item — ungrouped photos
     /// don't block it (the bar warns instead), but they don't enable it either.
     func test_canGenerate_needsAtLeastOneGroup() {

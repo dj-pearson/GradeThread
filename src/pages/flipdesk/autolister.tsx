@@ -28,6 +28,8 @@ import {
   FolderInput,
   ArrowUpDown,
   Layers,
+  Smartphone,
+  ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -137,7 +139,14 @@ import {
 } from "@/stores/autolister-upload-store";
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
 import { removeImageBackground, type BgMode } from "@/lib/background-removal";
-import { useStartAutolisterBatch, useRunCoverQa } from "@/hooks/use-autolister";
+import {
+  fetchAutolisterHandoff,
+  useAutolisterHandoffs,
+  useClaimAutolisterHandoff,
+  useDiscardAutolisterHandoff,
+  useRunCoverQa,
+  useStartAutolisterBatch,
+} from "@/hooks/use-autolister";
 import {
   dedupeSuggestions,
   MAX_VERIFY_SAMPLE_PHOTOS,
@@ -682,6 +691,11 @@ export function FlipdeskAutolisterPage() {
   const [busy, setBusy] = useState(false);
   // US-955: fire-and-forget — auto-publish the green, clean drafts on completion.
   const [autoPublishGreen, setAutoPublishGreen] = useState(false);
+  // US-2374: batches waiting from the phone, and which one is being pulled in.
+  const { data: handoffs = [] } = useAutolisterHandoffs();
+  const claimHandoff = useClaimAutolisterHandoff();
+  const discardHandoff = useDiscardAutolisterHandoff();
+  const [loadingHandoffId, setLoadingHandoffId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   // Google Photos import: whether the server has it configured, and an
   // in-flight flag while the user picks photos in the Google popup.
@@ -2761,6 +2775,62 @@ export function FlipdeskAutolisterPage() {
     }
   }
 
+  // US-2374: pull a batch the phone parked server-side into THIS session.
+  // Appended, never replacing: the seller may already have photos on screen,
+  // and a handoff arriving mid-session must not wipe them.
+  async function loadHandoff(id: string) {
+    setLoadingHandoffId(id);
+    try {
+      const session = await fetchAutolisterHandoff(id);
+      const known = new Set(staged.map((p) => p.storagePath));
+      const incoming = session.photos.filter((p) => !known.has(p.storage_path));
+      if (incoming.length === 0) {
+        toast.info("Those photos are already in this session.");
+        await claimHandoff.mutateAsync(id).catch(() => {});
+        return;
+      }
+      const arrived: StagedPhoto[] = incoming.map((p) => ({
+        id: p.id,
+        url: p.url,
+        storagePath: p.storage_path,
+        thumbnailUrl: p.thumbnail_url,
+        thumbnailStoragePath: p.thumbnail_storage_path,
+        width: p.width,
+        height: p.height,
+        bytes: p.bytes ?? 0,
+        capturedAtMs: p.captured_at_ms,
+        phash: p.phash ?? "",
+        sourceName: p.source_name ?? undefined,
+      }));
+      const arrivedIds = new Set(arrived.map((p) => p.id));
+      setStaged((prev) => [...prev, ...arrived]);
+      // Only groups whose photos actually arrived — a photo already staged here
+      // keeps whatever group this session put it in.
+      setGroups((prev) => {
+        const created = session.groups
+          .map((g) => g.photo_ids.filter((pid) => arrivedIds.has(pid)))
+          .filter((ids) => ids.length > 0)
+          .map((ids, i) => ({
+            id: crypto.randomUUID(),
+            name: `Item ${prev.length + i + 1}`,
+            photoIds: ids,
+            coverId: ids[0]!,
+          }));
+        return [...prev, ...created];
+      });
+      await claimHandoff.mutateAsync(id).catch(() => {});
+      toast.success(
+        `Loaded ${arrived.length} photo${arrived.length === 1 ? "" : "s"} from your phone.`,
+      );
+    } catch (err) {
+      toast.error(
+        `Could not load that batch: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setLoadingHandoffId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2821,6 +2891,62 @@ export function FlipdeskAutolisterPage() {
           )}
         </div>
       </div>
+
+      {/* US-2374: batches parked by the phone. The photos are already uploaded
+          and grouped; loading one drops them into this session so the review
+          and the AI spend happen here, on a screen big enough for it. */}
+      {handoffs.length > 0 && (
+        <Card className="space-y-2 p-3">
+          <div className="flex items-center gap-2">
+            <Smartphone className="h-4 w-4 text-brand-red-text" />
+            <span className="text-sm font-medium">Waiting from your phone</span>
+          </div>
+          {handoffs.map((h) => (
+            <div
+              key={h.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
+            >
+              <div className="text-sm">
+                <span className="font-semibold">{h.photo_count}</span> photo
+                {h.photo_count === 1 ? "" : "s"}
+                {h.group_count > 0 && (
+                  <>
+                    {" · "}
+                    <span className="font-semibold">{h.group_count}</span> item
+                    {h.group_count === 1 ? "" : "s"} already grouped
+                  </>
+                )}
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {new Date(h.created_at).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => loadHandoff(h.id)}
+                  disabled={loadingHandoffId !== null}
+                >
+                  {loadingHandoffId === h.id ? (
+                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowRight className="mr-1 h-4 w-4" />
+                  )}
+                  Load into this session
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => discardHandoff.mutate(h.id)}
+                  disabled={loadingHandoffId !== null}
+                  title="Discard this batch and delete its uploaded photos"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
 
       {/* US-1546: sticky batch summary — the state of play stays visible while
           scrolling a 600-photo session, with warning chips that jump to the

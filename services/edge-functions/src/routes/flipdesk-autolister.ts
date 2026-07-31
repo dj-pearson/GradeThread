@@ -967,6 +967,303 @@ flipdeskAutolisterRoutes.post("/staging/upload", async (c) => {
   });
 });
 
+// ── US-2374: phone → desktop handoff sessions ───────────────────────
+//
+// The desktop AutoLister session (staged photos + grouping) lives in the
+// BROWSER — IndexedDB, localStorage fallback — so a batch shot and grouped on
+// the phone had nowhere to go except that phone. These routes are the shared
+// shelf: the mobile app uploads its photos through /staging/upload exactly like
+// the web uploader does, then writes ONE row holding the photo list and the
+// grouping. The desktop lists what's waiting, loads one, and claims it.
+//
+// Nothing here runs AI or creates inventory rows — this is strictly the
+// pre-generation review state, handed from one screen to another.
+//
+// Tenant safety (CLAUDE.md US-268): `autolister_handoff_sessions` is a
+// multi-tenant table, so every query below is `.eq("user_id", ownerId)`. On top
+// of that, every storage path in the payload must sit under the caller's own
+// `${ownerId}/_staging/` prefix — the same check verify-groups makes — so a
+// forged path can't park another tenant's photo in the seller's desktop grid.
+
+// A batch is capped at 200 photos on iOS; leave room for a bigger desktop-bound
+// dump without letting one row become unbounded JSON.
+const MAX_HANDOFF_PHOTOS = 500;
+// How far back the desktop looks for waiting handoffs. Older than this and the
+// staged objects are stale enough that re-shooting beats resuming.
+const HANDOFF_LIST_DAYS = 30;
+const HANDOFF_SOURCES = new Set(["ios", "android", "web"]);
+
+interface HandoffPhotoRow {
+  id: string;
+  storage_path: string;
+  url: string;
+  thumbnail_storage_path: string | null;
+  thumbnail_url: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+  captured_at_ms: number | null;
+  source_name: string | null;
+  phash: string;
+}
+
+interface HandoffGroupRow {
+  id: string;
+  photo_ids: string[];
+  cover_id: string;
+}
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function numOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/// Parse + tenant-check the payload. Returns an error message instead of
+/// throwing so the caller can pick the status code (403 for an ownership
+/// failure, 400 for a malformed one).
+function parseHandoffPayload(
+  body: { photos?: unknown; groups?: unknown },
+  ownerId: string,
+): { photos: HandoffPhotoRow[]; groups: HandoffGroupRow[] } | { error: string; status: 400 | 403 } {
+  const rawPhotos = Array.isArray(body.photos) ? body.photos : [];
+  if (rawPhotos.length === 0) {
+    return { error: "photos must contain at least one photo.", status: 400 };
+  }
+  if (rawPhotos.length > MAX_HANDOFF_PHOTOS) {
+    return {
+      error: `At most ${MAX_HANDOFF_PHOTOS} photos can be handed off at once.`,
+      status: 400,
+    };
+  }
+
+  const photos: HandoffPhotoRow[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawPhotos) {
+    const p = raw as Record<string, unknown>;
+    const id = str(p.id);
+    const path = str(p.storage_path);
+    if (!id || !path) {
+      return { error: "Each photo needs an id and storage_path.", status: 400 };
+    }
+    if (seen.has(id)) {
+      return { error: "Duplicate photo id in payload.", status: 400 };
+    }
+    seen.add(id);
+    // The ownership check, before anything is written or read back.
+    if (!path.startsWith(`${ownerId}/_staging/`)) {
+      return { error: "A photo is not owned by the caller.", status: 403 };
+    }
+    const thumbPath = str(p.thumbnail_storage_path);
+    if (thumbPath && !thumbPath.startsWith(`${ownerId}/_staging/`)) {
+      return { error: "A thumbnail is not owned by the caller.", status: 403 };
+    }
+    // Re-derive the public URLs from the (now verified) paths rather than
+    // trusting the client's — a caller can't smuggle in a foreign URL.
+    // item-photo-url-ok: staging objects in the public bucket, not item_photos
+    // rows — there is no private variant to resolve.
+    const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(path)
+      .data.publicUrl;
+    const thumbnailUrl = thumbPath
+      ? supabaseAdmin.storage.from("item-photos").getPublicUrl(thumbPath).data
+        .publicUrl
+      : null;
+    photos.push({
+      id,
+      storage_path: path,
+      url,
+      thumbnail_storage_path: thumbPath || null,
+      thumbnail_url: thumbnailUrl,
+      width: numOrNull(p.width),
+      height: numOrNull(p.height),
+      bytes: numOrNull(p.bytes),
+      captured_at_ms: numOrNull(p.captured_at_ms),
+      source_name: str(p.source_name) || null,
+      phash: str(p.phash),
+    });
+  }
+
+  const rawGroups = Array.isArray(body.groups) ? body.groups : [];
+  const groups: HandoffGroupRow[] = [];
+  const claimed = new Set<string>();
+  for (const raw of rawGroups) {
+    const g = raw as Record<string, unknown>;
+    const ids = Array.isArray(g.photo_ids) ? g.photo_ids.map(str) : [];
+    const members = ids.filter((id) => id && seen.has(id) && !claimed.has(id));
+    if (members.length === 0) continue;
+    for (const id of members) claimed.add(id);
+    const cover = str(g.cover_id);
+    groups.push({
+      id: str(g.id) || crypto.randomUUID(),
+      photo_ids: members,
+      cover_id: members.includes(cover) ? cover : members[0],
+    });
+  }
+
+  return { photos, groups };
+}
+
+// POST /sessions — park a batch for the desktop.
+// Body: { staging_session_id, source?, photos: [...], groups?: [...] }
+flipdeskAutolisterRoutes.post("/sessions", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: {
+    staging_session_id?: unknown;
+    source?: unknown;
+    photos?: unknown;
+    groups?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  // Same token shape /staging/upload accepts — it IS a storage path segment.
+  const stagingSessionId = str(body.staging_session_id);
+  if (!/^[A-Za-z0-9-]{8,64}$/.test(stagingSessionId)) {
+    return c.json({ error: "Invalid staging_session_id" }, 400);
+  }
+  const source = str(body.source) || "ios";
+  if (!HANDOFF_SOURCES.has(source)) {
+    return c.json({ error: "Invalid source" }, 400);
+  }
+
+  const parsed = parseHandoffPayload(body, ownerId);
+  if ("error" in parsed) {
+    return c.json({ error: parsed.error }, parsed.status);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("autolister_handoff_sessions")
+    .insert({
+      user_id: ownerId,
+      staging_session_id: stagingSessionId,
+      source,
+      status: "open",
+      photo_count: parsed.photos.length,
+      group_count: parsed.groups.length,
+      photos: parsed.photos,
+      groups: parsed.groups,
+    })
+    .select("id, photo_count, group_count, created_at")
+    .single();
+  if (error) {
+    console.error("[AutoLister] handoff insert failed", error);
+    return c.json({ error: "Couldn't save this batch for the desktop." }, 500);
+  }
+  return c.json(data, 201);
+});
+
+// GET /sessions — what's waiting for this seller (newest first, open only).
+flipdeskAutolisterRoutes.get("/sessions", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const since = new Date(Date.now() - HANDOFF_LIST_DAYS * 86_400_000)
+    .toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("autolister_handoff_sessions")
+    .select("id, source, status, photo_count, group_count, created_at")
+    .eq("user_id", ownerId)
+    .eq("status", "open")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) {
+    console.error("[AutoLister] handoff list failed", error);
+    return c.json({ error: "Couldn't load waiting batches." }, 500);
+  }
+  return c.json({ sessions: data ?? [] });
+});
+
+// GET /sessions/:id — the full payload, for the desktop to load.
+flipdeskAutolisterRoutes.get("/sessions/:id", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("autolister_handoff_sessions")
+    .select(
+      "id, source, status, staging_session_id, photo_count, group_count, photos, groups, created_at",
+    )
+    .eq("id", c.req.param("id"))
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (error) {
+    console.error("[AutoLister] handoff read failed", error);
+    return c.json({ error: "Couldn't load that batch." }, 500);
+  }
+  if (!data) return c.json({ error: "Not found" }, 404);
+  return c.json(data);
+});
+
+// POST /sessions/:id/claim — the desktop has loaded it. Kept (not deleted) so a
+// mis-click on the desktop can't destroy an upload the phone no longer holds.
+flipdeskAutolisterRoutes.post("/sessions/:id/claim", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("autolister_handoff_sessions")
+    .update({ status: "claimed", claimed_at: new Date().toISOString() })
+    .eq("id", c.req.param("id"))
+    .eq("user_id", ownerId)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("[AutoLister] handoff claim failed", error);
+    return c.json({ error: "Couldn't claim that batch." }, 500);
+  }
+  if (!data) return c.json({ error: "Not found" }, 404);
+  return c.json({ ok: true });
+});
+
+// DELETE /sessions/:id — discard it, and sweep the staged objects with it so a
+// declined handoff doesn't leave a folder of orphaned photos in storage.
+flipdeskAutolisterRoutes.delete("/sessions/:id", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("autolister_handoff_sessions")
+    .select("id, photos")
+    .eq("id", c.req.param("id"))
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (error) {
+    console.error("[AutoLister] handoff delete lookup failed", error);
+    return c.json({ error: "Couldn't discard that batch." }, 500);
+  }
+  if (!data) return c.json({ error: "Not found" }, 404);
+
+  const { error: delErr } = await supabaseAdmin
+    .from("autolister_handoff_sessions")
+    .delete()
+    .eq("id", data.id)
+    .eq("user_id", ownerId);
+  if (delErr) {
+    console.error("[AutoLister] handoff delete failed", delErr);
+    return c.json({ error: "Couldn't discard that batch." }, 500);
+  }
+
+  // Best-effort storage sweep. Re-check the prefix on the way out: these paths
+  // were verified on write, but a delete is exactly the call that must not act
+  // on a path it hasn't checked itself.
+  const paths: string[] = [];
+  for (const raw of Array.isArray(data.photos) ? data.photos : []) {
+    const p = raw as Record<string, unknown>;
+    for (const key of ["storage_path", "thumbnail_storage_path"]) {
+      const path = str(p[key]);
+      if (path.startsWith(`${ownerId}/_staging/`)) paths.push(path);
+    }
+  }
+  if (paths.length > 0) {
+    const { error: sweepErr } = await supabaseAdmin.storage
+      .from("item-photos")
+      .remove(paths);
+    if (sweepErr) {
+      console.error("[AutoLister] handoff storage sweep failed", sweepErr);
+    }
+  }
+  return c.json({ ok: true });
+});
+
 // POST /batch  Body: { item_ids: string[], use_comps?: boolean }
 flipdeskAutolisterRoutes.post("/batch", async (c) => {
   // US-507: AutoLister kill-switch (heavy per-item AI cost).
