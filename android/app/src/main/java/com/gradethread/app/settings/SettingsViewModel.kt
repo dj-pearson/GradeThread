@@ -56,6 +56,7 @@ class SettingsViewModel @Inject constructor(
     private val db: GradeThreadDb,
     private val pushRegistration: com.gradethread.app.platform.push.PushRegistration,
     private val backgroundRefresh: com.gradethread.app.sync.BackgroundRefreshStore,
+    private val onboarding: com.gradethread.app.onboarding.OnboardingStore,
 ) : ViewModel() {
 
     data class State(
@@ -250,6 +251,10 @@ class SettingsViewModel @Inject constructor(
             // place, their first refresh would compare their rows against the
             // previous seller's and announce the whole catalogue as new.
             runCatching { backgroundRefresh.clear() }
+            // US-1384: the next account gets its own first run, and its own
+            // use-case answer. Reusing the previous seller's would route a
+            // brand-new user into a flow they never chose.
+            runCatching { onboarding.clear() }
             // US-1382: staged share photos are someone's garments, in their
             // house. The next account on this device must not inherit them.
             runCatching {

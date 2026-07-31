@@ -296,6 +296,35 @@ Unopened batches are swept after 7 days. Sign-out drops both the rows
 share target deliberately does **not** require sign-in: someone shooting a rail
 in a thrift store shouldn't lose the photos to a forgotten password.
 
+## Onboarding (US-1384)
+
+Three steps in `onboarding/`: a four-slide carousel, a use-case pick, and a
+two-item activation checklist. `OnboardingHost` renders nothing once it has been
+seen, so `AppShell` hosts it unconditionally — the same shape `PlanStepHost`
+uses. It sits **above** the plan step: asking someone to pick a plan before they
+know what the app does is the wrong order.
+
+The use case routes to a first **action**, not a dashboard. A brand-new account
+has no data, so landing on empty charts teaches the seller the app is empty.
+Reseller → AutoLister, grader → photo capture, store → Marketplaces. Skipping
+still records completion and still queues the first-action nudge (US-1178): a
+skip is an answer, not a missing one.
+
+Every DataStore key carries a `_v1` suffix. A redesign that wants to re-run
+onboarding for existing users bumps the suffix rather than shipping a migration.
+`takeFirstAction` reads and clears in the **same** edit, so the two paths that
+can trigger routing cannot both fire it. Sign-out clears the store, or the next
+account inherits a use case it never chose.
+
+The activation checklist is deliberately short and skippable — a checklist that
+blocks the app is a wall in front of someone who hasn't seen it work. Two rules
+in it are not obvious: the notifications row **disappears entirely** below
+Android 13, where there is no runtime grant to give and a button could not do
+anything; and once the permission has been asked, the row stays visible but is
+not tappable, because Android auto-denies the second dialog and a live button
+there would do nothing and look broken. Done rows stay on the list with a tick —
+a list that shortens as you work it looks like things are being taken away.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

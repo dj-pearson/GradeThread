@@ -168,6 +168,14 @@ fun AppShell(
     // for itself whether it should appear and renders nothing otherwise.
     PlanStepHost()
 
+    // US-1384: the first run, ABOVE the plan step — asking someone to pick a
+    // plan before they know what the app does is the wrong order. Like the plan
+    // step, it decides for itself whether to appear.
+    com.gradethread.app.onboarding.OnboardingHost(
+        onFirstAction = { route -> navController.navigate(route) { launchSingleTop = true } },
+        onConnectEbay = { navController.navigate(ShellSection.MARKETPLACES.route) },
+    )
+
     if (addSheetOpen) {
         AddMethodSheet(
             onDismiss = { addSheetOpen = false },
