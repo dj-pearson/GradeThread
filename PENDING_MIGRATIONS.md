@@ -1,40 +1,22 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-> [!warning] 2026-07-31 — these three holds look STALE. Please confirm.
->
-> All three migrations (00504, 00505, 00506) are present on `origin/main`:
->
-> - `00504` — 53767fda `fix(db): make listings.is_active a lockstep mirror…`
-> - `00505` — ed88c7d6 `feat(analytics): give the Grading-ROI tab period presets…`
-> - `00506` — 7c745d01 `feat(flipdesk): make the Listing Quality Score a sortable column…`
->
-> Under the standing held-migration rule a migration commit is not pushed until
-> the operator has applied the SQL, so a migration ON origin/main means its hold
-> was already released. `EXPECTED_SCHEMA_VERSION` on main is 00506 and the edge
-> boot-guards on it, so a prod still at 00503 would be failing its readiness
-> check rather than serving.
->
-> NOT flipped to APPLIED here, because that would assert a prod fact this
-> session cannot observe. Flagged instead, because a stale hold is not
-> harmless: it tells every reader (and the session-start hook, which reads the
-> ⏳ markers below) that the branch is frozen when it is not — which either
-> invites a pointless prod session or holds back a push that was always safe.
-> This is the second time this file has gone stale the same way; see the
-> US-2017 note in prd.json for the first.
->
-> **If prod is at 00506, mark the three entries APPLIED and delete this
-> callout.** If it is genuinely still at 00503, the push that carried these
-> commits bypassed the rule and prod needs them urgently.
+**Nothing pending.** Prod is at **00506** — confirmed by the operator on
+2026-07-31. 00504, 00505 and 00506 were applied and their holds released; the
+three entries below are kept as history, marked ✅ APPLIED.
 
-**Three migrations held.** Schema on prod is at **00503** (applied 2026-07-29);
-this branch bumps `EXPECTED_SCHEMA_VERSION` to **00506** and holds three
-migrations below (apply **00504 → 00505 → 00506**, in order). All are **db-lane
-verified** — `npm run verify:db` applied the whole tree from zero on 2026-07-30
-(green). Apply to prod, then OK the push.
+`EXPECTED_SCHEMA_VERSION` is **00506** and the highest migration in the tree is
+`00506_items_full_quality_score.sql`, so schema and code agree.
+
+Why the entries stayed marked HELD after they were applied: this file is edited
+by hand and nothing flips the marker when the SQL runs. The session-start hook
+reads these ⏳ markers, so a stale one tells every future session the branch is
+frozen when it is not — which is exactly what happened here, and what happened
+once before (see the US-2017 note in prd.json). **When you apply a migration,
+flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00506_items_full_quality_score.sql (US-2170 sortable quality score, 2026-07-30)
+## ✅ APPLIED: 00506_items_full_quality_score.sql (US-2170 sortable quality score, 2026-07-30)
 
 - **Apply order.** After 00505. Idempotent `CREATE OR REPLACE VIEW` (no DROP, so
   the analytics RPCs that SELECT from items_full are never observably absent).
@@ -53,7 +35,7 @@ verified** — `npm run verify:db` applied the whole tree from zero on 2026-07-3
 
 ---
 
-## ⏳ HELD: 00505_grading_roi_period_filter.sql (US-2234 AC3 grading-ROI presets, 2026-07-30)
+## ✅ APPLIED: 00505_grading_roi_period_filter.sql (US-2234 AC3 grading-ROI presets, 2026-07-30)
 
 - **Apply order.** After 00504. Idempotent (DROP FUNCTION IF EXISTS the 0-arg
   overloads, then CREATE OR REPLACE the 1-arg versions; grants; footer).
@@ -66,14 +48,14 @@ verified** — `npm run verify:db` applied the whole tree from zero on 2026-07-3
   fetchGradingRoiSummary, driven by `analytics.tsx` GradingRoiReport). If the
   frontend auto-deploys before this migration is applied, the argless overload is
   gone and the new call passes an arg the old function never had → the Grading-ROI
-  tab errors. **Apply 00505 to prod BEFORE the push.**
+  tab errors. ~~Apply 00505 to prod BEFORE the push.~~ (done — applied 2026-07-31.)
 - **If it stays unapplied.** The Grading-ROI tab breaks once the frontend deploys
   (see above). Until the frontend deploys, prod is unaffected.
 - **`NOTIFY pgrst, 'reload schema';`** after applying (functions changed).
 
 ---
 
-## ⏳ HELD: 00504_listings_is_active_lockstep.sql (US-2176 is_active lockstep, 2026-07-30)
+## ✅ APPLIED: 00504_listings_is_active_lockstep.sql (US-2176 is_active lockstep, 2026-07-30)
 
 - **Apply order.** Follows 00503. Idempotent (CREATE OR REPLACE FUNCTION, DROP
   TRIGGER IF EXISTS then CREATE TRIGGER, a guarded backfill DO block) — safe to
