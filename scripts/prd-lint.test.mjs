@@ -349,3 +349,31 @@ describe("US-2088: normalizeNextId", () => {
     expect(lintPrd({ prd: prd([s], "US-51") }).errors.some((e) => e.includes("nextId"))).toBe(false);
   });
 });
+
+// US-2371: `priority` may be absent (unranked, sorts last) but never present
+// and non-numeric — a NaN comparator reorders the backlog arbitrarily instead
+// of failing loudly, so the linter is where that has to be caught.
+describe("lintPrd — priority", () => {
+  it("accepts an open story with no priority at all", () => {
+    const r = lintPrd({ prd: prd([story({ id: "US-5" })]) });
+    expect(r.errors.some((e) => e.includes("priority"))).toBe(false);
+  });
+
+  it("accepts a negative priority", () => {
+    const r = lintPrd({ prd: prd([story({ id: "US-5", priority: -98701 })]) });
+    expect(r.errors.some((e) => e.includes("priority"))).toBe(false);
+  });
+
+  for (const bad of ["58", null, Number.NaN, Number.POSITIVE_INFINITY, {}, []]) {
+    it(`fails an open story whose priority is ${JSON.stringify(bad) ?? String(bad)}`, () => {
+      const r = lintPrd({ prd: prd([story({ id: "US-5", priority: bad })]) });
+      expect(r.ok).toBe(false);
+      expect(r.errors.some((e) => e.startsWith("US-5: priority must be"))).toBe(true);
+    });
+  }
+
+  it("leaves a finished story alone — priority is a planning field", () => {
+    const r = lintPrd({ prd: prd([story({ id: "US-5", passes: true, priority: "58" })]) });
+    expect(r.errors.some((e) => e.includes("priority"))).toBe(false);
+  });
+});

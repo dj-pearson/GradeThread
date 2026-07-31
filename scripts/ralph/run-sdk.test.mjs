@@ -18,7 +18,10 @@ const story = (over = {}) => ({
 const prd = (userStories) => ({ userStories });
 
 describe("selectStory", () => {
-  it("picks the highest priority open story", () => {
+  // US-2371: highest priority means the LOWEST number. The direction lives in
+  // scripts/lib/prd-priority.mjs; these tests are the thing that stops it from
+  // being flipped back by someone reading "highest" literally.
+  it("picks the LOWEST-numbered priority, which is the highest priority", () => {
     const r = selectStory(
       prd([
         story({ id: "US-1", priority: -100 }),
@@ -26,8 +29,25 @@ describe("selectStory", () => {
         story({ id: "US-3", priority: -50 }),
       ]),
     );
-    expect(r.story.id).toBe("US-2");
+    expect(r.story.id).toBe("US-1");
     expect(r.openCount).toBe(3);
+  });
+
+  it("ranks a large negative above a small positive", () => {
+    // The exact case that made the direction load-bearing: the Android block
+    // sits near -98700 and must outrank the two-digit stories, not sort behind
+    // every one of them.
+    const r = selectStory(
+      prd([story({ id: "US-1421", priority: 58 }), story({ id: "US-1299", priority: -98701 })]),
+    );
+    expect(r.story.id).toBe("US-1299");
+  });
+
+  it("breaks a priority tie on id so two runs agree", () => {
+    const r = selectStory(
+      prd([story({ id: "US-9", priority: 5 }), story({ id: "US-4", priority: 5 })]),
+    );
+    expect(r.story.id).toBe("US-4");
   });
 
   it("ignores stories that already pass", () => {
@@ -40,11 +60,13 @@ describe("selectStory", () => {
 
   it("skips a story blocked by an OPEN dependency", () => {
     // The deadlock this guards: a high-priority dependent must not be selected
-    // forever while its lower-priority dependency never gets a turn.
+    // forever while its lower-priority dependency never gets a turn. US-2 is the
+    // higher priority here BECAUSE its number is lower, so without the dependsOn
+    // check it would win every round.
     const r = selectStory(
       prd([
-        story({ id: "US-2", priority: 10, dependsOn: ["US-1"] }),
-        story({ id: "US-1", priority: 1 }),
+        story({ id: "US-2", priority: 1, dependsOn: ["US-1"] }),
+        story({ id: "US-1", priority: 10 }),
       ]),
     );
     expect(r.story.id).toBe("US-1");
@@ -94,6 +116,15 @@ describe("selectStory", () => {
   it("sorts a story with no priority last rather than first", () => {
     const r = selectStory(
       prd([story({ id: "US-1", priority: undefined }), story({ id: "US-2", priority: -500 })]),
+    );
+    expect(r.story.id).toBe("US-2");
+  });
+
+  it("still sorts an unranked story last when every ranked one is positive", () => {
+    // Ascending order makes this the dangerous direction: `undefined` must not
+    // be coerced to 0 and beat a story at 5.
+    const r = selectStory(
+      prd([story({ id: "US-1", priority: undefined }), story({ id: "US-2", priority: 5 })]),
     );
     expect(r.story.id).toBe("US-2");
   });

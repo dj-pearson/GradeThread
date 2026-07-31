@@ -14,6 +14,7 @@ import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isValidPriority } from "./lib/prd-priority.mjs";
 
 export const ACCUMULATION_THRESHOLD = 50;
 export const LEARNINGS_LINE_WARN = 800;
@@ -280,6 +281,16 @@ export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, learnin
     }
     if ("acceptanceCriteria" in s && !Array.isArray(s.acceptanceCriteria)) errors.push(`${id}: acceptanceCriteria must be an array`);
     if ("passes" in s && typeof s.passes !== "boolean") errors.push(`${id}: passes must be a boolean`);
+    // US-2371: `priority` may be absent — that means unranked, and the ascending
+    // comparator sorts it last. What it may NOT be is present and non-numeric: a
+    // string or a null yields NaN in the comparator, and a NaN comparator makes
+    // TimSort emit an arbitrary order instead of an obviously wrong one, so the
+    // same backlog silently produces different next stories on different runs.
+    if (planning && "priority" in s && !isValidPriority(s.priority)) {
+      errors.push(
+        `${id}: priority must be a finite number or absent (absent = unranked, sorts last), got ${JSON.stringify(s.priority)}`,
+      );
+    }
   }
 
   // nextId strictly greater than the max id ANYWHERE.

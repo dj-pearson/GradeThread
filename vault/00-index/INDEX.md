@@ -92,6 +92,7 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[agent-knowledge-surfaces]] — reference — Four places currently hold agent-facing knowledge; this note defines the intended division and tracks the unification.
 - [[agent-levelup-roadmap]] — reference — What to install, build, and wire so agents working on GradeThread get materially
 - [[agentic-os-map]] — reference — GradeThread is already unusually automated.
+- [[backlog-priority-contract]] — contract — prd.json priority sorts ASCENDING — lowest number first — and a missing priority means unranked, so it sorts last.
 - [[guards-that-cannot-fail]] — learning — This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the eight shapes it took and the two habits that catch them.
 - [[memory-vault-division]] — learning — The premise that memory duplicates the vault and wins by default is only half right — memory is frequently the MORE detailed source, so pointing at a note can lose information.
 - [[ralph-brand-kb-log]] — learning — Per-story record of applying the brand-KB rules; the rules themselves live in 20-domain/brands.
