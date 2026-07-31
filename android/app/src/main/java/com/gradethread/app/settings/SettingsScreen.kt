@@ -18,6 +18,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -52,6 +55,9 @@ fun SettingsScreen(
     feedbackViewModel: com.gradethread.app.feedback.FeedbackViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var languagePickerOpen by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
 
     LaunchedEffect(Unit) { viewModel.loadProfile() }
 
@@ -186,6 +192,20 @@ fun SettingsScreen(
             onClick = viewModel::changePassword,
         )
 
+        // US-1393: the in-app language override. Hidden while only one
+        // language ships — a picker whose only option is the one you already
+        // have is noise, and it would offer a change that does nothing.
+        if (com.gradethread.app.platform.locale.AppLocale.hasChoice) {
+            SettingRow(
+                title = stringResource(R.string.settings_language),
+                subtitle = com.gradethread.app.platform.locale.AppLocale.label(
+                    com.gradethread.app.platform.locale.AppLocale.current(),
+                    stringResource(R.string.settings_language_system),
+                ),
+                onClick = { languagePickerOpen = true },
+            )
+        }
+
         // ── Help ─────────────────────────────────────────────────────────────
         SectionHeader("Help")
         SettingRow(
@@ -226,6 +246,12 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Delete account") }
         }
+    }
+
+    if (languagePickerOpen) {
+        com.gradethread.app.platform.locale.LanguagePicker(
+            onDismiss = { languagePickerOpen = false },
+        )
     }
 
     // US-1387: renders nothing until opened.

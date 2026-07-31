@@ -106,6 +106,11 @@ android {
             // Side-by-side install with a release build; verbose logging on.
             applicationIdSuffix = ".debug"
             buildConfigField("boolean", "LOGGING_ENABLED", "true")
+            // US-1393: en-XA (accented + padded ~30%) and en-XB (RTL mirror)
+            // for clipping QA. Debug only — they are the real Android
+            // mechanism, not a hand-written values-xx directory, and shipping
+            // them would put them in the Play language list.
+            isPseudoLocalesEnabled = true
         }
         release {
             // Only when the keystore actually resolved — see resolveKeystore().
@@ -138,6 +143,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))

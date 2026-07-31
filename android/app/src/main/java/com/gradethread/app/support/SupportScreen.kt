@@ -23,6 +23,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -61,11 +63,13 @@ fun SupportScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Support",
+                stringResource(R.string.support_title),
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.weight(1f),
             )
-            BrandPrimaryButton(text = "New request") { viewModel.openComposer() }
+            BrandPrimaryButton(text = stringResource(R.string.support_new_request)) {
+                viewModel.openComposer()
+            }
         }
 
         when {
@@ -77,7 +81,7 @@ fun SupportScreen(
             state.loadError != null -> Column(Modifier.fillMaxWidth().cardStyle()) {
                 Text(state.loadError!!, style = MaterialTheme.typography.bodyMedium)
                 BrandSecondaryButton(
-                    text = "Try again",
+                    text = stringResource(R.string.common_try_again),
                     modifier = Modifier.padding(top = Spacing.sm),
                 ) { viewModel.load() }
             }
@@ -106,19 +110,18 @@ fun SupportScreen(
 
 @Composable
 private fun TicketRow(ticket: SupportTicket, onClick: () -> Unit) {
+    val subject = ticket.subject.ifBlank { stringResource(R.string.support_fallback_subject) }
+    val spoken = "$subject. ${Support.statusLabel(ticket.status)}."
     Column(
         Modifier
             .fillMaxWidth()
             .cardStyle(flush = true)
             .clickable(onClick = onClick)
             .padding(Spacing.md)
-            .semantics {
-                contentDescription =
-                    "${ticket.subject}. ${Support.statusLabel(ticket.status)}."
-            },
+            .semantics { contentDescription = spoken },
     ) {
         Text(
-            ticket.subject.ifBlank { "Support request" },
+            subject,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
         )
@@ -143,11 +146,14 @@ private fun Composer(state: SupportViewModel.State, viewModel: SupportViewModel)
             .padding(horizontal = Spacing.md)
             .padding(bottom = Spacing.xl),
     ) {
-        Text("Open a request", style = MaterialTheme.typography.titleLarge)
+        Text(
+            stringResource(R.string.support_compose_title),
+            style = MaterialTheme.typography.titleLarge,
+        )
         OutlinedTextField(
             value = state.subject,
             onValueChange = viewModel::setSubject,
-            label = { Text("Subject") },
+            label = { Text(stringResource(R.string.support_subject)) },
             singleLine = true,
             isError = state.subjectError != null,
             supportingText = state.subjectError?.let { { Text(it) } },
@@ -156,7 +162,7 @@ private fun Composer(state: SupportViewModel.State, viewModel: SupportViewModel)
         OutlinedTextField(
             value = state.body,
             onValueChange = viewModel::setBody,
-            label = { Text("What's happening?") },
+            label = { Text(stringResource(R.string.support_body_label)) },
             minLines = 4,
             isError = state.bodyError != null,
             // The counter is the point: the server slices past its cap, so
@@ -175,7 +181,9 @@ private fun Composer(state: SupportViewModel.State, viewModel: SupportViewModel)
             )
         }
         BrandPrimaryButton(
-            text = if (state.sending) "Sending…" else "Send",
+            text = stringResource(
+                if (state.sending) R.string.common_sending else R.string.common_send,
+            ),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
             enabled = state.canSend,
         ) { viewModel.send() }

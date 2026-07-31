@@ -45,11 +45,13 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Glance widgets, onboarding, referrals, feedback, workspaces, CSV import | US-1379–1389 |
-| Localization (`values-*`, plurals, locale selector) | US-1393 |
+| Full string externalization beyond the 7 scoped files | US-1393 (partial) |
 
-Nothing in that table has an Android implementation — do not treat any of it as
-"nearly done" because the offline-sync foundation underneath it is solid.
+US-1379–1389 have since landed (widgets, background refresh, shortcuts, share
+target, onboarding, referrals, support, feedback, workspaces, CSV import) — see
+the sections below. Localization is **partially** done: the mechanism, the
+guard, the plurals, the locale picker and the pseudolocales all ship, and seven
+Compose files are converted and locked. The remaining ~80 are not.
 
 ## Stack (pinned in `gradle/libs.versions.toml`)
 
@@ -631,6 +633,41 @@ upload in filename order.
 **Operator dependency, not code:** the Play Console app record and the
 subscription/SKU catalog still have to be created by hand in the Console,
 mirroring the App Store catalog. Nothing in this repo can do that.
+
+## Localization (US-1393)
+
+**Scoped, not big-bang.** `android/scripts/no-bare-strings.py` enforces
+`stringResource` for the files named in its `SCOPE` list, and that list grows as
+screens convert. A guard covering all ~90 Compose files today would either fail
+everywhere or get switched off, and a switched-off guard protects nothing. Seven
+files are converted and locked: onboarding, referrals, both support screens,
+feedback, the workspace switcher, and the importer. The guard also fails if a
+scoped file is renamed or deleted, so nothing drops out silently.
+
+**Plurals are real `<plurals>`, not templates.** `"$n rows"` renders "1 rows",
+and every language past English has more than two forms.
+
+**The in-app language picker** goes through `AppCompatDelegate.setApplicationLocales`
+— the one API that spans Android 13+ (system per-app language store) and below
+(AppCompat persists it itself, which is what the `AppLocalesMetadataHolderService`
+entry in the manifest is for; without it the choice reverts on the next cold
+start and reads as the setting not working). `AppLocale.SUPPORTED`,
+`res/xml/locales_config.xml` and the `values-<tag>/` directories move together:
+a language offered with no strings behind it is worse than one not offered,
+because the picker changes nothing. The row hides itself while only one language
+ships.
+
+**Pseudolocales are the debug build type's `isPseudoLocalesEnabled`**, giving
+en-XA (accented, ~30% longer) and en-XB (RTL mirror) for clipping QA. Debug only
+— they're the real Android mechanism rather than a hand-written `values-xx`, and
+shipping them would put them in the Play language list.
+
+One thing deliberately NOT converted: pure copy objects like `WidgetCopy` and
+`SoldTodaySummary` build sentences outside a Compose scope and are unit-tested
+against their exact wording. Moving them to resources needs a `Context` and
+breaks both properties. `Onboarding.primaryLabel` shows the pattern for when it
+*is* worth it — it returns a `@StringRes` id, so the rule stays pure and
+testable while the words become translatable.
 
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 

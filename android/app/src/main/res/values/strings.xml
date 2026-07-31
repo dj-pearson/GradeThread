@@ -13,4 +13,132 @@
     <string name="shortcut_add_long">Add an item</string>
     <!-- US-1382: what the system share sheet calls us. -->
     <string name="share_target_label">Add to GradeThread</string>
+
+    <!-- ══ US-1393: externalized UI strings ═════════════════════════════════
+         Scoped, not a big-bang conversion. android/scripts/no-bare-strings.py
+         enforces this for the directories listed in its SCOPE, and that list
+         grows as screens are converted. A guard that covered everything today
+         would either fail on ~90 files or be turned off, and a turned-off
+         guard protects nothing. -->
+
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_send">Send</string>
+    <string name="common_sending">Sending\u2026</string>
+    <string name="common_back">Back</string>
+    <string name="common_done">Done</string>
+    <string name="common_try_again">Try again</string>
+    <string name="common_ok">OK</string>
+
+    <!-- Onboarding (US-1384) -->
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_get_started">Get started</string>
+    <string name="onboarding_continue">Continue</string>
+    <string name="onboarding_start_selling">Start selling</string>
+    <string name="onboarding_skip">Skip for now</string>
+    <string name="onboarding_use_case_title">What brings you here?</string>
+    <string name="onboarding_use_case_subtitle">We\'ll start you on the right thing. You can do all of it either way.</string>
+    <string name="onboarding_activation_title">Two quick things</string>
+    <string name="onboarding_activation_subtitle">You can do both of these later from Settings.</string>
+    <string name="onboarding_activation_done">Done.</string>
+    <string name="onboarding_permission_blocked">Turn this on in your phone\'s settings.</string>
+
+    <!-- Referrals (US-1385) -->
+    <string name="referrals_title">Invite a friend</string>
+    <string name="referrals_your_code">Your code</string>
+    <string name="referrals_share_link">Share link</string>
+    <string name="referrals_copy_code">Copy code</string>
+    <string name="referrals_copy_link">Copy link</string>
+    <string name="referrals_code_copied">Referral code copied</string>
+    <string name="referrals_link_copied">Referral link copied</string>
+    <string name="referrals_not_ready">Your referral link isn\'t ready yet. Check back after your first grade.</string>
+    <string name="referrals_load_failed">Couldn\'t load your referral code.</string>
+    <string name="referrals_stat_referred">Referred</string>
+    <string name="referrals_stat_in_progress">In progress</string>
+    <string name="referrals_stat_rewarded">Rewarded</string>
+    <string name="referrals_redeem_title">Got a code?</string>
+    <string name="referrals_redeem_hint">One code, once \u2014 it\'s applied when you first sign up with a friend\'s link.</string>
+    <string name="referrals_redeem_label">Referral code</string>
+    <string name="referrals_redeem_apply">Apply code</string>
+    <string name="referrals_redeem_applying">Applying\u2026</string>
+    <string name="referrals_redeem_applied">Code applied.</string>
+    <string name="referrals_code_spoken">Your referral code is %1$s</string>
+
+    <!-- Support (US-1386) -->
+    <string name="support_title">Support</string>
+    <string name="support_new_request">New request</string>
+    <string name="support_compose_title">Open a request</string>
+    <string name="support_subject">Subject</string>
+    <string name="support_body_label">What\'s happening?</string>
+    <string name="support_load_failed">Couldn\'t load your requests.</string>
+    <string name="support_fallback_subject">Support request</string>
+    <string name="support_reply_label">Reply</string>
+    <string name="support_send_reply">Send reply</string>
+    <string name="support_detail_load_failed">Couldn\'t load that request.</string>
+    <string name="support_author_you">You</string>
+    <string name="support_author_support">Support</string>
+    <string name="support_said_you">You said: %1$s</string>
+    <string name="support_said_support">Support said: %1$s</string>
+
+    <!-- Feedback (US-1387) -->
+    <string name="feedback_title">Send feedback</string>
+    <string name="feedback_context">Goes straight to the team with your app version, Android version and device model for context.</string>
+    <string name="feedback_open_support">Open a support request</string>
+    <string name="feedback_sent_announcement">Feedback sent</string>
+    <string name="feedback_chip_state">%1$s, %2$s</string>
+    <string name="feedback_chip_selected">selected</string>
+    <string name="feedback_chip_unselected">not selected</string>
+
+    <!-- Workspace switcher (US-1388) -->
+    <string name="workspace_switch">Switch</string>
+    <string name="workspace_switching">Switching\u2026</string>
+    <string name="workspace_picker_title">Switch workspace</string>
+    <string name="workspace_picker_warning">This reloads your inventory, sales and listings for the workspace you pick.</string>
+    <string name="workspace_personal_subtitle">Your own inventory and sales</string>
+    <string name="workspace_shared_subtitle">Shared workspace</string>
+    <string name="workspace_access_changed">Workspace access changed</string>
+    <string name="workspace_spoken">Workspace: %1$s</string>
+    <string name="workspace_spoken_tappable">Workspace: %1$s. Tap to switch.</string>
+    <string name="workspace_row_current">%1$s, current workspace</string>
+
+    <!-- Import (US-1389) -->
+    <string name="import_title">Import from a spreadsheet</string>
+    <string name="import_intro">Export your inventory from Sheets or Excel as CSV, then pick the file. You\'ll choose which column is which before anything is imported.</string>
+    <string name="import_choose_file">Choose a file</string>
+    <string name="import_preview">Preview</string>
+    <string name="import_unnamed_column">(unnamed column)</string>
+    <string name="import_another">Import another</string>
+    <string name="import_commit">Import %1$d</string>
+    <string name="import_row_skipped">Row %1$d skipped \u2014 %2$s</string>
+    <string name="import_row_failed">Row %1$d: %2$s</string>
+    <string name="import_row_preview">Row %1$d: %2$s</string>
+
+    <!-- Settings (US-1383/1393) -->
+    <string name="settings_language">Language</string>
+    <string name="settings_language_system">Match my phone</string>
+
+    <!-- ══ Plurals ══════════════════════════════════════════════════════════
+         Kotlin string templates cannot pluralize: "1 rows" is what a `"$n
+         rows"` produces, and every language past English has more than two
+         forms. These are the counts the UI actually renders. -->
+    <plurals name="rows_found">
+        <item quantity="one">%1$d row found. Check the columns below.</item>
+        <item quantity="other">%1$d rows found. Check the columns below.</item>
+    </plurals>
+    <plurals name="photo_count">
+        <item quantity="one">%1$d photo</item>
+        <item quantity="other">%1$d photos</item>
+    </plurals>
+    <plurals name="sale_count">
+        <item quantity="one">%1$d sale</item>
+        <item quantity="other">%1$d sales</item>
+    </plurals>
+    <plurals name="grade_count">
+        <item quantity="one">%1$d grade</item>
+        <item quantity="other">%1$d grades</item>
+    </plurals>
+    <plurals name="item_count">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
 </resources>

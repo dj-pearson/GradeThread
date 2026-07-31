@@ -48,6 +48,12 @@ jobs:
       - name: No ungated logging
         run: python3 scripts/no-ungated-log.py
 
+      # US-1393: hardcoded UI text can never be translated, and nothing about
+      # it looks wrong in review — it renders perfectly in English forever.
+      # Scoped to the converted files; the scope list grows as more land.
+      - name: No bare strings (scoped)
+        run: python3 scripts/no-bare-strings.py
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 

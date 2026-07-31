@@ -28,6 +28,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -77,7 +79,7 @@ fun OnboardingHost(
             }
 
             BrandPrimaryButton(
-                text = state.primaryLabel,
+                text = stringResource(state.primaryLabel),
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
                 // The use-case step is the one place a choice is required, and
                 // "Continue" with nothing picked would silently mean "skip".
@@ -85,7 +87,7 @@ fun OnboardingHost(
             ) { viewModel.next() }
 
             BrandSecondaryButton(
-                text = "Skip for now",
+                text = stringResource(R.string.onboarding_skip),
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
             ) { viewModel.skip() }
         }
@@ -151,9 +153,12 @@ private fun UseCaseStep(
     onPick: (OnboardingUseCase) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
-        Text("What brings you here?", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "We'll start you on the right thing. You can do all of it either way.",
+            stringResource(R.string.onboarding_use_case_title),
+            style = MaterialTheme.typography.headlineMedium,
+        )
+        Text(
+            stringResource(R.string.onboarding_use_case_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.md),
@@ -211,9 +216,12 @@ private fun ActivationStep(viewModel: OnboardingViewModel, onConnectEbay: () -> 
     LaunchedEffect(Unit) { viewModel.refreshChecklist() }
 
     Column(Modifier.fillMaxSize()) {
-        Text("Two quick things", style = MaterialTheme.typography.headlineMedium)
         Text(
-            state.progressLabel ?: "You can do both of these later from Settings.",
+            stringResource(R.string.onboarding_activation_title),
+            style = MaterialTheme.typography.headlineMedium,
+        )
+        Text(
+            state.progressLabel ?: stringResource(R.string.onboarding_activation_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.md),
@@ -245,11 +253,12 @@ private fun ActivationStep(viewModel: OnboardingViewModel, onConnectEbay: () -> 
                 }
                 Text(
                     if (row.done) {
-                        "Done."
+                        stringResource(R.string.onboarding_activation_done)
                     } else if (!row.actionable) {
                         // Said plainly rather than showing a dead button: the
                         // system will not put the dialog up a second time.
-                        "${row.item.detail} Turn this on in your phone's settings."
+                        "${row.item.detail} " +
+                            stringResource(R.string.onboarding_permission_blocked)
                     } else {
                         row.item.detail
                     },

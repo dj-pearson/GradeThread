@@ -57,14 +57,17 @@ class OnboardingTest {
     }
 
     @Test
-    fun `the button says what it will do`() {
-        assertEquals("Next", Onboarding.primaryLabel(Onboarding.Step.CAROUSEL, 0))
-        assertEquals(
-            "Get started",
-            Onboarding.primaryLabel(Onboarding.Step.CAROUSEL, Onboarding.pages.size - 1),
-        )
-        assertEquals("Continue", Onboarding.primaryLabel(Onboarding.Step.USE_CASE, 0))
-        assertEquals("Start selling", Onboarding.primaryLabel(Onboarding.Step.ACTIVATION, 0))
+    fun `each step asks for its own button label`() {
+        // US-1393: the RULE is asserted, not the words — the words live in
+        // strings.xml so they can be translated. Four distinct ids, and the
+        // last carousel slide differs from the ones before it.
+        val next = Onboarding.primaryLabel(Onboarding.Step.CAROUSEL, 0)
+        val last = Onboarding.primaryLabel(Onboarding.Step.CAROUSEL, Onboarding.pages.size - 1)
+        val useCase = Onboarding.primaryLabel(Onboarding.Step.USE_CASE, 0)
+        val activation = Onboarding.primaryLabel(Onboarding.Step.ACTIVATION, 0)
+
+        assertEquals(4, setOf(next, last, useCase, activation).size)
+        assertEquals(next, Onboarding.primaryLabel(Onboarding.Step.CAROUSEL, 1))
     }
 
     // ── Use cases ────────────────────────────────────────────────────────────

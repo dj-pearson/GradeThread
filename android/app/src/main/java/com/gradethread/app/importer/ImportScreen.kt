@@ -27,6 +27,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -53,7 +56,10 @@ fun ImportScreen(onDone: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
     ) { uri -> uri?.let(viewModel::load) }
 
     Column(Modifier.fillMaxSize().padding(Spacing.md)) {
-        Text("Import from a spreadsheet", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            stringResource(R.string.import_title),
+            style = MaterialTheme.typography.headlineMedium,
+        )
 
         if (state.busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = Spacing.xs))
@@ -80,13 +86,12 @@ fun ImportScreen(onDone: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
 private fun PickStep(onPick: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(top = Spacing.sm)) {
         Text(
-            "Export your inventory from Sheets or Excel as CSV, then pick the file. " +
-                "You'll choose which column is which before anything is imported.",
+            stringResource(R.string.import_intro),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         BrandPrimaryButton(
-            text = "Choose a file",
+            text = stringResource(R.string.import_choose_file),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
         ) { onPick() }
     }
@@ -97,7 +102,10 @@ private fun MapStep(state: ImportViewModel.State, viewModel: ImportViewModel) {
     val sheet = state.sheet ?: return
     Column(Modifier.fillMaxWidth()) {
         Text(
-            "${sheet.rows.size} rows found. Check the columns below.",
+            // A plural resource, not a template: "1 rows" is what a Kotlin
+            // template produces, and every language past English has more than
+            // two forms.
+            pluralStringResource(R.plurals.rows_found, sheet.rows.size, sheet.rows.size),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(vertical = Spacing.xs),
@@ -124,7 +132,7 @@ private fun MapStep(state: ImportViewModel.State, viewModel: ImportViewModel) {
         }
 
         BrandPrimaryButton(
-            text = "Preview",
+            text = stringResource(R.string.import_preview),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
             enabled = state.canPreview,
         ) { viewModel.preview() }
@@ -140,7 +148,10 @@ private fun ColumnRow(
 ) {
     var open by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxWidth().cardStyle()) {
-        Text(header.ifBlank { "(unnamed column)" }, fontWeight = FontWeight.Medium)
+        Text(
+            header.ifBlank { stringResource(R.string.import_unnamed_column) },
+            fontWeight = FontWeight.Medium,
+        )
         if (sample.isNotBlank()) {
             Text(
                 sample,
@@ -174,7 +185,10 @@ private fun PreviewStep(state: ImportViewModel.State, viewModel: ImportViewModel
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             items(plan.ready.take(Importer.PREVIEW_ROWS)) { draft ->
                 Column(Modifier.fillMaxWidth().cardStyle()) {
-                    Text("Row ${draft.sheetRow}: ${draft.title}", fontWeight = FontWeight.Medium)
+                    Text(
+                        stringResource(R.string.import_row_preview, draft.sheetRow, draft.title),
+                        fontWeight = FontWeight.Medium,
+                    )
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
                         Text(
                             listOfNotNull(
@@ -195,7 +209,11 @@ private fun PreviewStep(state: ImportViewModel.State, viewModel: ImportViewModel
             // saying WHICH twelve is not something a seller can act on.
             items(plan.duplicates + plan.rejected) { rejection ->
                 Text(
-                    "Row ${rejection.sheetRow} skipped — ${rejection.reason}",
+                    stringResource(
+                        R.string.import_row_skipped,
+                        rejection.sheetRow,
+                        rejection.reason,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = Spacing.xs),
@@ -204,11 +222,14 @@ private fun PreviewStep(state: ImportViewModel.State, viewModel: ImportViewModel
         }
 
         Row(Modifier.fillMaxWidth().padding(top = Spacing.sm)) {
-            BrandSecondaryButton(text = "Back", modifier = Modifier.width(120.dp)) {
+            BrandSecondaryButton(
+                text = stringResource(R.string.common_back),
+                modifier = Modifier.width(120.dp),
+            ) {
                 viewModel.backToMapping()
             }
             BrandPrimaryButton(
-                text = "Import ${plan.ready.size}",
+                text = stringResource(R.string.import_commit, plan.ready.size),
                 modifier = Modifier.weight(1f).padding(start = Spacing.xs),
                 enabled = state.canCommit,
             ) { viewModel.commit() }
@@ -229,7 +250,7 @@ private fun DoneStep(
         LazyColumn(Modifier.weight(1f)) {
             items(state.failures) { failure ->
                 Text(
-                    "Row ${failure.sheetRow}: ${failure.reason}",
+                    stringResource(R.string.import_row_failed, failure.sheetRow, failure.reason),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(vertical = 2.dp),
@@ -237,11 +258,14 @@ private fun DoneStep(
             }
         }
         Row(Modifier.fillMaxWidth()) {
-            BrandSecondaryButton(text = "Import another", modifier = Modifier.weight(1f)) {
+            BrandSecondaryButton(
+                text = stringResource(R.string.import_another),
+                modifier = Modifier.weight(1f),
+            ) {
                 viewModel.startOver()
             }
             BrandPrimaryButton(
-                text = "Done",
+                text = stringResource(R.string.common_done),
                 modifier = Modifier.weight(1f).padding(start = Spacing.xs),
             ) { onDone() }
         }

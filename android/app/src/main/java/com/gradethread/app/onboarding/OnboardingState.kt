@@ -1,5 +1,7 @@
 package com.gradethread.app.onboarding
 
+import com.gradethread.app.R
+
 /**
  * US-1384 (iOS `OnboardingUseCase`, US-747): what the new seller says they came
  * here to do, and where that drops them first.
@@ -101,11 +103,18 @@ object Onboarding {
         Step.ACTIVATION -> Step.ACTIVATION to pageIndex
     }
 
-    /** The primary button's words, so the copy is asserted rather than assumed. */
-    fun primaryLabel(step: Step, pageIndex: Int, pageCount: Int = pages.size): String = when {
-        step == Step.CAROUSEL && pageIndex < pageCount - 1 -> "Next"
-        step == Step.CAROUSEL -> "Get started"
-        step == Step.USE_CASE -> "Continue"
-        else -> "Start selling"
+    /**
+     * Which label the primary button shows.
+     *
+     * US-1393: a STRING RESOURCE ID rather than the words. The rule (which step
+     * shows which label) stays pure and testable; the words move to
+     * strings.xml where they can be translated.
+     */
+    @androidx.annotation.StringRes
+    fun primaryLabel(step: Step, pageIndex: Int, pageCount: Int = pages.size): Int = when {
+        step == Step.CAROUSEL && pageIndex < pageCount - 1 -> R.string.onboarding_next
+        step == Step.CAROUSEL -> R.string.onboarding_get_started
+        step == Step.USE_CASE -> R.string.onboarding_continue
+        else -> R.string.onboarding_start_selling
     }
 }

@@ -23,6 +23,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
@@ -54,7 +56,10 @@ fun ReferralsScreen(viewModel: ReferralsViewModel = hiltViewModel()) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        Text("Invite a friend", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            stringResource(R.string.referrals_title),
+            style = MaterialTheme.typography.headlineMedium,
+        )
 
         when {
             state.loading && state.me == null -> Row(
@@ -67,7 +72,7 @@ fun ReferralsScreen(viewModel: ReferralsViewModel = hiltViewModel()) {
             state.locked -> Text(
                 // Deliberately not a share button over an empty link: sending a
                 // broken URL to someone's friend is worse than saying "not yet".
-                "Your referral link isn't ready yet. Check back after your first grade.",
+                stringResource(R.string.referrals_not_ready),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.cardStyle(),
             )
@@ -93,7 +98,7 @@ private fun ErrorCard(message: String, onRetry: () -> Unit) {
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(message, style = MaterialTheme.typography.bodyMedium)
         BrandSecondaryButton(
-            text = "Try again",
+            text = stringResource(R.string.common_try_again),
             modifier = Modifier.padding(top = Spacing.sm),
         ) { onRetry() }
     }
@@ -106,17 +111,24 @@ private fun ShareCard(
     onShare: (String) -> Unit,
 ) {
     val code = state.me?.code.orEmpty()
+    // Spoken character by character: TalkBack reads "ABCD2345" as a mangled
+    // attempt at pronunciation otherwise.
+    val spokenCode = stringResource(
+        R.string.referrals_code_spoken,
+        code.toCharArray().joinToString(" "),
+    )
     Column(Modifier.fillMaxWidth().cardStyle()) {
-        Text("Your code", style = MaterialTheme.typography.labelMedium)
+        Text(
+            stringResource(R.string.referrals_your_code),
+            style = MaterialTheme.typography.labelMedium,
+        )
         Text(
             code,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             // Spoken as the CODE, not as a word: TalkBack reads "ABCD2345" as
             // a mangled attempt at pronunciation otherwise.
-            modifier = Modifier.semantics {
-                contentDescription = "Your referral code is ${code.toCharArray().joinToString(" ")}"
-            },
+            modifier = Modifier.semantics { contentDescription = spokenCode },
         )
 
         Referrals.creditsSummary(state.me?.credits ?: ReferralCredits())?.let {
@@ -137,19 +149,22 @@ private fun ShareCard(
 
         state.shareText?.let { text ->
             BrandPrimaryButton(
-                text = "Share link",
+                text = stringResource(R.string.referrals_share_link),
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
             ) { onShare(text) }
         }
         Row(Modifier.fillMaxWidth().padding(top = Spacing.xs)) {
-            BrandSecondaryButton(text = "Copy code", modifier = Modifier.weight(1f)) {
-                onCopy(code, "Referral code copied")
-            }
+            val codeCopied = stringResource(R.string.referrals_code_copied)
+            val linkCopied = stringResource(R.string.referrals_link_copied)
+            BrandSecondaryButton(
+                text = stringResource(R.string.referrals_copy_code),
+                modifier = Modifier.weight(1f),
+            ) { onCopy(code, codeCopied) }
             state.link?.let { link ->
                 BrandSecondaryButton(
-                    text = "Copy link",
+                    text = stringResource(R.string.referrals_copy_link),
                     modifier = Modifier.weight(1f).padding(start = Spacing.xs),
-                ) { onCopy(link, "Referral link copied") }
+                ) { onCopy(link, linkCopied) }
             }
         }
     }
@@ -159,16 +174,23 @@ private fun ShareCard(
 private fun StatsCard(state: ReferralsViewModel.State) {
     val stats = state.me?.stats ?: ReferralStats()
     Row(Modifier.fillMaxWidth().cardStyle()) {
-        Stat("Referred", stats.total, Modifier.weight(1f))
-        Stat("In progress", state.inProgress, Modifier.weight(1f))
-        Stat("Rewarded", stats.granted, Modifier.weight(1f))
+        Stat(stringResource(R.string.referrals_stat_referred), stats.total, Modifier.weight(1f))
+        Stat(
+            stringResource(R.string.referrals_stat_in_progress),
+            state.inProgress,
+            Modifier.weight(1f),
+        )
+        Stat(stringResource(R.string.referrals_stat_rewarded), stats.granted, Modifier.weight(1f))
     }
 }
 
 @Composable
 private fun Stat(label: String, value: Int, modifier: Modifier = Modifier) {
+    // "$value $label" reads correctly in English and in every language whose
+    // number-then-noun order matches; the label itself is already translated.
+    val spoken = "$value $label"
     Column(
-        modifier.semantics { contentDescription = "$value $label" },
+        modifier.semantics { contentDescription = spoken },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -188,7 +210,10 @@ private fun Stat(label: String, value: Int, modifier: Modifier = Modifier) {
 @Composable
 private fun RedeemSection(state: ReferralsViewModel.State, viewModel: ReferralsViewModel) {
     Column(Modifier.fillMaxWidth().cardStyle()) {
-        Text("Got a code?", style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(R.string.referrals_redeem_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
 
         val referredLabel = Referrals.referredByLabel(state.me?.referredBy)
         if (referredLabel != null) {
@@ -203,7 +228,7 @@ private fun RedeemSection(state: ReferralsViewModel.State, viewModel: ReferralsV
         }
 
         Text(
-            "One code, once — it's applied when you first sign up with a friend's link.",
+            stringResource(R.string.referrals_redeem_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.sm),
@@ -211,7 +236,7 @@ private fun RedeemSection(state: ReferralsViewModel.State, viewModel: ReferralsV
         OutlinedTextField(
             value = state.typedCode,
             onValueChange = viewModel::setTypedCode,
-            label = { Text("Referral code") },
+            label = { Text(stringResource(R.string.referrals_redeem_label)) },
             singleLine = true,
             isError = state.redeemError != null,
             enabled = !state.redeeming,
@@ -227,13 +252,19 @@ private fun RedeemSection(state: ReferralsViewModel.State, viewModel: ReferralsV
         }
         if (state.redeemed) {
             Text(
-                "Code applied.",
+                stringResource(R.string.referrals_redeem_applied),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = Spacing.xs),
             )
         }
         BrandPrimaryButton(
-            text = if (state.redeeming) "Applying…" else "Apply code",
+            text = stringResource(
+                if (state.redeeming) {
+                    R.string.referrals_redeem_applying
+                } else {
+                    R.string.referrals_redeem_apply
+                },
+            ),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
             enabled = state.canRedeem,
         ) { viewModel.redeem() }

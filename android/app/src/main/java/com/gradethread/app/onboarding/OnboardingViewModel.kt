@@ -40,7 +40,8 @@ class OnboardingViewModel @Inject constructor(
         /** Set when finishing; the host consumes it and navigates. */
         val navigateTo: String? = null,
     ) {
-        val primaryLabel: String get() = Onboarding.primaryLabel(step, pageIndex)
+        @get:androidx.annotation.StringRes
+        val primaryLabel: Int get() = Onboarding.primaryLabel(step, pageIndex)
         val progressLabel: String? get() = ActivationChecklist.progressLabel(checklist)
     }
 

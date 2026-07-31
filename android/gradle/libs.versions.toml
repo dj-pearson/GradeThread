@@ -5,6 +5,10 @@ agp = "8.9.2"
 kotlin = "2.1.20"
 ksp = "2.1.20-2.0.0"
 coreKtx = "1.15.0"
+# US-1393: per-app locales. AppCompatDelegate.setApplicationLocales is the only
+# API that works below Android 13, and it needs the library present even though
+# this app uses ComponentActivity rather than AppCompatActivity.
+appcompat = "1.7.0"
 lifecycle = "2.8.7"
 activityCompose = "1.10.1"
 composeBom = "2025.04.00"
@@ -106,6 +110,7 @@ mlkit-text-recognition = { group = "com.google.mlkit", name = "text-recognition"
 mlkit-text-recognition-japanese = { group = "com.google.mlkit", name = "text-recognition-japanese", version.ref = "mlkitTextRecognition" }
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
 androidx-glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
 play-billing = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }

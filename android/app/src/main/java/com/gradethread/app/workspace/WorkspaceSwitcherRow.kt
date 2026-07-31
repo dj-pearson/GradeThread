@@ -16,6 +16,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +36,12 @@ import com.gradethread.app.ui.theme.Spacing
 @Composable
 fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val name = state.active?.name ?: stringResource(R.string.workspace_personal_subtitle)
+    val spoken = if (state.hasChoice) {
+        stringResource(R.string.workspace_spoken_tappable, name)
+    } else {
+        stringResource(R.string.workspace_spoken, name)
+    }
 
     Column(
         Modifier
@@ -41,11 +49,7 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
             .clickable(enabled = state.hasChoice && !state.switching) { viewModel.openPicker() }
             .padding(horizontal = Spacing.md, vertical = Spacing.xs)
             .semantics {
-                contentDescription = buildString {
-                    append("Workspace: ")
-                    append(state.active?.name ?: "loading")
-                    if (state.hasChoice) append(". Tap to switch.")
-                }
+                contentDescription = spoken
             },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -58,9 +62,15 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
             if (state.switching) {
                 // Named, not a bare spinner: the app is about to empty and
                 // refill every screen, and silence there looks like a crash.
-                Text("Switching…", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    stringResource(R.string.workspace_switching),
+                    style = MaterialTheme.typography.labelMedium,
+                )
             } else if (state.hasChoice) {
-                Text("Switch", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    stringResource(R.string.workspace_switch),
+                    style = MaterialTheme.typography.labelMedium,
+                )
             }
         }
         Text(
@@ -74,7 +84,7 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
         ModalBottomSheet(onDismissRequest = viewModel::closePicker) {
             Column(Modifier.fillMaxWidth().padding(bottom = Spacing.xl)) {
                 Text(
-                    "Switch workspace",
+                    stringResource(R.string.workspace_picker_title),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(horizontal = Spacing.md),
                 )
@@ -82,34 +92,37 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
                     // Said before, not after: the switch clears the local copy
                     // and re-downloads, which on a slow connection is a long
                     // silence to explain afterwards.
-                    "This reloads your inventory, sales and listings for the " +
-                        "workspace you pick.",
+                    stringResource(R.string.workspace_picker_warning),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
                 )
                 state.workspaces.forEach { workspace ->
                     val selected = workspace.ownerId == (state.active?.ownerId)
+                    val rowSpoken = if (selected) {
+                        stringResource(R.string.workspace_row_current, workspace.name)
+                    } else {
+                        workspace.name
+                    }
                     Column(
                         Modifier
                             .fillMaxWidth()
                             .clickable { viewModel.switchTo(workspace) }
                             .padding(horizontal = Spacing.md, vertical = Spacing.sm)
-                            .semantics {
-                                contentDescription = "${workspace.name}" +
-                                    if (selected) ", current workspace" else ""
-                            },
+                            .semantics { contentDescription = rowSpoken },
                     ) {
                         Text(
                             if (selected) "✓ ${workspace.name}" else workspace.name,
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            if (workspace.isPersonal) {
-                                "Your own inventory and sales"
-                            } else {
-                                "Shared workspace"
-                            },
+                            stringResource(
+                                if (workspace.isPersonal) {
+                                    R.string.workspace_personal_subtitle
+                                } else {
+                                    R.string.workspace_shared_subtitle
+                                },
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -122,10 +135,12 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
     state.notice?.let { notice ->
         AlertDialog(
             onDismissRequest = viewModel::dismissNotice,
-            title = { Text("Workspace access changed") },
+            title = { Text(stringResource(R.string.workspace_access_changed)) },
             text = { Text(notice) },
             confirmButton = {
-                TextButton(onClick = viewModel::dismissNotice) { Text("OK") }
+                TextButton(onClick = viewModel::dismissNotice) {
+                    Text(stringResource(R.string.common_ok))
+                }
             },
         )
     }

@@ -19,6 +19,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -42,11 +44,14 @@ fun FeedbackSheet(
 ) {
     val state by viewModel.state.collectAsState()
     val view = LocalView.current
+    // Resolved OUTSIDE the effect: stringResource is a composable read, and
+    // LaunchedEffect's body is not a composable scope.
+    val sentAnnouncement = stringResource(R.string.feedback_sent_announcement)
 
     // Announced, not just shown: the confirmation auto-dismisses after a beat,
     // so a screen-reader user would otherwise never learn it worked.
     LaunchedEffect(state.sent) {
-        if (state.sent) view.announceForAccessibility("Feedback sent")
+        if (state.sent) view.announceForAccessibility(sentAnnouncement)
     }
 
     if (!state.open) return
@@ -68,10 +73,12 @@ fun FeedbackSheet(
                 .padding(horizontal = Spacing.md)
                 .padding(bottom = Spacing.xl),
         ) {
-            Text("Send feedback", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Goes straight to the team with your app version, Android version and " +
-                    "device model for context.",
+                stringResource(R.string.feedback_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                stringResource(R.string.feedback_context),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.sm),
@@ -80,14 +87,24 @@ fun FeedbackSheet(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 Feedback.Category.entries.forEach { category ->
                     val selected = state.category == category
+                    val chipState = stringResource(
+                        R.string.feedback_chip_state,
+                        category.label,
+                        stringResource(
+                            if (selected) {
+                                R.string.feedback_chip_selected
+                            } else {
+                                R.string.feedback_chip_unselected
+                            },
+                        ),
+                    )
                     FilterChip(
                         selected = selected,
                         onClick = { viewModel.setCategory(category) },
                         enabled = !state.sending,
                         label = { Text(category.label) },
                         modifier = Modifier.semantics {
-                            contentDescription =
-                                "${category.label}, ${if (selected) "selected" else "not selected"}"
+                            contentDescription = chipState
                         },
                     )
                 }
@@ -119,7 +136,9 @@ fun FeedbackSheet(
             }
 
             BrandPrimaryButton(
-                text = if (state.sending) "Sending…" else "Send feedback",
+                text = stringResource(
+                    if (state.sending) R.string.common_sending else R.string.feedback_title,
+                ),
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
                 enabled = state.canSend,
             ) { viewModel.send() }
@@ -131,7 +150,7 @@ fun FeedbackSheet(
                 modifier = Modifier.padding(top = Spacing.md),
             )
             BrandSecondaryButton(
-                text = "Open a support request",
+                text = stringResource(R.string.feedback_open_support),
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
                 enabled = !state.sending,
             ) {

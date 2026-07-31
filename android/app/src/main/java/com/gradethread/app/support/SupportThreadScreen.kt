@@ -17,6 +17,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -54,9 +56,9 @@ fun SupportThreadScreen(
             state.loadError != null -> Column(Modifier.fillMaxWidth().cardStyle()) {
                 Text(state.loadError!!, style = MaterialTheme.typography.bodyMedium)
                 Row(Modifier.padding(top = Spacing.sm)) {
-                    BrandSecondaryButton(text = "Back") { onBack() }
+                    BrandSecondaryButton(text = stringResource(R.string.common_back)) { onBack() }
                     BrandSecondaryButton(
-                        text = "Try again",
+                        text = stringResource(R.string.common_try_again),
                         modifier = Modifier.padding(start = Spacing.xs),
                     ) { viewModel.load(ticketId) }
                 }
@@ -65,7 +67,9 @@ fun SupportThreadScreen(
             state.thread != null -> {
                 val thread = state.thread!!
                 Text(
-                    thread.ticket.subject.ifBlank { "Support request" },
+                    thread.ticket.subject.ifBlank {
+                        stringResource(R.string.support_fallback_subject)
+                    },
                     style = MaterialTheme.typography.headlineSmall,
                 )
                 Text(
@@ -95,7 +99,7 @@ fun SupportThreadScreen(
                 OutlinedTextField(
                     value = state.reply,
                     onValueChange = viewModel::setReply,
-                    label = { Text("Reply") },
+                    label = { Text(stringResource(R.string.support_reply_label)) },
                     minLines = 2,
                     supportingText = {
                         Text(state.sendError ?: "${state.reply.length} / ${Support.MAX_BODY}")
@@ -104,7 +108,9 @@ fun SupportThreadScreen(
                     modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
                 )
                 BrandPrimaryButton(
-                    text = if (state.sending) "Sending…" else "Send reply",
+                    text = stringResource(
+                        if (state.sending) R.string.common_sending else R.string.support_send_reply,
+                    ),
                     modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
                     enabled = state.canSend,
                 ) { viewModel.send(ticketId) }
@@ -115,19 +121,24 @@ fun SupportThreadScreen(
 
 @Composable
 private fun MessageBubble(message: SupportMessage) {
+    // Who said it, first: a screen-reader user otherwise hears a wall of
+    // replies with no way to tell theirs from support's.
+    val spoken = stringResource(
+        if (message.fromMe) R.string.support_said_you else R.string.support_said_support,
+        message.body,
+    )
     Column(
         Modifier
             .fillMaxWidth()
             .cardStyle()
             // Who said it, first: a screen reader user otherwise hears a wall
             // of replies with no way to tell theirs from support's.
-            .semantics {
-                contentDescription =
-                    "${if (message.fromMe) "You said" else "Support said"}: ${message.body}"
-            },
+            .semantics { contentDescription = spoken },
     ) {
         Text(
-            if (message.fromMe) "You" else "Support",
+            stringResource(
+                if (message.fromMe) R.string.support_author_you else R.string.support_author_support,
+            ),
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Medium,
             color = if (message.fromMe) {
