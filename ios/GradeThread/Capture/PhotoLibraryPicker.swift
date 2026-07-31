@@ -1,6 +1,7 @@
 import Photos
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 import UIKit
 
 /// SwiftUI host for `PHPickerViewController`. Multi-select up to
@@ -67,6 +68,36 @@ extension PHPickerResult {
         return await withCheckedContinuation { (cont: CheckedContinuation<UIImage?, Never>) in
             itemProvider.loadObject(ofClass: UIImage.self) { object, _ in
                 cont.resume(returning: object as? UIImage)
+            }
+        }
+    }
+
+    /// Loads the pick as an image AND its original capture time (US-2373).
+    ///
+    /// Goes through the file's raw bytes rather than `loadObject(ofClass:)` so
+    /// the EXIF block is still intact when we read the shutter time from it —
+    /// `UIImage` drops that metadata, which is why the AutoLister batch used to
+    /// arrive with no capture times at all. Falls back to the plain image load
+    /// (and the PHAsset lookup, which is almost always nil by design) when the
+    /// provider can't hand over a data representation.
+    func loadImageWithCaptureDate() async -> (image: UIImage, capturedAt: Date?)? {
+        if let data = await loadImageData(), let image = UIImage(data: data) {
+            return (image, ImageCaptureDate.from(data) ?? creationDate())
+        }
+        guard let image = await loadImage() else { return nil }
+        return (image, creationDate())
+    }
+
+    /// The pick's bytes in whatever representation it already has on disk (the
+    /// picker is configured `.current`, so this doesn't trigger a transcode).
+    private func loadImageData() async -> Data? {
+        let provider = itemProvider
+        let identifier = provider.registeredTypeIdentifiers
+            .first { UTType($0)?.conforms(to: .image) == true }
+        guard let identifier else { return nil }
+        return await withCheckedContinuation { (cont: CheckedContinuation<Data?, Never>) in
+            provider.loadDataRepresentation(forTypeIdentifier: identifier) { data, _ in
+                cont.resume(returning: data)
             }
         }
     }

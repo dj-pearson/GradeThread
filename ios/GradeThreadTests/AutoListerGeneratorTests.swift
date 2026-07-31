@@ -71,6 +71,33 @@ final class AutoListerGeneratorTests: XCTestCase {
         XCTAssertFalse(AutoListerGenerator.isItemUploadComplete([uploaded, failed]))
     }
 
+    // MARK: - US-2373: bulk upload progress
+
+    @MainActor
+    func test_uploadProgress_fractionCountsPhotosNotItems() {
+        let progress = AutoListerGenerator.UploadProgress(
+            photosDone: 60, photosTotal: 240, itemsDone: 4, itemsTotal: 40
+        )
+        // 4/40 items would read as 10% and sit there for minutes; photos move.
+        XCTAssertEqual(progress.fraction, 0.25)
+    }
+
+    @MainActor
+    func test_uploadProgress_fractionIsSafeBeforeAnythingIsScheduled() {
+        let progress = AutoListerGenerator.UploadProgress(
+            photosDone: 0, photosTotal: 0, itemsDone: 0, itemsTotal: 0
+        )
+        XCTAssertEqual(progress.fraction, 0)
+    }
+
+    /// The wait is bounded by a STALL, not by total batch time — a flat cap made
+    /// any batch bigger than the cap÷(seconds per photo) fail while uploading
+    /// fine, which is precisely the bulk case AutoLister is for.
+    @MainActor
+    func test_uploadStallTimeout_isAStallWindowNotABatchDeadline() {
+        XCTAssertEqual(AutoListerGenerator.uploadStallTimeout, 90)
+    }
+
     private func makeTask(slot: PhotoSlotType, phase: PhotoUploadTask.Phase) -> PhotoUploadTask {
         PhotoUploadTask(
             inventoryItemId: "item-A",

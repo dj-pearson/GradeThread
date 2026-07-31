@@ -77,20 +77,39 @@ struct AutoListerQueueView: View {
 
     private var preparing: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
+            // US-2373: photos are what move during a bulk upload — items finish
+            // in clumps, so an item-only count looks stuck for minutes at a time.
+            if let progress = generator.uploadProgress, progress.photosTotal > 0 {
+                ProgressView(value: progress.fraction)
+                    .tint(Color.brandNavy)
+                    .frame(maxWidth: 280)
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+            }
             Text(preparingLabel)
                 .font(.brandHeadline)
-            Text("Creating items and uploading photos — keep the app open.")
+                .multilineTextAlignment(.center)
+            if let progress = generator.uploadProgress, progress.itemsTotal > 0 {
+                Text("\(progress.itemsDone) of \(progress.itemsTotal) item\(progress.itemsTotal == 1 ? "" : "s") ready")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text("Big batches take a few minutes. Keep the app open.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(preparingLabel)
     }
 
     private var preparingLabel: String {
+        if let progress = generator.uploadProgress, progress.photosTotal > 0 {
+            return "Uploading photo \(min(progress.photosDone + 1, progress.photosTotal)) of \(progress.photosTotal)…"
+        }
         if case .running(let done, let total) = generator.prep {
             return "Preparing items \(done)/\(total)…"
         }
@@ -104,9 +123,9 @@ struct AutoListerQueueView: View {
             Image(systemName: "clock.badge.exclamationmark")
                 .scaledIconFont(size: 40)  // US-1152: scale with Dynamic Type
                 .foregroundStyle(Color.brandRed)
-            Text("Uploads still finishing")
+            Text("Uploads stopped making progress")
                 .font(.brandHeadline)
-            Text("\(pending) of \(total) item\(total == 1 ? "" : "s") still \(pending == 1 ? "has" : "have") photos uploading. Retry the uploads so every listing generates from a complete photo set.")
+            Text("\(pending) of \(total) item\(total == 1 ? "" : "s") still \(pending == 1 ? "has" : "have") photos waiting, and nothing has finished for a while — usually a dropped connection. Retry the uploads so every listing generates from a complete photo set.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
