@@ -521,12 +521,12 @@ Deno.test("US-2156: crosslist/watcher-offer/notify bounds", () => {
 
 Deno.test("US-2156: the pre-existing vocabulary still validates unchanged", () => {
   // AC6 — stored rules written before this story keep working verbatim.
-  const legacy = [
+  const legacy: AutomationTrigger[] = [
     { type: "days_listed_gt", days: 30, cooldown_days: 7 },
     { type: "no_views_in_days", days: 14, cooldown_days: 7 },
     { type: "watchers_lt_after_days", watchers: 2, days: 10, cooldown_days: 7 },
   ];
-  const legacyActions = [
+  const legacyActions: AutomationAction[] = [
     { type: "price_drop_pct", pct: 10, margin_floor_pct: 10 },
     { type: "set_promo_rate_pct", pct: 5 },
     { type: "create_coded_coupon", discount_pct: 15 },
