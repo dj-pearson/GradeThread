@@ -18,7 +18,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 
@@ -38,7 +40,7 @@ fun AspectsSection(
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         Text(
-            "eBay item specifics",
+            stringResource(R.string.aspects_title),
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
         )
@@ -47,7 +49,10 @@ fun AspectsSection(
             // The publish blocker, stated here rather than discovered at
             // publish time — and NAMED, so the seller knows what to fill.
             Text(
-                "Required before publishing: ${missingRequired.joinToString()}",
+                stringResource(
+                    R.string.aspects_required_missing,
+                    missingRequired.joinToString(),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -55,19 +60,18 @@ fun AspectsSection(
 
         when (spec) {
             AspectSpecState.Idle -> BrandSecondaryButton(
-                text = "Load item specifics",
+                text = stringResource(R.string.aspects_load),
                 modifier = Modifier.fillMaxWidth(),
             ) { onLoad() }
 
             AspectSpecState.Loading -> Text(
-                "Loading specifics…",
+                stringResource(R.string.aspects_loading),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             AspectSpecState.NoCategory -> Text(
-                "No eBay category on this item yet. Fetch comps above to resolve one — " +
-                    "specifics are per-category.",
+                stringResource(R.string.aspects_no_category),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -78,7 +82,7 @@ fun AspectsSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
-                TextButton(onClick = onLoad) { Text("Try again") }
+                TextButton(onClick = onLoad) { Text(stringResource(R.string.common_try_again)) }
             }
 
             is AspectSpecState.Loaded -> {
@@ -130,7 +134,7 @@ private fun AspectRow(
             // Says WHY editing this may move something else — one entry feeds
             // both the item field and the listing specific.
             Text(
-                "Synced with the item's $it",
+                stringResource(R.string.aspects_synced_with, it),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -185,7 +189,15 @@ private fun FreeTextAspect(
                     },
                 )
             },
-            label = { Text(if (aspect.multiValued) "Comma-separated" else "Value") },
+            label = {
+                Text(
+                    if (aspect.multiValued) {
+                        stringResource(R.string.aspects_comma_separated)
+                    } else {
+                        stringResource(R.string.common_value)
+                    },
+                )
+            },
             singleLine = !aspect.multiValued,
             isError = tooLong,
             modifier = Modifier.fillMaxWidth(),
@@ -195,8 +207,10 @@ private fun FreeTextAspect(
             // an item specific at 65 characters and the edge truncates at its
             // own chokepoint, so silence would just lose the tail.
             Text(
-                "eBay caps this at ${AspectSync.EBAY_ASPECT_VALUE_MAX_LEN} characters — " +
-                    "the rest will be cut.",
+                stringResource(
+                    R.string.aspects_truncated,
+                    AspectSync.EBAY_ASPECT_VALUE_MAX_LEN,
+                ),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
             )

@@ -1138,6 +1138,36 @@
     <string name="common_category">Category</string>
     <string name="common_amount">Amount</string>
 
+    <!-- US-2368 batch 4: bulk actions, consignment report, item specifics. -->
+    <string name="common_clear">Clear</string>
+    <string name="common_undo">Undo</string>
+    <string name="common_back">Back</string>
+    <string name="common_value">Value</string>
+    <string name="bulk_selected">%1$d selected</string>
+    <string name="bulk_selected_count">%1$d items selected</string>
+    <string name="consignment_total_owed">%1$s owed</string>
+    <string name="bulk_more_failures">\u2026and %1$d more</string>
+    <string name="consignment_title">Consignment payouts</string>
+    <string name="consignment_subtitle">From completed sales only. Cancelled and refunded orders don\'t count.</string>
+    <string name="consignment_heads_up">Heads up</string>
+    <string name="consignment_you_keep">You keep %1$s</string>
+    <string name="consignment_empty_title">Nothing to pay out yet</string>
+    <string name="consignment_row_net">%1$s after fees \u00b7 you keep %2$s</string>
+    <string name="aspects_title">eBay item specifics</string>
+    <string name="aspects_required_missing">Required before publishing: %1$s</string>
+    <string name="aspects_load">Load item specifics</string>
+    <string name="aspects_loading">Loading specifics\u2026</string>
+    <string name="aspects_no_category">No eBay category on this item yet. Fetch comps above to resolve one \u2014 specifics are per-category.</string>
+    <string name="aspects_synced_with">Synced with the item\'s %1$s</string>
+    <string name="aspects_comma_separated">Comma-separated</string>
+    <string name="aspects_truncated">eBay caps this at %1$d characters \u2014 the rest will be cut.</string>
+    <!-- One sentence, not three glued fragments: the count agreement and the
+         separators both belong to the translator. -->
+    <plurals name="consignment_row_summary">
+        <item quantity="one">%1$d item \u00b7 %2$s sold \u00b7 %3$s fees</item>
+        <item quantity="other">%1$d items \u00b7 %2$s sold \u00b7 %3$s fees</item>
+    </plurals>
+
     <!-- US-2368 batch 3: AI extract, credits, inventory filters, eBay specifics. -->
     <string name="common_clear_all">Clear all</string>
     <string name="aiextract_skip">Skip these suggestions</string>

@@ -72,6 +72,9 @@ SCOPE = [
     "disclosure/DisclosureScreen.kt",
     "scout/ScoutScreen.kt",
     "marketplaces/pricing/BulkPricingScreen.kt",
+    "inventory/BulkActionBar.kt",
+    "consignment/ConsignmentReportScreen.kt",
+    "inventory/AspectsSection.kt",
     "ai/AiExtractScreen.kt",
     "billing/CreditPackSheet.kt",
     "inventory/InventoryFilterSheet.kt",
@@ -244,23 +247,31 @@ def looks_like_copy(literal):
     `"capture/photos"`, `"round99"`, `"${'$'}{a.length} / ${'$'}{MAX}"`. Position cannot
     tell those apart from copy, so the literal itself has to.
 
-    Two signals, and a literal needs one of them:
+    Three signals, and a literal needs one of them:
       • internal whitespace between words — "Any time", "cost ${'$'}it"
       • an initial CAPITAL — "Refresh", "SKU", "YYYY-MM-DD"
+      • a TEMPLATE HOLE with words around it and no path punctuation —
+        "${'$'}selectedCount selected". Without this one, a sentence whose only word
+        follows the hole reads as a lowercase single token and slips through;
+        that is exactly how BulkActionBar's "N selected" survived. The `/ _ . :`
+        exclusion keeps built routes and keys out ("item/${'$'}id", "grade_${'$'}id").
 
     Which makes the excluded set the lowercase-single-token one: identifiers,
     slugs, enum keys, MIME types, animation labels. The known false negative is
-    genuinely lowercase one-word copy (`Text("ok")`); that is rarer than the
-    false positives the previous, positional rule produced, and a false positive
-    is what gets a guard switched off.
+    genuinely lowercase one-word copy with no hole (`Text("ok")`); that is rarer
+    than the false positives the previous, positional rule produced, and a false
+    positive is what gets a guard switched off.
     """
-    body = INTERPOLATION.sub("", literal.strip('"'))
+    raw = literal.strip('"')
+    body = INTERPOLATION.sub("", raw)
     if not re.search(r"[A-Za-z]{2,}", body):
         return False
     if re.search(r"[A-Za-z]\s+\S", body.strip()):
         return True
     first = next((c for c in body if c.isalpha()), "")
-    return first.isupper()
+    if first.isupper():
+        return True
+    return bool(INTERPOLATION.search(raw)) and not re.search(r"[/_.:]", body)
 
 # The same sinks, but with the literal wrapped onto the NEXT line — which is
 # what ktlint does to any argument list over 100 columns, so it is the COMMON
@@ -519,6 +530,16 @@ SELF_TESTS = [
         "an elvis inside a sink — the shape that killed the positional rule",
         'Text(band.days?.let { "Last $it days" } ?: "Any time")',
         True,
+    ),
+    (
+        "a sentence whose only word trails a template hole",
+        'Text("$selectedCount selected")',
+        True,
+    ),
+    (
+        "a route built from a template hole is not copy",
+        'Text(nav.go("item/$id"))',
+        False,
     ),
     (
         "a joinToString separator is not copy",
