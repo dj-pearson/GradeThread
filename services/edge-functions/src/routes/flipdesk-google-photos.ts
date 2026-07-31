@@ -37,7 +37,15 @@ const SCOPE = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly"
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const PICKER_API = "https://photospicker.googleapis.com/v1";
-const MAX_IMPORT = 100; // bound a single import
+const MAX_IMPORT = 200; // bound a single import (across all of its chunks)
+// A 200-photo import is downloaded, validated, EXIF-stripped and re-uploaded
+// server-side, which is far too much work for one HTTP request — it would sit
+// past the proxy's idle timeout and look hung. So the client pulls it in
+// CHUNKS: each POST /import?offset=&limit= does one bounded slice, and the
+// session row survives until the last slice lands. DEFAULT_CHUNK is the pace;
+// MAX_CHUNK stops a client from asking for the whole thing in one request.
+const DEFAULT_CHUNK = 25;
+const MAX_CHUNK = 40;
 const DOWNLOAD_CONCURRENCY = 4;
 const IMPORT_MAX_BYTES = 15 * 1024 * 1024;
 
@@ -365,6 +373,26 @@ async function loadSessionWithToken(
   return { ok: true, session: s, token };
 }
 
+// Slide the 30-min session row forward while the seller is still working —
+// picking 200 photos, then pulling them down in chunks, easily outruns the
+// original TTL and an expired row reads to the seller as "nothing happened".
+// Never past the Google access token's own life: the row is useless after that.
+const SESSION_EXTEND_MS = 20 * 60_000;
+const SESSION_EXTEND_WHEN_UNDER_MS = 10 * 60_000;
+async function extendSession(id: string, currentExpiresAt: string, tokenExpiresAt: string) {
+  const now = Date.now();
+  const tokenMs = Date.parse(tokenExpiresAt);
+  if (!Number.isFinite(tokenMs)) return;
+  const currentMs = Date.parse(currentExpiresAt);
+  if (Number.isFinite(currentMs) && currentMs - now > SESSION_EXTEND_WHEN_UNDER_MS) return;
+  const target = Math.min(now + SESSION_EXTEND_MS, tokenMs);
+  if (Number.isFinite(currentMs) && target <= currentMs) return;
+  await supabaseAdmin
+    .from("google_photos_import_sessions")
+    .update({ expires_at: new Date(target).toISOString() })
+    .eq("id", id);
+}
+
 // ── GET /poll?session=ID ────────────────────────────────────────────
 // Has the user finished picking? Asks Google's Picker session.get.
 flipdeskGooglePhotosRoutes.get("/poll", async (c) => {
@@ -375,6 +403,11 @@ flipdeskGooglePhotosRoutes.get("/poll", async (c) => {
   const loaded = await loadSessionWithToken(sessionId, userId);
   if (!loaded.ok) return c.json({ ready: false, error: loaded.error }, loaded.status);
   const { session, token } = loaded;
+  await extendSession(
+    String(session.id),
+    String(session.expires_at),
+    String(session.token_expires_at),
+  );
   if (session.status === "ready" || session.status === "imported") {
     return c.json({ ready: true });
   }
@@ -396,6 +429,30 @@ flipdeskGooglePhotosRoutes.get("/poll", async (c) => {
   return c.json({ ready: false });
 });
 
+// Chunk cursor for POST /import. Kept pure and exported so the boundaries —
+// the last chunk, an over-long limit, a client that asks past the end — are
+// pinned by tests instead of only by a live 200-photo import.
+export function planImportChunk(
+  total: number,
+  rawOffset: unknown,
+  rawLimit: unknown,
+): { offset: number; limit: number; end: number; nextOffset: number; done: boolean } {
+  const o = Number(rawOffset ?? 0);
+  const offset = Number.isFinite(o) && o > 0 ? Math.min(Math.floor(o), MAX_IMPORT) : 0;
+  const l = Number(rawLimit ?? DEFAULT_CHUNK);
+  const limit = Number.isFinite(l) && l > 0
+    ? Math.min(Math.floor(l), MAX_CHUNK)
+    : DEFAULT_CHUNK;
+  const capped = Math.min(total, MAX_IMPORT);
+  const start = Math.min(offset, capped);
+  const end = Math.min(start + limit, capped);
+  const nextOffset = end;
+  // `end <= start` means the client asked past the end — treat that as done so
+  // a bad cursor can't spin the loop forever.
+  const done = end <= start || end >= capped;
+  return { offset: start, limit, end, nextOffset, done };
+}
+
 interface ImportedPhoto {
   url: string;
   storagePath: string;
@@ -405,12 +462,17 @@ interface ImportedPhoto {
   capturedAtMs: number | null;
 }
 
-// ── POST /import?session=ID ─────────────────────────────────────────
-// Download the picked photos server-side, validate + strip EXIF, stage them.
+// ── POST /import?session=ID&offset=N&limit=N ────────────────────────
+// Download ONE CHUNK of the picked photos server-side, validate + strip EXIF,
+// stage them. The client walks offset forward until `done`; the session row is
+// consumed only on the final chunk.
 flipdeskGooglePhotosRoutes.post("/import", async (c) => {
   const userId = c.get("userId");
   const sessionId = c.req.query("session");
   if (!sessionId) return c.json({ error: "session is required" }, 400);
+
+  const rawOffset = c.req.query("offset");
+  const rawLimit = c.req.query("limit");
 
   const loaded = await loadSessionWithToken(sessionId, userId);
   if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status);
@@ -445,9 +507,16 @@ flipdeskGooglePhotosRoutes.post("/import", async (c) => {
     pageToken = body.nextPageToken;
   } while (pageToken && items.length < MAX_IMPORT);
 
+  // The picker's mediaItems list is stable for the life of the session, so
+  // re-listing it on every chunk yields the same order — that's what makes a
+  // plain numeric offset a safe cursor. Listing is metadata-only and cheap; the
+  // expensive part (download → validate → strip → upload) is what we slice.
   const photos = items
     .filter((m) => (m.type ?? "PHOTO") === "PHOTO" && m.mediaFile?.baseUrl)
     .slice(0, MAX_IMPORT);
+  const total = photos.length;
+  const { offset, end, nextOffset, done } = planImportChunk(total, rawOffset, rawLimit);
+  const chunk = photos.slice(offset, end);
 
   const imported: ImportedPhoto[] = [];
   const errors: string[] = [];
@@ -513,17 +582,35 @@ flipdeskGooglePhotosRoutes.post("/import", async (c) => {
     }
   }
 
-  for (let i = 0; i < photos.length; i += DOWNLOAD_CONCURRENCY) {
-    await Promise.all(photos.slice(i, i + DOWNLOAD_CONCURRENCY).map(importOne));
+  for (let i = 0; i < chunk.length; i += DOWNLOAD_CONCURRENCY) {
+    await Promise.all(chunk.slice(i, i + DOWNLOAD_CONCURRENCY).map(importOne));
   }
 
-  // One-shot: consume the session so the token can't be reused.
-  await supabaseAdmin
-    .from("google_photos_import_sessions")
-    .delete()
-    .eq("id", session.id);
+  if (done) {
+    // Consume the session on the last chunk so the token can't be reused.
+    await supabaseAdmin
+      .from("google_photos_import_sessions")
+      .delete()
+      .eq("id", session.id);
+  } else {
+    // Mid-import: keep the row alive so the remaining chunks can still load it
+    // even if the seller picked photos for a long time before starting.
+    await extendSession(
+      String(session.id),
+      String(session.expires_at),
+      String(session.token_expires_at),
+    );
+  }
 
-  return c.json({ photos: imported, imported: imported.length, errors: errors.length });
+  return c.json({
+    photos: imported,
+    imported: imported.length,
+    errors: errors.length,
+    total,
+    offset,
+    nextOffset,
+    done,
+  });
 });
 
 // ── GET /config ─────────────────────────────────────────────────────
