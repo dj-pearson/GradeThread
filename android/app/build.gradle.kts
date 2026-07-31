@@ -64,7 +64,10 @@ android {
         // the worst moment. Defaults to 1 for a local build.
         versionCode = secret("ANDROID_VERSION_CODE", "1").toIntOrNull() ?: 1
         versionName = secret("ANDROID_VERSION_NAME", "0.1.0")
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // US-1395: a Hilt-aware runner. The stock AndroidJUnitRunner would
+        // start the real GradeThreadApp, whose onCreate validates config,
+        // starts sync and opens sockets — none of which belongs in a UI test.
+        testInstrumentationRunner = "com.gradethread.app.HiltTestRunner"
 
         // US-1301: endpoint/keys via BuildConfig (see AppConfig.kt). The two
         // base URLs default to prod (they're public routing facts — CLAUDE.md);
@@ -201,4 +204,17 @@ dependencies {
     testImplementation(libs.androidx.test.core)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // US-1395: the instrumented (emulator) lane.
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.hilt.android.testing)
+    kspAndroidTest(libs.hilt.compiler)
+    // The empty activity ui-test-manifest injects; it lives in the DEBUG
+    // manifest because that is the variant the instrumented tests run against.
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

@@ -669,6 +669,43 @@ breaks both properties. `Onboarding.primaryLabel` shows the pattern for when it
 *is* worth it — it returns a `@StringRes` id, so the rule stays pure and
 testable while the words become translatable.
 
+## Tests (US-1395)
+
+**Unit:** 134 JVM test files covering sync/conflict resolution, the mutation
+queue and its ordering, delete reconciliation, terminal-error classification,
+the Money/Analytics/Dashboard rollups, plan-gate parsing, and the full billing
+path against `FakePlayBilling`. Run with `./gradlew testDebugUnitTest`.
+
+**Instrumented:** `app/src/androidTest/` — a real emulator lane, which is the
+half that did not exist. `HiltTestRunner` swaps `GradeThreadApp` for
+`HiltTestApplication`: the real one validates config, starts sync, opens a
+socket, registers for push and schedules work, so a UI test running it would be
+an integration test against production and would fail for reasons unrelated to
+the diff.
+
+Two tests, both aimed at what no JVM test can reach — **the real Hilt graph**. A
+missing `@Binds`, a `@Provides` that throws, a circular dependency or a crash in
+a ViewModel `init` all compile perfectly and fail only when Dagger assembles on
+a device. `AppLaunchTest` proves the shell mounts and the Add sheet opens;
+`SettingsRendersTest` covers the screen with the most injected dependencies
+(auth, Supabase, Room, push, background refresh, onboarding, realtime, plus the
+feedback and workspace ViewModels).
+
+**The emulator job is `continue-on-error: true` on purpose.** An emulator is
+flaky in ways unrelated to the diff — a KVM-less runner, a cold image, an ANR
+under load — and a required-but-flaky check trains everyone to re-run until
+green, which is worse than not having it. The blocking lane still runs
+`assembleDebugAndroidTest`, so a genuinely broken test source fails there rather
+than hiding behind a red X people learn to ignore.
+
+**Not written, and why:** an E2E for "sign-in + validation" — this app has **no
+sign-in screen**. `MainActivity` composes the shell directly; the auth package
+holds the repository, the OAuth callback and the Turnstile challenge, but no
+credential UI exists to test. Paywall product rendering and the test-SKU
+purchase are covered by `PaywallPricingTest`, `SubscriptionServiceTest` and
+`BillingRepositoryTest` against `FakePlayBilling` rather than duplicated on an
+emulator.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

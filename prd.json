@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2369",
+  "nextId": "US-2370",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2788,7 +2788,7 @@
     {
       "id": "US-1395",
       "priority": -98605,
-      "passes": false,
+      "passes": true,
       "title": "Test suite: sync/conflict/billing unit + critical-flow E2E",
       "description": "As the team, I want the same test posture as iOS so the port’s correctness-critical logic is guarded.",
       "acceptanceCriteria": [
@@ -2796,7 +2796,7 @@
         "Compose UI + critical-flow E2E on an emulator (sign-in + validation, paywall renders Play products and purchases via test SKU, capture→grade→draft with a mocked grading path)",
         "Billing exercised with a fake BillingClient; CI runs the unit + a non-blocking instrumented lane"
       ],
-      "notes": "[P1][Android/Release] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | RE-OPENED PARTIAL: the unit suite is real and substantial (70+ test files covering sync, conflict, billing, grading, money), but there is NO app/src/androidTest directory, so the critical-flow E2E half of this story does not exist."
+      "notes": "[P1][Android/Release] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | RE-OPENED PARTIAL: the unit suite is real and substantial (70+ test files covering sync, conflict, billing, grading, money), but there is NO app/src/androidTest directory, so the critical-flow E2E half of this story does not exist. | Done 2026-07-31. RESOLVED the partial re-open: the unit half was already real (134 JVM test files covering conflict resolution, drop-safe cursors, mutation ordering, reconciliation protection, terminal-error classification, the Money/Analytics/Dashboard rollups, plan-gate parsing and the full billing path against FakePlayBilling); what was missing was any app/src/androidTest at all. AC2/AC3: added the instrumented lane. app/src/androidTest/java/com/gradethread/app/HiltTestRunner.kt swaps GradeThreadApp for HiltTestApplication - the real Application validates config and dies on a missing base URL, starts sync, opens a realtime socket, registers for push and schedules WorkManager, so a UI test running it would be an integration test against production that fails for reasons unrelated to the diff. Two tests, both aimed at what NO JVM test can reach, the real Hilt graph: a missing @Binds, a @Provides that throws, a circular dependency or a crash in a ViewModel init all compile cleanly and fail only when Dagger assembles on a device - not theoretical, since this session alone added Realtime, workspace, import, support, feedback and referral bindings plus SavedStateHandle to two ViewModels. ui/AppLaunchTest asserts the shell mounts (every bottom-bar section label) and that the Add sheet opens; ui/SettingsRendersTest covers the screen with the most injected dependencies (auth, Supabase, Room, push registration, background-refresh store, onboarding store, RealtimeService, plus FeedbackViewModel and WorkspaceViewModel) and opens the feedback sheet, asserting only what is true SIGNED OUT so the emulator's lack of a session is not a flake. Dependencies added: androidx.test runner/ext-junit/espresso, compose ui-test-junit4 and ui-test-manifest, hilt-android-testing with kspAndroidTest. CI: android-ci.yml's blocking lane now runs assembleDebugAndroidTest so a broken test SOURCE fails there, and a new instrumented job runs connectedDebugAndroidTest on an API-34 google_apis emulator with animations disabled and KVM enabled - continue-on-error: true by design, because an emulator is flaky for reasons unrelated to the diff (KVM-less runner, cold image, ANR under load) and a required-but-flaky check trains everyone to re-run until green, which is worse than not having it. SCOPE NOTES, both stated rather than papered over: the sign-in E2E named in AC2 could NOT be written because this app has no sign-in screen at all - MainActivity composes AppShell unconditionally and the auth package holds only the repository, OAuth callback and Turnstile challenge - filed as US-2369; and paywall product rendering plus the test-SKU purchase are already covered by PaywallPricingTest, SubscriptionServiceTest and BillingRepositoryTest against FakePlayBilling rather than duplicated on an emulator. No Android SDK in this container, so the instrumented tests have never run - the new CI job is what runs them."
     },
     {
       "id": "US-2207",
@@ -4625,6 +4625,19 @@
         "A second language ships (values-<tag>/) so AppLocale.SUPPORTED has a real second entry and the picker becomes visible"
       ],
       "notes": "[P2][Android/Release] Split out of US-1393 on 2026-07-31. US-1393 shipped the MECHANISM - stringResource/plurals, the locale picker via AppCompatDelegate, locales_config.xml, pseudolocales, and android/scripts/no-bare-strings.py - plus seven converted and locked files (onboarding, referrals, both support screens, feedback, workspace switcher, importer). The remaining Compose files still carry bare literals. Converting them all in one pass would have meant either a failing guard everywhere or a guard switched off, so the SCOPE list grows instead. Pure copy objects (WidgetCopy, SoldTodaySummary, Support/Importer/Referrals copy) are deliberately out of scope: they build sentences outside a Compose scope and are unit-tested against exact wording; Onboarding.primaryLabel shows the @StringRes pattern for when it is worth converting one."
+    },
+    {
+      "id": "US-2369",
+      "priority": -98604,
+      "passes": false,
+      "title": "Android has no sign-in screen",
+      "description": "As a new user, I need somewhere to enter my email and password on Android.",
+      "acceptanceCriteria": [
+        "A sign-in / sign-up surface exists with email+password validation before submit, wired to AuthRepository",
+        "MainActivity shows it when AuthRepository.phase is SignedOut instead of composing the shell regardless",
+        "An instrumented test covers the validation path (US-1395 AC2 named this and could not be written)"
+      ],
+      "notes": "[P1][Android/Auth] Found 2026-07-31 while writing US-1395. The auth package has AuthRepository (PKCE), OAuthSignIn, OAuthCallback, FriendlyAuthError and the Turnstile challenge, but NO credential UI: zero matches for a sign-in screen, and MainActivity composes AppShell unconditionally with no signed-out branch. So the app is unusable by anyone not already holding a session, and the US-1395 sign-in E2E could not be written because there is nothing to drive."
     }
   ]
 }
