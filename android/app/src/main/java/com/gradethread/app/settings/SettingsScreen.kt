@@ -156,6 +156,12 @@ fun SettingsScreen(
             onChange = viewModel::setHapticsEnabled,
         )
         ToggleRow(
+            title = "Background refresh",
+            subtitle = "Check for sales and finished grades about every 30 minutes.",
+            checked = state.backgroundRefreshEnabled,
+            onChange = viewModel::setBackgroundRefreshEnabled,
+        )
+        ToggleRow(
             title = "Share usage analytics",
             // Precise about the split: crash reports are how we find the bug
             // that lost someone's photos, and conflating the two would make

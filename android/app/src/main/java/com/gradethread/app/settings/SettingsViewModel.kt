@@ -55,6 +55,7 @@ class SettingsViewModel @Inject constructor(
     private val client: SupabaseClient,
     private val db: GradeThreadDb,
     private val pushRegistration: com.gradethread.app.platform.push.PushRegistration,
+    private val backgroundRefresh: com.gradethread.app.sync.BackgroundRefreshStore,
 ) : ViewModel() {
 
     data class State(
@@ -65,6 +66,7 @@ class SettingsViewModel @Inject constructor(
         val confirmBulkActions: Boolean = true,
         val hapticsEnabled: Boolean = true,
         val analyticsEnabled: Boolean = false,
+        val backgroundRefreshEnabled: Boolean = true,
         /** Non-null while a destructive action is awaiting confirmation. */
         val pendingConfirm: Confirm? = null,
         val busy: Boolean = false,
@@ -113,6 +115,11 @@ class SettingsViewModel @Inject constructor(
                 update { it.copy(hapticsEnabled = value) }
             }
         }
+        viewModelScope.launch {
+            backgroundRefresh.enabled.collect { value ->
+                update { it.copy(backgroundRefreshEnabled = value) }
+            }
+        }
     }
 
     private fun update(transform: (State) -> State) {
@@ -156,6 +163,20 @@ class SettingsViewModel @Inject constructor(
 
     fun setHapticsEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setHapticsEnabled(enabled) }
+    }
+
+    /**
+     * US-1379: the background refresh toggle.
+     *
+     * The stored flag AND the WorkManager schedule move together. Storing the
+     * flag alone would leave the periodic work running and merely silent, which
+     * still spends the seller's battery and data on a switch they turned off.
+     */
+    fun setBackgroundRefreshEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            backgroundRefresh.setEnabled(enabled)
+            com.gradethread.app.sync.BackgroundRefreshWorker.apply(context, enabled)
+        }
     }
 
     fun setAnalyticsEnabled(enabled: Boolean) {
@@ -225,6 +246,10 @@ class SettingsViewModel @Inject constructor(
             // behind, the server would keep pushing this account's sales to a
             // phone somebody else may now be holding.
             runCatching { pushRegistration.clear() }
+            // US-1379: the next account must start with NO baseline. Left in
+            // place, their first refresh would compare their rows against the
+            // previous seller's and announce the whole catalogue as new.
+            runCatching { backgroundRefresh.clear() }
             WorkspaceScope.clear()
             auth.signOut()
             update {

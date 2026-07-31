@@ -170,6 +170,31 @@ Five channels, not one per category: `money`, `selling`, `grading`, `urgent`,
 POST_NOTIFICATIONS is requested at a **money moment** (first sale / first grade),
 never at launch — Android auto-denies the second dialog, so there is one real ask.
 
+## Background refresh (US-1379)
+
+A `PeriodicWorkRequest` (30 minutes, 10-minute flex, `CONNECTED` +
+`requiresBatteryNotLow`) runs the same pull the foreground uses, then compares
+what arrived against a stored baseline and posts a local notification for
+anything new. `sync/BackgroundRefresh.kt` holds every decision and is pure, so
+the part that runs with nobody watching is the part under test.
+
+Three rules that are not obvious:
+
+- **No baseline, no notifications.** `baselineEstablished` is tracked separately
+  from the id sets being empty, because "brand-new account with no sales" and
+  "never baselined" are different states. Conflating them is how a first sync
+  announces an entire back catalogue.
+- **The baseline is written AFTER posting.** A crash between the two re-notifies.
+  A duplicate is a nuisance; a missed sale alert is the thing this prevents.
+- **Past three findings it collapses to one summary.** A wall of notifications
+  teaches people to swipe the lot away unread.
+
+`ExistingPeriodicWorkPolicy.KEEP` on every cold start doubles as the reboot
+rescheduler (WorkManager restores its own queue), and REPLACE would reset the
+period each launch so a frequent user would never reach a run. Settings has a
+toggle that moves the stored flag and the schedule together; sign-out clears the
+baseline so the next account doesn't inherit the previous seller's.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

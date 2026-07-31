@@ -22,7 +22,18 @@ data class PushMessage(
 
     val actions: List<PushAction> get() = category?.actions.orEmpty()
 
-    val route: DeepLinkRoute? get() = category?.route(data)
+    /**
+     * Where a tap lands.
+     *
+     * A payload with no category we recognize still opens its ITEM when it
+     * names one — that covers a locally-raised alert and a server category the
+     * app doesn't handle yet, both of which are better served by the item than
+     * by the app's front door.
+     */
+    val route: DeepLinkRoute?
+        get() = category?.route(data)
+            ?: data["inventory_item_id"]?.takeIf { it.isNotBlank() }
+                ?.let { DeepLinkRoute.InventoryItem(it) }
 
     /**
      * A push we can't classify still shows.

@@ -11,12 +11,15 @@ import com.gradethread.app.platform.push.PushConfig
 import com.gradethread.app.platform.push.PushNotifier
 import com.gradethread.app.platform.push.PushRegistration
 import com.gradethread.app.platform.workspace.WorkspaceScope
+import com.gradethread.app.sync.BackgroundRefreshStore
+import com.gradethread.app.sync.BackgroundRefreshWorker
 import com.gradethread.app.sync.ConnectivityMonitor
 import com.gradethread.app.sync.SyncTrigger
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -75,6 +78,15 @@ class GradeThreadApp : Application(), Configuration.Provider {
             // registers on change would never come back after a prune.
             appScope.launch { pushRegistration.register() }
         }
+        // US-1379: half-hourly catch-up sync. Re-applied on every cold start,
+        // which is also what re-arms it after a reboot — WorkManager restores
+        // its own queue, and KEEP means this call is a no-op when it did.
+        appScope.launch {
+            BackgroundRefreshWorker.apply(
+                this@GradeThreadApp,
+                backgroundRefreshStore.enabled.first(),
+            )
+        }
     }
 
     /** Lives as long as the process — these observers never unsubscribe. */
@@ -91,4 +103,7 @@ class GradeThreadApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var pushRegistration: PushRegistration
+
+    @Inject
+    lateinit var backgroundRefreshStore: BackgroundRefreshStore
 }

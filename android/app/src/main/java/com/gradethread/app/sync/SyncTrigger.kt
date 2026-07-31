@@ -120,7 +120,7 @@ class SyncTrigger @Inject constructor(
      * Explicit refresh. Suspends so the caller can drive a spinner and
      * surface failures.
      */
-    suspend fun refresh(): SyncCoordinator.Outcome? = runPull(reason = "manual")
+    suspend fun refresh(reason: String = "manual"): SyncCoordinator.Outcome? = runPull(reason)
 
     private fun pullInBackground(reason: String) {
         scope.launch { runCatching { runPull(reason) } }

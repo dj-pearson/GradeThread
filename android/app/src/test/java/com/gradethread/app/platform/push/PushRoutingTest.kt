@@ -225,6 +225,19 @@ class PushRoutingTest {
     }
 
     @Test
+    fun `a categoryless notice naming an item still opens that item`() {
+        // US-1379: local sale/grade alerts carry no server category, and the
+        // whole point of one is landing on the item it is about.
+        val message = PushMessage.of(
+            data = mapOf("inventory_item_id" to "i1"),
+            notificationTitle = "You made a sale",
+            notificationBody = "42.00 to flipfan",
+        )
+        assertNull(message.category)
+        assertEquals(DeepLinkRoute.InventoryItem("i1"), message.route)
+    }
+
+    @Test
     fun `an empty push is not rendered`() {
         val message = PushMessage.of(emptyMap(), null, null)
         assertFalse(message.renderable)
