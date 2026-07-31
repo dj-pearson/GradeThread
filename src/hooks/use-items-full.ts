@@ -107,10 +107,19 @@ async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
 }
 
 /**
- * The FULL 61-column read. Only the detail canvases need it — composer, item
- * detail, the prep drawer and the CSV exporters read `comps`,
- * `ai_field_sources`, `item_description` or `notes`. Every other surface
- * should use {@link useItemsList} (US-2188).
+ * The FULL 61-column read: every row, every column.
+ *
+ * US-2188 left this with NO CONSUMERS, deliberately, and that is the state to
+ * keep it in. The surfaces that used to call it now take one of the two reads
+ * that bound their cost — {@link useItemsList} for anything that lists, groups,
+ * filters or charts, {@link useItemFull} for a canvas rendering one item. The
+ * CSV exporters run off the listings page's own LISTINGS_COLUMNS query, which
+ * already carries the wide columns they serialise.
+ *
+ * It stays exported as the honest escape hatch for a future surface that
+ * genuinely needs every column of every row — but reach for it only after
+ * establishing that neither of the other two will do, because this is exactly
+ * the unbounded shape US-2188 removed.
  */
 export function useItemsFull() {
   const user = useAuthStore((s) => s.user);
