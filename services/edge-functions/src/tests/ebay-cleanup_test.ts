@@ -294,3 +294,42 @@ Deno.test("US-2166: the moved bulk-edit keeps its Pro+ gate", () => {
     "bulk edit must still require the bulkActions entitlement",
   );
 });
+
+// ── US-2166: revise is the eBay operator, and says so ───────────────────────
+//
+// Owner's decision, 2026-07-31: revise does NOT become platform-agnostic. What
+// it means on eBay — item aspects, leaf categories, markdown Sale overlays, the
+// inventory_item vs offer field split — has no counterpart on the marketplaces
+// the adapter covers, so forcing it into a shared shape would produce an
+// operation that is eBay's everywhere except in name. AC1 listed revise beside
+// price and end; AC3 said the aspects/markdown pieces stay eBay-side. The
+// decision resolves that tension in AC3's favour.
+//
+// Being the eBay operator means declaring it. loadListingOwned does not filter
+// by platform, so a Shopify or Etsy listing id CAN reach this handler — and
+// before this it went on to call eBay's inventory/offer APIs with that row's
+// ids. These pin the refusal, because a silently-wrong marketplace call is the
+// failure mode that decision is meant to prevent.
+
+Deno.test("US-2166: revise refuses a non-eBay listing rather than guessing", () => {
+  assert(
+    ebayRoute.includes('code: "not_an_ebay_listing"'),
+    "revise must reject a non-eBay row with a machine-readable code",
+  );
+  const revise = ebayRoute.slice(
+    ebayRoute.indexOf('flipdeskEbayRoutes.post("/listings/:id/revise"'),
+  );
+  assert(
+    revise.slice(0, 4000).includes('!== "ebay"'),
+    "the platform guard must run inside the revise handler",
+  );
+});
+
+Deno.test("US-2166: revise stays OUT of the agnostic listing routes", () => {
+  // The inverse guard: if a later change adds a /revise to the agnostic router,
+  // this decision has been reversed by accident rather than on purpose.
+  assert(
+    !listingsRoute.includes('flipdeskListingsRoutes.post("/:id/revise"'),
+    "revise is deliberately not a platform-agnostic route",
+  );
+});

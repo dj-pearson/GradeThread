@@ -5501,6 +5501,32 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   const row = await loadListingOwned(listingId, userId);
   if (!row.ok) return c.json(row.error, row.status);
 
+  // US-2166 DECISION (owner's call, 2026-07-31): revise is an eBay OPERATOR, not
+  // a platform-agnostic lifecycle step, so it deliberately stays here rather
+  // than moving alongside price and end. What "revise" means on eBay — item
+  // aspects, leaf categories, markdown Sale overlays, inventory_item vs offer
+  // field split — has no counterpart on the marketplaces the adapter covers.
+  // Forcing it into a shared shape would produce an operation that is eBay's
+  // everywhere except in name. This matches AC3, which already said the
+  // aspects/markdown pieces stay eBay-side; AC1 listing revise alongside price
+  // and end is resolved in AC3's favour.
+  //
+  // Being the eBay operator means SAYING SO. loadListingOwned does not filter by
+  // platform, so a Shopify or Etsy listing id can reach this handler; before
+  // this it would have gone on to call eBay's inventory/offer APIs with that
+  // row's ids. Refuse it plainly and point at the route that does handle it.
+  if ((row.listing.platform ?? "ebay") !== "ebay") {
+    return c.json(
+      {
+        error:
+          `This is a ${row.listing.platform} listing, and revise is an eBay-only operation. ` +
+          "Change its price with the listing price endpoint, or edit it on that marketplace.",
+        code: "not_an_ebay_listing",
+      },
+      409,
+    );
+  }
+
   // US-1080: eBay-originated listings are a read-only mirror in GradeThread —
   // eBay owns title/description/price/photos. Revising those here would be
   // overwritten on the next inbound sync, so reject the write server-side
