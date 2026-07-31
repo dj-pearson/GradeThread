@@ -69,7 +69,8 @@ const usd = (n: number): string => `$${n.toFixed(2)}`;
 
 /** Comps scan prefilled with the brand (the "source more of X" action). */
 export function sourceCompsLink(brand: string): string {
-  return `/dashboard/flipdesk/scout?brand=${encodeURIComponent(brand)}`;
+  // US-2161: ScoutAI is a Sourcing tab; the brand rides along in the query.
+  return `/dashboard/flipdesk/sourcing?tab=scout&brand=${encodeURIComponent(brand)}`;
 }
 
 /** Inventory filtered to a single brand (so the seller can reprice their stock). */

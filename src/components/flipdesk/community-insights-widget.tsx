@@ -30,7 +30,8 @@ import {
   type Recommendation,
 } from "@/lib/community-recommendations";
 
-const COMMUNITY_ROUTE = "/dashboard/flipdesk/community";
+// US-2161: Community Insights is an Analytics tab now.
+const COMMUNITY_ROUTE = "/dashboard/flipdesk/analytics/community";
 
 // Widget always uses the trailing-12-months window — the most decision-relevant
 // horizon for "what should I be sourcing now".

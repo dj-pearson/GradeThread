@@ -371,7 +371,7 @@ export function CommandPalette() {
         id: "new-source",
         label: "New source",
         icon: <MapPin className="h-4 w-4" />,
-        run: () => go("/dashboard/flipdesk/sources"),
+        run: () => go("/dashboard/flipdesk/sourcing?tab=sources"),
         requires: "manage_inventory",
       },
       {
@@ -589,7 +589,7 @@ export function CommandPalette() {
       navigate(`/dashboard/flipdesk/items?focus=${itemId}`);
     } else {
       setOpen(false);
-      navigate("/dashboard/flipdesk/sources");
+      navigate("/dashboard/flipdesk/sourcing?tab=sources");
     }
   }
 

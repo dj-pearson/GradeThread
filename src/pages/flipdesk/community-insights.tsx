@@ -100,7 +100,10 @@ function saveDismissedRecs(ids: Set<string>): void {
   }
 }
 
-export function FlipdeskCommunityInsightsPage() {
+/** US-2161: `embedded` — see FlipdeskListingPerformancePage for the contract. */
+export function FlipdeskCommunityInsightsPage(
+  { embedded = false }: { embedded?: boolean } = {},
+) {
   const [preset, setPreset] = useState<Preset>("12mo");
   const periodStart = useMemo(() => presetStart(preset), [preset]);
   // US-2235: recommendations are dismissible + expandable beyond the preview.
@@ -124,11 +127,10 @@ export function FlipdeskCommunityInsightsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        icon={Users}
-        title="Community Insights"
-        subtitle="Anonymized market signal from across the GradeThread reseller community."
-        actions={
+      {/* US-2161: the period Select is kept in both modes — see
+          FlipdeskListingPerformancePage for the contract. */}
+      {(() => {
+        const actions = (
           <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
             <SelectTrigger className="w-[160px]">
               <SelectValue />
@@ -139,8 +141,18 @@ export function FlipdeskCommunityInsightsPage() {
               <SelectItem value="90d">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
-        }
-      />
+        );
+        return embedded ? (
+          <div className="flex justify-end">{actions}</div>
+        ) : (
+          <PageHeader
+            icon={Users}
+            title="Community Insights"
+            subtitle="Anonymized market signal from across the GradeThread reseller community."
+            actions={actions}
+          />
+        );
+      })()}
 
       {(() => {
         const minSellers = data?.meta.minSellers ?? MIN_COHORT_SELLERS;
