@@ -732,7 +732,10 @@ struct AutoListerView: View {
                     .buttonStyle(.borderless)
                     .controlSize(.small)
                 Button(role: .destructive) {
-                    withAnimation { model.removeSelected() }
+                    // `_ =` is load-bearing: withAnimation infers its generic
+                    // Result from the closure, so handing it a value-returning
+                    // call in a Void context is a compile error, not a warning.
+                    withAnimation { _ = model.removeSelected() }
                 } label: {
                     Text("Remove")
                 }
@@ -742,7 +745,7 @@ struct AutoListerView: View {
             Button {
                 HapticFeedback.medium()
                 Telemetry.event("autolister_group_created", props: ["photos": count, "method": "manual"])
-                withAnimation { model.groupSelection() }
+                withAnimation { _ = model.groupSelection() }
             } label: {
                 Text("Group \(count) photo\(count == 1 ? "" : "s") as one item")
                     .frame(maxWidth: .infinity)

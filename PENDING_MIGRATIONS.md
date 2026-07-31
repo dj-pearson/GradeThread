@@ -1,8 +1,9 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**⏳ ONE PENDING: 00507.** Prod is at **00506** — confirmed by the operator on
-2026-07-31. `EXPECTED_SCHEMA_VERSION` is now **00507**, so prod is one behind
-this branch until the SQL below is applied.
+**Nothing pending.** Prod is at **00507** — confirmed by the operator on
+2026-07-31, right after PR #232 merged. `EXPECTED_SCHEMA_VERSION` is **00507**
+and the highest migration in the tree is `00507_autolister_handoff_sessions.sql`,
+so schema and code agree.
 
 Why the entries stayed marked HELD after they were applied: this file is edited
 by hand and nothing flips the marker when the SQL runs. The session-start hook
@@ -13,7 +14,7 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00507_autolister_handoff_sessions.sql (US-2374 phone → desktop handoff, 2026-07-31)
+## ✅ APPLIED: 00507_autolister_handoff_sessions.sql (US-2374 phone → desktop handoff, 2026-07-31)
 
 - **Apply order.** After 00506. Idempotent: `CREATE TABLE IF NOT EXISTS`,
   `CREATE INDEX IF NOT EXISTS`, `DROP POLICY`/`CREATE POLICY`,

@@ -285,6 +285,7 @@ final class SpecificsEditorTests: XCTestCase {
     // the same columns, so showing them again is the "why am I typing this in
     // two places" confusion the seller reported. The standalone list keeps them
     // (there, they are the only place to type a Brand).
+    @MainActor
     func test_specsUsage_hidesColumnBackedAspectsInline() {
         let model = SpecificsEditorModel(itemId: "item-1")
         model.specs = [
@@ -318,6 +319,7 @@ final class SpecificsEditorTests: XCTestCase {
 
     // eBay's casing is not ours; a case-sensitive compare would leak a duplicate
     // Brand row onto the page.
+    @MainActor
     func test_isColumnBacked_isCaseAndWhitespaceInsensitive() {
         let model = SpecificsEditorModel(itemId: "item-1")
         model.applyColumnBackedNamesForTesting(["Brand", "US Shoe Size"])
@@ -330,6 +332,7 @@ final class SpecificsEditorTests: XCTestCase {
 
     // An older edge build sends no list — nothing is hidden, which is exactly
     // the pre-change behaviour rather than an empty specifics section.
+    @MainActor
     func test_noColumnBackedNames_hidesNothing() {
         let model = SpecificsEditorModel(itemId: "item-1")
         model.specs = [
