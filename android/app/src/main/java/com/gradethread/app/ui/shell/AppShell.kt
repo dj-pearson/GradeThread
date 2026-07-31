@@ -431,6 +431,17 @@ private fun ShellNavHost(navController: NavHostController) {
                 onShipping = { navController.navigate(ShellRoutes.FULFILLMENT) },
                 onReferrals = { navController.navigate(ShellRoutes.REFERRALS) },
                 onSupport = { navController.navigate(ShellRoutes.SUPPORT) },
+                onImport = { navController.navigate(ShellRoutes.IMPORT) },
+            )
+        }
+        // US-1389: CSV / Sheets import.
+        composable(ShellRoutes.IMPORT) {
+            com.gradethread.app.importer.ImportScreen(
+                onDone = {
+                    navController.navigate(ShellSection.INVENTORY.route) {
+                        popUpTo(ShellRoutes.IMPORT) { inclusive = true }
+                    }
+                },
             )
         }
         // US-1386: the support inbox, and the thread a support.reply push

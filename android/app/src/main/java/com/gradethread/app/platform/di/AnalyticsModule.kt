@@ -8,6 +8,8 @@ import com.gradethread.app.consignment.ConsignorProviding
 import com.gradethread.app.consignment.ConsignorService
 import com.gradethread.app.feedback.FeedbackSending
 import com.gradethread.app.feedback.FeedbackService
+import com.gradethread.app.importer.ImportCommitting
+import com.gradethread.app.importer.ImportService
 import com.gradethread.app.passport.PassportProviding
 import com.gradethread.app.passport.PassportService
 import com.gradethread.app.referrals.ReferralProviding
@@ -95,4 +97,9 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindWorkspaces(impl: WorkspaceRepository): WorkspaceReading
+
+    /** US-1389: CSV import commits. */
+    @Binds
+    @Singleton
+    abstract fun bindImport(impl: ImportService): ImportCommitting
 }

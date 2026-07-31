@@ -33,6 +33,7 @@ fun ToolsScreen(
     onShipping: () -> Unit = {},
     onReferrals: () -> Unit = {},
     onSupport: () -> Unit = {},
+    onImport: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -88,6 +89,11 @@ fun ToolsScreen(
             title = "Invite a friend",
             subtitle = "Share your code and earn grading credits",
             onClick = onReferrals,
+        )
+        ToolRow(
+            title = "Import a spreadsheet",
+            subtitle = "Bring your inventory in from CSV or Sheets",
+            onClick = onImport,
         )
         ToolRow(
             title = "Support",

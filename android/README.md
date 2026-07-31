@@ -447,6 +447,42 @@ Three rules in `Workspaces` (all pure):
 `RealtimeService` at all, so there is no channel to re-home. Wiring a fake one
 would make the switch look like it re-homes realtime when it does not.
 
+## CSV / Sheets import (US-1389)
+
+`importer/`: pick a file → map columns → **preview** → commit. Reached from
+Tools. The parser is a port of the web's `src/lib/csv.ts` rather than a library,
+so a sheet that imports cleanly on the web imports identically here.
+
+The preview step is the point of the flow. A migration writes hundreds of rows
+that are tedious to undo, so nothing is inserted until the seller has seen what
+the mapping actually produced — including which rows are being **skipped** and
+why, named individually rather than summarised into "12 skipped".
+
+Rules that exist because of real failure modes:
+
+- **Locale-aware prices.** The naive "strip everything but digits and dots"
+  reading turns `1.299,00` into `1.29900` — a hundred-fold error in a cost basis
+  that then flows into every profit figure. The right-most `.`/`,` is the
+  decimal separator (iOS US-1162). An accounting negative `(5.00)` is negative;
+  `$20 (sale)` is not.
+- **An unknown value is null, never a guess.** An unrecognised status leaves the
+  default rather than mapping "pending" → "listed", which would tell a seller
+  stock is live when it isn't. An unparseable price is null, not zero — zero is
+  a real claim.
+- **A BOM is stripped.** Excel/Sheets "CSV UTF-8" prepends one, whitespace
+  trimming doesn't remove it, and auto-mapping would silently miss the first
+  column.
+- **Duplicate SKUs are skipped, not merged**, matching the web import;
+  in-batch collisions resolve in sheet order so the first wins.
+- **Row numbers are 1-based and count the header**, so an error points at the
+  line the seller can see.
+
+Commit inserts row by row, not in one batch: a single bad row would fail
+everything and give no clue which line was at fault. A row that fails **because
+the device is offline** is enqueued on the offline mutation queue (the same
+insert-then-queue path `CapturePublisher` uses) and reported as "waiting to
+send", not as a failure — a migration started on a train finishes itself.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

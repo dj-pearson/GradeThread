@@ -70,6 +70,9 @@ object ShellRoutes {
     /** US-1385: your referral code and a friend's, reached from Tools. */
     const val REFERRALS = "referrals"
 
+    /** US-1389: CSV / Sheets import, reached from Tools. */
+    const val IMPORT = "import"
+
     /** US-1386: the support inbox, reached from Tools or a support.reply push. */
     const val SUPPORT = "support"
 
