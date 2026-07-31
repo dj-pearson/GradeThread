@@ -3597,3 +3597,59 @@ Deno.test({
     assertDenied(res.status, "GET logistics capabilities with no auth");
   },
 });
+
+Deno.test({
+  // US-2166 (AC6): the lifecycle operations gained canonical mount points under
+  // /api/flipdesk/listings. They resolve the listing through
+  // inventory_items.user_id before any write, so B repricing, ending or
+  // bulk-editing A's listing must be refused at the NEW paths too — the old
+  // eBay-namespaced cases prove nothing about these.
+  name: "US-2166: B cannot reprice, end or bulk-edit A's listing at the agnostic paths",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+
+    const price = await fetch(`${BASE}/api/flipdesk/listings/${id}/price`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ price: 1 }),
+    });
+    await price.body?.cancel();
+    assertDenied(price.status, "POST listings/:id/price (A's listing)");
+
+    const end = await fetch(`${BASE}/api/flipdesk/listings/${id}/end`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await end.body?.cancel();
+    assertDenied(end.status, "POST listings/:id/end (A's listing)");
+
+    // Bulk takes ids in the BODY, so a denial here cannot come from the URL —
+    // it has to come from the per-row ownership filter. A 402 is also a pass:
+    // B lacking the bulkActions entitlement is refused even earlier, and never
+    // reaches A's rows either way.
+    const bulk = await fetch(`${BASE}/api/flipdesk/listings/bulk-edit`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [id], edit: { listing_price: 1 } }),
+    });
+    const bulkBody = (await bulk.json().catch(() => ({}))) as {
+      summary?: { ok?: number };
+      results?: Array<{ ok?: boolean }>;
+    };
+    if (bulk.status === 200) {
+      // The route answers 200 with per-row outcomes, so the assertion is that
+      // A's row was NOT edited — not that the call failed.
+      assertEquals(
+        bulkBody.results?.filter((r) => r.ok).length ?? 0,
+        0,
+        "bulk-edit must not apply to another tenant's listing",
+      );
+    } else {
+      assert(
+        [401, 402, 403, 404].includes(bulk.status),
+        `POST listings/bulk-edit for another tenant should be denied, got ${bulk.status}`,
+      );
+    }
+  },
+});

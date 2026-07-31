@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import {
@@ -25,7 +26,16 @@ import {
   isNoEbayConnectionError,
   isOfferAlreadyEndedError,
 } from "../lib/ebay-client.ts";
-import { MAX_BULK_EDIT_ITEMS } from "../lib/bulk-listing-edit.ts";
+import {
+  type BulkEditPatch,
+  type LoadedListing,
+  MAX_BULK_EDIT_ITEMS,
+  normalizeBulkEdit,
+  processBulkEdit,
+  summarizeBulkEdit,
+} from "../lib/bulk-listing-edit.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
+import { deriveListingOrigin } from "../lib/sync-precedence.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { markItemListed } from "../lib/active-listings.ts";
 // US-2166: the platform-agnostic lifecycle core, shared with the
@@ -1275,3 +1285,130 @@ flipdeskListingsRoutes.post("/bulk-end", async (c) => {
     results,
   });
 });
+
+// ── POST /bulk-edit (US-1292, moved here by US-2166) ────────────────
+// Multi-select bulk edit of shared fields (price, quantity, condition, business
+// policies, category) across connected marketplaces via the adapter
+// abstraction. Tenant-scoped (US-268); respects field-ownership locks on
+// marketplace-originated listings (US-1080 — never overwrites eBay-owned fields
+// on an eBay-originated listing); bounded by MAX_BULK_EDIT_ITEMS. Reports a
+// per-item outcome (ok | blocked | error) so a partial-failure batch is legible.
+//
+// Exported so the retired /api/flipdesk/ebay/listings/bulk-edit path can forward
+// to it for shipped clients instead of keeping a second copy.
+// The context is loosely typed on purpose: this one handler is mounted on TWO
+// Hono instances whose generic Env types differ (the eBay router carries extra
+// variables), and a narrow signature would reject one of them. It reads only
+// the two variables both routers set, both guaranteed by the shared auth +
+// workspace middleware.
+// deno-lint-ignore no-explicit-any
+export const bulkEditListingsHandler = async (c: Context<any>) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  // Bulk multi-listing actions are a Pro+ feature (US-208).
+  const gate = await requireFlipdesk(c, { feature: "bulkActions", userId });
+  if (gate) return gate;
+  let body: { listing_ids?: unknown; edit?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const ids = Array.isArray(body.listing_ids)
+    ? [...new Set(body.listing_ids.filter((x): x is string => typeof x === "string"))]
+    : [];
+  if (ids.length === 0) return c.json({ error: "listing_ids required" }, 400);
+  if (ids.length > MAX_BULK_EDIT_ITEMS) {
+    return c.json({ error: `Too many listings (max ${MAX_BULK_EDIT_ITEMS}).` }, 400);
+  }
+
+  const patch = normalizeBulkEdit(body.edit as Record<string, unknown> | null);
+  if (!patch) return c.json({ error: "No valid fields to edit." }, 400);
+  const fieldNames = Object.keys(patch);
+
+  // Load only the caller's listings (tenant-scoped via the parent item owner).
+  const { data: rows } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, platform, platform_offer_id, platform_listing_id, listing_origin, batch_id, synced_to_ebay_at, listing_price, inventory_item_id, inventory_items!inner(user_id)",
+    )
+    .in("id", ids)
+    .eq("inventory_items.user_id", userId);
+  type OwnedListingRow = {
+    id: string;
+    platform: string | null;
+    platform_offer_id: string | null;
+    platform_listing_id: string | null;
+    listing_origin: string | null;
+    batch_id: string | null;
+    synced_to_ebay_at: string | null;
+    listing_price: number | null;
+    inventory_item_id: string | null;
+  };
+  const byId = new Map<string, OwnedListingRow>(
+    ((rows ?? []) as unknown as OwnedListingRow[]).map((r) => [r.id, r]),
+  );
+
+  const resolve = (id: string): LoadedListing | null => {
+    const row = byId.get(id);
+    if (!row) return null;
+    return {
+      id,
+      origin: deriveListingOrigin({
+        listing_origin: row.listing_origin,
+        platform: row.platform,
+        platform_listing_id: row.platform_listing_id,
+        batch_id: row.batch_id,
+        synced_to_ebay_at: row.synced_to_ebay_at,
+      }),
+    };
+  };
+
+  // Persist the writable fields locally, then push the listing to its
+  // marketplace through the adapter (an idempotent re-publish for eBay).
+  const apply = async (
+    listing: LoadedListing,
+    applyFields: string[],
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const row = byId.get(listing.id)!;
+    const writePatch: Record<string, unknown> = {};
+    for (const f of applyFields) {
+      writePatch[f] = (patch as Record<string, unknown>)[f];
+    }
+    if (Object.keys(writePatch).length > 0) {
+      const { error } = await supabaseAdmin
+        .from("listings")
+        .update(writePatch as never)
+        .eq("id", listing.id);
+      if (error) return { ok: false, error: error.message.slice(0, 200) };
+    }
+
+    const adapter = resolveAdapter(row.platform);
+    if (!adapter) {
+      return { ok: false, error: `${row.platform ?? "This marketplace"} isn't a supported marketplace.` };
+    }
+    if (!row.inventory_item_id) {
+      return { ok: false, error: "Listing has no linked inventory item." };
+    }
+    const price = (patch as BulkEditPatch).listing_price ?? row.listing_price ?? 0;
+    const res = await adapter.updateListing({
+      ownerId: userId,
+      inventoryItemId: row.inventory_item_id,
+      listingRowId: listing.id,
+      price,
+    });
+    return res.ok ? { ok: true } : { ok: false, error: res.error };
+  };
+
+  const results = await processBulkEdit(ids, fieldNames, resolve, apply);
+  const summary = summarizeBulkEdit(results);
+
+  await writeAuditLog(c, {
+    action: "flipdesk.bulk_edit_listings",
+    targetType: "listings",
+    details: { requested: ids.length, fields: fieldNames, ...summary },
+  });
+  return c.json({ ok: true, results, summary, total: results.length });
+};
+
+flipdeskListingsRoutes.post("/bulk-edit", bulkEditListingsHandler);

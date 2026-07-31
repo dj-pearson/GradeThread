@@ -221,21 +221,15 @@ import {
   LISTING_PULL_ALLOWED_ON_GT_ORIGIN,
   validateEbayOriginEdit,
 } from "../lib/sync-precedence.ts";
-import { resolveAdapter } from "../lib/marketplace-adapters/index.ts";
 // US-2166: the shared platform-agnostic lifecycle core.
 import { applyListingPrice } from "../lib/listing-lifecycle.ts";
+// US-2166 (AC5): the bulk-edit handler now lives with the other
+// platform-agnostic listing operations; this file only forwards to it.
+import { bulkEditListingsHandler } from "./flipdesk-listings.ts";
 import {
   itemHasActiveListing,
   resyncItemListedStatus,
 } from "../lib/active-listings.ts";
-import {
-  MAX_BULK_EDIT_ITEMS,
-  normalizeBulkEdit,
-  processBulkEdit,
-  summarizeBulkEdit,
-  type BulkEditPatch,
-  type LoadedListing,
-} from "../lib/bulk-listing-edit.ts";
 import {
   buildPriceQtyRequest,
   chunk,
@@ -5027,121 +5021,13 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
 });
 
 // ── Bulk-edit live listings (US-1292) ───────────────────────────────
-// POST /listings/bulk-edit — body { listing_ids: string[], edit: {...} }.
-// Multi-select bulk edit of shared fields (price, quantity, condition, business
-// policies, category) applied across connected marketplaces via the adapter
-// abstraction. Tenant-scoped (US-268); respects field-ownership locks on
-// marketplace-originated listings (US-1080 — never overwrites eBay-owned fields
-// on an eBay-originated listing); bounded by MAX_BULK_EDIT_ITEMS. Reports a
-// per-item outcome (ok | blocked | error) so a partial-failure batch is legible.
-flipdeskEbayRoutes.post("/listings/bulk-edit", async (c) => {
-  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  // Bulk multi-listing actions are a Pro+ feature (US-208).
-  const gate = await requireFlipdesk(c, { feature: "bulkActions", userId });
-  if (gate) return gate;
-  let body: { listing_ids?: unknown; edit?: unknown };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
+// US-2166 (AC5): the handler MOVED to routes/flipdesk-listings.ts. It was
+// always adapter-driven and never eBay-specific — only its mount point was
+// wrong, which is exactly what the story called out. This path stays registered
+// because shipped iOS, Android and browser-extension builds call it and cannot
+// be redeployed; it forwards rather than keeping a second copy.
+flipdeskEbayRoutes.post("/listings/bulk-edit", (c) => bulkEditListingsHandler(c));
 
-  const ids = Array.isArray(body.listing_ids)
-    ? [...new Set(body.listing_ids.filter((x): x is string => typeof x === "string"))]
-    : [];
-  if (ids.length === 0) return c.json({ error: "listing_ids required" }, 400);
-  if (ids.length > MAX_BULK_EDIT_ITEMS) {
-    return c.json({ error: `Too many listings (max ${MAX_BULK_EDIT_ITEMS}).` }, 400);
-  }
-
-  const patch = normalizeBulkEdit(body.edit as Record<string, unknown> | null);
-  if (!patch) return c.json({ error: "No valid fields to edit." }, 400);
-  const fieldNames = Object.keys(patch);
-
-  // Load only the caller's listings (tenant-scoped via the parent item owner).
-  const { data: rows } = await supabaseAdmin
-    .from("listings")
-    .select(
-      "id, platform, platform_offer_id, platform_listing_id, listing_origin, batch_id, synced_to_ebay_at, listing_price, inventory_item_id, inventory_items!inner(user_id)",
-    )
-    .in("id", ids)
-    .eq("inventory_items.user_id", userId);
-  type OwnedListingRow = {
-    id: string;
-    platform: string | null;
-    platform_offer_id: string | null;
-    platform_listing_id: string | null;
-    listing_origin: string | null;
-    batch_id: string | null;
-    synced_to_ebay_at: string | null;
-    listing_price: number | null;
-    inventory_item_id: string | null;
-  };
-  const byId = new Map<string, OwnedListingRow>(
-    ((rows ?? []) as unknown as OwnedListingRow[]).map((r) => [r.id, r]),
-  );
-
-  const resolve = (id: string): LoadedListing | null => {
-    const row = byId.get(id);
-    if (!row) return null;
-    return {
-      id,
-      origin: deriveListingOrigin({
-        listing_origin: row.listing_origin,
-        platform: row.platform,
-        platform_listing_id: row.platform_listing_id,
-        batch_id: row.batch_id,
-        synced_to_ebay_at: row.synced_to_ebay_at,
-      }),
-    };
-  };
-
-  // Persist the writable fields locally, then push the listing to its
-  // marketplace through the adapter (an idempotent re-publish for eBay).
-  const apply = async (
-    listing: LoadedListing,
-    applyFields: string[],
-  ): Promise<{ ok: boolean; error?: string }> => {
-    const row = byId.get(listing.id)!;
-    const writePatch: Record<string, unknown> = {};
-    for (const f of applyFields) {
-      writePatch[f] = (patch as Record<string, unknown>)[f];
-    }
-    if (Object.keys(writePatch).length > 0) {
-      const { error } = await supabaseAdmin
-        .from("listings")
-        .update(writePatch as never)
-        .eq("id", listing.id);
-      if (error) return { ok: false, error: error.message.slice(0, 200) };
-    }
-
-    const adapter = resolveAdapter(row.platform);
-    if (!adapter) {
-      return { ok: false, error: `${row.platform ?? "This marketplace"} isn't a supported marketplace.` };
-    }
-    if (!row.inventory_item_id) {
-      return { ok: false, error: "Listing has no linked inventory item." };
-    }
-    const price = (patch as BulkEditPatch).listing_price ?? row.listing_price ?? 0;
-    const res = await adapter.updateListing({
-      ownerId: userId,
-      inventoryItemId: row.inventory_item_id,
-      listingRowId: listing.id,
-      price,
-    });
-    return res.ok ? { ok: true } : { ok: false, error: res.error };
-  };
-
-  const results = await processBulkEdit(ids, fieldNames, resolve, apply);
-  const summary = summarizeBulkEdit(results);
-
-  await writeAuditLog(c, {
-    action: "flipdesk.bulk_edit_listings",
-    targetType: "listings",
-    details: { requested: ids.length, fields: fieldNames, ...summary },
-  });
-  return c.json({ ok: true, results, summary, total: results.length });
-});
 
 // ── Markdown / Sale events (US-1045) ────────────────────────────────
 // POST /listings/:id/sale — start an eBay markdown Sale (strike-through price +

@@ -231,3 +231,66 @@ Deno.test("US-2166: the owned-listing load actually selects those columns", () =
     "must select the item sku (the group key)",
   );
 });
+
+// ── US-2166 (AC1 + AC5): one implementation, two mount points ───────────────
+//
+// price and bulk-edit each used to exist twice — once platform-agnostic, once
+// under the eBay namespace. Two copies of an operation that moves a seller's
+// prices is how a fix lands in one and not the other, and the price pair had
+// already drifted (the agnostic one reports a marketplace-accepted-but-locally-
+// unsaved write; the eBay one ignored it).
+//
+// The eBay paths must KEEP ANSWERING — shipped iOS, Android and extension
+// builds call them and cannot be redeployed — so these pin both halves: the
+// route is still registered, and it forwards rather than re-implementing.
+
+const ebayRoute = Deno.readTextFileSync(
+  new URL("../routes/flipdesk-ebay.ts", import.meta.url),
+);
+
+Deno.test("US-2166: the eBay price path forwards to the shared core", () => {
+  assert(
+    ebayRoute.includes('flipdeskEbayRoutes.post("/listings/:id/price"'),
+    "the shipped-client path must stay registered",
+  );
+  assert(
+    ebayRoute.includes("applyListingPrice("),
+    "it must call the shared core",
+  );
+  // The tell that it kept its own copy: the direct marketplace call.
+  assert(
+    !ebayRoute.includes("await updateOfferPrice("),
+    "it must not still push the price itself",
+  );
+});
+
+Deno.test("US-2166: bulk-edit is mounted with the listing operations, and forwards", () => {
+  assert(
+    ebayRoute.includes('flipdeskEbayRoutes.post("/listings/bulk-edit"'),
+    "the shipped-client path must stay registered",
+  );
+  assert(
+    ebayRoute.includes("bulkEditListingsHandler(c)"),
+    "it must forward to the moved handler",
+  );
+  assert(
+    listingsRoute.includes('flipdeskListingsRoutes.post("/bulk-edit"'),
+    "the canonical mount must exist",
+  );
+  assert(
+    !ebayRoute.includes("processBulkEdit("),
+    "the handler body must no longer live in the eBay router",
+  );
+});
+
+Deno.test("US-2166: the moved bulk-edit keeps its Pro+ gate", () => {
+  // A move is the easiest place to drop a plan gate, and dropping this one
+  // hands a paid bulk action to every tier.
+  const handler = listingsRoute.slice(
+    listingsRoute.indexOf("export const bulkEditListingsHandler"),
+  );
+  assert(
+    handler.slice(0, 600).includes('feature: "bulkActions"'),
+    "bulk edit must still require the bulkActions entitlement",
+  );
+});
