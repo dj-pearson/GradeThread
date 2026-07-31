@@ -86,7 +86,6 @@ import {
   syncBusinessPolicies,
   syncExistingOffer,
   updateOfferFields,
-  updateOfferPrice,
   bulkUpdatePriceQuantity,
   EBAY_BULK_MAX,
   upsertConnection,
@@ -223,6 +222,8 @@ import {
   validateEbayOriginEdit,
 } from "../lib/sync-precedence.ts";
 import { resolveAdapter } from "../lib/marketplace-adapters/index.ts";
+// US-2166: the shared platform-agnostic lifecycle core.
+import { applyListingPrice } from "../lib/listing-lifecycle.ts";
 import {
   itemHasActiveListing,
   resyncItemListedStatus,
@@ -4832,6 +4833,22 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/evidence", async (c) => {
 // the user manually marked an item "listed" via MarkListedDialog), the
 // route returns 409 and the UI falls back to local-only.
 
+// US-2166: this path now DELEGATES to the shared lifecycle core rather than
+// keeping its own copy. It stays mounted because shipped iOS, Android and
+// browser-extension builds call it and cannot be redeployed — but a second
+// implementation of a money-touching operation is how a fix lands in one and
+// not the other, and these two had already drifted: the shared core reports
+// honestly when the marketplace accepted a price our copy then failed to save,
+// while this route used to ignore that write error entirely.
+//
+// Behaviour the delegation IMPROVES for callers of this path, all additive:
+//   • the origin gate reads the row's real platform instead of a hardcoded
+//     "ebay" (a Shopify row was being told eBay owns its price),
+//   • a never-published draft records its price instead of 409-ing on a missing
+//     offer id,
+//   • a marketplace-accepted-but-locally-unsaved write is reported, not hidden.
+// The success body gains `pushed` and keeps every field it had, so an older
+// client that ignores the new key is unaffected.
 flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -4850,84 +4867,21 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
     return c.json({ error: "price must be a positive number" }, 400);
   }
 
-  const row = await loadListingOwned(listingId, userId);
-  if (!row.ok) return c.json(row.error, row.status);
-
-  // US-1976: an eBay-originated listing is a read-only mirror — eBay owns its
-  // price, so reject a reprice with the same 409 + locked_fields contract as
-  // /revise. Checked BEFORE the offer-id gate so an eBay-origin row that carries
-  // an offer id is still rejected as locked, not silently repriced.
-  const priceLock = ebayOriginWriteLock(
-    {
-      listing_origin: row.listing.listing_origin,
-      // US-2166: the row's own platform, not a literal.
-      platform: row.listing.platform,
-      platform_listing_id: row.listing.platform_listing_id,
-      batch_id: row.listing.batch_id,
-      synced_to_ebay_at: row.listing.synced_to_ebay_at,
-    },
-    ["listing_price"],
-  );
-  if (priceLock.locked) {
+  const res = await applyListingPrice(userId, listingId, price);
+  if (!res.ok) {
     return c.json(
-      {
-        error:
-          "This listing was created on eBay, so eBay owns its price. Reprice it on eBay — changes here would be overwritten on the next sync.",
-        locked_fields: priceLock.lockedFields,
-      },
-      409
+      res.lockedFields
+        ? { error: res.error, locked_fields: res.lockedFields }
+        : { error: res.error },
+      res.status,
     );
   }
-
-  if (!row.listing.platform_offer_id) {
-    return c.json(
-      {
-        error:
-          "This listing has no eBay offer id. Sync from eBay or republish to enable price updates.",
-      },
-      409
-    );
-  }
-
-  try {
-    // US-1507: price the offer via the listing's own connection (null → primary).
-    await updateOfferPrice(
-      userId, row.listing.platform_offer_id, price, "USD",
-      row.listing.marketplace_connection_id ?? undefined,
-    );
-  } catch (err) {
-    console.error("[flipdesk-ebay] updateOfferPrice failed:", err);
-    return c.json(
-      {
-        error: "eBay rejected the price update.",
-        // US-1511: mapped/human detail only — raw blob stays in the log above.
-        detail: ebayFailureDetail(
-          err,
-          "eBay rejected the price update. Check the price is valid for this listing and try again.",
-        ),
-      },
-      502
-    );
-  }
-
-  await supabaseAdmin
-    .from("listings")
-    .update({ listing_price: price })
-    .eq("id", listingId);
-
-  // US-1504: mirror the new live price onto the item's target_price so the canvas
-  // "price not pushed to eBay" badge (which compares target_price vs the live
-  // listing price) doesn't invert after an eBay-side reprice — and re-saving the
-  // canvas won't revert the live price to a stale target.
-  if (row.listing.inventory_item_id) {
-    await supabaseAdmin
-      .from("inventory_items")
-      .update({ target_price: price })
-      .eq("id", row.listing.inventory_item_id)
-      .eq("user_id", userId);
-  }
-
-  return c.json({ ok: true, listing_id: listingId, price });
+  return c.json({
+    ok: true,
+    listing_id: listingId,
+    price: res.price,
+    pushed: res.pushed,
+  });
 });
 
 // ── Bulk price / quantity update (US-1046 clean surface) ────────────

@@ -21,18 +21,26 @@ import {
 } from "../lib/cross-push.ts";
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
-import { ebayOriginWriteLock } from "../lib/sync-precedence.ts";
 import {
   isNoEbayConnectionError,
   isOfferAlreadyEndedError,
-  updateOfferPrice,
 } from "../lib/ebay-client.ts";
 import { MAX_BULK_EDIT_ITEMS } from "../lib/bulk-listing-edit.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { markItemListed } from "../lib/active-listings.ts";
+// US-2166: the platform-agnostic lifecycle core, shared with the
+// eBay-namespaced routes so price and end have exactly ONE implementation.
+import { resyncItemListedStatus } from "../lib/active-listings.ts";
 import {
-  markItemListed,
-  resyncItemListedStatus,
-} from "../lib/active-listings.ts";
+  adapterStatus,
+  applyListingPrice,
+  endLocally,
+  loadOwnedListing,
+  originLockResponse,
+  platformName,
+  pushPriceUpstream,
+  wasPublishedUpstream,
+} from "../lib/listing-lifecycle.ts";
 
 // Multi-marketplace cross-listing dispatch (US-149 + US-564).
 //
@@ -724,191 +732,9 @@ flipdeskListingsRoutes.delete("/item/:id", async (c) => {
 // loadOwnedListing, which filters on inventory_items.user_id. An id from the
 // request never reaches a write without that check.
 
-interface OwnedListingRow {
-  id: string;
-  inventory_item_id: string | null;
-  platform: string | null;
-  listing_price: number | null;
-  listing_status: string | null;
-  listing_url: string | null;
-  platform_offer_id: string | null;
-  platform_listing_id: string | null;
-  listing_origin: string | null;
-  batch_id: string | null;
-  synced_to_ebay_at: string | null;
-  marketplace_connection_id: string | null;
-  // US-2166: an eBay multi-variation listing publishes as an inventory_item_group
-  // and carries NO platform_offer_id, so it can only be withdrawn by its group
-  // key. Without these two the adapter answered "no offer id to withdraw" and
-  // left the listing LIVE — a regression this route introduced when US-2162
-  // pointed the listings page at it.
-  variations: unknown;
-  item_sku: string | null;
-}
-
-// Owner-verified listing load (US-268 rule 2 — ownership via the parent item).
-// Selects the columns the agnostic lifecycle needs, INCLUDING `platform`, whose
-// absence from the eBay loader is what let the origin lock be computed against a
-// hardcoded "ebay" for every row.
-async function loadOwnedListing(
-  listingId: string,
-  ownerId: string,
-): Promise<OwnedListingRow | null> {
-  const { data } = await supabaseAdmin
-    .from("listings")
-    .select(
-      "id, inventory_item_id, platform, listing_price, listing_status, listing_url, " +
-        "platform_offer_id, platform_listing_id, listing_origin, batch_id, " +
-        "synced_to_ebay_at, marketplace_connection_id, variations, " +
-        "inventory_items!inner(user_id, sku)",
-    )
-    .eq("id", listingId)
-    .maybeSingle();
-  if (!data) return null;
-  const row = data as unknown as OwnedListingRow & {
-    inventory_items: { user_id: string; sku: string | null };
-  };
-  if (row.inventory_items.user_id !== ownerId) return null;
-  // The group key lives on the ITEM, not the listing row.
-  return { ...row, item_sku: row.inventory_items.sku };
-}
-
-// Was this row ever actually published to its marketplace? This is orthogonal to
-// is_active: a row can sit in 'draft' status (is_active=false since US-2176) yet
-// have reached the marketplace, and that published-draft must still count as
-// live. So liveness is status + this upstream check, not the is_active mirror.
-function wasPublishedUpstream(row: OwnedListingRow): boolean {
-  return Boolean(
-    row.platform_offer_id || row.platform_listing_id || row.synced_to_ebay_at,
-  );
-}
-
-// The 409 an eBay-ORIGINATED listing gets for any write to a field eBay owns
-// (US-1976). Computed against the row's real platform, so a Shopify row is never
-// mislabelled as eBay-owned.
-function originLockResponse(
-  row: OwnedListingRow,
-  fields: string[],
-): { locked: true; body: Record<string, unknown> } | { locked: false } {
-  const lock = ebayOriginWriteLock(
-    {
-      listing_origin: row.listing_origin,
-      platform: row.platform,
-      platform_listing_id: row.platform_listing_id,
-      batch_id: row.batch_id,
-      synced_to_ebay_at: row.synced_to_ebay_at,
-    },
-    fields,
-  );
-  if (!lock.locked) return { locked: false };
-  return {
-    locked: true,
-    body: {
-      error:
-        "This listing was created on eBay, so eBay owns it. Change it on eBay — " +
-        "edits here would be overwritten on the next sync.",
-      locked_fields: lock.lockedFields,
-    },
-  };
-}
-
-/** Human marketplace name for an error message. */
-function platformName(platform: string | null): string {
-  return platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : "This marketplace";
-}
-
-// Status codes the lifecycle handlers can return, as a literal union (the
-// LoadListingResult convention in flipdesk-ebay.ts) so no handler has to cast a
-// bare number into c.json's status parameter.
-type LifecycleStatus = 409 | 500 | 501 | 502;
-interface LifecycleFailure {
-  status: LifecycleStatus;
-  error: string;
-}
-
-// Collapse an adapter's numeric status into the codes this surface returns.
-// Explicit rather than a cast: an adapter is free to hand back anything, and
-// asserting `as 502` over a 400 would put a lie in the type system.
-function adapterStatus(status: number): 409 | 501 | 502 {
-  if (status === 501) return 501; // capability not wired for this platform
-  if (status === 409) return 409; // conflicting state (not connected, no id)
-  return 502; // the marketplace refused
-}
-
-// Push a new price to the row's marketplace. Returns null on success, or the
-// error to surface.
-//
-// ORDERING (this is the whole correctness property): callers push FIRST and
-// write listings.listing_price only after this returns null. There is therefore
-// no window in which the local price is ahead of the marketplace, and no
-// rollback that could itself fail and strand the divergence.
-//
-// That ordering is safe because every adapter takes the price from its INPUT
-// when it is > 0 (shopify.ts / etsy.ts / depop.ts all read
-// `price > 0 ? price : row.listing_price`) and this function is only ever called
-// with a validated positive price — so none of them read the not-yet-written
-// column. If an adapter ever starts sourcing the price from the row, this
-// ordering has to be revisited.
-async function pushPriceUpstream(
-  ownerId: string,
-  row: OwnedListingRow,
-  price: number,
-): Promise<LifecycleFailure | null> {
-  if (row.platform === "ebay") {
-    if (!row.platform_offer_id) {
-      return {
-        status: 409,
-        error:
-          "This listing has no eBay offer id. Sync from eBay or republish to enable price updates.",
-      };
-    }
-    try {
-      // US-1507: price the offer via the listing's own connection (null → primary).
-      await updateOfferPrice(
-        ownerId,
-        row.platform_offer_id,
-        price,
-        "USD",
-        row.marketplace_connection_id ?? undefined,
-      );
-      return null;
-    } catch (err) {
-      console.error("[flipdesk-listings] updateOfferPrice failed:", err);
-      return { status: 502, error: "eBay rejected the price update." };
-    }
-  }
-
-  const adapter = resolveAdapter(row.platform);
-  if (!adapter) {
-    return {
-      status: 501,
-      error: `${platformName(row.platform)} isn't a supported marketplace.`,
-    };
-  }
-  if (!row.inventory_item_id) {
-    return { status: 409, error: "This listing has no linked inventory item." };
-  }
-  try {
-    const res = await adapter.updateListing({
-      ownerId,
-      inventoryItemId: row.inventory_item_id,
-      listingRowId: row.id,
-      price,
-    });
-    if (res.ok) return null;
-    return { status: adapterStatus(res.status), error: res.error };
-  } catch (err) {
-    // An adapter that throws rather than returning a typed failure must not be
-    // mistaken for success — that is exactly how the local price used to drift.
-    console.error("[flipdesk-listings] adapter updateListing threw:", err);
-    return {
-      status: 502,
-      error: `${platformName(row.platform)} rejected the price update.`,
-    };
-  }
-}
-
 // POST /:id/price — reprice ONE listing on its own marketplace.
+// The work lives in lib/listing-lifecycle.ts so the eBay-namespaced route below
+// can share it rather than keep a second copy (US-2166).
 flipdeskListingsRoutes.post("/:id/price", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const listingId = c.req.param("id");
@@ -925,60 +751,21 @@ flipdeskListingsRoutes.post("/:id/price", async (c) => {
     return c.json({ error: "price must be a positive number." }, 400);
   }
 
-  const row = await loadOwnedListing(listingId, ownerId);
-  if (!row) return c.json({ error: "Listing not found." }, 404);
-
-  const lock = originLockResponse(row, ["listing_price"]);
-  if (lock.locked) return c.json(lock.body, 409);
-
-  // A draft that was never published has no marketplace to push to — just record
-  // the price. This is the ONE legitimate local-only write, and it is local-only
-  // because nothing is live, not because a remote call failed.
-  if (!wasPublishedUpstream(row)) {
-    const { error } = await supabaseAdmin
-      .from("listings")
-      .update({ listing_price: price })
-      .eq("id", listingId);
-    if (error) return c.json({ error: "Could not save the price." }, 500);
-    return c.json({ ok: true, listing_id: listingId, price, pushed: false });
-  }
-
-  // Push FIRST. A failure returns here without ever having touched the local
-  // row, so the seller's price keeps matching the live listing — no rollback to
-  // get wrong, and no window where the two disagree.
-  const failure = await pushPriceUpstream(ownerId, row, price);
-  if (failure) return c.json({ error: failure.error }, failure.status);
-
-  const { error: writeErr } = await supabaseAdmin
-    .from("listings")
-    .update({ listing_price: price })
-    .eq("id", listingId);
-  if (writeErr) {
-    // The marketplace HAS the new price; only our copy is stale. Report it
-    // rather than claiming success, but say which way round the mismatch is —
-    // "retry" would otherwise re-push a price that is already live.
-    console.error("[flipdesk-listings] price pushed but local write failed:", writeErr.message);
+  const res = await applyListingPrice(ownerId, listingId, price);
+  if (!res.ok) {
     return c.json(
-      {
-        error:
-          "The new price is live on the marketplace, but we couldn't update our copy. " +
-          "It'll correct on the next sync.",
-      },
-      500,
+      res.status === 409 && res.lockedFields
+        ? { error: res.error, locked_fields: res.lockedFields }
+        : { error: res.error },
+      res.status,
     );
   }
-
-  // US-1504: mirror the live price onto the item's target_price so the canvas
-  // "price not pushed" badge doesn't invert after a reprice.
-  if (row.inventory_item_id) {
-    await supabaseAdmin
-      .from("inventory_items")
-      .update({ target_price: price })
-      .eq("id", row.inventory_item_id)
-      .eq("user_id", ownerId);
-  }
-
-  return c.json({ ok: true, listing_id: listingId, price, pushed: true });
+  return c.json({
+    ok: true,
+    listing_id: listingId,
+    price: res.price,
+    pushed: res.pushed,
+  });
 });
 
 // POST /:id/end — end ONE listing on its own marketplace.
@@ -1125,31 +912,6 @@ flipdeskListingsRoutes.post("/:id/end", async (c) => {
   return c.json({ ok: true, listing_id: listingId, ended_upstream: true });
 });
 
-// Reconcile the local rows after a confirmed end: the listing stops being live
-// and the item returns to 'drafted' so it can be relisted. Tenant-scoped on the
-// item write; the listing id is already owner-verified by the caller.
-//
-// US-2179: the item only goes back to 'drafted' once NOTHING is live anywhere.
-// The old unconditional revert meant ending the Depop listing of an item still
-// live on eBay marked the whole item a draft — freeing an activeListings cap
-// slot the seller was still using, and showing a selling item in the Drafts tab.
-async function endLocally(
-  listingId: string,
-  inventoryItemId: string | null,
-  ownerId: string,
-): Promise<void> {
-  const { error: lErr } = await supabaseAdmin
-    .from("listings")
-    .update({ listing_status: "ended", is_active: false })
-    .eq("id", listingId);
-  if (lErr) {
-    console.error("[flipdesk-listings] end: listing update failed:", lErr.message);
-    // The row is still marked live, so the resync below would (correctly) keep
-    // the item 'listed'. Bail rather than imply the end reconciled cleanly.
-    return;
-  }
-  await resyncItemListedStatus(inventoryItemId, ownerId);
-}
 
 // POST /bulk-price — US-2163: reprice a SELECTION in one request.
 //
