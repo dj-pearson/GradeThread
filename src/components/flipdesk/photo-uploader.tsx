@@ -21,6 +21,13 @@ import { usePhotoProfile } from "@/lib/photo-profiles";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { nextUploadSortOrder } from "@/lib/photo-order";
 import { compressImage } from "@/lib/image-utils";
+import {
+  assessMacroPhoto,
+  measureMacroPhoto,
+  uploadMaxWidthFor,
+  type MacroQualityAssessment,
+} from "@/lib/macro-photo-quality";
+import { captureGuidanceFor } from "@/lib/macro-capture-guidance";
 import { normalizeToImageFile } from "@/lib/media-intake";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import {
@@ -120,7 +127,11 @@ export function PhotoUploader({
     picked: File,
     photoType: FlipdeskPhotoType,
     sortOrder: number,
-  ): Promise<{ originalSize: number; storedSize: number }> {
+  ): Promise<{
+    originalSize: number;
+    storedSize: number;
+    macro: MacroQualityAssessment;
+  }> {
     if (!user) throw new Error("You must be signed in.");
     // US-1300: normalize odd iPhone inputs first — a Live Photo exported as a
     // .mov/.mp4 video becomes a still JPEG frame and HEIC/HEIF becomes JPEG, so
@@ -141,7 +152,11 @@ export function PhotoUploader({
     let thumbBlob: Blob | null = null;
     let thumbType = "image/webp";
     try {
-      const main = await compressImage(file, 2400, 0.85);
+      // US-2135: macro slots keep more pixels than a general condition photo.
+      // Non-macro slots get the unchanged 2400 default — AC5 is explicit that
+      // the increase must NOT be global, because the upload-speed tradeoff that
+      // motivated the low cap is real on mobile data.
+      const main = await compressImage(file, uploadMaxWidthFor(photoType), 0.85);
       // Always prefer the canvas-baked output: compressImage applies EXIF
       // orientation to the PIXELS (upright) and strips metadata, so the
       // stored image renders the right way up everywhere — including eBay,
@@ -242,7 +257,15 @@ export function PhotoUploader({
     } as never);
     if (insErr) throw insErr;
 
-    return { originalSize, storedSize: body.size };
+    // US-2136: assess the macro slots (tag, serial, marking, surface, …) on the
+    // bytes we actually stored, not the camera original — compressImage caps at
+    // 2400px, so a distant serial shot can arrive fine and be stored soft. The
+    // seller is nudged AFTER the upload rather than blocked before it: Claude
+    // Vision reads a marginal photo better than any client-side check, and a
+    // false "retake this" is what teaches sellers to ignore the nudge.
+    const macro = assessMacroPhoto(await measureMacroPhoto(body, photoType));
+
+    return { originalSize, storedSize: body.size, macro };
   }
 
   // After a batch of one or more new photos of `newTypes`, advance the item to
@@ -268,7 +291,7 @@ export function PhotoUploader({
     if (!user) return;
     setUploading(photoType);
     try {
-      const { originalSize, storedSize } = await processAndUpload(
+      const { originalSize, storedSize, macro } = await processAndUpload(
         picked,
         photoType,
         nextUploadSortOrder(photos, photoType),
@@ -280,6 +303,9 @@ export function PhotoUploader({
           ? ` (−${savedPct}%, ${(originalSize / 1024 / 1024).toFixed(1)}MB → ${(storedSize / 1024 / 1024).toFixed(1)}MB)`
           : "";
       toast.success(`${labelFor(photoType)} photo uploaded${sizeNote}.`);
+      // Separate toast, not appended to the success line: the upload DID
+      // succeed, and the nudge is a different message with a different action.
+      if (macro.message) toast.warning(macro.message);
     } catch (err) {
       toast.error(
         `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -488,6 +514,7 @@ export function PhotoUploader({
               key={r.type}
               label={r.label}
               hint={r.hint}
+              photoType={r.type}
               photos={byType(r.type)}
               uploading={uploading === r.type}
               onUpload={(f) => upload(f, r.type)}
@@ -509,6 +536,7 @@ export function PhotoUploader({
               key={r.type}
               label={r.label}
               hint={r.hint}
+              photoType={r.type}
               photos={byType(r.type)}
               uploading={uploading === r.type}
               onUpload={(f) => upload(f, r.type)}
@@ -538,6 +566,7 @@ export function PhotoUploader({
 function PhotoSlot({
   label,
   hint,
+  photoType,
   photos,
   uploading,
   onUpload,
@@ -547,6 +576,8 @@ function PhotoSlot({
 }: {
   label: string;
   hint: string;
+  // US-2137: the slot's server photo_type, for the macro capture guidance.
+  photoType?: string | null;
   photos: ItemPhotoRow[];
   uploading: boolean;
   onUpload: (file: File) => void;
@@ -557,10 +588,18 @@ function PhotoSlot({
   const inputRef = useRef<HTMLInputElement>(null);
   const filled = photos.length > 0;
   const first = photos[0];
+  // US-2137: the profile hint says WHAT to shoot; for a macro slot the distance
+  // and lighting are what actually decide whether the tell is legible. This is
+  // the uploader's only per-slot affordance, so the guidance rides the tooltip
+  // rather than inventing a surface for it.
+  const guidance = captureGuidanceFor(photoType);
+  const title = guidance
+    ? `${hint}\n${guidance.distance}\n${guidance.lighting}`
+    : hint;
 
   return (
     <div
-      title={hint}
+      title={title}
       className={cn(
         "relative overflow-hidden rounded-md border",
         required && !filled && "border-dashed border-amber-400/60",

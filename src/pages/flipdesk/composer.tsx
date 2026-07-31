@@ -41,7 +41,7 @@ import {
 } from "@/lib/scheduling";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { useItemsFull } from "@/hooks/use-items-full";
+import { useItemFull } from "@/hooks/use-items-full";
 import { useSellerPromoDefaults } from "@/hooks/use-seller-promo-defaults";
 import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import {
@@ -419,13 +419,10 @@ export function FlipdeskComposerPage({
   const { data: promoDefaults, isLoading: promoDefaultsLoading } =
     useSellerPromoDefaults();
 
-  // Shared items_full read — single source of truth across FlipDesk (US-419).
-  const { data: items = [], isLoading } = useItemsFull();
-
-  const item = useMemo(
-    () => items.find((it) => it.id === id) ?? null,
-    [items, id],
-  );
+  // US-2188: one row, not the whole catalog. The editor renders exactly one
+  // item, so it reads exactly one — everything that lists items now shares the
+  // projected read instead (useItemsList).
+  const { data: item = null, isLoading } = useItemFull(id);
 
   // Duplicate-SKU recovery lives in its own hook: ANY save that writes a SKU can
   // hit the (user_id, sku) index, and the useful answer is almost never "pick a

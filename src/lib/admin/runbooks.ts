@@ -60,7 +60,7 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
-    reviewed: "2026-07-19",
+    reviewed: "2026-07-31",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -327,7 +327,7 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
-    reviewed: "2026-07-19",
+    reviewed: "2026-07-31",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

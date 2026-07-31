@@ -12,6 +12,10 @@
 // seller onto the existing file input (no dead-end).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ImageUp, RefreshCw, SwitchCamera } from "lucide-react";
+import {
+  captureGuidanceFor,
+  overlayFillFraction,
+} from "@/lib/macro-capture-guidance";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -37,6 +41,10 @@ type CameraStatus = "starting" | "ready" | "capturing" | "error";
 interface CameraCaptureDialogProps {
   open: boolean;
   slotLabel: string;
+  // US-2137: the slot's server photo_type, when known. Drives the framing
+  // overlay + distance/lighting cue. Optional so a caller without a slot
+  // (generic capture) still works, just without guidance.
+  photoType?: string | null;
   onOpenChange: (open: boolean) => void;
   // The captured frame as a JPEG File — caller routes it through processFile.
   onCapture: (file: File) => void;
@@ -48,10 +56,12 @@ interface CameraCaptureDialogProps {
 export function CameraCaptureDialog({
   open,
   slotLabel,
+  photoType,
   onOpenChange,
   onCapture,
   onFallback,
 }: CameraCaptureDialogProps) {
+  const guidance = captureGuidanceFor(photoType);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [status, setStatus] = useState<CameraStatus>("starting");
@@ -224,6 +234,28 @@ export function CameraCaptureDialog({
                 playsInline
                 autoPlay
               />
+              {/* US-2137: framing overlay. A macro shot fails on distance far
+                  more often than on anything else, and "get closer" is hard to
+                  judge against nothing. The box is sized so that FILLING IT
+                  clears the US-2136 quality floors at the US-2135 upload caps —
+                  a guide you can satisfy and still be rejected is worse than
+                  none. Purely decorative: the capture is the full frame, so the
+                  box constrains composition, never the saved pixels. */}
+              {status === "ready" && guidance && (
+                <div
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                  aria-hidden="true"
+                >
+                  <div
+                    className="rounded-lg border-2 border-dashed border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]"
+                    style={{
+                      width: `${overlayFillFraction(guidance.framing) * 100}%`,
+                      aspectRatio: "1 / 1",
+                    }}
+                  />
+                </div>
+              )}
+
               {status !== "ready" && (
                 <div
                   className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 text-white"
@@ -242,6 +274,17 @@ export function CameraCaptureDialog({
                 </div>
               )}
             </div>
+
+            {/* US-2137: distance and lighting, in that order — distance is what
+                sellers get wrong most, and lighting is what they never think
+                about. Rendered as instructions, not labels: the existing
+                photo-profiles hint already says WHAT the shot is. */}
+            {guidance && (
+              <div className="space-y-0.5 text-xs leading-tight text-muted-foreground">
+                <p>{guidance.distance}</p>
+                <p>{guidance.lighting}</p>
+              </div>
+            )}
 
             <div className="flex items-center gap-2">
               <Button

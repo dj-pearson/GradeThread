@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - src/lib/images.ts
   - functions/_shared/blog-render.ts
-reviewed: 2026-07-30
+reviewed: 2026-07-31
 tags: [seo, performance, images, cwv]
 summary: The shipped performance levers, the Cloudflare toggles still to enable, and how responsive images are actually gated.
 ---

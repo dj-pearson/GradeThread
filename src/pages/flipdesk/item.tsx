@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -21,7 +21,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { supabase } from "@/lib/supabase";
-import { useItemsFull } from "@/hooks/use-items-full";
+import { useItemFull } from "@/hooks/use-items-full";
 import {
   useEbayConnection,
   useEbayEndSale,
@@ -64,13 +64,10 @@ export function FlipdeskItemPage() {
   const navigate = useNavigate();
   const { hash } = useLocation();
 
-  // Shared items_full read — single source of truth across FlipDesk (US-419).
-  const { data: items = [], isLoading, isError, refetch } = useItemsFull();
-
-  const item = useMemo(
-    () => items.find((it) => it.id === id) ?? null,
-    [items, id],
-  );
+  // US-2188: one row, not the whole catalog. This page renders exactly one
+  // item, so it reads exactly one — the shared list read stays projected and
+  // this stays the only place that pays for the heavy columns.
+  const { data: item = null, isLoading, isError, refetch } = useItemFull(id);
 
   // Deep links like /items/:id#canvas-grading (US-859 stale-listing "grade it"
   // nudge) should land on the grade section once the item has rendered.

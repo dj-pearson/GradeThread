@@ -61,7 +61,7 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
-import { useItemsFull } from "@/hooks/use-items-full";
+import { useItemsList, itemsListQueryKey } from "@/hooks/use-items-full";
 import { useUrlParamState } from "@/hooks/use-url-param-state";
 import { useInventorySelection } from "@/stores/inventory-selection";
 import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
@@ -101,7 +101,8 @@ import {
   describeRule,
   type FilterQuery,
 } from "@/lib/item-filter";
-import type { ItemFullRow, ItemStatus, ItemCategory } from "@/types/database";
+import type { ItemStatus, ItemCategory } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 const COLUMN_CAP = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -169,8 +170,8 @@ export function FlipdeskPipelinePage() {
   );
   const [brandFilter, setBrandFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
-  const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
-  const [activeDrag, setActiveDrag] = useState<ItemFullRow | null>(null);
+  const [detailItem, setDetailItem] = useState<ItemListRow | null>(null);
+  const [activeDrag, setActiveDrag] = useState<ItemListRow | null>(null);
   // US-1422: persisted eBay Listing-Health flags → a pipeline indicator banner.
   const { data: complianceFlags = [] } = useListingComplianceFlags();
   const complianceFlaggedCount = useMemo(
@@ -186,7 +187,7 @@ export function FlipdeskPipelinePage() {
   // US-1458: photographed items whose "next stage" is grading are routed into
   // the bulk-grade flow instead of a doomed status update. This holds the items
   // the grade dialog operates on (either from batchMoveNext or the toolbar).
-  const [gradeItems, setGradeItems] = useState<ItemFullRow[] | null>(null);
+  const [gradeItems, setGradeItems] = useState<ItemListRow[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Advanced filter (US-1051) — parity with the listings table. Composes on
@@ -246,7 +247,7 @@ export function FlipdeskPipelinePage() {
     isError,
     isFetching,
     refetch,
-  } = useItemsFull();
+  } = useItemsList();
 
   // US-958: stage population for the column badges comes from the shared
   // status-counts query (same source the table's stage tabs read) rather than
@@ -268,7 +269,7 @@ export function FlipdeskPipelinePage() {
 
   const groups = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const map = new Map<ItemStatus, ItemFullRow[]>();
+    const map = new Map<ItemStatus, ItemListRow[]>();
     for (const step of FLIPDESK_PIPELINE) map.set(step.status, []);
     for (const it of items) {
       // US-1428: acquired items fold into the Sourced column.
@@ -299,7 +300,7 @@ export function FlipdeskPipelinePage() {
   // Every item currently visible across the kanban columns (i.e. the whole
   // filtered set), flattened — backs the matching count + "select all" action.
   const matchingItems = useMemo(() => {
-    const out: ItemFullRow[] = [];
+    const out: ItemListRow[] = [];
     for (const arr of groups.values()) out.push(...arr);
     return out;
   }, [groups]);
@@ -354,7 +355,7 @@ export function FlipdeskPipelinePage() {
     // land after the optimistic write and clobber it.
     const originalStatus = item.status;
     await qc.cancelQueries({ queryKey: ["items_full"] });
-    qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+    qc.setQueryData<ItemListRow[]>(itemsListQueryKey(user?.id), (old) =>
       (old ?? []).map((i) =>
         i.id === itemId ? { ...i, status: targetStatus } : i,
       ),
@@ -374,7 +375,7 @@ export function FlipdeskPipelinePage() {
     } catch (err) {
       // US-1633: roll back ONLY the dragged item (not the whole array snapshot),
       // so a concurrent drag/edit of a DIFFERENT item isn't reverted with it.
-      qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+      qc.setQueryData<ItemListRow[]>(itemsListQueryKey(user?.id), (old) =>
         (old ?? []).map((i) =>
           i.id === itemId ? { ...i, status: originalStatus } : i,
         ),
@@ -963,7 +964,7 @@ function DraggableItemCard({
   onToggleSelect,
   onClick,
 }: {
-  item: ItemFullRow;
+  item: ItemListRow;
   selected: boolean;
   onToggleSelect: () => void;
   onClick: () => void;
@@ -1025,7 +1026,7 @@ function ItemCardVisual({
   item,
   dragging = false,
 }: {
-  item: ItemFullRow;
+  item: ItemListRow;
   dragging?: boolean;
 }) {
   const price =
@@ -1231,7 +1232,7 @@ function BulkGradeDialog({
   onClose,
   onSubmitted,
 }: {
-  items: ItemFullRow[] | null;
+  items: ItemListRow[] | null;
   onClose: () => void;
   onSubmitted: (results: BatchResult[]) => void;
 }) {

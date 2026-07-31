@@ -685,14 +685,20 @@ export function FlipdeskListingsPage() {
   }, [search, pageSize, soldFilter]);
 
   // US-419: keyed under a DISTINCT "listings" suffix — NOT the bare
-  // ["items_full", user.id] the full-row consumers (pipeline/overview/prep/etc.,
-  // now the shared useItemsFull hook) use. This query projects a narrower
-  // LISTINGS_COLUMNS subset, so sharing the canonical key would let a
+  // ["items_full", user.id] the shared readers use. This query projects a
+  // narrower LISTINGS_COLUMNS subset, so sharing the canonical key would let a
   // partial-column cache entry win and starve those consumers of fields like
   // photo_count/has_required_photos. The "items_full" prefix keeps it covered by
   // the existing invalidateQueries({ queryKey: ["items_full"] }) calls.
+  //
+  // US-2372: every optimistic write on this page MUST use this same key. Nine
+  // call sites used to spell the bare ["items_full", user.id] by hand, which is
+  // a cache entry this page does not read — so the optimistic patch landed
+  // nowhere visible and the rollback wrote this page's narrower rows into the
+  // full-row cache. One definition, referenced everywhere, is the fix.
+  const listingsItemsKey = ["items_full", "listings", user?.id] as const;
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ["items_full", "listings", user?.id],
+    queryKey: listingsItemsKey,
     enabled: !!user,
     // US-2174 (replaces the US-735 reasoning).
     //
@@ -1313,7 +1319,7 @@ export function FlipdeskListingsPage() {
     const next = raw.trim();
     if ((it.tracking ?? "") === next) return;
     const prev = items;
-    qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+    qc.setQueryData<ItemFullRow[]>(listingsItemsKey, (old) =>
       (old ?? []).map((i) =>
         i.id === it.id ? { ...i, tracking: next || null } : i,
       ),
@@ -1326,9 +1332,14 @@ export function FlipdeskListingsPage() {
         .update({ tracking_number: next || null } as never)
         .eq("id", saleId);
       if (error) throw error;
+      // US-2372: reconcile with the server like the other three inline edits.
+      // Without this the row kept whatever the optimistic patch put there until
+      // the query went stale on its own — 15 minutes off the Active tab — so a
+      // value the server had silently rejected would keep reading as saved.
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success("Tracking updated.");
     } catch (err) {
-      qc.setQueryData(["items_full", user?.id], prev);
+      qc.setQueryData(listingsItemsKey, prev);
       toast.error(
         `Couldn't update tracking: ${
           err instanceof Error ? err.message : String(err)
@@ -1342,7 +1353,7 @@ export function FlipdeskListingsPage() {
   async function markDelivered(it: ItemFullRow) {
     const now = new Date().toISOString();
     const prev = items;
-    qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+    qc.setQueryData<ItemFullRow[]>(listingsItemsKey, (old) =>
       (old ?? []).map((i) =>
         i.id === it.id ? { ...i, delivered_at: now, status: "completed" } : i,
       ),
@@ -1364,7 +1375,7 @@ export function FlipdeskListingsPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success("Marked delivered.");
     } catch (err) {
-      qc.setQueryData(["items_full", user?.id], prev);
+      qc.setQueryData(listingsItemsKey, prev);
       toast.error(
         `Couldn't mark delivered: ${
           err instanceof Error ? err.message : String(err)
@@ -1394,7 +1405,7 @@ export function FlipdeskListingsPage() {
       return;
     }
     const prev = items;
-    qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+    qc.setQueryData<ItemFullRow[]>(listingsItemsKey, (old) =>
       (old ?? []).map((i) =>
         i.id === it.id ? { ...i, list_price: next } : i,
       ),
@@ -1404,9 +1415,13 @@ export function FlipdeskListingsPage() {
         listingId: it.listing_id,
         price: next,
       });
+      // US-2372: same reconcile. This one is money, and `pushed:false` means the
+      // marketplace was never told — the row must come back from the server
+      // rather than sitting on an optimistic number nobody else can see.
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success(res.pushed ? "Price updated on the marketplace." : "Price updated.");
     } catch (err) {
-      qc.setQueryData(["items_full", user?.id], prev);
+      qc.setQueryData(listingsItemsKey, prev);
       toast.error(
         `Price update failed: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -1427,7 +1442,7 @@ export function FlipdeskListingsPage() {
     label: string,
   ) {
     const prev = items;
-    qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+    qc.setQueryData<ItemFullRow[]>(listingsItemsKey, (old) =>
       (old ?? []).map((i) => (i.id === it.id ? { ...i, ...viewPatch } : i)),
     );
     try {
@@ -1439,7 +1454,7 @@ export function FlipdeskListingsPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success(`${label} updated.`);
     } catch (err) {
-      qc.setQueryData(["items_full", user?.id], prev);
+      qc.setQueryData(listingsItemsKey, prev);
       toast.error(
         `Couldn't update ${label.toLowerCase()}: ${
           err instanceof Error ? err.message : String(err)

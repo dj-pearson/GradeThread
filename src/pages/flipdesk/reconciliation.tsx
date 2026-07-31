@@ -46,7 +46,7 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
-import { useItemsFull } from "@/hooks/use-items-full";
+import { useItemsList } from "@/hooks/use-items-full";
 import { detectDiscrepancies } from "@/lib/pnl";
 import {
   useImportPayoutsCsv,
@@ -77,7 +77,8 @@ import {
   useSyncEbayListings,
   type EbaySyncRun,
 } from "@/hooks/use-ebay";
-import type { SaleRow, ItemFullRow } from "@/types/database";
+import type { SaleRow } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 const STEPS = [
   {
@@ -175,7 +176,7 @@ export function ReconciliationPayoutsTab() {
 
   // Cached items_full gives us titles without another round-trip — shared
   // single source of truth across FlipDesk (US-419).
-  const { data: items = [] } = useItemsFull();
+  const { data: items = [] } = useItemsList();
 
   const titleById = useMemo(() => {
     const m = new Map<string, string>();
@@ -448,7 +449,7 @@ function TaxPnlExportCard({
   items,
 }: {
   sales: SaleRow[];
-  items: ItemFullRow[];
+  items: ItemListRow[];
 }) {
   const { plan } = usePlanUsage();
   const entitled = FLIPDESK_PLANS[plan]?.gateFlags.reconciliation ?? false;

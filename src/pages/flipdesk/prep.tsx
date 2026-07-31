@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { supabase } from "@/lib/supabase";
-import { useItemsFull } from "@/hooks/use-items-full";
+import { useItemsList, useItemFull } from "@/hooks/use-items-full";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { SoldCompRecommendation } from "@/components/flipdesk/sold-comp-recommendation";
@@ -38,7 +38,8 @@ import { useGradeBandedPrice } from "@/hooks/use-ebay";
 import { ebaySoldSearchUrl } from "@/lib/comps";
 import { rankOf, resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
-import type { ItemFullRow, ItemCategory } from "@/types/database";
+import type { ItemCategory } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 const DRAFTED_RANK = rankOf("drafted");
 
@@ -54,8 +55,10 @@ export function FlipdeskPrepPage() {
   const [draft, setDraft] = useState<PrepState | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Shared items_full read — single source of truth across FlipDesk (US-419).
-  const { data: items = [], isLoading } = useItemsFull();
+  // Shared items_full read — single source of truth across FlipDesk (US-419),
+  // projected since US-2188: the queue needs display columns and measurements,
+  // nothing here reads a description, a note or a comp set.
+  const { data: items = [], isLoading } = useItemsList();
 
   // Items still in the prep phase (before drafted), oldest first. The shared
   // cache is ordered newest-first, so sort to oldest-first here.
@@ -70,7 +73,7 @@ export function FlipdeskPrepPage() {
     [items],
   );
 
-  const current: ItemFullRow | undefined = queue[index];
+  const current: ItemListRow | undefined = queue[index];
 
   // Seed the editable draft whenever the current item changes.
   useEffect(() => {
@@ -88,6 +91,12 @@ export function FlipdeskPrepPage() {
     }
   }, [current]);
 
+  // US-2188: `ai_field_sources` is a detail-only column, so the AI-provenance
+  // hints on the measurements card read it for the ONE item on screen instead
+  // of keeping it on every row of the queue. It is a hint — the card renders
+  // fine while this is still in flight.
+  const { data: currentDetail } = useItemFull(current?.id);
+
   // Clamp index if the queue shrinks (e.g. an item advances out of prep).
   useEffect(() => {
     if (index > 0 && index >= queue.length) {
@@ -95,7 +104,7 @@ export function FlipdeskPrepPage() {
     }
   }, [queue.length, index]);
 
-  async function persist(current: ItemFullRow, d: PrepState) {
+  async function persist(current: ItemListRow, d: PrepState) {
     const targetPrice =
       d.targetPrice.trim() === "" ? null : Number(d.targetPrice);
     const resolved = resolveStatus(current.status, current.status, {
@@ -282,7 +291,7 @@ export function FlipdeskPrepPage() {
             brand={current.brand}
             values={draft.measurements}
             onChange={(m) => setDraft({ ...draft, measurements: m })}
-            aiSources={current.ai_field_sources}
+            aiSources={currentDetail?.ai_field_sources ?? null}
           />
         </CardContent>
       </Card>
@@ -364,7 +373,7 @@ function PrepPriceRecommendation({
   item,
   onApply,
 }: {
-  item: ItemFullRow;
+  item: ItemListRow;
   onApply: (dollars: number) => void;
 }) {
   const query = useGradeBandedPrice({

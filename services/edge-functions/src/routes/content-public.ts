@@ -7,6 +7,7 @@ import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
 import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
 import {
   buildCertGallery,
+  galleryRowAt,
   selectHeroUrl,
   type SubmissionImageRow as CertSubmissionImageRow,
 } from "../lib/certificate-gallery.ts";
@@ -994,6 +995,102 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
     return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
   } catch (err) {
     captureException(err, { route: "cert-image", tags: { certId, kind } });
+    return serveFallback();
+  }
+});
+
+// ── GET / HEAD /cert-photo/:id/:n ─────────────────────────────────
+// US-2206: the STABLE, non-expiring URL for one garment photo on a public
+// certificate.
+//
+// The gallery that GET /certificates/:id serves is signed with a 15-minute TTL
+// (US-276 keeps `submission-images` private, and that is not negotiable). A
+// signed URL is fine for rendering and useless for structured data: a crawler
+// that reads one out of the Product JSON-LD and fetches it an hour later gets a
+// 403, so `image[]` could only ever carry the hero. This endpoint is the
+// indirection that fixes that — the PUBLIC url never expires, and the signing
+// happens server-side, per request, behind the same publicity gate.
+//
+// `:n` is the position in display_order, matching the order both cert
+// renderers index into, so /cert-photo/<id>/0 is the first photo on the page.
+//
+// The gate is identical to GET /certificates/:id and /cert-image/:id: resolved
+// by certificate_id, non-null, plus isCertificateWithheld. A private, withheld,
+// missing or out-of-range photo returns the transparent fallback PNG with HTTP
+// 200 — the same choice /cert-image makes, so a probe cannot tell those cases
+// apart and no page ever shows a broken image.
+const CERT_PHOTO_CACHE =
+  "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
+
+contentPublicRoutes.on("HEAD", "/cert-photo/:id/:n", () =>
+  new Response(null, { status: 200, headers: certImageHeaders(CERT_PHOTO_CACHE) }));
+
+contentPublicRoutes.get("/cert-photo/:id/:n", async (c) => {
+  const certId = c.req.param("id");
+  const position = Number(c.req.param("n"));
+  const serveFallback = () =>
+    new Response(fallbackPng(), {
+      status: 200,
+      headers: certImageHeaders("public, max-age=300"),
+    });
+  if (!isUuid(certId)) return serveFallback();
+
+  try {
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select("certificate_id, submission_id")
+      .eq("certificate_id", certId)
+      .not("certificate_id", "is", null)
+      .maybeSingle();
+    if (!report) return serveFallback();
+    const rep = report as unknown as { submission_id: string };
+
+    const { data: submission } = await supabaseAdmin
+      .from("submissions")
+      .select("flagged, moderation_status, status")
+      .eq("id", rep.submission_id)
+      .maybeSingle();
+    if (
+      isCertificateWithheld(
+        submission as
+          | { flagged?: boolean | null; moderation_status?: string | null; status?: string | null }
+          | null,
+      )
+    ) {
+      return serveFallback();
+    }
+
+    const { data: imageRows } = await supabaseAdmin
+      .from("submission_images")
+      .select("id, storage_path, image_type, display_order")
+      .eq("submission_id", rep.submission_id)
+      .order("display_order", { ascending: true });
+    const row = galleryRowAt(
+      (imageRows ?? []) as CertSubmissionImageRow[],
+      position,
+    );
+    if (!row) return serveFallback();
+
+    // Sign for THIS request only. The signed URL never leaves the server — the
+    // caller only ever sees the stable /cert-photo path — so the private-bucket
+    // guarantee is unchanged.
+    const { data: signed } = await supabaseAdmin.storage
+      .from("submission-images")
+      .createSignedUrl(row.storage_path, CERT_IMAGE_TTL);
+    if (!signed?.signedUrl) return serveFallback();
+
+    const upstream = await fetch(signed.signedUrl);
+    if (!upstream.ok || !upstream.body) return serveFallback();
+
+    return new Response(upstream.body, {
+      status: 200,
+      headers: {
+        "Content-Type": upstream.headers.get("content-type") ?? "image/jpeg",
+        "Cache-Control": CERT_PHOTO_CACHE,
+      },
+    });
+  } catch (err) {
+    captureException(err, { route: "cert-photo", tags: { certId } });
     return serveFallback();
   }
 });

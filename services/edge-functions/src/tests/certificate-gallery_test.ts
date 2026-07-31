@@ -7,6 +7,7 @@
 import { assertEquals } from "@std/assert";
 import {
   buildCertGallery,
+  galleryRowAt,
   selectHeroUrl,
   type SubmissionImageRow,
 } from "../lib/certificate-gallery.ts";
@@ -58,4 +59,37 @@ Deno.test("selectHeroUrl falls back to the first row when there is no front", as
 
 Deno.test("selectHeroUrl is null when there are no images", () => {
   assertEquals(selectHeroUrl([], []), null);
+});
+
+// ── US-2206: the stable-URL position lookup ────────────────────────────────
+//
+// /cert-photo/<certId>/<n> is a PUBLIC, non-expiring url that appears in the
+// Product JSON-LD, so `n` has to resolve to the same photo the page shows,
+// forever. A position that quietly addresses the wrong photo would publish one
+// garment's picture under another's certificate — the failure worth testing.
+
+Deno.test("galleryRowAt resolves a position in display_order, not row order", () => {
+  // `rows` is deliberately NOT in display_order (back=1 comes first).
+  assertEquals(galleryRowAt(rows, 0)?.image_type, "front");
+  assertEquals(galleryRowAt(rows, 1)?.image_type, "back");
+  assertEquals(galleryRowAt(rows, 2)?.image_type, "label");
+});
+
+Deno.test("galleryRowAt agrees with the gallery the endpoint serves", async () => {
+  // The JSON-LD indexes into the SAME ordering the gallery renders, so index i
+  // of the built gallery and position i here must be the same photo.
+  const gallery = await buildCertGallery(rows, okSigner);
+  for (let i = 0; i < gallery.length; i++) {
+    assertEquals(galleryRowAt(rows, i)?.id, gallery[i].id);
+  }
+});
+
+Deno.test("galleryRowAt refuses out-of-range and non-integer positions", () => {
+  // Each of these must be null so the endpoint serves its fallback rather than
+  // throwing or wrapping around to a different garment's photo.
+  assertEquals(galleryRowAt(rows, 3), null);
+  assertEquals(galleryRowAt(rows, -1), null);
+  assertEquals(galleryRowAt(rows, 1.5), null);
+  assertEquals(galleryRowAt(rows, Number.NaN), null);
+  assertEquals(galleryRowAt([], 0), null);
 });

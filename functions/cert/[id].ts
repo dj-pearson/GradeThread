@@ -12,6 +12,7 @@
 
 import {
   breadcrumbListLd,
+  certGalleryImageUrls,
   certificateProductLd,
   escape,
   fetchJson,
@@ -279,7 +280,13 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     gradeTier: cert.grade_tier,
     category: cert.garment_category,
     brand: cert.brand,
-    images: cert.hero_image_url ? [cert.hero_image_url] : null,
+    // US-2206: the FULL ordered gallery, as stable /cert-photo urls. The
+    // signed `cert.images[].url` values render the grid above but expire in 15
+    // minutes, so they could never go in structured data — a crawler fetching
+    // one later gets a 403. Falls back to nothing (not the signed hero) when
+    // the cert has no photos: an expiring URL in JSON-LD is worse than no
+    // image field, which the builder omits gracefully.
+    images: certGalleryImageUrls(base, cert.id, cert.images?.length ?? 0),
     datePublished: cert.created_at,
     siteUrl: base,
   });

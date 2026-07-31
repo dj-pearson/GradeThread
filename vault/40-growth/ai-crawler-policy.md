@@ -5,7 +5,7 @@ status: accepted
 source_of_truth: code
 code_refs:
   - functions/_shared/seo-config.ts
-reviewed: 2026-07-19
+reviewed: 2026-07-31
 tags: [seo, ai, crawlers, decision]
 summary: Which AI crawlers may cite, which may train, and which are blocked — an approved decision with an env override.
 ---

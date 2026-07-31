@@ -1429,6 +1429,34 @@ export interface CertProductLdInput {
   siteUrl: string;
 }
 
+/**
+ * US-2206: the ordered, STABLE image URLs for a certificate's photo gallery.
+ *
+ * Structured data cannot carry the signed gallery URLs the cert endpoint
+ * serves — they expire in 15 minutes, so a crawler that fetches one later gets
+ * a 403. `/cert-photo/<certId>/<n>` never expires; the edge signs per request
+ * behind the same publicity gate (content-public.ts GET /cert-photo/:id/:n).
+ *
+ * `n` is the position in display_order ascending, which is the order the public
+ * certificates endpoint returns and the order both cert renderers display, so
+ * index 0 is the first photo on the page.
+ *
+ * Duplicated on the SSR and SPA sides on purpose — `functions/` and `src/` are
+ * separate bundles with no shared import (same reason the factor table is
+ * duplicated in functions/cert/[id].ts). A test asserts the two agree.
+ */
+export function certGalleryImageUrls(
+  siteUrl: string,
+  certId: string,
+  photoCount: number,
+): string[] {
+  if (!certId || !Number.isFinite(photoCount) || photoCount <= 0) return [];
+  return Array.from(
+    { length: Math.floor(photoCount) },
+    (_, i) => `${siteUrl}/cert-photo/${certId}/${i}`,
+  );
+}
+
 export function certificateProductLd(
   cert: CertProductLdInput,
 ): Record<string, unknown> {

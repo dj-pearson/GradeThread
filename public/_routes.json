@@ -18,6 +18,7 @@
     "/trust/*",
     "/waitlist-pending",
     "/cert/*",
+    "/cert-photo/*",
     "/passport/*",
     "/verified/*",
     "/blog",

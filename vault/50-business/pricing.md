@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - src/lib/constants.ts
   - scripts/setup-stripe-pricing.mjs
-reviewed: 2026-07-19
+reviewed: 2026-07-31
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
