@@ -27,6 +27,7 @@ import {
   uploadMaxWidthFor,
   type MacroQualityAssessment,
 } from "@/lib/macro-photo-quality";
+import { captureGuidanceFor } from "@/lib/macro-capture-guidance";
 import { normalizeToImageFile } from "@/lib/media-intake";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import {
@@ -513,6 +514,7 @@ export function PhotoUploader({
               key={r.type}
               label={r.label}
               hint={r.hint}
+              photoType={r.type}
               photos={byType(r.type)}
               uploading={uploading === r.type}
               onUpload={(f) => upload(f, r.type)}
@@ -534,6 +536,7 @@ export function PhotoUploader({
               key={r.type}
               label={r.label}
               hint={r.hint}
+              photoType={r.type}
               photos={byType(r.type)}
               uploading={uploading === r.type}
               onUpload={(f) => upload(f, r.type)}
@@ -563,6 +566,7 @@ export function PhotoUploader({
 function PhotoSlot({
   label,
   hint,
+  photoType,
   photos,
   uploading,
   onUpload,
@@ -572,6 +576,8 @@ function PhotoSlot({
 }: {
   label: string;
   hint: string;
+  // US-2137: the slot's server photo_type, for the macro capture guidance.
+  photoType?: string | null;
   photos: ItemPhotoRow[];
   uploading: boolean;
   onUpload: (file: File) => void;
@@ -582,10 +588,18 @@ function PhotoSlot({
   const inputRef = useRef<HTMLInputElement>(null);
   const filled = photos.length > 0;
   const first = photos[0];
+  // US-2137: the profile hint says WHAT to shoot; for a macro slot the distance
+  // and lighting are what actually decide whether the tell is legible. This is
+  // the uploader's only per-slot affordance, so the guidance rides the tooltip
+  // rather than inventing a surface for it.
+  const guidance = captureGuidanceFor(photoType);
+  const title = guidance
+    ? `${hint}\n${guidance.distance}\n${guidance.lighting}`
+    : hint;
 
   return (
     <div
-      title={hint}
+      title={title}
       className={cn(
         "relative overflow-hidden rounded-md border",
         required && !filled && "border-dashed border-amber-400/60",

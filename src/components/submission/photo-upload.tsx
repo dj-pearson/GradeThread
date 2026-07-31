@@ -823,6 +823,9 @@ export function PhotoUpload({
           path a manual upload takes (no bypass). */}
       <CameraCaptureDialog
         open={cameraSlotKey !== null}
+        photoType={
+          UPLOAD_SLOTS.find((s) => s.slotKey === cameraSlotKey)?.imageType
+        }
         slotLabel={
           UPLOAD_SLOTS.find((s) => s.slotKey === cameraSlotKey)?.label ?? "photo"
         }
