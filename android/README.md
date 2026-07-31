@@ -45,7 +45,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Full string externalization beyond the 22 scoped files | US-2368 (in progress) |
+| Full string externalization beyond the 26 scoped files | US-2368 (in progress) |
 
 US-1379–1389 have since landed (widgets, background refresh, shortcuts, share
 target, onboarding, referrals, support, feedback, workspaces, CSV import) — see
@@ -640,11 +640,12 @@ mirroring the App Store catalog. Nothing in this repo can do that.
 `stringResource` for the files named in its `SCOPE` list, and that list grows as
 screens convert. A guard covering all ~90 Compose files today would either fail
 everywhere or get switched off, and a switched-off guard protects nothing.
-Twenty-two files are converted and locked: onboarding, referrals, both support
+Twenty-six files are converted and locked: onboarding, referrals, both support
 screens, feedback, the workspace switcher, the importer, sign-in, and (US-2368)
 home, money, settings, snap, analytics, automations, the drafts library, the
 negotiation inbox, templates, marketplaces, reconciliation, the publish sheet,
-repricing and details intake. The guard also fails if a scoped file
+repricing, details intake, tools, prospect, the item canvas and the grade
+request. The guard also fails if a scoped file
 is renamed or deleted, so nothing drops out silently.
 
 **The guard reads two shapes, and the second one is the common one.** ktlint
@@ -654,6 +655,11 @@ single-line form, and roughly ninety literals sat undetected inside files it
 reported as clean — every one of them wrapped. It now also matches an argument
 name or opening paren at end-of-line followed by a literal, skipping comments in
 between.
+
+**The sink list includes this project's own composables**, not just Material
+ones: `Hint`, `NumberField`, `Field`, `Panel`, `PanelHeader`, `SectionHeader`
+and `InfoCard` all take text and render it. A guard that only knew `Text(` would
+call a screen clean while every one of its form labels stayed in English.
 
 **`check-string-formats.py` checks the arity nothing else can.** A
 `stringResource(R.string.x, a)` call against a resource holding two placeholders

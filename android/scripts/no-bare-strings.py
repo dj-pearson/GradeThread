@@ -46,6 +46,10 @@ SCOPE = [
     "marketplaces/publish/PublishSheet.kt",
     "pricing/RepricingScreen.kt",
     "inventory/DetailsIntakeScreen.kt",
+    "ui/shell/ToolsScreen.kt",
+    "scout/ProspectScreen.kt",
+    "inventory/ItemCanvasScreen.kt",
+    "grading/GradeRequestScreen.kt",
 ]
 
 # A string literal handed to something that renders or speaks it.
@@ -66,6 +70,7 @@ UI_SINKS = re.compile(
       | InfoCard\s*\(\s*"
       | \bHint\s*\(\s*"
       | NumberField\s*\(\s*"
+      | \bField\s*\(\s*"
     )
     """,
     re.VERBOSE,
@@ -106,6 +111,7 @@ OPEN_SINK = re.compile(
       | InfoCard\s*\($
       | \bHint\s*\($
       | NumberField\s*\($
+      | \bField\s*\($
     )
     """,
     re.VERBOSE,

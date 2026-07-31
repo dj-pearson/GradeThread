@@ -688,4 +688,137 @@
     <string name="intake_blank_value">(blank)</string>
     <!-- Leading space is deliberate: it is appended to the value above it. -->
     <string name="intake_chosen_marker">\u0020\u2713</string>
+
+    <!-- US-2368: tools screen text. -->
+    <string name="tools_what_s_worth">What\'s it worth?</string>
+    <string name="tools_snap_one_photo_instant_condition">Snap one photo for an instant condition grade and resale range</string>
+    <string name="tools_certified_grades">Certified grades</string>
+    <string name="tools_every_graded_item_its_report">Every graded item, its report and its certificate</string>
+    <string name="tools_analytics">Analytics</string>
+    <string name="tools_grades_brands_sell_through_inventory">Grades, brands, sell-through, inventory value and listing performance</string>
+    <string name="tools_consignors">Consignors</string>
+    <string name="tools_who_sell_their_split_what">Who you sell for, their split, and what you owe them</string>
+    <string name="tools_listing_templates">Listing templates</string>
+    <string name="tools_save_condition_specifics_boilerplate_reuse">Save the condition, specifics and boilerplate you reuse</string>
+    <string name="tools_scout">Scout</string>
+    <string name="tools_find_underpriced_listings_ebay_graded">Find underpriced listings on eBay, graded and ranked by profit</string>
+    <string name="tools_prospect">Prospect</string>
+    <string name="tools_shop_photograph_find_out_if">In a shop? Photograph it and find out if it\'s worth buying</string>
+    <string name="tools_verified_seller">Verified seller</string>
+    <string name="tools_badge_status_what_s_left">Your badge status and what\'s left to set up</string>
+    <string name="tools_shipping">Shipping</string>
+    <string name="tools_what_s_sold_still_needs">What\'s sold and still needs posting, with tracking</string>
+    <string name="tools_invite_friend">Invite a friend</string>
+    <string name="tools_share_code_earn_grading_credits">Share your code and earn grading credits</string>
+    <string name="tools_import_spreadsheet">Import a spreadsheet</string>
+    <string name="tools_bring_inventory_from_csv_sheets">Bring your inventory in from CSV or Sheets</string>
+    <string name="tools_support">Support</string>
+    <string name="tools_open_request_read_our_replies">Open a request and read our replies</string>
+
+    <!-- US-2368: prospect screen text. -->
+    <string name="prospect_prospect">Prospect</string>
+    <string name="prospect_remove">Remove</string>
+    <string name="prospect_take_photo">Take photo</string>
+    <string name="prospect_library">Library</string>
+    <string name="prospect_camera_off">Camera is off</string>
+    <string name="prospect_what_does_cost">What does it cost?</string>
+    <string name="prospect_optional_but_there_s_no">Optional, but there\'s no buy-or-walk verdict without it.</string>
+    <string name="prospect_open_inventory">Open it in inventory</string>
+    <string name="prospect_start_over">Start over</string>
+    <string name="prospect_back">Back</string>
+    <string name="prospect_couldn_t_read_that_one">Couldn\'t read that one</string>
+    <string name="prospect_take_this_with_pinch_salt">Take this with a pinch of salt</string>
+    <string name="prospect_see_sold_listings">See the sold listings</string>
+
+    <!-- US-2368: canvas screen text. -->
+    <string name="canvas_item_not_found">Item not found</string>
+    <string name="canvas_may_have_been_deleted_hasn">It may have been deleted, or it hasn\'t synced to this device yet.</string>
+    <string name="canvas_back">Back</string>
+    <string name="canvas_item">Item</string>
+    <string name="canvas_title_required_save">Title is required to save.</string>
+    <string name="canvas_category">Category</string>
+    <string name="canvas_no_category_set_pick_one">No category set. Pick one to unlock category-specific photos and specifics.</string>
+    <string name="canvas_pricing_sourcing">Pricing &amp; sourcing</string>
+    <string name="canvas_notes">Notes</string>
+    <string name="canvas_discard_changes">Discard changes</string>
+    <string name="canvas_grading">Grading</string>
+    <string name="canvas_grade">Grade</string>
+    <string name="canvas_report">Report</string>
+    <string name="canvas_passport">Passport</string>
+    <string name="canvas_selling">Selling</string>
+    <string name="canvas_flaw_disclosure">Flaw disclosure</string>
+    <string name="canvas_dismiss">Dismiss</string>
+
+    <!-- US-2368: graderequest screen text. -->
+    <string name="graderequest_get_certified_grade">Get a certified grade</string>
+    <string name="graderequest_can_leave_this_screen_grade">You can leave this screen — the grade lands on the item either way.</string>
+    <string name="graderequest_submitted_human_review">Submitted for human review</string>
+    <string name="graderequest_still_grading">Still grading</string>
+    <string name="graderequest_needs_clearer_photos">Needs clearer photos</string>
+    <string name="graderequest_couldn_t_grade_this_item">Couldn\'t grade this item</string>
+    <string name="graderequest_not_ready_grade_yet">Not ready to grade yet</string>
+    <string name="graderequest_grade_this_item">Grade this item</string>
+    <string name="graderequest_use_credits">Use credits</string>
+    <string name="graderequest_cancel">Cancel</string>
+    <string name="graderequest_view_full_report">View full report</string>
+    <string name="graderequest_done">Done</string>
+    <string name="graderequest_try_again">Try again</string>
+    <string name="canvas_field_title">Title</string>
+    <string name="canvas_field_brand">Brand</string>
+    <string name="canvas_field_sku">SKU</string>
+    <string name="canvas_field_size">Size</string>
+    <string name="canvas_field_color">Color</string>
+    <string name="canvas_field_material">Material</string>
+    <string name="canvas_field_style">Style</string>
+    <string name="canvas_field_garment_type">Garment type</string>
+    <string name="canvas_field_garment_category">Garment category</string>
+    <string name="canvas_field_acquired_price">Acquired price</string>
+    <string name="canvas_field_target_price">Target price</string>
+    <string name="canvas_field_sourced_by">Sourced by</string>
+    <string name="canvas_field_container">Container</string>
+    <string name="canvas_field_location_bin">Location bin</string>
+    <string name="canvas_field_split_pct">Split % (optional)</string>
+    <string name="canvas_field_description">Description</string>
+    <string name="canvas_field_condition_notes">Condition notes</string>
+    <string name="canvas_saved_offline">Saved on this device \u2014 it\'ll sync when you\'re back online.</string>
+    <string name="canvas_saving">Saving\u2026</string>
+    <string name="canvas_save_changes">Save changes</string>
+    <string name="canvas_saved">Saved</string>
+    <string name="canvas_save_before_list">Save your changes to list</string>
+
+    <string name="prospect_intro">Photograph the front and the brand tag. We\'ll work out what it is, what it sells for, and whether it\'s worth buying.</string>
+    <string name="prospect_photo_count">%1$d of %2$d photos</string>
+    <string name="prospect_camera_denied">Turn camera access on in Settings, or pick a photo from your library instead.</string>
+    <string name="prospect_not_on_plan">Not on your plan</string>
+    <string name="prospect_failed">That didn\'t work</string>
+    <string name="prospect_checking">Checking\u2026</string>
+    <string name="prospect_check_it">Check it</string>
+    <string name="prospect_adding">Adding\u2026</string>
+    <string name="prospect_add_to_inventory">Add to inventory</string>
+    <string name="prospect_retry_hint">Try a clearer shot of the brand tag, or a straight-on photo of the front.</string>
+    <string name="prospect_sells_for">Sells for %1$s</string>
+    <string name="prospect_graded">Graded %1$s \u00b7 %2$d%% confident</string>
+
+    <string name="graderequest_sending">Sending your item\u2026</string>
+    <string name="graderequest_in_progress">Grading in progress\u2026</string>
+    <string name="graderequest_human_review_body">The AI wasn\'t confident enough to certify this one on its own, so a grader is checking it. You\'ll see the final grade on the item when it clears.</string>
+    <string name="graderequest_provisional">Provisional score %1$s</string>
+    <string name="graderequest_slow_body">This one\'s taking longer than usual. Nothing is lost \u2014 the grade will appear on the item as soon as it\'s done.</string>
+    <string name="graderequest_not_charged">You weren\'t charged.</string>
+    <string name="graderequest_balance">%1$d credits \u00b7 %2$d included grades left</string>
+    <string name="graderequest_bullet">\u2022 %1$s</string>
+    <string name="graderequest_included">Included</string>
+    <string name="graderequest_tier_detail">%1$s \u00b7 %2$s</string>
+    <plurals name="graderequest_credit_cost">
+        <item quantity="one">%1$d credit</item>
+        <item quantity="other">%1$d credits</item>
+    </plurals>
+    <plurals name="graderequest_spend_title">
+        <item quantity="one">Use %1$d credit?</item>
+        <item quantity="other">Use %1$d credits?</item>
+    </plurals>
+    <plurals name="graderequest_spend_body">
+        <item quantity="one">%1$s grading costs %2$d credit. You have %3$d. You\'re only charged when the grade succeeds.</item>
+        <item quantity="other">%1$s grading costs %2$d credits. You have %3$d. You\'re only charged when the grade succeeds.</item>
+    </plurals>
 </resources>

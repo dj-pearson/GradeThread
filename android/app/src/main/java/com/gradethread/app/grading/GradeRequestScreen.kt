@@ -25,6 +25,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -65,7 +68,7 @@ fun GradeRequestScreen(
             .padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Text("Get a certified grade", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.graderequest_get_certified_grade), style = MaterialTheme.typography.titleLarge)
 
         when (val phase = state.phase) {
             GradeRequestMachine.Phase.Loading -> Centered { CircularProgressIndicator() }
@@ -78,14 +81,14 @@ fun GradeRequestScreen(
                 CircularProgressIndicator()
                 Text(
                     if (phase == GradeRequestMachine.Phase.Submitting) {
-                        "Sending your item…"
+                        stringResource(R.string.graderequest_sending)
                     } else {
-                        "Grading in progress…"
+                        stringResource(R.string.graderequest_in_progress)
                     },
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    "You can leave this screen — the grade lands on the item either way.",
+                    stringResource(R.string.graderequest_can_leave_this_screen_grade),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -94,32 +97,31 @@ fun GradeRequestScreen(
             is GradeRequestMachine.Phase.Completed -> CompletedBody(phase, onClose, onViewReport)
 
             is GradeRequestMachine.Phase.PendingReview -> Outcome(
-                title = "Submitted for human review",
-                body = "The AI wasn't confident enough to certify this one on its own, so a " +
-                    "grader is checking it. You'll see the final grade on the item when " +
-                    "it clears.",
-                detail = phase.report?.let { "Provisional score ${score(it.overallScore)}" },
+                title = stringResource(R.string.graderequest_submitted_human_review),
+                body = stringResource(R.string.graderequest_human_review_body),
+                detail = phase.report?.let {
+                    stringResource(R.string.graderequest_provisional, score(it.overallScore))
+                },
                 onClose = onClose,
             )
 
             GradeRequestMachine.Phase.StillProcessing -> Outcome(
-                title = "Still grading",
-                body = "This one's taking longer than usual. Nothing is lost — the grade " +
-                    "will appear on the item as soon as it's done.",
+                title = stringResource(R.string.graderequest_still_grading),
+                body = stringResource(R.string.graderequest_slow_body),
                 onClose = onClose,
             )
 
             is GradeRequestMachine.Phase.NeedsPhotos -> Outcome(
-                title = "Needs clearer photos",
+                title = stringResource(R.string.graderequest_needs_clearer_photos),
                 body = phase.message,
                 // Named explicitly: the single most common worry at this point
                 // is "did that cost me a grade?"
-                detail = "You weren't charged.",
+                detail = stringResource(R.string.graderequest_not_charged),
                 onClose = onClose,
             )
 
             is GradeRequestMachine.Phase.Failed -> Outcome(
-                title = "Couldn't grade this item",
+                title = stringResource(R.string.graderequest_couldn_t_grade_this_item),
                 body = phase.message,
                 onClose = onClose,
                 onRetry = viewModel::load,
@@ -147,8 +149,11 @@ private fun ReadyBody(
     item?.title?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
 
     Text(
-        "${state.creditBalance} credits · ${state.validation?.user?.includedRemaining ?: 0} " +
-            "included grades left",
+        stringResource(
+            R.string.graderequest_balance,
+            state.creditBalance,
+            state.validation?.user?.includedRemaining ?: 0,
+        ),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -163,9 +168,12 @@ private fun ReadyBody(
                 )
                 .padding(Spacing.sm),
         ) {
-            Text("Not ready to grade yet", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.graderequest_not_ready_grade_yet), style = MaterialTheme.typography.labelLarge)
             state.blockers.forEach { blocker ->
-                Text("• $blocker", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(R.string.graderequest_bullet, blocker),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }
@@ -193,7 +201,7 @@ private fun ReadyBody(
         )
     } else {
         BrandPrimaryButton(
-            text = "Grade this item",
+            text = stringResource(R.string.graderequest_grade_this_item),
             enabled = state.canSubmit,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.submit() }
@@ -231,15 +239,19 @@ private fun TierRow(
             )
             Text(
                 if (spendsCredits) {
-                    "${tier.creditCost} credit${if (tier.creditCost == 1) "" else "s"}"
+                    pluralStringResource(
+                        R.plurals.graderequest_credit_cost,
+                        tier.creditCost,
+                        tier.creditCost,
+                    )
                 } else {
-                    "Included"
+                    stringResource(R.string.graderequest_included)
                 },
                 style = MaterialTheme.typography.labelLarge,
             )
         }
         Text(
-            "${tier.turnaround} · ${tier.blurb}",
+            stringResource(R.string.graderequest_tier_detail, tier.turnaround, tier.blurb),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -255,16 +267,28 @@ private fun SpendConfirmDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Use ${tier.creditCost} credits?") },
-        text = {
+        title = {
             Text(
-                "${tier.label} grading costs ${tier.creditCost} credit" +
-                    "${if (tier.creditCost == 1) "" else "s"}. You have $balance. " +
-                    "You're only charged when the grade succeeds.",
+                pluralStringResource(
+                    R.plurals.graderequest_spend_title,
+                    tier.creditCost,
+                    tier.creditCost,
+                ),
             )
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Use credits") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        text = {
+            Text(
+                pluralStringResource(
+                    R.plurals.graderequest_spend_body,
+                    tier.creditCost,
+                    tier.label,
+                    tier.creditCost,
+                    balance,
+                ),
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.graderequest_use_credits)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.graderequest_cancel)) } },
     )
 }
 
@@ -291,10 +315,10 @@ private fun CompletedBody(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        BrandPrimaryButton(text = "View full report", modifier = Modifier.fillMaxWidth()) {
+        BrandPrimaryButton(text = stringResource(R.string.graderequest_view_full_report), modifier = Modifier.fillMaxWidth()) {
             onViewReport()
         }
-        BrandSecondaryButton(text = "Done", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 }
 
@@ -315,9 +339,9 @@ private fun Outcome(
         )
         detail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         onRetry?.let {
-            BrandSecondaryButton(text = "Try again", modifier = Modifier.fillMaxWidth()) { it() }
+            BrandSecondaryButton(text = stringResource(R.string.graderequest_try_again), modifier = Modifier.fillMaxWidth()) { it() }
         }
-        BrandPrimaryButton(text = "Done", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandPrimaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 }
 

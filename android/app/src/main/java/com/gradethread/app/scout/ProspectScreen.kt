@@ -25,6 +25,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -91,16 +93,15 @@ fun ProspectScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Text("Prospect", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.prospect_prospect), style = MaterialTheme.typography.titleLarge)
         Text(
-            "Photograph the front and the brand tag. We'll work out what it is, what it " +
-                "sells for, and whether it's worth buying.",
+            stringResource(R.string.prospect_intro),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Text(
-            "${state.photos.size} of ${ProspectDisplay.MAX_PHOTOS} photos",
+            stringResource(R.string.prospect_photo_count, state.photos.size, ProspectDisplay.MAX_PHOTOS),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -112,13 +113,13 @@ fun ProspectScreen(
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { viewModel.removePhoto(photo) }) { Text("Remove") }
+                TextButton(onClick = { viewModel.removePhoto(photo) }) { Text(stringResource(R.string.prospect_remove)) }
             }
         }
 
         if (state.canAddMorePhotos) {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                BrandSecondaryButton(text = "Take photo", modifier = Modifier.weight(1f)) {
+                BrandSecondaryButton(text = stringResource(R.string.prospect_take_photo), modifier = Modifier.weight(1f)) {
                     haptics.light()
                     cameraDenied = false
                     val granted = ContextCompat.checkSelfPermission(
@@ -127,7 +128,7 @@ fun ProspectScreen(
                     ) == PackageManager.PERMISSION_GRANTED
                     if (granted) launchCamera() else requestCamera.launch(Manifest.permission.CAMERA)
                 }
-                BrandSecondaryButton(text = "Library", modifier = Modifier.weight(1f)) {
+                BrandSecondaryButton(text = stringResource(R.string.prospect_library), modifier = Modifier.weight(1f)) {
                     haptics.light()
                     pickPhoto.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -137,8 +138,8 @@ fun ProspectScreen(
         }
         if (cameraDenied) {
             InfoCard(
-                "Camera is off",
-                "Turn camera access on in Settings, or pick a photo from your library instead.",
+                stringResource(R.string.prospect_camera_off),
+                stringResource(R.string.prospect_camera_denied),
                 tone = InfoTone.Warning,
             )
         }
@@ -146,9 +147,9 @@ fun ProspectScreen(
         OutlinedTextField(
             value = state.costText,
             onValueChange = viewModel::setCost,
-            label = { Text("What does it cost?") },
-            prefix = { Text("$") },
-            supportingText = { Text("Optional, but there's no buy-or-walk verdict without it.") },
+            label = { Text(stringResource(R.string.prospect_what_does_cost)) },
+            prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
+            supportingText = { Text(stringResource(R.string.prospect_optional_but_there_s_no)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.fillMaxWidth(),
@@ -156,7 +157,13 @@ fun ProspectScreen(
 
         state.errorMessage?.let {
             InfoCard(
-                if (state.planWall != null) "Not on your plan" else "That didn't work",
+                stringResource(
+                    if (state.planWall != null) {
+                        R.string.prospect_not_on_plan
+                    } else {
+                        R.string.prospect_failed
+                    },
+                ),
                 it,
                 tone = if (state.planWall != null) InfoTone.Warning else InfoTone.Error,
             )
@@ -165,13 +172,15 @@ fun ProspectScreen(
         state.response?.let { response -> ResultCard(response, state, context) }
 
         state.boughtItemId?.let { itemId ->
-            BrandSecondaryButton(text = "Open it in inventory", modifier = Modifier.fillMaxWidth()) {
+            BrandSecondaryButton(text = stringResource(R.string.prospect_open_inventory), modifier = Modifier.fillMaxWidth()) {
                 onOpenItem(itemId)
             }
         }
 
         BrandPrimaryButton(
-            text = if (state.running) "Checking…" else "Check it",
+            text = stringResource(
+                if (state.running) R.string.prospect_checking else R.string.prospect_check_it,
+            ),
             // A plan wall can't be retried: the shell is already offering the
             // upgrade, and a second tap only hits the same wall.
             enabled = state.canRun && state.planWall == null,
@@ -180,16 +189,18 @@ fun ProspectScreen(
 
         if (state.canBuy) {
             BrandPrimaryButton(
-                text = if (state.buying) "Adding…" else "Add to inventory",
+                text = stringResource(
+                    if (state.buying) R.string.prospect_adding else R.string.prospect_add_to_inventory,
+                ),
                 enabled = !state.buying,
                 modifier = Modifier.fillMaxWidth(),
             ) { viewModel.buy() }
         }
 
-        BrandSecondaryButton(text = "Start over", modifier = Modifier.fillMaxWidth()) {
+        BrandSecondaryButton(text = stringResource(R.string.prospect_start_over), modifier = Modifier.fillMaxWidth()) {
             viewModel.reset()
         }
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.prospect_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 }
 
@@ -207,10 +218,10 @@ private fun ResultCard(
             // Naming the failure as "we couldn't read it" rather than showing an
             // empty result: the seller can fix this with a better photo, and
             // that is the only useful thing to tell them.
-            Text("Couldn't read that one", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.prospect_couldn_t_read_that_one), style = MaterialTheme.typography.titleMedium)
             Text(
                 response.note
-                    ?: "Try a clearer shot of the brand tag, or a straight-on photo of the front.",
+                    ?: stringResource(R.string.prospect_retry_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -232,7 +243,7 @@ private fun ResultCard(
         }
 
         Text(
-            "Sells for ${ProspectDisplay.priceRange(response.stats)}",
+            stringResource(R.string.prospect_sells_for, ProspectDisplay.priceRange(response.stats)),
             style = MaterialTheme.typography.bodyMedium,
         )
         ProspectDisplay.marginLabel(response.decision)?.let {
@@ -247,8 +258,11 @@ private fun ResultCard(
         }
         response.grade?.let { grade ->
             Text(
-                "Graded ${"%.1f".format(grade.value)} · " +
-                    "${Math.round(grade.confidence * 100)}% confident",
+                stringResource(
+                    R.string.prospect_graded,
+                    "%.1f".format(grade.value),
+                    Math.round(grade.confidence * 100),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -262,12 +276,12 @@ private fun ResultCard(
         }
 
         state.caveat?.let {
-            InfoCard("Take this with a pinch of salt", it, tone = InfoTone.Warning)
+            InfoCard(stringResource(R.string.prospect_take_this_with_pinch_salt), it, tone = InfoTone.Warning)
         }
 
         response.ebaySoldSearchUrl?.let { url ->
             TextButton(onClick = { CustomTabsLauncher.open(context, url) }) {
-                Text("See the sold listings")
+                Text(stringResource(R.string.prospect_see_sold_listings))
             }
         }
         response.disclaimer?.let {
