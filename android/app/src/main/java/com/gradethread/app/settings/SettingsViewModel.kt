@@ -54,6 +54,7 @@ class SettingsViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val client: SupabaseClient,
     private val db: GradeThreadDb,
+    private val pushRegistration: com.gradethread.app.platform.push.PushRegistration,
 ) : ViewModel() {
 
     data class State(
@@ -219,6 +220,11 @@ class SettingsViewModel @Inject constructor(
                     ),
                 )
             }.isSuccess
+            // US-1378: the push token goes BEFORE the session does, because
+            // unregistering needs the session's own token to authenticate. Left
+            // behind, the server would keep pushing this account's sales to a
+            // phone somebody else may now be holding.
+            runCatching { pushRegistration.clear() }
             WorkspaceScope.clear()
             auth.signOut()
             update {

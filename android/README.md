@@ -37,6 +37,7 @@ Scout (graded, profit-ranked eBay candidates) and in-store Prospect ·
 verified-seller status with an offline-tolerant requirements checklist ·
 the item passport (pedigree timeline with confidence per hop) ·
 the shipping queue with tracking entry and offline-queued mark-shipped ·
+FCM push (channels, deep-linked taps, inline accept/counter/mark-shipped/reconnect) ·
 Home, Money (KPIs, cash flow, aging, time-on-market, ROI-by-source, per-item
 P&L), Sales, Expenses, Settings.
 
@@ -44,7 +45,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| FCM push, Glance widgets, onboarding, referrals, feedback, workspaces, CSV import | US-1378–1389 |
+| Glance widgets, onboarding, referrals, feedback, workspaces, CSV import | US-1379–1389 |
 | Localization (`values-*`, plurals, locale selector) | US-1393 |
 
 Nothing in that table has an Android implementation — do not treat any of it as
@@ -99,7 +100,7 @@ opened the project (US-2015). Add a row when the code lands, not before.
 | `verified` | `Verified/` | read-only badge status, requirements checklist, cached-offline standing |
 | `passport` | `Passport/` | PII-free pedigree timeline, confidence taxonomy, chain strength |
 | `fulfillment` | `Fulfillment/` | shipping queue, tracking entry, mark-shipped (eBay or local, offline-queued) |
-| `platform` | `Networking/` + `Telemetry/` | EdgeAPI, Supabase, Sentry/PostHog, workspace scope, app lock |
+| `platform` | `Networking/` + `Telemetry/` | EdgeAPI, Supabase, Sentry/PostHog, workspace scope, app lock, FCM push |
 
 ## Play Billing (US-1338, US-1366)
 
@@ -145,6 +146,29 @@ Settlement rules the tests hold to: consumables are **consumed** (so they can be
 bought again), subscriptions are **acknowledged** (Play auto-refunds an
 unacknowledged purchase after three days), and NEITHER happens until the server
 has confirmed the grant.
+
+## Push (US-1378)
+
+There is deliberately **no `google-services` Gradle plugin and no
+`google-services.json`**. That plugin fails the build outright when the file is
+absent, which would stop anyone building this app without Firebase credentials
+that aren't ours to commit. Firebase is initialized by hand in `PushConfig` from
+four BuildConfig values — `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`,
+`FIREBASE_API_KEY`, `FIREBASE_SENDER_ID` — supplied like every other secret (CI
+env var, then `local.properties`). **All four or none:** a half-configured client
+initializes fine and then fails on the first token request. An unconfigured build
+simply has no push, the same DSN-gated shape Sentry uses.
+
+Tokens register at `POST /api/notifications/register` with `platform=fcm` on
+every cold start (the route is idempotent, and the server prunes stale tokens —
+a client that only registered on rotation would never come back). Sign-out
+`DELETE`s the token **before** clearing the session, since unregistering needs
+that session to authenticate.
+
+Five channels, not one per category: `money`, `selling`, `grading`, `urgent`,
+`updates`. Only `urgent` (an expiring eBay token) bypasses Do Not Disturb.
+POST_NOTIFICATIONS is requested at a **money moment** (first sale / first grade),
+never at launch — Android auto-denies the second dialog, so there is one real ask.
 
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 

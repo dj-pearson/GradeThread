@@ -46,6 +46,13 @@ android {
         buildConfigField("String", "POSTHOG_API_KEY", "\"${secret("POSTHOG_API_KEY")}\"")
         buildConfigField("String", "POSTHOG_HOST", "\"${secret("POSTHOG_HOST")}\"")
         buildConfigField("String", "TURNSTILE_SITE_KEY", "\"${secret("TURNSTILE_SITE_KEY")}\"")
+        // US-1378: Firebase, supplied the same way. All four must be present
+        // for push to work; any blank disables it rather than half-initializing
+        // a client that fails on the first send.
+        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${secret("FIREBASE_PROJECT_ID")}\"")
+        buildConfigField("String", "FIREBASE_APP_ID", "\"${secret("FIREBASE_APP_ID")}\"")
+        buildConfigField("String", "FIREBASE_API_KEY", "\"${secret("FIREBASE_API_KEY")}\"")
+        buildConfigField("String", "FIREBASE_SENDER_ID", "\"${secret("FIREBASE_SENDER_ID")}\"")
     }
 
     buildTypes {
@@ -116,6 +123,8 @@ dependencies {
     implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.work.runtime)
     implementation(libs.play.billing)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     implementation(libs.androidx.lifecycle.process)
 
     implementation(libs.hilt.android)

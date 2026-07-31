@@ -78,6 +78,30 @@ sealed class DeepLinkRoute {
     }
 
     /**
+     * US-1378: the app-link Uri for this route.
+     *
+     * The inverse of [fromAppLink], so a push tap travels as the SAME link the
+     * app already handles from an email or a widget. One routing table rather
+     * than a second, bespoke set of intent extras that can drift from it.
+     */
+    fun toDeepLinkUri(): String {
+        val path = when (this) {
+            is InventoryItem -> "item/$id"
+            InventoryTab -> "inventory"
+            is SalesTab -> inventoryItemId?.let { "sales/$it" } ?: "sales"
+            MarketplacesTab -> "marketplaces"
+            ReconnectEbay -> "reconnect"
+            is NegotiationInbox -> filterItemId?.let { "negotiation/$it" } ?: "negotiation"
+            GradesList -> "grades"
+            CaptureItem -> "capture"
+            AddItem -> "add"
+            is SupportTickets -> ticketId?.let { "support/$it" } ?: "support"
+            Shipping -> "shipping"
+        }
+        return "https://gradethread.com/app/$path"
+    }
+
+    /**
      * The shell navigation target. Routes point at today's registered graph
      * (section roots + capture placeholders); detail routes refine as their
      * feature stories register real destinations.

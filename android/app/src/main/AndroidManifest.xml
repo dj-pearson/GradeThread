@@ -12,6 +12,9 @@
     <!-- US-1331: hands-free dictation for item notes. Optional hardware -
          the notes field is fully usable by typing on mic-less devices. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- US-1378: push. Requested at a MONEY MOMENT (first sale / first grade),
+         never at launch - Android gives one real shot at this dialog. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- US-1331: package visibility (API 30+). Without this, the recognition
@@ -33,6 +36,24 @@
         <!-- US-1308: Sentry initializes manually from AppConfig (DSN may be
              absent → silently disabled); the auto-init provider must not race it. -->
         <meta-data android:name="io.sentry.auto-init" android:value="false" />
+
+        <!-- US-1378: FCM. There is deliberately no google-services plugin and
+             no google-services.json - that plugin fails the build outright when
+             the file is absent, which would stop anyone building this app
+             without Firebase credentials that aren't ours to commit. Firebase
+             is initialized by hand from BuildConfig (PushConfig), the same
+             DSN-gated shape Sentry uses. -->
+        <service
+            android:name=".platform.push.GradeThreadMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- Not exported: only our own notification actions target it. -->
+        <receiver
+            android:name=".platform.push.PushActionReceiver"
+            android:exported="false" />
 
         <activity
             android:name=".MainActivity"
