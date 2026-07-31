@@ -37,8 +37,9 @@ import com.gradethread.app.ui.theme.Spacing
  * Replaces the `SectionPlaceholder` this destination rendered — including the
  * only route to signing out, which meant the app had no way to leave an account.
  *
- * The workspace switcher (AC3) is deliberately absent: US-1388 owns it and hasn't
- * landed. A picker with one entry that can't switch anything is worse than none.
+ * US-1388: the workspace switcher lives in the Account section. It shows even
+ * with one workspace — "whose inventory am I looking at" is the question it
+ * answers, and hiding it when the answer is "yours" makes that ambiguous.
  */
 @Composable
 fun SettingsScreen(
@@ -95,6 +96,9 @@ fun SettingsScreen(
                 }
             }
         }
+
+        // US-1388: which workspace this session is scoped to, and the switch.
+        com.gradethread.app.workspace.WorkspaceSwitcherRow()
 
         // ── Plan & credits ───────────────────────────────────────────────────
         SectionHeader("Plan & credits")

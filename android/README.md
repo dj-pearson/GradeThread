@@ -414,6 +414,39 @@ not exist in a plain JVM test, and the resulting failure reads like a bug in the
 code under test rather than in the harness. Pass its `dispatcher` to `runTest`
 so the body and the ViewModel share one scheduler.
 
+## Workspace switcher (US-1388)
+
+`workspace/` lists the workspaces a user belongs to (`workspace_members` through
+the **anon** client, so RLS scopes it) and switches between them. The row lives
+in Settings → Account and shows even with one workspace: "whose inventory am I
+looking at" is the question it answers, and hiding it when the answer is "yours"
+makes that ambiguous right after a member switches back.
+
+**`WorkspaceSwitcher` is the first production caller of
+`SessionScope.switchWorkspace`.** That ordering has been written down since
+US-1323 with nothing calling it. It matters: queued edits belong to the OLD
+tenant so they flush first, and the epoch bump makes an in-flight pull discard
+its merge instead of writing the outgoing workspace's rows on top of the
+incoming one's. The scope is set **before** the re-pull, because every read
+resolves its tenant through `WorkspaceScope`.
+
+Three rules in `Workspaces` (all pure):
+
+- **Personal is always present and always first**, and stores `null` rather than
+  your own id — the edge defaults the tenant to the caller, and a header naming
+  yourself is a different server path for the same result.
+- **A stale selection is dropped on load.** A membership revoked while the app
+  was closed leaves an owner id in preferences that every request then sends as
+  `X-Workspace-Owner`.
+- **A selection with no matching row resolves to nothing, not to personal.**
+  Showing "My workspace" while the header still says otherwise would be wrong on
+  screen *and* wrong on the wire.
+
+**Known gap, not fixed here:** `rehomeRealtime` is deliberately a no-op.
+`RealtimeService.rehome(ownerId)` exists, but nothing in the app constructs a
+`RealtimeService` at all, so there is no channel to re-home. Wiring a fake one
+would make the switch look like it re-homes realtime when it does not.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

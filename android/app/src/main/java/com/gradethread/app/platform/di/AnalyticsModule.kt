@@ -20,6 +20,8 @@ import com.gradethread.app.templates.TemplateProviding
 import com.gradethread.app.templates.TemplateService
 import com.gradethread.app.verified.VerifiedProviding
 import com.gradethread.app.verified.VerifiedService
+import com.gradethread.app.workspace.WorkspaceReading
+import com.gradethread.app.workspace.WorkspaceRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -88,4 +90,9 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindFeedback(impl: FeedbackService): FeedbackSending
+
+    /** US-1388: the workspaces this user can work inside. */
+    @Binds
+    @Singleton
+    abstract fun bindWorkspaces(impl: WorkspaceRepository): WorkspaceReading
 }
