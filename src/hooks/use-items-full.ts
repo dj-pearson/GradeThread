@@ -55,21 +55,37 @@ export function useItemsFull() {
     staleTime: ITEMS_FULL_STALE_TIME,
     gcTime: ITEMS_FULL_GC_TIME,
     queryFn: async (): Promise<ItemFullRow[]> => {
-      const from = supabase.from as unknown as (
-        name: "items_full",
-      ) => {
-        select: (cols: string) => {
-          order: (
-            col: string,
-            opts?: { ascending?: boolean },
-          ) => {
-            range: (
-              start: number,
-              end: number,
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
+      // `.bind(supabase)` is LOAD-BEARING. supabase-js implements `from()` as
+      // `return this.rest.from(relation)`, so the method only works while it is
+      // still attached to the client. Hoisting it into a bare local
+      // (`const from = supabase.from`) drops `this` and throws
+      // "Cannot read properties of undefined (reading 'rest')" on the FIRST page
+      // — before any network call. React Query swallows that into an errored
+      // query, every items_full consumer falls back to its `= []` default, and
+      // the app looks like a seller with no inventory: an empty items table and
+      // "Item not found." on every item/draft detail page.
+      //
+      // The pre-paging code called it as `(supabase.from as unknown as T)(...)`,
+      // which reads like the same cast but is not: parenthesising a member
+      // expression preserves the `this` binding, so that form worked. Binding
+      // explicitly removes the trap instead of re-hiding it.
+      const from = (
+        supabase.from as unknown as (
+          name: "items_full",
+        ) => {
+          select: (cols: string) => {
+            order: (
+              col: string,
+              opts?: { ascending?: boolean },
+            ) => {
+              range: (
+                start: number,
+                end: number,
+              ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
+            };
           };
-        };
-      };
+        }
+      ).bind(supabase);
 
       const all: ItemFullRow[] = [];
       for (let start = 0; ; start += ITEMS_FULL_PAGE) {

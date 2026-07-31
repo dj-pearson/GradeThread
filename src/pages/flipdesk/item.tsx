@@ -65,7 +65,7 @@ export function FlipdeskItemPage() {
   const { hash } = useLocation();
 
   // Shared items_full read — single source of truth across FlipDesk (US-419).
-  const { data: items = [], isLoading } = useItemsFull();
+  const { data: items = [], isLoading, isError, refetch } = useItemsFull();
 
   const item = useMemo(
     () => items.find((it) => it.id === id) ?? null,
@@ -91,6 +91,25 @@ export function FlipdeskItemPage() {
         <Skeleton className="h-64 w-full" />
         <Skeleton className="h-40 w-full" />
       </LoadingRegion>
+    );
+  }
+
+  // A FAILED items_full read used to render as "Item not found." — the `= []`
+  // default is indistinguishable from a real empty inventory once the query
+  // errors. That sent a whole debugging session after a missing row when the
+  // actual fault was the shared read throwing. Say which one it is.
+  if (isError) {
+    return (
+      <div className="space-y-3 py-12 text-center">
+        <div className="text-sm text-muted-foreground">
+          Couldn't load your items. This is a connection problem, not a missing
+          item.
+        </div>
+        <Button variant="outline" onClick={() => refetch()}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Try again
+        </Button>
+      </div>
     );
   }
 

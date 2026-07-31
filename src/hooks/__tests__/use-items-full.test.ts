@@ -26,25 +26,43 @@ const selectCalls: string[] = [];
 let pages: Record<number, unknown[]> = {};
 let rangeError: Error | null = null;
 
-const from = vi.fn((_name: string) => ({
-  select: (cols: string) => {
-    selectCalls.push(cols);
-    return {
-      order: (col: string, opts?: { ascending?: boolean }) => {
-        orderCalls.push({ col, opts });
-        return {
-          range: (start: number, end: number) => {
-            rangeCalls.push({ start, end });
-            if (rangeError) return Promise.resolve({ data: null, error: rangeError });
-            return Promise.resolve({ data: pages[start] ?? [], error: null });
-          },
-        };
-      },
-    };
+const fromCalls: string[] = [];
+const from = vi.fn((name: string) => {
+  fromCalls.push(name);
+  return {
+    select: (cols: string) => {
+      selectCalls.push(cols);
+      return {
+        order: (col: string, opts?: { ascending?: boolean }) => {
+          orderCalls.push({ col, opts });
+          return {
+            range: (start: number, end: number) => {
+              rangeCalls.push({ start, end });
+              if (rangeError) return Promise.resolve({ data: null, error: rangeError });
+              return Promise.resolve({ data: pages[start] ?? [], error: null });
+            },
+          };
+        },
+      };
+    },
+  };
+});
+
+// The mock's `from` MUST depend on `this`, because the real one does:
+// supabase-js implements it as `return this.rest.from(relation)`. The first
+// version of this mock was a `this`-free arrow, so it happily accepted a
+// hoisted `const from = supabase.from` — the suite was green while production
+// threw "Cannot read properties of undefined (reading 'rest')" on every call,
+// emptied every items_full consumer, and turned every item page into
+// "Item not found.". Mirroring the real shape is what makes that catchable.
+vi.mock("@/lib/supabase", () => ({
+  supabase: {
+    rest: { from: (n: string) => from(n) },
+    from(this: { rest: { from: (n: string) => unknown } }, n: string) {
+      return this.rest.from(n);
+    },
   },
 }));
-
-vi.mock("@/lib/supabase", () => ({ supabase: { from: (n: string) => from(n) } }));
 vi.mock("@/stores/auth-store", () => ({
   useAuthStore: (sel: (s: unknown) => unknown) => sel({ user: { id: "u1" } }),
 }));
@@ -74,6 +92,7 @@ beforeEach(() => {
   rangeCalls.length = 0;
   orderCalls.length = 0;
   selectCalls.length = 0;
+  fromCalls.length = 0;
   pages = {};
   rangeError = null;
 });
@@ -135,11 +154,22 @@ describe("the read is bounded", () => {
   });
 });
 
+describe("the client method stays attached to the client", () => {
+  it("calls from() with its `this`, so supabase-js can reach this.rest", async () => {
+    // The whole read is one call away from throwing before it hits the network.
+    // React Query swallows that into an errored query, every consumer falls back
+    // to its `= []` default, and the app looks like an empty inventory instead of
+    // a broken one — which is exactly how it shipped.
+    pages[0] = rows("a", 2);
+    await expect(useItemsFullOptions().queryFn()).resolves.toHaveLength(2);
+  });
+});
+
 describe("nothing else about the shared query changed", () => {
   it("still reads items_full newest-first", async () => {
     pages[0] = rows("a", 1);
     await useItemsFullOptions().queryFn();
-    expect(from).toHaveBeenCalledWith("items_full");
+    expect(fromCalls).toEqual(["items_full"]);
     expect(orderCalls[0]).toEqual({ col: "created_at", opts: { ascending: false } });
   });
 
