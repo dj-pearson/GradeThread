@@ -28,8 +28,9 @@ import kotlinx.coroutines.flow.StateFlow
         PayoutEntity::class,
         PendingMutationEntity::class,
         CaptureDraftEntity::class,
+        IntakeBatchEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class GradeThreadDb : RoomDatabase() {
@@ -42,6 +43,7 @@ abstract class GradeThreadDb : RoomDatabase() {
     abstract fun payouts(): PayoutDao
     abstract fun pendingMutations(): PendingMutationDao
     abstract fun captureDrafts(): CaptureDraftDao
+    abstract fun intakeBatches(): IntakeBatchDao
 
     companion object {
         const val DB_NAME = "gradethread.db"
@@ -101,7 +103,7 @@ object DatabaseProvider {
 
     private fun build(context: Context, dbName: String): GradeThreadDb =
         Room.databaseBuilder(context, GradeThreadDb::class.java, dbName)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
 
     /**
@@ -166,6 +168,27 @@ object DatabaseProvider {
             db.execSQL(
                 "CREATE INDEX IF NOT EXISTS index_ebay_payouts_payoutDate " +
                     "ON ebay_payouts(payoutDate)",
+            )
+        }
+    }
+
+    /**
+     * US-1382: the share-target intake inbox.
+     *
+     * Explicit, like its predecessors — a version bump with no migration is a
+     * crash on launch for every device already holding a v4 file, and
+     * destructive fallback would take their queued mutations with it.
+     */
+    internal val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS intake_batches (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    photosJson TEXT NOT NULL,
+                    createdAt INTEGER NOT NULL
+                )
+                """.trimIndent(),
             )
         }
     }

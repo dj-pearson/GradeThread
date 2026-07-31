@@ -266,3 +266,20 @@ data class CaptureDraftEntity(
     val stateJson: String,
     val updatedAt: Long,
 )
+
+/**
+ * US-1382: one batch of photos shared into the app from somewhere else.
+ *
+ * Rows, not files-with-a-manifest. iOS needs a manifest.json because its Share
+ * Extension is a separate process writing into an App Group container it must
+ * describe to the main app; the Android share target runs in this process and
+ * already has Room, so the manifest IS the row. The JPEGs still live on disk —
+ * the row carries their paths.
+ */
+@Entity(tableName = "intake_batches")
+data class IntakeBatchEntity(
+    @PrimaryKey val id: String,
+    /** Serialized list of slot/filename/bytes entries. */
+    val photosJson: String,
+    val createdAt: Long,
+)

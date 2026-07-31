@@ -11,6 +11,7 @@ import com.gradethread.app.platform.push.PushConfig
 import com.gradethread.app.platform.push.PushNotifier
 import com.gradethread.app.platform.push.PushRegistration
 import com.gradethread.app.platform.workspace.WorkspaceScope
+import com.gradethread.app.intake.IntakeDrainer
 import com.gradethread.app.sync.BackgroundRefreshStore
 import com.gradethread.app.sync.BackgroundRefreshWorker
 import com.gradethread.app.sync.ConnectivityMonitor
@@ -78,6 +79,9 @@ class GradeThreadApp : Application(), Configuration.Provider {
             // registers on change would never come back after a prune.
             appScope.launch { pushRegistration.register() }
         }
+        // US-1382: photos shared in from another app become a capture
+        // session on the next foreground.
+        intakeDrainer.observeForeground()
         // US-1379: half-hourly catch-up sync. Re-applied on every cold start,
         // which is also what re-arms it after a reboot — WorkManager restores
         // its own queue, and KEEP means this call is a no-op when it did.
@@ -106,4 +110,7 @@ class GradeThreadApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var backgroundRefreshStore: BackgroundRefreshStore
+
+    @Inject
+    lateinit var intakeDrainer: IntakeDrainer
 }

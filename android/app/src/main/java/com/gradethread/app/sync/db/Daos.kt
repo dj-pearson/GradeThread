@@ -285,3 +285,20 @@ interface CaptureDraftDao {
     @Query("DELETE FROM capture_drafts")
     suspend fun clearAll()
 }
+
+/** US-1382: the share-target inbox. */
+@Dao
+interface IntakeBatchDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(batch: IntakeBatchEntity)
+
+    /** Oldest first — batches drain in the order they were shared. */
+    @Query("SELECT * FROM intake_batches ORDER BY createdAt ASC")
+    suspend fun all(): List<IntakeBatchEntity>
+
+    @Query("DELETE FROM intake_batches WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("DELETE FROM intake_batches")
+    suspend fun clearAll()
+}

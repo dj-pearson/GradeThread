@@ -127,6 +127,29 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
         </activity>
+        <!-- US-1382: "Share to GradeThread". Its own Activity because the
+             system hands a share to a component and expects it back promptly;
+             it stages the photos and finishes, and the app drains them on next
+             foreground. excludeFromRecents so a finished share doesn't sit in
+             the task switcher looking like an open screen. -->
+        <activity
+            android:name=".intake.ShareTargetActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/share_target_label"
+            android:theme="@style/Theme.GradeThread">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
         <!-- US-1311: the OAuth return point. The App Link is domain-bound via
              assetlinks.json (US-661's Android half); the custom scheme is the
              pre-App-Link fallback — the activity validates BOTH against a

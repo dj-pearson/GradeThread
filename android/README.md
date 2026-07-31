@@ -260,6 +260,42 @@ unqualified fallback is a resource with no default declaration. The status-bar
 icon is now a silhouette (`ic_notification`), not the launcher icon — Android
 masks every small icon to white, so a full-colour one renders as a blob.
 
+## Share target → intake (US-1382)
+
+"Share to GradeThread" from any gallery. `ShareTargetActivity` stages the
+photos and finishes; `IntakeDrainer` folds them into the capture draft on the
+next foreground. Its own Activity, not a shell route — the system hands a share
+to a component and expects it back promptly.
+
+**Files are copied, not referenced.** A `content://` read grant dies with the
+Activity that received it, so a stored Uri would be unreadable by the time
+anyone opened the app — which is the entire window this feature covers. Every
+photo goes through the same `PhotoProcessor` pipeline a camera capture takes,
+which matters here more than there: a shared photo carries GPS from wherever it
+was taken, usually someone's home.
+
+**The batch is a Room row, not a manifest file.** iOS needs `manifest.json`
+because its Share Extension is a separate process writing into an App Group
+container it must describe. The Android share target runs in this process and
+already has Room, so the row IS the manifest (v5, `intake_batches`).
+
+Three rules that are not obvious:
+
+- **A share never overwrites a photo already taken.** A photo whose slot is
+  taken moves to the next free one; only when nothing is free is it dropped, and
+  a drop is always reported. Silently replacing frames is indistinguishable from
+  the app eating someone's work.
+- **The drain consumes the batch either way.** A batch that couldn't be placed
+  won't become placeable later, and replaying it every foreground is its own bug.
+- **The row goes before the files.** A crash between them leaves orphaned JPEGs,
+  which `sweepOrphans` clears. The other order leaves a row pointing at files
+  that are gone, which shows an empty intake with no explanation.
+
+Unopened batches are swept after 7 days. Sign-out drops both the rows
+(`SessionScope.signOutWipe`) and the files (`IntakeInboxStore.clearAll`). The
+share target deliberately does **not** require sign-in: someone shooting a rail
+in a thrift store shouldn't lose the photos to a forgotten password.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

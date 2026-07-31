@@ -11,4 +11,6 @@
     <string name="shortcut_snap_long">Snap to Value</string>
     <string name="shortcut_add_short">Add item</string>
     <string name="shortcut_add_long">Add an item</string>
+    <!-- US-1382: what the system share sheet calls us. -->
+    <string name="share_target_label">Add to GradeThread</string>
 </resources>

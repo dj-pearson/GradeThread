@@ -100,6 +100,10 @@ class SessionScope(
                     db.sources().clearAll()
                     db.payouts().clearAll() // US-1365: deposits are tenant data too
                     db.captureDrafts().clearAll() // an in-flight capture is tenant data
+                    // US-1382: staged share photos are someone's garments, in
+                    // their house. The FILES are removed separately, by
+                    // IntakeInboxStore.clearAll — this only drops the rows.
+                    db.intakeBatches().clearAll()
                     if (includeQueue) db.pendingMutations().clearAll()
                 }
             }
