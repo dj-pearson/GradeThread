@@ -209,7 +209,10 @@ fun VerifiedScreen(
                 }
             }
         } else if (state.loading) {
-            Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                stringResource(R.string.common_loading),
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
 
         if (state.requirements.isNotEmpty()) {

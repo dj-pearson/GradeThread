@@ -1138,6 +1138,38 @@
     <string name="common_category">Category</string>
     <string name="common_amount">Amount</string>
 
+    <!-- US-2368 batch 6: passport, paywall, fulfillment. -->
+    <string name="common_close">Close</string>
+    <string name="common_open">Open</string>
+    <string name="passport_title">Item passport</string>
+    <string name="passport_empty_title">No passport yet</string>
+    <string name="passport_empty_body">A passport starts when an item is certified. Grade this one and its history begins.</string>
+    <string name="passport_no_history_title">Nothing recorded yet</string>
+    <string name="passport_no_history_body">This item has a passport, but no history has been added to it.</string>
+    <string name="passport_chain_strength">Chain strength: %1$s</string>
+    <string name="passport_origin">Originally from %1$s (verified)</string>
+    <string name="passport_origin_handle">\@%1$s</string>
+    <string name="passport_graded">Graded %1$s</string>
+    <string name="paywall_title">Plans</string>
+    <string name="paywall_current_plan">You\'re on %1$s.</string>
+    <string name="paywall_already_subscribed">Already subscribed</string>
+    <string name="paywall_open_web_billing">Open web billing</string>
+    <string name="paywall_credits_title">Grading credits</string>
+    <string name="paywall_credits_body">One-time packs. They never expire and stack on top of the grades your plan includes.</string>
+    <string name="paywall_already_paid">I already paid</string>
+    <string name="paywall_save_percent">Save %1$s%%</string>
+    <string name="paywall_buy">Buy</string>
+    <string name="fulfillment_title">Shipping</string>
+    <string name="fulfillment_label_cost">%1$s of labels on these</string>
+    <string name="fulfillment_banner_done">Done</string>
+    <string name="fulfillment_recently_posted">Recently posted</string>
+    <string name="fulfillment_local_only">Recorded here only. This sale isn\'t linked to an eBay order.</string>
+    <string name="fulfillment_tracking_number">Tracking number</string>
+    <string name="fulfillment_mark_shipped">Mark shipped</string>
+    <string name="fulfillment_open_item">Open item</string>
+    <string name="fulfillment_tracking">Tracking %1$s</string>
+    <string name="fulfillment_no_tracking">No tracking recorded</string>
+
     <!-- US-2368 batch 5: measurements, verified badge, payout reconciliation. -->
     <string name="common_remove">Remove</string>
     <string name="common_offline">Offline</string>
