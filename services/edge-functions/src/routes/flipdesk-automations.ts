@@ -424,13 +424,27 @@ async function loadPlatformsByGroup(
 async function loadWatcherOfferAvailability(ownerId: string): Promise<boolean> {
   if (!isNegotiationScopeAvailable() || !isEbayConfigured()) return false;
   try {
-    const { data } = await supabaseAdmin
+    // The column is `marketplace`, NOT `platform` (00008) — supabaseAdmin is
+    // untyped, so a wrong name is a silent 42703 that reads as "no row" rather
+    // than a compile error. supabase-js reports it in `error`, not by throwing,
+    // so check it explicitly: the catch below only covers a transport throw.
+    const { data, error } = await supabaseAdmin
       .from("marketplace_connections")
       .select("negotiation_access_denied")
       .eq("user_id", ownerId)
-      .eq("platform", "ebay")
+      .eq("marketplace", "ebay")
       .eq("is_active", true)
+      // A seller may hold more than one eBay connection (US-671); without this
+      // maybeSingle() errors on the second row and the gate silently opens.
+      .limit(1)
       .maybeSingle();
+    if (error) {
+      console.warn(
+        "[automations] negotiation capability read failed:",
+        error.message,
+      );
+      return false;
+    }
     return (data as { negotiation_access_denied: boolean | null } | null)
       ?.negotiation_access_denied !== true;
   } catch (err) {

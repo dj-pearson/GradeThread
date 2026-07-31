@@ -1693,7 +1693,27 @@ Deno.test({
 // 503 = eBay isn't configured on the server, so the handler returns BEFORE the
 // ownership check ever runs (it never touched A's listing). A configured server
 // reaches loadListingOwned and 404s. Either is a pass — A's row is untouched.
-const DENIED_OR_UNCONFIGURED = new Set([401, 403, 404, 422, 503]);
+// 501 = the US-2160 label routes' capability gate: sell.logistics is a
+// limited-release scope kept off the default consent list, so preflight returns
+// before the ownership lookup on any deployment that lacks it. Same reasoning as
+// 503 — the handler never touched A's row.
+const DENIED_OR_UNCONFIGURED = new Set([401, 403, 404, 422, 501, 503]);
+
+/**
+ * US-2160: the label routes gate on the eBay capability BEFORE the ownership
+ * lookup, so on a deployment without sell.logistics (which is every deployment
+ * until eBay grants the limited-release scope) they answer 501 and never reach
+ * loadOwnedSale. Asserting the strict 401/403/404 set there would fail red on a
+ * correctly-configured server while proving nothing. Either way A's row is
+ * untouched, which is what the case is really claiming.
+ */
+function assertDeniedOrGated(status: number, what: string): void {
+  assert(
+    DENIED_OR_UNCONFIGURED.has(status),
+    `${what} should be denied or capability-gated ` +
+      `(401/403/404/422/501/503) but got ${status}`,
+  );
+}
 
 // revise (POST /listings/:id/revise) is scoped via loadListingOwned. B revising
 // A's listing must be refused — never a 200 that mutated A's eBay listing.
@@ -3529,7 +3549,7 @@ Deno.test({
       rates?: unknown[];
       shipping_quote_id?: string;
     };
-    assertDenied(rates.status, "POST logistics rates (A's sale)");
+    assertDeniedOrGated(rates.status, "POST logistics rates (A's sale)");
     // Belt and braces: no quote, and no rate, may leak even if the status ever
     // softened — a rate id is directly purchasable.
     assertEquals(ratesBody.rates ?? [], [], "rates must not leak to B");
@@ -3545,21 +3565,21 @@ Deno.test({
       body: JSON.stringify({ shipping_quote_id: "q1", rate_id: "r1" }),
     });
     await buy.body?.cancel();
-    assertDenied(buy.status, "POST logistics label (A's sale)");
+    assertDeniedOrGated(buy.status, "POST logistics label (A's sale)");
 
     const reprint = await fetch(
       `${BASE}/api/flipdesk/logistics/sales/${id}/label`,
       { headers: authHeaders(B_JWT!) },
     );
     await reprint.body?.cancel();
-    assertDenied(reprint.status, "GET logistics label (A's sale)");
+    assertDeniedOrGated(reprint.status, "GET logistics label (A's sale)");
 
     const voidLabel = await fetch(
       `${BASE}/api/flipdesk/logistics/sales/${id}/label/void`,
       { method: "POST", headers: authHeaders(B_JWT!) },
     );
     await voidLabel.body?.cancel();
-    assertDenied(voidLabel.status, "POST logistics label void (A's sale)");
+    assertDeniedOrGated(voidLabel.status, "POST logistics label void (A's sale)");
   },
 });
 

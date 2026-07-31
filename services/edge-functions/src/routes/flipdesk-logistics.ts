@@ -8,7 +8,9 @@ import {
   createShippingQuote,
   findRate,
   getShipment,
+  getShippingQuote,
   isLogisticsScopeError,
+  quoteCoversOrder,
   type LogisticsAddress,
   type ParcelSpec,
   type ShippingRate,
@@ -104,8 +106,13 @@ async function readLogisticsDenied(ownerId: string): Promise<boolean> {
       .from("marketplace_connections")
       .select("logistics_access_denied")
       .eq("user_id", ownerId) // US-268
-      .eq("platform", "ebay")
+      // The column is `marketplace`, NOT `platform` (00008). supabaseAdmin is
+      // untyped, so a wrong name is a silent 42703 that reads as "no row".
+      .eq("marketplace", "ebay")
       .eq("is_active", true)
+      // A seller may hold more than one eBay connection (US-671); without this
+      // maybeSingle() errors on the second row and the gate silently opens.
+      .limit(1)
       .maybeSingle();
     if (error) {
       console.warn(
@@ -137,7 +144,7 @@ async function setLogisticsDenied(
       .from("marketplace_connections")
       .update({ logistics_access_denied: denied })
       .eq("user_id", ownerId) // US-268
-      .eq("platform", "ebay");
+      .eq("marketplace", "ebay");
     // Only clear rows that are actually set, so a success doesn't rewrite every
     // connection row on every call.
     if (!denied) q = q.eq("logistics_access_denied", true);
@@ -158,6 +165,18 @@ flipdeskLogisticsRoutes.get("/capabilities", async (c) => {
   const denied = await readLogisticsDenied(ownerId);
   return c.json(logisticsCapability(isLogisticsScopeAvailable(), denied));
 });
+
+/**
+ * The rate a purchase is about to buy, or null when that id was never on this
+ * quote. Called by the purchase path (not just tests) — buying an id we never
+ * showed the seller would charge them a price they never saw.
+ */
+export function assertRateOnQuote(
+  rates: ShippingRate[],
+  rateId: string,
+): ShippingRate | null {
+  return findRate(rates, rateId);
+}
 
 // ── Shared loading + validation ───────────────────────────────────
 
@@ -438,6 +457,38 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/label", async (c) => {
     });
   }
 
+  // Bind the quote to THIS sale before spending anything. The two ids come
+  // straight off the request, and nothing else ties them to the sale being
+  // charged — without this, a seller could buy against a quote created for a
+  // different one of their own sales and the postage would land on whichever
+  // sale is in the URL. That is the mis-attribution this story removes, so the
+  // extra read is worth it on the one route that spends money.
+  try {
+    const quote = await getShippingQuote(ownerId, quoteId);
+    if (!quoteCoversOrder(quote.orderIds, pre.orderId)) {
+      return c.json({
+        error: "That shipping quote isn't for this sale. Get rates again.",
+        code: "quote_order_mismatch",
+      }, 409);
+    }
+    if (!assertRateOnQuote(quote.rates, rateId)) {
+      // Also catches an EXPIRED quote whose rates eBay no longer returns —
+      // better a re-quote than a purchase at a price we never showed.
+      return c.json({
+        error: "That shipping rate is no longer on the quote. Get rates again.",
+        code: "rate_not_on_quote",
+      }, 409);
+    }
+  } catch (err) {
+    console.error("[flipdesk-logistics] quote re-read failed:", err);
+    const f = await logisticsFailure(
+      ownerId,
+      err,
+      "eBay couldn't confirm this shipping quote.",
+    );
+    return c.json(f.body, f.status);
+  }
+
   let shipment;
   try {
     shipment = await createShipmentFromQuote(ownerId, {
@@ -474,7 +525,12 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/label", async (c) => {
   const { error: updErr } = await supabaseAdmin
     .from("sales")
     .update(patch)
-    .eq("id", sale.id); // sale already ownership-verified in preflight
+    .eq("id", sale.id)
+    // Belt and braces (US-268): preflight already proved ownership through
+    // inventory_items, but this write records money, and the predicate is free
+    // and index-backed. It keeps the write self-evidently safe instead of safe
+    // by reference to a helper sixty lines away.
+    .eq("user_id", ownerId);
   if (updErr) {
     // The label IS bought and the seller HAS been charged — never report that as
     // a failure. Log loudly; the shipment id is in the response either way.
@@ -500,7 +556,8 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/label", async (c) => {
       await supabaseAdmin
         .from("sales")
         .update({ shipped_at: sale.shipped_at ?? new Date().toISOString() })
-        .eq("id", sale.id);
+        .eq("id", sale.id)
+        .eq("user_id", ownerId); // US-268 belt and braces
     } catch (err) {
       console.error(
         "[flipdesk-logistics] fulfillment push after label purchase failed:",
@@ -586,7 +643,10 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/label/void", async (c) => {
       // The postage is refunded, so the recorded cost is no longer real.
       shipping_cost: 0,
     })
-    .eq("id", pre.sale.id);
+    .eq("id", pre.sale.id)
+    // US-268 belt and braces: this zeroes a financial column, so it must not
+    // rest solely on an ownership check made in another function.
+    .eq("user_id", ownerId);
   if (error) {
     return failSafe(
       c,
@@ -599,11 +659,3 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/label/void", async (c) => {
   return c.json({ ok: true });
 });
 
-// Exported for the dry-run-style unit tests: which rate would a client be
-// buying? Guards the purchase path against an id that was never on the quote.
-export function assertRateOnQuote(
-  rates: ShippingRate[],
-  rateId: string,
-): ShippingRate | null {
-  return findRate(rates, rateId);
-}

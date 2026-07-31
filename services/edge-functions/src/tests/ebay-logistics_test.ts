@@ -9,6 +9,7 @@ import {
   findRate,
   moneyToCents,
   normalizeRates,
+  quoteCoversOrder,
   type ShippingRate,
 } from "../lib/ebay-logistics.ts";
 import {
@@ -304,4 +305,31 @@ Deno.test("US-2160: country defaults to US and line2 is optional", () => {
   assertEquals(a?.countryCode, "US");
   assertEquals(a?.addressLine2, null);
   assertEquals(a?.fullName, null);
+});
+
+// ── quoteCoversOrder — the binding that keeps postage on the right sale ──
+
+Deno.test("US-2160: a quote may only be bought against an order it covers", () => {
+  // The purchase takes a quote id and a rate id straight from the client. Without
+  // this check a seller can buy against a quote created for a DIFFERENT one of
+  // their own sales, and the postage lands on whichever sale is in the URL — the
+  // exact mis-attribution the story exists to remove.
+  assert(quoteCoversOrder(["12-3456-7890"], "12-3456-7890"));
+  assert(!quoteCoversOrder(["12-3456-7890"], "99-9999-9999"));
+  assert(quoteCoversOrder(["a", "b", "c"], "b"));
+});
+
+Deno.test("US-2160: an unbindable quote fails CLOSED", () => {
+  // A quote we cannot tie to an order must not be chargeable against one.
+  assert(!quoteCoversOrder([], "12-3456-7890"));
+  // And an empty order id can never match, even against a populated quote.
+  assert(!quoteCoversOrder(["12-3456-7890"], ""));
+  assert(!quoteCoversOrder([], ""));
+});
+
+Deno.test("US-2160: order matching is exact, not fuzzy", () => {
+  // A prefix or a substring is a different order, and buying against it would
+  // charge the wrong sale.
+  assert(!quoteCoversOrder(["12-3456-7890"], "12-3456"));
+  assert(!quoteCoversOrder(["12-3456"], "12-3456-7890"));
 });

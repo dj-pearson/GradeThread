@@ -394,6 +394,55 @@ export async function createShipmentFromQuote(
   };
 }
 
+/**
+ * Re-read a quote before buying off it.
+ *
+ * The purchase takes a quote id and a rate id straight from the client, and
+ * nothing on our side ties either to the sale being charged. Without this read,
+ * a seller can buy against a quote created for a DIFFERENT one of their own
+ * sales and the postage is recorded on whichever sale is in the URL — the exact
+ * mis-attribution the story exists to remove. eBay would stop a cross-account
+ * quote (the token is the seller's own), but nothing would stop this one.
+ */
+export async function getShippingQuote(
+  userId: string,
+  shippingQuoteId: string,
+  connectionId?: string,
+): Promise<ShippingQuote & { orderIds: string[] }> {
+  const raw = await logisticsFetch<{
+    shippingQuoteId?: string;
+    expirationDate?: { value?: string } | string;
+    rates?: unknown;
+    orders?: Array<{ orderId?: string }>;
+  }>(
+    userId,
+    `/shipping_quote/${encodeURIComponent(shippingQuoteId)}`,
+    {},
+    connectionId,
+  );
+  return {
+    shippingQuoteId: raw.shippingQuoteId ?? shippingQuoteId,
+    expiresAt: dateValue(raw.expirationDate),
+    rates: normalizeRates(raw.rates),
+    orderIds: (raw.orders ?? [])
+      .map((o) => o?.orderId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  };
+}
+
+/**
+ * Is this quote actually for this order? Pure, so the binding rule is testable
+ * without a network. An EMPTY orderIds list fails closed: a quote we cannot tie
+ * to an order must not be chargeable against one.
+ */
+export function quoteCoversOrder(
+  orderIds: readonly string[],
+  orderId: string,
+): boolean {
+  if (!orderId) return false;
+  return orderIds.includes(orderId);
+}
+
 /** Re-read a purchased shipment — the reprint path (label URLs expire). */
 export async function getShipment(
   userId: string,
