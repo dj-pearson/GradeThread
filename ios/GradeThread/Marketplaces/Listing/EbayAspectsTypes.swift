@@ -15,6 +15,19 @@ import Foundation
 struct CategoryAspectsResponse: Decodable, Equatable {
     let aspects: Container?
     let categoryName: String?
+    /// Aspect names in this category that are ALREADY editable as main-page item
+    /// fields (Brand / Size / Color / Material / Style). The inline specifics
+    /// section on the item page skips these so the seller never sees the same
+    /// value in two inputs — they share one column and one write-authority.
+    /// Optional (not a defaulted `var`): Swift's synthesized Decodable demands a
+    /// key for every non-Optional stored property EVEN when it has a default, so
+    /// a defaulted array here would break decoding against an older edge build
+    /// that doesn't send it — the same trap US-821 hit on AIExtractResponse.
+    /// Read it through ``columnBackedNames``.
+    let columnBackedAspectNames: [String]?
+
+    /// Never-nil accessor. Empty → show every aspect (previous behaviour).
+    var columnBackedNames: [String] { columnBackedAspectNames ?? [] }
 
     struct Container: Decodable, Equatable {
         let aspects: [RawAspect]?

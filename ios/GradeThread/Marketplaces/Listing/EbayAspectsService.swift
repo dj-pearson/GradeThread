@@ -34,7 +34,7 @@ struct EbayAspectsService: AspectsProviding {
     /// work, so it needs the generous AI session — using the bounded `session`
     /// would kill a successful extract mid-flight. The fast category/aspects GETs
     /// stay on the bounded `session` so a stall fails fast (was `URLSession.shared`
-    /// = 60s, which hung `EbayCategorySpecificsView` behind "Loading item specifics…").
+    /// = 60s, which hung the specifics UI behind "Loading item specifics…").
     private let aiSession: URLSession
 
     init(

@@ -9,6 +9,7 @@ import {
   applyColumnAspects,
   ASPECT_REGISTRY,
   columnAspectProjection,
+  columnBackedAspectNames,
   inferDepartment,
   type RegistryAspect,
   type RegistryItem,
@@ -425,4 +426,47 @@ Deno.test("revise parity: gap-fill never overwrites a Department the seller set"
     resolveItemAspects(item, spec, { Department: ["Unisex Adult"] }),
     {},
   );
+});
+
+// The iOS item page renders the specifics INLINE, alongside the item's own
+// Brand/Size/Color/Material/Style inputs. It hides the aspects those columns
+// already own so the seller never sees one value in two inputs — the
+// double-entry confusion. This is the list it hides by, and it is purely
+// structural (no item needed), so the client can ask as soon as it has a
+// category.
+Deno.test("columnBackedAspectNames names the aspects a main-page column owns", () => {
+  const names = columnBackedAspectNames([
+    free("Brand"),
+    sel("Color", ["Black", "Blue"]),
+    free("Material"),
+    free("Style"),
+    sel("Size", ["S", "M"]),
+    // NOT column-backed — these have no main-page input, so they must stay
+    // visible in the inline section or they'd be unreachable.
+    sel("Department", ["Men", "Women"]),
+    free("Sleeve Length"),
+    free("Pattern"),
+  ]);
+  assertEquals(names.sort(), ["Brand", "Color", "Material", "Size", "Style"]);
+});
+
+Deno.test("columnBackedAspectNames matches synonyms and per-vertical names", () => {
+  // "Colour" is the registry's synonym for Color; "US Shoe Size" is the shoes
+  // extra for Size. Both are owned by a column, so both must be hidden — miss
+  // one and the seller gets a duplicate field on exactly the categories where
+  // it is most confusing.
+  assertEquals(columnBackedAspectNames([free("Colour")]), ["Colour"]);
+  assertEquals(columnBackedAspectNames([free("US Shoe Size")]), ["US Shoe Size"]);
+  assertEquals(columnBackedAspectNames([free("Fabric Type")]), ["Fabric Type"]);
+  // Case-insensitive against eBay's own casing, and echoed back verbatim so the
+  // client can match its spec list exactly.
+  assertEquals(columnBackedAspectNames([free("BRAND")]), ["BRAND"]);
+});
+
+Deno.test("columnBackedAspectNames is empty for a category with none, and dedupes", () => {
+  assertEquals(columnBackedAspectNames([free("Occasion"), free("Theme")]), []);
+  assertEquals(columnBackedAspectNames([]), []);
+  // A malformed spec repeating an aspect must not yield it twice.
+  assertEquals(columnBackedAspectNames([free("Brand"), free("Brand")]), ["Brand"]);
+  assertEquals(columnBackedAspectNames([{ name: "  " } as RegistryAspect]), []);
 });

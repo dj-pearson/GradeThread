@@ -16,6 +16,7 @@ import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import {
   applyColumnAspects,
   columnAspectProjection,
+  columnBackedAspectNames,
   resolveItemAspects,
   reverseColumnAspects,
 } from "../lib/aspect-registry.ts";
@@ -1746,7 +1747,17 @@ flipdeskEbayRoutes.get("/category/:id/aspects", async (c) => {
   }
   try {
     const result = await getCategoryAspects(categoryId);
-    return c.json(result);
+    // Which of this category's aspects are already editable as MAIN-PAGE item
+    // fields (Brand/Size/Color/Material/Style). A client rendering the
+    // specifics inline on the item page uses this to skip those rows rather
+    // than show the same value in two inputs — they share one column and one
+    // write-authority, so two inputs is just the double-entry confusion.
+    const rawAspects = (result.aspects as Record<string, unknown> | undefined)
+      ?.aspects;
+    const columnBacked = columnBackedAspectNames(
+      toRegistryAspects(Array.isArray(rawAspects) ? rawAspects as AspectSpecRaw[] : []),
+    );
+    return c.json({ ...result, columnBackedAspectNames: columnBacked });
   } catch (err) {
     console.error("[flipdesk-ebay] category aspects failed:", err);
     return c.json({ error: "Category aspects fetch failed" }, 502);

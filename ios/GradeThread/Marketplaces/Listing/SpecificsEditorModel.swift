@@ -252,10 +252,45 @@ final class SpecificsEditorModel {
         }
     }
 
+    /// Aspect names this category exposes that are ALSO main-page item fields
+    /// (Brand/Size/Color/Material/Style), lowercased for matching. The item page
+    /// renders the specifics inline, so it hides these rows: the seller already
+    /// has those inputs above, they share one column, and two inputs for one
+    /// value is exactly the double-entry confusion. Empty on an older edge build
+    /// → nothing is hidden, which is the previous behaviour.
+    private(set) var columnBackedAspectNames: Set<String> = []
+
+    /// Test seam: seed the column-backed set without a network round trip.
+    func applyColumnBackedNamesForTesting(_ names: [String]) {
+        columnBackedAspectNames = Set(
+            names.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        )
+    }
+
+    /// True when this aspect duplicates a main-page item field.
+    func isColumnBacked(_ aspectName: String) -> Bool {
+        columnBackedAspectNames.contains(aspectName.trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
+    /// Specs for a given usage tier, optionally dropping the rows that duplicate
+    /// a main-page field. `hidingColumnBacked` is true for the inline item-page
+    /// section and false for the standalone screen (which has no item fields of
+    /// its own, so hiding there would strand Brand with nowhere to type it).
+    func specs(usage: AspectSpec.Usage, hidingColumnBacked: Bool) -> [AspectSpec] {
+        specs.filter {
+            $0.usage == usage && !(hidingColumnBacked && isColumnBacked($0.name))
+        }
+    }
+
     private func loadAspects(categoryId: String) async {
         phase = .loadingAspects
         do {
             let res = try await service.aspects(categoryId: categoryId)
+            columnBackedAspectNames = Set(
+                res.columnBackedNames.map {
+                    $0.trimmingCharacters(in: .whitespaces).lowercased()
+                }
+            )
             specs = AspectSpec.parse(res)
             if selectedCategoryName == nil { selectedCategoryName = res.categoryName }
             phase = .ready
@@ -326,9 +361,26 @@ final class SpecificsEditorModel {
         // publish. Without it the seller's entry silently reverted and they had
         // to type it on the item page as well. Best-effort — the specifics are
         // already saved, so a failure costs the mirror, not the edit.
-        try? await service.writeBackAspectColumns(
-            itemId: itemId, aspects: filled, sources: storedSources
-        )
+        // Fold THIS SESSION'S AI fills back into the item's Brand/Size/Color/
+        // Material/Style columns.
+        //
+        // Scoped to `aiFilled` on purpose. The item page hides the column-backed
+        // aspects (its own inputs sit above them), so the seller cannot have
+        // typed one here — but "Fill specifics with AI" can still populate a
+        // hidden Brand, and without this it would live on the aspect only: the
+        // seller sees an empty Brand field while the listing carries a value.
+        // Sending the WHOLE map instead would let a stale `manual` aspect left
+        // over from an older build overwrite the column the seller just edited,
+        // because reverseColumnAspects lets manual values win. AI-filled values
+        // only ever fill an EMPTY column, which is exactly the wanted behaviour.
+        let aiFilledOnly = filled.filter { aiFilled.contains($0.key) }
+        if !aiFilledOnly.isEmpty {
+            try? await service.writeBackAspectColumns(
+                itemId: itemId,
+                aspects: aiFilledOnly,
+                sources: storedSources.filter { aiFilled.contains($0.key) }
+            )
+        }
         // US-1513: the item row is persisted — from here on, backing out loses
         // nothing (the listing mirror / revise below surface their own errors).
         rebaseline()

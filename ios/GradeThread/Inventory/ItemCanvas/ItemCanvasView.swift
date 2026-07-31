@@ -35,6 +35,20 @@ struct ItemCanvasView: View {
     /// open doesn't spam telemetry.
     @State private var reportedStaleRow = false
     @State private var state: ItemCanvasState?
+    /// The eBay specifics, now edited INLINE on this page rather than behind a
+    /// push (see `specificsSection`). Owned here so this page's Save commits the
+    /// specifics in the same action as the item's own fields — the seller should
+    /// never have to reason about which of two Saves they need.
+    @State private var specificsModel: SpecificsEditorModel?
+    @State private var showAllOptionalSpecifics = false
+
+    /// Unsaved work anywhere on this page — the item's own fields OR the inline
+    /// eBay specifics. Both are committed by the single Save, so both must arm
+    /// the discard guard; keying it on the item fields alone would let a
+    /// back-swipe silently drop a category + ten aspects the seller just filled.
+    private var pageIsDirty: Bool {
+        state?.isDirty == true || specificsModel?.isDirty == true
+    }
     /// US-967: parsed `measurements_json`, memoized so the Measurements section
     /// reads a cached value instead of re-decoding JSON on every `body` pass.
     /// Rebuilt via `.onChange(of: item.measurementsJSON)`.
@@ -322,6 +336,17 @@ struct ItemCanvasView: View {
             measurements = ItemCanvasView.decodeMeasurements(item.measurementsJSON)
         }
         .task { await consignorStore.load() }
+        // Build + load the inline specifics editor once per item. Keyed on the
+        // item id so opening a different item rebuilds it rather than showing
+        // the previous item's category and aspects.
+        .task(id: item.id) {
+            let model = SpecificsEditorModel(
+                itemId: item.id,
+                liveListingId: gtLiveListing?.id
+            )
+            specificsModel = model
+            await model.start()
+        }
         .alert(
             "Couldn't print label",
             isPresented: Binding(
@@ -333,14 +358,14 @@ struct ItemCanvasView: View {
         } message: {
             Text(labelError ?? "")
         }
-        .interactiveDismissDisabled(state?.isDirty == true)
+        .interactiveDismissDisabled(pageIsDirty)
         // US-1513: the canvas is PUSHED (ContentView/GlobalSearch/Sales), so the
         // sheet-only interactiveDismissDisabled above never fires there — the
         // system back chevron and the edge-swipe pop both bypassed the custom
         // Back button's discard confirmation. While dirty: hide the chevron (the
         // toolbar Back with its confirm remains) and block the pop gesture.
-        .navigationBarBackButtonHidden(state?.isDirty == true)
-        .background(InteractivePopGuard(blocked: state?.isDirty == true))
+        .navigationBarBackButtonHidden(pageIsDirty)
+        .background(InteractivePopGuard(blocked: pageIsDirty))
         .confirmationDialog(
             "Discard your changes?",
             isPresented: $showingDiscardConfirmation,
@@ -362,7 +387,7 @@ struct ItemCanvasView: View {
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Button("Back") {
-                if state?.isDirty == true {
+                if pageIsDirty {
                     showingDiscardConfirmation = true
                 } else {
                     dismiss()
@@ -926,30 +951,24 @@ struct ItemCanvasView: View {
     /// Entry to the eBay Category + Item Specifics editor. Required item
     /// specifics are category-driven and block publish when missing, so this
     /// sits just above the publish action.
+    @ViewBuilder
     private var specificsSection: some View {
-        // US-1514: the specifics editor reads the SAVED server row, so opening it
-        // with unsaved canvas edits shows/derives STALE values (e.g. typing a new
-        // Brand, then opening specifics, shows the OLD brand — the same field with
-        // two values on screen). Gate entry on a clean canvas: disable while dirty
-        // and tell the user to save first.
-        let isDirty = state?.isDirty == true
-        return Section {
-            NavigationLink {
-                EbayCategorySpecificsView(itemId: item.id, liveListingId: gtLiveListing?.id)
-            } label: {
-                Label("Category & item specifics", systemImage: "list.bullet.rectangle")
-            }
-            .disabled(isDirty)
-        } header: {
-            Text("eBay listing")
-        } footer: {
-            if isDirty {
-                Text("Save your changes first — the specifics editor reads the saved item, so it would otherwise show stale values.")
-                    .font(.caption)
-                    .foregroundStyle(Color.brandRed)
-            } else {
-                Text("Set the eBay category and required item specifics so the listing can publish.")
-                    .font(.caption)
+        // The specifics are now INLINE, so the US-1514 "save first" gate is gone
+        // with the push it guarded: that gate existed because the pushed editor
+        // read the SAVED row, so opening it mid-edit showed a stale Brand. On one
+        // page there is no second read and no second Save — and the fields that
+        // used to disagree (Brand/Size/Color/Material/Style) aren't duplicated
+        // here at all; they're the item's own inputs above.
+        if let specificsModel {
+            ItemSpecificsInlineSections(
+                model: specificsModel,
+                showAllOptional: $showAllOptionalSpecifics
+            )
+        } else {
+            Section {
+                HStack { ProgressView(); Text("Loading eBay specifics…") }
+            } header: {
+                Text("eBay listing")
             }
         }
     }
@@ -967,7 +986,8 @@ struct ItemCanvasView: View {
     /// Label for the canvas publish button, relist-aware so an ended draft
     /// reads "Relist" instead of "Publish".
     private var publishButtonLabel: String {
-        let dirty = state?.isDirty == true
+        // Matches saveThenPublish, which now saves the inline specifics too.
+        let dirty = pageIsDirty
         if isRelist {
             return dirty ? "Save & relist on eBay" : "Relist on eBay"
         }
@@ -2187,6 +2207,16 @@ struct ItemCanvasView: View {
                     category: "inventory"
                 )
             }
+            // Commit the INLINE eBay specifics in the SAME save, before the eBay
+            // push reads them — one page, one Save. Ordered after the item write
+            // so the specifics land on top of the just-saved columns, and before
+            // the re-derive below so column authority is applied last.
+            // Best-effort: the item itself is already saved, and the model
+            // surfaces its own error, so a specifics failure never fails the item
+            // save the seller just asked for.
+            if let specificsModel, specificsModel.isDirty, specificsModel.canSave {
+                _ = await specificsModel.save()
+            }
             // Push to the live GradeThread listing. A failed eBay push never
             // blocks the local save — surface the reason and keep the user here.
             var syncFailed = false
@@ -2432,7 +2462,10 @@ struct ItemCanvasView: View {
     /// on the canvas) before opening the publish dialog, so the user never
     /// has to save, back out, and swipe the row to list an item.
     private func saveThenPublish() async {
-        if state?.isDirty == true {
+        // Unsaved SPECIFICS block publishing just as hard as unsaved fields —
+        // eBay validates against the saved row, so publishing with a dirty
+        // inline editor would push the pre-edit aspects.
+        if pageIsDirty {
             guard await save(dismissAfter: false) else { return }
         }
         showingPublishDialog = true

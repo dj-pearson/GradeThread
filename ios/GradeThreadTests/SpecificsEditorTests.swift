@@ -277,4 +277,66 @@ final class SpecificsEditorTests: XCTestCase {
         model.toggleMulti("Waterproof", for: "Features")
         XCTAssertFalse(model.isDirty)
     }
+
+    // MARK: - Inline item-page grouping
+
+    // The item page renders the specifics INLINE, under the item's own
+    // Brand/Size/Color/Material/Style inputs. Those aspects are projections of
+    // the same columns, so showing them again is the "why am I typing this in
+    // two places" confusion the seller reported. The standalone list keeps them
+    // (there, they are the only place to type a Brand).
+    func test_specsUsage_hidesColumnBackedAspectsInline() {
+        let model = SpecificsEditorModel(itemId: "item-1")
+        model.specs = [
+            AspectSpec(name: "Brand", usage: .required, selectionOnly: false,
+                       multiSelect: false, allowedValues: []),
+            AspectSpec(name: "Department", usage: .required, selectionOnly: true,
+                       multiSelect: false, allowedValues: ["Men", "Women"]),
+            AspectSpec(name: "Color", usage: .recommended, selectionOnly: false,
+                       multiSelect: false, allowedValues: ["Black"]),
+            AspectSpec(name: "Pattern", usage: .recommended, selectionOnly: false,
+                       multiSelect: false, allowedValues: []),
+            AspectSpec(name: "Occasion", usage: .optional, selectionOnly: false,
+                       multiSelect: false, allowedValues: []),
+        ]
+        model.applyColumnBackedNamesForTesting(["Brand", "Color"])
+
+        // Inline: the column-backed rows are gone, everything else stays.
+        XCTAssertEqual(model.specs(usage: .required, hidingColumnBacked: true).map(\.name),
+                       ["Department"])
+        XCTAssertEqual(model.specs(usage: .recommended, hidingColumnBacked: true).map(\.name),
+                       ["Pattern"])
+        XCTAssertEqual(model.specs(usage: .optional, hidingColumnBacked: true).map(\.name),
+                       ["Occasion"])
+
+        // Not hiding: nothing is dropped.
+        XCTAssertEqual(model.specs(usage: .required, hidingColumnBacked: false).map(\.name),
+                       ["Brand", "Department"])
+        XCTAssertEqual(model.specs(usage: .recommended, hidingColumnBacked: false).map(\.name),
+                       ["Color", "Pattern"])
+    }
+
+    // eBay's casing is not ours; a case-sensitive compare would leak a duplicate
+    // Brand row onto the page.
+    func test_isColumnBacked_isCaseAndWhitespaceInsensitive() {
+        let model = SpecificsEditorModel(itemId: "item-1")
+        model.applyColumnBackedNamesForTesting(["Brand", "US Shoe Size"])
+        XCTAssertTrue(model.isColumnBacked("brand"))
+        XCTAssertTrue(model.isColumnBacked("  BRAND "))
+        XCTAssertTrue(model.isColumnBacked("US Shoe Size"))
+        XCTAssertFalse(model.isColumnBacked("Brand Name"))
+        XCTAssertFalse(model.isColumnBacked("Department"))
+    }
+
+    // An older edge build sends no list — nothing is hidden, which is exactly
+    // the pre-change behaviour rather than an empty specifics section.
+    func test_noColumnBackedNames_hidesNothing() {
+        let model = SpecificsEditorModel(itemId: "item-1")
+        model.specs = [
+            AspectSpec(name: "Brand", usage: .required, selectionOnly: false,
+                       multiSelect: false, allowedValues: []),
+        ]
+        XCTAssertEqual(model.specs(usage: .required, hidingColumnBacked: true).map(\.name),
+                       ["Brand"])
+    }
 }

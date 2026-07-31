@@ -377,6 +377,42 @@ export function applyColumnAspects(
   return out;
 }
 
+/**
+ * The aspect names in THIS category that are backed by a main-page item column
+ * (Brand / Size / Color / Material / Style), whatever the item's values are.
+ *
+ * Used by the clients to avoid rendering the SAME field twice on a single
+ * listing page: the item's own Brand input and an "eBay specifics → Brand" row
+ * are one value with one write-authority (the column), and showing both is the
+ * "why am I typing this in two places" confusion. Purely structural — no item
+ * needed — so a client can ask for it as soon as it knows the category.
+ *
+ * Every candidate is considered, INCLUDING the per-vertical extras (shoes →
+ * "US Shoe Size"). Over-matching is the safe direction here: if a category
+ * really exposes "US Shoe Size" then the Size column does own it, whatever the
+ * item's item_category happens to say.
+ */
+export function columnBackedAspectNames(aspects: RegistryAspect[]): string[] {
+  const candidates = new Set<string>();
+  for (const entry of ASPECT_REGISTRY.entries) {
+    if (entry.source !== "column" || !entry.column) continue;
+    for (const name of entry.aspects) candidates.add(name.toLowerCase());
+    for (const extras of Object.values(entry.byCategory ?? {})) {
+      for (const name of extras) candidates.add(name.toLowerCase());
+    }
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const aspect of aspects) {
+    const name = (aspect.name ?? "").trim();
+    const l = name.toLowerCase();
+    if (!name || seen.has(l) || !candidates.has(l)) continue;
+    seen.add(l);
+    out.push(name);
+  }
+  return out;
+}
+
 /** The item columns that own an eBay aspect (the registry's column entries). */
 export type ColumnAspectField = "brand" | "size" | "color" | "material" | "style";
 
