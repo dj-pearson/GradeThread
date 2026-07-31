@@ -9,3 +9,6 @@ app/build/
 release-keystore.jks
 # Kotlin compiler session/error scratch dir — build output, not source.
 .kotlin/
+# US-1392: bundler installs fastlane here in CI.
+vendor/bundle/
+.bundle/

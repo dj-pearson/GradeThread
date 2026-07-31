@@ -1,0 +1,168 @@
+name: Android Release
+
+# US-1392. Fires when:
+#   - a tag matching android-v* is pushed (an explicit, deliberate release)
+#   - someone clicks "Run workflow" and picks a track
+#
+# Deliberately NOT on every push to main. The iOS lane can auto-cut a
+# TestFlight build because TestFlight is a tester surface with no review queue;
+# Play's internal track shares a version-code space with production, so an
+# automatic upload on every merge burns codes and fills the Console with builds
+# nobody asked for.
+
+on:
+  push:
+    tags:
+      - "android-v*"
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Play track to upload to"
+        type: choice
+        options: [internal, beta, production]
+        default: internal
+      dry_run:
+        description: "Build the AAB but skip the upload"
+        type: boolean
+        default: false
+
+concurrency:
+  # Serialize: two uploads racing for the same version code both fail, and the
+  # second one fails in a way that reads like a credentials problem.
+  group: android-release
+  cancel-in-progress: false
+
+# US-522: least privilege. This lane reads the repo and authenticates to Play
+# with a job secret; it never writes back.
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: bundleRelease + Play upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import release secrets from Infisical
+        # Same pattern as ios-release.yml: only the three INFISICAL_* values
+        # live in GitHub Actions secrets; the keystore and the Play service
+        # account come from self-hosted Infisical into $GITHUB_ENV.
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: ${{ secrets.INFISICAL_DOMAIN }}
+          project-slug: grade-thread
+          env-slug: prod
+          secret-path: /
+
+      - name: Check the secrets that must be present
+        # Named up front. Without this, a missing keystore surfaces as an
+        # UNSIGNED bundle that Play rejects at the end of a 20-minute job with
+        # a message that does not mention signing.
+        run: |
+          set -euo pipefail
+          : "${ANDROID_KEYSTORE_BASE64:?missing from env (check Infisical prod /)}"
+          : "${ANDROID_KEYSTORE_PASSWORD:?missing from env (check Infisical prod /)}"
+          : "${ANDROID_KEY_ALIAS:?missing from env (check Infisical prod /)}"
+          : "${ANDROID_KEY_PASSWORD:?missing from env (check Infisical prod /)}"
+          : "${PLAY_SERVICE_ACCOUNT_JSON:?missing from env (check Infisical prod /)}"
+          echo "all release secrets present"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle (cached)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          # No bundler-cache: that needs a committed Gemfile.lock, and this
+          # repo does not commit one for the iOS lane either. `bundle install`
+          # runs explicitly below, the same way ios-release.yml does it.
+          bundler-cache: false
+
+      # Cheap, and it is the one check that can fail for a reason unrelated to
+      # the release itself.
+      - name: No ungated logging
+        run: python3 scripts/no-ungated-log.py
+
+      - name: Unit tests
+        run: ./gradlew testReleaseUnitTest --stacktrace
+
+      - name: Derive the marketing version
+        # A tag release takes it from the tag (android-v1.2.0 → 1.2.0); a
+        # dispatch leaves it blank so the project default stands. Done in shell
+        # because Actions expressions have no substring function — writing one
+        # in the expression silently evaluates to empty, which would ship every
+        # tagged release under the default version.
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/android-v* ]]; then
+            echo "ANDROID_VERSION_NAME=${GITHUB_REF_NAME#android-v}" >> "$GITHUB_ENV"
+          else
+            echo "ANDROID_VERSION_NAME=" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build signed AAB
+        run: ./gradlew bundleRelease --stacktrace
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ env.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ env.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ env.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ env.ANDROID_KEY_PASSWORD }}
+          # The run number, so every upload is strictly higher than the last.
+          # Play rejects a re-used code outright.
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+
+      - name: Confirm the bundle is signed
+        # `bundleRelease` succeeds with NO signing config, producing an unsigned
+        # AAB — that is deliberate for PR builds (see app/build.gradle.kts), but
+        # a release must never upload one. Play would reject it, minutes later,
+        # with an error that does not name signing.
+        run: |
+          set -euo pipefail
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          test -f "$AAB"
+          if ! unzip -l "$AAB" | grep -qiE 'META-INF/.*\.(RSA|EC|DSA)'; then
+            echo "::error::The AAB is UNSIGNED — the keystore did not resolve." >&2
+            exit 1
+          fi
+          echo "signed"
+
+      - name: Upload to Play
+        if: ${{ !inputs.dry_run }}
+        run: |
+          gem install bundler --no-document
+          bundle install --jobs 4 --retry 3
+          bundle exec fastlane ${{ inputs.track || 'internal' }}
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ env.PLAY_SERVICE_ACCOUNT_JSON }}
+
+      - name: Upload the AAB as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 14
+
+      - name: Upload the R8 mapping
+        # Without it, every Play Console crash report for this build is
+        # unreadable — and the mapping only exists on the runner.
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-mapping
+          path: android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+          retention-days: 90

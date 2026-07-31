@@ -588,6 +588,50 @@ decode into a runtime `SerializationException` that does not exist in debug),
 the enum `values`/`valueOf` keeps that US-1390's save-by-name relies on, and
 `-dontwarn` for the server-side classes Ktor references but Android never loads.
 
+## Play release (US-1392)
+
+`.github/workflows/android-release.yml` builds a **signed AAB** and uploads it
+through fastlane `supply`. Secrets come from Infisical, the same way
+`ios-release.yml` gets them — only the three `INFISICAL_*` values live in GitHub
+Actions secrets.
+
+**Triggers are an `android-v*` tag or a manual dispatch, deliberately not every
+push to main.** The iOS lane can auto-cut a TestFlight build because TestFlight
+has no review queue; Play's internal track shares a version-code space with
+production, so an upload per merge burns codes and fills the Console with builds
+nobody asked for.
+
+Four decisions worth keeping:
+
+- **The service-account JSON is passed as content, never a path.** Writing it to
+  disk to satisfy a path argument leaves the Play publishing key on the runner
+  filesystem for the rest of the job. The Fastfile parses it up front so a
+  truncated secret fails in seconds rather than mid-upload with a message that
+  doesn't name the cause.
+- **The workflow greps the AAB for a signature before uploading.**
+  `bundleRelease` succeeds with no signing config — deliberate for PR builds —
+  and Play would otherwise reject the unsigned bundle twenty minutes later with
+  an error that never mentions signing.
+- **Production uploads as a `draft`.** It is the one track where an automated
+  100% rollout is unrecoverable: Play has no un-publish, only a halt that leaves
+  the bad build on every device that already took it. A human rolls it out.
+- **Changelogs are written text, not `changelog_from_git_commit`.** Play shows
+  the changelog to every tester, and raw commit subjects leak internal story ids
+  and half-finished work.
+
+The R8 mapping is uploaded to Play *and* kept as a 90-day artifact — without it
+every Play Console crash report for that build is unreadable, and it only exists
+on the runner.
+
+Metadata lives in `android/fastlane/metadata/android/en-US/` and rides along on
+every upload, so the listing can't drift from the binary that's live. Drop
+screenshots into `images/phoneScreenshots/` named `1_*.png`, `2_*.png` — they
+upload in filename order.
+
+**Operator dependency, not code:** the Play Console app record and the
+subscription/SKU catalog still have to be created by hand in the Console,
+mirroring the App Store catalog. Nothing in this repo can do that.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

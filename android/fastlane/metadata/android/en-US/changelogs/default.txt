@@ -1,0 +1,8 @@
+First release of FlipDesk for Android.
+
+- Photo-first capture with AI that reads the tag for you
+- Standardised 1-10 condition grades with a shareable certificate
+- Publish and sync eBay listings without leaving the app
+- Sales, payouts and profit tracked in one place
+- Home-screen widget, share-to-import, and a CSV importer
+- Works offline and syncs when you're back
