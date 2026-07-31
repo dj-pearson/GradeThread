@@ -33,18 +33,24 @@ def placeholders(text):
 
 
 def load_spec():
-    spec, seen = {}, []
+    spec, seen, ragged = {}, [], []
     for element in ET.parse(STRINGS).getroot():
         seen.append(element.get("name"))
         if element.tag == "string":
             spec[("string", element.get("name"))] = placeholders(element.text)
         elif element.tag == "plurals":
-            found = set()
+            found, per_quantity = set(), {}
             for item in element:
+                per_quantity[item.get("quantity")] = placeholders(item.text)
                 found |= placeholders(item.text)
+            # Every quantity form must take the SAME arguments. A translator who
+            # adds a `few` form and drops a placeholder crashes the app in that
+            # language only — nowhere a test written in English would see it.
+            if len({frozenset(v) for v in per_quantity.values()}) > 1:
+                ragged.append((element.get("name"), per_quantity))
             spec[("plurals", element.get("name"))] = found
     duplicates = sorted({name for name in seen if seen.count(name) > 1})
-    return spec, duplicates
+    return spec, duplicates, ragged
 
 
 def split_args(text):
@@ -100,7 +106,16 @@ def scan(path, spec):
 
 
 def main():
-    spec, duplicates = load_spec()
+    spec, duplicates, ragged = load_spec()
+    if ragged:
+        print("check-string-formats: plural forms disagree on arguments\n", file=sys.stderr)
+        for name, per_quantity in ragged:
+            print(f"  {name}", file=sys.stderr)
+            for quantity, indexes in sorted(per_quantity.items()):
+                shown = ", ".join(f"%{i}$" for i in sorted(indexes)) or "none"
+                print(f"    {quantity}: {shown}", file=sys.stderr)
+        return 1
+
     if duplicates:
         # aapt2 rejects these outright, so the build dies before any test runs —
         # and the message it prints does not name the file the second one came

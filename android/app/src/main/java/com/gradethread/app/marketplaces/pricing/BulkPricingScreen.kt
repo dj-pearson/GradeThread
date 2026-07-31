@@ -19,6 +19,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -41,27 +44,30 @@ fun BulkPricingScreen(
     viewModel: BulkPricingViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val primaryStoreFallback = stringResource(R.string.bulkpricing_primary_store_fallback)
     LaunchedEffect(Unit) { viewModel.load() }
 
     Column(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Bulk pricing", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.bulkpricing_bulk_pricing), style = MaterialTheme.typography.titleLarge)
 
         if (state.multiStore) {
             // Every push routes through the primary store's token, and the
             // listing rows don't record which store they belong to — so name it
             // rather than let a two-store seller assume otherwise.
             InfoCard(
-                "Pushing through ${state.primaryStoreName ?: "your primary eBay store"}",
-                "You have more than one eBay account connected. Bulk edits all go " +
-                    "through the primary one.",
+                stringResource(
+                    R.string.bulkpricing_pushing_through,
+                    state.primaryStoreName ?: primaryStoreFallback,
+                ),
+                stringResource(R.string.bulkpricing_multi_account),
             )
         }
 
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
-        state.banner?.let { InfoCard("Pushed", it, tone = InfoTone.Success) }
+        state.errorMessage?.let { InfoCard(stringResource(R.string.bulkpricing_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.banner?.let { InfoCard(stringResource(R.string.bulkpricing_pushed), it, tone = InfoTone.Success) }
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
             BulkPricing.Mode.entries.forEach { mode ->
@@ -78,10 +84,22 @@ fun BulkPricingScreen(
                 value = state.inputText,
                 onValueChange = viewModel::setInput,
                 label = {
-                    Text(if (state.mode == BulkPricing.Mode.SET) "New price" else "Reduce by")
+                    Text(
+                        stringResource(
+                            if (state.mode == BulkPricing.Mode.SET) {
+                                R.string.bulkpricing_new_price
+                            } else {
+                                R.string.bulkpricing_reduce_by
+                            },
+                        ),
+                    )
                 },
-                prefix = { if (state.mode == BulkPricing.Mode.SET) Text("$") },
-                suffix = { if (state.mode == BulkPricing.Mode.REDUCE) Text("%") },
+                prefix = {
+                    if (state.mode == BulkPricing.Mode.SET) {
+                        Text(stringResource(R.string.drafts_currency_prefix))
+                    }
+                },
+                suffix = { if (state.mode == BulkPricing.Mode.REDUCE) Text(stringResource(R.string.bulkpricing_text)) },
                 singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     keyboardType = KeyboardType.Decimal,
@@ -91,9 +109,9 @@ fun BulkPricingScreen(
             if (state.inputText.isNotBlank() && state.value == null) {
                 Text(
                     if (state.mode == BulkPricing.Mode.SET) {
-                        "Enter a price greater than zero."
+                        stringResource(R.string.bulkpricing_price_invalid)
                     } else {
-                        "Enter a reduction between 1 and 99%."
+                        stringResource(R.string.bulkpricing_reduction_invalid)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
@@ -103,26 +121,37 @@ fun BulkPricingScreen(
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "${state.selected.size} of ${state.listings.size} selected",
+                stringResource(
+                    R.string.bulkpricing_selected_of,
+                    state.selected.size,
+                    state.listings.size,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = viewModel::toggleAll) {
-                Text(if (state.allSelected) "Clear all" else "Select all")
+                Text(
+                    stringResource(
+                        if (state.allSelected) {
+                            R.string.drafts_clear_all
+                        } else {
+                            R.string.drafts_select_all
+                        },
+                    ),
+                )
             }
         }
 
         when {
             state.loading -> Text(
-                "Loading your live listings…",
+                stringResource(R.string.bulkpricing_loading_live_listings),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             state.listings.isEmpty() -> Text(
-                "No live listings that FlipDesk published. Imported eBay listings are " +
-                    "edited on eBay, so they can't be repriced here.",
+                stringResource(R.string.bulkpricing_empty),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -145,15 +174,19 @@ fun BulkPricingScreen(
 
         BrandPrimaryButton(
             text = when {
-                state.busy -> "Pushing to eBay…"
-                state.updates.isEmpty() -> "Nothing to push"
-                else -> "Push ${state.updates.size} price changes"
+                state.busy -> stringResource(R.string.bulkpricing_pushing)
+                state.updates.isEmpty() -> stringResource(R.string.bulkpricing_nothing_to_push)
+                else -> pluralStringResource(
+                    R.plurals.bulkpricing_push_count,
+                    state.updates.size,
+                    state.updates.size,
+                )
             },
             enabled = state.canApply,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.apply() }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.bulkpricing_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 }
 
@@ -185,7 +218,7 @@ private fun ListingRow(
             if (selected) {
                 target.price?.let {
                     Text(
-                        "  →  ${Money.format(it)}",
+                        stringResource(R.string.bulkpricing_arrow, Money.format(it)),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -193,7 +226,7 @@ private fun ListingRow(
             }
             listing.quantity?.let {
                 Text(
-                    "   Qty $it",
+                    stringResource(R.string.bulkpricing_qty, it),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -58,6 +58,11 @@ SCOPE = [
     "inventory/InventoryListScreen.kt",
     "marketplaces/promotions/PromotionSheet.kt",
     "analytics/CommunityInsightsScreen.kt",
+    "inventory/ItemPhotosSection.kt",
+    "inventory/GlobalSearchScreen.kt",
+    "disclosure/DisclosureScreen.kt",
+    "scout/ScoutScreen.kt",
+    "marketplaces/pricing/BulkPricingScreen.kt",
 ]
 
 # A string literal handed to something that renders or speaks it.

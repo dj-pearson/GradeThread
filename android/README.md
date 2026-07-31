@@ -45,7 +45,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Full string externalization beyond the 34 scoped files | US-2368 (in progress) |
+| Full string externalization beyond the 39 scoped files | US-2368 (in progress) |
 
 US-1379–1389 have since landed (widgets, background refresh, shortcuts, share
 target, onboarding, referrals, support, feedback, workspaces, CSV import) — see
@@ -640,14 +640,14 @@ mirroring the App Store catalog. Nothing in this repo can do that.
 `stringResource` for the files named in its `SCOPE` list, and that list grows as
 screens convert. A guard covering all ~90 Compose files today would either fail
 everywhere or get switched off, and a switched-off guard protects nothing.
-Thirty-four files are converted and locked. US-1393 did onboarding, referrals, both
+Thirty-nine files are converted and locked. US-1393 did onboarding, referrals, both
 support screens, feedback, the workspace switcher and the importer; US-2369 did
 sign-in; US-2368 has since done home, money, settings, snap, analytics,
 automations, the drafts library, the negotiation inbox, templates, marketplaces,
 reconciliation, the publish sheet, repricing, details intake, tools, prospect,
 the item canvas, the grade request, the AI-fill sheet, the grade report,
-consignors, post-sale, bulk grade, the inventory list, promotions and community
-insights. The guard also fails if a scoped file
+consignors, post-sale, bulk grade, the inventory list, promotions, community
+insights, item photos, global search, disclosure, scout and bulk pricing. The guard also fails if a scoped file
 is renamed or deleted, so nothing drops out silently.
 
 **The guard reads two shapes, and the second one is the common one.** ktlint
@@ -668,7 +668,10 @@ call a screen clean while every one of its form labels stayed in English.
 compiles, passes lint, and throws `MissingFormatArgumentException` when that
 screen is drawn — in whichever language the extra placeholder lives in. The
 script walks every call site, balances the parens, and compares the argument
-count to the resource. A call with NO format arguments is allowed on purpose: it
+count to the resource. It also checks that every quantity form of a `<plurals>`
+takes the SAME arguments: a translator who adds a `few` form and drops a
+placeholder crashes the app in that language only, which is nowhere a test
+written in English would ever look. A call with NO format arguments is allowed on purpose: it
 reads the raw template so it can be `.format(...)`ed inside a `joinToString`
 lambda, which is not a composable scope and so cannot call `stringResource` at
 all. The same script also rejects duplicate resource names: aapt2 kills the

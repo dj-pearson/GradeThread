@@ -20,6 +20,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -48,10 +50,9 @@ fun ScoutScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Scout", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.scout_scout), style = MaterialTheme.typography.titleLarge)
         Text(
-            "Search live eBay listings. Each one is graded from its own photos and " +
-                "ranked by what you'd make on it.",
+            stringResource(R.string.scout_intro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -59,7 +60,7 @@ fun ScoutScreen(
         OutlinedTextField(
             value = state.keyword,
             onValueChange = viewModel::setKeyword,
-            label = { Text("Keyword") },
+            label = { Text(stringResource(R.string.scout_keyword)) },
             singleLine = true,
             enabled = !state.scanning,
             modifier = Modifier.fillMaxWidth(),
@@ -67,7 +68,7 @@ fun ScoutScreen(
         OutlinedTextField(
             value = state.brand,
             onValueChange = viewModel::setBrand,
-            label = { Text("Brand (optional)") },
+            label = { Text(stringResource(R.string.scout_brand_optional)) },
             singleLine = true,
             enabled = !state.scanning,
             modifier = Modifier.fillMaxWidth(),
@@ -75,14 +76,20 @@ fun ScoutScreen(
         Text(
             // Shows which category the scan actually used, so a bad
             // auto-resolution is visible rather than blamed on the results.
-            "Searching in ${state.categoryLabel}",
+            stringResource(R.string.scout_searching_in, state.categoryLabel),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         state.errorMessage?.let {
             InfoCard(
-                if (state.planWall != null) "Not on your plan" else "That didn't work",
+                stringResource(
+                    if (state.planWall != null) {
+                        R.string.prospect_not_on_plan
+                    } else {
+                        R.string.prospect_failed
+                    },
+                ),
                 it,
                 tone = if (state.planWall != null) InfoTone.Warning else InfoTone.Error,
             )
@@ -103,7 +110,7 @@ fun ScoutScreen(
             FilterChip(
                 selected = state.actionableOnly,
                 onClick = viewModel::toggleActionableOnly,
-                label = { Text("Worth buying") },
+                label = { Text(stringResource(R.string.scout_worth_buying)) },
             )
         }
 
@@ -132,14 +139,16 @@ fun ScoutScreen(
         BrandPrimaryButton(
             // The retry is hidden on a plan wall: tapping it would hit the same
             // wall, and a button that never works reads as a broken app.
-            text = if (state.scanning) "Scanning…" else "Scan",
+            text = stringResource(
+                if (state.scanning) R.string.repricing_scanning else R.string.scout_scan,
+            ),
             enabled = state.canScan && state.planWall == null,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.scan() }
-        BrandSecondaryButton(text = "Prospect in store", modifier = Modifier.fillMaxWidth()) {
+        BrandSecondaryButton(text = stringResource(R.string.scout_prospect_store), modifier = Modifier.fillMaxWidth()) {
             onOpenProspect()
         }
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.scout_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 }
 
@@ -158,20 +167,20 @@ private fun CandidateCard(candidate: ScoutCandidate, onOpen: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
             if (candidate.actionable) {
-                AssistChip(onClick = {}, label = { Text("Worth buying") })
+                AssistChip(onClick = {}, label = { Text(stringResource(R.string.scout_worth_buying)) })
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             Column(Modifier.weight(1f)) {
-                Text("Asking", style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.scout_asking), style = MaterialTheme.typography.labelSmall)
                 Text(candidate.askingLabel, style = MaterialTheme.typography.bodyMedium)
             }
             Column(Modifier.weight(1f)) {
-                Text("Sells for", style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.scout_sells), style = MaterialTheme.typography.labelSmall)
                 Text(candidate.valueLabel, style = MaterialTheme.typography.bodyMedium)
             }
             Column(Modifier.weight(1f)) {
-                Text("Profit", style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.scout_profit), style = MaterialTheme.typography.labelSmall)
                 Text(
                     candidate.marginLabel,
                     style = MaterialTheme.typography.bodyMedium,
@@ -188,8 +197,11 @@ private fun CandidateCard(candidate: ScoutCandidate, onOpen: () -> Unit) {
             // The grade is shown WITH its confidence, always. A 9.2 read off a
             // stranger's blurry photo is not the same claim as a 9.2 from a
             // proper set, and hiding that gap is how someone overpays.
-            "Grade ${candidate.gradeLabel} · " +
-                "${Math.round(candidate.gradeConfidence * 100)}% confident",
+            stringResource(
+                R.string.scout_grade_confidence,
+                candidate.gradeLabel,
+                Math.round(candidate.gradeConfidence * 100),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

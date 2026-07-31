@@ -1029,4 +1029,104 @@
     <string name="community_trend_up">Sales up %1$s over 30 days \u00b7 %2$d sellers</string>
     <string name="community_trend_down">Sales down %1$s over 30 days \u00b7 %2$d sellers</string>
     <string name="community_trend_flat">%1$d sold in 30 days \u00b7 %2$d sellers</string>
+
+    <!-- US-2368: photos screen text. -->
+    <string name="photos_more">More</string>
+    <string name="photos_duplicate_item">Duplicate item</string>
+    <string name="photos_share_certificate">Share certificate</string>
+    <string name="photos_delete_item">Delete item</string>
+    <string name="photos_no_photos_yet">No photos yet.</string>
+    <string name="photos_add_photos">Add photos</string>
+    <string name="photos_dismiss">Dismiss</string>
+    <string name="photos_delete_this_item">Delete this item?</string>
+    <string name="photos_delete">Delete</string>
+    <string name="photos_cancel">Cancel</string>
+    <string name="photos_cover">Cover</string>
+    <string name="photos_text">←</string>
+    <string name="photos_text_2">→</string>
+    <string name="photos_remove">Remove</string>
+
+    <!-- US-2368: search screen text. -->
+    <string name="search_search_inventory_listings_sales_sources">Search inventory, listings, sales, sources</string>
+    <string name="search_clear">Clear</string>
+
+    <!-- US-2368: disclosure screen text. -->
+    <string name="disclosure_flaw_disclosure">Flaw disclosure</string>
+    <string name="disclosure_that_didn_t_work">That didn\'t work</string>
+    <string name="disclosure_done">Done</string>
+    <string name="disclosure_photos">Photos</string>
+    <string name="disclosure_save_this_annotated_photo">Save this annotated photo</string>
+    <string name="disclosure_back">Back</string>
+
+    <!-- US-2368: scout screen text. -->
+    <string name="scout_scout">Scout</string>
+    <string name="scout_keyword">Keyword</string>
+    <string name="scout_brand_optional">Brand (optional)</string>
+    <string name="scout_worth_buying">Worth buying</string>
+    <string name="scout_prospect_store">Prospect in store</string>
+    <string name="scout_back">Back</string>
+    <string name="scout_asking">Asking</string>
+    <string name="scout_sells">Sells for</string>
+    <string name="scout_profit">Profit</string>
+
+    <!-- US-2368: bulkpricing screen text. -->
+    <string name="bulkpricing_bulk_pricing">Bulk pricing</string>
+    <string name="bulkpricing_that_didn_t_work">That didn\'t work</string>
+    <string name="bulkpricing_pushed">Pushed</string>
+    <string name="bulkpricing_text">%</string>
+    <string name="bulkpricing_loading_live_listings">Loading your live listings…</string>
+    <string name="bulkpricing_back">Back</string>
+    <string name="photos_count">Photos (%1$d)</string>
+    <string name="photos_still_needed">Still needed to grade: %1$s</string>
+    <string name="photos_delete_body">Its photos go with it, and this can\'t be undone. Any grade or certificate for it is deleted too.</string>
+    <string name="photos_spoken">%1$s photo</string>
+    <string name="photos_spoken_cover">%1$s photo, cover image</string>
+
+    <string name="search_keep_typing">Keep typing \u2014 %1$d characters minimum.</string>
+    <string name="search_hint">Search by title, brand, SKU, size, colour, buyer or source.</string>
+    <string name="search_searching">Searching\u2026</string>
+    <string name="search_no_results">Nothing matched that. Results come from what\'s synced to this device, so a very new item may not be here yet.</string>
+    <string name="search_items">Items (%1$d)</string>
+    <string name="search_listings">Listings (%1$d)</string>
+    <string name="search_sales">Sales (%1$d)</string>
+    <string name="search_sources">Sources (%1$d)</string>
+    <string name="search_listing_subtitle">%1$s \u00b7 %2$s \u00b7 %3$s</string>
+
+    <string name="disclosure_loading">Loading\u2026</string>
+    <string name="disclosure_not_graded">This item hasn\'t been graded yet. Grade it and its flaws show up here.</string>
+    <string name="disclosure_no_flaws">The grade found no flaws worth disclosing.</string>
+    <string name="disclosure_noted">%1$d noted</string>
+    <string name="disclosure_unplaced">The grade couldn\'t place these flaws on a photo, so there\'s nothing to mark up \u2014 the written disclosure still applies.</string>
+    <string name="disclosure_photo_tab">%1$s (%2$d)</string>
+    <string name="disclosure_rendering">Marking up the photo\u2026</string>
+    <string name="disclosure_working">Working\u2026</string>
+    <string name="disclosure_add_to_listing">Add to the live eBay listing</string>
+    <string name="disclosure_edits_description">This edits the description buyers see on the live listing.</string>
+
+    <string name="scout_intro">Search live eBay listings. Each one is graded from its own photos and ranked by what you\'d make on it.</string>
+    <string name="scout_searching_in">Searching in %1$s</string>
+    <string name="scout_scan">Scan</string>
+    <string name="scout_grade_confidence">Grade %1$s \u00b7 %2$d%% confident</string>
+
+    <string name="bulkpricing_pushing_through">Pushing through %1$s</string>
+    <string name="bulkpricing_primary_store_fallback">your primary eBay store</string>
+    <string name="bulkpricing_multi_account">You have more than one eBay account connected. Bulk edits all go through the primary one.</string>
+    <string name="bulkpricing_new_price">New price</string>
+    <string name="bulkpricing_reduce_by">Reduce by</string>
+    <string name="bulkpricing_price_invalid">Enter a price greater than zero.</string>
+    <string name="bulkpricing_reduction_invalid">Enter a reduction between 1 and 99%.</string>
+    <string name="bulkpricing_selected_of">%1$d of %2$d selected</string>
+    <string name="bulkpricing_empty">No live listings that FlipDesk published. Imported eBay listings are edited on eBay, so they can\'t be repriced here.</string>
+    <string name="bulkpricing_pushing">Pushing to eBay\u2026</string>
+    <string name="bulkpricing_nothing_to_push">Nothing to push</string>
+    <string name="bulkpricing_arrow">\u0020\u0020\u2192\u0020\u0020%1$s</string>
+    <string name="bulkpricing_qty">\u0020\u0020\u0020Qty %1$s</string>
+    <plurals name="bulkpricing_push_count">
+        <item quantity="one">Push %1$d price change</item>
+        <item quantity="other">Push %1$d price changes</item>
+    </plurals>
+    <plurals name="disclosure_preview_spoken">
+        <item quantity="one">Photo with %1$d flaw marked</item>
+        <item quantity="other">Photo with %1$d flaws marked</item>
+    </plurals>
 </resources>

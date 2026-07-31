@@ -17,6 +17,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -39,11 +41,11 @@ fun GlobalSearchScreen(
         OutlinedTextField(
             value = state.query,
             onValueChange = viewModel::setQuery,
-            label = { Text("Search inventory, listings, sales, sources") },
+            label = { Text(stringResource(R.string.search_search_inventory_listings_sales_sources)) },
             singleLine = true,
             trailingIcon = {
                 if (state.query.isNotEmpty()) {
-                    TextButton(onClick = viewModel::clear) { Text("Clear") }
+                    TextButton(onClick = viewModel::clear) { Text(stringResource(R.string.search_clear)) }
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -51,21 +53,22 @@ fun GlobalSearchScreen(
 
         when {
             state.tooShort ->
-                Hint("Keep typing — ${GlobalSearch.MIN_QUERY_LENGTH} characters minimum.")
+                Hint(stringResource(R.string.search_keep_typing, GlobalSearch.MIN_QUERY_LENGTH))
 
             state.query.isBlank() ->
-                Hint("Search by title, brand, SKU, size, colour, buyer or source.")
+                Hint(stringResource(R.string.search_hint))
 
-            state.searching && results.isEmpty -> Hint("Searching…")
+            state.searching && results.isEmpty -> Hint(stringResource(R.string.search_searching))
 
             state.hasSearched && results.isEmpty -> Hint(
-                "Nothing matched that. Results come from what's synced to this device, " +
-                    "so a very new item may not be here yet.",
+                stringResource(R.string.search_no_results),
             )
 
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 if (results.items.isNotEmpty()) {
-                    item { SectionHeader("Items (${results.items.size})") }
+                    item {
+                        SectionHeader(stringResource(R.string.search_items, results.items.size))
+                    }
                     items(results.items, key = { "item-${it.id}" }) { item ->
                         ResultRow(
                             title = item.title,
@@ -80,12 +83,18 @@ fun GlobalSearchScreen(
                 }
 
                 if (results.listings.isNotEmpty()) {
-                    item { SectionHeader("Listings (${results.listings.size})") }
+                    item {
+                        SectionHeader(stringResource(R.string.search_listings, results.listings.size))
+                    }
                     items(results.listings, key = { "listing-${it.listing.id}" }) { hit ->
                         ResultRow(
                             title = hit.item.title,
-                            subtitle = "${hit.listing.platform} · ${hit.listing.listingStatus}" +
-                                " · ${money(hit.listing.listingPrice)}",
+                            subtitle = stringResource(
+                                R.string.search_listing_subtitle,
+                                hit.listing.platform,
+                                hit.listing.listingStatus,
+                                money(hit.listing.listingPrice),
+                            ),
                         ) {
                             onOpen(GlobalSearch.routeFor(GlobalSearch.Kind.LISTING, hit.item.id))
                         }
@@ -93,7 +102,9 @@ fun GlobalSearchScreen(
                 }
 
                 if (results.sales.isNotEmpty()) {
-                    item { SectionHeader("Sales (${results.sales.size})") }
+                    item {
+                        SectionHeader(stringResource(R.string.search_sales, results.sales.size))
+                    }
                     items(results.sales, key = { "sale-${it.sale.id}" }) { hit ->
                         ResultRow(
                             title = hit.item.title,
@@ -108,7 +119,9 @@ fun GlobalSearchScreen(
                 }
 
                 if (results.sources.isNotEmpty()) {
-                    item { SectionHeader("Sources (${results.sources.size})") }
+                    item {
+                        SectionHeader(stringResource(R.string.search_sources, results.sources.size))
+                    }
                     items(results.sources, key = { "source-${it.id}" }) { source ->
                         ResultRow(
                             title = source.name,

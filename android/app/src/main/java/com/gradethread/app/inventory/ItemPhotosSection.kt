@@ -28,6 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
@@ -77,16 +79,16 @@ fun ItemPhotosSection(
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Photos (${ordered.size})",
+                stringResource(R.string.photos_count, ordered.size),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
             Box {
-                TextButton(onClick = { overflowOpen = true }) { Text("More") }
+                TextButton(onClick = { overflowOpen = true }) { Text(stringResource(R.string.photos_more)) }
                 DropdownMenu(overflowOpen, onDismissRequest = { overflowOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("Duplicate item") },
+                        text = { Text(stringResource(R.string.photos_duplicate_item)) },
                         onClick = {
                             overflowOpen = false
                             viewModel.duplicateItem(itemId)
@@ -94,12 +96,12 @@ fun ItemPhotosSection(
                     )
                     onShareCertificate?.let { share ->
                         DropdownMenuItem(
-                            text = { Text("Share certificate") },
+                            text = { Text(stringResource(R.string.photos_share_certificate)) },
                             onClick = { overflowOpen = false; share() },
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("Delete item") },
+                        text = { Text(stringResource(R.string.photos_delete_item)) },
                         onClick = { overflowOpen = false; confirmDelete = true },
                     )
                 }
@@ -111,7 +113,10 @@ fun ItemPhotosSection(
             // Named, not counted: "2 photos missing" makes the seller work out
             // which two.
             Text(
-                "Still needed to grade: ${missing.joinToString { it.label }}",
+                stringResource(
+                    R.string.photos_still_needed,
+                    missing.joinToString { it.label },
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -119,7 +124,7 @@ fun ItemPhotosSection(
 
         if (ordered.isEmpty()) {
             Text(
-                "No photos yet.",
+                stringResource(R.string.photos_no_photos_yet),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -148,7 +153,7 @@ fun ItemPhotosSection(
         }
 
         BrandSecondaryButton(
-            text = "Add photos",
+            text = stringResource(R.string.photos_add_photos),
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -165,7 +170,7 @@ fun ItemPhotosSection(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::dismissError) { Text("Dismiss") }
+                TextButton(onClick = viewModel::dismissError) { Text(stringResource(R.string.photos_dismiss)) }
             }
         }
     }
@@ -173,20 +178,19 @@ fun ItemPhotosSection(
     if (confirmDelete) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this item?") },
+            title = { Text(stringResource(R.string.photos_delete_this_item)) },
             text = {
                 Text(
-                    "Its photos go with it, and this can't be undone. Any grade or " +
-                        "certificate for it is deleted too.",
+                    stringResource(R.string.photos_delete_body),
                 )
             },
             confirmButton = {
                 TextButton(onClick = { confirmDelete = false; viewModel.deleteItem(itemId) }) {
-                    Text("Delete")
+                    Text(stringResource(R.string.photos_delete))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.photos_cancel)) }
             },
         )
     }
@@ -206,9 +210,9 @@ private fun PhotoTile(
     Column(
         Modifier.width(120.dp).semantics {
             contentDescription = if (isCover) {
-                "${photo.photoType} photo, cover image"
+                stringResource(R.string.photos_spoken_cover, photo.photoType)
             } else {
-                "${photo.photoType} photo"
+                stringResource(R.string.photos_spoken, photo.photoType)
             }
         },
     ) {
@@ -228,7 +232,7 @@ private fun PhotoTile(
             )
             if (isCover) {
                 Text(
-                    "Cover",
+                    stringResource(R.string.photos_cover),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier
@@ -249,16 +253,16 @@ private fun PhotoTile(
         )
         Row {
             if (canMoveLeft) {
-                TextButton(onClick = onMoveLeft, contentPadding = tight) { Text("←") }
+                TextButton(onClick = onMoveLeft, contentPadding = tight) { Text(stringResource(R.string.photos_text)) }
             }
             if (canMoveRight) {
-                TextButton(onClick = onMoveRight, contentPadding = tight) { Text("→") }
+                TextButton(onClick = onMoveRight, contentPadding = tight) { Text(stringResource(R.string.photos_text_2)) }
             }
             if (!isCover) {
-                TextButton(onClick = onSetCover, contentPadding = tight) { Text("Cover") }
+                TextButton(onClick = onSetCover, contentPadding = tight) { Text(stringResource(R.string.photos_cover)) }
             }
             TextButton(onClick = onRemove, contentPadding = tight) {
-                Text("Remove", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.photos_remove), color = MaterialTheme.colorScheme.error)
             }
         }
     }
