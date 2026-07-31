@@ -1138,6 +1138,94 @@
     <string name="common_category">Category</string>
     <string name="common_amount">Amount</string>
 
+    <!-- US-2368 batch 7: sales, comps, listing performance, disputes. -->
+    <string name="common_price">Price</string>
+    <string name="sales_title">Sales</string>
+    <string name="sales_empty_title">No sales yet</string>
+    <string name="sales_empty_body">When an item sells, it lands here with its realized profit \u2014 sale price minus fees, shipping and what the item cost you.</string>
+    <string name="sales_row_detail">%1$s \u00b7 sold %2$s \u00b7 fees %3$s \u00b7 cost %4$s</string>
+    <string name="comps_title">Comparable sales</string>
+    <string name="comps_fetch">Fetch eBay comps</string>
+    <string name="comps_checking">Checking eBay\u2026</string>
+    <string name="comps_none_found">No comparable listings found in that category.</string>
+    <string name="comps_p25">25th %1$s</string>
+    <string name="comps_median">median %1$s</string>
+    <string name="comps_p75">75th %1$s</string>
+    <string name="comps_no_percentiles">no percentile data</string>
+    <string name="comps_use_median">Use median as target</string>
+    <string name="comps_saved_title">Your saved comps</string>
+    <string name="comps_your_median">Your median: %1$s</string>
+    <string name="comps_source_optional">Source (optional)</string>
+    <string name="comps_add">Add comp</string>
+    <string name="perf_title">Listing performance</string>
+    <string name="perf_no_traffic_title">eBay isn\'t sharing traffic data</string>
+    <string name="perf_no_traffic_body">Reconnect your eBay account and approve the analytics permission to see views and impressions.</string>
+    <string name="perf_no_account_title">No eBay account connected</string>
+    <string name="perf_no_account_body">Connect eBay from Marketplaces to see how your listings are doing.</string>
+    <string name="perf_sort_ascending">%1$s \u2191</string>
+    <string name="perf_sort_descending">%1$s \u2193</string>
+    <string name="perf_no_views_in">No views in</string>
+    <string name="perf_nothing_to_show">Nothing to show.</string>
+    <string name="perf_click_through">Click-through %1$s</string>
+    <string name="perf_price_and_age">%1$s \u00b7 %2$s</string>
+    <string name="perf_views_per_day"> (%1$s/day)</string>
+    <string name="perf_stale_hint">Two weeks live with no views. Try new photos, a new title, or a lower price.</string>
+    <string name="dispute_title">Dispute this grade</string>
+    <string name="dispute_filed_title">Dispute filed</string>
+    <string name="dispute_filed_body">A grader will review this and you\'ll see the outcome on the item. You don\'t need to do anything else.</string>
+    <string name="dispute_already_title">Already disputed</string>
+    <string name="dispute_already_body">You\'ve already disputed this grade \u2014 a second one would just duplicate it in the review queue. The outcome appears on the item.</string>
+    <string name="dispute_intro">Tell us what\'s wrong and a grader will take another look.</string>
+    <string name="dispute_what_happened">What happened? (required)</string>
+    <string name="dispute_anything_to_add">Anything to add? (optional)</string>
+    <string name="dispute_enough">Thanks \u2014 that\'s enough to work with.</string>
+    <string name="dispute_filing">Filing\u2026</string>
+    <string name="dispute_file">File dispute</string>
+    <plurals name="sales_summary">
+        <item quantity="one">%1$d completed \u00b7 %2$s revenue \u00b7 %3$s net</item>
+        <item quantity="other">%1$d completed \u00b7 %2$s revenue \u00b7 %3$s net</item>
+    </plurals>
+    <plurals name="sales_summary_spoken">
+        <item quantity="one">%1$d completed sale, %2$s revenue, %3$s net profit</item>
+        <item quantity="other">%1$d completed sales, %2$s revenue, %3$s net profit</item>
+    </plurals>
+    <plurals name="sales_excluded">
+        <item quantity="one">%1$d refunded, cancelled or pending \u2014 shown below, excluded from totals.</item>
+        <item quantity="other">%1$d refunded, cancelled or pending \u2014 shown below, excluded from totals.</item>
+    </plurals>
+    <plurals name="comps_count">
+        <item quantity="one">%1$d comp \u00b7 %2$s</item>
+        <item quantity="other">%1$d comps \u00b7 %2$s</item>
+    </plurals>
+    <plurals name="perf_days_live">
+        <item quantity="one">%1$d day live</item>
+        <item quantity="other">%1$d days live</item>
+    </plurals>
+    <plurals name="perf_views">
+        <item quantity="one">%1$d view</item>
+        <item quantity="other">%1$d views</item>
+    </plurals>
+    <plurals name="perf_watchers">
+        <item quantity="one"> \u00b7 %1$d watcher</item>
+        <item quantity="other"> \u00b7 %1$d watchers</item>
+    </plurals>
+    <plurals name="perf_impressions">
+        <item quantity="one"> \u00b7 %1$d impression</item>
+        <item quantity="other"> \u00b7 %1$d impressions</item>
+    </plurals>
+    <plurals name="perf_no_view_days">
+        <item quantity="one">No listings have gone %1$d day without a view.</item>
+        <item quantity="other">No listings have gone %1$d days without a view.</item>
+    </plurals>
+    <plurals name="dispute_photos_failed">
+        <item quantity="one">%1$d evidence photo couldn\'t be attached.</item>
+        <item quantity="other">%1$d evidence photos couldn\'t be attached.</item>
+    </plurals>
+    <plurals name="dispute_more_characters">
+        <item quantity="one">%1$d more character needed.</item>
+        <item quantity="other">%1$d more characters needed.</item>
+    </plurals>
+
     <!-- US-2368 batch 6: passport, paywall, fulfillment. -->
     <string name="common_close">Close</string>
     <string name="common_open">Open</string>
@@ -1215,7 +1303,6 @@
     <!-- US-2368 batch 4: bulk actions, consignment report, item specifics. -->
     <string name="common_clear">Clear</string>
     <string name="common_undo">Undo</string>
-    <string name="common_back">Back</string>
     <string name="common_value">Value</string>
     <string name="bulk_selected">%1$d selected</string>
     <string name="bulk_selected_count">%1$d items selected</string>

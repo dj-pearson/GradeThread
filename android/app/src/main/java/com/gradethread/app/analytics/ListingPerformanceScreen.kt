@@ -20,8 +20,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.money.Money
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
@@ -45,7 +48,10 @@ fun ListingPerformanceScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Listing performance", style = MaterialTheme.typography.titleLarge)
+        Text(
+            stringResource(R.string.perf_title),
+            style = MaterialTheme.typography.titleLarge,
+        )
         Text(
             state.summary,
             style = MaterialTheme.typography.bodySmall,
@@ -54,20 +60,21 @@ fun ListingPerformanceScreen(
 
         when (state.analyticsDenied) {
             true -> InfoCard(
-                "eBay isn't sharing traffic data",
-                "Reconnect your eBay account and approve the analytics permission to see " +
-                    "views and impressions.",
+                stringResource(R.string.perf_no_traffic_title),
+                stringResource(R.string.perf_no_traffic_body),
                 tone = InfoTone.Warning,
             )
             null -> if (state.loaded) {
                 InfoCard(
-                    "No eBay account connected",
-                    "Connect eBay from Marketplaces to see how your listings are doing.",
+                    stringResource(R.string.perf_no_account_title),
+                    stringResource(R.string.perf_no_account_body),
                 )
             }
             false -> Unit
         }
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.common_that_didnt_work), it, tone = InfoTone.Error)
+        }
 
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -80,7 +87,11 @@ fun ListingPerformanceScreen(
                     label = {
                         Text(
                             if (option == state.sort) {
-                                "${option.label} ${if (state.ascending) "↑" else "↓"}"
+                                if (state.ascending) {
+                                    stringResource(R.string.perf_sort_ascending, option.label)
+                                } else {
+                                    stringResource(R.string.perf_sort_descending, option.label)
+                                }
                             } else {
                                 option.label
                             },
@@ -96,7 +107,7 @@ fun ListingPerformanceScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "No views in",
+                stringResource(R.string.perf_no_views_in),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -118,13 +129,20 @@ fun ListingPerformanceScreen(
             }
             if (state.visible.isEmpty() && state.loaded) {
                 item {
+                    // Bound to a local so the plural gets a non-null Int: a
+                    // property read does not smart-cast across the branch.
+                    val noViewDays = state.noViewDays
                     Text(
-                        if (state.noViewDays == null) {
-                            "Nothing to show."
+                        if (noViewDays == null) {
+                            stringResource(R.string.perf_nothing_to_show)
                         } else {
                             // The filter is why the list is empty, and that is
                             // good news worth saying out loud.
-                            "No listings have gone ${state.noViewDays} days without a view."
+                            pluralStringResource(
+                                R.plurals.perf_no_view_days,
+                                noViewDays,
+                                noViewDays,
+                            )
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -134,11 +152,18 @@ fun ListingPerformanceScreen(
         }
 
         BrandSecondaryButton(
-            text = if (state.loading) "Refreshing…" else "Refresh",
+            text = if (state.loading) {
+                stringResource(R.string.common_refreshing)
+            } else {
+                stringResource(R.string.common_refresh)
+            },
             enabled = !state.loading,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.load() }
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.common_back),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onClose() }
     }
 }
 
@@ -163,20 +188,23 @@ private fun PerformanceCard(
             maxLines = 2,
         )
         Text(
-            "${Money.format(row.listingPrice)} · " +
-                "${ListingPerformance.daysListed(row.listedAtMs, nowMs)} days live",
+            stringResource(
+                R.string.perf_price_and_age,
+                Money.format(row.listingPrice),
+                pluralStringResource(
+                    R.plurals.perf_days_live,
+                    ListingPerformance.daysListed(row.listedAtMs, nowMs),
+                    ListingPerformance.daysListed(row.listedAtMs, nowMs),
+                ),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            buildString {
-                append("${row.viewsTotal} views")
-                ListingPerformance.viewsPerDay(row, nowMs)?.let {
-                    append(" (${"%.1f".format(it)}/day)")
-                }
-                append(" · ${row.watchersCount} watchers")
-                append(" · ${row.impressions7d} impressions")
-            },
+            // Every fragment resolved BEFORE buildString: the builder lambda is
+            // where a composable call would be easy to write and wrong to rely
+            // on, and each piece needs its own plural anyway.
+            viewsLine(row, nowMs),
             style = MaterialTheme.typography.bodySmall,
             color = if (stale) {
                 MaterialTheme.colorScheme.error
@@ -186,17 +214,37 @@ private fun PerformanceCard(
         )
         row.clickThroughRate?.let {
             Text(
-                "Click-through ${Money.formatPercent(it)}",
+                stringResource(R.string.perf_click_through, Money.formatPercent(it)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (stale) {
             Text(
-                "Two weeks live with no views. Try new photos, a new title, or a lower price.",
+                stringResource(R.string.perf_stale_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
         }
     }
+}
+
+/**
+ * The views / watchers / impressions line, assembled from three plurals.
+ *
+ * Each count agrees on its own, so this cannot be one format string; and the
+ * separators sit inside the plural items rather than between them, so a
+ * language that punctuates a list differently can move them.
+ */
+@Composable
+private fun viewsLine(row: ListingPerformanceRow, nowMs: Long): String {
+    val views = pluralStringResource(R.plurals.perf_views, row.viewsTotal, row.viewsTotal)
+    val perDay = ListingPerformance.viewsPerDay(row, nowMs)
+        ?.let { stringResource(R.string.perf_views_per_day, "%.1f".format(it)) }
+        .orEmpty()
+    val watchers =
+        pluralStringResource(R.plurals.perf_watchers, row.watchersCount, row.watchersCount)
+    val impressions =
+        pluralStringResource(R.plurals.perf_impressions, row.impressions7d, row.impressions7d)
+    return views + perDay + watchers + impressions
 }

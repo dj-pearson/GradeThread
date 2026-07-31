@@ -16,8 +16,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import com.gradethread.app.R
 import com.gradethread.app.capture.CurrencyAmount
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -38,19 +41,19 @@ fun CompsSection(
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         Text(
-            "Comparable sales",
+            stringResource(R.string.comps_title),
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
         )
 
         when (state) {
             CompsState.Idle -> BrandSecondaryButton(
-                text = "Fetch eBay comps",
+                text = stringResource(R.string.comps_fetch),
                 modifier = Modifier.fillMaxWidth(),
             ) { onFetch() }
 
             CompsState.Loading -> Text(
-                "Checking eBay…",
+                stringResource(R.string.comps_checking),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -97,17 +100,27 @@ private fun LoadedComps(
 
         if (stats.count == 0) {
             Text(
-                "No comparable listings found in that category.",
+                stringResource(R.string.comps_none_found),
                 style = MaterialTheme.typography.bodySmall,
             )
         } else {
             Text(
-                "${stats.count} comps · " +
+                pluralStringResource(
+                    R.plurals.comps_count,
+                    stats.count,
+                    stats.count,
                     listOfNotNull(
-                        stats.p25?.let { "25th ${money(it, stats.currency)}" },
-                        stats.median?.let { "median ${money(it, stats.currency)}" },
-                        stats.p75?.let { "75th ${money(it, stats.currency)}" },
-                    ).joinToString(" · ").ifEmpty { "no percentile data" },
+                        stats.p25?.let {
+                            stringResource(R.string.comps_p25, money(it, stats.currency))
+                        },
+                        stats.median?.let {
+                            stringResource(R.string.comps_median, money(it, stats.currency))
+                        },
+                        stats.p75?.let {
+                            stringResource(R.string.comps_p75, money(it, stats.currency))
+                        },
+                    ).joinToString(" · ").ifEmpty { stringResource(R.string.comps_no_percentiles) },
+                ),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -118,17 +131,21 @@ private fun LoadedComps(
                 // independently nullable, so a result can report comps and
                 // still have no median to apply.
                 BrandSecondaryButton(
-                    text = "Use median as target",
+                    text = stringResource(R.string.comps_use_median),
                     modifier = Modifier.weight(1f),
                 ) { onUseMedian(stats.median!!) }
             }
-            TextButton(onClick = onRefresh) { Text("Refresh") }
+            TextButton(onClick = onRefresh) { Text(stringResource(R.string.common_refresh)) }
         }
     }
 }
 
 @Composable
-private fun Retryable(message: String, onRetry: () -> Unit, retryLabel: String = "Try again") {
+private fun Retryable(
+    message: String,
+    onRetry: () -> Unit,
+    retryLabel: String = stringResource(R.string.common_try_again),
+) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         Text(
             message,
@@ -149,7 +166,10 @@ private fun SavedComps(
     var source by remember { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
-        Text("Your saved comps", style = MaterialTheme.typography.labelMedium)
+        Text(
+            stringResource(R.string.comps_saved_title),
+            style = MaterialTheme.typography.labelMedium,
+        )
 
         comps.forEachIndexed { index, comp ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -162,14 +182,18 @@ private fun SavedComps(
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { onRemove(index) }) { Text("Remove") }
+                TextButton(onClick = { onRemove(index) }) {
+                    Text(stringResource(R.string.common_remove))
+                }
             }
         }
 
         CompSet.median(comps)?.let { median ->
             Text(
-                "Your median: ${CurrencyAmount.SYMBOL}" +
-                    CurrencyAmount.formatRaw(Math.round(median * 100)),
+                stringResource(
+                    R.string.comps_your_median,
+                    CurrencyAmount.SYMBOL + CurrencyAmount.formatRaw(Math.round(median * 100)),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -179,7 +203,7 @@ private fun SavedComps(
             OutlinedTextField(
                 value = priceText,
                 onValueChange = { priceText = it },
-                label = { Text("Price") },
+                label = { Text(stringResource(R.string.common_price)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.weight(1f),
@@ -187,7 +211,7 @@ private fun SavedComps(
             OutlinedTextField(
                 value = source,
                 onValueChange = { source = it },
-                label = { Text("Source (optional)") },
+                label = { Text(stringResource(R.string.comps_source_optional)) },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
@@ -207,7 +231,7 @@ private fun SavedComps(
             },
             // A comp with no price is not a comp.
             enabled = (CurrencyAmount.parseCents(priceText) ?: 0L) > 0L,
-        ) { Text("Add comp") }
+        ) { Text(stringResource(R.string.comps_add)) }
     }
 }
 

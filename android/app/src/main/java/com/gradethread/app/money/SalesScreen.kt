@@ -19,12 +19,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.Spacing
 import java.time.Instant
 import java.time.ZoneId
@@ -54,38 +57,60 @@ fun SalesScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val refreshError by viewModel.refreshError.collectAsStateWithLifecycle()
+    // Hoisted: `semantics { }` is not a composable scope. Spelled out for
+    // TalkBack, since the visible line leans on separators to carry meaning.
+    val summarySpoken = pluralStringResource(
+        R.plurals.sales_summary_spoken,
+        state.completedCount,
+        state.completedCount,
+        Money.format(state.realizedRevenue),
+        Money.format(state.realizedProfit),
+    )
 
     Column(modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Sales", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(
+                stringResource(R.string.sales_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
             TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
-                Text(if (refreshing) "Refreshing…" else "Refresh")
+                Text(
+                    if (refreshing) {
+                        stringResource(R.string.common_refreshing)
+                    } else {
+                        stringResource(R.string.common_refresh)
+                    },
+                )
             }
         }
 
         Text(
-            "${state.completedCount} completed · " +
-                "${Money.format(state.realizedRevenue)} revenue · " +
-                "${Money.format(state.realizedProfit)} net",
+            pluralStringResource(
+                R.plurals.sales_summary,
+                state.completedCount,
+                state.completedCount,
+                Money.format(state.realizedRevenue),
+                Money.format(state.realizedProfit),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .padding(horizontal = Spacing.md)
-                .semantics {
-                    contentDescription = "${state.completedCount} completed sales, " +
-                        "${Money.format(state.realizedRevenue)} revenue, " +
-                        "${Money.format(state.realizedProfit)} net profit"
-                },
+                .semantics { contentDescription = summarySpoken },
         )
         if (state.excludedCount > 0) {
             Text(
                 // Named explicitly: a seller who sees 12 rows and a total for 10
                 // needs to know WHY, or they assume the total is broken.
-                "${state.excludedCount} refunded, cancelled or pending — shown below, " +
-                    "excluded from totals.",
+                pluralStringResource(
+                    R.plurals.sales_excluded,
+                    state.excludedCount,
+                    state.excludedCount,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Spacing.md),
@@ -103,7 +128,9 @@ fun SalesScreen(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::dismissRefreshError) { Text("Dismiss") }
+                TextButton(onClick = viewModel::dismissRefreshError) {
+                    Text(stringResource(R.string.common_dismiss))
+                }
             }
         }
 
@@ -111,10 +138,12 @@ fun SalesScreen(
 
         if (state.rows.isEmpty()) {
             Column(Modifier.fillMaxSize().padding(Spacing.xl)) {
-                Text("No sales yet", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "When an item sells, it lands here with its realized profit — sale price " +
-                        "minus fees, shipping and what the item cost you.",
+                    stringResource(R.string.sales_empty_title),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    stringResource(R.string.sales_empty_body),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -142,8 +171,13 @@ private fun SaleRowView(row: SaleRow, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(row.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
             Text(
-                "${formatDate(row.saleDateMs)} · sold ${Money.format(row.revenue)} · " +
-                    "fees ${Money.format(row.fees)} · cost ${Money.format(row.costBasis)}",
+                stringResource(
+                    R.string.sales_row_detail,
+                    formatDate(row.saleDateMs),
+                    Money.format(row.revenue),
+                    Money.format(row.fees),
+                    Money.format(row.costBasis),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
