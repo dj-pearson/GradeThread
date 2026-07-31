@@ -7,6 +7,7 @@ import {
   breadcrumbLd,
   howToLd,
   certificateLd,
+  certGalleryImageUrls,
   passportLd,
   personLd,
   profilePageLd,
@@ -19,7 +20,11 @@ import { SITE_URL } from "../public-routes";
 // US-425: the cert SSR Pages Function builds its Product JSON-LD from this shared
 // helper; the SPA route uses certificateLd above. The equivalence test below
 // pins the two shapes equal so the two code paths can't drift.
-import { certificateProductLd, passportProductLd } from "../../../../functions/_shared/blog-render";
+import {
+  certGalleryImageUrls as ssrCertGalleryImageUrls,
+  certificateProductLd,
+  passportProductLd,
+} from "../../../../functions/_shared/blog-render";
 
 describe("JSON-LD builders (US-298/299/300)", () => {
   it("organizationLd has the core entity fields", () => {
@@ -140,7 +145,13 @@ describe("JSON-LD builders (US-298/299/300)", () => {
     gradeTier: "Excellent",
     category: "denim",
     brand: "Levi's",
-    images: ["https://img.example/front.jpg"],
+    // US-2206: the fixture uses the STABLE /cert-photo urls both callers now
+    // build, not a stand-in — a fixture that never exercises the real shape is
+    // how the dateModified divergence below stayed green.
+    images: [
+      "https://gradethread.com/cert-photo/abc123/0",
+      "https://gradethread.com/cert-photo/abc123/1",
+    ],
     // US-2071: the fixture MUST exercise dateModified. Omitting it is why the
     // byte-equality guard passed while the SSR mirror had no such field — the
     // test could not fail on a divergence it never fed either side.
@@ -150,10 +161,59 @@ describe("JSON-LD builders (US-298/299/300)", () => {
 
   it("certificateLd includes the image field when images are provided", () => {
     const ld = certificateLd(CERT_INPUT);
-    expect(ld.image).toEqual(["https://img.example/front.jpg"]);
+    expect(ld.image).toEqual([
+      "https://gradethread.com/cert-photo/abc123/0",
+      "https://gradethread.com/cert-photo/abc123/1",
+    ]);
     // …and omits it entirely when there are none (graceful, not image: []).
     const noImg = certificateLd({ ...CERT_INPUT, images: undefined });
     expect("image" in noImg).toBe(false);
+  });
+
+  // US-2206: the Product image[] carries the full gallery as STABLE
+  // /cert-photo urls. The signed gallery urls the cert endpoint serves expire
+  // in 15 minutes, so a crawler that reads one out of the JSON-LD and fetches
+  // it later gets a 403 — which is why only the hero was ever emitted.
+  //
+  // The url builder is duplicated across the two bundles (functions/ and src/
+  // share no import), so the ONLY thing keeping them equal is this test.
+  describe("certGalleryImageUrls (US-2206)", () => {
+    it("builds one stable, ordered url per photo", () => {
+      expect(certGalleryImageUrls("abc123", 3)).toEqual([
+        `${SITE_URL}/cert-photo/abc123/0`,
+        `${SITE_URL}/cert-photo/abc123/1`,
+        `${SITE_URL}/cert-photo/abc123/2`,
+      ]);
+    });
+
+    it("carries no signature or expiry — that is the whole point", () => {
+      for (const url of certGalleryImageUrls("abc123", 2)) {
+        expect(url).not.toMatch(/[?&](token|expires|X-Amz|signature)/i);
+      }
+    });
+
+    it("returns nothing for a cert with no photos, so image[] is omitted", () => {
+      // certificateLd omits `image` entirely on an empty array rather than
+      // emitting image: [], which is invalid-ish markup crawlers dislike.
+      expect(certGalleryImageUrls("abc123", 0)).toEqual([]);
+      expect(certGalleryImageUrls("", 3)).toEqual([]);
+      expect("image" in certificateLd({ ...CERT_INPUT, images: [] })).toBe(false);
+    });
+
+    it("refuses a non-finite count rather than building junk urls", () => {
+      expect(certGalleryImageUrls("abc123", Number.NaN)).toEqual([]);
+      expect(certGalleryImageUrls("abc123", -1)).toEqual([]);
+    });
+
+    it("SPA and SSR builders agree url-for-url", () => {
+      // Same duplication hazard the certificateLd/certificateProductLd pair
+      // has, and the same fix: assert them equal on a shared fixture.
+      for (const count of [0, 1, 5]) {
+        expect(certGalleryImageUrls("abc123", count)).toEqual(
+          ssrCertGalleryImageUrls(SITE_URL, "abc123", count),
+        );
+      }
+    });
   });
 
   it("SPA certificateLd and SSR certificateProductLd emit identical markup", () => {

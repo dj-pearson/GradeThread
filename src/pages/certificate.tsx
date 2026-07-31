@@ -27,7 +27,11 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
 import { Breadcrumbs } from "@/components/breadcrumbs";
-import { certificateLd, breadcrumbLd } from "@/lib/seo/json-ld";
+import {
+  certificateLd,
+  breadcrumbLd,
+  certGalleryImageUrls,
+} from "@/lib/seo/json-ld";
 import { SITE_URL } from "@/lib/seo/site";
 import { cn } from "@/lib/utils";
 import {
@@ -543,12 +547,6 @@ export function CertificatePage() {
     (gradeReport.authenticity_manipulation_suspected ||
       gradeReport.authenticity_screenshot_or_watermark_detected);
 
-  // US-425: representative image for the Product JSON-LD — front shot, else the
-  // lowest display_order. Mirrors the cert SSR Pages Function's hero selection
-  // so both paths emit the same `image` field (both are short-lived signed URLs).
-  const heroImage = images.find((i) => i.image_type === "front") ?? images[0];
-  const heroImageUrl = heroImage ? imageUrls[heroImage.id] : undefined;
-
   // US-433: one trail powers both the visible breadcrumb and the BreadcrumbList
   // JSON-LD, mirroring the cert SSR Pages Function (functions/cert/[id].ts).
   const breadcrumbTrail = [
@@ -577,7 +575,9 @@ export function CertificatePage() {
             gradeTier: gradeReport.grade_tier,
             category: submission?.garment_category ?? null,
             brand: submission?.brand ?? null,
-            images: heroImageUrl ? [heroImageUrl] : undefined,
+            // US-2206: mirrors the SSR path exactly — the full ordered
+            // gallery as stable /cert-photo urls, never the signed ones.
+            images: certGalleryImageUrls(id ?? "", images.length),
             datePublished: gradeReport.created_at,
           }),
           breadcrumbLd(breadcrumbTrail),
