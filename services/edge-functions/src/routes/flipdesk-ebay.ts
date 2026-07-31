@@ -4860,7 +4860,8 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
   const priceLock = ebayOriginWriteLock(
     {
       listing_origin: row.listing.listing_origin,
-      platform: "ebay",
+      // US-2166: the row's own platform, not a literal.
+      platform: row.listing.platform,
       platform_listing_id: row.listing.platform_listing_id,
       batch_id: row.listing.batch_id,
       synced_to_ebay_at: row.listing.synced_to_ebay_at,
@@ -5671,7 +5672,8 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     // US-1976: consult the persisted marker first (parity with the /price + end
     // gates), falling back to the provenance signals until it backfills.
     listing_origin: row.listing.listing_origin,
-    platform: "ebay",
+    // US-2166: the row's own platform, not a literal.
+    platform: row.listing.platform,
     platform_listing_id: row.listing.platform_listing_id,
     batch_id: row.listing.batch_id,
     synced_to_ebay_at: row.listing.synced_to_ebay_at,
@@ -6412,7 +6414,8 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
   const endLock = ebayOriginWriteLock(
     {
       listing_origin: row.listing.listing_origin,
-      platform: "ebay",
+      // US-2166: the row's own platform, not a literal.
+      platform: row.listing.platform,
       platform_listing_id: row.listing.platform_listing_id,
       batch_id: row.listing.batch_id,
       synced_to_ebay_at: row.listing.synced_to_ebay_at,
@@ -8794,6 +8797,13 @@ function generateState(): string {
 interface ListingRowForManage {
   id: string;
   inventory_item_id: string;
+  // US-2166: the row's REAL marketplace. These routes live in the eBay
+  // namespace but loadListingOwned does not filter by platform, so a non-eBay
+  // listing id can reach them — and every origin gate below used to hardcode
+  // "ebay", which derives the wrong provenance for such a row and can lock (or
+  // fail to lock) the wrong fields. Carrying the actual value removes the
+  // guess.
+  platform: string | null;
   platform_offer_id: string | null;
   platform_listing_id: string | null;
   // The values that were actually published. A photos-only revise re-PUTs the
@@ -8883,7 +8893,7 @@ async function loadListingOwned(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, marketplace_connection_id, listing_origin, variations, inventory_sku, inventory_items!inner(user_id, sku)"
+      "id, inventory_item_id, platform, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, marketplace_connection_id, listing_origin, variations, inventory_sku, inventory_items!inner(user_id, sku)"
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -8901,6 +8911,7 @@ async function loadListingOwned(
     listing: {
       id: row.id,
       inventory_item_id: row.inventory_item_id,
+      platform: row.platform,
       platform_offer_id: row.platform_offer_id,
       platform_listing_id: row.platform_listing_id,
       listing_title: row.listing_title,
