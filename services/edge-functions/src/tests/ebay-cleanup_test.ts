@@ -175,3 +175,59 @@ Deno.test("US-1979: a real program failure is never swallowed", () => {
   assert(!isAlreadyInProgramStateError("nope"), "a bare string is not evidence");
   assert(!isAlreadyInProgramStateError(null), "null is not evidence");
 });
+
+// ── US-2166: the platform-agnostic end must reach the SAME decision ─────────
+//
+// US-2162 pointed the listings page at POST /api/flipdesk/listings/:id/end, but
+// the eBay adapter's delist looked only at platformOfferId — which a variation
+// listing does not have. So a seller with a multi-variation eBay listing got
+// "This listing has no eBay offer id to withdraw" and the listing stayed LIVE:
+// the exact US-1978 bug, reintroduced through a different door.
+//
+// The fix routes the adapter through resolveEndStrategy and plumbs the two
+// fields it needs (variations + the item SKU) down from the route. These guard
+// the wiring, because the decision itself is already covered above and what
+// broke was the inputs never arriving.
+
+const listingsRoute = Deno.readTextFileSync(
+  new URL("../routes/flipdesk-listings.ts", import.meta.url),
+);
+const ebayAdapterSrc = Deno.readTextFileSync(
+  new URL("../lib/marketplace-adapters/ebay.ts", import.meta.url),
+);
+
+Deno.test("US-2166: the eBay adapter delists via resolveEndStrategy", () => {
+  // Not an offer-id check any more — the group arm has to exist and has to use
+  // the group withdraw.
+  assert(ebayAdapterSrc.includes("resolveEndStrategy("));
+  assert(ebayAdapterSrc.includes("withdrawByInventoryItemGroup("));
+});
+
+Deno.test("US-2166: every delist call site passes variations AND the item SKU", () => {
+  // Dropping either one silently degrades a group listing back to the
+  // no-offer-id dead end, so both must ride along on EVERY call — the single
+  // end and the bulk end alike.
+  const callSites = listingsRoute.split("adapter.delist({").length - 1;
+  assert(callSites >= 2, `expected the single + bulk end call sites, saw ${callSites}`);
+  assertEquals(
+    listingsRoute.split("variations: row.variations,").length - 1,
+    callSites,
+    "every adapter.delist call must pass variations",
+  );
+  assertEquals(
+    listingsRoute.split("itemSku: row.item_sku,").length - 1,
+    callSites,
+    "every adapter.delist call must pass itemSku",
+  );
+});
+
+Deno.test("US-2166: the owned-listing load actually selects those columns", () => {
+  // The fields can only be passed if they were read. `variations` comes off the
+  // listing; the group key (sku) lives on the ITEM, so the join has to ask for
+  // it — that asymmetry is what makes this worth pinning.
+  assert(listingsRoute.includes("variations, "), "must select listings.variations");
+  assert(
+    listingsRoute.includes("inventory_items!inner(user_id, sku)"),
+    "must select the item sku (the group key)",
+  );
+});

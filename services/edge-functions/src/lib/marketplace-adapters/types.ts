@@ -82,6 +82,18 @@ export interface AdapterEndInput {
   listingRowId: string;
   platformOfferId: string | null;
   platformListingId: string | null;
+  /**
+   * US-2166: the persisted variation matrix and the item's SKU.
+   *
+   * eBay's multi-variation listings publish as an inventory_item_group and carry
+   * NO platform_offer_id, so they can only be withdrawn by their GROUP KEY. An
+   * adapter that looks at the offer id alone reports "no offer id to withdraw"
+   * and leaves the listing live on eBay — which is what the platform-agnostic
+   * end route did until these were plumbed through. Optional because no other
+   * marketplace has the concept; adapters that don't need them ignore them.
+   */
+  variations?: unknown;
+  itemSku?: string | null;
 }
 
 export type AdapterResult =

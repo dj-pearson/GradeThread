@@ -9009,7 +9009,9 @@ interface ListingVariation {
   price_cents?: number | null;
   sku_suffix?: string | null;
 }
-interface ListingVariations {
+// US-2166: exported so the eBay adapter can type the variation matrix it now
+// receives on delist (a group listing has no offer id and must end by group key).
+export interface ListingVariations {
   specifications: string[];
   variants: ListingVariation[];
 }

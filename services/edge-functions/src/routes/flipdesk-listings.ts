@@ -737,6 +737,13 @@ interface OwnedListingRow {
   batch_id: string | null;
   synced_to_ebay_at: string | null;
   marketplace_connection_id: string | null;
+  // US-2166: an eBay multi-variation listing publishes as an inventory_item_group
+  // and carries NO platform_offer_id, so it can only be withdrawn by its group
+  // key. Without these two the adapter answered "no offer id to withdraw" and
+  // left the listing LIVE — a regression this route introduced when US-2162
+  // pointed the listings page at it.
+  variations: unknown;
+  item_sku: string | null;
 }
 
 // Owner-verified listing load (US-268 rule 2 — ownership via the parent item).
@@ -752,16 +759,18 @@ async function loadOwnedListing(
     .select(
       "id, inventory_item_id, platform, listing_price, listing_status, listing_url, " +
         "platform_offer_id, platform_listing_id, listing_origin, batch_id, " +
-        "synced_to_ebay_at, marketplace_connection_id, inventory_items!inner(user_id)",
+        "synced_to_ebay_at, marketplace_connection_id, variations, " +
+        "inventory_items!inner(user_id, sku)",
     )
     .eq("id", listingId)
     .maybeSingle();
   if (!data) return null;
   const row = data as unknown as OwnedListingRow & {
-    inventory_items: { user_id: string };
+    inventory_items: { user_id: string; sku: string | null };
   };
   if (row.inventory_items.user_id !== ownerId) return null;
-  return row;
+  // The group key lives on the ITEM, not the listing row.
+  return { ...row, item_sku: row.inventory_items.sku };
 }
 
 // Was this row ever actually published to its marketplace? This is orthogonal to
@@ -1065,6 +1074,9 @@ flipdeskListingsRoutes.post("/:id/end", async (c) => {
       listingRowId: row.id,
       platformOfferId: row.platform_offer_id,
       platformListingId: row.platform_listing_id,
+      // US-2166: without these an eBay variation listing cannot be ended.
+      variations: row.variations,
+      itemSku: row.item_sku,
     });
     if (!res.ok) {
       return c.json(
@@ -1456,6 +1468,10 @@ flipdeskListingsRoutes.post("/bulk-end", async (c) => {
         listingRowId: row.id,
         platformOfferId: row.platform_offer_id,
         platformListingId: row.platform_listing_id,
+        // US-2166: same as the single end — an eBay variation listing has no
+        // offer id and ends by group key.
+        variations: row.variations,
+        itemSku: row.item_sku,
       });
       if (!res.ok) {
         results.push({ listing_id: id, ok: false, error: res.error });
