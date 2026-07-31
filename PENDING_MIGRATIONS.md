@@ -1,5 +1,31 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+> [!warning] 2026-07-31 — these three holds look STALE. Please confirm.
+>
+> All three migrations (00504, 00505, 00506) are present on `origin/main`:
+>
+> - `00504` — 53767fda `fix(db): make listings.is_active a lockstep mirror…`
+> - `00505` — ed88c7d6 `feat(analytics): give the Grading-ROI tab period presets…`
+> - `00506` — 7c745d01 `feat(flipdesk): make the Listing Quality Score a sortable column…`
+>
+> Under the standing held-migration rule a migration commit is not pushed until
+> the operator has applied the SQL, so a migration ON origin/main means its hold
+> was already released. `EXPECTED_SCHEMA_VERSION` on main is 00506 and the edge
+> boot-guards on it, so a prod still at 00503 would be failing its readiness
+> check rather than serving.
+>
+> NOT flipped to APPLIED here, because that would assert a prod fact this
+> session cannot observe. Flagged instead, because a stale hold is not
+> harmless: it tells every reader (and the session-start hook, which reads the
+> ⏳ markers below) that the branch is frozen when it is not — which either
+> invites a pointless prod session or holds back a push that was always safe.
+> This is the second time this file has gone stale the same way; see the
+> US-2017 note in prd.json for the first.
+>
+> **If prod is at 00506, mark the three entries APPLIED and delete this
+> callout.** If it is genuinely still at 00503, the push that carried these
+> commits bypassed the rule and prod needs them urgently.
+
 **Three migrations held.** Schema on prod is at **00503** (applied 2026-07-29);
 this branch bumps `EXPECTED_SCHEMA_VERSION` to **00506** and holds three
 migrations below (apply **00504 → 00505 → 00506**, in order). All are **db-lane
