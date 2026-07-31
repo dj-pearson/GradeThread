@@ -47,7 +47,10 @@ final class AspectSuggestFieldTests: XCTestCase {
 
     func test_matchingIsCaseAndWhitespaceInsensitive() {
         XCTAssertTrue(field("  BLA  ").matches.contains("Black"))
-        XCTAssertTrue(field("black").matches.contains("Black"))
+        // Lowercase partial, NOT the whole value: a complete "black" is an
+        // exact hit, which test_exactValueStopsSuggesting pins as empty. The
+        // two assertions contradicted each other and this one lost.
+        XCTAssertTrue(field("blac").matches.contains("Black"))
     }
 
     func test_exactValueStopsSuggesting() {
