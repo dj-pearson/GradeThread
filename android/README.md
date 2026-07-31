@@ -483,6 +483,40 @@ the device is offline** is enqueued on the offline mutation queue (the same
 insert-then-queue path `CapturePublisher` uses) and reported as "waiting to
 send", not as a failure — a migration started on a train finishes itself.
 
+## State restoration (US-1390)
+
+`ui/state/Restorable.kt` holds the rules; the screens hold the wiring. Before
+this the module had **zero** `rememberSaveable` and **zero** `SavedStateHandle`,
+so a ViewModel survived rotation but nothing survived a process kill.
+
+Wired: the Add sheet (`AppShell`), the inventory filter sheet and multi-select
+(`InventoryListScreen`), and stage / sort / view mode / query
+(`InventoryListViewModel`) plus the global search query
+(`GlobalSearchViewModel`) through `SavedStateHandle`. A restored search query
+**re-runs** rather than only repopulating the field — results live in memory and
+died with the process, so the box would otherwise show a search with nothing
+under it.
+
+Four rules that exist because the failure is invisible until it isn't:
+
+- **Selections are capped at 500 and saved as one string.** Saved state crosses
+  a Binder transaction with a shared ~1MB budget; exceeding it throws
+  `TransactionTooLargeException`, which on rotation is a *crash*, not a lost
+  selection. A string rather than a `List` because `rememberSaveable`'s default
+  saver only accepts what a `Bundle` accepts.
+- **Restoring prunes ids that are gone.** A process death can be days later, and
+  a sync in between may have removed items — a selection carrying ghosts turns
+  "delete 12" into a request the server rejects halfway through.
+- **Enums save by name, never by ordinal.** An ordinal shifts the moment anyone
+  inserts a case, so a saved "Listed" filter would come back as "Sold" after an
+  unrelated edit. An unknown name falls back rather than throwing, so a value
+  written by a newer build can't crash an older one.
+- **A saved route is checked against the graph.** Restoring a renamed
+  destination is a crash on launch for anyone whose app was killed on it.
+
+`layoutChanged` exists so a foldable's hinge animation — which reports a width
+change per degree — only triggers work on a real compact↔expanded crossing.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

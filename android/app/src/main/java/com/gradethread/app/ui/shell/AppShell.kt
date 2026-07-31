@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -33,6 +34,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.gradethread.app.billing.PlanStepHost
+import com.gradethread.app.ui.state.Restorable
 import com.gradethread.app.marketplaces.reconciliation.ReconcileBanner
 import com.gradethread.app.plangate.PlanGateHost
 import androidx.navigation.compose.rememberNavController
@@ -70,7 +72,12 @@ fun AppShell(
 ) {
     val navController = rememberNavController()
     val haptics = rememberHapticFeedback()
-    var addSheetOpen by remember { mutableStateOf(false) }
+    // US-1390: saveable, not remembered. A rotation with the Add sheet open
+    // otherwise closes it mid-choice, and on a foldable that happens every time
+    // someone opens the device.
+    var addSheetOpen by rememberSaveable(key = Restorable.Keys.ADD_SHEET_OPEN) {
+        mutableStateOf(false)
+    }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route

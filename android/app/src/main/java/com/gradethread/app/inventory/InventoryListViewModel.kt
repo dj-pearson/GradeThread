@@ -3,6 +3,7 @@ package com.gradethread.app.inventory
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.sync.db.GradeThreadDb
+import com.gradethread.app.ui.state.Restorable
 import com.gradethread.app.sync.db.InventoryItemEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,6 +32,12 @@ enum class InventoryViewMode { LIST, BOARD }
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class InventoryListViewModel @Inject constructor(
+    /**
+     * US-1390: process death. A ViewModel survives rotation on its own but NOT
+     * a kill, and the stage, sort, view mode and query are exactly what a
+     * seller has to redo when the app is restored onto an empty list.
+     */
+    private val saved: androidx.lifecycle.SavedStateHandle,
     private val db: GradeThreadDb,
     private val searchService: InventorySearchService,
     private val syncTrigger: com.gradethread.app.sync.SyncTrigger,
@@ -45,20 +52,29 @@ class InventoryListViewModel @Inject constructor(
         const val MIN_SERVER_QUERY_LENGTH = 2
     }
 
-    private val _stage = MutableStateFlow(InventoryStage.ALL)
+    private val _stage = MutableStateFlow(
+        Restorable.restoreEnum(saved.get<String>(Restorable.Keys.INVENTORY_STAGE), InventoryStage.ALL),
+    )
     val stage: StateFlow<InventoryStage> = _stage.asStateFlow()
 
-    private val _sort = MutableStateFlow(SortOption.NEWEST)
+    private val _sort = MutableStateFlow(
+        Restorable.restoreEnum(saved.get<String>(Restorable.Keys.INVENTORY_SORT), SortOption.NEWEST),
+    )
     val sort: StateFlow<SortOption> = _sort.asStateFlow()
 
     private val _criteria = MutableStateFlow(InventoryFilterCriteria())
     val criteria: StateFlow<InventoryFilterCriteria> = _criteria.asStateFlow()
 
-    private val _viewMode = MutableStateFlow(InventoryViewMode.LIST)
+    private val _viewMode = MutableStateFlow(
+        Restorable.restoreEnum(
+            saved.get<String>(Restorable.Keys.INVENTORY_VIEW_MODE),
+            InventoryViewMode.LIST,
+        ),
+    )
     val viewMode: StateFlow<InventoryViewMode> = _viewMode.asStateFlow()
 
     /** The live text field value — re-rendered per keystroke. */
-    private val _query = MutableStateFlow("")
+    private val _query = MutableStateFlow(saved.get<String>(Restorable.Keys.INVENTORY_QUERY) ?: "")
     val query: StateFlow<String> = _query.asStateFlow()
 
     /**
@@ -130,14 +146,19 @@ class InventoryListViewModel @Inject constructor(
 
     fun selectStage(stage: InventoryStage) {
         _stage.value = stage
+        // Saved by NAME, not ordinal: an ordinal shifts the moment anyone
+        // inserts a case, so a saved "Listed" filter would come back as "Sold".
+        saved[Restorable.Keys.INVENTORY_STAGE] = stage.name
     }
 
     fun setQuery(value: String) {
         _query.value = value
+        saved[Restorable.Keys.INVENTORY_QUERY] = value
     }
 
     fun setSort(option: SortOption) {
         _sort.value = option
+        saved[Restorable.Keys.INVENTORY_SORT] = option.name
     }
 
     fun setCriteria(value: InventoryFilterCriteria) {
@@ -163,9 +184,13 @@ class InventoryListViewModel @Inject constructor(
     }
 
     fun toggleViewMode() {
-        _viewMode.value =
-            if (_viewMode.value == InventoryViewMode.LIST) InventoryViewMode.BOARD
-            else InventoryViewMode.LIST
+        val next = if (_viewMode.value == InventoryViewMode.LIST) {
+            InventoryViewMode.BOARD
+        } else {
+            InventoryViewMode.LIST
+        }
+        _viewMode.value = next
+        saved[Restorable.Keys.INVENTORY_VIEW_MODE] = next.name
     }
 
     // ── US-1348: bulk actions ────────────────────────────────────────────

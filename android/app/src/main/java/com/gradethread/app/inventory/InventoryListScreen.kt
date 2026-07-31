@@ -27,9 +27,11 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gradethread.app.sync.db.InventoryItemEntity
+import com.gradethread.app.ui.state.Restorable
 import com.gradethread.app.ui.theme.Spacing
 
 /**
@@ -90,11 +93,31 @@ fun InventoryListScreen(
     // One cache per screen, NOT per composition — a per-composition instance
     // would defeat the entire point.
     val derivation = remember { InventoryDerivation() }
-    var showingFilters by remember { mutableStateOf(false) }
+    // US-1390: saveable. An open filter sheet that closes on rotation makes the
+    // seller redo the choices they were halfway through.
+    var showingFilters by rememberSaveable(
+        key = Restorable.Keys.INVENTORY_FILTERS_OPEN,
+    ) { mutableStateOf(false) }
     // US-1339: a minimal multi-select — long-press to enter, tap to toggle.
     // US-1348 extends this with the rest of the bulk actions and undo; grading
     // needs it now, and a feature with no way to reach it is not shipped.
+    // US-1390: the selection survives rotation and process death, CAPPED and
+    // PRUNED. Saved state crosses a Binder transaction with a shared ~1MB
+    // budget, so an unbounded set is a crash on rotate rather than a lost
+    // selection; and ids that no longer exist are dropped on restore, because a
+    // sync between death and restore may have removed them.
+    var savedSelection by rememberSaveable(
+        key = Restorable.Keys.INVENTORY_SELECTION,
+    ) { mutableStateOf("") }
     var selection by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(items) {
+        if (selection.isEmpty() && savedSelection.isNotBlank()) {
+            selection = Restorable.restoreSelection(savedSelection, items.map { it.id }.toSet())
+        }
+    }
+    LaunchedEffect(selection) {
+        savedSelection = Restorable.saveableSelection(selection)
+    }
     val selecting = selection.isNotEmpty()
 
     val counts = derivation.stageCounts(items)
