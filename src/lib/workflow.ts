@@ -1,4 +1,5 @@
-import type { ItemFullRow, ItemStatus } from "@/types/database";
+import type { ItemStatus } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 // Ordered prep + sale pipeline. Side-track statuses (keeping/wearing/
 // archived/returned) sit outside this rank and are only set manually.
@@ -44,7 +45,7 @@ export interface WorkFacts {
   hasDraftListing: boolean;
 }
 
-export function factsOf(item: ItemFullRow): WorkFacts {
+export function factsOf(item: ItemListRow): WorkFacts {
   return {
     hasMeasurements:
       !!item.measurements && Object.keys(item.measurements).length > 0,
@@ -106,7 +107,7 @@ export interface NextAction {
 }
 
 // What the reseller should do next on this item.
-export function nextAction(item: ItemFullRow): NextAction {
+export function nextAction(item: ItemListRow): NextAction {
   const s = item.status;
 
   // Side tracks — nothing actionable in the selling pipeline.

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useItemsFull } from "@/hooks/use-items-full";
+import { useItemsList } from "@/hooks/use-items-full";
 import { useRepricingSuggestions } from "@/hooks/use-repricing";
 import { ErrorState } from "@/components/ui/error-state";
 import {
@@ -37,7 +37,8 @@ import {
 import { cn } from "@/lib/utils";
 import { NorthStarCard } from "@/components/flipdesk/north-star-card";
 import { CommunityInsightsWidget } from "@/components/flipdesk/community-insights-widget";
-import type { ItemFullRow, ItemStatus } from "@/types/database";
+import type { ItemStatus } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
@@ -122,7 +123,7 @@ export function FlipdeskOverviewPage() {
     isError,
     isFetching,
     refetch,
-  } = useItemsFull();
+  } = useItemsList();
 
   // US-859: dismissible "grade to boost trust" / "reprice or relist" nudges on
   // stale listings. Reuse the existing repricing suggestions where available so
@@ -152,10 +153,10 @@ export function FlipdeskOverviewPage() {
     let soldRevenueThisWeek = 0;
     let netProfitThisWeek = 0;
     let inventoryValue = 0;
-    const agingItems: Array<{ item: ItemFullRow; days: number }> = [];
+    const agingItems: Array<{ item: ItemListRow; days: number }> = [];
     // US-151: active listings that have been live > 14 days with zero watchers —
     // strong "dud" signal worth a price drop or relist.
-    const staleListings: Array<{ item: ItemFullRow; days: number }> = [];
+    const staleListings: Array<{ item: ItemListRow; days: number }> = [];
     const brandProfit = new Map<string, { profit: number; sold: number }>();
 
     for (const it of items) {
@@ -624,7 +625,7 @@ function StaleNudge({
   repriceMessage,
   onDismiss,
 }: {
-  item: ItemFullRow;
+  item: ItemListRow;
   repriceMessage: string | null;
   onDismiss: () => void;
 }) {

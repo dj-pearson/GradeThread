@@ -168,7 +168,24 @@ export interface GradingRoiSummary {
   meaningful: boolean;
 }
 
-function sideStats(items: ItemFullRow[]): RoiSide {
+// US-2188: the ROI helpers below read only the sale/grade scalars, so they are
+// typed on that minimum rather than on the whole 61-column ItemFullRow. That
+// lets the projected list read (useItemsList) feed them unchanged — a full row
+// is structurally assignable to the narrower shape, so every existing caller
+// keeps working.
+export type ItemRoiFields = Pick<
+  ItemFullRow,
+  | "sale_price"
+  | "sale_status"
+  | "net_profit"
+  | "days_to_sell"
+  | "grade_value"
+  | "grade_label"
+  | "sale_date"
+  | "category"
+>;
+
+function sideStats(items: ItemRoiFields[]): RoiSide {
   const profit = items
     .map((i) => i.net_profit)
     .filter((n): n is number => n != null && Number.isFinite(n));
@@ -276,7 +293,7 @@ export interface GradeRoiQuery {
  * additionally suppress display unless `meaningful` is true (low-n guard).
  */
 export function gradeRoiEstimate(
-  items: ItemFullRow[],
+  items: ItemRoiFields[],
   query: GradeRoiQuery,
 ): GradeRoiEstimate | null {
   const category = query.category?.trim() || "Uncategorized";
@@ -327,7 +344,7 @@ export const GRADE_FEE_USD = GRADETHREAD_TIERS.standard.priceCents / 100;
 // A sale is "realized" when it has a finite sale price and isn't
 // cancelled/refunded/pending. Legacy rows predating sale_status (null) are
 // treated as realized, matching how items_full counts revenue/profit.
-function isRealizedSale(item: ItemFullRow): boolean {
+function isRealizedSale(item: Pick<ItemRoiFields, "sale_price" | "sale_status">): boolean {
   if (item.sale_price == null || !Number.isFinite(item.sale_price)) return false;
   const s = item.sale_status;
   return s == null || s === "completed";
@@ -350,7 +367,7 @@ export interface ItemSaleOutcome {
  * outcome shown is identical to what the closed-loop table captures. Returns
  * null unless the item is a graded, realized sale.
  */
-export function itemSaleOutcome(item: ItemFullRow): ItemSaleOutcome | null {
+export function itemSaleOutcome(item: ItemRoiFields): ItemSaleOutcome | null {
   if (item.grade_value == null) return null;
   if (!isRealizedSale(item)) return null;
   return {
@@ -389,7 +406,7 @@ export interface GradingRollup {
  * need >= MIN_BUCKET_SIZE). Callers gate display on the share_sale_outcomes
  * opt-in. Pure over the caller's own tenant-scoped items_full rows.
  */
-export function accountGradingRollup(items: ItemFullRow[]): GradingRollup {
+export function accountGradingRollup(items: ItemRoiFields[]): GradingRollup {
   const sold = items.filter(isRealizedSale);
   const graded = sideStats(sold.filter((i) => i.grade_value != null));
   const ungraded = sideStats(sold.filter((i) => i.grade_value == null));

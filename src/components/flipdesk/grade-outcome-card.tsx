@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Award, Clock, TrendingUp } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { useItemsFull } from "@/hooks/use-items-full";
+import { useItemsList } from "@/hooks/use-items-full";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   accountGradingRollup,
@@ -18,7 +18,7 @@ import type { ItemFullRow } from "@/types/database";
 // the users.share_sale_outcomes opt-in and low-n suppressed, so nothing is
 // fabricated on thin data.
 //
-// Tenant-scoped by construction: useItemsFull reads items_full (RLS-scoped to
+// Tenant-scoped by construction: useItemsList reads items_full (RLS-scoped to
 // the signed-in user) and the per-item line is the seller's own row.
 
 const usd0 = new Intl.NumberFormat("en-US", {
@@ -48,7 +48,7 @@ function formatSoldDate(iso: string): string {
 }
 
 export function GradeOutcomeCard({ item }: { item: ItemFullRow }) {
-  const { data: items = [] } = useItemsFull();
+  const { data: items = [] } = useItemsList();
   const optedIn = useAuthStore(
     (s) => s.profile?.share_sale_outcomes === true,
   );

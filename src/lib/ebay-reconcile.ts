@@ -6,40 +6,49 @@
 import type { EbayListingRow, ItemFullRow } from "@/types/database";
 import { normalizeSku } from "@/lib/ebay-csv";
 
-export interface MatchedPair {
+// US-2188: reconciliation reads five scalars off an inventory row, so it is
+// typed on that minimum instead of the whole 61-column ItemFullRow. The
+// generic keeps the buckets carrying whatever row shape the caller passed in
+// (full row or the projected list row), so callers lose no fields.
+export type ItemMatchFields = Pick<
+  ItemFullRow,
+  "id" | "item_number" | "item_title" | "status" | "listed"
+>;
+
+export interface MatchedPair<T extends ItemMatchFields = ItemFullRow> {
   listing: EbayListingRow;
-  item: ItemFullRow;
+  item: T;
 }
 
-export interface UnmatchedListing {
+export interface UnmatchedListing<T extends ItemMatchFields = ItemFullRow> {
   listing: EbayListingRow;
   /**
    * A likely FlipDesk item even though SKUs don't line up — matched on an
    * identical listing title. Lets the user resolve a mismatch in one click.
    */
-  suggestion: ItemFullRow | null;
+  suggestion: T | null;
   reason: "no_custom_label" | "sku_not_found";
 }
 
-export interface ReconcileBuckets {
-  matched: MatchedPair[];
-  unmatched: UnmatchedListing[];
+export interface ReconcileBuckets<T extends ItemMatchFields = ItemFullRow> {
+  matched: MatchedPair<T>[];
+  unmatched: UnmatchedListing<T>[];
   ignored: EbayListingRow[];
   /** FlipDesk items marked listed that no imported eBay listing accounts for. */
-  listedNotOnEbay: ItemFullRow[];
+  listedNotOnEbay: T[];
 }
 
 function normalizeTitle(v: string | null | undefined): string {
   return (v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-export function reconcile(
+export function reconcile<T extends ItemMatchFields>(
   listings: EbayListingRow[],
-  items: ItemFullRow[],
-): ReconcileBuckets {
-  const itemById = new Map<string, ItemFullRow>();
-  const itemBySku = new Map<string, ItemFullRow>();
-  const itemByTitle = new Map<string, ItemFullRow>();
+  items: T[],
+): ReconcileBuckets<T> {
+  const itemById = new Map<string, T>();
+  const itemBySku = new Map<string, T>();
+  const itemByTitle = new Map<string, T>();
   for (const it of items) {
     itemById.set(it.id, it);
     const sku = normalizeSku(it.item_number);
@@ -48,8 +57,8 @@ export function reconcile(
     if (title && !itemByTitle.has(title)) itemByTitle.set(title, it);
   }
 
-  const matched: MatchedPair[] = [];
-  const unmatched: UnmatchedListing[] = [];
+  const matched: MatchedPair<T>[] = [];
+  const unmatched: UnmatchedListing<T>[] = [];
   const ignored: EbayListingRow[] = [];
   const accountedItemIds = new Set<string>();
 

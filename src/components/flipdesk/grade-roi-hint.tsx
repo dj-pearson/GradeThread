@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { TrendingUp, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useItemsFull } from "@/hooks/use-items-full";
+import { useItemsList } from "@/hooks/use-items-full";
 import { gradeRoiEstimate } from "@/lib/flipdesk-analytics";
 
 // US-856: proactive "grade this -> +$X" recommendation. At intake / item detail,
@@ -10,7 +10,7 @@ import { gradeRoiEstimate } from "@/lib/flipdesk-analytics";
 // ungraded signal, surface the price (and days-to-sell) lift so they decide to
 // grade up front instead of discovering ROI retroactively in analytics.
 //
-// Tenant-scoped by construction: useItemsFull reads items_full, which is
+// Tenant-scoped by construction: useItemsList reads items_full, which is
 // RLS-scoped to the signed-in user. Renders nothing when the item is already
 // graded, when the category has no comparable history, or when either side is
 // below MIN_BUCKET_SIZE (no false precision on thin data).
@@ -42,7 +42,7 @@ export function GradeRoiHint({
   ctaLabel = "Grade this item",
   className,
 }: GradeRoiHintProps) {
-  const { data: items = [] } = useItemsFull();
+  const { data: items = [] } = useItemsList();
 
   const estimate = useMemo(
     () => gradeRoiEstimate(items, { category, priceHint }),

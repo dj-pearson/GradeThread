@@ -1,4 +1,5 @@
-import type { ItemFullRow, ItemStatus } from "@/types/database";
+import type { ItemStatus } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 // Statuses participating in the main selling pipeline (the Kanban view).
 const PIPELINE_ORDER: ItemStatus[] = [
@@ -20,7 +21,7 @@ const PIPELINE_ORDER: ItemStatus[] = [
 // Optional preflight: blocks moves that don't have prerequisites met.
 // Returns null on success, or a reason string to surface in the toast.
 export function validateStatusChange(
-  item: ItemFullRow,
+  item: ItemListRow,
   next: ItemStatus,
 ): string | null {
   // No-op (same status) — never blocked.

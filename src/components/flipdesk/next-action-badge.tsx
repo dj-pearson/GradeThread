@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { nextAction, type NextActionKind } from "@/lib/workflow";
-import type { ItemFullRow } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 const ICONS: Record<NextActionKind, typeof Ruler> = {
   measure: Ruler,
@@ -46,7 +46,7 @@ export function NextActionBadge({
   item,
   className,
 }: {
-  item: ItemFullRow;
+  item: ItemListRow;
   className?: string;
 }) {
   const action = nextAction(item);

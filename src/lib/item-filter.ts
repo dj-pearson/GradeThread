@@ -1,5 +1,6 @@
 import { MARKETPLACE_LABELS } from "@/lib/constants";
-import type { ItemFullRow, ListingPlatform } from "@/types/database";
+import type { ListingPlatform } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 export type FilterField =
   | "brand"
@@ -174,7 +175,7 @@ export function opLabel(field: FilterField, op: FilterOp): string {
   return OP_LABELS[op];
 }
 
-function fieldValue(it: ItemFullRow, field: FilterField): string | number | null {
+function fieldValue(it: ItemListRow, field: FilterField): string | number | null {
   switch (field) {
     case "brand":
       return it.brand;
@@ -254,7 +255,7 @@ function evalDateRule(value: string | number | null, rule: FilterRule): boolean 
   }
 }
 
-function evalRule(it: ItemFullRow, rule: FilterRule): boolean {
+function evalRule(it: ItemListRow, rule: FilterRule): boolean {
   const v = fieldValue(it, rule.field);
 
   if (DATE_FIELDS.has(rule.field)) {
@@ -301,7 +302,9 @@ function evalRule(it: ItemFullRow, rule: FilterRule): boolean {
   }
 }
 
-export function evalQuery(it: ItemFullRow, q: FilterQuery): boolean {
+// US-2188: the advanced filter reads only projected display columns, so it
+// takes the list row. A full ItemFullRow is structurally assignable to it.
+export function evalQuery(it: ItemListRow, q: FilterQuery): boolean {
   if (q.rules.length === 0) return true;
   const results = q.rules.map((r) => evalRule(it, r));
   return q.combinator === "and"

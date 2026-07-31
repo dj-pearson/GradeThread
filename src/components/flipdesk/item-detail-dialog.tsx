@@ -21,14 +21,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { FlipdeskComposerPage } from "@/pages/flipdesk/composer";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
-import type { ItemFullRow } from "@/types/database";
+
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 // Quick-look wrapper around the item editor, used from the items list and the
 // pipeline kanban. The same editor renders standalone at
 // /dashboard/flipdesk/items/:id — use the "Full page" link for a deep-linkable
 // URL (and more room; this editor is a two-column layout at desktop widths).
 type Props = {
-  item: ItemFullRow | null;
+  item: ItemListRow | null;
   onClose: () => void;
 };
 

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { computeNorthStar } from "@/lib/north-star";
 import { NORTH_STAR_WEEKLY_GOAL } from "@/lib/constants";
-import type { ItemFullRow } from "@/types/database";
+
 
 // US-597: surface + gamify the "Items Listed Per Week" North Star. Reads each
 // item's list_date (= listings.listed_at) to show weekly goal progress and a
@@ -17,7 +17,7 @@ export function NorthStarCard({
   items,
   goal = NORTH_STAR_WEEKLY_GOAL,
 }: {
-  items: ItemFullRow[];
+  items: readonly { list_date: string | null }[];
   goal?: number;
 }) {
   const stats = useMemo(

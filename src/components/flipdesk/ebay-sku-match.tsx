@@ -36,16 +36,12 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
-import { useItemsFull } from "@/hooks/use-items-full";
+import { useItemsList } from "@/hooks/use-items-full";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { parseEbayListingsCsv, normalizeSku } from "@/lib/ebay-csv";
 import { reconcile, autoMatch } from "@/lib/ebay-reconcile";
-import type {
-  EbayListingRow,
-  EbayListingInsert,
-  EbayMatchStatus,
-  ItemFullRow,
-} from "@/types/database";
+import type { EbayListingRow, EbayListingInsert, EbayMatchStatus } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
 
 const UPSERT_CHUNK = 200;
 
@@ -151,7 +147,7 @@ export function EbaySkuMatch() {
   const [quickLinkBusyId, setQuickLinkBusyId] = useState<string | null>(null);
 
   const { data: listings = [], isLoading: listingsLoading } = useEbayListings();
-  const { data: items = [], isLoading: itemsLoading } = useItemsFull();
+  const { data: items = [], isLoading: itemsLoading } = useItemsList();
 
   const buckets = useMemo(
     () => reconcile(listings, items),
@@ -944,7 +940,7 @@ function LinkItemDialog({
   onClose,
 }: {
   listing: EbayListingRow | null;
-  items: ItemFullRow[];
+  items: ItemListRow[];
   onClose: () => void;
 }) {
   const qc = useQueryClient();
