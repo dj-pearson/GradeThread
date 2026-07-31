@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/email-transport.ts
-reviewed: 2026-07-19
+reviewed: 2026-07-31
 tags: [email, ses, deliverability]
 summary: SES/SMTP configuration, warmup, DMARC alignment and what to check when mail stops landing.
 ---

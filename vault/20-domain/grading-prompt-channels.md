@@ -11,7 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/tag-ground-truth.ts
   - services/edge-functions/src/lib/tag-era.ts
   - services/edge-functions/src/lib/grading-size.ts
-reviewed: 2026-07-28
+reviewed: 2026-07-31
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
 ---

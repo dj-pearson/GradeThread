@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/routes/content-scheduler.ts
-reviewed: 2026-07-19
+reviewed: 2026-07-31
 tags: [content, publishing, contract]
 summary: The webhook fan-out contract for publishing a post to every downstream channel.
 ---
