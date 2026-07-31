@@ -37,6 +37,21 @@ function queryBlock(src: string, keyLiteral: string): string {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
+/**
+ * Same, but located by the RAW queryKey expression rather than a leading
+ * literal — for the main read, whose key is now the shared `listingsItemsKey`
+ * constant (US-2372) instead of an inline array.
+ */
+function queryBlockByKeyExpr(src: string, expr: string): string {
+  const keyIdx = src.indexOf(`queryKey: ${expr}`);
+  if (keyIdx === -1) {
+    throw new Error(`No useQuery with queryKey ${expr} in ${FILE}`);
+  }
+  const rest = src.slice(keyIdx);
+  const end = rest.indexOf("\n  });");
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
 // Each entry: [label, the queryKey's leading literal, the table it reads].
 const PAGE_SCOPED_READS: ReadonlyArray<readonly [string, string, string]> = [
   ["platform chips", '"item_listing_platforms"', "listings"],
@@ -79,7 +94,7 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
     //
     // Asserted rather than ignored so the remaining gap is visible and counted.
     // When US-2167 lands, this expectation flips and the comment goes.
-    const block = queryBlock(src, '"items_full", "listings"');
+    const block = queryBlockByKeyExpr(src, "listingsItemsKey");
     expect(block).toContain("LISTINGS_COLUMNS");
     expect(block).not.toContain(".range(");
   });
@@ -129,6 +144,79 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
     for (const [label, keyLiteral] of PAGE_SCOPED_READS) {
       const at = src.indexOf(`queryKey: [${keyLiteral}`);
       expect(at, `${label} must be declared after pageRowIds`).toBeGreaterThan(anchor);
+    }
+  });
+});
+
+// ── US-2372: optimistic writes must target the cache this page READS ────────
+//
+// This page runs its own narrower query under ["items_full","listings",user.id]
+// — deliberately distinct from the bare ["items_full", user.id] the shared
+// readers use. All four inline edits nonetheless wrote their optimistic patch
+// to the BARE key, which this page never reads. Two consequences, one of them
+// user-visible the whole time:
+//
+//   - the optimistic patch landed in a cache entry nothing on screen consumes,
+//     so an inline edit appeared not to take effect behind a success toast;
+//   - the rollback captured `prev = items` — this page's narrower rows — and
+//     wrote them into the FULL-row cache, which before US-2188 was read by
+//     pipeline/overview/prep and would render with missing columns.
+//
+// A source scan is the right shape: both halves still type-check, both still
+// "work", and nothing at runtime complains. The failure is a wrong string.
+
+describe("optimistic writes target this page's own cache (US-2372)", () => {
+  const src = source();
+
+  it("defines the page's items key exactly once", () => {
+    // The whole fix is one definition. Nine hand-spelled copies is how it
+    // drifted, so a second inline spelling of the same key is a regression.
+    const definition = src.match(
+      /const listingsItemsKey = \["items_full", "listings", user\?\.id\] as const;/g,
+    );
+    expect(definition?.length).toBe(1);
+  });
+
+  it("no setQueryData in this file targets the bare full-row key", () => {
+    // The exact defect. Any reintroduction fails here naming the story.
+    const offenders = [...src.matchAll(/setQueryData[^\n]*\n?[^\n]*/g)]
+      .map((m) => m[0])
+      .filter((line) => /\["items_full", user\?\.id\]/.test(line));
+    expect(offenders).toEqual([]);
+  });
+
+  it("every setQueryData in this file uses the shared key", () => {
+    const calls = [...src.matchAll(/qc\.setQueryData[^(]*\(([^,]+),/g)].map(
+      (m) => (m[1] ?? "").trim(),
+    );
+    // Guards the guard: if the edits are ever removed this test would pass
+    // vacuously, so assert they are still here and still all four pairs.
+    expect(calls.length).toBe(8);
+    for (const arg of calls) {
+      expect(arg).toContain("listingsItemsKey");
+    }
+  });
+
+  it("each inline edit reconciles with the server on success", () => {
+    // An optimistic value that is never re-read from the server is a claim, not
+    // a fact — updateTracking and updateListingPrice both used to stop at the
+    // toast, so a value the server rejected kept reading as saved for up to the
+    // 15-minute staleTime.
+    for (
+      const fn of [
+        "async function updateTracking",
+        "async function markDelivered",
+        "async function updateListingPrice",
+        "async function patchItemColumn",
+      ]
+    ) {
+      const at = src.indexOf(fn);
+      expect(at, `${fn} not found`).toBeGreaterThan(-1);
+      const body = src.slice(at, src.indexOf("\n  }", at));
+      expect(
+        body.includes('invalidateQueries({ queryKey: ["items_full"] })'),
+        `${fn} must invalidate on success`,
+      ).toBe(true);
     }
   });
 });
