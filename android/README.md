@@ -45,7 +45,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Full string externalization beyond the 15 scoped files | US-2368 (in progress) |
+| Full string externalization beyond the 18 scoped files | US-2368 (in progress) |
 
 US-1379–1389 have since landed (widgets, background refresh, shortcuts, share
 target, onboarding, referrals, support, feedback, workspaces, CSV import) — see
@@ -640,9 +640,10 @@ mirroring the App Store catalog. Nothing in this repo can do that.
 `stringResource` for the files named in its `SCOPE` list, and that list grows as
 screens convert. A guard covering all ~90 Compose files today would either fail
 everywhere or get switched off, and a switched-off guard protects nothing.
-Fifteen files are converted and locked: onboarding, referrals, both support
+Eighteen files are converted and locked: onboarding, referrals, both support
 screens, feedback, the workspace switcher, the importer, sign-in, and (US-2368)
-home, money, settings, snap, analytics, automations and the drafts library. The guard also fails if a scoped file
+home, money, settings, snap, analytics, automations, the drafts library, the
+negotiation inbox, templates and marketplaces. The guard also fails if a scoped file
 is renamed or deleted, so nothing drops out silently.
 
 **The guard reads two shapes, and the second one is the common one.** ktlint
@@ -661,7 +662,14 @@ script walks every call site, balances the parens, and compares the argument
 count to the resource. A call with NO format arguments is allowed on purpose: it
 reads the raw template so it can be `.format(...)`ed inside a `joinToString`
 lambda, which is not a composable scope and so cannot call `stringResource` at
-all.
+all. The same script also rejects duplicate resource names: aapt2 kills the
+build on those, and its message does not name where the second one came from.
+
+**`%%` vs `%` is decided by whether the call passes format arguments.** A
+resource read with arguments collapses `%%` to one `%`; a resource read with
+none never runs through the formatter, so `%%` reaches the screen literally.
+`negotiation_discount` takes an argument and uses `%%`;
+`automations_field_margin_floor` takes none and uses a single `%`.
 
 **Plurals are real `<plurals>`, not templates.** `"$n rows"` renders "1 rows",
 and every language past English has more than two forms.

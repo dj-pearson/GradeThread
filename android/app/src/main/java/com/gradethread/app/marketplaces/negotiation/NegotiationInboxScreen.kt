@@ -25,6 +25,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -59,30 +61,30 @@ fun NegotiationInboxScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Offers & messages", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.negotiation_offers_messages), style = MaterialTheme.typography.titleLarge)
 
         state.filterItemId?.let {
             // A deep-linked inbox is showing a SUBSET. Saying so — with a way
             // out — stops an empty list reading as "no offers at all".
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Showing one listing only.",
+                    stringResource(R.string.negotiation_showing_one_listing_only),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::clearFilter) { Text("Show all") }
+                TextButton(onClick = viewModel::clearFilter) { Text(stringResource(R.string.negotiation_show_all)) }
             }
         }
 
         state.errorMessage?.let {
-            InfoCard("That didn't work", it, tone = InfoTone.Error)
+            InfoCard(stringResource(R.string.negotiation_that_didn_t_work), it, tone = InfoTone.Error)
         }
-        state.banner?.let { InfoCard("Done", it, tone = InfoTone.Success) }
+        state.banner?.let { InfoCard(stringResource(R.string.negotiation_done), it, tone = InfoTone.Success) }
 
         TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Offers") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Messages") })
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.negotiation_offers)) })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.negotiation_messages)) })
         }
 
         if (tab == 0) {
@@ -95,7 +97,7 @@ fun NegotiationInboxScreen(
             )
             if (state.showSendOffer) {
                 BrandSecondaryButton(
-                    text = "Send an offer to interested buyers",
+                    text = stringResource(R.string.negotiation_send_offer_interested_buyers),
                     enabled = !state.working,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -111,7 +113,7 @@ fun NegotiationInboxScreen(
             )
         }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.negotiation_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 
     countering?.let { offer ->
@@ -159,12 +161,12 @@ private fun OffersTab(
     modifier: Modifier = Modifier,
 ) {
     when (val phase = state.offersPhase) {
-        is NegotiationInboxViewModel.Phase.Loading -> Hint("Loading offers…")
+        is NegotiationInboxViewModel.Phase.Loading -> Hint(stringResource(R.string.negotiation_loading_offers))
         is NegotiationInboxViewModel.Phase.Failed ->
-            InfoCard("Couldn't load offers", phase.message, tone = InfoTone.Error)
+            InfoCard(stringResource(R.string.negotiation_couldn_t_load_offers), phase.message, tone = InfoTone.Error)
 
         is NegotiationInboxViewModel.Phase.Ready -> if (state.visibleOffers.isEmpty()) {
-            Hint("No open offers right now.")
+            Hint(stringResource(R.string.negotiation_no_open_offers))
         } else {
             LazyColumn(
                 modifier.fillMaxWidth(),
@@ -191,7 +193,8 @@ private fun OfferCard(
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
         Text(
-            offer.itemTitle ?: "Listing ${offer.itemId}",
+            offer.itemTitle
+                ?: stringResource(R.string.negotiation_listing_fallback, offer.itemId),
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.SemiBold,
         )
@@ -213,21 +216,24 @@ private fun OfferCard(
             OutcomeLine(price, offer.itemCost)
         }
         offer.message?.takeIf { it.isNotBlank() }?.let {
-            Text("“$it”", style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(R.string.negotiation_quoted, it),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             BrandPrimaryButton(
-                text = "Accept",
+                text = stringResource(R.string.negotiation_accept),
                 enabled = !working,
                 modifier = Modifier.weight(1f),
             ) { onAccept(offer) }
             BrandSecondaryButton(
-                text = "Counter",
+                text = stringResource(R.string.negotiation_counter),
                 enabled = !working,
                 modifier = Modifier.weight(1f),
             ) { onCounter(offer) }
             BrandSecondaryButton(
-                text = "Decline",
+                text = stringResource(R.string.negotiation_decline),
                 enabled = !working,
                 modifier = Modifier.weight(1f),
             ) { onDecline(offer) }
@@ -240,13 +246,16 @@ private fun OfferCard(
 private fun OutcomeLine(price: Double, itemCost: Double?) {
     val outcome = NegotiationRules.counterOutcome(price, itemCost)
     if (outcome == null) {
-        Hint("No cost basis on this item, so there's no margin to show.")
+        Hint(stringResource(R.string.negotiation_no_cost_basis))
         return
     }
     val losing = outcome.netCents < 0
     Text(
-        "You keep ${Money.format(outcome.netCents)} " +
-            "(${outcome.marginPctCents(price).roundToInt()}% after fees)",
+        stringResource(
+            R.string.negotiation_you_keep,
+            Money.format(outcome.netCents),
+            outcome.marginPctCents(price).roundToInt(),
+        ),
         style = MaterialTheme.typography.bodySmall,
         color = if (losing) {
             MaterialTheme.colorScheme.error
@@ -262,13 +271,14 @@ private fun MessagesTab(
     onReply: (BuyerMessage) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val unknownBuyer = stringResource(R.string.negotiation_a_buyer)
     when (val phase = state.messagesPhase) {
-        is NegotiationInboxViewModel.Phase.Loading -> Hint("Loading messages…")
+        is NegotiationInboxViewModel.Phase.Loading -> Hint(stringResource(R.string.negotiation_loading_messages))
         is NegotiationInboxViewModel.Phase.Failed ->
-            InfoCard("Couldn't load messages", phase.message, tone = InfoTone.Error)
+            InfoCard(stringResource(R.string.negotiation_couldn_t_load_messages), phase.message, tone = InfoTone.Error)
 
         is NegotiationInboxViewModel.Phase.Ready -> if (state.visibleMessages.isEmpty()) {
-            Hint("No buyer messages in the last 30 days.")
+            Hint(stringResource(R.string.negotiation_no_messages))
         } else {
             LazyColumn(
                 modifier.fillMaxWidth(),
@@ -280,16 +290,19 @@ private fun MessagesTab(
                         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
                     ) {
                         Text(
-                            message.subject ?: "Message from ${message.senderUsername ?: "a buyer"}",
+                            message.subject ?: stringResource(
+                                R.string.negotiation_message_from,
+                                message.senderUsername ?: unknownBuyer,
+                            ),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
                         message.body?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                         if (message.answered) {
-                            Hint("Replied")
+                            Hint(stringResource(R.string.negotiation_replied))
                         } else {
                             BrandSecondaryButton(
-                                text = "Reply",
+                                text = stringResource(R.string.negotiation_reply),
                                 enabled = !state.working,
                                 modifier = Modifier.fillMaxWidth(),
                             ) { onReply(message) }
@@ -316,14 +329,14 @@ private fun CounterDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Counter this offer") },
+        title = { Text(stringResource(R.string.negotiation_counter_this_offer)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 OutlinedTextField(
                     value = price,
                     onValueChange = { price = it },
-                    label = { Text("Counter price") },
-                    prefix = { Text("$") },
+                    label = { Text(stringResource(R.string.negotiation_counter_price)) },
+                    prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = KeyboardType.Decimal,
@@ -334,7 +347,7 @@ private fun CounterDialog(
                     // Not a block — a seller may well want to cut a loss. It
                     // just must not happen by accident.
                     Text(
-                        "This counter is below what the item cost you.",
+                        stringResource(R.string.negotiation_this_counter_below_what_item),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -342,7 +355,7 @@ private fun CounterDialog(
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("Note to the buyer (optional)") },
+                    label = { Text(stringResource(R.string.negotiation_note_buyer_optional)) },
                 )
             }
         },
@@ -350,9 +363,9 @@ private fun CounterDialog(
             TextButton(
                 enabled = parsed != null && !working,
                 onClick = { onSend(price, note.takeIf { it.isNotBlank() }) },
-            ) { Text("Send counter") }
+            ) { Text(stringResource(R.string.negotiation_send_counter)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.negotiation_cancel)) } },
     )
 }
 
@@ -363,15 +376,23 @@ private fun ReplyDialog(
     onDismiss: () -> Unit,
     onSend: (String) -> Unit,
 ) {
+    val unknownBuyer = stringResource(R.string.negotiation_a_buyer)
     var body by remember(message.messageId) { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Reply to ${message.senderUsername ?: "buyer"}") },
+        title = {
+            Text(
+                stringResource(
+                    R.string.negotiation_reply_to,
+                    message.senderUsername ?: unknownBuyer,
+                ),
+            )
+        },
         text = {
             OutlinedTextField(
                 value = body,
                 onValueChange = { body = it },
-                label = { Text("Your reply") },
+                label = { Text(stringResource(R.string.negotiation_reply_2)) },
                 minLines = 3,
             )
         },
@@ -379,9 +400,9 @@ private fun ReplyDialog(
             TextButton(
                 enabled = body.isNotBlank() && !working,
                 onClick = { onSend(body) },
-            ) { Text("Send") }
+            ) { Text(stringResource(R.string.negotiation_send)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.negotiation_cancel)) } },
     )
 }
 
@@ -397,7 +418,7 @@ private fun SendOfferDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Send an offer to interested buyers") },
+        title = { Text(stringResource(R.string.negotiation_send_offer_interested_buyers)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 when {
@@ -405,14 +426,14 @@ private fun SendOfferDialog(
                     // never says "reconnect" when reconnecting can't help.
                     state.sendOfferBlocked -> Text(
                         state.sendOfferDetail
-                            ?: "Sending offers isn't available on this eBay connection yet.",
+                            ?: stringResource(R.string.negotiation_send_blocked),
                         style = MaterialTheme.typography.bodyMedium,
                     )
 
-                    state.loadingEligible -> Text("Checking which listings are eligible…")
-                    count == 0 -> Text("No listings are eligible for an offer right now.")
+                    state.loadingEligible -> Text(stringResource(R.string.negotiation_checking_which_listings_are_eligible))
+                    count == 0 -> Text(stringResource(R.string.negotiation_no_listings_are_eligible_offer))
                     else -> {
-                        Text("Discount: $discount%")
+                        Text(stringResource(R.string.negotiation_discount, discount))
                         Slider(
                             value = discount.toFloat(),
                             onValueChange = {
@@ -430,7 +451,7 @@ private fun SendOfferDialog(
                         OutlinedTextField(
                             value = note,
                             onValueChange = { note = it },
-                            label = { Text("Note to buyers (optional)") },
+                            label = { Text(stringResource(R.string.negotiation_note_buyers_optional)) },
                         )
                         Text(
                             NegotiationRules.sendOfferConfirmation(count, discount),
@@ -446,10 +467,10 @@ private fun SendOfferDialog(
                 TextButton(
                     enabled = !state.working,
                     onClick = { onSend(discount, note.takeIf { it.isNotBlank() }) },
-                ) { Text("Send offers") }
+                ) { Text(stringResource(R.string.negotiation_send_offers)) }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.negotiation_close)) } },
     )
 }
 

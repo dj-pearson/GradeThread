@@ -29,6 +29,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.ui.components.InfoCard
@@ -54,14 +56,14 @@ fun TemplatesScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Listing templates", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.templates_listing_templates), style = MaterialTheme.typography.titleLarge)
         Text(
-            "Pick one in the publish screen to fill in the parts you type every time.",
+            stringResource(R.string.templates_pick_one_publish_screen_fill),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
+        state.errorMessage?.let { InfoCard(stringResource(R.string.templates_that_didn_t_work), it, tone = InfoTone.Error) }
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
@@ -70,9 +72,8 @@ fun TemplatesScreen(
             if (state.templates.isEmpty() && state.loaded) {
                 item {
                     InfoCard(
-                        "No templates yet",
-                        "Save the condition, the specifics and the boilerplate you reuse, " +
-                            "then apply them with one tap when you list.",
+                        stringResource(R.string.templates_no_templates_yet),
+                        stringResource(R.string.templates_intro),
                     )
                 }
             }
@@ -86,11 +87,11 @@ fun TemplatesScreen(
         }
 
         BrandPrimaryButton(
-            text = "New template",
+            text = stringResource(R.string.templates_new_template),
             enabled = !state.saving,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.startCreate() }
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.templates_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 
     if (state.sheetOpen) {
@@ -103,17 +104,16 @@ fun TemplatesScreen(
     state.deleting?.let { target ->
         AlertDialog(
             onDismissRequest = viewModel::cancelDelete,
-            title = { Text("Delete ${target.name}?") },
+            title = { Text(stringResource(R.string.templates_delete_title, target.name)) },
             text = {
                 Text(
                     // Names the one thing that keeps a reference to a template,
                     // because the worry is that deleting breaks old listings.
-                    "Listings you've already published keep everything this template " +
-                        "filled in. Only the preset goes.",
+                    stringResource(R.string.templates_delete_body),
                 )
             },
-            confirmButton = { TextButton(onClick = viewModel::delete) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = viewModel::cancelDelete) { Text("Keep") } },
+            confirmButton = { TextButton(onClick = viewModel::delete) { Text(stringResource(R.string.templates_delete)) } },
+            dismissButton = { TextButton(onClick = viewModel::cancelDelete) { Text(stringResource(R.string.templates_keep)) } },
         )
     }
 }
@@ -135,7 +135,7 @@ private fun TemplateCard(
                 modifier = Modifier.weight(1f),
             )
             if (template.isDefault) {
-                AssistChip(onClick = {}, label = { Text("Default") })
+                AssistChip(onClick = {}, label = { Text(stringResource(R.string.templates_default)) })
             }
         }
         Text(
@@ -144,8 +144,8 @@ private fun TemplateCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            TextButton(onClick = onEdit) { Text("Edit") }
-            TextButton(onClick = onDelete) { Text("Delete") }
+            TextButton(onClick = onEdit) { Text(stringResource(R.string.templates_edit)) }
+            TextButton(onClick = onDelete) { Text(stringResource(R.string.templates_delete)) }
         }
     }
 }
@@ -164,46 +164,52 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         Text(
-            if (state.editingId == null) "New template" else "Edit template",
+            stringResource(
+                if (state.editingId == null) {
+                    R.string.templates_new
+                } else {
+                    R.string.templates_edit
+                },
+            ),
             style = MaterialTheme.typography.titleLarge,
         )
 
         OutlinedTextField(
             value = draft.name,
             onValueChange = { v -> viewModel.editDraft { it.copy(name = v) } },
-            label = { Text("Name") },
+            label = { Text(stringResource(R.string.templates_name)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.descriptionTemplate,
             onValueChange = { v -> viewModel.editDraft { it.copy(descriptionTemplate = v) } },
-            label = { Text("Description block") },
-            supportingText = { Text("Added under the listing's own description.") },
+            label = { Text(stringResource(R.string.templates_description_block)) },
+            supportingText = { Text(stringResource(R.string.templates_added_under_listing_s_own)) },
             minLines = 3,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.ebayCondition,
             onValueChange = { v -> viewModel.editDraft { it.copy(ebayCondition = v.uppercase()) } },
-            label = { Text("eBay condition") },
-            supportingText = { Text("For example USED_EXCELLENT. Leave blank to not set one.") },
+            label = { Text(stringResource(R.string.templates_ebay_condition)) },
+            supportingText = { Text(stringResource(R.string.templates_example_used_excellent_leave_blank)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.conditionDescription,
             onValueChange = { v -> viewModel.editDraft { it.copy(conditionDescription = v) } },
-            label = { Text("Condition notes") },
+            label = { Text(stringResource(R.string.templates_condition_notes)) },
             minLines = 2,
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Text("Item specifics", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.templates_item_specifics), style = MaterialTheme.typography.titleSmall)
         Text(
             // The rule, stated where it matters. A seller who expects these to
             // win would otherwise think the template failed.
-            "These fill blanks only. Anything you've already set on a listing stays.",
+            stringResource(R.string.templates_these_fill_blanks_only_anything),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -221,7 +227,7 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
                     modifier = Modifier.weight(1.2f),
                 )
                 TextButton(onClick = { viewModel.editDraft { it.withoutSpecific(aspect) } }) {
-                    Text("Remove")
+                    Text(stringResource(R.string.templates_remove))
                 }
             }
         }
@@ -233,14 +239,14 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
             OutlinedTextField(
                 value = newAspect,
                 onValueChange = { newAspect = it },
-                label = { Text("Aspect") },
+                label = { Text(stringResource(R.string.templates_aspect)) },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
             OutlinedTextField(
                 value = newValue,
                 onValueChange = { newValue = it },
-                label = { Text("Value") },
+                label = { Text(stringResource(R.string.templates_value)) },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
@@ -251,44 +257,44 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
                     newAspect = ""
                     newValue = ""
                 },
-            ) { Text("Add") }
+            ) { Text(stringResource(R.string.templates_add)) }
         }
 
-        Text("eBay policies", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.templates_ebay_policies), style = MaterialTheme.typography.titleSmall)
         OutlinedTextField(
             value = draft.ebayCategoryId,
             onValueChange = { v -> viewModel.editDraft { it.copy(ebayCategoryId = v) } },
-            label = { Text("Category id") },
+            label = { Text(stringResource(R.string.templates_category_id)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.shippingPolicyId,
             onValueChange = { v -> viewModel.editDraft { it.copy(shippingPolicyId = v) } },
-            label = { Text("Shipping policy id") },
+            label = { Text(stringResource(R.string.templates_shipping_policy_id)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.returnPolicyId,
             onValueChange = { v -> viewModel.editDraft { it.copy(returnPolicyId = v) } },
-            label = { Text("Return policy id") },
+            label = { Text(stringResource(R.string.templates_return_policy_id)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.paymentPolicyId,
             onValueChange = { v -> viewModel.editDraft { it.copy(paymentPolicyId = v) } },
-            label = { Text("Payment policy id") },
+            label = { Text(stringResource(R.string.templates_payment_policy_id)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Use by default", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.templates_use_by_default), style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Pre-selected when you publish. Only one template can be the default.",
+                    stringResource(R.string.templates_pre_selected_when_publish_only),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -307,11 +313,13 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
         }
 
         BrandPrimaryButton(
-            text = if (state.saving) "Saving…" else "Save",
+            text = stringResource(
+                if (state.saving) R.string.templates_saving else R.string.common_save,
+            ),
             enabled = state.canSave,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.save() }
-        BrandSecondaryButton(text = "Cancel", modifier = Modifier.fillMaxWidth()) {
+        BrandSecondaryButton(text = stringResource(R.string.templates_cancel), modifier = Modifier.fillMaxWidth()) {
             viewModel.cancelEdit()
         }
     }

@@ -33,8 +33,9 @@ def placeholders(text):
 
 
 def load_spec():
-    spec = {}
+    spec, seen = {}, []
     for element in ET.parse(STRINGS).getroot():
+        seen.append(element.get("name"))
         if element.tag == "string":
             spec[("string", element.get("name"))] = placeholders(element.text)
         elif element.tag == "plurals":
@@ -42,7 +43,8 @@ def load_spec():
             for item in element:
                 found |= placeholders(item.text)
             spec[("plurals", element.get("name"))] = found
-    return spec
+    duplicates = sorted({name for name in seen if seen.count(name) > 1})
+    return spec, duplicates
 
 
 def split_args(text):
@@ -98,7 +100,16 @@ def scan(path, spec):
 
 
 def main():
-    spec = load_spec()
+    spec, duplicates = load_spec()
+    if duplicates:
+        # aapt2 rejects these outright, so the build dies before any test runs —
+        # and the message it prints does not name the file the second one came
+        # from. Cheaper to catch here.
+        print("check-string-formats: duplicate resource names\n", file=sys.stderr)
+        for name in duplicates:
+            print(f"  {name}", file=sys.stderr)
+        return 1
+
     failures = []
     for directory, _, names in os.walk(SOURCE):
         for name in names:

@@ -39,6 +39,9 @@ SCOPE = [
     "analytics/AnalyticsScreen.kt",
     "automations/AutomationsScreen.kt",
     "autolister/DraftsLibraryScreen.kt",
+    "marketplaces/negotiation/NegotiationInboxScreen.kt",
+    "templates/TemplatesScreen.kt",
+    "marketplaces/MarketplacesScreen.kt",
 ]
 
 # A string literal handed to something that renders or speaks it.

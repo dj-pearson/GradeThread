@@ -435,7 +435,6 @@
     <string name="drafts_select_all">Select all</string>
     <string name="drafts_edit_together">Edit %1$d together</string>
     <string name="drafts_retry_failed">Retry the %1$d that failed</string>
-    <string name="drafts_schedule">Schedule</string>
     <string name="drafts_reschedule">Reschedule</string>
     <string name="drafts_bulk_title">Edit %1$d drafts</string>
     <string name="drafts_mode_set">Set price</string>
@@ -447,4 +446,119 @@
     <!-- The currency symbol sits in resources for the same reason the copy does:
          it is not $ everywhere, and it is not always a prefix. -->
     <string name="drafts_currency_prefix">$</string>
+
+    <!-- US-2368: negotiation screen text. -->
+    <string name="negotiation_offers_messages">Offers &amp; messages</string>
+    <string name="negotiation_showing_one_listing_only">Showing one listing only.</string>
+    <string name="negotiation_show_all">Show all</string>
+    <string name="negotiation_that_didn_t_work">That didn\'t work</string>
+    <string name="negotiation_done">Done</string>
+    <string name="negotiation_offers">Offers</string>
+    <string name="negotiation_messages">Messages</string>
+    <string name="negotiation_send_offer_interested_buyers">Send an offer to interested buyers</string>
+    <string name="negotiation_back">Back</string>
+    <string name="negotiation_couldn_t_load_offers">Couldn\'t load offers</string>
+    <string name="negotiation_accept">Accept</string>
+    <string name="negotiation_counter">Counter</string>
+    <string name="negotiation_decline">Decline</string>
+    <string name="negotiation_couldn_t_load_messages">Couldn\'t load messages</string>
+    <string name="negotiation_reply">Reply</string>
+    <string name="negotiation_counter_this_offer">Counter this offer</string>
+    <string name="negotiation_counter_price">Counter price</string>
+    <string name="negotiation_this_counter_below_what_item">This counter is below what the item cost you.</string>
+    <string name="negotiation_note_buyer_optional">Note to the buyer (optional)</string>
+    <string name="negotiation_send_counter">Send counter</string>
+    <string name="negotiation_cancel">Cancel</string>
+    <string name="negotiation_reply_2">Your reply</string>
+    <string name="negotiation_send">Send</string>
+    <string name="negotiation_checking_which_listings_are_eligible">Checking which listings are eligible…</string>
+    <string name="negotiation_no_listings_are_eligible_offer">No listings are eligible for an offer right now.</string>
+    <string name="negotiation_note_buyers_optional">Note to buyers (optional)</string>
+    <string name="negotiation_send_offers">Send offers</string>
+    <string name="negotiation_close">Close</string>
+    <string name="negotiation_loading_offers">Loading offers\u2026</string>
+    <string name="negotiation_loading_messages">Loading messages\u2026</string>
+    <string name="negotiation_no_open_offers">No open offers right now.</string>
+    <string name="negotiation_no_messages">No buyer messages in the last 30 days.</string>
+    <string name="negotiation_replied">Replied</string>
+    <string name="negotiation_listing_fallback">Listing %1$s</string>
+    <!-- Quotation marks are not the same glyphs in every language. -->
+    <string name="negotiation_quoted">\u201c%1$s\u201d</string>
+    <string name="negotiation_no_cost_basis">No cost basis on this item, so there\'s no margin to show.</string>
+    <string name="negotiation_you_keep">You keep %1$s (%2$d%% after fees)</string>
+    <string name="negotiation_a_buyer">a buyer</string>
+    <string name="negotiation_message_from">Message from %1$s</string>
+    <string name="negotiation_reply_to">Reply to %1$s</string>
+    <string name="negotiation_send_blocked">Sending offers isn\'t available on this eBay connection yet.</string>
+    <string name="negotiation_discount">Discount: %1$d%%</string>
+
+    <!-- US-2368: templates screen text. -->
+    <string name="templates_listing_templates">Listing templates</string>
+    <string name="templates_pick_one_publish_screen_fill">Pick one in the publish screen to fill in the parts you type every time.</string>
+    <string name="templates_that_didn_t_work">That didn\'t work</string>
+    <string name="templates_no_templates_yet">No templates yet</string>
+    <string name="templates_new_template">New template</string>
+    <string name="templates_back">Back</string>
+    <string name="templates_delete">Delete</string>
+    <string name="templates_keep">Keep</string>
+    <string name="templates_default">Default</string>
+    <string name="templates_edit">Edit</string>
+    <string name="templates_name">Name</string>
+    <string name="templates_description_block">Description block</string>
+    <string name="templates_added_under_listing_s_own">Added under the listing\'s own description.</string>
+    <string name="templates_ebay_condition">eBay condition</string>
+    <string name="templates_example_used_excellent_leave_blank">For example USED_EXCELLENT. Leave blank to not set one.</string>
+    <string name="templates_condition_notes">Condition notes</string>
+    <string name="templates_item_specifics">Item specifics</string>
+    <string name="templates_these_fill_blanks_only_anything">These fill blanks only. Anything you\'ve already set on a listing stays.</string>
+    <string name="templates_remove">Remove</string>
+    <string name="templates_aspect">Aspect</string>
+    <string name="templates_value">Value</string>
+    <string name="templates_add">Add</string>
+    <string name="templates_ebay_policies">eBay policies</string>
+    <string name="templates_category_id">Category id</string>
+    <string name="templates_shipping_policy_id">Shipping policy id</string>
+    <string name="templates_return_policy_id">Return policy id</string>
+    <string name="templates_payment_policy_id">Payment policy id</string>
+    <string name="templates_use_by_default">Use by default</string>
+    <string name="templates_pre_selected_when_publish_only">Pre-selected when you publish. Only one template can be the default.</string>
+    <string name="templates_cancel">Cancel</string>
+
+    <!-- US-2368: marketplaces screen text. -->
+    <string name="marketplaces_ebay_accounts">eBay accounts</string>
+    <string name="marketplaces_loading">Loading…</string>
+    <string name="marketplaces_finishing_connection">Finishing the connection…</string>
+    <string name="marketplaces_offers_messages">Offers &amp; messages</string>
+    <string name="marketplaces_bulk_pricing">Bulk pricing</string>
+    <string name="marketplaces_after_sale">After the sale</string>
+    <string name="marketplaces_repricing">Repricing</string>
+    <string name="marketplaces_draft_listings">Draft listings</string>
+    <string name="marketplaces_automations">Automations</string>
+    <string name="marketplaces_refresh">Refresh</string>
+    <string name="marketplaces_listings">Listings</string>
+    <string name="marketplaces_no_listings_cached_yet_sync">No listings cached yet. Sync to pull the ones live on eBay.</string>
+    <string name="marketplaces_rename_this_account">Rename this account</string>
+    <string name="marketplaces_label">Label</string>
+    <string name="marketplaces_save">Save</string>
+    <string name="marketplaces_cancel">Cancel</string>
+    <string name="marketplaces_disconnect">Disconnect</string>
+    <string name="marketplaces_primary">Primary</string>
+    <string name="marketplaces_needs_reconnecting_ebay_stopped_accepting">Needs reconnecting — eBay stopped accepting the saved sign-in.</string>
+    <string name="marketplaces_rename">Rename</string>
+    <string name="marketplaces_make_primary">Make primary</string>
+    <string name="marketplaces_dismiss">Dismiss</string>
+    <string name="templates_intro">Save the condition, the specifics and the boilerplate you reuse, then apply them with one tap when you list.</string>
+    <string name="templates_delete_title">Delete %1$s?</string>
+    <string name="templates_delete_body">Listings you\'ve already published keep everything this template filled in. Only the preset goes.</string>
+    <string name="templates_new">New template</string>
+    <string name="templates_edit_title">Edit template</string>
+    <string name="templates_saving">Saving\u2026</string>
+
+    <string name="marketplaces_empty">No eBay account connected yet. Connecting one lets FlipDesk publish listings and pull your sales.</string>
+    <string name="marketplaces_opening_ebay">Opening eBay\u2026</string>
+    <string name="marketplaces_connect_ebay">Connect an eBay account</string>
+    <string name="marketplaces_syncing">Syncing from eBay\u2026</string>
+    <string name="marketplaces_sync_listings">Sync listings from eBay</string>
+    <string name="marketplaces_disconnect_title">Disconnect %1$s?</string>
+    <string name="marketplaces_disconnect_body">FlipDesk stops publishing and syncing for this account. Listings already live on eBay stay live.</string>
 </resources>

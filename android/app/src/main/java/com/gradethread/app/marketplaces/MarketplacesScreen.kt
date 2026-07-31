@@ -24,6 +24,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -87,7 +89,7 @@ fun MarketplacesScreen(
         modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("eBay accounts", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.marketplaces_ebay_accounts), style = MaterialTheme.typography.titleLarge)
 
         state.errorMessage?.let { Banner(it, MaterialTheme.colorScheme.error, viewModel::dismissMessages) }
         state.message?.let {
@@ -96,14 +98,13 @@ fun MarketplacesScreen(
 
         when {
             state.loading -> Text(
-                "Loading…",
+                stringResource(R.string.marketplaces_loading),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             state.connections.isEmpty() -> Text(
-                "No eBay account connected yet. Connecting one lets FlipDesk publish " +
-                    "listings and pull your sales.",
+                stringResource(R.string.marketplaces_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -120,21 +121,33 @@ fun MarketplacesScreen(
 
         if (state.confirming) {
             Text(
-                "Finishing the connection…",
+                stringResource(R.string.marketplaces_finishing_connection),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         BrandPrimaryButton(
-            text = if (state.connecting) "Opening eBay…" else "Connect an eBay account",
+            text = stringResource(
+                if (state.connecting) {
+                    R.string.marketplaces_opening_ebay
+                } else {
+                    R.string.marketplaces_connect_ebay
+                },
+            ),
             enabled = !state.connecting && !state.confirming,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.connect() }
 
         if (state.canSync) {
             BrandSecondaryButton(
-                text = if (state.syncing) "Syncing from eBay…" else "Sync listings from eBay",
+                text = stringResource(
+                    if (state.syncing) {
+                        R.string.marketplaces_syncing
+                    } else {
+                        R.string.marketplaces_sync_listings
+                    },
+                ),
                 enabled = !state.syncing,
                 modifier = Modifier.fillMaxWidth(),
             ) { viewModel.syncListings() }
@@ -142,32 +155,32 @@ fun MarketplacesScreen(
 
         if (state.canSync) {
             BrandSecondaryButton(
-                text = "Offers & messages",
+                text = stringResource(R.string.marketplaces_offers_messages),
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenNegotiation() }
             BrandSecondaryButton(
-                text = "Bulk pricing",
+                text = stringResource(R.string.marketplaces_bulk_pricing),
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenBulkPricing() }
             BrandSecondaryButton(
-                text = "After the sale",
+                text = stringResource(R.string.marketplaces_after_sale),
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenPostSale() }
             BrandSecondaryButton(
-                text = "Repricing",
+                text = stringResource(R.string.marketplaces_repricing),
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenRepricing() }
             BrandSecondaryButton(
-                text = "Draft listings",
+                text = stringResource(R.string.marketplaces_draft_listings),
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenDrafts() }
             BrandSecondaryButton(
-                text = "Automations",
+                text = stringResource(R.string.marketplaces_automations),
                 modifier = Modifier.fillMaxWidth(),
             ) { onOpenAutomations() }
         }
 
-        BrandSecondaryButton(text = "Refresh", modifier = Modifier.fillMaxWidth()) {
+        BrandSecondaryButton(text = stringResource(R.string.marketplaces_refresh), modifier = Modifier.fillMaxWidth()) {
             viewModel.load()
         }
 
@@ -175,13 +188,13 @@ fun MarketplacesScreen(
         // with a few hundred live listings scrolls them instead of composing
         // every card into a Column that can't scroll.
         Text(
-            "Listings",
+            stringResource(R.string.marketplaces_listings),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(top = Spacing.sm),
         )
         if (listings.isEmpty()) {
             Text(
-                "No listings cached yet. Sync to pull the ones live on eBay.",
+                stringResource(R.string.marketplaces_no_listings_cached_yet_sync),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -217,41 +230,42 @@ fun MarketplacesScreen(
         var label by remember(connection.id) { mutableStateOf(connection.label.orEmpty()) }
         AlertDialog(
             onDismissRequest = { renaming = null },
-            title = { Text("Rename this account") },
+            title = { Text(stringResource(R.string.marketplaces_rename_this_account)) },
             text = {
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
-                    label = { Text("Label") },
+                    label = { Text(stringResource(R.string.marketplaces_label)) },
                     singleLine = true,
                 )
             },
             confirmButton = {
                 TextButton(onClick = { viewModel.rename(connection.id, label); renaming = null }) {
-                    Text("Save")
+                    Text(stringResource(R.string.marketplaces_save))
                 }
             },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.marketplaces_cancel)) } },
         )
     }
 
     disconnecting?.let { connection ->
         AlertDialog(
             onDismissRequest = { disconnecting = null },
-            title = { Text("Disconnect ${connection.displayName}?") },
+            title = {
+                Text(stringResource(R.string.marketplaces_disconnect_title, connection.displayName))
+            },
             text = {
                 Text(
-                    "FlipDesk stops publishing and syncing for this account. Listings " +
-                        "already live on eBay stay live.",
+                    stringResource(R.string.marketplaces_disconnect_body),
                 )
             },
             confirmButton = {
                 TextButton(
                     onClick = { viewModel.disconnect(connection.id); disconnecting = null },
-                ) { Text("Disconnect") }
+                ) { Text(stringResource(R.string.marketplaces_disconnect)) }
             },
             dismissButton = {
-                TextButton(onClick = { disconnecting = null }) { Text("Cancel") }
+                TextButton(onClick = { disconnecting = null }) { Text(stringResource(R.string.marketplaces_cancel)) }
             },
         )
     }
@@ -274,7 +288,7 @@ private fun ConnectionRow(
             )
             if (connection.isPrimary) {
                 Text(
-                    "Primary",
+                    stringResource(R.string.marketplaces_primary),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -285,18 +299,18 @@ private fun ConnectionRow(
             // silently stops publishing — say so rather than showing it as
             // healthy.
             Text(
-                "Needs reconnecting — eBay stopped accepting the saved sign-in.",
+                stringResource(R.string.marketplaces_needs_reconnecting_ebay_stopped_accepting),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
         }
         Row {
-            TextButton(onClick = onRename) { Text("Rename") }
+            TextButton(onClick = onRename) { Text(stringResource(R.string.marketplaces_rename)) }
             if (!connection.isPrimary) {
-                TextButton(onClick = onSetPrimary) { Text("Make primary") }
+                TextButton(onClick = onSetPrimary) { Text(stringResource(R.string.marketplaces_make_primary)) }
             }
             TextButton(onClick = onDisconnect) {
-                Text("Disconnect", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.marketplaces_disconnect), color = MaterialTheme.colorScheme.error)
             }
         }
         HorizontalDivider()
@@ -322,6 +336,6 @@ private fun Banner(
             color = tone,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onDismiss) { Text("Dismiss") }
+        TextButton(onClick = onDismiss) { Text(stringResource(R.string.marketplaces_dismiss)) }
     }
 }
