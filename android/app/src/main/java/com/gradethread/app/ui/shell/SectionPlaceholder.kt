@@ -9,6 +9,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.Spacing
 
 /**
@@ -25,7 +27,7 @@ fun SectionPlaceholder(name: String, modifier: Modifier = Modifier) {
     ) {
         Text(name, style = MaterialTheme.typography.titleMedium)
         Text(
-            "Coming with its conversion story.",
+            stringResource(R.string.shell_section_placeholder),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -14,9 +14,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.Spacing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,7 +89,7 @@ fun ConsignorPickerSection(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Text("Consignor", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.consignor_label), style = MaterialTheme.typography.titleSmall)
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -95,7 +97,7 @@ fun ConsignorPickerSection(
             FilterChip(
                 selected = selectedId == null,
                 onClick = { onSelect(null) },
-                label = { Text("None") },
+                label = { Text(stringResource(R.string.common_none)) },
             )
             state.consignors.forEach { consignor ->
                 FilterChip(

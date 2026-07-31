@@ -11,9 +11,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import com.gradethread.app.R
 import com.gradethread.app.money.Money
 import com.gradethread.app.sync.db.ListingEntity
 import com.gradethread.app.ui.components.StatusBadge
@@ -156,7 +158,7 @@ fun ListingCard(
         }
         if (model.isImported) {
             Text(
-                "Imported from eBay — edit the price and quantity on eBay.",
+                stringResource(R.string.listingcard_imported_readonly),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -174,14 +176,14 @@ fun ListingCard(
                     TextButton(
                         onClick = { open(url) },
                         modifier = Modifier.padding(top = Spacing.xxs),
-                    ) { Text("View on ${model.platformLabel}") }
+                    ) { Text(stringResource(R.string.listingcard_view_on, model.platformLabel)) }
                 }
             }
             onPromote?.let { promote ->
                 TextButton(
                     onClick = promote,
                     modifier = Modifier.padding(top = Spacing.xxs),
-                ) { Text("Promote or discount") }
+                ) { Text(stringResource(R.string.listingcard_promote)) }
             }
         }
     }

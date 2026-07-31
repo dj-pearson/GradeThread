@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.CornerRadius
 import com.gradethread.app.ui.theme.GradeThreadTheme
 
@@ -121,7 +123,8 @@ fun CachedThumbnail(
         when {
             failed || photo == null -> Icon(
                 imageVector = Icons.Outlined.Warning,
-                contentDescription = contentDescription ?: "Image unavailable",
+                contentDescription = contentDescription
+                    ?: stringResource(R.string.a11y_image_unavailable),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             image == null -> SkeletonBlock(Modifier.fillMaxSize(), cornerRadius)

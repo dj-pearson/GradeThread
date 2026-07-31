@@ -16,8 +16,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.Spacing
 
 /**
@@ -58,10 +60,12 @@ fun PlanGateHost(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            TextButton(onClick = onUpgrade) { Text("Upgrade") }
+            TextButton(onClick = onUpgrade) { Text(stringResource(R.string.plangate_upgrade)) }
             // "Later", not "never": the allowance keeps filling, and the wall is
             // still coming.
-            TextButton(onClick = viewModel::dismissWarning) { Text("Later") }
+            TextButton(onClick = viewModel::dismissWarning) {
+                Text(stringResource(R.string.common_later))
+            }
         }
     }
 
@@ -82,11 +86,13 @@ fun PlanGateHost(
                             viewModel.dismissGate()
                             onUpgrade()
                         },
-                    ) { Text("See plans") }
+                    ) { Text(stringResource(R.string.plangate_see_plans)) }
                 }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissGate) { Text("Not now") }
+                TextButton(onClick = viewModel::dismissGate) {
+                    Text(stringResource(R.string.plangate_not_now))
+                }
             },
         )
     }

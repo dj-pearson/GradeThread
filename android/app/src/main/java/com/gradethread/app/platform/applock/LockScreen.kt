@@ -15,8 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import com.gradethread.app.ui.theme.Spacing
@@ -42,12 +44,12 @@ fun LockScreen(onUnlock: () -> Unit) {
                 modifier = Modifier.size(48.dp),
             )
             Text(
-                "GradeThread is locked",
+                stringResource(R.string.applock_locked),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = Spacing.md),
             )
             BrandPrimaryButton(
-                text = "Unlock",
+                text = stringResource(R.string.applock_unlock),
                 modifier = Modifier.padding(top = Spacing.lg),
             ) { onUnlock() }
         }

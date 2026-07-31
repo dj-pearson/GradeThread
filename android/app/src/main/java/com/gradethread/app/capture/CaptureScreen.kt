@@ -45,10 +45,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.platform.rememberShutterSound
 import com.gradethread.app.platform.rememberHapticFeedback
 import com.gradethread.app.sync.db.DatabaseProvider
@@ -132,9 +134,9 @@ fun CaptureScreen(
         ) {
             Text(
                 if (denied) {
-                    "Camera access is off. Enable it in Settings to capture photos — or add photos from your library instead."
+                    stringResource(R.string.capture_permission_blocked)
                 } else {
-                    "Camera permission needed to capture garment photos."
+                    stringResource(R.string.capture_permission_needed)
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -226,13 +228,19 @@ fun CaptureScreen(
                         ),
                     )
                 }) {
-                    Icon(Icons.Outlined.Menu, contentDescription = "Import from library")
+                    Icon(
+                        Icons.Outlined.Menu,
+                        contentDescription = stringResource(R.string.capture_import_from_library),
+                    )
                 }
             }
             item {
                 Box {
                     IconButton(onClick = { addMenuOpen = true }) {
-                        Icon(Icons.Filled.AddCircle, contentDescription = "Add photo slot")
+                        Icon(
+                            Icons.Filled.AddCircle,
+                            contentDescription = stringResource(R.string.capture_add_photo_slot),
+                        )
                     }
                     DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
                         intake.hiddenExtraSlots.forEach { slot ->

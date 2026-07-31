@@ -9,11 +9,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.BrandPalette
 import com.gradethread.app.ui.theme.CornerRadius
 import com.gradethread.app.ui.theme.GradeThreadTheme
@@ -47,6 +49,8 @@ object StatusStyle {
 fun StatusBadge(status: String, modifier: Modifier = Modifier) {
     val tone = StatusStyle.tone(status)
     val label = StatusStyle.label(status)
+    // Hoisted out of clearAndSetSemantics, which is not a composable scope.
+    val spoken = stringResource(R.string.a11y_status, label)
     Text(
         text = label,
         style = MaterialTheme.typography.bodySmall,
@@ -58,7 +62,7 @@ fun StatusBadge(status: String, modifier: Modifier = Modifier) {
             .padding(horizontal = 8.dp, vertical = 3.dp)
             // Status is conveyed by color — say it explicitly for TalkBack
             // (the iOS US-1202 fix, carried over).
-            .clearAndSetSemantics { contentDescription = "Status: $label" },
+            .clearAndSetSemantics { contentDescription = spoken },
     )
 }
 

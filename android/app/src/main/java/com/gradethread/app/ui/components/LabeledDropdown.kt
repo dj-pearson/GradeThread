@@ -16,9 +16,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import com.gradethread.app.ui.theme.MinTouchTarget
 
@@ -45,6 +47,9 @@ fun <T> LabeledDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val display = selected?.let(optionLabel) ?: placeholder
+    // Hoisted: `semantics { }` is not a composable scope, so stringResource
+    // cannot be called inside it.
+    val fieldDescription = stringResource(R.string.a11y_field_value, label, display)
 
     Column(modifier) {
         ExposedDropdownMenuBox(
@@ -67,7 +72,7 @@ fun <T> LabeledDropdown(
                     .fillMaxWidth()
                     .heightIn(min = MinTouchTarget)
                     // Announce the field's purpose AND its value together.
-                    .semantics { contentDescription = "$label, $display" },
+                    .semantics { contentDescription = fieldDescription },
             )
             ExposedDropdownMenu(
                 expanded = expanded && enabled,

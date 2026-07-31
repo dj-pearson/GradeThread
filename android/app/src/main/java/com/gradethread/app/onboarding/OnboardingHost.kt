@@ -256,9 +256,15 @@ private fun ActivationStep(viewModel: OnboardingViewModel, onConnectEbay: () -> 
                         stringResource(R.string.onboarding_activation_done)
                     } else if (!row.actionable) {
                         // Said plainly rather than showing a dead button: the
-                        // system will not put the dialog up a second time.
-                        "${row.item.detail} " +
-                            stringResource(R.string.onboarding_permission_blocked)
+                        // system will not put the dialog up a second time. One
+                        // positional format string rather than a concatenation,
+                        // because a translator has to be able to reorder the two
+                        // halves and put the separator where their language
+                        // wants it.
+                        stringResource(
+                            R.string.onboarding_permission_blocked_detail,
+                            row.item.detail,
+                        )
                     } else {
                         row.item.detail
                     },

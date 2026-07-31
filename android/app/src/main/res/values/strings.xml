@@ -42,6 +42,7 @@
     <string name="onboarding_activation_subtitle">You can do both of these later from Settings.</string>
     <string name="onboarding_activation_done">Done.</string>
     <string name="onboarding_permission_blocked">Turn this on in your phone\'s settings.</string>
+    <string name="onboarding_permission_blocked_detail">%1$s Turn this on in your phone\'s settings.</string>
 
     <!-- Referrals (US-1385) -->
     <string name="referrals_title">Invite a friend</string>
@@ -1128,5 +1129,57 @@
     <plurals name="disclosure_preview_spoken">
         <item quantity="one">Photo with %1$d flaw marked</item>
         <item quantity="other">Photo with %1$d flaws marked</item>
+    </plurals>
+
+    <!-- US-2368: shared components and small surfaces. -->
+    <string name="common_couldnt_load">Couldn\'t load</string>
+    <string name="a11y_image_unavailable">Image unavailable</string>
+    <string name="notes_dictate_start">Dictate notes</string>
+    <string name="notes_dictate_stop">Stop dictating notes</string>
+    <string name="a11y_field_value">%1$s, %2$s</string>
+    <string name="a11y_status">Status: %1$s</string>
+    <string name="common_none">None</string>
+    <string name="common_later">Later</string>
+    <string name="common_sku">SKU</string>
+    <string name="common_notes">Notes</string>
+    <string name="common_open_settings">Open Settings</string>
+    <string name="shell_section_placeholder">Coming with its conversion story.</string>
+    <string name="applock_locked">GradeThread is locked</string>
+    <string name="applock_unlock">Unlock</string>
+    <string name="reconcile_banner_open">Reconcile</string>
+    <string name="consignor_label">Consignor</string>
+    <string name="notes_listening">Listening\u2026</string>
+    <string name="sku_scan_hint">Scan barcode to fill SKU</string>
+    <string name="capture_import_from_library">Import from library</string>
+    <string name="capture_add_photo_slot">Add photo slot</string>
+    <string name="capture_permission_blocked">Camera access is off. Enable it in Settings to capture photos \u2014 or add photos from your library instead.</string>
+    <string name="capture_permission_needed">Camera permission needed to capture garment photos.</string>
+    <string name="barcode_point_camera">Point the camera at a barcode</string>
+    <string name="intake_share_title">Add to GradeThread</string>
+    <string name="intake_share_pick">Pick which shot goes where. You can change any of it later.</string>
+    <string name="intake_share_capped">Using the first %1$d of %2$d photos.</string>
+    <string name="plangate_upgrade">Upgrade</string>
+    <string name="plangate_see_plans">See plans</string>
+    <string name="plangate_not_now">Not now</string>
+    <string name="sync_syncing">Syncing\u2026</string>
+    <string name="sync_reconnecting">Reconnecting\u2026</string>
+    <string name="listingcard_imported_readonly">Imported from eBay \u2014 edit the price and quantity on eBay.</string>
+    <string name="listingcard_view_on">View on %1$s</string>
+    <string name="listingcard_promote">Promote or discount</string>
+    <string name="widget_sold_today">Sold today</string>
+    <string name="widget_pending">Pending</string>
+    <string name="widget_listed">Listed</string>
+    <plurals name="sync_needs_attention">
+        <item quantity="one">%1$d change needs attention</item>
+        <item quantity="other">%1$d changes need attention</item>
+    </plurals>
+    <string name="sync_offline">Offline</string>
+    <plurals name="sync_offline_queued">
+        <item quantity="one">Offline \u2014 %1$d change queued</item>
+        <item quantity="other">Offline \u2014 %1$d changes queued</item>
+    </plurals>
+    <plurals name="sync_waiting">
+        <item quantity="one">%1$d change waiting to sync</item>
+        <item quantity="other">%1$d changes waiting to sync</item>
     </plurals>
 </resources>

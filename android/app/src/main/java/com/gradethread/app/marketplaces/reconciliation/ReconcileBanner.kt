@@ -13,8 +13,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.Spacing
 
 /**
@@ -47,9 +49,9 @@ fun ReconcileBanner(
             color = MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onOpen) { Text("Reconcile") }
+        TextButton(onClick = onOpen) { Text(stringResource(R.string.reconcile_banner_open)) }
         // Dismiss, not hide-forever: it comes back tomorrow, and sooner if more
         // unmatched listings appear.
-        TextButton(onClick = viewModel::snooze) { Text("Later") }
+        TextButton(onClick = viewModel::snooze) { Text(stringResource(R.string.common_later)) }
     }
 }

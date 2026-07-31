@@ -17,7 +17,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.gradethread.app.R
 import com.gradethread.app.sync.SyncStatus
 import com.gradethread.app.ui.theme.BrandPalette
 import com.gradethread.app.ui.theme.Spacing
@@ -67,6 +70,12 @@ private data class Descriptor(
     val foreground: androidx.compose.ui.graphics.Color,
 )
 
+// @Composable so the labels can come out of resources. It reads as a plain
+// mapping function and used to be one, but every branch of it is copy: three of
+// the five hand-rolled their own plural with `${if (n == 1) "" else "s"}`, which
+// is correct in English and wrong in most other languages. Those are <plurals>
+// now, and the count is a positional argument so a translator can move it.
+@Composable
 private fun descriptorFor(
     status: SyncStatus,
     pendingCount: Int,
@@ -74,31 +83,35 @@ private fun descriptorFor(
 ): Descriptor? = when (status) {
     SyncStatus.IDLE -> null
     SyncStatus.NEEDS_ATTENTION -> Descriptor(
-        label = "$stuckCount change${if (stuckCount == 1) "" else "s"} need attention",
+        label = pluralStringResource(R.plurals.sync_needs_attention, stuckCount, stuckCount),
         icon = Icons.Outlined.Warning,
         background = BrandPalette.Red.copy(alpha = 0.15f),
         foreground = BrandPalette.Red,
     )
     SyncStatus.SYNCING -> Descriptor(
-        label = "Syncing…",
+        label = stringResource(R.string.sync_syncing),
         icon = Icons.Outlined.Refresh,
         background = BrandPalette.Navy.copy(alpha = 0.10f),
         foreground = BrandPalette.Navy,
     )
     SyncStatus.PENDING -> Descriptor(
-        label = "$pendingCount change${if (pendingCount == 1) "" else "s"} waiting to sync",
+        label = pluralStringResource(R.plurals.sync_waiting, pendingCount, pendingCount),
         icon = Icons.Outlined.Info,
         background = BrandPalette.Amber.copy(alpha = 0.15f),
         foreground = BrandPalette.Amber,
     )
     SyncStatus.OFFLINE -> Descriptor(
-        label = if (pendingCount > 0) "Offline — $pendingCount change${if (pendingCount == 1) "" else "s"} queued" else "Offline",
+        label = if (pendingCount > 0) {
+            pluralStringResource(R.plurals.sync_offline_queued, pendingCount, pendingCount)
+        } else {
+            stringResource(R.string.sync_offline)
+        },
         icon = Icons.Outlined.Info,
         background = BrandPalette.Night.copy(alpha = 0.10f),
         foreground = BrandPalette.Night,
     )
     SyncStatus.RECONNECTING -> Descriptor(
-        label = "Reconnecting…",
+        label = stringResource(R.string.sync_reconnecting),
         icon = Icons.Outlined.Refresh,
         background = BrandPalette.Navy.copy(alpha = 0.10f),
         foreground = BrandPalette.Navy,
