@@ -92,4 +92,22 @@ class DraftBulkTest {
         assertNull(DraftBulk.parsePrice(""))
         assertNull(DraftBulk.parsePrice("0"))
     }
+
+    /**
+     * US-2370: the sheet used to open on "price", a key no chip and no branch
+     * knows, so it rendered with nothing selected, no field and a dead confirm
+     * button. The default has to be a real mode.
+     */
+    @Test
+    fun `the bulk sheet opens on a mode it actually offers`() {
+        assertTrue(DraftBulk.DEFAULT_BULK_EDIT_MODE in DraftBulk.BULK_EDIT_MODES)
+    }
+
+    @Test
+    fun `every offered mode renders a field or is self-contained`() {
+        assertEquals(
+            listOf("set", "percent", "round99", "title"),
+            DraftBulk.BULK_EDIT_MODES,
+        )
+    }
 }

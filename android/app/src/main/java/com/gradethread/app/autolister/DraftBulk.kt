@@ -46,6 +46,19 @@ data class DraftListing(
  */
 object DraftBulk {
 
+    /**
+     * US-2370: the modes the bulk-edit sheet offers, in the order it shows them.
+     *
+     * The chip row, the field the sheet renders and the confirm button all read
+     * the same mode key, so the key the sheet opens on has to be one of these.
+     * It lives here rather than inline in the composable so a unit test can hold
+     * the default and the list against each other.
+     */
+    val BULK_EDIT_MODES: List<String> = listOf("set", "percent", "round99", "title")
+
+    /** The mode the bulk-edit sheet opens on. Must be a member of [BULK_EDIT_MODES]. */
+    const val DEFAULT_BULK_EDIT_MODE: String = "set"
+
     /** How a bulk price edit changes each draft. */
     sealed interface PriceChange {
         /** Every selected draft gets this price. */

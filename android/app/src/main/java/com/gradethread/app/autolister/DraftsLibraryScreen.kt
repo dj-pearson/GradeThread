@@ -350,7 +350,7 @@ private fun BulkEditDialog(
     onPrice: (DraftBulk.PriceChange) -> Unit,
     onText: (String?, String?) -> Unit,
 ) {
-    var mode by remember { mutableStateOf("price") }
+    var mode by remember { mutableStateOf(DraftBulk.DEFAULT_BULK_EDIT_MODE) }
     var priceText by remember { mutableStateOf("") }
     var percentText by remember { mutableStateOf("") }
     var titleText by remember { mutableStateOf("") }
@@ -370,13 +370,15 @@ private fun BulkEditDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
-                    val modes = listOf(
-                        "set" to stringResource(R.string.drafts_mode_set),
-                        "percent" to stringResource(R.string.drafts_mode_percent),
-                        "round99" to stringResource(R.string.drafts_mode_round99),
-                        "title" to stringResource(R.string.drafts_mode_title),
-                    )
-                    modes.forEach { (key, label) ->
+                    // Driven off DraftBulk.BULK_EDIT_MODES so the chips and the
+                    // opening mode can't drift apart again (US-2370).
+                    DraftBulk.BULK_EDIT_MODES.forEach { key ->
+                        val label = when (key) {
+                            "percent" -> stringResource(R.string.drafts_mode_percent)
+                            "round99" -> stringResource(R.string.drafts_mode_round99)
+                            "title" -> stringResource(R.string.drafts_mode_title)
+                            else -> stringResource(R.string.drafts_mode_set)
+                        }
                         FilterChip(
                             selected = mode == key,
                             onClick = { mode = key },
