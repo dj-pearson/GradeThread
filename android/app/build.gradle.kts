@@ -1,3 +1,4 @@
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -38,7 +39,11 @@ fun resolveKeystore(): File? {
     if (base64.isNotBlank()) {
         val decoded = File(layout.buildDirectory.get().asFile, "release-keystore.jks")
         decoded.parentFile.mkdirs()
-        decoded.writeBytes(java.util.Base64.getDecoder().decode(base64.trim()))
+        // Imported, NOT written as `java.util.Base64`. Inside a Kotlin DSL build
+        // script `java` resolves to the JavaPluginExtension accessor, which
+        // shadows the java PACKAGE, so the fully-qualified form fails to compile
+        // with "Unresolved reference: util" before any source is even looked at.
+        decoded.writeBytes(Base64.getDecoder().decode(base64.trim()))
         return decoded
     }
     return secret("ANDROID_KEYSTORE_PATH").takeIf { it.isNotBlank() }
