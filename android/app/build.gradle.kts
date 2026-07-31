@@ -122,6 +122,8 @@ dependencies {
     implementation(libs.mlkit.text.recognition.japanese)
     implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
     implementation(libs.play.billing)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)

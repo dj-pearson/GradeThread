@@ -55,6 +55,21 @@
             android:name=".platform.push.PushActionReceiver"
             android:exported="false" />
 
+        <!-- US-1380: the home-screen widget. Exported because the launcher
+             (a different app) is what binds and updates it. It carries no
+             action of its own beyond redrawing from the stored snapshot. -->
+        <receiver
+            android:name=".widget.SellerSnapshotWidgetReceiver"
+            android:label="@string/widget_snapshot_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/seller_snapshot_widget_info" />
+        </receiver>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

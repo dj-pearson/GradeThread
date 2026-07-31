@@ -2,4 +2,7 @@
 <resources>
     <string name="app_name">GradeThread</string>
     <string name="placeholder_tagline">Android shell — features land per the US-1299 conversion backlog.</string>
+    <!-- US-1380: shown in the system widget picker. -->
+    <string name="widget_snapshot_label">Seller snapshot</string>
+    <string name="widget_snapshot_description">Sold today, pending payout, and your live listing count.</string>
 </resources>

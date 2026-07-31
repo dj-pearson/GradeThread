@@ -250,6 +250,14 @@ class SettingsViewModel @Inject constructor(
             // place, their first refresh would compare their rows against the
             // previous seller's and announce the whole catalogue as new.
             runCatching { backgroundRefresh.clear() }
+            // US-1380: the widget sits on a home screen anyone can see, so the
+            // previous seller's takings come off it now, not at the next sync.
+            runCatching {
+                com.gradethread.app.widget.WidgetPublisher.publishSignedOut(
+                    context,
+                    System.currentTimeMillis(),
+                )
+            }
             WorkspaceScope.clear()
             auth.signOut()
             update {

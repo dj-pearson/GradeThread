@@ -3,6 +3,7 @@ package com.gradethread.app.platform.deeplink
 import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -71,6 +72,16 @@ class DeepLinkTest {
             DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://widget/money")),
         )
         assertNull(DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://widget/unknown")))
+    }
+
+    @Test
+    fun everyWidgetLink_theWidgetActuallyBuilds_resolves() {
+        // US-1380: the widget builds these strings itself, in its own file. A
+        // typo there is a tap that opens nothing, and there is no crash to
+        // notice — so every value the widget can emit is parsed back here.
+        com.gradethread.app.widget.WidgetDeepLink.entries.forEach { link ->
+            assertNotNull(link.uri, DeepLinkRoute.fromUri(Uri.parse(link.uri)))
+        }
     }
 
     @Test

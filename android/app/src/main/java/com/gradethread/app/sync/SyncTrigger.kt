@@ -38,6 +38,9 @@ import javax.inject.Singleton
 class SyncTrigger @Inject constructor(
     private val service: SyncService,
     private val replayer: MutationReplayer,
+    @dagger.hilt.android.qualifiers.ApplicationContext
+    private val context: android.content.Context,
+    private val db: com.gradethread.app.sync.db.GradeThreadDb,
 ) {
 
     // Application-scoped: a pull started on foreground must not die because
@@ -148,6 +151,17 @@ class SyncTrigger @Inject constructor(
                 "sync",
             )
         }
+        // US-1380: the home-screen widget's numbers come from the local mirror,
+        // so this is the only moment they can have changed. Wrapped, because a
+        // widget redraw failing must never surface as a failed sync.
+        runCatching {
+            com.gradethread.app.widget.WidgetPublisher.publish(
+                context = context,
+                db = db,
+                isSignedIn = true,
+                nowMs = System.currentTimeMillis(),
+            )
+        }.onFailure { Telemetry.breadcrumb("widget publish failed: ${it.message}", "widget") }
         return outcome
     }
 

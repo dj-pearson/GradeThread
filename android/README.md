@@ -195,6 +195,38 @@ period each launch so a frequent user would never reach a run. Settings has a
 toggle that moves the stored flag and the schedule together; sign-out clears the
 baseline so the next account doesn't inherit the previous seller's.
 
+## Home-screen widget (US-1380)
+
+Glance, in `widget/`. The app computes a small rollup after every sync and
+writes it to one DataStore key; the widget only ever reads it back. **No Room
+and no network at render** — a widget draw runs on the system's schedule with a
+hard budget, and anything slow shows up as a blank tile.
+
+iOS needs an App Group container because its widget is a separate process.
+Glance runs inside the app process, so a plain DataStore is enough — no shared
+container, no extra entitlement. One JSON blob rather than seven keys, so a read
+is atomic; half-updated numbers are worse than slightly old ones.
+
+`WidgetPublisher.decide` is the coalescing rule and is pure: identical numbers
+publish nothing at all, and a change landing inside the 30-second window is
+stored but held. Unlike iOS, which drops the held reload, Android schedules a
+`WidgetReloadWorker` for the rest of the window — otherwise a change one second
+after a reload is stranded until the next sync.
+
+Taps go through `com.gradethread.app://widget/…` (US-1314's grammar), not the
+https app link: an unverified app link falls back to a browser chooser, and a
+seller tapping their own sales figure should never be asked which app to open.
+
+Sign-out **overwrites** the snapshot with the signed-out placeholder rather than
+deleting it. Deleting leaves the store empty, which is indistinguishable from
+"never published", so the next publish would redraw every widget for nothing.
+Signed-out is also deliberately distinct from an all-zero signed-in snapshot,
+which is a real seller having a quiet day.
+
+TalkBack labels are composed in `WidgetCopy` rather than inline, because a
+Glance composable cannot be asserted from a JVM test and the spoken label is the
+only version of this widget some sellers ever get.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;
