@@ -24,14 +24,13 @@ SOURCE = os.path.join(ROOT, "app", "src", "main", "java", "com", "gradethread", 
 # Files whose UI text is fully externalized. ADD to this list when you convert
 # a screen; never remove from it.
 #
-# US-2368: two files are DELIBERATELY absent after having their Compose literals
-# converted — consignment/ConsignorPicker.kt (splitHint) and
-# marketplaces/ListingCard.kt (quantityText, contentDescription). Both build
-# sentences in plain non-composable functions that unit tests assert on by exact
-# wording ("Qty —", "Out of stock", "…contains('yours')"). Scoping them would
-# mean the guard reported a file clean while shipped English sat one call deeper,
-# which is the failure this list exists to prevent. They join once the copy
-# objects move behind resources and their tests move with them.
+# US-2368: this list covers every Compose file under app/src/main. The last two
+# in were consignment/ConsignorPicker.kt and marketplaces/ListingCard.kt, held
+# back for a while because their copy lived in plain non-composable functions
+# that unit tests asserted on by exact wording. Those functions now return the
+# DECISION (a sealed hint, a @StringRes id) and a @Composable wrapper resolves
+# it, so the tests assert a resource instead of English and stopped being a
+# reason not to translate.
 SCOPE = [
     "onboarding/OnboardingHost.kt",
     "referrals/ReferralsScreen.kt",
@@ -72,6 +71,8 @@ SCOPE = [
     "disclosure/DisclosureScreen.kt",
     "scout/ScoutScreen.kt",
     "marketplaces/pricing/BulkPricingScreen.kt",
+    "consignment/ConsignorPicker.kt",
+    "marketplaces/ListingCard.kt",
     "money/SalesScreen.kt",
     "inventory/CompsSection.kt",
     "analytics/ListingPerformanceScreen.kt",

@@ -1,5 +1,6 @@
 package com.gradethread.app.marketplaces
 
+import com.gradethread.app.R
 import com.gradethread.app.sync.db.ListingEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -39,13 +40,15 @@ class ListingCardModelTest {
         updatedAt = 0L,
     )
 
+    // US-2368: the resource id, not the sentence. The three-way CHOICE is what
+    // this file has always been protecting; the English moved to strings.xml.
     @Test
     fun `quantity has three states, not two`() {
-        assertEquals("Qty 3", ListingCardModel.quantityText(3))
+        assertEquals(R.string.listing_qty, ListingCardModel.quantityRes(3))
         // Published but unbuyable — the case a seller most needs told about.
-        assertEquals("Out of stock", ListingCardModel.quantityText(0))
+        assertEquals(R.string.listing_out_of_stock, ListingCardModel.quantityRes(0))
         // Never observed. Neither "Qty 1" (an invention) nor "Out of stock" (a lie).
-        assertEquals("Qty —", ListingCardModel.quantityText(null))
+        assertEquals(R.string.listing_qty_unknown, ListingCardModel.quantityRes(null))
     }
 
     @Test
@@ -89,9 +92,15 @@ class ListingCardModelTest {
         assertEquals(null, model.publishError)
     }
 
+    // The spoken line is assembled in a @Composable now (spokenDescription), so
+    // what stays testable here is that the model carries the four facts it needs
+    // — the quantity as a NUMBER rather than as pre-rendered English.
     @Test
-    fun `the card reads as one sentence for TalkBack`() {
+    fun `the model carries the four facts the spoken line needs`() {
         val model = ListingCardModel.from(listing(quantity = 0, status = "active"), Locale.US)
-        assertEquals("eBay listing, $48.00, Out of stock, Active", model.contentDescription)
+        assertEquals("eBay", model.platformLabel)
+        assertEquals("$48.00", model.priceText)
+        assertEquals(0, model.quantity)
+        assertEquals("active", model.status)
     }
 }

@@ -1,5 +1,6 @@
 package com.gradethread.app.ui.components
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,7 +30,41 @@ import com.gradethread.app.ui.theme.GradeThreadTheme
  */
 object StatusStyle {
 
-    /** Human-readable label: "to_list" → "To List". Pure; unit-tested. */
+    /**
+     * US-2368: the known statuses, each with its own resource.
+     *
+     * [label] title-cases the wire value, which reads correctly in English and
+     * translates in no language at all — "to_list" has no words in it, only a
+     * key. The statuses are a fixed set, so they get real strings; anything
+     * outside the set still falls back to [label], because a slug rendered
+     * as-is beats a blank badge.
+     */
+    private val LABEL_RES = mapOf(
+        "sourced" to R.string.status_sourced,
+        "cataloged" to R.string.status_cataloged,
+        "measured" to R.string.status_measured,
+        "photographed" to R.string.status_photographed,
+        "comped" to R.string.status_comped,
+        "drafted" to R.string.status_drafted,
+        "to_list" to R.string.status_to_list,
+        "listed" to R.string.status_listed,
+        "active" to R.string.status_active,
+        "sold" to R.string.status_sold,
+        "shipped" to R.string.status_shipped,
+        "completed" to R.string.status_completed,
+        "returned" to R.string.status_returned,
+        "archived" to R.string.status_archived,
+    )
+
+    /** The resource for a known status, or null when it is not one. Pure. */
+    @StringRes
+    fun labelRes(status: String): Int? = LABEL_RES[status]
+
+    /**
+     * Fallback label: "to_list" → "To List". Pure; unit-tested. Reached only for
+     * a status [LABEL_RES] does not know — a new server value that shipped ahead
+     * of its string.
+     */
     fun label(status: String): String = status
         .split('_')
         .filter { it.isNotEmpty() }
@@ -45,10 +80,15 @@ object StatusStyle {
     }
 }
 
+/** The status in the reader's language, falling back to the title-cased slug. */
+@Composable
+fun statusLabel(status: String): String =
+    StatusStyle.labelRes(status)?.let { stringResource(it) } ?: StatusStyle.label(status)
+
 @Composable
 fun StatusBadge(status: String, modifier: Modifier = Modifier) {
     val tone = StatusStyle.tone(status)
-    val label = StatusStyle.label(status)
+    val label = statusLabel(status)
     // Hoisted out of clearAndSetSemantics, which is not a composable scope.
     val spoken = stringResource(R.string.a11y_status, label)
     Text(
