@@ -1138,6 +1138,48 @@
     <string name="common_category">Category</string>
     <string name="common_amount">Amount</string>
 
+    <!-- US-2368 batch 5: measurements, verified badge, payout reconciliation. -->
+    <string name="common_remove">Remove</string>
+    <string name="common_offline">Offline</string>
+    <string name="common_loading">Loading\u2026</string>
+    <string name="common_done_state">Done</string>
+    <string name="common_todo_state">To do</string>
+    <string name="common_no_thanks">No thanks</string>
+    <string name="common_that_didnt_work">That didn\'t work</string>
+    <string name="measure_title">Measurements</string>
+    <string name="measure_subtitle">Flat measurements \u2014 chest is pit to pit.</string>
+    <string name="measure_estimating">Estimating\u2026</string>
+    <string name="measure_estimate_cta">Estimate size from photos</string>
+    <string name="measure_estimate_unusable">The photos didn\'t show enough to guess a size. A tag or flat-lay shot with a tape measure helps most.</string>
+    <string name="measure_suggested_size">Suggested size: %1$s</string>
+    <string name="measure_suggested_gender">%1$s \u00b7 %2$s</string>
+    <string name="measure_suggested_confidence">%1$s \u00b7 %2$d%% confidence</string>
+    <string name="measure_low_confidence">Low confidence \u2014 check it against the garment before saving.</string>
+    <string name="measure_use_size">Use \"%1$s\"</string>
+    <string name="verified_title">Verified seller</string>
+    <string name="verified_subtitle">Your badge shows buyers your grading record. Set it up on gradethread.com.</string>
+    <string name="verified_maybe_stale">Might be out of date</string>
+    <string name="verified_next_step">Next: %1$s</string>
+    <string name="verified_requirements_title">What it takes</string>
+    <string name="verified_view_profile">View my public profile</string>
+    <string name="verified_checking">Checking\u2026</string>
+    <string name="payouts_title">Payouts</string>
+    <string name="payouts_subtitle">Read from what\'s already on this device. Sync to check for new deposits.</string>
+    <string name="payouts_mismatched">Don\'t match (%1$d)</string>
+    <string name="payouts_awaiting">Sold, not paid out yet (%1$d)</string>
+    <string name="payouts_unknown">Payout not synced yet (%1$d)</string>
+    <string name="payouts_matched">Matched (%1$d)</string>
+    <string name="payouts_empty">Nothing reconciled yet.</string>
+    <string name="payouts_waiting_on_ebay">waiting on eBay</string>
+    <string name="payouts_deposit_not_local">deposit not on this device yet</string>
+    <string name="payouts_syncing">Syncing\u2026</string>
+    <string name="payouts_sync_cta">Sync and re-check</string>
+    <string name="payouts_more_sales">\u2026and %1$d more.</string>
+    <plurals name="payouts_entry_summary">
+        <item quantity="one">%1$d sale \u00b7 recorded %2$s</item>
+        <item quantity="other">%1$d sales \u00b7 recorded %2$s</item>
+    </plurals>
+
     <!-- US-2368 batch 4: bulk actions, consignment report, item specifics. -->
     <string name="common_clear">Clear</string>
     <string name="common_undo">Undo</string>
