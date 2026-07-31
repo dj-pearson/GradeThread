@@ -151,6 +151,57 @@ describe("useEndListing", () => {
     const hook = useEndListing() as unknown as MutationLike<{ listingId: string }, unknown>;
     await expect(hook.mutationFn({ listingId: "l1" })).rejects.toThrow("still live");
   });
+
+  // US-2162 (AC3): Poshmark/Mercari/Grailed have no server-side delist API, so
+  // the server queues the row for the Lister extension instead of refusing. The
+  // response must carry `queued` WITH `ended_upstream: false` — the listing is
+  // still live and buyable until the extension runs, and the UI keys the
+  // still-live warning off exactly this shape.
+  it("surfaces a queued extension delist as NOT ended upstream", async () => {
+    edgeFetch.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        listing_id: "l1",
+        ended_upstream: false,
+        queued: true,
+        note: "Poshmark has no end-listing API, so the GradeThread Lister " +
+          "extension will end it in your browser next time you open FlipDesk. " +
+          "It stays live until then.",
+      }),
+    );
+    const hook = useEndListing() as unknown as MutationLike<
+      { listingId: string },
+      { ended_upstream?: boolean; queued?: boolean; note?: string }
+    >;
+    const res = await hook.mutationFn({ listingId: "l1" });
+
+    expect(res.queued).toBe(true);
+    // The pairing is the contract: queued must never arrive claiming the
+    // marketplace listing is gone.
+    expect(res.ended_upstream).toBe(false);
+    expect(res.note).toContain("stays live");
+  });
+
+  // US-2162 (AC6): the regression guard. A non-eBay listing must never be ended
+  // through the eBay namespace, regardless of whether an eBay connection exists
+  // — the old code gated on `ebayConnection` rather than the row's platform, so
+  // a Shopify row was sent to the eBay endpoint, 409'd, and fell through to a
+  // local-only write that reported success.
+  it("never routes a non-eBay listing id through the eBay namespace", async () => {
+    edgeFetch.mockResolvedValue(
+      jsonResponse({ ok: true, listing_id: "shopify-row", ended_upstream: true }),
+    );
+    const hook = useEndListing() as unknown as MutationLike<
+      { listingId: string },
+      unknown
+    >;
+    await hook.mutationFn({ listingId: "shopify-row" });
+
+    expect(lastPath()).toBe("/api/flipdesk/listings/shopify-row/end");
+    expect(lastPath()).not.toContain("/ebay/");
+    // One call: no eBay attempt, no fallback second request.
+    expect(edgeFetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("useBulkListingPrice", () => {

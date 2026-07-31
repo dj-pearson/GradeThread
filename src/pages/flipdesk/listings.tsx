@@ -1537,6 +1537,13 @@ export function FlipdeskListingsPage() {
         toast.success("That listing was already ended.");
       } else if (res.ended_upstream) {
         toast.success("Listing ended on the marketplace.");
+      } else if (res.queued) {
+        // US-2162: the marketplace has no end API, so this is QUEUED, not
+        // ended. Saying "ended" here is the oversell lie in a different
+        // costume, so it gets the long, explicit toast the still-live cases do.
+        toast.warning(res.note ?? "Queued to be ended by the Lister extension.", {
+          duration: 12_000,
+        });
       } else {
         // Nothing was live to end — an unpublished draft, or the marketplace
         // reported it already gone. Distinct from the old "ended locally",
@@ -1765,14 +1772,26 @@ export function FlipdeskListingsPage() {
     try {
       const res = await bulkEnd.mutateAsync({ listingIds });
       setSelected(new Set());
+      // US-2162: a queued row is NOT ended — Poshmark/Mercari/Grailed have no
+      // end API, so the Lister extension ends it in the seller's browser and
+      // the listing stays buyable until then. Counting those as "ended" is the
+      // oversell lie this story removed from the single-end path, so the bulk
+      // summary must separate them too.
+      const queued = res.results.filter((r) => r.ok && r.queued).length;
+      const queuedNote = queued > 0
+        ? ` ${queued} queued for the Lister extension — still live until it runs.`
+        : "";
       if (res.failed === 0) {
-        toast.success(`Ended ${res.succeeded} listing${res.succeeded === 1 ? "" : "s"}.`);
+        const ended = res.succeeded - queued;
+        const msg = `Ended ${ended} listing${ended === 1 ? "" : "s"}.${queuedNote}`;
+        if (queued > 0) toast.warning(msg, { duration: 14_000 });
+        else toast.success(msg);
       } else {
         // A failed end means the listing is STILL LIVE — surface the reason and
         // leave it up long enough to act on.
         const firstError = res.results.find((r) => !r.ok)?.error;
         toast.warning(
-          `Ended ${res.succeeded}, ${res.failed} still live.${
+          `Ended ${res.succeeded - queued}, ${res.failed} still live.${queuedNote}${
             firstError ? ` First: ${firstError}` : ""
           }`,
           { duration: 14_000 },

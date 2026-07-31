@@ -19,6 +19,7 @@ import {
   crossPushPlatform,
   ensureCrossListingGroup,
 } from "../lib/cross-push.ts";
+import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
 import { ebayOriginWriteLock } from "../lib/sync-precedence.ts";
 import {
@@ -996,7 +997,56 @@ flipdeskListingsRoutes.post("/:id/end", async (c) => {
     return c.json({ ok: true, listing_id: listingId, ended_upstream: false });
   }
 
-  const adapter = resolveAdapter(row.platform);
+  // US-2162 (AC3): dispatch on the same planner autoEndCrossListings uses, so
+  // the manual End and the sale-triggered auto-end can't disagree about how a
+  // marketplace is delisted. Before this, a Poshmark/Mercari/Grailed listing —
+  // which has no server-side delist API — got a flat 501 here while the auto-end
+  // path queued it for the Lister extension. Same listing, same marketplace, two
+  // different answers, and the manual one left the seller with nothing to do.
+  const method = delistMethodFor(row.platform ?? "");
+
+  if (method === "extension") {
+    // No API exists for these. Stamp delist_requested_at so the extension ends
+    // it in the seller's own tab next time they're in the app (the writeback
+    // clears the stamp), exactly as the auto-end path does.
+    const { error: stampErr } = await supabaseAdmin
+      .from("listings")
+      .update({ delist_requested_at: new Date().toISOString() })
+      .eq("id", listingId)
+      .eq("user_id", ownerId); // US-268
+    if (stampErr) {
+      console.error(
+        "[flipdesk-listings] delist queue stamp failed:",
+        stampErr.message,
+      );
+      return c.json(
+        {
+          error:
+            `We couldn't queue this ${platformName(row.platform)} listing to be ended. ` +
+            "It's still live — try again in a moment.",
+          code: "delist_failed",
+        },
+        502,
+      );
+    }
+    await endLocally(listingId, row.inventory_item_id, ownerId);
+    // `ended_upstream: false` is the truth: it is NOT yet ended on the
+    // marketplace. The queued flag is what tells the client to say so.
+    return c.json({
+      ok: true,
+      listing_id: listingId,
+      ended_upstream: false,
+      queued: true,
+      note:
+        `${platformName(row.platform)} has no end-listing API, so the GradeThread ` +
+        "Lister extension will end it in your browser next time you open FlipDesk. " +
+        "It stays live until then.",
+    });
+  }
+
+  const adapter = method === "unsupported"
+    ? null
+    : resolveAdapter(row.platform ?? "");
   if (!adapter) {
     return c.json(
       {
@@ -1341,6 +1391,8 @@ flipdeskListingsRoutes.post("/bulk-end", async (c) => {
     ok: boolean;
     ended_upstream?: boolean;
     already_ended?: boolean;
+    /** US-2162: queued for the Lister extension; still live until it runs. */
+    queued?: boolean;
     error?: string;
   }
   const results: EndRowResult[] = [];
@@ -1361,7 +1413,34 @@ flipdeskListingsRoutes.post("/bulk-end", async (c) => {
       continue;
     }
 
-    const adapter = resolveAdapter(row.platform);
+    // US-2162 (AC3): same planner as the single end and as
+    // autoEndCrossListings, so a bulk end can't reach a different verdict about
+    // a marketplace than the two other paths that end the same listing.
+    const method = delistMethodFor(row.platform ?? "");
+    if (method === "extension") {
+      const { error: stampErr } = await supabaseAdmin
+        .from("listings")
+        .update({ delist_requested_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("user_id", ownerId); // US-268
+      if (stampErr) {
+        results.push({
+          listing_id: id,
+          ok: false,
+          error:
+            `We couldn't queue this ${platformName(row.platform)} listing to be ended — it's still live.`,
+        });
+        continue;
+      }
+      await endLocally(id, row.inventory_item_id, ownerId);
+      // ended_upstream stays false: it is NOT off the marketplace yet.
+      results.push({ listing_id: id, ok: true, ended_upstream: false, queued: true });
+      continue;
+    }
+
+    const adapter = method === "unsupported"
+      ? null
+      : resolveAdapter(row.platform ?? "");
     if (!adapter) {
       results.push({
         listing_id: id,

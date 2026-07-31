@@ -31,6 +31,12 @@ export interface ListingEndResponse {
   /** false when nothing was live upstream (unpublished draft, or already gone). */
   ended_upstream?: boolean;
   already_ended?: boolean;
+  /**
+   * US-2162: the marketplace has no end-listing API, so the row is stamped for
+   * the Lister extension to end in the seller's own browser. The listing is
+   * STILL LIVE until then — `ended_upstream` is false and the copy must say so.
+   */
+  queued?: boolean;
   note?: string;
 }
 
@@ -56,6 +62,8 @@ export interface BulkEndRowResult {
   ok: boolean;
   ended_upstream?: boolean;
   already_ended?: boolean;
+  /** US-2162: queued for the Lister extension; still live until it runs. */
+  queued?: boolean;
   error?: string;
 }
 
