@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { validateImage, compressImage, extractExif } from "@/lib/image-utils";
+import {
+  assessMacroPhoto,
+  measureMacroPhoto,
+} from "@/lib/macro-photo-quality";
 import { normalizeToImageFile } from "@/lib/media-intake";
 import {
   CameraCaptureDialog,
@@ -289,6 +293,11 @@ interface SlotState {
   file: File | null;
   preview: string | null;
   errors: string[];
+  // US-2136: macro-quality nudges. Kept SEPARATE from `errors` on purpose — a
+  // quality warning never blocks the upload, it offers a retake. Collapsing the
+  // two would either block a photo Claude Vision would have read fine, or
+  // render a real validation failure as a soft suggestion.
+  warnings: string[];
   isProcessing: boolean;
   phash?: string;
   exif?: ImageExifMetadata | null;
@@ -299,6 +308,7 @@ const DEFAULT_SLOT_STATE: SlotState = {
   file: null,
   preview: null,
   errors: [],
+  warnings: [],
   isProcessing: false,
 };
 
@@ -379,7 +389,12 @@ export function PhotoUpload({
       setSlots((prev) => {
         const next = new Map(prev);
         const current = getSlot(prev, slotKey);
-        next.set(slotKey, { ...current, isProcessing: true, errors: [] });
+        next.set(slotKey, {
+          ...current,
+          isProcessing: true,
+          errors: [],
+          warnings: [],
+        });
         return next;
       });
 
@@ -397,7 +412,12 @@ export function PhotoUpload({
         setSlots((prev) => {
           const next = new Map(prev);
           const current = getSlot(prev, slotKey);
-          next.set(slotKey, { ...current, isProcessing: false, errors: [message] });
+          next.set(slotKey, {
+            ...current,
+            isProcessing: false,
+            errors: [message],
+            warnings: [],
+          });
           return next;
         });
         return;
@@ -409,7 +429,7 @@ export function PhotoUpload({
         setSlots((prev) => {
           const next = new Map(prev);
           const current = getSlot(prev, slotKey);
-          next.set(slotKey, { ...current, isProcessing: false, errors });
+          next.set(slotKey, { ...current, isProcessing: false, errors, warnings: [] });
           return next;
         });
         return;
@@ -425,6 +445,19 @@ export function PhotoUpload({
         });
         const preview = URL.createObjectURL(compressed.blob);
 
+        // US-2136: assess the COMPRESSED blob, not the original — those are the
+        // pixels the model actually receives, so a 4000px capture that
+        // compressImage caps down to a soft 1000px tag must be judged on what
+        // it becomes, not on what the camera produced. Best-effort: a decode or
+        // canvas failure returns nulls, which assessMacroPhoto reads as
+        // "cannot tell" and passes.
+        const macro = assessMacroPhoto(
+          await measureMacroPhoto(
+            compressed.blob,
+            UPLOAD_SLOTS.find((s) => s.slotKey === slotKey)?.imageType,
+          ),
+        );
+
         setSlots((prev) => {
           const current = getSlot(prev, slotKey);
           if (current.preview) {
@@ -435,6 +468,7 @@ export function PhotoUpload({
             file: compressedFile,
             preview,
             errors: [],
+            warnings: macro.message ? [macro.message] : [],
             isProcessing: false,
             phash: compressed.phash,
             exif,
@@ -451,6 +485,7 @@ export function PhotoUpload({
             ...current,
             isProcessing: false,
             errors: ["Failed to process image. Please try another file."],
+            warnings: [],
           });
           return next;
         });
@@ -661,6 +696,24 @@ export function PhotoUpload({
           </div>
         )}
 
+        {/* US-2136 AC3: in-capture guidance, amber not destructive. The photo
+            IS accepted — this offers a retake and says what to change, because
+            "low resolution" tells a seller nothing they can act on. Rendered
+            above the flag/hint lines so the newest, most specific feedback is
+            the one nearest the slot. */}
+        {state.warnings.length > 0 && state.errors.length === 0 && (
+          <div className="space-y-0.5">
+            {state.warnings.map((warning, i) => (
+              <p
+                key={i}
+                className="text-[10px] leading-tight text-amber-600 dark:text-amber-400"
+              >
+                {warning}
+              </p>
+            ))}
+          </div>
+        )}
+
         {flagged && !state.preview && state.errors.length === 0 && (
           <p className="text-[10px] font-medium leading-tight text-amber-600 dark:text-amber-400">
             Retake this photo
@@ -669,7 +722,8 @@ export function PhotoUpload({
 
         {/* US-948: per-slot shoot hint. Rendered under the tap target (not
             inside it) so the slot stays full-size on the 2-col mobile grid. */}
-        {slot.hint && !state.preview && !flagged && state.errors.length === 0 && (
+        {slot.hint && !state.preview && !flagged && state.errors.length === 0 &&
+          state.warnings.length === 0 && (
           <p className="text-[10px] leading-tight text-muted-foreground">
             {slot.hint}
           </p>

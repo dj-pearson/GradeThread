@@ -21,6 +21,11 @@ import { usePhotoProfile } from "@/lib/photo-profiles";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { nextUploadSortOrder } from "@/lib/photo-order";
 import { compressImage } from "@/lib/image-utils";
+import {
+  assessMacroPhoto,
+  measureMacroPhoto,
+  type MacroQualityAssessment,
+} from "@/lib/macro-photo-quality";
 import { normalizeToImageFile } from "@/lib/media-intake";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import {
@@ -120,7 +125,11 @@ export function PhotoUploader({
     picked: File,
     photoType: FlipdeskPhotoType,
     sortOrder: number,
-  ): Promise<{ originalSize: number; storedSize: number }> {
+  ): Promise<{
+    originalSize: number;
+    storedSize: number;
+    macro: MacroQualityAssessment;
+  }> {
     if (!user) throw new Error("You must be signed in.");
     // US-1300: normalize odd iPhone inputs first — a Live Photo exported as a
     // .mov/.mp4 video becomes a still JPEG frame and HEIC/HEIF becomes JPEG, so
@@ -242,7 +251,15 @@ export function PhotoUploader({
     } as never);
     if (insErr) throw insErr;
 
-    return { originalSize, storedSize: body.size };
+    // US-2136: assess the macro slots (tag, serial, marking, surface, …) on the
+    // bytes we actually stored, not the camera original — compressImage caps at
+    // 2400px, so a distant serial shot can arrive fine and be stored soft. The
+    // seller is nudged AFTER the upload rather than blocked before it: Claude
+    // Vision reads a marginal photo better than any client-side check, and a
+    // false "retake this" is what teaches sellers to ignore the nudge.
+    const macro = assessMacroPhoto(await measureMacroPhoto(body, photoType));
+
+    return { originalSize, storedSize: body.size, macro };
   }
 
   // After a batch of one or more new photos of `newTypes`, advance the item to
@@ -268,7 +285,7 @@ export function PhotoUploader({
     if (!user) return;
     setUploading(photoType);
     try {
-      const { originalSize, storedSize } = await processAndUpload(
+      const { originalSize, storedSize, macro } = await processAndUpload(
         picked,
         photoType,
         nextUploadSortOrder(photos, photoType),
@@ -280,6 +297,9 @@ export function PhotoUploader({
           ? ` (−${savedPct}%, ${(originalSize / 1024 / 1024).toFixed(1)}MB → ${(storedSize / 1024 / 1024).toFixed(1)}MB)`
           : "";
       toast.success(`${labelFor(photoType)} photo uploaded${sizeNote}.`);
+      // Separate toast, not appended to the success line: the upload DID
+      // succeed, and the nudge is a different message with a different action.
+      if (macro.message) toast.warning(macro.message);
     } catch (err) {
       toast.error(
         `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
