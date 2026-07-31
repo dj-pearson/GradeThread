@@ -129,7 +129,7 @@ struct AutoListerSelectionGrid: View {
             ForEach(everyOptions, id: \.self) { size in
                 Button("Every \(size) photos") {
                     HapticFeedback.light()
-                    withAnimation { model.groupEveryN(size) }
+                    withAnimation { _ = model.groupEveryN(size) }
                 }
             }
         } label: {
