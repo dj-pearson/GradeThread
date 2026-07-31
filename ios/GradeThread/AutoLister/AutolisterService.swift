@@ -73,6 +73,18 @@ extension AutolisterBatching {
 
 // MARK: - US-2374: phone → desktop handoff wire types
 
+/// A non-2xx from the staging upload endpoint. Carries the status so the retry
+/// can tell "slow down" (429) and "the server fell over" (5xx) apart from "this
+/// image is not acceptable" (any other 4xx), which no amount of retrying fixes.
+struct StagingUploadError: Error, Equatable {
+    let status: Int
+    let retryAfter: TimeInterval?
+
+    var isRetryable: Bool {
+        status == 429 || (500..<600).contains(status)
+    }
+}
+
 /// One photo's staging upload result — everything the desktop needs to render
 /// it without re-uploading a byte.
 struct StagedPhotoUpload: Decodable, Equatable {
@@ -268,7 +280,51 @@ struct AutolisterService: AutolisterBatching {
     /// EdgeAPI's JSON transport can't carry), so it builds its own request; a
     /// dedicated ephemeral session keeps the Authorization header away from
     /// the Sentry-swizzled shared session.
+    /// US-2374: the staging endpoint is rate-limited at 120 uploads/minute, and
+    /// a handoff sends the WHOLE batch — 200 photos on a fast connection walks
+    /// straight into a 429. Without this the caller would read that as "photo
+    /// failed" and silently drop it from the batch, so the seller's desktop
+    /// would be missing photos with nothing to explain it. Retry on 429 (the
+    /// server's own Retry-After, when it sends one) and on 5xx; never on a 4xx
+    /// that says the image itself is wrong. Mirrors the web uploader's
+    /// `uploadStagingPhoto` retry loop.
+    static let maxStagingUploadAttempts = 4
+
     func stagePhoto(
+        sessionId: String,
+        jpegData: Data,
+        thumbnailData: Data?
+    ) async throws -> StagedPhotoUpload {
+        var attempt = 0
+        while true {
+            do {
+                return try await performStagingUpload(
+                    sessionId: sessionId,
+                    jpegData: jpegData,
+                    thumbnailData: thumbnailData
+                )
+            } catch let error as StagingUploadError {
+                attempt += 1
+                guard error.isRetryable, attempt < Self.maxStagingUploadAttempts else { throw error }
+                let delay = Self.stagingRetryDelay(
+                    attempt: attempt,
+                    retryAfter: error.retryAfter
+                )
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+        }
+    }
+
+    /// PURE: how long to wait before re-trying a staging upload. Honours the
+    /// server's `Retry-After` when it sent one, otherwise backs off
+    /// exponentially, and is capped so a stuck limiter can't park the whole
+    /// handoff behind one photo.
+    static func stagingRetryDelay(attempt: Int, retryAfter: TimeInterval?) -> TimeInterval {
+        let backoff = min(pow(2.0, Double(max(attempt, 1) - 1)), 8)
+        return min(max(retryAfter ?? backoff, 0.5), 10)
+    }
+
+    private func performStagingUpload(
         sessionId: String,
         jpegData: Data,
         thumbnailData: Data?
@@ -319,9 +375,15 @@ struct AutolisterService: AutolisterBatching {
         request.httpBody = body
 
         let (data, response) = try await Self.stagingSession.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw StagingUploadError(
+                status: http.statusCode,
+                retryAfter: (http.value(forHTTPHeaderField: "Retry-After"))
+                    .flatMap(TimeInterval.init)
+            )
         }
         return try JSONDecoder().decode(StagedPhotoUpload.self, from: data)
     }

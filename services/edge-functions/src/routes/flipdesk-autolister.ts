@@ -1218,11 +1218,18 @@ flipdeskAutolisterRoutes.post("/sessions/:id/claim", async (c) => {
 
 // DELETE /sessions/:id — discard it, and sweep the staged objects with it so a
 // declined handoff doesn't leave a folder of orphaned photos in storage.
+//
+// The sweep is for OPEN handoffs only, and that is load-bearing: generation
+// does NOT copy staged objects anywhere — `item_photos.storage_path` points
+// straight back into `_staging/`, so once a handoff has been claimed and
+// generated its photos ARE the live listing images. Sweeping a claimed
+// handoff's paths would delete the seller's published photos out from under
+// their listings. A claimed row is dropped; its objects are left alone.
 flipdeskAutolisterRoutes.delete("/sessions/:id", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const { data, error } = await supabaseAdmin
     .from("autolister_handoff_sessions")
-    .select("id, photos")
+    .select("id, status, photos")
     .eq("id", c.req.param("id"))
     .eq("user_id", ownerId)
     .maybeSingle();
@@ -1242,9 +1249,11 @@ flipdeskAutolisterRoutes.delete("/sessions/:id", async (c) => {
     return c.json({ error: "Couldn't discard that batch." }, 500);
   }
 
-  // Best-effort storage sweep. Re-check the prefix on the way out: these paths
-  // were verified on write, but a delete is exactly the call that must not act
-  // on a path it hasn't checked itself.
+  // Best-effort storage sweep, OPEN handoffs only (see the note above — a
+  // claimed handoff's objects may already be live item photos). Re-check the
+  // prefix on the way out: these paths were verified on write, but a delete is
+  // exactly the call that must not act on a path it hasn't checked itself.
+  if (data.status !== "open") return c.json({ ok: true, swept: 0 });
   const paths: string[] = [];
   for (const raw of Array.isArray(data.photos) ? data.photos : []) {
     const p = raw as Record<string, unknown>;
@@ -1261,7 +1270,7 @@ flipdeskAutolisterRoutes.delete("/sessions/:id", async (c) => {
       console.error("[AutoLister] handoff storage sweep failed", sweepErr);
     }
   }
-  return c.json({ ok: true });
+  return c.json({ ok: true, swept: paths.length });
 });
 
 // POST /batch  Body: { item_ids: string[], use_comps?: boolean }

@@ -62,8 +62,15 @@ delete sweep touches storage. Public URLs are re-derived server-side from the
 verified paths — a client-supplied URL is never stored, or a forged one would
 put another tenant's image on the seller's desktop grid.
 
-Discarding a handoff deletes its staged objects with it; that is the only place
-staging orphans get cleaned up on this path.
+Discarding an **open** handoff deletes its staged objects with it; that is the
+only place staging orphans get cleaned up on this path.
+
+Discarding a **claimed** one deletes the row and leaves the objects alone, and
+that asymmetry is load-bearing: generation does not copy staged objects
+anywhere — `item_photos.storage_path` points straight back into `_staging/` —
+so once a handoff has been loaded and generated, its photos *are* the live
+listing images. Sweeping them would delete published photos out from under the
+seller's listings.
 
 ## Related
 

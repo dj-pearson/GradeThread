@@ -822,7 +822,10 @@ struct AutoListerView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(!model.canGenerate || uploadService == nil)
+            // US-2374: not while a send-to-desktop is in flight — generating
+            // mid-send would create the same items twice, once here and once
+            // from the desktop's copy of the batch.
+            .disabled(!model.canGenerate || uploadService == nil || model.isSendingToDesktop)
             .accessibilityHint("Creates an item per group, uploads its photos, and generates listings with AI.")
         }
         .padding()
