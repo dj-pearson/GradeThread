@@ -32,6 +32,7 @@ fun ToolsScreen(
     onVerified: () -> Unit = {},
     onShipping: () -> Unit = {},
     onReferrals: () -> Unit = {},
+    onSupport: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -87,6 +88,11 @@ fun ToolsScreen(
             title = "Invite a friend",
             subtitle = "Share your code and earn grading credits",
             onClick = onReferrals,
+        )
+        ToolRow(
+            title = "Support",
+            subtitle = "Open a request and read our replies",
+            onClick = onSupport,
         )
     }
 }

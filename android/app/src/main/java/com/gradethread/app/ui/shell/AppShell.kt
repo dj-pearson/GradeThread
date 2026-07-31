@@ -429,6 +429,23 @@ private fun ShellNavHost(navController: NavHostController) {
                 onVerified = { navController.navigate(ShellRoutes.VERIFIED) },
                 onShipping = { navController.navigate(ShellRoutes.FULFILLMENT) },
                 onReferrals = { navController.navigate(ShellRoutes.REFERRALS) },
+                onSupport = { navController.navigate(ShellRoutes.SUPPORT) },
+            )
+        }
+        // US-1386: the support inbox, and the thread a support.reply push
+        // deep-links straight to.
+        composable(ShellRoutes.SUPPORT) {
+            com.gradethread.app.support.SupportScreen(
+                onOpenTicket = { id -> navController.navigate(ShellRoutes.supportThread(id)) },
+            )
+        }
+        composable(
+            "support/{ticketId}",
+            arguments = listOf(navArgument("ticketId") { type = NavType.StringType }),
+        ) { entry ->
+            com.gradethread.app.support.SupportThreadScreen(
+                ticketId = entry.arguments?.getString("ticketId").orEmpty(),
+                onBack = { navController.popBackStack() },
             )
         }
         // US-1385: your referral code, and applying a friend's.

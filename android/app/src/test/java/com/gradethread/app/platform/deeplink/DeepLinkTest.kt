@@ -75,6 +75,21 @@ class DeepLinkTest {
     }
 
     @Test
+    fun supportReply_landsOnTheThread_notOnSettings() {
+        // US-1386: this used to fall back to Settings, so a "support replied"
+        // push dropped the seller on a preferences screen with no reply in
+        // sight.
+        assertEquals(
+            "support/t7",
+            DeepLinkRoute.SupportTickets("t7").toNavRoute(),
+        )
+        assertEquals("support", DeepLinkRoute.SupportTickets(null).toNavRoute())
+        // A push with an empty ticket_id is the same as no ticket, not a route
+        // to a thread called "".
+        assertEquals("support", DeepLinkRoute.SupportTickets("  ").toNavRoute())
+    }
+
+    @Test
     fun shortcutLinks_parse() {
         // US-1381: its own host, not the widget's — the two grammars are edited
         // by different features and a shared one drifts.

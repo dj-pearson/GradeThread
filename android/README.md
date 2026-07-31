@@ -357,6 +357,33 @@ only ever be refused is worse than no form.
 had expired and sent to sign in again — wrong, and actionable in the wrong
 direction.
 
+## Support tickets (US-1386)
+
+`support/` reads `GET /api/support-tickets`, opens one with `POST /`, loads a
+thread with `GET /:id`, and replies with `POST /:id/messages`. Reached from
+Tools, and from a `support.reply` push — `DeepLinkRoute.SupportTickets` now
+resolves to the real thread instead of falling back to Settings, which dropped
+the seller on a preferences screen with no reply in sight.
+
+Four decisions worth keeping:
+
+- **The character caps are duplicated on purpose.** The edge *slices* past its
+  own cap rather than refusing, so a client that allowed more would lose the end
+  of what someone wrote in silence. `MAX_SUBJECT`/`MAX_BODY` mirror the server
+  exactly, the counter is visible, and the service trims before sending.
+- **Open tickets sort above resolved ones.** The server orders by activity
+  alone, which buries the one request a seller is waiting on the moment support
+  closes a batch of older ones.
+- **An unknown status shows itself.** Quietly calling it "Open" would tell
+  someone their closed ticket is still being worked; an unrecognised `author`
+  is never treated as the seller.
+- **A reply to a resolved ticket warns first.** The edge reopens on any user
+  reply, and "thanks, that worked" shouldn't put it back in the queue by
+  surprise.
+
+Internal notes and agent identities are never modelled — the edge strips both,
+and a client type naming them would invite a request for them.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

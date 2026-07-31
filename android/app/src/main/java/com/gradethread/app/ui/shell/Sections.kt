@@ -70,6 +70,12 @@ object ShellRoutes {
     /** US-1385: your referral code and a friend's, reached from Tools. */
     const val REFERRALS = "referrals"
 
+    /** US-1386: the support inbox, reached from Tools or a support.reply push. */
+    const val SUPPORT = "support"
+
+    /** US-1386: one support thread. Where a support.reply push lands. */
+    fun supportThread(ticketId: String) = "support/$ticketId"
+
     /** US-1372: what each consignor is owed, reached from Consignors. */
     const val CONSIGNMENT_REPORT = "consignment-report"
 

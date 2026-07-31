@@ -10,6 +10,8 @@ import com.gradethread.app.passport.PassportProviding
 import com.gradethread.app.passport.PassportService
 import com.gradethread.app.referrals.ReferralProviding
 import com.gradethread.app.referrals.ReferralService
+import com.gradethread.app.support.SupportProviding
+import com.gradethread.app.support.SupportService
 import com.gradethread.app.scout.ScoutScanning
 import com.gradethread.app.scout.ScoutService
 import com.gradethread.app.templates.TemplateProviding
@@ -74,4 +76,9 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindReferrals(impl: ReferralService): ReferralProviding
+
+    /** US-1386: support tickets and their threads. */
+    @Binds
+    @Singleton
+    abstract fun bindSupport(impl: SupportService): SupportProviding
 }

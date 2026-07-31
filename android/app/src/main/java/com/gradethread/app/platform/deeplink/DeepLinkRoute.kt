@@ -141,7 +141,13 @@ sealed class DeepLinkRoute {
         GradesList -> ShellRoutes.GRADES
         CaptureItem -> "capture/photos"
         AddItem -> ShellSection.ADD.route
-        is SupportTickets -> ShellRoutes.SETTINGS
+        // US-1386: a real destination at last. Until the support inbox existed
+        // this fell back to Settings, so a "support replied" push dropped the
+        // seller on a preferences screen with no reply in sight.
+        is SupportTickets ->
+            ticketId?.takeIf { it.isNotBlank() }
+                ?.let { ShellRoutes.supportThread(it) }
+                ?: ShellRoutes.SUPPORT
         // US-1377: a mark-shipped notification action resolves HERE, on the
         // queue itself, rather than on a tab the seller then has to search.
         Shipping -> ShellRoutes.FULFILLMENT
