@@ -42,8 +42,18 @@ Read this IN ADDITION to LEARNINGS.md when your story touches ios/. Split out of
   autonomous side effect and are safe to bank. Corollary: an implicit save whose
   edits differ from what a full save would write must not bump the composer's
   `.id` (it re-seeds from the baseline and reverts the uncommitted control).
+- The AutoLister picker is configured WITHOUT a `photoLibrary:` (US-1013: no
+  permission prompt), so `PHPickerResult.assetIdentifier` — and therefore
+  `creationDate()`'s PHAsset lookup — is ALWAYS nil. `loadObject(ofClass:
+  UIImage.self)` drops EXIF too, so until US-2373 every imported photo was
+  stamped `.now` and no photo in a library import ever had a real capture time.
+  The fix that works without any permission: load the pick's DATA
+  representation (`loadDataRepresentation`, picker set to `.current` so there's
+  no transcode) and read `DateTimeOriginal` off it —
+  `PHPickerResult.loadImageWithCaptureDate()` / `ImageCaptureDate`. Reach for
+  that, not for library access, when a flow needs capture times.
 - `PhotoCapture.capturedAt` is NON-optional and `AutoListerReviewModel.importPicks`
-  fabricates `result.creationDate() ?? .now`. That silently defeats every
+  fabricates `<real capture time> ?? .now`. That silently defeats every
   timeless-dump signal: a no-EXIF batch looks like ONE instantaneous EXIF burst,
   and time-gap clusters are deliberately EXEMPT from the mega-group guards
   (`maxAutoGroupPhotos`/`visualMergeOrdinalWindow`), so it grows unbounded and the

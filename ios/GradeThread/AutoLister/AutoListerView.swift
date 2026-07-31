@@ -128,6 +128,9 @@ struct AutoListerView: View {
     /// nudge the seller to generate or remove photos instead of silently opening
     /// a picker whose picks would all be dropped by the cap.
     private func presentPicker() {
+        // US-2373: one import at a time — a second pick landing mid-run would
+        // fight the first for the progress count and the batch cap.
+        if model.isImporting { return }
         if model.isAtCapacity {
             model.capNotice = "This batch is full (\(AutoListerReviewModel.maxBatchPhotos) photos). Generate it, or remove some photos to add more."
             return
@@ -138,8 +141,9 @@ struct AutoListerView: View {
     @ViewBuilder
     private var content: some View {
         if model.isImporting && model.isEmpty {
-            // US-656: shimmer skeleton instead of a bare spinner.
-            ScrollView { SkeletonRows(count: 4) }
+            // US-2373: the first import of a big batch takes real time, so show
+            // the count moving and a way out — not an indefinite skeleton.
+            importingState
         } else if let message = model.importError {
             // US-1116: import produced nothing — explicit retry, not the empty
             // state (which reads as "the import never happened").
@@ -151,6 +155,133 @@ struct AutoListerView: View {
             emptyState
         } else {
             reviewList
+        }
+    }
+
+    // MARK: - Importing (US-2373)
+
+    /// Full-screen progress for the first import into an empty batch.
+    private var importingState: some View {
+        VStack(spacing: 16) {
+            ProgressView(value: model.importProgress?.fraction ?? 0)
+                .tint(Color.brandNavy)
+                .frame(maxWidth: 280)
+            Text(importLabel)
+                .font(.brandHeadline)
+            Text("Big batches take a moment. Keep the app open.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("Stop importing") { model.cancelImport() }
+                .buttonStyle(.bordered)
+                .padding(.top, 4)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(importLabel)
+    }
+
+    private var importLabel: String {
+        guard let progress = model.importProgress else { return "Importing photos…" }
+        return "Importing \(progress.done) of \(progress.total) photos…"
+    }
+
+    /// The same progress as an inline row, for an import that's adding to a
+    /// batch the seller is already working in.
+    private var importProgressRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(importLabel)
+                    .font(.caption.weight(.medium))
+                Spacer(minLength: 8)
+                Button("Stop") { model.cancelImport() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            ProgressView(value: model.importProgress?.fraction ?? 0)
+                .tint(Color.brandNavy)
+        }
+        .padding(12)
+        .background(Color.brandNavy.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(importLabel)
+    }
+
+    // MARK: - Send to desktop (US-2374)
+
+    /// The upload run, then the "it's waiting on your computer" receipt. Silent
+    /// when nothing has been sent.
+    @ViewBuilder
+    private var handoffRow: some View {
+        switch model.handoff {
+        case .idle:
+            EmptyView()
+        case let .uploading(done, total):
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("Sending \(done) of \(total) photos to your desktop…")
+                        .font(.caption.weight(.medium))
+                    Spacer(minLength: 8)
+                    Button("Stop") { model.cancelHandoff() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                ProgressView(value: total > 0 ? Double(done) / Double(total) : 0)
+                    .tint(Color.brandNavy)
+            }
+            .padding(12)
+            .background(Color.brandNavy.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Sending \(done) of \(total) photos to your desktop")
+        case let .sent(photos, partial):
+            VStack(alignment: .leading, spacing: 8) {
+                Label(
+                    partial
+                        ? "\(photos) photos sent — the rest didn't upload"
+                        : "\(photos) photos sent to your desktop",
+                    systemImage: "checkmark.circle.fill"
+                )
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.brandEmerald)
+                Text("Open FlipDesk → AutoLister on your computer and tap \"Load into this session\".")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    // Clearing here is what stops the same batch being generated
+                    // twice — once on the desktop, once from the phone.
+                    Button("Clear this batch") {
+                        withAnimation { model.clearBatch() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(Color.brandNavy)
+                    Button("Keep it here") { model.dismissHandoffNotice() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Color.brandEmerald.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        case let .failed(message):
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Color.brandRed)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("Try again") {
+                    Task { await model.sendToDesktop() }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(12)
+            .background(Color.brandRed.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
         }
     }
 
@@ -198,7 +329,7 @@ struct AutoListerView: View {
         ContentUnavailableView {
             Label("Batch-list with AutoLister", systemImage: "square.stack.3d.up.fill")
         } description: {
-            Text("Import a batch of photos and we'll group them into items, then generate eBay listings with AI.")
+            Text("Import a batch of photos, tap the ones that belong to the same item and hit Group. Repeat, then generate eBay listings with AI.")
         } actions: {
             Button {
                 presentPicker()
@@ -217,16 +348,38 @@ struct AutoListerView: View {
     private var reviewList: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
+                // US-2373: an import running on top of an existing batch keeps
+                // its count in view rather than silently appending photos.
+                if model.isImporting {
+                    importProgressRow
+                }
+                // US-2374: the send-to-desktop run and its outcome.
+                handoffRow
                 // Cap notice — some picks were left out because a batch is bounded
                 // at `maxBatchPhotos` (keeps the serial upload from hanging).
                 // Dismissible; never blocks the review list.
                 if let notice = model.capNotice {
                     capNoticeBanner(notice)
                 }
+                // US-2373: the working surface goes FIRST and stays put. Every
+                // photo that still needs a home, in the seller's chosen order,
+                // tap to select. Grouped items drop out of it and stack up
+                // below, so what's left to do is always what's on screen.
+                if !model.ungrouped.isEmpty {
+                    AutoListerSelectionGrid(model: model)
+                }
+                if model.verifyProgress != nil || model.proposeProgress != nil {
+                    passProgressRow
+                }
+                // US-1909: propose boundaries the AI wasn't confident enough to
+                // apply — created only on the seller's say-so.
+                ForEach(model.proposalReviews) { review in
+                    proposalReviewRow(review)
+                }
                 // US-1548: AI grouping suggestions — advisory, one-tap apply,
                 // never auto-applied. Silent when verification found nothing
                 // (or failed); a small inline hint while it runs. US-1909: a
-                // multi-window pass has its own progress row below, so this
+                // multi-window pass has its own progress row above, so this
                 // plain hint is only for the single-window (silent) run.
                 if model.verifying && model.verifyProgress == nil {
                     HStack(spacing: 6) {
@@ -240,28 +393,31 @@ struct AutoListerView: View {
                 ForEach(model.suggestions) { suggestion in
                     suggestionRow(suggestion)
                 }
-                if model.verifyProgress != nil || model.proposeProgress != nil {
-                    passProgressRow
-                }
-                ForEach(model.groups) { group in
-                    groupCard(group)
-                }
-                // US-1909: photos the seller pulled out of a group. Sorted by
-                // the same four modes as the web grid; "AI group remaining"
-                // proposes item boundaries over them.
-                if !model.ungrouped.isEmpty {
-                    ungroupedSection
-                }
-                // US-1909: propose boundaries the AI wasn't confident enough to
-                // apply — created only on the seller's say-so.
-                ForEach(model.proposalReviews) { review in
-                    proposalReviewRow(review)
+                // Finished items, compact, below the work — they're done.
+                if !model.groups.isEmpty {
+                    itemsHeader
+                    ForEach(model.groups) { group in
+                        groupCard(group)
+                    }
                 }
             }
             .padding()
         }
         .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom) { generateBar }
+        .safeAreaInset(edge: .bottom) { bottomBar }
+    }
+
+    private var itemsHeader: some View {
+        HStack {
+            Text("Items")
+                .font(.brandHeadline)
+            Spacer()
+            Text("\(model.groups.count) grouped")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(model.groups.count) item\(model.groups.count == 1 ? "" : "s") grouped so far")
     }
 
     /// Non-blocking banner shown when an import was capped at `maxBatchPhotos`.
@@ -317,130 +473,6 @@ struct AutoListerView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - US-1909: ungrouped pool
-
-    private var ungroupedSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Ungrouped")
-                    .font(.brandHeadline)
-                Spacer()
-                Text("\(model.ungrouped.count) photo\(model.ungrouped.count == 1 ? "" : "s")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            HStack(spacing: 8) {
-                sortPicker
-                Spacer(minLength: 8)
-                // US-1909: mirrors the web's "AI group remaining" — a vision
-                // pass over the remaining photos in order, proposing where each
-                // item begins. Metered: a multi-window pass shows the AI-action
-                // count before spending it.
-                Button {
-                    Task { await model.proposeGroupsNow() }
-                } label: {
-                    Label("AI group", systemImage: "sparkles")
-                        .font(.caption.weight(.medium))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(model.ungrouped.count < 2 || model.proposing)
-                .accessibilityHint(
-                    "The AI looks at the remaining photos in order and proposes where each item begins. Uses AI actions — you'll see the count first."
-                )
-            }
-            // LazyHStack, not HStack: the ungrouped pool holds up to ~200 photos
-            // on a bulk import, and a plain HStack realizes EVERY thumbnail
-            // including the ones scrolled off-screen. Each AI verify/propose
-            // progress publish re-renders this strip, so the cost is paid
-            // repeatedly and shows up as dropped frames mid-run.
-            //
-            // Same reasoning as InventoryBoardView (:34-35), which already
-            // documents it for a 500+-item catalog. The per-group strip below
-            // stays a plain HStack deliberately — a group is one item's photos,
-            // typically 4-12, where laziness would add overhead for nothing.
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 8) {
-                    ForEach(model.ungroupedSorted) { photo in
-                        ungroupedThumbnail(photo)
-                    }
-                }
-            }
-        }
-        .padding()
-        .cardStyle(.flush)
-    }
-
-    private var sortPicker: some View {
-        Menu {
-            ForEach(UngroupedSortMode.allCases) { mode in
-                Button {
-                    model.ungroupedSort = mode
-                } label: {
-                    if model.ungroupedSort == mode {
-                        Label(mode.label, systemImage: "checkmark")
-                    } else {
-                        Text(mode.label)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.up.arrow.down")
-                Text(model.ungroupedSort.label)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-            }
-        }
-        .accessibilityLabel("Sort ungrouped photos")
-    }
-
-    private func ungroupedThumbnail(_ photo: PhotoCapture) -> some View {
-        Image(uiImage: photo.thumbnail)
-            .resizable()
-            .scaledToFill()
-            .frame(width: 92, height: 92)
-            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control))
-            .contextMenu { ungroupedPhotoMenu(photo) }
-            .accessibilityLabel("Ungrouped photo")
-            // US-1411: mirror the context menu as accessibility actions —
-            // VoiceOver and Switch Control can't open a `.contextMenu`. These
-            // must be a FLAT list of buttons (a nested Menu isn't actionable
-            // through the rotor), so the submenu is expanded here.
-            .accessibilityActions {
-                Button("New item") { model.groupUngroupedPhoto(photo.id, into: nil) }
-                ForEach(model.groups) { group in
-                    Button("Add to item \(model.displayIndex(of: group))") {
-                        model.groupUngroupedPhoto(photo.id, into: group.id)
-                    }
-                }
-                Button("Remove photo") { model.removePhoto(photo.id) }
-            }
-    }
-
-    @ViewBuilder
-    private func ungroupedPhotoMenu(_ photo: PhotoCapture) -> some View {
-        Button {
-            model.groupUngroupedPhoto(photo.id, into: nil)
-        } label: {
-            Label("New item", systemImage: "plus.rectangle")
-        }
-        if !model.groups.isEmpty {
-            Menu("Add to…") {
-                ForEach(model.groups) { group in
-                    Button("Item \(model.displayIndex(of: group))") {
-                        model.groupUngroupedPhoto(photo.id, into: group.id)
-                    }
-                }
-            }
-        }
-        Divider()
-        Button(role: .destructive) {
-            model.removePhoto(photo.id)
-        } label: {
-            Label("Remove photo", systemImage: "trash")
-        }
-    }
 
     /// US-1909: an uncertain AI-proposed item — the seller confirms or discards.
     private func proposalReviewRow(_ review: ClientProposedGroup) -> some View {
@@ -553,6 +585,14 @@ struct AutoListerView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Menu {
+                    // US-2373: the undo for any grouping decision — the photos
+                    // go back to the grid instead of being discarded, which is
+                    // what makes Auto-group safe to try.
+                    Button {
+                        withAnimation { model.ungroupGroup(group.id) }
+                    } label: {
+                        Label("Ungroup (photos back to grid)", systemImage: "rectangle.badge.minus")
+                    }
                     Button(role: .destructive) {
                         pendingGroupDelete = group
                     } label: {
@@ -669,9 +709,70 @@ struct AutoListerView: View {
         }
     }
 
+    /// US-2373: one bar, two jobs. While photos are selected it's the grouping
+    /// action (that's the task in hand); with nothing selected it's the batch
+    /// summary and Generate.
+    @ViewBuilder
+    private var bottomBar: some View {
+        if model.hasSelection {
+            selectionBar
+        } else {
+            generateBar
+        }
+    }
+
+    private var selectionBar: some View {
+        let count = model.selectedCount
+        return VStack(spacing: 8) {
+            HStack {
+                Text("\(count) photo\(count == 1 ? "" : "s") selected")
+                    .font(.caption.weight(.medium))
+                Spacer()
+                Button("Clear") { withAnimation { model.clearSelection() } }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                Button(role: .destructive) {
+                    withAnimation { model.removeSelected() }
+                } label: {
+                    Text("Remove")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+            Button {
+                HapticFeedback.medium()
+                Telemetry.event("autolister_group_created", props: ["photos": count, "method": "manual"])
+                withAnimation { model.groupSelection() }
+            } label: {
+                Text("Group \(count) photo\(count == 1 ? "" : "s") as one item")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color.brandNavy)
+            .accessibilityHint("Makes these photos one item and clears them from the grid, ready for the next item.")
+        }
+        .padding()
+        .background(.bar)
+    }
+
     private var generateBar: some View {
         let count = model.groups.count
         return VStack(spacing: 8) {
+            // US-2373: ungrouped photos are NOT listed — say so before Generate
+            // rather than letting them vanish from the batch silently.
+            if model.ungroupedCount > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(Color.brandRed)
+                    Text("\(model.ungroupedCount) photo\(model.ungroupedCount == 1 ? "" : "s") not grouped yet — \(model.ungroupedCount == 1 ? "it won't" : "they won't") be listed.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+            }
             // Batch fill indicator — the seller sees how close they are to the
             // per-batch photo cap (uploads are serial, so the batch is bounded).
             HStack {
@@ -690,6 +791,20 @@ struct AutoListerView: View {
             if !templateStore.templates.isEmpty {
                 templatePicker
             }
+            // US-2374: the other way out of this screen — park the batch for
+            // the desktop instead of spending AI actions here. Photos and
+            // groups both travel; the review and the Generate happen there.
+            Button {
+                HapticFeedback.light()
+                Task { await model.sendToDesktop() }
+            } label: {
+                Label("Send to desktop", systemImage: "desktopcomputer")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(model.isEmpty || model.isSendingToDesktop || model.isImporting)
+            .accessibilityHint("Uploads this batch so you can finish it in AutoLister on your computer. Uses no AI actions.")
             Button {
                 HapticFeedback.medium()
                 Telemetry.event(
@@ -707,7 +822,10 @@ struct AutoListerView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(!model.canGenerate || uploadService == nil)
+            // US-2374: not while a send-to-desktop is in flight — generating
+            // mid-send would create the same items twice, once here and once
+            // from the desktop's copy of the batch.
+            .disabled(!model.canGenerate || uploadService == nil || model.isSendingToDesktop)
             .accessibilityHint("Creates an item per group, uploads its photos, and generates listings with AI.")
         }
         .padding()
@@ -768,31 +886,38 @@ struct AutoListerView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
-            Button {
-                model.regroupAll()
-                // US-1548: fresh groups → re-derive the AI suggestions.
-                Task { await model.verifyGroupsNow() }
-            } label: {
-                Label("Auto-group", systemImage: "wand.and.stars")
-            }
-            .disabled(model.isEmpty)
+            // US-2373: the destructive one (it dissolves hand-made groups) lives
+            // behind a menu; the everyday Auto-group sits on the grid itself,
+            // next to the photos it acts on.
+            Menu {
+                Button {
+                    withAnimation { model.regroupAll() }
+                    // US-1548: fresh groups → re-derive the AI suggestions.
+                    Task { await model.verifyGroupsNow() }
+                } label: {
+                    Label("Regroup everything", systemImage: "wand.and.stars")
+                }
+                .disabled(model.isEmpty)
 
-            // US-1909: on-demand boundary verification now covers EVERY group
-            // (the auto-run after import stays cheap at one window). A pass
-            // needing more than one window confirms its AI-action cost first.
-            Button {
-                Task { await model.verifyAllGroups() }
+                // US-1909: on-demand boundary verification covers EVERY group.
+                // A pass needing more than one window confirms its AI-action
+                // cost first.
+                Button {
+                    Task { await model.verifyAllGroups() }
+                } label: {
+                    Label("Verify groups", systemImage: "checkmark.seal")
+                }
+                .disabled(model.groups.count < 2 || model.verifying)
             } label: {
-                Label("Verify groups", systemImage: "checkmark.seal")
+                Label("More", systemImage: "ellipsis.circle")
             }
-            .disabled(model.groups.count < 2 || model.verifying)
 
             Button {
                 presentPicker()
             } label: {
                 Label("Add photos", systemImage: "plus")
             }
-            .disabled(model.isAtCapacity)
+            .disabled(model.isAtCapacity || model.isImporting)
 
             // US-675: jump to the persistent drafts library (review + bulk edit).
             NavigationLink {

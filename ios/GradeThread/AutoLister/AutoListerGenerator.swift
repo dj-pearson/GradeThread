@@ -24,10 +24,34 @@ import Foundation
 @MainActor
 final class AutoListerGenerator: ObservableObject {
 
-    /// Wall-clock cap for the whole batch's overlapped uploads. Because uploads
-    /// now overlap (cap `PhotoUploadService.maxConcurrent`) rather than running
-    /// per-group, this is a single batch deadline, not a per-group one.
-    static let uploadTimeout: TimeInterval = 90
+    /// How long the batch may make NO upload progress before it's called
+    /// stalled (US-2373).
+    ///
+    /// This used to be a flat 90s cap on the whole batch, which quietly made
+    /// bulk unusable: uploads run one at a time (`PhotoUploadService
+    /// .maxConcurrent = 1`) at roughly a second each, so any batch over ~90
+    /// photos — the exact case AutoLister exists for — ran out the clock while
+    /// uploading perfectly well and dumped the seller on the "Uploads still
+    /// finishing" screen. A stall timeout scales on its own: a 500-photo batch
+    /// that keeps completing photos keeps going, and a genuinely wedged one is
+    /// caught in 90 seconds either way.
+    static let uploadStallTimeout: TimeInterval = 90
+
+    /// Photo-level progress of the batch's uploads — the number that actually
+    /// moves during a bulk run (items complete in clumps, photos one by one).
+    struct UploadProgress: Equatable {
+        var photosDone: Int
+        var photosTotal: Int
+        var itemsDone: Int
+        var itemsTotal: Int
+
+        var fraction: Double {
+            photosTotal > 0 ? Double(photosDone) / Double(photosTotal) : 0
+        }
+    }
+
+    /// Live upload counts while `prep` is `.running`; nil otherwise.
+    @Published private(set) var uploadProgress: UploadProgress?
 
     enum Prep: Equatable {
         case idle
@@ -182,7 +206,10 @@ final class AutoListerGenerator: ObservableObject {
                 !Self.isItemUploadComplete(uploadStore.tasks(inventoryItemId: $0))
             }.count
             Telemetry.event("autolister_upload_timeout", props: [
-                "pending": pending, "total": itemIds.count,
+                "pending": pending,
+                "total": itemIds.count,
+                "photos_done": uploadProgress?.photosDone ?? 0,
+                "photos_total": uploadProgress?.photosTotal ?? 0,
             ])
             prep = .timedOut(pending: pending, total: itemIds.count)
             return
@@ -224,6 +251,7 @@ final class AutoListerGenerator: ObservableObject {
     private func generate() async {
         let itemIds = prepared.map(\.itemId)
         let templateId = self.templateId
+        uploadProgress = nil
         prep = .finished
         await batch.submit(itemIds: itemIds, templateId: templateId)
         // Non-fatal reshoot nudges; surfaced in the queue.
@@ -279,22 +307,43 @@ final class AutoListerGenerator: ObservableObject {
     }
 
     /// Poll the upload store until EVERY item's scheduled uploads reach a
-    /// terminal state, or the single batch wall-clock cap elapses. Reports
-    /// per-item completion through `prep` as items finish. Returns `true` if all
-    /// items completed before the deadline, `false` on timeout — the caller
-    /// decides whether to warn (it does) rather than generate from partial work.
+    /// terminal state, or the batch STALLS (US-2373: no photo has finished for
+    /// `uploadStallTimeout`). Publishes photo- and item-level progress as it
+    /// goes. Returns `true` if everything completed, `false` on a stall — the
+    /// caller decides whether to warn (it does) rather than generate from
+    /// partial work.
     private func waitForUploads(itemIds: [String], uploadStore: PhotoUploadStore) async -> Bool {
-        let deadline = Date.now.addingTimeInterval(Self.uploadTimeout)
-        let total = itemIds.count
-        while Date.now < deadline {
-            let done = itemIds.filter {
-                Self.isItemUploadComplete(uploadStore.tasks(inventoryItemId: $0))
-            }.count
-            prep = .running(done: done, total: total)
-            if done == total { return true }
+        let itemsTotal = itemIds.count
+        var lastPhotosDone = -1
+        var lastProgressAt = Date.now
+        while true {
+            var photosDone = 0
+            var photosTotal = 0
+            var itemsDone = 0
+            for id in itemIds {
+                let tasks = uploadStore.tasks(inventoryItemId: id)
+                photosTotal += tasks.count
+                photosDone += tasks.filter(\.isTerminal).count
+                if Self.isItemUploadComplete(tasks) { itemsDone += 1 }
+            }
+            prep = .running(done: itemsDone, total: itemsTotal)
+            uploadProgress = UploadProgress(
+                photosDone: photosDone,
+                photosTotal: photosTotal,
+                itemsDone: itemsDone,
+                itemsTotal: itemsTotal
+            )
+            if itemsDone == itemsTotal { return true }
+            // Any photo finishing anywhere in the batch counts as progress and
+            // buys the whole batch another full window.
+            if photosDone > lastPhotosDone {
+                lastPhotosDone = photosDone
+                lastProgressAt = Date.now
+            } else if Date.now.timeIntervalSince(lastProgressAt) >= Self.uploadStallTimeout {
+                return false
+            }
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
-        return false
     }
 
     /// PURE: an item's uploads are "complete" once it has at least one task and

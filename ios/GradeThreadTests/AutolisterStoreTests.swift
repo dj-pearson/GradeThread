@@ -268,6 +268,35 @@ final class AutolisterStoreTests: XCTestCase {
             ]
         )
     }
+
+    // MARK: - US-2374: staging-upload retry contract
+
+    /// The staging endpoint is rate-limited (120 uploads/min) and a handoff
+    /// sends a whole 200-photo batch at it. A 429 that isn't retried reads as
+    /// "photo failed" and the photo silently vanishes from the seller's
+    /// desktop batch — so 429 and 5xx must retry, and a bad-image 4xx must not.
+    func test_stagingUploadError_retriesOnlyWhatRetryingCanFix() {
+        XCTAssertTrue(StagingUploadError(status: 429, retryAfter: 2).isRetryable)
+        XCTAssertTrue(StagingUploadError(status: 500, retryAfter: nil).isRetryable)
+        XCTAssertTrue(StagingUploadError(status: 503, retryAfter: nil).isRetryable)
+        // "Invalid image: too small" is not fixed by asking again.
+        XCTAssertFalse(StagingUploadError(status: 400, retryAfter: nil).isRetryable)
+        XCTAssertFalse(StagingUploadError(status: 403, retryAfter: nil).isRetryable)
+    }
+
+    func test_stagingRetryDelay_honoursRetryAfterThenBacksOff() {
+        // The server said how long to wait — take its word for it.
+        XCTAssertEqual(AutolisterService.stagingRetryDelay(attempt: 1, retryAfter: 5), 5)
+        // No header: exponential, starting at a second.
+        XCTAssertEqual(AutolisterService.stagingRetryDelay(attempt: 1, retryAfter: nil), 1)
+        XCTAssertEqual(AutolisterService.stagingRetryDelay(attempt: 2, retryAfter: nil), 2)
+        XCTAssertEqual(AutolisterService.stagingRetryDelay(attempt: 3, retryAfter: nil), 4)
+        // Capped both ways: a wild Retry-After can't park the batch for an
+        // hour, and a zero can't spin the loop.
+        XCTAssertEqual(AutolisterService.stagingRetryDelay(attempt: 1, retryAfter: 3600), 10)
+        XCTAssertEqual(AutolisterService.stagingRetryDelay(attempt: 1, retryAfter: 0), 0.5)
+    }
+
 }
 
 /// In-memory `AutolisterBatching` for the store tests. Plain (non-isolated)

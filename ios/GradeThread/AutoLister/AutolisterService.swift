@@ -25,6 +25,20 @@ protocol AutolisterBatching {
     // photos (the web's US-1904 "AI group remaining"). Same `_staging/` tenant
     // rule as verify-groups.
     func proposeGroups(_ photos: [ProposePhotoPayload]) async throws -> ProposeGroupsResponse
+    // US-2374: the phone → desktop handoff. `stagePhoto` is the general form of
+    // `stageVerificationPhoto` (it keeps the whole upload result, not just the
+    // path); `createHandoffSession` parks the staged photos + grouping for the
+    // desktop AutoLister to pick up.
+    func stagePhoto(
+        sessionId: String,
+        jpegData: Data,
+        thumbnailData: Data?
+    ) async throws -> StagedPhotoUpload
+    func createHandoffSession(
+        stagingSessionId: String,
+        photos: [HandoffPhotoPayload],
+        groups: [HandoffGroupPayload]
+    ) async throws -> HandoffSessionResponse
 }
 
 extension AutolisterBatching {
@@ -39,6 +53,90 @@ extension AutolisterBatching {
     func proposeGroups(_: [ProposePhotoPayload]) async throws -> ProposeGroupsResponse {
         ProposeGroupsResponse(groups: [])
     }
+
+    func stagePhoto(
+        sessionId _: String,
+        jpegData _: Data,
+        thumbnailData _: Data?
+    ) async throws -> StagedPhotoUpload {
+        throw URLError(.unsupportedURL)
+    }
+
+    func createHandoffSession(
+        stagingSessionId _: String,
+        photos _: [HandoffPhotoPayload],
+        groups _: [HandoffGroupPayload]
+    ) async throws -> HandoffSessionResponse {
+        throw URLError(.unsupportedURL)
+    }
+}
+
+// MARK: - US-2374: phone → desktop handoff wire types
+
+/// A non-2xx from the staging upload endpoint. Carries the status so the retry
+/// can tell "slow down" (429) and "the server fell over" (5xx) apart from "this
+/// image is not acceptable" (any other 4xx), which no amount of retrying fixes.
+struct StagingUploadError: Error, Equatable {
+    let status: Int
+    let retryAfter: TimeInterval?
+
+    var isRetryable: Bool {
+        status == 429 || (500..<600).contains(status)
+    }
+}
+
+/// One photo's staging upload result — everything the desktop needs to render
+/// it without re-uploading a byte.
+struct StagedPhotoUpload: Decodable, Equatable {
+    let storagePath: String
+    let url: String
+    let thumbnailStoragePath: String?
+    let thumbnailUrl: String?
+    let width: Int?
+    let height: Int?
+    let bytes: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case storagePath = "storage_path"
+        case url
+        case thumbnailStoragePath = "thumbnail_storage_path"
+        case thumbnailUrl = "thumbnail_url"
+        case width
+        case height
+        case bytes
+    }
+}
+
+/// A staged photo as the handoff session stores it. `capturedAtMs` is sent ONLY
+/// for photos with a real EXIF time — a fabricated one would make the desktop's
+/// auto-grouping see a burst that never happened (the same trap US-1909 fixed
+/// on this side).
+struct HandoffPhotoPayload: Encodable, Equatable {
+    let id: String
+    let storagePath: String
+    let thumbnailStoragePath: String?
+    let width: Int?
+    let height: Int?
+    let bytes: Int?
+    let capturedAtMs: Int?
+    let sourceName: String?
+    /// 16-hex dHash, the shape the web's visual-merge pass expects.
+    let phash: String
+}
+
+struct HandoffGroupPayload: Encodable, Equatable {
+    let id: String
+    let photoIds: [String]
+    let coverId: String
+}
+
+/// Decoded through `EdgeAPI`, whose decoder is `.convertFromSnakeCase` — hence
+/// camelCase properties and NO explicit CodingKeys (they'd be looked up after
+/// the conversion has already renamed the keys, and miss).
+struct HandoffSessionResponse: Decodable {
+    let id: String
+    let photoCount: Int
+    let groupCount: Int
 }
 
 // US-1548: verify-groups wire types (snake_case handled by EdgeAPI's coders).
@@ -150,12 +248,6 @@ struct AutolisterService: AutolisterBatching {
     // MARK: - US-1548: verify-groups
 
     private struct VerifyGroupsBody: Encodable { let groups: [VerifyGroupPayload] }
-    private struct StagingUploadResponse: Decodable {
-        let storagePath: String
-        private enum CodingKeys: String, CodingKey {
-            case storagePath = "storage_path"
-        }
-    }
 
     func verifyGroups(_ groups: [VerifyGroupPayload]) async throws -> VerifyGroupsResponse {
         try await api.postJSON(
@@ -176,11 +268,67 @@ struct AutolisterService: AutolisterBatching {
     }
 
     /// Upload one boundary-sample JPEG into the caller's `_staging/` folder so
-    /// the verify endpoint may read it. Multipart (the one AutoLister call
+    /// the verify endpoint may read it. Returns the storage path.
+    func stageVerificationPhoto(sessionId: String, jpegData: Data) async throws -> String {
+        try await stagePhoto(sessionId: sessionId, jpegData: jpegData, thumbnailData: nil)
+            .storagePath
+    }
+
+    /// Upload one photo into the caller's `_staging/` folder, optionally with a
+    /// thumbnail (US-2374 — the handoff needs one so the desktop grid renders
+    /// without pulling 200 full-size images). Multipart (the one AutoLister call
     /// EdgeAPI's JSON transport can't carry), so it builds its own request; a
     /// dedicated ephemeral session keeps the Authorization header away from
-    /// the Sentry-swizzled shared session. Returns the storage path.
-    func stageVerificationPhoto(sessionId: String, jpegData: Data) async throws -> String {
+    /// the Sentry-swizzled shared session.
+    /// US-2374: the staging endpoint is rate-limited at 120 uploads/minute, and
+    /// a handoff sends the WHOLE batch — 200 photos on a fast connection walks
+    /// straight into a 429. Without this the caller would read that as "photo
+    /// failed" and silently drop it from the batch, so the seller's desktop
+    /// would be missing photos with nothing to explain it. Retry on 429 (the
+    /// server's own Retry-After, when it sends one) and on 5xx; never on a 4xx
+    /// that says the image itself is wrong. Mirrors the web uploader's
+    /// `uploadStagingPhoto` retry loop.
+    static let maxStagingUploadAttempts = 4
+
+    func stagePhoto(
+        sessionId: String,
+        jpegData: Data,
+        thumbnailData: Data?
+    ) async throws -> StagedPhotoUpload {
+        var attempt = 0
+        while true {
+            do {
+                return try await performStagingUpload(
+                    sessionId: sessionId,
+                    jpegData: jpegData,
+                    thumbnailData: thumbnailData
+                )
+            } catch let error as StagingUploadError {
+                attempt += 1
+                guard error.isRetryable, attempt < Self.maxStagingUploadAttempts else { throw error }
+                let delay = Self.stagingRetryDelay(
+                    attempt: attempt,
+                    retryAfter: error.retryAfter
+                )
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+        }
+    }
+
+    /// PURE: how long to wait before re-trying a staging upload. Honours the
+    /// server's `Retry-After` when it sent one, otherwise backs off
+    /// exponentially, and is capped so a stuck limiter can't park the whole
+    /// handoff behind one photo.
+    static func stagingRetryDelay(attempt: Int, retryAfter: TimeInterval?) -> TimeInterval {
+        let backoff = min(pow(2.0, Double(max(attempt, 1) - 1)), 8)
+        return min(max(retryAfter ?? backoff, 0.5), 10)
+    }
+
+    private func performStagingUpload(
+        sessionId: String,
+        jpegData: Data,
+        thumbnailData: Data?
+    ) async throws -> StagedPhotoUpload {
         guard let token = await SupabaseShared.currentAccessToken() else {
             throw URLError(.userAuthenticationRequired)
         }
@@ -213,15 +361,58 @@ struct AutolisterService: AutolisterBatching {
         )
         appendField("Content-Type: image/jpeg\r\n\r\n")
         body.append(jpegData)
-        appendField("\r\n--\(boundary)--\r\n")
+        appendField("\r\n")
+        if let thumbnailData {
+            appendField("--\(boundary)\r\n")
+            appendField(
+                "Content-Disposition: form-data; name=\"thumb\"; filename=\"thumb.jpg\"\r\n"
+            )
+            appendField("Content-Type: image/jpeg\r\n\r\n")
+            body.append(thumbnailData)
+            appendField("\r\n")
+        }
+        appendField("--\(boundary)--\r\n")
         request.httpBody = body
 
         let (data, response) = try await Self.stagingSession.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
-        return try JSONDecoder().decode(StagingUploadResponse.self, from: data).storagePath
+        guard (200..<300).contains(http.statusCode) else {
+            throw StagingUploadError(
+                status: http.statusCode,
+                retryAfter: (http.value(forHTTPHeaderField: "Retry-After"))
+                    .flatMap(TimeInterval.init)
+            )
+        }
+        return try JSONDecoder().decode(StagedPhotoUpload.self, from: data)
+    }
+
+    // MARK: - US-2374: phone → desktop handoff
+
+    private struct HandoffBody: Encodable {
+        let stagingSessionId: String
+        let source: String
+        let photos: [HandoffPhotoPayload]
+        let groups: [HandoffGroupPayload]
+    }
+
+    /// Park the staged photos + grouping for the desktop AutoLister. Runs no AI
+    /// and creates no inventory rows — it hands over the pre-generation state.
+    func createHandoffSession(
+        stagingSessionId: String,
+        photos: [HandoffPhotoPayload],
+        groups: [HandoffGroupPayload]
+    ) async throws -> HandoffSessionResponse {
+        try await api.postJSON(
+            "/api/flipdesk/autolister/sessions",
+            body: HandoffBody(
+                stagingSessionId: stagingSessionId,
+                source: "ios",
+                photos: photos,
+                groups: groups
+            )
+        )
     }
 
     private static let stagingSession: URLSession = {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MAX_QA_ITEMS, runChunkedQa } from "@/lib/photo-qa-chunking";
@@ -546,5 +546,102 @@ export function useLinkToExisting() {
       return json as { ok: true; target_item_id: string };
     },
     onError: (err) => toast.error(err.message),
+  });
+}
+
+// ── US-2374: phone → desktop handoff ────────────────────────────────
+//
+// A batch shot on the phone parks its staged photos + grouping server-side
+// (POST /autolister/sessions from the mobile app). These hooks are the desktop
+// half: what's waiting, load one into this page's session, claim it so it stops
+// being offered, or discard it (which also sweeps its staged objects).
+
+export interface AutolisterHandoffSummary {
+  id: string;
+  source: "ios" | "android" | "web";
+  status: "open" | "claimed";
+  photo_count: number;
+  group_count: number;
+  created_at: string;
+}
+
+export interface AutolisterHandoffPhoto {
+  id: string;
+  storage_path: string;
+  url: string;
+  thumbnail_storage_path: string | null;
+  thumbnail_url: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+  captured_at_ms: number | null;
+  source_name: string | null;
+  phash: string;
+}
+
+export interface AutolisterHandoffSession extends AutolisterHandoffSummary {
+  staging_session_id: string;
+  photos: AutolisterHandoffPhoto[];
+  groups: Array<{ id: string; photo_ids: string[]; cover_id: string }>;
+}
+
+/** GET /api/flipdesk/autolister/sessions — batches waiting from a phone. */
+export function useAutolisterHandoffs(enabled = true) {
+  return useQuery<AutolisterHandoffSummary[]>({
+    queryKey: ["autolister_handoffs"],
+    enabled,
+    // Polled, not pushed: the seller is expected to walk from the phone to the
+    // desk, so the card should already be there when they sit down.
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/autolister/sessions");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not load waiting batches.");
+      return (json.sessions ?? []) as AutolisterHandoffSummary[];
+    },
+  });
+}
+
+/** GET one handoff's full payload. */
+export async function fetchAutolisterHandoff(
+  id: string,
+): Promise<AutolisterHandoffSession> {
+  const res = await edgeFetch(`/api/flipdesk/autolister/sessions/${id}`);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Could not load that batch.");
+  return json as AutolisterHandoffSession;
+}
+
+/** Mark a handoff loaded. Kept server-side, not deleted — see the route. */
+export function useClaimAutolisterHandoff() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: async (id) => {
+      const res = await edgeFetch(`/api/flipdesk/autolister/sessions/${id}/claim`, {
+        method: "POST",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not claim that batch.");
+      return json as { ok: true };
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["autolister_handoffs"] }),
+  });
+}
+
+/** Discard a handoff and its staged photos. */
+export function useDiscardAutolisterHandoff() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: async (id) => {
+      const res = await edgeFetch(`/api/flipdesk/autolister/sessions/${id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not discard that batch.");
+      return json as { ok: true };
+    },
+    onError: (err) => toast.error(err.message),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["autolister_handoffs"] }),
   });
 }

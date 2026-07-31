@@ -55,6 +55,12 @@ final class AutoListerReviewModel: ObservableObject {
     /// the visual merge pass; photos that couldn't hash simply don't participate.
     private var hashesById: [UUID: UInt64] = [:]
     @Published private(set) var isImporting = false
+    /// US-2373: per-photo progress of a bulk import, so a 200-photo batch shows
+    /// "47 of 200" instead of an unmoving spinner. nil when nothing is running.
+    @Published private(set) var importProgress: ImportProgress?
+    /// US-2373: the ungrouped photos the seller has tapped. Grouping is manual
+    /// and selection-driven now — pick an item's photos, tap Group, repeat.
+    @Published private(set) var selection: Set<UUID> = []
     /// Set when a batch import yields no usable photos (US-1116) — drives a
     /// retryable error state instead of silently dropping back to the empty
     /// state, which reads as "nothing happened".
@@ -103,6 +109,17 @@ final class AutoListerReviewModel: ObservableObject {
         var total: Int
     }
 
+    /// US-2373: how far a bulk import has got. `done` counts picks handled
+    /// (imported or skipped), so the bar always reaches `total`.
+    struct ImportProgress: Equatable {
+        var done: Int
+        var total: Int
+
+        var fraction: Double {
+            total > 0 ? Double(done) / Double(total) : 0
+        }
+    }
+
     /// A planned multi-window verify pass, held until the seller confirms its
     /// metered cost. One window == one AI action.
     struct VerifyConfirm: Identifiable {
@@ -140,6 +157,12 @@ final class AutoListerReviewModel: ObservableObject {
     /// US-1909: cancellation flag for a multi-window pass (checked between
     /// windows, so an in-flight request still completes).
     private var passCancelled = false
+    /// US-2373: cancellation flag for a bulk import (checked between slices, so
+    /// the photos already in flight still land).
+    private var importCancelled = false
+    /// US-2373: the last photo the seller tapped — the anchor a range select
+    /// ("select through here") reaches back to.
+    private var selectionAnchor: UUID?
 
     private static let sortDefaultsKey = "flipdesk-autolister-ungrouped-sort"
 
@@ -195,14 +218,37 @@ final class AutoListerReviewModel: ObservableObject {
 
     // MARK: - Import
 
-    /// Load PHPicker results into `PhotoCapture`s (compress + EXIF capture time,
-    /// same path as `PhotoIntakeView.ingestLibraryPicks`) then (re)group. Picks
-    /// that can't materialize (e.g. still in iCloud) are skipped.
+    /// How many picks are decoded + compressed + hashed at a time (US-2373).
+    /// The old import did one photo per await, so a 200-photo batch spent
+    /// minutes serialized behind iCloud fetches and JPEG encodes with no way to
+    /// tell how far along it was. Three at a time keeps at most three
+    /// full-resolution images resident — the same bound `PhotoCompressor
+    /// .compressBatch` uses to stay clear of a jetsam kill — while overlapping
+    /// each photo's download with the previous one's encode.
+    static let importConcurrency = 3
+
+    /// One photo's finished import work, assembled off the main actor.
+    private struct ImportedPhoto {
+        let capture: PhotoCapture
+        let hash: UInt64?
+        /// The file carried no capture time, so `capture.capturedAt` is made up.
+        let isTimeless: Bool
+    }
+
+    /// Load PHPicker results into `PhotoCapture`s (compress + EXIF capture
+    /// time, same path as `PhotoIntakeView.ingestLibraryPicks`). Picks that
+    /// can't materialize (e.g. still in iCloud) are skipped and counted.
+    ///
+    /// US-2373: imported photos land in the UNGROUPED pool — nothing is grouped
+    /// behind the seller's back. They pick the photos for an item and tap
+    /// "Group"; "Auto-group" is still there as one tap when they want it.
+    /// Progress is published per photo and the run is cancellable, so a big
+    /// batch is a visible, interruptible job rather than a frozen screen.
     func importPicks(_ results: [PHPickerResult]) async {
         isImporting = true
         importError = nil
         capNotice = nil
-        defer { isImporting = false }
+        importCancelled = false
         // Defensive cap: the picker's `selectionLimit` already bounds a single
         // pick to `remainingCapacity`, but a seller can pick across several
         // sessions ("Add photos"), so truncate here too and tell them how many
@@ -211,65 +257,147 @@ final class AutoListerReviewModel: ObservableObject {
         let capacity = remainingCapacity
         let picks = Array(results.prefix(capacity))
         let dropped = results.count - picks.count
-        if dropped > 0 {
-            capNotice = "Added \(picks.count) photo\(picks.count == 1 ? "" : "s") — \(dropped) more weren't included. A batch holds up to \(Self.maxBatchPhotos) photos so the upload doesn't leave you waiting. Generate this batch, then start another."
+        importProgress = picks.isEmpty ? nil : ImportProgress(done: 0, total: picks.count)
+        defer {
+            isImporting = false
+            importProgress = nil
         }
         var captures: [PhotoCapture] = []
-        for result in picks {
-            guard let image = await result.loadImage(),
-                  let output = await PhotoCompressor.compressOffMain(image) else { continue }
-            let creationDate = result.creationDate()
-            let capture = PhotoCapture(
-                imageData: output.imageData,
-                thumbnail: output.thumbnail,
-                capturedAt: creationDate ?? .now,
-                source: .library,
-                // US-1547: the original filename drives sequence grouping and
-                // is persisted as item_photos.original_filename at upload.
-                sourceName: result.itemProvider.suggestedName
-            )
-            // US-1909: remember that this photo's time is FABRICATED. Grouping
-            // must treat it as timeless (filename/vision signals) rather than as
-            // an instantaneous burst, which the guards deliberately exempt.
-            if creationDate == nil { timelessIds.insert(capture.id) }
-            captures.append(capture)
-            // US-1548: hash for the visual merge pass — off-main, alongside the
-            // compression this import already does per photo.
-            if let hash = await Task.detached(priority: .userInitiated, operation: {
-                DHash.compute(image)
-            }).value {
-                hashesById[capture.id] = hash
+        var failed = 0
+        var index = 0
+        while index < picks.count {
+            if importCancelled { break }
+            let upper = min(index + Self.importConcurrency, picks.count)
+            let slice = Array(picks[index..<upper])
+            // Fan out the slice, then re-order by the pick's position so import
+            // order is exactly the order the seller picked in — that order is
+            // the `.upload` sort AND the tiebreaker every other sort falls back
+            // to, so it can't be left to whichever decode finished first.
+            var batch = [ImportedPhoto?](repeating: nil, count: slice.count)
+            await withTaskGroup(of: (Int, ImportedPhoto?).self) { group in
+                for (offset, result) in slice.enumerated() {
+                    group.addTask {
+                        let imported = await Self.makeImportedPhoto(result)
+                        return (offset, imported)
+                    }
+                }
+                for await (offset, imported) in group {
+                    batch[offset] = imported
+                }
             }
+            for imported in batch {
+                guard let imported else {
+                    failed += 1
+                    continue
+                }
+                if imported.isTimeless { timelessIds.insert(imported.capture.id) }
+                if let hash = imported.hash { hashesById[imported.capture.id] = hash }
+                captures.append(imported.capture)
+            }
+            index = upper
+            importProgress = ImportProgress(done: index, total: picks.count)
+            // Show each slice as it lands instead of one big jump at the end —
+            // on a 200-photo import the grid fills in front of the seller.
+            ingest(batch.compactMap { $0?.capture })
         }
-        ingest(captures)
-        // US-1548: silent post-import verification (mirrors the web's
-        // auto-run after auto-group). Fire-and-forget; failures leave no trace.
-        if !captures.isEmpty {
-            Task { await self.verifyGroupsNow() }
-        }
+        let stopped = importCancelled && index < picks.count
+        importCancelled = false
+        capNotice = importNotice(
+            imported: captures.count,
+            dropped: dropped,
+            failed: failed,
+            stoppedAt: stopped ? index : nil,
+            picked: picks.count
+        )
         // The user picked photos but none could be materialized (still syncing
         // from iCloud, undecodable). Surface a retryable error rather than the
         // empty state, which would look like the import never ran (US-1116).
         // Guard on `picks`, not `results`: when the batch was already full every
         // pick is dropped by the cap, which is a `capNotice`, not an iCloud error.
-        if captures.isEmpty && !picks.isEmpty {
+        // A cancelled run isn't a failure either — the seller stopped it.
+        if captures.isEmpty && !picks.isEmpty && !stopped {
             importError = picks.count == 1
                 ? "Couldn't import that photo. It may still be downloading from iCloud — try again."
                 : "Couldn't import those photos. They may still be downloading from iCloud — try again."
         }
     }
 
-    /// Add captures and re-derive groups from capture time. Test seam (callers
-    /// pass synthetic `PhotoCapture`s without PhotoKit). Note: a fresh ingest
-    /// re-runs auto-grouping over everything, discarding prior manual edits —
-    /// acceptable for v1's "import once, then review" flow; the user can also
-    /// hit "Auto-group" to reset deliberately.
+    /// Stop an in-flight import after the photos already in flight finish.
+    /// Everything imported so far stays — the seller can group it or add more.
+    func cancelImport() {
+        importCancelled = true
+    }
+
+    /// Decode → compress → hash one pick, off the main actor (`nonisolated`, or
+    /// being a member of a `@MainActor` type would pin this work to the main
+    /// thread and undo the point of running a slice concurrently). Returns nil
+    /// when the pick can't be materialized at all.
+    private nonisolated static func makeImportedPhoto(
+        _ result: PHPickerResult
+    ) async -> ImportedPhoto? {
+        guard let loaded = await result.loadImageWithCaptureDate(),
+              let output = await PhotoCompressor.compressOffMain(loaded.image) else { return nil }
+        let capture = PhotoCapture(
+            imageData: output.imageData,
+            thumbnail: output.thumbnail,
+            capturedAt: loaded.capturedAt ?? .now,
+            source: .library,
+            // US-1547: the original filename drives sequence grouping and
+            // is persisted as item_photos.original_filename at upload.
+            sourceName: result.itemProvider.suggestedName
+        )
+        // US-1548: hash for the visual merge pass — off-main, alongside the
+        // compression this import already does per photo.
+        let hash = await Task.detached(priority: .userInitiated) {
+            DHash.compute(loaded.image)
+        }.value
+        // US-1909: remember when a photo's time is FABRICATED. Grouping must
+        // treat it as timeless (filename/vision signals) rather than as an
+        // instantaneous burst, which the guards deliberately exempt.
+        return ImportedPhoto(capture: capture, hash: hash, isTimeless: loaded.capturedAt == nil)
+    }
+
+    /// The one banner that sums up how an import went — capped picks, photos
+    /// that wouldn't load, and a stopped run all in a single line instead of
+    /// three competing surfaces. nil when everything landed cleanly.
+    private func importNotice(
+        imported: Int,
+        dropped: Int,
+        failed: Int,
+        stoppedAt: Int?,
+        picked: Int
+    ) -> String? {
+        var parts: [String] = []
+        if let stoppedAt {
+            parts.append(
+                "Stopped after \(stoppedAt) of \(picked) photos — the \(imported) already imported are here."
+            )
+        }
+        if dropped > 0 {
+            parts.append(
+                "\(dropped) photo\(dropped == 1 ? " wasn't" : "s weren't") included — a batch holds up to \(Self.maxBatchPhotos). Generate this batch, then start another."
+            )
+        }
+        if failed > 0 {
+            parts.append(
+                "\(failed) photo\(failed == 1 ? "" : "s") couldn't be imported — \(failed == 1 ? "it may" : "they may") still be downloading from iCloud."
+            )
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    /// Add captures to the batch. US-2373: they land UNGROUPED — grouping is
+    /// the seller's move now (select photos → "Group"), with "Auto-group" as an
+    /// explicit one-tap shortcut. Test seam: callers pass synthetic
+    /// `PhotoCapture`s without PhotoKit.
     func ingest(_ captures: [PhotoCapture]) {
         for c in captures {
-            if photosById[c.id] == nil { importOrder.append(c.id) }
+            if photosById[c.id] == nil {
+                importOrder.append(c.id)
+                ungrouped.append(c.id)
+            }
             photosById[c.id] = c
         }
-        regroupAll()
     }
 
     /// Test seam (US-1909): ingest photos whose capture time is FABRICATED (the
@@ -283,13 +411,35 @@ final class AutoListerReviewModel: ObservableObject {
 
     // MARK: - Grouping
 
-    /// Re-run clustering over all imported photos: capture-time bursts, the
-    /// US-1547 filename-sequence signal for timeless photos, and the US-1548
-    /// dHash visual merge pass over whatever hashed during import.
+    /// Throw away every group and re-cluster the WHOLE batch from scratch:
+    /// capture-time bursts, the US-1547 filename-sequence signal for timeless
+    /// photos, and the US-1548 dHash visual merge pass over whatever hashed
+    /// during import. Destructive to hand-made groups, so the UI only offers it
+    /// as an explicit "Regroup everything".
     func regroupAll() {
+        let all = importOrder.filter { photosById[$0] != nil }
+        groups = []
+        ungrouped = all
+        clearSelection()
+        // US-1548: regrouping mints fresh group ids — prior suggestions can no
+        // longer be applied, so drop them (a new verify can re-derive).
+        suggestions = []
+        // US-1909: proposals were made against the previous grouping.
+        proposalReviews = []
+        autoGroupUngrouped()
+    }
+
+    /// US-2373: cluster ONLY the ungrouped pool and append what it finds, the
+    /// way the web's Auto-group button works. Groups the seller built by hand
+    /// are left exactly as they are, so auto-grouping is a helper they can
+    /// reach for on the leftovers rather than a decision made for them.
+    @discardableResult
+    func autoGroupUngrouped() -> Int {
+        let pool = Set(ungrouped)
+        guard !pool.isEmpty else { return 0 }
         // US-1909: iterate importOrder (not the dict's arbitrary order) so ties
         // in the provenance sort resolve to import order, exactly like web.
-        let groupables = importOrder.compactMap { id -> GroupablePhoto? in
+        let groupables = importOrder.filter(pool.contains).compactMap { id -> GroupablePhoto? in
             guard let photo = photosById[id] else { return nil }
             return GroupablePhoto(
                 id: photo.id.uuidString,
@@ -305,18 +455,111 @@ final class AutoListerReviewModel: ObservableObject {
             hashesById.map { ($0.key.uuidString, $0.value) },
             uniquingKeysWith: { a, _ in a }
         )
-        groups = PhotoGrouping.autoGroup(groupables, hashes: hashes).compactMap { auto in
+        let created = PhotoGrouping.autoGroup(groupables, hashes: hashes).compactMap { auto -> ReviewGroup? in
             let ids = auto.photoIds.compactMap(UUID.init(uuidString:))
             guard let cover = UUID(uuidString: auto.coverId) ?? ids.first else { return nil }
             return ReviewGroup(id: UUID(), photoIds: ids, coverId: cover)
         }
-        // US-1909: auto-grouping assigns every photo, so nothing is left over.
-        ungrouped = []
-        // US-1548: regrouping mints fresh group ids — prior suggestions can no
-        // longer be applied, so drop them (a new verify can re-derive).
-        suggestions = []
-        // US-1909: proposals were made against the previous grouping.
-        proposalReviews = []
+        guard !created.isEmpty else { return 0 }
+        let assigned = Set(created.flatMap(\.photoIds))
+        groups.append(contentsOf: created)
+        ungrouped.removeAll { assigned.contains($0) }
+        clearSelection()
+        return created.count
+    }
+
+    // MARK: - US-2373: selection-driven grouping
+
+    var ungroupedCount: Int { ungrouped.count }
+    var selectedCount: Int { selection.count }
+    var hasSelection: Bool { !selection.isEmpty }
+
+    func isSelected(_ photoId: UUID) -> Bool { selection.contains(photoId) }
+
+    /// Tap a photo: in or out of the selection being built.
+    func toggleSelection(_ photoId: UUID) {
+        guard ungrouped.contains(photoId) else { return }
+        if selection.contains(photoId) {
+            selection.remove(photoId)
+        } else {
+            selection.insert(photoId)
+        }
+        selectionAnchor = photoId
+    }
+
+    /// Select everything from the last tapped photo through this one, in the
+    /// grid's CURRENT order — the phone equivalent of the web's shift-click,
+    /// and how a 9-photo item gets selected in two taps instead of nine.
+    func selectRange(through photoId: UUID) {
+        guard ungrouped.contains(photoId) else { return }
+        let order = ungroupedSorted.map(\.id)
+        guard let end = order.firstIndex(of: photoId) else { return }
+        guard let anchor = selectionAnchor, let start = order.firstIndex(of: anchor) else {
+            toggleSelection(photoId)
+            return
+        }
+        for index in min(start, end)...max(start, end) {
+            selection.insert(order[index])
+        }
+        selectionAnchor = photoId
+    }
+
+    func selectAllUngrouped() {
+        selection = Set(ungrouped)
+        selectionAnchor = nil
+    }
+
+    func clearSelection() {
+        selection.removeAll()
+        selectionAnchor = nil
+    }
+
+    /// Turn the current selection into one item and clear it, so the grid drops
+    /// those photos and the next item's photos are what's left in front of the
+    /// seller. The group keeps the grid's displayed order (NOT tap order, which
+    /// a range select makes meaningless) and covers with its first photo.
+    @discardableResult
+    func groupSelection() -> Bool {
+        let ids = ungroupedSorted.map(\.id).filter(selection.contains)
+        guard let cover = ids.first else { return false }
+        let grouped = Set(ids)
+        ungrouped.removeAll { grouped.contains($0) }
+        groups.append(ReviewGroup(id: UUID(), photoIds: ids, coverId: cover))
+        clearSelection()
+        return true
+    }
+
+    /// Cut the ungrouped grid into items of exactly `size` photos, in the order
+    /// shown — the rescue tool for a dump shot in a strict N-per-item rhythm.
+    /// Returns how many items it made.
+    @discardableResult
+    func groupEveryN(_ size: Int) -> Int {
+        guard size >= 1 else { return 0 }
+        let ordered = ungroupedSorted.map(\.id)
+        guard !ordered.isEmpty else { return 0 }
+        var created = 0
+        var start = 0
+        while start < ordered.count {
+            let chunk = Array(ordered[start..<min(start + size, ordered.count)])
+            groups.append(ReviewGroup(id: UUID(), photoIds: chunk, coverId: chunk[0]))
+            created += 1
+            start += size
+        }
+        ungrouped.removeAll()
+        clearSelection()
+        return created
+    }
+
+    /// Undo one grouping decision: the item's photos go back to the grid,
+    /// nothing is discarded. The escape hatch for a mis-tap, and what makes
+    /// auto-group safe to try.
+    func ungroupGroup(_ groupId: UUID) {
+        guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        let returning = groups[index].photoIds
+        groups.remove(at: index)
+        // Keep the pool in import order so the grid's sorts stay predictable.
+        let pool = Set(ungrouped).union(returning)
+        ungrouped = importOrder.filter(pool.contains)
     }
 
     // MARK: - Edits
@@ -363,6 +606,8 @@ final class AutoListerReviewModel: ObservableObject {
         timelessIds.remove(photoId)
         importOrder.removeAll { $0 == photoId }
         ungrouped.removeAll { $0 == photoId }
+        selection.remove(photoId)
+        if selectionAnchor == photoId { selectionAnchor = nil }
         proposalReviews = proposalReviews.compactMap { review in
             var next = review
             next.photoIds.removeAll { $0 == photoId.uuidString }
@@ -379,8 +624,27 @@ final class AutoListerReviewModel: ObservableObject {
         guard let gi = groups.firstIndex(where: { $0.id == groupId }),
               groups[gi].photoIds.contains(photoId) else { return }
         groups[gi].photoIds.removeAll { $0 == photoId }
-        if !ungrouped.contains(photoId) { ungrouped.append(photoId) }
+        if !ungrouped.contains(photoId) {
+            // US-2373: re-enter the pool in import order, not at the end — the
+            // grid's sorts all fall back to import order, so a photo that comes
+            // back should land where it came from.
+            let pool = Set(ungrouped).union([photoId])
+            ungrouped = importOrder.filter(pool.contains)
+        }
         normalize()
+    }
+
+    /// Discard every selected photo (the bulk "these shots are junk" action).
+    /// Returns how many were removed.
+    @discardableResult
+    func removeSelected() -> Int {
+        let ids = selection
+        guard !ids.isEmpty else { return 0 }
+        for id in ids { forget(id) }
+        for i in groups.indices { groups[i].photoIds.removeAll { ids.contains($0) } }
+        normalize()
+        clearSelection()
+        return ids.count
     }
 
     /// Move an ungrouped photo into a group, or into a brand-new one when
@@ -388,6 +652,7 @@ final class AutoListerReviewModel: ObservableObject {
     func groupUngroupedPhoto(_ photoId: UUID, into targetId: UUID?) {
         guard ungrouped.contains(photoId), photosById[photoId] != nil else { return }
         ungrouped.removeAll { $0 == photoId }
+        selection.remove(photoId)
         if let targetId, let ti = groups.firstIndex(where: { $0.id == targetId }) {
             groups[ti].photoIds.append(photoId)
         } else {
@@ -395,12 +660,35 @@ final class AutoListerReviewModel: ObservableObject {
         }
     }
 
+    /// US-2373: the last computed order, kept because the grid asks for this on
+    /// EVERY re-render and a re-render happens on every selection tap. Sorting
+    /// 200 photos by provenance parses filenames with a regex per comparison,
+    /// which is far too much work to redo just because a tile got a checkmark.
+    /// The key covers everything the order depends on: the mode, which photos
+    /// are in the pool and in what import order, and `photoRevision` for an
+    /// in-place photo edit (rotation replaces a capture under the same id).
+    private var sortedCache: (mode: UngroupedSortMode, pool: [UUID], revision: Int, photos: [PhotoCapture])?
+    /// Bumped whenever a `PhotoCapture` VALUE changes under an existing id.
+    private var photoRevision = 0
+
     /// The ungrouped pool in the seller's chosen order. Every mode is a STABLE
     /// sort over the import order, so ties always fall back to it (mirrors the
     /// web grid, where `ungroupedSort === "upload"` recovers the original
     /// sequence exactly). Swift's `sorted(by:)` is NOT stable, so each mode
     /// decorates with the import index and breaks ties on it explicitly.
     var ungroupedSorted: [PhotoCapture] {
+        if let cache = sortedCache,
+           cache.mode == ungroupedSort,
+           cache.revision == photoRevision,
+           cache.pool == ungrouped {
+            return cache.photos
+        }
+        let photos = computeUngroupedSorted()
+        sortedCache = (ungroupedSort, ungrouped, photoRevision, photos)
+        return photos
+    }
+
+    private func computeUngroupedSorted() -> [PhotoCapture] {
         // Anchor on importOrder, NOT the pool's own insertion order (which is
         // whatever sequence the seller happened to ungroup in) — that's what
         // makes `.upload` recover the original import sequence and every other
@@ -449,6 +737,34 @@ final class AutoListerReviewModel: ObservableObject {
     private func effectiveCaptureDate(_ photo: PhotoCapture) -> Date? {
         timelessIds.contains(photo.id) ? nil : photo.capturedAt
     }
+
+    /// US-2373: the one line of provenance worth printing under a grid tile —
+    /// whichever thing the seller is currently sorting BY, so a grid ordered by
+    /// file name shows file names and one ordered by date shows times. nil when
+    /// the photo carries neither (a screenshot in an import-order grid).
+    func gridCaption(for photo: PhotoCapture) -> String? {
+        switch ungroupedSort {
+        case .name, .upload:
+            return photo.sourceName
+        case .date, .shooting:
+            if let date = effectiveCaptureDate(photo) {
+                return Self.captionTimeFormatter.string(from: date)
+            }
+            // No real capture time: the file name is the only provenance left,
+            // and it's what grouping falls back to as well.
+            return photo.sourceName
+        }
+    }
+
+    /// Time only: a bulk shoot is nearly always one session, and the tile is
+    /// too narrow for a full date. The ORDER carries the day, the caption just
+    /// lets the seller see where one item's shots end and the next begin.
+    private static let captionTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     /// Stable sort: ties (comparator == 0) keep `photos`' incoming order, which
     /// is import order.
@@ -686,6 +1002,7 @@ final class AutoListerReviewModel: ObservableObject {
                 .filter { ungrouped.contains($0) }
             guard ids.count >= 2 else { continue }
             ungrouped.removeAll { ids.contains($0) }
+            for id in ids { selection.remove(id) }
             groups.append(ReviewGroup(id: UUID(), photoIds: ids, coverId: ids[0]))
         }
     }
@@ -822,13 +1139,171 @@ final class AutoListerReviewModel: ObservableObject {
             // US-1547: rotation must not drop the provenance filename.
             sourceName: capture.sourceName
         )
+        // US-2373: same id, new pixels — invalidate the sorted-grid cache so the
+        // grid shows the rotated thumbnail.
+        photoRevision += 1
         // US-1548: re-hash the rotated pixels (a 90° turn changes the dHash).
         hashesById[photoId] = await Task.detached(priority: .userInitiated, operation: {
             DHash.compute(rotated)
         }).value
     }
 
-    // MARK: - Handoff
+    // MARK: - US-2374: send this batch to the desktop
+
+    /// Where a send-to-desktop run has got to. `.sent` sticks around as a
+    /// banner so the seller knows the batch is waiting on the other screen.
+    enum HandoffPhase: Equatable {
+        case idle
+        case uploading(done: Int, total: Int)
+        case sent(photos: Int, partial: Bool)
+        case failed(String)
+    }
+
+    @Published private(set) var handoff: HandoffPhase = .idle
+    private var handoffCancelled = false
+
+    var isSendingToDesktop: Bool {
+        if case .uploading = handoff { return true }
+        return false
+    }
+
+    /// Upload every photo in the batch to the shared `_staging/` folder and park
+    /// it, with the current grouping, for the desktop AutoLister to pick up.
+    /// Runs no AI and creates no inventory rows.
+    ///
+    /// Ungrouped photos go too — the desktop's grid is where the seller will
+    /// finish the job, so holding them back would defeat the point.
+    func sendToDesktop() async {
+        guard !isSendingToDesktop, !photosById.isEmpty else { return }
+        handoffCancelled = false
+        let stagingSessionId = UUID().uuidString.lowercased()
+        // The photos in a stable, meaningful order: each group's photos
+        // cover-first, then whatever is still ungrouped, in import order.
+        let orderedGroups = groups.map { group -> [UUID] in
+            [group.coverId] + group.photoIds.filter { $0 != group.coverId }
+        }
+        let ungroupedIds = importOrder.filter(Set(ungrouped).contains)
+        let ordered = orderedGroups.flatMap { $0 } + ungroupedIds
+        let total = ordered.count
+        handoff = .uploading(done: 0, total: total)
+
+        var uploaded: [UUID: StagedPhotoUpload] = [:]
+        for (index, id) in ordered.enumerated() {
+            if handoffCancelled { break }
+            // Runs at the end of EVERY iteration, including the skips — a photo
+            // that vanished mid-run must not leave the bar stuck.
+            defer { handoff = .uploading(done: index + 1, total: total) }
+            guard let capture = photosById[id] else { continue }
+            // The thumbnail is what the desktop grid renders, so it's worth the
+            // extra few KB per photo; a failed thumbnail is not fatal (the page
+            // falls back to the full image). Encoded through PhotoCompressor
+            // like every other JPEG in the app — it bakes orientation into the
+            // pixels, which the destinations that ignore EXIF depend on.
+            let thumbData = await PhotoCompressor.compressOffMain(
+                capture.thumbnail,
+                maxLongEdge: PhotoCompressor.defaultThumbnailLongEdge
+            )?.imageData
+            do {
+                uploaded[id] = try await service.stagePhoto(
+                    sessionId: stagingSessionId,
+                    jpegData: capture.imageData,
+                    thumbnailData: thumbData
+                )
+            } catch {
+                // Skip the photo, keep the run going: one bad upload in 200
+                // shouldn't cost the seller the whole batch.
+                Telemetry.breadcrumb(
+                    "AutoLister handoff photo upload failed — \(error.localizedDescription)",
+                    category: "autolister"
+                )
+            }
+        }
+
+        let stopped = handoffCancelled
+        handoffCancelled = false
+        guard !uploaded.isEmpty else {
+            handoff = stopped
+                ? .idle
+                : .failed("Couldn't upload these photos. Check your connection and try again.")
+            return
+        }
+
+        let photos = ordered.compactMap { id -> HandoffPhotoPayload? in
+            guard let upload = uploaded[id], let capture = photosById[id] else { return nil }
+            return HandoffPhotoPayload(
+                id: id.uuidString,
+                storagePath: upload.storagePath,
+                thumbnailStoragePath: upload.thumbnailStoragePath,
+                width: upload.width,
+                height: upload.height,
+                bytes: upload.bytes,
+                // Only a REAL capture time travels: a fabricated one would make
+                // the desktop's auto-grouping read an instantaneous burst that
+                // never happened (the US-1909 trap, on the other screen).
+                capturedAtMs: timelessIds.contains(id)
+                    ? nil
+                    : Int(capture.capturedAt.timeIntervalSince1970 * 1000),
+                sourceName: capture.sourceName,
+                phash: hashesById[id].map { String(format: "%016llx", $0) } ?? ""
+            )
+        }
+        let payloadGroups = groups.compactMap { group -> HandoffGroupPayload? in
+            let ids = ([group.coverId] + group.photoIds.filter { $0 != group.coverId })
+                .filter { uploaded[$0] != nil }
+            guard let cover = ids.first else { return nil }
+            return HandoffGroupPayload(
+                id: group.id.uuidString,
+                photoIds: ids.map(\.uuidString),
+                coverId: cover.uuidString
+            )
+        }
+
+        do {
+            _ = try await service.createHandoffSession(
+                stagingSessionId: stagingSessionId,
+                photos: photos,
+                groups: payloadGroups
+            )
+            handoff = .sent(photos: photos.count, partial: photos.count < total)
+            Telemetry.event("autolister_handoff_sent", props: [
+                "photos": photos.count,
+                "groups": payloadGroups.count,
+                "partial": photos.count < total,
+            ])
+        } catch {
+            handoff = .failed("Couldn't send this batch to your desktop. Try again.")
+        }
+    }
+
+    /// Stop a send after the photo already in flight finishes. Whatever
+    /// uploaded is still parked for the desktop — a partial batch beats none.
+    func cancelHandoff() {
+        handoffCancelled = true
+    }
+
+    func dismissHandoffNotice() {
+        handoff = .idle
+    }
+
+    /// Clear the batch off the phone once it's safely on the desktop, so the
+    /// same photos don't get generated twice.
+    func clearBatch() {
+        photosById = [:]
+        groups = []
+        ungrouped = []
+        importOrder = []
+        hashesById = [:]
+        timelessIds = []
+        stagedPathByPhotoId = [:]
+        suggestions = []
+        proposalReviews = []
+        clearSelection()
+        capNotice = nil
+        importError = nil
+        handoff = .idle
+    }
+
+    // MARK: - Generate handoff
 
     /// Snapshot for the generate pipeline: each group's photos ordered cover-first.
     func preparedGroups() -> [PreparedGroup] {
