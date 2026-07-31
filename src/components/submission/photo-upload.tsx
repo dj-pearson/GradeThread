@@ -15,6 +15,7 @@ import { validateImage, compressImage, extractExif } from "@/lib/image-utils";
 import {
   assessMacroPhoto,
   measureMacroPhoto,
+  uploadMaxWidthFor,
 } from "@/lib/macro-photo-quality";
 import { normalizeToImageFile } from "@/lib/media-intake";
 import {
@@ -435,11 +436,21 @@ export function PhotoUpload({
         return;
       }
 
+      // One resolution of the slot's server photo_type, used by BOTH the upload
+      // cap and the quality gate — they must agree about which slot this is or
+      // a macro shot gets judged against a floor its own cap never targeted.
+      const slotImageType = UPLOAD_SLOTS.find(
+        (s) => s.slotKey === slotKey,
+      )?.imageType;
+
       try {
         // US-339: read provenance EXIF from the ORIGINAL file BEFORE the canvas
         // re-encode in compressImage destroys it. Best-effort — never blocks.
         const exif = await extractExif(file).catch(() => null);
-        const compressed = await compressImage(file);
+        // US-2135: the tag/detail slots keep more pixels than front/back, so a
+        // crop of the label region has something to magnify later. Scoped, not
+        // global — see uploadMaxWidthFor.
+        const compressed = await compressImage(file, uploadMaxWidthFor(slotImageType));
         const compressedFile = new File([compressed.blob], file.name, {
           type: compressed.blob.type,
         });
@@ -452,10 +463,7 @@ export function PhotoUpload({
         // canvas failure returns nulls, which assessMacroPhoto reads as
         // "cannot tell" and passes.
         const macro = assessMacroPhoto(
-          await measureMacroPhoto(
-            compressed.blob,
-            UPLOAD_SLOTS.find((s) => s.slotKey === slotKey)?.imageType,
-          ),
+          await measureMacroPhoto(compressed.blob, slotImageType),
         );
 
         setSlots((prev) => {

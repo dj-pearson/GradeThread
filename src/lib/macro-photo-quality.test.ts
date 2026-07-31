@@ -21,6 +21,9 @@ import {
   minLongEdgeFor,
   minSharpnessFor,
   normalizeSharpness,
+  DEFAULT_UPLOAD_MAX_WIDTH_PX,
+  MACRO_UPLOAD_MAX_WIDTH_PX,
+  uploadMaxWidthFor,
   SHARPNESS_VARIANCE_SCALE,
 } from "./macro-photo-quality";
 
@@ -259,6 +262,54 @@ describe("the sharpness metric", () => {
     const s = normalizeSharpness(laplacianVariance(stripes(64, 64), 64, 64));
     for (const t of Object.keys(MACRO_MIN_LONG_EDGE_PX)) {
       expect(s).toBeGreaterThanOrEqual(minSharpnessFor(t) as number);
+    }
+  });
+});
+
+describe("scoped upload resolution (US-2135 AC1/AC5)", () => {
+  it("leaves every non-macro slot at the global default", () => {
+    // AC5 is explicit: do NOT raise this globally. The iOS cap was LOWERED for
+    // upload speed on purpose, and a front/back shot gains nothing from pixels
+    // a buyer will never zoom into.
+    for (const t of ["front", "back", "flatlay", "on_model", "measurement"]) {
+      expect(uploadMaxWidthFor(t)).toBe(DEFAULT_UPLOAD_MAX_WIDTH_PX);
+    }
+    expect(uploadMaxWidthFor(null)).toBe(DEFAULT_UPLOAD_MAX_WIDTH_PX);
+    expect(uploadMaxWidthFor("brand_new_slot")).toBe(DEFAULT_UPLOAD_MAX_WIDTH_PX);
+  });
+
+  it("raises every macro slot above the default", () => {
+    for (const t of Object.keys(MACRO_UPLOAD_MAX_WIDTH_PX)) {
+      expect(uploadMaxWidthFor(t)).toBeGreaterThan(DEFAULT_UPLOAD_MAX_WIDTH_PX);
+    }
+  });
+
+  it("gives the authenticity slots more than the tag slots", () => {
+    // The tell IS the fine detail on a struck serial, whereas a tag carries
+    // printed text that survives more compression.
+    expect(uploadMaxWidthFor("serial")).toBeGreaterThan(uploadMaxWidthFor("tag"));
+    expect(uploadMaxWidthFor("marking")).toBeGreaterThan(uploadMaxWidthFor("detail"));
+  });
+
+  it("covers every gated slot, so no macro slot is judged above its own cap", () => {
+    // The failure this prevents: a slot with a 900px FLOOR but the 2400 default
+    // CAP would be nagged for resolution the pipeline was never asked to keep.
+    for (const t of Object.keys(MACRO_MIN_LONG_EDGE_PX)) {
+      expect(uploadMaxWidthFor(t)).toBeGreaterThan(DEFAULT_UPLOAD_MAX_WIDTH_PX);
+      expect(uploadMaxWidthFor(t)).toBeGreaterThan(
+        MACRO_MIN_LONG_EDGE_PX[t] as number,
+      );
+    }
+  });
+
+  it("stays inside the 10MB upload ceiling by a wide margin", () => {
+    // Both the client (MAX_FILE_SIZE) and the edge (DEFAULT_MAX_BYTES) cap at
+    // 10MB. A cap high enough to breach it turns a quality improvement into a
+    // rejected upload — the failure would land on the seller, at capture time.
+    // 4:3 at q0.85 WebP runs well under 1 byte/px in practice; 2 is generous.
+    for (const w of Object.values(MACRO_UPLOAD_MAX_WIDTH_PX)) {
+      const worstCaseBytes = w * (w * 0.75) * 0.5;
+      expect(worstCaseBytes).toBeLessThan(10 * 1024 * 1024);
     }
   });
 });

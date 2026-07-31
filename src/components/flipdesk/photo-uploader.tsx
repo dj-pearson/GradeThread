@@ -24,6 +24,7 @@ import { compressImage } from "@/lib/image-utils";
 import {
   assessMacroPhoto,
   measureMacroPhoto,
+  uploadMaxWidthFor,
   type MacroQualityAssessment,
 } from "@/lib/macro-photo-quality";
 import { normalizeToImageFile } from "@/lib/media-intake";
@@ -150,7 +151,11 @@ export function PhotoUploader({
     let thumbBlob: Blob | null = null;
     let thumbType = "image/webp";
     try {
-      const main = await compressImage(file, 2400, 0.85);
+      // US-2135: macro slots keep more pixels than a general condition photo.
+      // Non-macro slots get the unchanged 2400 default — AC5 is explicit that
+      // the increase must NOT be global, because the upload-speed tradeoff that
+      // motivated the low cap is real on mobile data.
+      const main = await compressImage(file, uploadMaxWidthFor(photoType), 0.85);
       // Always prefer the canvas-baked output: compressImage applies EXIF
       // orientation to the PIXELS (upright) and strips metadata, so the
       // stored image renders the right way up everywhere — including eBay,

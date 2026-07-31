@@ -110,6 +110,64 @@ export const MACRO_MIN_SHARPNESS: Readonly<Record<string, number>> = {
 /** The floor applied to any macro slot without its own entry above. */
 export const DEFAULT_MIN_SHARPNESS = 0.22;
 
+// ── US-2135: scoped upload resolution ───────────────────────────────────
+//
+// Web compresses every capture to a 2400px WIDTH cap. For a macro shot that is
+// the binding constraint on evidence: a label filling a third of the frame
+// arrives as roughly 500px of label — enough to OCR a size, nowhere near enough
+// for stitch density, kerning or engraving fidelity.
+//
+// STATE PLAINLY WHAT THIS DOES AND DOES NOT BUY. Claude normalizes an image's
+// long edge to ~1568px, so shipping more pixels does NOT change what the model
+// sees today. What it changes is what we RETAINED: the crop-and-zoom pipeline
+// that would actually deliver a magnified tag region (US-2135 AC2, generalizing
+// the Forensic defect zoom) cannot recover detail that was thrown away at
+// capture. This is AC1's "retain a higher-resolution original", and it is
+// worthless-looking until AC2 lands — which is exactly why it has to land
+// first.
+//
+// AC5 forbids raising this globally, and it is right to: the iOS cap was
+// LOWERED to 1600px deliberately for upload speed, and that tradeoff is real on
+// mobile data. So the increase is scoped to the macro slots, and sized against
+// the 10MB byte ceiling both the client and DEFAULT_MAX_BYTES enforce — a
+// 3600px WebP at q0.85 lands around 1-3MB, comfortably inside it, whereas the
+// ~4700px a third-frame crop would need to reach Claude's ceiling does not.
+export const DEFAULT_UPLOAD_MAX_WIDTH_PX = 2400;
+
+export const MACRO_UPLOAD_MAX_WIDTH_PX: Readonly<Record<string, number>> = {
+  // Authenticity evidence. The tell IS the fine detail — a struck serial, a
+  // maker's mark, stitch pitch, moulding seams — so these get the most.
+  serial: 3600,
+  marking: 3600,
+  surface: 3600,
+  corner: 3600,
+  sole: 3600,
+  // Tag and close-up slots: legibility of printed text and weave. Real gain
+  // over 2400 without the byte cost of the authenticity tier on the slots
+  // sellers shoot most often.
+  tag: 3000,
+  tag_2: 3000,
+  label: 3000,
+  label_2: 3000,
+  detail: 3000,
+  detail_2: 3000,
+  detail_3: 3000,
+  detail_4: 3000,
+  defect: 3000,
+  interior: 3000,
+  certificate: 3000,
+};
+
+/**
+ * Width cap to compress this slot's upload to. Returns the unchanged global
+ * default for every non-macro slot, so a caller can pass the result
+ * unconditionally without deciding whether the slot is special.
+ */
+export function uploadMaxWidthFor(photoType: string | null | undefined): number {
+  if (!photoType) return DEFAULT_UPLOAD_MAX_WIDTH_PX;
+  return MACRO_UPLOAD_MAX_WIDTH_PX[photoType] ?? DEFAULT_UPLOAD_MAX_WIDTH_PX;
+}
+
 /** True when this photo slot is a macro shot the gate applies to. */
 export function isMacroPhotoType(photoType: string | null | undefined): boolean {
   return !!photoType && photoType in MACRO_MIN_LONG_EDGE_PX;
