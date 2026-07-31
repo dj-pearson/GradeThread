@@ -561,4 +561,131 @@
     <string name="marketplaces_sync_listings">Sync listings from eBay</string>
     <string name="marketplaces_disconnect_title">Disconnect %1$s?</string>
     <string name="marketplaces_disconnect_body">FlipDesk stops publishing and syncing for this account. Listings already live on eBay stay live.</string>
+
+    <!-- US-2368: reconciliation screen text. -->
+    <string name="reconciliation_unmatched_ebay_listings">Unmatched eBay listings</string>
+    <string name="reconciliation_that_didn_t_work">That didn\'t work</string>
+    <string name="reconciliation_done">Done</string>
+    <string name="reconciliation_loading">Loading…</string>
+    <string name="reconciliation_nothing_reconcile_every_ebay_listing">Nothing to reconcile. Every eBay listing is matched to an item.</string>
+    <string name="reconciliation_back">Back</string>
+    <string name="reconciliation_create_them">Create them</string>
+    <string name="reconciliation_cancel">Cancel</string>
+    <string name="reconciliation_create_item">Create item</string>
+    <string name="reconciliation_link">Link</string>
+    <string name="reconciliation_ignore">Ignore</string>
+    <string name="reconciliation_create_item_2">Create an item</string>
+    <string name="reconciliation_title">Title</string>
+    <string name="reconciliation_sku">SKU</string>
+    <string name="reconciliation_target_price">Target price</string>
+    <string name="reconciliation_item_starts_as_listed_ebay">The item starts as Listed — eBay says this listing is live.</string>
+    <string name="reconciliation_create">Create</string>
+    <string name="reconciliation_link_item">Link to an item</string>
+    <string name="reconciliation_search_items">Search your items</string>
+
+    <!-- US-2368: publish screen text. -->
+    <string name="publish_check_this_first">Check this first</string>
+    <string name="publish_ve_hit_plan_limit">You\'ve hit a plan limit</string>
+    <string name="publish_publish_failed">Publish failed</string>
+    <string name="publish_back_composer">Back to the composer</string>
+    <string name="publish_listing_title">Listing title</string>
+    <string name="publish_condition">Condition</string>
+    <string name="publish_condition_notes_optional">Condition notes (optional)</string>
+    <string name="publish_price">Price</string>
+    <string name="publish_still_needed_this_category">Still needed for this category</string>
+    <string name="publish_fix_these_before_publishing">Fix these before publishing</string>
+    <string name="publish_worth_look">Worth a look</string>
+    <string name="publish_publishing_stays_off_until_blockers">Publishing stays off until the blockers above are cleared.</string>
+    <string name="publish_est_net_profit">Est. net profit</string>
+    <string name="publish_no_cost_basis_this_item">No cost basis on this item, so this is revenue after fees — not profit.</string>
+    <string name="publish_ready_publish">Ready to publish</string>
+    <string name="publish_s_live_ebay">It\'s live on eBay</string>
+    <string name="publish_view_ebay">View on eBay</string>
+    <string name="publish_done">Done</string>
+    <string name="reconciliation_intro">These are live on eBay but aren\'t linked to anything in your inventory. Create an item, link an existing one, or ignore it.</string>
+    <string name="reconciliation_creating">Creating items\u2026 %1$d of %2$d</string>
+    <string name="reconciliation_create_all">Create items for all %1$d</string>
+    <string name="reconciliation_create_title">Create %1$d items?</string>
+    <string name="reconciliation_create_body">One new inventory item per listing, using each listing\'s title, SKU and price. You can edit them afterwards.</string>
+    <string name="reconciliation_sku_row">\u0020\u0020\u0020SKU %1$s</string>
+    <string name="reconciliation_no_match">Nothing matches. Items sync to this device, so a very new one may not be here yet.</string>
+
+    <string name="publish_list_title">List on eBay</string>
+    <string name="publish_relist_title">Relist on eBay</string>
+    <string name="publish_to_ebay">Publish to eBay</string>
+    <string name="publish_relist_note">This item has been listed before. Publishing ends the old listing first, then creates a new one.</string>
+    <string name="publish_checking">Checking\u2026</string>
+    <string name="publish_save_and_check">Save and check</string>
+    <string name="publish_publishing">Publishing\u2026</string>
+    <string name="publish_bullet_prefix">\u2022 </string>
+    <string name="publish_net_and_margin">%1$s \u00b7 %2$d%% margin</string>
+    <string name="publish_fees_and_costs">eBay fees ~%1$s \u00b7 your costs %2$s</string>
+    <string name="publish_price_with_currency">%1$s %2$s</string>
+    <string name="publish_quantity">Qty %1$s</string>
+    <!-- Only ever a fallback: the connection reports its own currency. -->
+    <string name="publish_default_currency">USD</string>
+    <string name="publish_done_syncing">The listing is up. Its details will finish syncing here shortly.</string>
+    <string name="publish_done_synced">The listing is up and synced.</string>
+    <string name="publish_listing_id">Listing %1$s</string>
+    <string name="publish_offer_id">Offer %1$s</string>
+    <string name="publish_sku">SKU %1$s</string>
+
+    <!-- US-2368: repricing screen text. -->
+    <string name="repricing_repricing">Repricing</string>
+    <string name="repricing_that_didn_t_work">That didn\'t work</string>
+    <string name="repricing_scan">Scan</string>
+    <string name="repricing_worth_knowing">Worth knowing</string>
+    <string name="repricing_new_rule">New rule</string>
+    <string name="repricing_back">Back</string>
+    <string name="repricing_prices_already_changed_stay_as">Prices it already changed stay as they are.</string>
+    <string name="repricing_delete">Delete</string>
+    <string name="repricing_cancel">Cancel</string>
+    <string name="repricing_apply">Apply</string>
+    <string name="repricing_dismiss">Dismiss</string>
+    <string name="repricing_edit">Edit</string>
+    <string name="repricing_name">Name</string>
+    <string name="repricing_never_below">Never below</string>
+    <string name="repricing_only_this_brand_optional">Only this brand (optional)</string>
+    <string name="repricing_auto_accept_offers">Auto-accept offers</string>
+    <string name="repricing_save">Save</string>
+
+    <!-- US-2368: intake screen text. -->
+    <string name="intake_resume_unsaved_item">Resume your unsaved item?</string>
+    <string name="intake_resume">Resume</string>
+    <string name="intake_discard">Discard</string>
+    <string name="intake_title">Title</string>
+    <string name="intake_brand">Brand</string>
+    <string name="intake_style">Style</string>
+    <string name="intake_size">Size</string>
+    <string name="intake_color">Color</string>
+    <string name="intake_material">Material</string>
+    <string name="intake_category">Category</string>
+    <string name="intake_status">Status</string>
+    <string name="intake_source">Source</string>
+    <string name="intake_no_source">No source</string>
+    <string name="intake_container">Container</string>
+    <string name="intake_sourced_by">Sourced by</string>
+    <string name="intake_purchase_price">Purchase price</string>
+    <string name="intake_save_add_another">Save &amp; add another</string>
+    <string name="intake_that_sku_already_use">That SKU is already in use</string>
+    <string name="intake_combine">Combine</string>
+    <string name="intake_cancel">Cancel</string>
+    <string name="repricing_loading">Loading\u2026</string>
+    <string name="repricing_suggestions_count">Suggestions (%1$d)</string>
+    <string name="repricing_rules_count">Rules (%1$d)</string>
+    <string name="repricing_no_suggestions">No open suggestions. Run a scan to compare your live listings against current comps.</string>
+    <string name="repricing_no_rules">No rules yet. A rule drops prices on a schedule until its floor.</string>
+    <string name="repricing_scanning">Scanning\u2026</string>
+    <string name="repricing_scan_button">Scan for suggestions</string>
+    <string name="repricing_delete_rule">Delete \"%1$s\"?</string>
+    <string name="repricing_field_drop_pct">Drop %</string>
+    <string name="repricing_field_interval">Every (days)</string>
+    <string name="repricing_field_min_age">Only listings older than (days)</string>
+    <string name="repricing_floor_warning">Leave the floor blank and the rule keeps cutting with nothing to stop it.</string>
+
+    <string name="intake_unsaved_draft">You have an unsaved draft.</string>
+    <string name="intake_merge_body">Combine these details into the existing item. Pick which value to keep for each field.</string>
+    <string name="intake_blank_value">(blank)</string>
+    <!-- Leading space is deliberate: it is appended to the value above it. -->
+    <string name="intake_chosen_marker">\u0020\u2713</string>
 </resources>

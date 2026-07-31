@@ -42,6 +42,10 @@ SCOPE = [
     "marketplaces/negotiation/NegotiationInboxScreen.kt",
     "templates/TemplatesScreen.kt",
     "marketplaces/MarketplacesScreen.kt",
+    "marketplaces/reconciliation/ReconciliationScreen.kt",
+    "marketplaces/publish/PublishSheet.kt",
+    "pricing/RepricingScreen.kt",
+    "inventory/DetailsIntakeScreen.kt",
 ]
 
 # A string literal handed to something that renders or speaks it.

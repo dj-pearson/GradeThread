@@ -45,7 +45,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Full string externalization beyond the 18 scoped files | US-2368 (in progress) |
+| Full string externalization beyond the 22 scoped files | US-2368 (in progress) |
 
 US-1379–1389 have since landed (widgets, background refresh, shortcuts, share
 target, onboarding, referrals, support, feedback, workspaces, CSV import) — see
@@ -640,10 +640,11 @@ mirroring the App Store catalog. Nothing in this repo can do that.
 `stringResource` for the files named in its `SCOPE` list, and that list grows as
 screens convert. A guard covering all ~90 Compose files today would either fail
 everywhere or get switched off, and a switched-off guard protects nothing.
-Eighteen files are converted and locked: onboarding, referrals, both support
+Twenty-two files are converted and locked: onboarding, referrals, both support
 screens, feedback, the workspace switcher, the importer, sign-in, and (US-2368)
 home, money, settings, snap, analytics, automations, the drafts library, the
-negotiation inbox, templates and marketplaces. The guard also fails if a scoped file
+negotiation inbox, templates, marketplaces, reconciliation, the publish sheet,
+repricing and details intake. The guard also fails if a scoped file
 is renamed or deleted, so nothing drops out silently.
 
 **The guard reads two shapes, and the second one is the common one.** ktlint

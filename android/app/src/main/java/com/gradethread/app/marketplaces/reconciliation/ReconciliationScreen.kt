@@ -22,6 +22,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -54,19 +56,18 @@ fun ReconciliationScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Unmatched eBay listings", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.reconciliation_unmatched_ebay_listings), style = MaterialTheme.typography.titleLarge)
         Text(
-            "These are live on eBay but aren't linked to anything in your inventory. " +
-                "Create an item, link an existing one, or ignore it.",
+            stringResource(R.string.reconciliation_intro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
-        state.banner?.let { InfoCard("Done", it, tone = InfoTone.Success) }
+        state.errorMessage?.let { InfoCard(stringResource(R.string.reconciliation_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.banner?.let { InfoCard(stringResource(R.string.reconciliation_done), it, tone = InfoTone.Success) }
         state.bulkProgress?.let { (done, total) ->
             Text(
-                "Creating items… $done of $total",
+                stringResource(R.string.reconciliation_creating, done, total),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -74,13 +75,13 @@ fun ReconciliationScreen(
 
         when {
             state.loading -> Text(
-                "Loading…",
+                stringResource(R.string.reconciliation_loading),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             state.orphans.isEmpty() -> Text(
-                "Nothing to reconcile. Every eBay listing is matched to an item.",
+                stringResource(R.string.reconciliation_nothing_reconcile_every_ebay_listing),
                 style = MaterialTheme.typography.bodyMedium,
             )
 
@@ -106,13 +107,13 @@ fun ReconciliationScreen(
 
         if (state.orphans.size > 1) {
             BrandSecondaryButton(
-                text = "Create items for all ${state.orphans.size}",
+                text = stringResource(R.string.reconciliation_create_all, state.orphans.size),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { confirmCreateAll = true }
         }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.reconciliation_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 
     creating?.let { orphan ->
@@ -142,21 +143,22 @@ fun ReconciliationScreen(
     if (confirmCreateAll) {
         AlertDialog(
             onDismissRequest = { confirmCreateAll = false },
-            title = { Text("Create ${state.orphans.size} items?") },
+            title = {
+                Text(stringResource(R.string.reconciliation_create_title, state.orphans.size))
+            },
             text = {
                 Text(
-                    "One new inventory item per listing, using each listing's title, " +
-                        "SKU and price. You can edit them afterwards.",
+                    stringResource(R.string.reconciliation_create_body),
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.createAll()
                     confirmCreateAll = false
-                }) { Text("Create them") }
+                }) { Text(stringResource(R.string.reconciliation_create_them)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmCreateAll = false }) { Text("Cancel") }
+                TextButton(onClick = { confirmCreateAll = false }) { Text(stringResource(R.string.reconciliation_cancel)) }
             },
         )
     }
@@ -186,7 +188,7 @@ private fun OrphanCard(
             }
             orphan.customLabel?.takeIf { it.isNotBlank() }?.let {
                 Text(
-                    "   SKU $it",
+                    stringResource(R.string.reconciliation_sku_row, it),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -197,17 +199,17 @@ private fun OrphanCard(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             BrandPrimaryButton(
-                text = "Create item",
+                text = stringResource(R.string.reconciliation_create_item),
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
             ) { onCreate() }
             BrandSecondaryButton(
-                text = "Link",
+                text = stringResource(R.string.reconciliation_link),
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
             ) { onLink() }
             BrandSecondaryButton(
-                text = "Ignore",
+                text = stringResource(R.string.reconciliation_ignore),
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
             ) { onIgnore() }
@@ -230,32 +232,32 @@ private fun CreateItemDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Create an item") },
+        title = { Text(stringResource(R.string.reconciliation_create_item_2)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title") },
+                    label = { Text(stringResource(R.string.reconciliation_title)) },
                 )
                 OutlinedTextField(
                     value = sku,
                     onValueChange = { sku = it },
-                    label = { Text("SKU") },
+                    label = { Text(stringResource(R.string.reconciliation_sku)) },
                     singleLine = true,
                 )
                 OutlinedTextField(
                     value = price,
                     onValueChange = { price = it },
-                    label = { Text("Target price") },
-                    prefix = { Text("$") },
+                    label = { Text(stringResource(R.string.reconciliation_target_price)) },
+                    prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = KeyboardType.Decimal,
                     ),
                 )
                 Text(
-                    "The item starts as Listed — eBay says this listing is live.",
+                    stringResource(R.string.reconciliation_item_starts_as_listed_ebay),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -272,9 +274,9 @@ private fun CreateItemDialog(
                             ?.takeIf { it > 0 }?.let { it / 100.0 },
                     )
                 },
-            ) { Text("Create") }
+            ) { Text(stringResource(R.string.reconciliation_create)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.reconciliation_cancel)) } },
     )
 }
 
@@ -299,19 +301,18 @@ private fun LinkItemDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Link to an item") },
+        title = { Text(stringResource(R.string.reconciliation_link_item)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Search your items") },
+                    label = { Text(stringResource(R.string.reconciliation_search_items)) },
                     singleLine = true,
                 )
                 if (matches.isEmpty()) {
                     Text(
-                        "Nothing matches. Items sync to this device, so a very new one " +
-                            "may not be here yet.",
+                        stringResource(R.string.reconciliation_no_match),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -328,6 +329,6 @@ private fun LinkItemDialog(
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.reconciliation_cancel)) } },
     )
 }

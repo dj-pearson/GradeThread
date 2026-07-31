@@ -24,6 +24,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,28 +55,32 @@ fun RepricingScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Repricing", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.repricing_repricing), style = MaterialTheme.typography.titleLarge)
 
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
-        state.banner?.let { InfoCard("Scan", it, tone = InfoTone.Success) }
-        state.caveat?.let { InfoCard("Worth knowing", it, tone = InfoTone.Warning) }
+        state.errorMessage?.let { InfoCard(stringResource(R.string.repricing_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.banner?.let { InfoCard(stringResource(R.string.repricing_scan), it, tone = InfoTone.Success) }
+        state.caveat?.let { InfoCard(stringResource(R.string.repricing_worth_knowing), it, tone = InfoTone.Warning) }
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             item {
-                Text("Suggestions (${state.suggestions.size})", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(R.string.repricing_suggestions_count, state.suggestions.size),
+                    style = MaterialTheme.typography.titleMedium,
+                )
             }
             if (state.suggestions.isEmpty()) {
                 item {
                     Hint(
-                        if (state.loading) {
-                            "Loading…"
-                        } else {
-                            "No open suggestions. Run a scan to compare your live " +
-                                "listings against current comps."
-                        },
+                        stringResource(
+                            if (state.loading) {
+                                R.string.repricing_loading
+                            } else {
+                                R.string.repricing_no_suggestions
+                            },
+                        ),
                     )
                 }
             }
@@ -89,13 +95,13 @@ fun RepricingScreen(
 
             item {
                 Text(
-                    "Rules (${state.rules.size})",
+                    stringResource(R.string.repricing_rules_count, state.rules.size),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(top = Spacing.sm),
                 )
             }
             if (state.rules.isEmpty() && !state.loading) {
-                item { Hint("No rules yet. A rule drops prices on a schedule until its floor.") }
+                item { Hint(stringResource(R.string.repricing_no_rules)) }
             }
             items(state.rules, key = { it.id }) { rule ->
                 RuleCard(
@@ -109,18 +115,20 @@ fun RepricingScreen(
         }
 
         BrandPrimaryButton(
-            text = if (state.scanning) "Scanning…" else "Scan for suggestions",
+            text = stringResource(
+                if (state.scanning) R.string.repricing_scanning else R.string.repricing_scan_button,
+            ),
             enabled = !state.scanning,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.scan() }
 
         BrandSecondaryButton(
-            text = "New rule",
+            text = stringResource(R.string.repricing_new_rule),
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth(),
         ) { editing = RuleDraft() }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.repricing_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 
     editing?.let { draft ->
@@ -138,15 +146,15 @@ fun RepricingScreen(
     deleting?.let { rule ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Delete \"${rule.name}\"?") },
-            text = { Text("Prices it already changed stay as they are.") },
+            title = { Text(stringResource(R.string.repricing_delete_rule, rule.name)) },
+            text = { Text(stringResource(R.string.repricing_prices_already_changed_stay_as)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteRule(rule)
                     deleting = null
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.repricing_delete)) }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.repricing_cancel)) } },
         )
     }
 }
@@ -187,12 +195,12 @@ private fun SuggestionCard(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             BrandPrimaryButton(
-                text = "Apply",
+                text = stringResource(R.string.repricing_apply),
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
             ) { onApply() }
             BrandSecondaryButton(
-                text = "Dismiss",
+                text = stringResource(R.string.repricing_dismiss),
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
             ) { onDismiss() }
@@ -231,9 +239,9 @@ private fun RuleCard(
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         Row {
-            TextButton(onClick = onEdit, enabled = !busy) { Text("Edit") }
+            TextButton(onClick = onEdit, enabled = !busy) { Text(stringResource(R.string.repricing_edit)) }
             TextButton(onClick = onDelete, enabled = !busy) {
-                Text("Delete", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.repricing_delete), color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -250,7 +258,17 @@ private fun RuleEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial.id == null) "New rule" else "Edit rule") },
+        title = {
+            Text(
+                stringResource(
+                    if (initial.id == null) {
+                        R.string.automations_new_rule
+                    } else {
+                        R.string.automations_edit_rule
+                    },
+                ),
+            )
+        },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -259,39 +277,44 @@ private fun RuleEditorDialog(
                 OutlinedTextField(
                     value = draft.name,
                     onValueChange = { draft = draft.copy(name = it) },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.repricing_name)) },
                     singleLine = true,
                 )
-                NumberField("Drop %", draft.dropPct.toString()) {
+                NumberField(stringResource(R.string.repricing_field_drop_pct), draft.dropPct.toString()) {
                     draft = draft.copy(dropPct = it.toDoubleOrNull() ?: draft.dropPct)
                 }
-                NumberField("Every (days)", draft.intervalDays.toString()) {
+                NumberField(
+                    stringResource(R.string.repricing_field_interval),
+                    draft.intervalDays.toString(),
+                ) {
                     draft = draft.copy(intervalDays = it.toIntOrNull() ?: draft.intervalDays)
                 }
                 OutlinedTextField(
                     value = draft.floorPriceText,
                     onValueChange = { draft = draft.copy(floorPriceText = it) },
-                    label = { Text("Never below") },
-                    prefix = { Text("$") },
+                    label = { Text(stringResource(R.string.repricing_never_below)) },
+                    prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
                     singleLine = true,
                 )
                 Text(
-                    "Leave the floor blank and the rule keeps cutting with nothing to " +
-                        "stop it.",
+                    stringResource(R.string.repricing_floor_warning),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
                     value = draft.filterBrand,
                     onValueChange = { draft = draft.copy(filterBrand = it) },
-                    label = { Text("Only this brand (optional)") },
+                    label = { Text(stringResource(R.string.repricing_only_this_brand_optional)) },
                     singleLine = true,
                 )
-                NumberField("Only listings older than (days)", draft.minAgeDays.toString()) {
+                NumberField(
+                    stringResource(R.string.repricing_field_min_age),
+                    draft.minAgeDays.toString(),
+                ) {
                     draft = draft.copy(minAgeDays = it.toIntOrNull() ?: draft.minAgeDays)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Auto-accept offers", modifier = Modifier.weight(1f))
+                    Text(stringResource(R.string.repricing_auto_accept_offers), modifier = Modifier.weight(1f))
                     Switch(
                         checked = draft.autoAcceptEnabled,
                         onCheckedChange = { draft = draft.copy(autoAcceptEnabled = it) },
@@ -310,9 +333,9 @@ private fun RuleEditorDialog(
             TextButton(
                 enabled = Repricing.isValid(draft) && !busy,
                 onClick = { onSave(draft) },
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.repricing_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.repricing_cancel)) } },
     )
 }
 

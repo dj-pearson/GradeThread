@@ -20,6 +20,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -62,34 +64,35 @@ fun PublishSheet(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             Text(
-                if (state.relist) "Relist on eBay" else "List on eBay",
+                stringResource(
+                    if (state.relist) R.string.publish_relist_title else R.string.publish_list_title,
+                ),
                 style = MaterialTheme.typography.titleLarge,
             )
             if (state.relist) {
                 Text(
-                    "This item has been listed before. Publishing ends the old listing " +
-                        "first, then creates a new one.",
+                    stringResource(R.string.publish_relist_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
             state.errorMessage?.let {
-                InfoCard("Check this first", it, tone = InfoTone.Warning)
+                InfoCard(stringResource(R.string.publish_check_this_first), it, tone = InfoTone.Warning)
             }
 
             when (val phase = state.phase) {
                 is PublishPhase.Published -> PublishedPanel(phase.result, onOpenListing, onDismiss)
                 is PublishPhase.PlanLimit -> InfoCard(
-                    "You've hit a plan limit",
+                    stringResource(R.string.publish_ve_hit_plan_limit),
                     phase.message,
                     tone = InfoTone.Warning,
                 )
 
                 is PublishPhase.Failed -> {
-                    InfoCard("Publish failed", phase.message, tone = InfoTone.Error)
+                    InfoCard(stringResource(R.string.publish_publish_failed), phase.message, tone = InfoTone.Error)
                     BrandSecondaryButton(
-                        text = "Back to the composer",
+                        text = stringResource(R.string.publish_back_composer),
                         modifier = Modifier.fillMaxWidth(),
                     ) { viewModel.backToComposer() }
                 }
@@ -102,6 +105,7 @@ fun PublishSheet(
 
 @Composable
 private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel) {
+    val bullet = stringResource(R.string.publish_bullet_prefix)
     // US-1373: renders nothing when the seller has no templates, so the composer
     // stays exactly as it was for everyone who doesn't use them.
     if (state.templates.isNotEmpty()) {
@@ -128,12 +132,12 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
     OutlinedTextField(
         value = state.title,
         onValueChange = viewModel::editTitle,
-        label = { Text("Listing title") },
+        label = { Text(stringResource(R.string.publish_listing_title)) },
         enabled = !state.busy,
         modifier = Modifier.fillMaxWidth(),
     )
     LabeledDropdown(
-        label = "Condition",
+        label = stringResource(R.string.publish_condition),
         selected = state.condition,
         options = EbayCondition.entries,
         optionLabel = { it.label },
@@ -144,15 +148,15 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
     OutlinedTextField(
         value = state.conditionDescription,
         onValueChange = viewModel::editConditionDescription,
-        label = { Text("Condition notes (optional)") },
+        label = { Text(stringResource(R.string.publish_condition_notes_optional)) },
         enabled = !state.busy,
         modifier = Modifier.fillMaxWidth(),
     )
     OutlinedTextField(
         value = state.priceText,
         onValueChange = viewModel::editPrice,
-        label = { Text("Price") },
-        prefix = { Text("$") },
+        label = { Text(stringResource(R.string.publish_price)) },
+        prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
         singleLine = true,
         enabled = !state.busy,
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -168,8 +172,8 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
     SpecificsSection(state, viewModel::setSpecific)
     if (state.specificBlockers.isNotEmpty()) {
         InfoCard(
-            "Still needed for this category",
-            state.specificBlockers.joinToString("\n") { "• $it" },
+            stringResource(R.string.publish_still_needed_this_category),
+            state.specificBlockers.joinToString("\n") { bullet + it },
             tone = InfoTone.Error,
         )
     }
@@ -178,8 +182,8 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
     if (phase is PublishPhase.Review) {
         if (phase.blockers.isNotEmpty()) {
             InfoCard(
-                "Fix these before publishing",
-                phase.blockers.joinToString("\n") { "• $it" },
+                stringResource(R.string.publish_fix_these_before_publishing),
+                phase.blockers.joinToString("\n") { bullet + it },
                 tone = InfoTone.Error,
             )
         }
@@ -187,8 +191,8 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
             // Warnings never block. Naming them as suggestions keeps a seller
             // from reading an advisory as a stop sign.
             InfoCard(
-                "Worth a look",
-                phase.warnings.joinToString("\n") { "• $it" },
+                stringResource(R.string.publish_worth_look),
+                phase.warnings.joinToString("\n") { bullet + it },
                 tone = InfoTone.Warning,
             )
         }
@@ -196,16 +200,22 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
     }
 
     BrandSecondaryButton(
-        text = if (phase is PublishPhase.Validating) "Checking…" else "Save and check",
+        text = stringResource(
+            if (phase is PublishPhase.Validating) {
+                R.string.publish_checking
+            } else {
+                R.string.publish_save_and_check
+            },
+        ),
         enabled = !state.busy,
         modifier = Modifier.fillMaxWidth(),
     ) { viewModel.validate() }
 
     BrandPrimaryButton(
         text = when {
-            phase is PublishPhase.Pushing -> "Publishing…"
-            state.relist -> "Relist on eBay"
-            else -> "Publish to eBay"
+            phase is PublishPhase.Pushing -> stringResource(R.string.publish_publishing)
+            state.relist -> stringResource(R.string.publish_relist_title)
+            else -> stringResource(R.string.publish_to_ebay)
         },
         enabled = state.canPublish,
         modifier = Modifier.fillMaxWidth(),
@@ -213,7 +223,7 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
 
     if (!state.canPublish && !state.busy && phase !is PublishPhase.Composing) {
         Text(
-            "Publishing stays off until the blockers above are cleared.",
+            stringResource(R.string.publish_publishing_stays_off_until_blockers),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -231,21 +241,27 @@ private fun ProfitEstimate(state: PublishViewModel.State) {
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Est. net profit",
+                stringResource(R.string.publish_est_net_profit),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             Text(
-                "${Money.format(profit.netCents)} · " +
-                    "${profit.marginPctCents(price).roundToInt()}% margin",
+                stringResource(
+                    R.string.publish_net_and_margin,
+                    Money.format(profit.netCents),
+                    profit.marginPctCents(price).roundToInt(),
+                ),
                 style = MaterialTheme.typography.titleMedium,
             )
         }
         Text(
-            "eBay fees ~${Money.format(profit.feesCents)} · " +
-                "your costs ${Money.format(profit.costs)}",
+            stringResource(
+                R.string.publish_fees_and_costs,
+                Money.format(profit.feesCents),
+                Money.format(profit.costs),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -253,7 +269,7 @@ private fun ProfitEstimate(state: PublishViewModel.State) {
             // Say WHY the number looks generous rather than letting a seller
             // read a no-cost-basis estimate as real profit.
             Text(
-                "No cost basis on this item, so this is revenue after fees — not profit.",
+                stringResource(R.string.publish_no_cost_basis_this_item),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -264,19 +280,24 @@ private fun ProfitEstimate(state: PublishViewModel.State) {
 /** What the server would actually send to eBay. */
 @Composable
 private fun SummaryPanel(summary: PublishSummary) {
+    // Read once, formatted inside the listOfNotNull lambdas below — those are
+    // not composable scopes.
+    val priceFormat = stringResource(R.string.publish_price_with_currency)
+    val qtyFormat = stringResource(R.string.publish_quantity)
+    val defaultCurrency = stringResource(R.string.publish_default_currency)
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Text("Ready to publish", style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.publish_ready_publish), style = MaterialTheme.typography.bodyLarge)
         Text(summary.title, style = MaterialTheme.typography.bodyMedium)
         val condition = EbayCondition.displayLabel(summary.condition)
         Text(
             listOfNotNull(
                 summary.priceValue.takeIf { it.isNotBlank() }
-                    ?.let { "${summary.currency ?: "USD"} $it" },
+                    ?.let { priceFormat.format(summary.currency ?: defaultCurrency, it) },
                 condition,
-                summary.quantity?.let { "Qty $it" },
+                summary.quantity?.let { qtyFormat.format(it) },
             ).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -291,13 +312,13 @@ private fun PublishedPanel(
     onDismiss: () -> Unit,
 ) {
     InfoCard(
-        "It's live on eBay",
+        stringResource(R.string.publish_s_live_ebay),
         if (result.syncPending) {
             // US-783: live, but the local mirror hasn't caught up. Saying
             // "syncing" beats a listing that looks like it failed.
-            "The listing is up. Its details will finish syncing here shortly."
+            stringResource(R.string.publish_done_syncing)
         } else {
-            "The listing is up and synced."
+            stringResource(R.string.publish_done_synced)
         },
         tone = InfoTone.Success,
     )
@@ -305,21 +326,30 @@ private fun PublishedPanel(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Text("Listing ${result.listingId}", style = MaterialTheme.typography.bodySmall)
+        Text(
+            stringResource(R.string.publish_listing_id, result.listingId),
+            style = MaterialTheme.typography.bodySmall,
+        )
         if (result.offerId.isNotBlank()) {
-            Text("Offer ${result.offerId}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(R.string.publish_offer_id, result.offerId),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
         if (result.sku.isNotBlank()) {
-            Text("SKU ${result.sku}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(R.string.publish_sku, result.sku),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
     if (result.listingUrl.isNotBlank()) {
-        BrandPrimaryButton(text = "View on eBay", modifier = Modifier.fillMaxWidth()) {
+        BrandPrimaryButton(text = stringResource(R.string.publish_view_ebay), modifier = Modifier.fillMaxWidth()) {
             onOpenListing(result.listingUrl)
         }
     }
     BrandSecondaryButton(
-        text = "Done",
+        text = stringResource(R.string.publish_done),
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
     ) { onDismiss() }
 }
