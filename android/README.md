@@ -227,6 +227,39 @@ TalkBack labels are composed in `WidgetCopy` rather than inline, because a
 Glance composable cannot be asserted from a JVM test and the spoken label is the
 only version of this widget some sellers ever get.
 
+## Shortcuts, icons, Assistant (US-1381)
+
+Two **static** long-press shortcuts (`res/xml/shortcuts.xml`): Snap to Value and
+Add an item. Static because neither needs state to decide, so a fresh install
+has them before the first sync. One **dynamic** shortcut, pushed by
+`AppShortcuts.refresh` from the same publish moment as the widget: "what sold
+today", whose LABEL is the answer. Android has no spoken-return equivalent of
+the iOS intent, but a label read off the long-press menu needs no launch, no
+auth and no network — which is what the acceptance criterion is actually asking
+for. `SoldTodaySummary` composes it from the same snapshot the widget renders,
+so the two can never disagree.
+
+**Shortcut links use `com.gradethread.app://shortcut/…`, never the https App
+Link.** Two reasons, both load-bearing: `res/xml` is not processed for manifest
+placeholders, so a static shortcut's `targetPackage` cannot follow the debug
+build's `.debug` applicationId suffix; and an App Link is only *verified* on the
+release build, so an https shortcut opens a browser on a debug build. The
+`shortcut` host is deliberately separate from the widget's `widget` host.
+
+The `<capability>` block declares the Assistant App Action and binds the three
+shortcuts to it as inline inventory. Declaring it is the whole of what the repo
+can do — Assistant only surfaces a capability for a published app.
+
+**Icons landed here too, because there were none.** `PushNotifier` referenced
+`R.mipmap.ic_launcher` against a `res/` tree that contained no drawable or
+mipmap at all, and the manifest had no `android:icon` — an unbuildable state
+that had not surfaced because `android-ci` only runs on `main` and on PRs. The
+adaptive icon lives in `mipmap-anydpi` **without** a `-v26` qualifier: minSdk is
+26, so the element always parses, and a version-qualified folder with no
+unqualified fallback is a resource with no default declaration. The status-bar
+icon is now a silhouette (`ic_notification`), not the launcher icon — Android
+masks every small icon to white, so a full-colour one renders as a blob.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

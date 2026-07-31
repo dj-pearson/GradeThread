@@ -75,6 +75,38 @@ class DeepLinkTest {
     }
 
     @Test
+    fun shortcutLinks_parse() {
+        // US-1381: its own host, not the widget's — the two grammars are edited
+        // by different features and a shared one drifts.
+        assertEquals(
+            DeepLinkRoute.CaptureItem,
+            DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/capture")),
+        )
+        assertEquals(
+            DeepLinkRoute.AddItem,
+            DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/add")),
+        )
+        assertEquals(
+            DeepLinkRoute.SalesTab(null),
+            DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/money")),
+        )
+        assertNull(DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/nope")))
+        // The widget host does NOT answer for shortcut paths, or vice versa.
+        assertNull(DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://widget/capture")))
+        assertNull(DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/shipping")))
+    }
+
+    @Test
+    fun everyShortcutLink_thatShips_resolves() {
+        // Every Uri in shortcuts.xml and in the dynamic spec, parsed back. A
+        // typo in the XML is a long-press that opens nothing, with no crash to
+        // notice it by.
+        val uris = com.gradethread.app.platform.shortcuts.AppShortcuts.STATIC_URIS +
+            com.gradethread.app.platform.shortcuts.AppShortcuts.soldTodaySpec(null).uri
+        uris.forEach { assertNotNull(it, DeepLinkRoute.fromUri(Uri.parse(it))) }
+    }
+
+    @Test
     fun everyWidgetLink_theWidgetActuallyBuilds_resolves() {
         // US-1380: the widget builds these strings itself, in its own file. A
         // typo there is a tap that opens nothing, and there is no crash to

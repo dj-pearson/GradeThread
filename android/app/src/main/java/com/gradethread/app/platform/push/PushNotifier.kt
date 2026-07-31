@@ -63,7 +63,9 @@ object PushNotifier {
 
         val id = notificationId(message)
         val builder = NotificationCompat.Builder(context, message.channel.id)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            // US-1381: the silhouette, not the launcher icon. Android masks
+            // every small icon to white, so a full-colour one is a blob.
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(message.title.ifBlank { message.body })
             .setContentText(message.body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message.body))

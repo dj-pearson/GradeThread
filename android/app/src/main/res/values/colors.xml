@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- US-1381: brand navy, the same value the app's theme uses. -->
+    <color name="ic_launcher_background">#0F3460</color>
+</resources>

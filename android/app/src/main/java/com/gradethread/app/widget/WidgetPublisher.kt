@@ -2,6 +2,7 @@ package com.gradethread.app.widget
 
 import android.content.Context
 import androidx.glance.appwidget.updateAll
+import com.gradethread.app.platform.shortcuts.AppShortcuts
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.db.GradeThreadDb
 import java.util.concurrent.atomic.AtomicLong
@@ -102,6 +103,11 @@ object WidgetPublisher {
                 reload(context)
             }
         }
+        // US-1381: the "what sold today" shortcut's LABEL is the answer, read
+        // off the long-press menu with no launch and no network. It is pushed
+        // here rather than coalesced with the widget redraw because writing a
+        // label is cheap — it is the redraw of every placed widget that isn't.
+        AppShortcuts.refresh(context, snapshot)
     }
 
     /**
@@ -115,6 +121,8 @@ object WidgetPublisher {
         WidgetSnapshotStore.clear(context, nowMs)
         lastReloadAt.set(nowMs)
         reload(context)
+        // The shortcut label carries the same figures, on the same home screen.
+        AppShortcuts.refresh(context, WidgetSnapshot.signedOut(nowMs))
     }
 
     internal suspend fun reload(context: Context) {

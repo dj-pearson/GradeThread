@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  US-1381: the status-bar icon.
+
+  A SILHOUETTE, not the launcher icon. Android masks every notification small
+  icon to white from API 21 on, so a full-colour launcher icon renders as a
+  solid white blob — which is what the app was shipping.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M6.7,12 L10.2,8.4 H16.9 A1.3,1.3 0 0 1 18.2,9.8 V14.2 A1.3,1.3 0 0 1 16.9,15.6 H10.2 Z M11.6,12 m-1.1,0 a1.1,1.1 0 1,0 2.2,0 a1.1,1.1 0 1,0 -2.2,0" />
+</vector>

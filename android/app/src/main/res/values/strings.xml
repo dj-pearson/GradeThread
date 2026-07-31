@@ -5,4 +5,10 @@
     <!-- US-1380: shown in the system widget picker. -->
     <string name="widget_snapshot_label">Seller snapshot</string>
     <string name="widget_snapshot_description">Sold today, pending payout, and your live listing count.</string>
+    <!-- US-1381: long-press shortcuts. Short labels are what the launcher
+         shows, and it truncates hard - keep them to about 10 characters. -->
+    <string name="shortcut_snap_short">Snap</string>
+    <string name="shortcut_snap_long">Snap to Value</string>
+    <string name="shortcut_add_short">Add item</string>
+    <string name="shortcut_add_long">Add an item</string>
 </resources>

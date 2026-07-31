@@ -38,21 +38,42 @@ sealed class DeepLinkRoute {
         fun fromUri(uri: Uri?): DeepLinkRoute? {
             if (uri == null) return null
             return when (uri.scheme) {
-                "com.gradethread.app" -> fromWidget(uri)
+                "com.gradethread.app" -> when (uri.host) {
+                    "widget" -> fromWidget(uri)
+                    "shortcut" -> fromShortcut(uri)
+                    // auth-callback etc. are not ours
+                    else -> null
+                }
                 "https" -> fromAppLink(uri)
                 else -> null
             }
         }
 
-        private fun fromWidget(uri: Uri): DeepLinkRoute? {
-            if (uri.host != "widget") return null // auth-callback etc. are not ours
-            return when (uri.pathSegments.firstOrNull()) {
+        private fun fromWidget(uri: Uri): DeepLinkRoute? =
+            when (uri.pathSegments.firstOrNull()) {
                 "marketplaces" -> MarketplacesTab
                 "money" -> SalesTab(inventoryItemId = null)
                 "shipping" -> Shipping
                 else -> null
             }
-        }
+
+        /**
+         * US-1381: launcher shortcuts.
+         *
+         * The custom scheme rather than the https app link, and its own host
+         * rather than the widget's. App Links are only VERIFIED on the release
+         * build, so a static shortcut carrying an https Uri opens a browser on
+         * a debug build; a custom scheme has no such competition. Its own host
+         * because the two grammars are edited by different features and a
+         * shared one drifts.
+         */
+        private fun fromShortcut(uri: Uri): DeepLinkRoute? =
+            when (uri.pathSegments.firstOrNull()) {
+                "capture" -> CaptureItem
+                "add" -> AddItem
+                "money" -> SalesTab(inventoryItemId = null)
+                else -> null
+            }
 
         private fun fromAppLink(uri: Uri): DeepLinkRoute? {
             if (uri.host != "gradethread.com") return null

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  US-1381: the two always-right long-press shortcuts.
+
+  STATIC rather than dynamic because neither needs any state to decide, so a
+  fresh install has them before the first sync ever runs. The third shortcut
+  ("what sold today") IS state, and is pushed from AppShortcuts.kt.
+
+  The intents carry the custom `com.gradethread.app://shortcut/...` scheme
+  rather than the https App Link. A static shortcut's target package cannot be
+  a build-variant placeholder — res/xml is not processed for manifest
+  placeholders — and the debug build's applicationId carries a `.debug` suffix,
+  so a hardcoded targetPackage would point at a package that isn't installed.
+  A custom scheme needs no package at all, and unlike an https link it has no
+  browser competing for it on an unverified debug build.
+
+  The <capability> block declares the Assistant App Action and binds these
+  shortcuts to it as inline inventory. Declaring it is the whole of what can be
+  done from the repo: Assistant only surfaces a capability for a published app,
+  so this is the hook, not a working voice command on a debug build.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <capability android:name="actions.intent.OPEN_APP_FEATURE">
+        <shortcut android:shortcutId="snap-to-value" />
+        <shortcut android:shortcutId="add-item" />
+        <shortcut android:shortcutId="sold-today" />
+    </capability>
+
+    <shortcut
+        android:shortcutId="snap-to-value"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_snap"
+        android:shortcutShortLabel="@string/shortcut_snap_short"
+        android:shortcutLongLabel="@string/shortcut_snap_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="com.gradethread.app://shortcut/capture" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="add-item"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_add"
+        android:shortcutShortLabel="@string/shortcut_add_short"
+        android:shortcutLongLabel="@string/shortcut_add_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="com.gradethread.app://shortcut/add" />
+    </shortcut>
+
+</shortcuts>
