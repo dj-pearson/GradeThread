@@ -325,6 +325,38 @@ not tappable, because Android auto-denies the second dialog and a live button
 there would do nothing and look broken. Done rows stay on the list with a tick —
 a list that shortens as you work it looks like things are being taken away.
 
+## Referrals (US-1385)
+
+`referrals/` reads `GET /api/referrals/me`, shares the link via `ACTION_SEND`,
+and applies a friend's code through `POST /api/referrals/redeem`. Reached from
+Tools.
+
+Three things worth knowing:
+
+- **In-progress is `total − granted`, not `pending + qualified`** (US-1255), so
+  the three columns always reconcile even if the server adds a fourth
+  `reward_status` this build has never heard of. Clamped at zero.
+- **A business rejection is a result; an auth or 5xx failure is thrown.** The
+  edge tags each refusal with `error_code`, and `RedeemRejection` turns it into
+  specific copy — "that's your own code" beats "that code isn't valid" in front
+  of someone who typed their own. A 401 must never read as a bad code.
+- **Every wire field is defaulted.** `credits` and `milestones` landed after the
+  first clients shipped; a strict decode would take the screen down for a field
+  nobody reads.
+
+Copy announces via `announceForAccessibility` **only below Android 13** — 13+
+shows its own clipboard toast, so announcing there would double it, and below 13
+there is no system feedback at all. The code is spoken character by character;
+TalkBack otherwise tries to pronounce `ABCD2345` as a word.
+
+Once you have been referred, the redeem form becomes a sentence. A form that can
+only ever be refused is worse than no form.
+
+`EdgeApiError.AccountSuspended` was added here: the edge sends suspension as a
+403, which mapped to `Unauthorized`, so a suspended seller was told their session
+had expired and sent to sign in again — wrong, and actionable in the wrong
+direction.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

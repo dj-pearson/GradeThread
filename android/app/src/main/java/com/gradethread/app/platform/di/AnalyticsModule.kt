@@ -8,6 +8,8 @@ import com.gradethread.app.consignment.ConsignorProviding
 import com.gradethread.app.consignment.ConsignorService
 import com.gradethread.app.passport.PassportProviding
 import com.gradethread.app.passport.PassportService
+import com.gradethread.app.referrals.ReferralProviding
+import com.gradethread.app.referrals.ReferralService
 import com.gradethread.app.scout.ScoutScanning
 import com.gradethread.app.scout.ScoutService
 import com.gradethread.app.templates.TemplateProviding
@@ -67,4 +69,9 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindPassport(impl: PassportService): PassportProviding
+
+    /** US-1385: referral code, stats and redemption. */
+    @Binds
+    @Singleton
+    abstract fun bindReferrals(impl: ReferralService): ReferralProviding
 }

@@ -91,6 +91,15 @@ sealed class EdgeApiError : Exception() {
      */
     data class UpgradeRequired(val detail: String?, val code: String?) : EdgeApiError()
 
+    /**
+     * US-1385: a suspended account.
+     *
+     * Its own case because the edge sends it as a 403, which mapped to
+     * [Unauthorized] — so a suspended seller was told their session had expired
+     * and sent off to sign in again, which fixes nothing and hides the truth.
+     */
+    data class AccountSuspended(val detail: String?) : EdgeApiError()
+
     /** User-facing copy, mirroring the iOS errorDescription strings. */
     fun userMessage(): String = when (this) {
         Unauthorized -> "Your session expired. Sign in again to continue."
@@ -124,6 +133,7 @@ sealed class EdgeApiError : Exception() {
         // beats anything generic we could write here.
         is UpgradeRequired -> detail ?: "You've reached a limit on your plan. Upgrade to keep going."
         is PlanGated -> "${gate.title}. ${gate.recommendation}"
+        is AccountSuspended -> detail ?: "This account is suspended. Contact support to sort it out."
     }
 
     /** Whether the UI should offer an upgrade route rather than a retry. */
@@ -157,6 +167,12 @@ sealed class EdgeApiError : Exception() {
             }
             if (statusCode == 403 && payload?.discriminator == "email_unverified") {
                 return EmailUnverified
+            }
+            // US-1385: keyed on the discriminator, not the status — a 403 here
+            // would otherwise read as "your session expired", which is both
+            // wrong and actionable in the wrong direction.
+            if (payload?.discriminator == "account_suspended") {
+                return AccountSuspended(detail)
             }
             // Keyed on the discriminator, not the status, so the mapping
             // survives a status tweak on the edge (US-1510/US-1421).

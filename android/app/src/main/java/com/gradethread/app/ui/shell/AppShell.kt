@@ -428,7 +428,12 @@ private fun ShellNavHost(navController: NavHostController) {
                 onProspect = { navController.navigate(ShellRoutes.PROSPECT) },
                 onVerified = { navController.navigate(ShellRoutes.VERIFIED) },
                 onShipping = { navController.navigate(ShellRoutes.FULFILLMENT) },
+                onReferrals = { navController.navigate(ShellRoutes.REFERRALS) },
             )
+        }
+        // US-1385: your referral code, and applying a friend's.
+        composable(ShellRoutes.REFERRALS) {
+            com.gradethread.app.referrals.ReferralsScreen()
         }
         // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops
         // itself first — a back-press from the certified-grade flow must not
