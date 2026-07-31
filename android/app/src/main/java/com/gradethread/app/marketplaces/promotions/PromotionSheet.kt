@@ -15,6 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,25 +51,25 @@ fun PromotionSheet(
                 .padding(bottom = Spacing.lg),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            Text("Promote or discount", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.promotion_promote_discount), style = MaterialTheme.typography.titleLarge)
             Text(
                 listingTitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
-            state.banner?.let { InfoCard("Done", it, tone = InfoTone.Success) }
+            state.errorMessage?.let { InfoCard(stringResource(R.string.promotion_that_didn_t_work), it, tone = InfoTone.Error) }
+            state.banner?.let { InfoCard(stringResource(R.string.promotion_done), it, tone = InfoTone.Success) }
 
             when {
                 state.loading -> Text(
-                    "Loading…",
+                    stringResource(R.string.promotion_loading),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 state.promotion == null -> Text(
-                    "Couldn't load this listing's promotion settings.",
+                    stringResource(R.string.promotion_couldn_t_load_this_listing),
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
@@ -78,7 +80,7 @@ fun PromotionSheet(
                 }
             }
 
-            BrandSecondaryButton(text = "Close", modifier = Modifier.fillMaxWidth()) { onDismiss() }
+            BrandSecondaryButton(text = stringResource(R.string.promotion_close), modifier = Modifier.fillMaxWidth()) { onDismiss() }
         }
     }
 }
@@ -93,7 +95,7 @@ private fun PromotionPanel(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Promoted listing", style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.promotion_promoted_listing), style = MaterialTheme.typography.bodyLarge)
         Text(
             Promotions.promotionSummary(promo),
             style = MaterialTheme.typography.bodySmall,
@@ -109,8 +111,8 @@ private fun PromotionPanel(
         OutlinedTextField(
             value = state.rateText,
             onValueChange = viewModel::setRate,
-            label = { Text("Ad rate") },
-            suffix = { Text("%") },
+            label = { Text(stringResource(R.string.promotion_ad_rate)) },
+            suffix = { Text(stringResource(R.string.promotion_text)) },
             singleLine = true,
             enabled = !state.busy,
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -119,21 +121,29 @@ private fun PromotionPanel(
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "eBay accepts ${Promotions.formatPct(Promotions.MIN_AD_RATE_PCT)}–" +
-                "${Promotions.formatPct(Promotions.MAX_AD_RATE_PCT)}%. " +
-                "You only pay it when the ad makes the sale.",
+            stringResource(
+                R.string.promotion_ad_rate_range,
+                Promotions.formatPct(Promotions.MIN_AD_RATE_PCT),
+                Promotions.formatPct(Promotions.MAX_AD_RATE_PCT),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             BrandPrimaryButton(
-                text = if (promo.effectivePromote) "Update rate" else "Promote",
+                text = stringResource(
+                    if (promo.effectivePromote) {
+                        R.string.promotion_update_rate
+                    } else {
+                        R.string.promotion_promote
+                    },
+                ),
                 enabled = !state.busy && state.rate != null,
                 modifier = Modifier.weight(1f),
             ) { viewModel.promote() }
             if (promo.effectivePromote) {
                 BrandSecondaryButton(
-                    text = "Stop",
+                    text = stringResource(R.string.promotion_stop),
                     enabled = !state.busy,
                     modifier = Modifier.weight(1f),
                 ) { viewModel.stopPromoting() }
@@ -152,7 +162,7 @@ private fun SalePanel(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Sale", style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.promotion_sale), style = MaterialTheme.typography.bodyLarge)
         Text(
             Promotions.saleSummary(promo),
             style = MaterialTheme.typography.bodySmall,
@@ -161,8 +171,8 @@ private fun SalePanel(
         OutlinedTextField(
             value = state.saleText,
             onValueChange = viewModel::setSale,
-            label = { Text("Percent off") },
-            suffix = { Text("%") },
+            label = { Text(stringResource(R.string.promotion_percent_off)) },
+            suffix = { Text(stringResource(R.string.promotion_text)) },
             singleLine = true,
             enabled = !state.busy,
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -171,21 +181,25 @@ private fun SalePanel(
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "eBay accepts ${Promotions.formatPct(Promotions.MIN_MARKDOWN_PCT)}–" +
-                "${Promotions.formatPct(Promotions.MAX_MARKDOWN_PCT)}% off. " +
-                "Ending the sale puts the original price back.",
+            stringResource(
+                R.string.promotion_markdown_range,
+                Promotions.formatPct(Promotions.MIN_MARKDOWN_PCT),
+                Promotions.formatPct(Promotions.MAX_MARKDOWN_PCT),
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             BrandPrimaryButton(
-                text = if (promo.saleActive) "Update sale" else "Start sale",
+                text = stringResource(
+                    if (promo.saleActive) R.string.promotion_update_sale else R.string.promotion_start_sale,
+                ),
                 enabled = !state.busy && state.salePercent != null,
                 modifier = Modifier.weight(1f),
             ) { viewModel.startSale() }
             if (promo.saleActive) {
                 BrandSecondaryButton(
-                    text = "End sale",
+                    text = stringResource(R.string.promotion_end_sale),
                     enabled = !state.busy,
                     modifier = Modifier.weight(1f),
                 ) { viewModel.endSale() }

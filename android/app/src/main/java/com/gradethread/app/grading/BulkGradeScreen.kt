@@ -24,6 +24,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -53,7 +56,10 @@ fun BulkGradeScreen(
             .padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Text("Grade ${itemIds.size} items", style = MaterialTheme.typography.titleLarge)
+        Text(
+            pluralStringResource(R.plurals.bulkgrade_title, itemIds.size, itemIds.size),
+            style = MaterialTheme.typography.titleLarge,
+        )
 
         when (val phase = state.phase) {
             BulkGradeMachine.Phase.Loading -> Box(
@@ -80,11 +86,11 @@ fun BulkGradeScreen(
                     )
                 }
                 Text(
-                    "Grades land on each item as they finish — no need to wait here.",
+                    stringResource(R.string.bulkgrade_grades_land_each_item_as),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                BrandPrimaryButton(text = "Done", modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandPrimaryButton(text = stringResource(R.string.bulkgrade_done), modifier = Modifier.fillMaxWidth()) { onClose() }
             }
 
             is BulkGradeMachine.Phase.Empty -> Column(
@@ -92,17 +98,17 @@ fun BulkGradeScreen(
             ) {
                 // No "Try again": an empty selection can never validate.
                 Text(phase.message, style = MaterialTheme.typography.bodyMedium)
-                BrandPrimaryButton(text = "Close", modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandPrimaryButton(text = stringResource(R.string.bulkgrade_close), modifier = Modifier.fillMaxWidth()) { onClose() }
             }
 
             is BulkGradeMachine.Phase.Failed -> Column(
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 Text(phase.message, style = MaterialTheme.typography.bodyMedium)
-                BrandSecondaryButton(text = "Try again", modifier = Modifier.fillMaxWidth()) {
+                BrandSecondaryButton(text = stringResource(R.string.bulkgrade_try_again), modifier = Modifier.fillMaxWidth()) {
                     viewModel.load()
                 }
-                BrandPrimaryButton(text = "Close", modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandPrimaryButton(text = stringResource(R.string.bulkgrade_close), modifier = Modifier.fillMaxWidth()) { onClose() }
             }
         }
     }
@@ -110,17 +116,29 @@ fun BulkGradeScreen(
     state.pendingConfirmTier?.let { tier ->
         AlertDialog(
             onDismissRequest = viewModel::cancelTierConfirm,
-            title = { Text("Grade ${state.ready.size} items?") },
-            text = {
+            title = {
                 Text(
-                    "${tier.label} grading costs ${tier.creditCost} credit" +
-                        "${if (tier.creditCost == 1) "" else "s"} per item. You have " +
-                        "${state.creditBalance}. You're only charged for grades that succeed.",
+                    pluralStringResource(
+                        R.plurals.bulkgrade_confirm_title,
+                        state.ready.size,
+                        state.ready.size,
+                    ),
                 )
             },
-            confirmButton = { TextButton(onClick = viewModel::confirmTier) { Text("Use credits") } },
+            text = {
+                Text(
+                    pluralStringResource(
+                        R.plurals.bulkgrade_confirm_body,
+                        tier.creditCost,
+                        tier.label,
+                        tier.creditCost,
+                        state.creditBalance,
+                    ),
+                )
+            },
+            confirmButton = { TextButton(onClick = viewModel::confirmTier) { Text(stringResource(R.string.bulkgrade_use_credits)) } },
             dismissButton = {
-                TextButton(onClick = viewModel::cancelTierConfirm) { Text("Cancel") }
+                TextButton(onClick = viewModel::cancelTierConfirm) { Text(stringResource(R.string.bulkgrade_cancel)) }
             },
         )
     }
@@ -128,9 +146,14 @@ fun BulkGradeScreen(
 
 @Composable
 private fun ReadyBody(state: BulkGradeViewModel.State, viewModel: BulkGradeViewModel) {
+    val notReady = stringResource(R.string.bulkgrade_not_ready)
     Text(
-        "${state.ready.size} ready · ${state.blocked.size} blocked · " +
-            "${state.creditBalance} credits",
+        stringResource(
+            R.string.bulkgrade_counts,
+            state.ready.size,
+            state.blocked.size,
+            state.creditBalance,
+        ),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -146,21 +169,24 @@ private fun ReadyBody(state: BulkGradeViewModel.State, viewModel: BulkGradeViewM
                 .padding(Spacing.sm),
         ) {
             Text(
-                "${state.blocked.size} won't be submitted",
+                stringResource(R.string.bulkgrade_blocked_count, state.blocked.size),
                 style = MaterialTheme.typography.labelLarge,
             )
             // Named individually: "3 blocked" with no names means opening each
             // of twenty items to find which three.
             state.blocked.take(5).forEach { item ->
                 Text(
-                    "• ${item.title ?: item.inventoryItemId} — " +
-                        (item.blockers.firstOrNull() ?: "not ready"),
+                    stringResource(
+                        R.string.bulkgrade_blocked_row,
+                        item.title ?: item.inventoryItemId,
+                        item.blockers.firstOrNull() ?: notReady,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
             if (state.blocked.size > 5) {
                 Text(
-                    "…and ${state.blocked.size - 5} more",
+                    stringResource(R.string.bulkgrade_and_more, state.blocked.size - 5),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -195,12 +221,16 @@ private fun ReadyBody(state: BulkGradeViewModel.State, viewModel: BulkGradeViewM
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "${tier.creditCost * state.ready.size} credits",
+                    pluralStringResource(
+                        R.plurals.bulkgrade_tier_cost,
+                        tier.creditCost * state.ready.size,
+                        tier.creditCost * state.ready.size,
+                    ),
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
             Text(
-                "${tier.turnaround} · ${tier.blurb}",
+                stringResource(R.string.graderequest_tier_detail, tier.turnaround, tier.blurb),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -220,7 +250,7 @@ private fun ReadyBody(state: BulkGradeViewModel.State, viewModel: BulkGradeViewM
         )
     } else {
         BrandPrimaryButton(
-            text = "Grade ${state.ready.size} items",
+            text = pluralStringResource(R.plurals.bulkgrade_title, state.ready.size, state.ready.size),
             enabled = state.canSubmit,
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.submit() }

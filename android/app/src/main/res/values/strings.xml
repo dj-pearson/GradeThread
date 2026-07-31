@@ -926,4 +926,107 @@
     <string name="postsale_positive_only">eBay only lets sellers leave positive feedback, so there\'s no rating to pick.</string>
     <string name="postsale_order_fallback">Order %1$s</string>
     <string name="postsale_indented">\u0020\u0020\u0020%1$s</string>
+
+    <!-- US-2368: bulkgrade screen text. -->
+    <string name="bulkgrade_grades_land_each_item_as">Grades land on each item as they finish — no need to wait here.</string>
+    <string name="bulkgrade_done">Done</string>
+    <string name="bulkgrade_close">Close</string>
+    <string name="bulkgrade_try_again">Try again</string>
+    <string name="bulkgrade_use_credits">Use credits</string>
+    <string name="bulkgrade_cancel">Cancel</string>
+
+    <!-- US-2368: inventorylist screen text. -->
+    <string name="inventorylist_search_inventory">Search inventory</string>
+    <string name="inventorylist_dismiss">Dismiss</string>
+    <string name="inventorylist_no_photos">No photos</string>
+    <string name="inventorylist_no_photos_yet">No photos yet</string>
+    <string name="inventorylist_grade">Grade</string>
+    <string name="inventorylist_nothing_here_yet">Nothing here yet</string>
+    <string name="inventorylist_items_source_will_show_up">Items you source will show up here. Try clearing filters if you expected some.</string>
+
+    <!-- US-2368: promotion screen text. -->
+    <string name="promotion_promote_discount">Promote or discount</string>
+    <string name="promotion_that_didn_t_work">That didn\'t work</string>
+    <string name="promotion_done">Done</string>
+    <string name="promotion_loading">Loading…</string>
+    <string name="promotion_couldn_t_load_this_listing">Couldn\'t load this listing\'s promotion settings.</string>
+    <string name="promotion_close">Close</string>
+    <string name="promotion_promoted_listing">Promoted listing</string>
+    <string name="promotion_ad_rate">Ad rate</string>
+    <string name="promotion_text">%</string>
+    <string name="promotion_stop">Stop</string>
+    <string name="promotion_sale">Sale</string>
+    <string name="promotion_percent_off">Percent off</string>
+    <string name="promotion_end_sale">End sale</string>
+
+    <!-- US-2368: community screen text. -->
+    <string name="community_community_insights">Community insights</string>
+    <string name="community_loading">Loading…</string>
+    <string name="community_not_available">Not available</string>
+    <string name="community_that_didn_t_work">That didn\'t work</string>
+    <string name="community_refresh">Refresh</string>
+    <string name="community_back">Back</string>
+    <string name="community_not_enough_community_data_yet">Not enough community data yet</string>
+    <string name="community_nothing_act_right_now">Nothing to act on right now</string>
+    <string name="community_what_numbers_suggest">What the numbers suggest</string>
+    <string name="community_sell_through_by_brand">Sell-through by brand</string>
+    <string name="community_average_sale_price">Average sale price</string>
+    <string name="community_categories_move">Categories on the move</string>
+    <string name="community_text">You</string>
+    <string name="inventorylist_filters">Filters</string>
+    <string name="inventorylist_filters_count">Filters (%1$d)</string>
+    <string name="inventorylist_board">Board</string>
+    <string name="inventorylist_list">List</string>
+    <string name="inventorylist_label_count">%1$s (%2$d)</string>
+    <string name="inventorylist_price_listed">listed</string>
+    <string name="inventorylist_price_target">target</string>
+    <string name="inventorylist_price_cost">cost</string>
+    <string name="inventorylist_price_row">$%1$s %2$s</string>
+    <string name="inventorylist_grade_spoken">Certified grade %1$s%2$s</string>
+    <string name="inventorylist_grade_label_suffix">, %1$s</string>
+    <plurals name="inventorylist_items">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
+
+    <string name="bulkgrade_counts">%1$d ready \u00b7 %2$d blocked \u00b7 %3$d credits</string>
+    <string name="bulkgrade_blocked_count">%1$d won\'t be submitted</string>
+    <string name="bulkgrade_blocked_row">\u2022 %1$s \u2014 %2$s</string>
+    <string name="bulkgrade_not_ready">not ready</string>
+    <string name="bulkgrade_and_more">\u2026and %1$d more</string>
+    <plurals name="bulkgrade_title">
+        <item quantity="one">Grade %1$d item</item>
+        <item quantity="other">Grade %1$d items</item>
+    </plurals>
+    <plurals name="bulkgrade_confirm_title">
+        <item quantity="one">Grade %1$d item?</item>
+        <item quantity="other">Grade %1$d items?</item>
+    </plurals>
+    <plurals name="bulkgrade_confirm_body">
+        <item quantity="one">%1$s grading costs %2$d credit per item. You have %3$d. You\'re only charged for grades that succeed.</item>
+        <item quantity="other">%1$s grading costs %2$d credits per item. You have %3$d. You\'re only charged for grades that succeed.</item>
+    </plurals>
+    <plurals name="bulkgrade_tier_cost">
+        <item quantity="one">%1$d credit</item>
+        <item quantity="other">%1$d credits</item>
+    </plurals>
+
+    <string name="promotion_ad_rate_range">eBay accepts %1$s\u2013%2$s%%. You only pay it when the ad makes the sale.</string>
+    <string name="promotion_markdown_range">eBay accepts %1$s\u2013%2$s%% off. Ending the sale puts the original price back.</string>
+    <string name="promotion_update_rate">Update rate</string>
+    <string name="promotion_promote">Promote</string>
+    <string name="promotion_update_sale">Update sale</string>
+    <string name="promotion_start_sale">Start sale</string>
+
+    <string name="community_privacy_note">Every figure is pooled across at least %1$d sellers. No individual seller\'s numbers are shown, including yours.</string>
+    <string name="community_too_thin">We need more sellers working the same brands and categories before these numbers mean anything. Check back soon.</string>
+    <string name="community_nothing_actionable">We have data for your brands and categories, but nothing in it is strong enough to act on today.</string>
+    <string name="community_sell_through_spoken">Community sell-through by brand: %1$s</string>
+    <string name="community_pair_spoken_item">%1$s %2$s</string>
+    <string name="community_you_row">%1$d listed \u00b7 %2$d sold</string>
+    <string name="community_tap_to_see">Tap to see your %1$s items</string>
+    <string name="community_brand_row">%1$d sellers \u00b7 %2$d of %3$d sold</string>
+    <string name="community_trend_up">Sales up %1$s over 30 days \u00b7 %2$d sellers</string>
+    <string name="community_trend_down">Sales down %1$s over 30 days \u00b7 %2$d sellers</string>
+    <string name="community_trend_flat">%1$d sold in 30 days \u00b7 %2$d sellers</string>
 </resources>

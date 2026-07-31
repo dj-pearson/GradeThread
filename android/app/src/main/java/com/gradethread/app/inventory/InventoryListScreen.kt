@@ -34,6 +34,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
@@ -157,7 +160,7 @@ fun InventoryListScreen(
         OutlinedTextField(
             value = query,
             onValueChange = viewModel::setQuery,
-            label = { Text("Search inventory") },
+            label = { Text(stringResource(R.string.inventorylist_search_inventory)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(Spacing.md),
         )
@@ -167,18 +170,29 @@ fun InventoryListScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "${visible.size} items",
+                text = pluralStringResource(R.plurals.inventorylist_items, visible.size, visible.size),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { showingFilters = true }) {
                 Text(
-                    if (criteria.activeCount > 0) "Filters (${criteria.activeCount})"
-                    else "Filters",
+                    if (criteria.activeCount > 0) {
+                        stringResource(R.string.inventorylist_filters_count, criteria.activeCount)
+                    } else {
+                        stringResource(R.string.inventorylist_filters)
+                    },
                 )
             }
             TextButton(onClick = viewModel::toggleViewMode) {
-                Text(if (viewMode == InventoryViewMode.LIST) "Board" else "List")
+                Text(
+                    stringResource(
+                        if (viewMode == InventoryViewMode.LIST) {
+                            R.string.inventorylist_board
+                        } else {
+                            R.string.inventorylist_list
+                        },
+                    ),
+                )
             }
         }
 
@@ -192,7 +206,15 @@ fun InventoryListScreen(
                     Tab(
                         selected = candidate == stage,
                         onClick = { viewModel.selectStage(candidate) },
-                        text = { Text("${candidate.label} (${counts[candidate] ?: 0})") },
+                        text = {
+                            Text(
+                                stringResource(
+                                    R.string.inventorylist_label_count,
+                                    candidate.label,
+                                    counts[candidate] ?: 0,
+                                ),
+                            )
+                        },
                     )
                 }
             }
@@ -211,7 +233,7 @@ fun InventoryListScreen(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::dismissRefreshError) { Text("Dismiss") }
+                TextButton(onClick = viewModel::dismissRefreshError) { Text(stringResource(R.string.inventorylist_dismiss)) }
             }
         }
 
@@ -334,7 +356,11 @@ private fun InventoryBoard(
         items(PipelineBoard.columns, key = { it.status }) { column ->
             Column(Modifier.width(264.dp)) {
                 Text(
-                    "${column.label} (${grouped[column.status]?.size ?: 0})",
+                    stringResource(
+                        R.string.inventorylist_label_count,
+                        column.label,
+                        grouped[column.status]?.size ?: 0,
+                    ),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -408,12 +434,12 @@ private fun InventoryRow(
             )
             InventoryFilter.effectivePrice(item)?.let { price ->
                 val label = when {
-                    item.listingPrice != null -> "listed"
-                    item.targetPrice != null -> "target"
-                    else -> "cost"
+                    item.listingPrice != null -> stringResource(R.string.inventorylist_price_listed)
+                    item.targetPrice != null -> stringResource(R.string.inventorylist_price_target)
+                    else -> stringResource(R.string.inventorylist_price_cost)
                 }
                 Text(
-                    "$${"%.2f".format(price)} $label",
+                    stringResource(R.string.inventorylist_price_row, "%.2f".format(price), label),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -423,12 +449,12 @@ private fun InventoryRow(
         // item would wrongly read as "no photos".
         if (!hasPhotos) {
             Text(
-                text = "No photos",
+                text = stringResource(R.string.inventorylist_no_photos),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier
                     .padding(end = Spacing.xs)
-                    .semantics { contentDescription = "No photos yet" },
+                    .semantics { contentDescription = stringResource(R.string.inventorylist_no_photos_yet) },
             )
         }
         // US-1336: the grade entry point. Offered only where it can succeed —
@@ -436,7 +462,7 @@ private fun InventoryRow(
         // photos, so an item without them would only reach a blocker list.
         if (item.gradeValue == null && hasPhotos) {
             TextButton(onClick = { onGrade(item.id) }) {
-                Text("Grade", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.inventorylist_grade), style = MaterialTheme.typography.labelMedium)
             }
         }
         // US-1337: a graded item's chip opens its report.
@@ -447,6 +473,9 @@ private fun InventoryRow(
 /** Shown whenever a grade exists — the row does not gate on review state. */
 @Composable
 private fun GradeChip(score: Double, label: String?, onClick: () -> Unit = {}) {
+    // Read here: the semantics block below is not a composable scope.
+    val gradeSpoken = stringResource(R.string.inventorylist_grade_spoken)
+    val labelSuffix = stringResource(R.string.inventorylist_grade_label_suffix)
     val color = gradeColor(score)
     Box(
         Modifier
@@ -454,12 +483,15 @@ private fun GradeChip(score: Double, label: String?, onClick: () -> Unit = {}) {
             .background(color.copy(alpha = 0.12f), RoundedCornerShape(50))
             .padding(horizontal = Spacing.xs, vertical = Spacing.xxs)
             .semantics {
-                contentDescription = "Certified grade ${"%.1f".format(score)}" +
-                    (label?.let { ", $it" } ?: "")
+                contentDescription = gradeSpoken.format(
+                    "%.1f".format(score),
+                    label?.let { labelSuffix.format(it) }.orEmpty(),
+                )
             },
     ) {
         Text(
-            text = "%.1f".format(score) + (label?.let { " $it" } ?: ""),
+            // A number format, not copy: it never gets translated.
+            text = "%.1f".format(score) + label?.let { " $it" }.orEmpty(),
             style = MaterialTheme.typography.labelSmall,
             color = color,
         )
@@ -481,9 +513,9 @@ private fun EmptyState() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.inventorylist_nothing_here_yet), style = MaterialTheme.typography.titleMedium)
         Text(
-            "Items you source will show up here. Try clearing filters if you expected some.",
+            stringResource(R.string.inventorylist_items_source_will_show_up),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

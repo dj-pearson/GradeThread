@@ -45,7 +45,7 @@ P&L), Sales, Expenses, Settings.
 
 | Area | Owning story |
 |---|---|
-| Full string externalization beyond the 30 scoped files | US-2368 (in progress) |
+| Full string externalization beyond the 34 scoped files | US-2368 (in progress) |
 
 US-1379–1389 have since landed (widgets, background refresh, shortcuts, share
 target, onboarding, referrals, support, feedback, workspaces, CSV import) — see
@@ -640,13 +640,14 @@ mirroring the App Store catalog. Nothing in this repo can do that.
 `stringResource` for the files named in its `SCOPE` list, and that list grows as
 screens convert. A guard covering all ~90 Compose files today would either fail
 everywhere or get switched off, and a switched-off guard protects nothing.
-Thirty files are converted and locked. US-1393 did onboarding, referrals, both
+Thirty-four files are converted and locked. US-1393 did onboarding, referrals, both
 support screens, feedback, the workspace switcher and the importer; US-2369 did
 sign-in; US-2368 has since done home, money, settings, snap, analytics,
 automations, the drafts library, the negotiation inbox, templates, marketplaces,
 reconciliation, the publish sheet, repricing, details intake, tools, prospect,
 the item canvas, the grade request, the AI-fill sheet, the grade report,
-consignors and post-sale. The guard also fails if a scoped file
+consignors, post-sale, bulk grade, the inventory list, promotions and community
+insights. The guard also fails if a scoped file
 is renamed or deleted, so nothing drops out silently.
 
 **The guard reads two shapes, and the second one is the common one.** ktlint
@@ -680,7 +681,15 @@ none never runs through the formatter, so `%%` reaches the screen literally.
 `automations_field_margin_floor` takes none and uses a single `%`.
 
 **Plurals are real `<plurals>`, not templates.** `"$n rows"` renders "1 rows",
-and every language past English has more than two forms.
+and every language past English has more than two forms. The specific
+construction to look for is `"credit${if (n == 1) "" else "s"}"` — it reads as
+careful code and is the exact thing that cannot survive translation. Nine of
+these have been replaced so far.
+
+**A bare number format is not copy.** `"%.1f"` has no words in it, so the guard
+exempts a literal that is nothing but a format specifier. Moving one into
+`strings.xml` does not help anybody translate anything; it just puts a format
+string somewhere a translator can edit it.
 
 **The in-app language picker** goes through `AppCompatDelegate.setApplicationLocales`
 — the one API that spans Android 13+ (system per-app language store) and below

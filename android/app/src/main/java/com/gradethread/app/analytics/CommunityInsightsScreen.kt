@@ -18,6 +18,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -46,27 +48,28 @@ fun CommunityInsightsScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Community insights", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.community_community_insights), style = MaterialTheme.typography.titleLarge)
         Text(
             // The privacy promise, said plainly and up front. People are being
             // asked to look at other sellers' numbers; they deserve to know
             // theirs work the same way.
-            "Every figure is pooled across at least " +
-                "${CommunityRecommendations.MIN_SELLERS} sellers. No individual " +
-                "seller's numbers are shown, including yours.",
+            stringResource(
+                R.string.community_privacy_note,
+                CommunityRecommendations.MIN_SELLERS,
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         when (val phase = state.phase) {
             is CommunityInsightsViewModel.Phase.Loading ->
-                Text("Loading…", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.community_loading), style = MaterialTheme.typography.bodyMedium)
 
             is CommunityInsightsViewModel.Phase.Locked ->
-                InfoCard("Not available", phase.message, tone = InfoTone.Warning)
+                InfoCard(stringResource(R.string.community_not_available), phase.message, tone = InfoTone.Warning)
 
             is CommunityInsightsViewModel.Phase.Failed ->
-                InfoCard("That didn't work", phase.message, tone = InfoTone.Error)
+                InfoCard(stringResource(R.string.community_that_didn_t_work), phase.message, tone = InfoTone.Error)
 
             is CommunityInsightsViewModel.Phase.Ready -> Ready(
                 state = state,
@@ -79,10 +82,10 @@ fun CommunityInsightsScreen(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            BrandSecondaryButton(text = "Refresh", modifier = Modifier.weight(1f)) {
+            BrandSecondaryButton(text = stringResource(R.string.community_refresh), modifier = Modifier.weight(1f)) {
                 viewModel.refresh()
             }
-            BrandSecondaryButton(text = "Back", modifier = Modifier.weight(1f)) { onClose() }
+            BrandSecondaryButton(text = stringResource(R.string.community_back), modifier = Modifier.weight(1f)) { onClose() }
         }
     }
 }
@@ -93,6 +96,7 @@ private fun ColumnScope.Ready(
     data: CommunityBenchmarks,
     onOpenBrand: (String) -> Unit,
 ) {
+    val pairItem = stringResource(R.string.community_pair_spoken_item)
     LazyColumn(
         Modifier.fillMaxWidth().weight(1f),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
@@ -102,32 +106,30 @@ private fun ColumnScope.Ready(
         if (!state.hasBenchmarkData) {
             item {
                 InfoCard(
-                    "Not enough community data yet",
-                    "We need more sellers working the same brands and categories before " +
-                        "these numbers mean anything. Check back soon.",
+                    stringResource(R.string.community_not_enough_community_data_yet),
+                    stringResource(R.string.community_too_thin),
                 )
             }
         } else if (state.hasDataButNothingActionable) {
             item {
                 InfoCard(
-                    "Nothing to act on right now",
+                    stringResource(R.string.community_nothing_act_right_now),
                     // Distinct from the message above on purpose: there IS
                     // community data, it just isn't telling you to do anything.
-                    "We have data for your brands and categories, but nothing in it is " +
-                        "strong enough to act on today.",
+                    stringResource(R.string.community_nothing_actionable),
                 )
             }
         }
 
         if (state.recommendations.isNotEmpty()) {
-            item { SectionHeader("What the numbers suggest") }
+            item { SectionHeader(stringResource(R.string.community_what_numbers_suggest)) }
             items(state.recommendations, key = { it.id }) { rec ->
                 RecommendationCard(rec, onOpenBrand)
             }
         }
 
         if (data.topBrands.isNotEmpty()) {
-            item { SectionHeader("Sell-through by brand") }
+            item { SectionHeader(stringResource(R.string.community_sell_through_by_brand)) }
             item {
                 Column(Modifier.fillMaxWidth().cardStyle()) {
                     RankedBars(
@@ -138,21 +140,23 @@ private fun ColumnScope.Ready(
                                 Money.formatPercent(it.sellThrough),
                             )
                         },
-                        description = "Community sell-through by brand: " +
+                        description = stringResource(
+                            R.string.community_sell_through_spoken,
                             data.topBrands.take(8).joinToString {
-                                "${it.brand} ${Money.formatPercent(it.sellThrough)}"
+                                pairItem.format(it.brand, Money.formatPercent(it.sellThrough))
                             },
+                        ),
                     )
                 }
             }
-            item { SectionHeader("Average sale price") }
+            item { SectionHeader(stringResource(R.string.community_average_sale_price)) }
             items(data.topBrands.take(8), key = { "price-${it.brand}" }) { brand ->
                 BrandPriceRow(brand, onOpenBrand)
             }
         }
 
         if (data.trendingCategories.isNotEmpty()) {
-            item { SectionHeader("Categories on the move") }
+            item { SectionHeader(stringResource(R.string.community_categories_move)) }
             items(data.trendingCategories.take(8), key = { it.category }) { trend ->
                 CategoryRow(trend)
             }
@@ -166,9 +170,9 @@ private fun YouCard(state: CommunityInsightsViewModel.State, data: CommunityBenc
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Text("You", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.community_text), style = MaterialTheme.typography.titleMedium)
         Text(
-            "${data.you.listed} listed · ${data.you.sold} sold",
+            stringResource(R.string.community_you_row, data.you.listed, data.you.sold),
             style = MaterialTheme.typography.bodyLarge,
         )
         val standing = state.peerStanding
@@ -220,7 +224,7 @@ private fun RecommendationCard(
         )
         if (rec.brandFilter != null) {
             Text(
-                "Tap to see your ${rec.subject} items",
+                stringResource(R.string.community_tap_to_see, rec.subject),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -240,7 +244,12 @@ private fun BrandPriceRow(brand: BrandBenchmark, onOpenBrand: (String) -> Unit) 
         Column(Modifier.weight(1f)) {
             Text(brand.brand, style = MaterialTheme.typography.bodyLarge)
             Text(
-                "${brand.sellers} sellers · ${brand.sold} of ${brand.listed} sold",
+                stringResource(
+                    R.string.community_brand_row,
+                    brand.sellers,
+                    brand.sold,
+                    brand.listed,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -262,13 +271,21 @@ private fun CategoryRow(trend: CategoryTrend) {
         Text(trend.category, style = MaterialTheme.typography.bodyLarge)
         Text(
             trend.growth?.let {
-                val direction = if (it >= 0) "up" else "down"
-                "Sales $direction ${Money.formatPercent(kotlin.math.abs(it))} " +
-                    "over 30 days · ${trend.sellers} sellers"
+                // Two whole sentences rather than a spliced up/down: the verb does not
+                // sit in the same place in every language.
+                stringResource(
+                    if (it >= 0) R.string.community_trend_up else R.string.community_trend_down,
+                    Money.formatPercent(kotlin.math.abs(it)),
+                    trend.sellers,
+                )
             }
                 // No prior-period sales means there is no growth figure. Showing
                 // "up 0%" would state a fact nobody measured.
-                ?: "${trend.soldRecent} sold in 30 days · ${trend.sellers} sellers",
+                ?: stringResource(
+                    R.string.community_trend_flat,
+                    trend.soldRecent,
+                    trend.sellers,
+                ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

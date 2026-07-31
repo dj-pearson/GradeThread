@@ -54,6 +54,10 @@ SCOPE = [
     "grading/GradeReportScreen.kt",
     "consignment/ConsignorsScreen.kt",
     "marketplaces/postsale/PostSaleScreen.kt",
+    "grading/BulkGradeScreen.kt",
+    "inventory/InventoryListScreen.kt",
+    "marketplaces/promotions/PromotionSheet.kt",
+    "analytics/CommunityInsightsScreen.kt",
 ]
 
 # A string literal handed to something that renders or speaks it.
@@ -92,8 +96,11 @@ EXEMPT = re.compile(
     re.VERBOSE,
 )
 
-# An empty or whitespace-only literal is a spacer, not copy.
-TRIVIAL = re.compile(r'"\s*"')
+# An empty or whitespace-only literal is a spacer, not copy. A literal that is
+# nothing but a number-format specifier is not copy either — "%.1f" has no words
+# in it to translate, and moving it to a resource only invites a translator to
+# edit a format string.
+TRIVIAL = re.compile(r'"\s*"|"%[-+ 0,#]*[\d.]*[a-zA-Z]"')
 
 # The same sinks, but with the literal wrapped onto the NEXT line — which is
 # what ktlint does to any argument list over 100 columns, so it is the COMMON
