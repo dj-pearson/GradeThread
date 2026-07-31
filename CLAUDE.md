@@ -91,6 +91,7 @@ cd services/edge-functions && deno run --allow-net --allow-env --allow-read src/
 - **Self-hosted Supabase caveat:** the `db` lane boots a THROWAWAY local stack only to prove migrations apply on a fresh schema. It NEVER touches prod (`api.gradethread.com`). Don't `supabase link`/`db push` expecting prod — prod migrations apply via the self-hosted deploy process. `config.toml` configures only the local stack.
 - **Git hooks** (auto via `prepare` → `core.hooksPath .githooks`): `pre-commit` = gitleaks; `pre-push` = `npm run verify` (bypass with `git push --no-verify`).
 - **iOS:** can't build/test on Windows (Swift/xcodebuild is macOS-only); `iOS CI` on macOS runners is the safety net. Only `python3 ios/Scripts/no-ungated-print.py` runs locally.
+- **Android:** `Android CI` (assembleDebug + unit tests + lintDebug + assembleRelease) is the gate; it also runs `python3 android/scripts/no-ungated-log.py`, the Android half of the iOS print guard, which you can run locally with no SDK.
 - Hook/shell scripts pinned to LF via `.gitattributes` (a CRLF shebang breaks Git-for-Windows `sh`). Don't remove that rule.
 
 ## Key Paths

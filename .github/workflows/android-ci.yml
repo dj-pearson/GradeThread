@@ -40,6 +40,14 @@ jobs:
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
 
+      # US-1391: the Android half of the iOS print guard. android.util.Log is
+      # NOT stripped by R8 unless a proguard rule removes it, so an ungated
+      # Log.d can put a session token or a seller's address into logcat, where
+      # every bug-report capture reads it. Runs BEFORE the build, because it is
+      # seconds and the build is minutes.
+      - name: No ungated logging
+        run: python3 scripts/no-ungated-log.py
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
@@ -48,6 +56,36 @@ jobs:
 
       - name: Android Lint
         run: ./gradlew lintDebug --stacktrace
+
+      # US-1391 AC3: on Android the widget and the share target are components
+      # of the same module, so what can actually break them is the MANIFEST
+      # MERGE silently dropping one — which produces a green build and an app
+      # with no widget in the picker and no entry in the share sheet.
+      - name: Widget + share target survive the manifest merge
+        run: |
+          set -euo pipefail
+          MERGED=app/build/intermediates/merged_manifests/debug/processDebugMainManifest/AndroidManifest.xml
+          if [ ! -f "$MERGED" ]; then
+            MERGED=$(find app/build/intermediates -name AndroidManifest.xml -path '*merged_manifest*' | head -n1)
+          fi
+          echo "Checking $MERGED"
+          grep -q 'SellerSnapshotWidgetReceiver' "$MERGED"
+          grep -q 'ShareTargetActivity' "$MERGED"
+          grep -q 'android.intent.action.SEND_MULTIPLE' "$MERGED"
+          echo "widget + share target present"
+
+      # US-1391: proves the release lane works — minification, the proguard
+      # rules, and the signing config. Unsigned on a PR (no secret is exposed
+      # to a fork), which still catches an R8 rule that strips something the
+      # app needs at runtime.
+      - name: Build release APK
+        run: ./gradlew assembleRelease --stacktrace
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
 
       - name: Upload lint report
         if: failure()

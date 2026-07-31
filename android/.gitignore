@@ -3,5 +3,9 @@ local.properties
 build/
 app/build/
 *.keystore
+# US-1391: the release signing key, in either shape it can take. Committing one
+# hands anyone who can read the repo the ability to sign an update to the app.
+*.jks
+release-keystore.jks
 # Kotlin compiler session/error scratch dir — build output, not source.
 .kotlin/

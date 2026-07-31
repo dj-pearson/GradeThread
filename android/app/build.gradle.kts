@@ -20,6 +20,32 @@ val localProps = Properties().apply {
 fun secret(name: String, default: String = ""): String =
     System.getenv(name) ?: localProps.getProperty(name) ?: default
 
+/**
+ * US-1391: the release keystore.
+ *
+ * Two shapes, because CI and a laptop need different things. CI sets
+ * ANDROID_KEYSTORE_BASE64 (a GitHub secret can only carry text); a developer
+ * points ANDROID_KEYSTORE_PATH at a file. Neither is ever committed.
+ *
+ * Returns null when the material is absent, and the release build type then
+ * has NO signing config — an unsigned release APK still proves that
+ * minification and the manifest merge work, which is what a fork or a PR from
+ * outside the org needs. A build that failed outright would make the release
+ * lane unrunnable for everyone without the secret.
+ */
+fun resolveKeystore(): File? {
+    val base64 = secret("ANDROID_KEYSTORE_BASE64")
+    if (base64.isNotBlank()) {
+        val decoded = File(layout.buildDirectory.get().asFile, "release-keystore.jks")
+        decoded.parentFile.mkdirs()
+        decoded.writeBytes(java.util.Base64.getDecoder().decode(base64.trim()))
+        return decoded
+    }
+    return secret("ANDROID_KEYSTORE_PATH").takeIf { it.isNotBlank() }
+        ?.let { rootProject.file(it) }
+        ?.takeIf { it.exists() }
+}
+
 android {
     namespace = "com.gradethread.app"
     // compileSdk 35 = the newest stable platform installed on dev machines and
@@ -32,8 +58,12 @@ android {
         // java.time, notification channels, and adaptive icons native.
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // US-1391: CI drives the version code so every upload to Play is
+        // strictly higher than the last. Play REJECTS a re-used code outright,
+        // and hand-bumping a literal is how a release lane ends up blocked at
+        // the worst moment. Defaults to 1 for a local build.
+        versionCode = secret("ANDROID_VERSION_CODE", "1").toIntOrNull() ?: 1
+        versionName = secret("ANDROID_VERSION_NAME", "0.1.0")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // US-1301: endpoint/keys via BuildConfig (see AppConfig.kt). The two
@@ -55,6 +85,22 @@ android {
         buildConfigField("String", "FIREBASE_SENDER_ID", "\"${secret("FIREBASE_SENDER_ID")}\"")
     }
 
+    signingConfigs {
+        create("release") {
+            resolveKeystore()?.let { keystore ->
+                storeFile = keystore
+                storePassword = secret("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = secret("ANDROID_KEY_ALIAS", "gradethread")
+                keyPassword = secret("ANDROID_KEY_PASSWORD")
+                // V1 as well as V2/V3: minSdk is 26, so a V2-only APK is fine
+                // for Play, but a sideloaded install on an older image and some
+                // enterprise MDM flows still verify the JAR signature.
+                enableV1Signing = true
+                enableV2Signing = true
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Side-by-side install with a release build; verbose logging on.
@@ -62,6 +108,9 @@ android {
             buildConfigField("boolean", "LOGGING_ENABLED", "true")
         }
         release {
+            // Only when the keystore actually resolved — see resolveKeystore().
+            signingConfig = signingConfigs.getByName("release")
+                .takeIf { it.storeFile != null }
             isMinifyEnabled = true
             buildConfigField("boolean", "LOGGING_ENABLED", "false")
             proguardFiles(

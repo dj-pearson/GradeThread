@@ -550,6 +550,44 @@ change events emitted while the socket was down are never replayed by the
 server, so every transition into SUBSCRIBED must pull or the gap is lost until
 someone refreshes by hand.
 
+## Build, signing and CI (US-1391)
+
+**Signing.** `resolveKeystore()` accepts two shapes because CI and a laptop need
+different things: `ANDROID_KEYSTORE_BASE64` (a GitHub secret can only carry
+text) or `ANDROID_KEYSTORE_PATH`. Neither is ever committed — `*.jks` and
+`*.keystore` are gitignored, and committing one hands anyone who can read the
+repo the ability to sign an update to the app.
+
+When the material is absent the release build type gets **no** signing config
+rather than failing. An unsigned release APK still proves minification, the R8
+rules and the manifest merge work, which is what a fork or an outside PR needs;
+a hard failure would make the release lane unrunnable for everyone without the
+secret.
+
+**`versionCode` comes from CI** (`ANDROID_VERSION_CODE`, the run number),
+defaulting to 1 locally. Play rejects a re-used code outright, and hand-bumping
+a literal is how a release lane ends up blocked at the worst possible moment.
+
+**`no-ungated-log.py`** is the Android half of the iOS print guard (US-698).
+`android.util.Log` is *not* stripped by R8 unless a rule removes it, so "it's
+only debug" isn't true by default and an ungated `Log.d(TAG, response)` can put
+a session token or a seller's address into logcat. Allowed shapes: inside
+`if (BuildConfig.LOGGING_ENABLED)` / `if (AppConfig.loggingEnabled)`, braced or
+not, or routed through `Telemetry`, which redacts. Runs in CI and locally with
+no SDK: `python3 android/scripts/no-ungated-log.py`.
+
+**The widget/share-target CI check greps the MERGED manifest.** Both are
+components of the same module, so a compile failure isn't the risk — a manifest
+merge silently dropping one is, and that produces a green build with no widget
+in the picker and no entry in the share sheet.
+
+`proguard-rules.pro` carries only what this app's own shape needs: the
+kotlinx-serialization keeps (every wire model is `@Serializable`, and R8 cannot
+see the reflective `$$serializer` reference, so stripping them turns every
+decode into a runtime `SerializationException` that does not exist in debug),
+the enum `values`/`valueOf` keeps that US-1390's save-by-name relies on, and
+`-dontwarn` for the server-side classes Ktor references but Android never loads.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;
