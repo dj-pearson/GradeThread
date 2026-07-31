@@ -109,3 +109,114 @@ Deno.test("a single row emits no leading comma", async () => {
 Deno.test("the default page size is a sane bound", () => {
   assertEquals(EXPORT_PAGE_SIZE > 0 && EXPORT_PAGE_SIZE <= 1000, true);
 });
+
+// ── AC3: the heavy account ───────────────────────────────────────────
+//
+// "Test against a seeded heavy account — the failure mode only appears at the
+// size where it matters." There is no seeded heavy account to point at, and
+// waiting for one would leave the AC open forever. So these assert the PROPERTY
+// that a heavy account would have exposed, at heavy-account scale, without one.
+//
+// The OOM this story exists to prevent came from holding an entire table in
+// memory at once. In a pull-based pipeline the thing that guarantees bounded
+// memory is LAZINESS: page k+1 must not be fetched until page k has been fully
+// consumed, so at most one page is ever live no matter how big the account is.
+// That is deterministic and checkable — unlike measuring RSS, which is noisy
+// and would make this suite flaky.
+
+/**
+ * A fake table that also tracks how many pages are IN FLIGHT: handed to the
+ * consumer but not yet fully drained. Peak in-flight is the memory bound.
+ */
+function trackedTable(total: number, pageSize: number) {
+  const state = { fetched: 0, emitted: 0, peakInFlight: 0 };
+  const fetch = (from: number, to: number) => {
+    state.fetched++;
+    const inFlight = state.fetched - Math.floor(state.emitted / pageSize);
+    if (inFlight > state.peakInFlight) state.peakInFlight = inFlight;
+    const rows = [];
+    for (let i = from; i <= to && i < total; i++) rows.push({ i });
+    return Promise.resolve({ data: rows });
+  };
+  return { state, fetch };
+}
+
+Deno.test("AC3: at heavy-account scale, only one page is ever in flight", async () => {
+  // 100k rows at the real page size = 200 round trips. The old code held all
+  // 100k at once; this must hold ~500 regardless of the total.
+  const total = 100_000;
+  const { state, fetch } = trackedTable(total, EXPORT_PAGE_SIZE);
+  let seen = 0;
+  for await (const page of pageThrough(fetch, EXPORT_PAGE_SIZE)) {
+    seen += page.length;
+    state.emitted = seen;
+    // The page the consumer holds is bounded by the page size, not the account.
+    assertEquals(page.length <= EXPORT_PAGE_SIZE, true);
+  }
+  assertEquals(seen, total);
+  // 200 full pages plus the one empty page that proves the end — 100k is an
+  // exact multiple of the page size, the boundary the earlier test pins. A full
+  // last page is indistinguishable from "there may be more", so the extra round
+  // trip is the deliberate cost of never truncating.
+  assertEquals(state.fetched, total / EXPORT_PAGE_SIZE + 1);
+  // THE ASSERTION THAT MATTERS: peak concurrent pages is 1, so peak memory is
+  // one page — the same for a 100-row account and a 100,000-row one.
+  assertEquals(state.peakInFlight, 1);
+});
+
+Deno.test("AC3: the generator is lazy — no page is fetched ahead of demand", async () => {
+  // Laziness is what makes the bound above hold. If pageThrough ever eagerly
+  // prefetched (or was rewritten to collect first), peak memory would scale
+  // with the account again and every other test here would still pass.
+  const { state, fetch } = trackedTable(10_000, EXPORT_PAGE_SIZE);
+  const gen = pageThrough(fetch, EXPORT_PAGE_SIZE);
+  assertEquals(state.fetched, 0, "constructing the generator must fetch nothing");
+  await gen.next();
+  assertEquals(state.fetched, 1, "one page consumed must cost exactly one query");
+  await gen.next();
+  assertEquals(state.fetched, 2);
+  await gen.return(undefined);
+  assertEquals(state.fetched, 2, "abandoning the export must not keep fetching");
+});
+
+Deno.test("AC3: a heavy account still serialises to ONE valid JSON document", async () => {
+  // The comma-placement bug is invisible on a small account and produces an
+  // unparseable multi-megabyte file on a large one — the failure mode this AC
+  // is really about. Assembled the same way the route assembles it.
+  const total = 25_000;
+  let body = "";
+  for await (
+    const chunk of streamJsonArrayMembers(
+      pageThrough(fakeTable(total), EXPORT_PAGE_SIZE),
+    )
+  ) {
+    body += chunk;
+  }
+  const envelope = JSON.parse(`{"sales":[${body}]}`) as { sales: Array<{ i: number }> };
+  assertEquals(envelope.sales.length, total);
+  // Order must survive paging — an export that silently reorders or drops a
+  // page in the middle is the compliance failure, not the crash.
+  assertEquals(envelope.sales[0].i, 0);
+  assertEquals(envelope.sales[EXPORT_PAGE_SIZE].i, EXPORT_PAGE_SIZE);
+  assertEquals(envelope.sales[total - 1].i, total - 1);
+});
+
+Deno.test("AC3: a failure deep in a heavy export rejects, never truncates", async () => {
+  // On a big account a mid-export failure is far more likely than on a small
+  // one, and returning the pages collected so far would hand the subject a file
+  // that looks complete. It must throw.
+  const failAt = 50 * EXPORT_PAGE_SIZE;
+  const flaky = (from: number, to: number) => {
+    if (from >= failAt) {
+      return Promise.resolve({ data: null, error: new Error("statement timeout") });
+    }
+    const rows = [];
+    for (let i = from; i <= to; i++) rows.push({ i });
+    return Promise.resolve({ data: rows });
+  };
+  await assertRejects(
+    () => collect(pageThrough(flaky, EXPORT_PAGE_SIZE)),
+    Error,
+    "statement timeout",
+  );
+});
