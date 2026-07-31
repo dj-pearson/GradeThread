@@ -698,13 +698,45 @@ green, which is worse than not having it. The blocking lane still runs
 `assembleDebugAndroidTest`, so a genuinely broken test source fails there rather
 than hiding behind a red X people learn to ignore.
 
-**Not written, and why:** an E2E for "sign-in + validation" — this app has **no
-sign-in screen**. `MainActivity` composes the shell directly; the auth package
-holds the repository, the OAuth callback and the Turnstile challenge, but no
-credential UI exists to test. Paywall product rendering and the test-SKU
-purchase are covered by `PaywallPricingTest`, `SubscriptionServiceTest` and
-`BillingRepositoryTest` against `FakePlayBilling` rather than duplicated on an
-emulator.
+`SignInValidationTest` covers the validation path US-1395 named — it became
+writable once US-2369 added the screen. Paywall product rendering and the
+test-SKU purchase stay covered by `PaywallPricingTest`, `SubscriptionServiceTest`
+and `BillingRepositoryTest` against `FakePlayBilling` rather than duplicated on
+an emulator.
+
+Anything gated on a **session** cannot be instrumented yet: the emulator has no
+credentials, so a signed-in surface would be a flake rather than a check. That
+is why `SettingsRendersTest` was removed when the auth gate landed rather than
+left failing.
+
+## Sign in (US-2369)
+
+`MainActivity` used to compose `AppShell` **unconditionally**, so the app was
+unusable by anyone not already holding a session — and every piece of auth
+plumbing underneath (PKCE, the classified `FriendlyAuthError` cases, the OAuth
+callback) had no surface to reach it from. It now switches on
+`AuthRepository.phase`.
+
+`Loading` renders **nothing**, not the form. The session restores from encrypted
+storage in milliseconds, and a sign-in screen that appears and vanishes on every
+cold start reads as a bug.
+
+`AuthFormRules` mirrors `src/lib/password-policy.ts` and
+`supabase/config.toml` (`minimum_password_length = 10`,
+`lower_upper_letters_digits`). Three rules worth naming:
+
+- **The password policy applies on sign-UP only.** Enforcing today's rule
+  against an existing password locks out anyone who created their account before
+  it tightened, and refuses them with a message about the *rule* rather than
+  letting the server say "wrong password".
+- **Email validation is deliberately loose.** An RFC-complete pattern rejects
+  real addresses, and the server verifies by sending to it — which is the only
+  check that proves anything. This catches a missing `@` and a missing dot.
+- **Every classified failure that has a next step offers it** as a button:
+  resend confirmation, reset password, or switch to sign-in for an address that
+  already has an account. "That didn't work" with no next step is where people
+  give up. The password reset never says whether the account exists, so the form
+  can't be used as an account-existence oracle.
 
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 

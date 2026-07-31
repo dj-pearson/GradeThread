@@ -113,6 +113,21 @@
     <string name="import_row_failed">Row %1$d: %2$s</string>
     <string name="import_row_preview">Row %1$d: %2$s</string>
 
+    <!-- Auth (US-2369) -->
+    <string name="auth_sign_in">Sign in</string>
+    <string name="auth_create_account">Create account</string>
+    <string name="auth_subtitle">Grade, list and track your resale inventory.</string>
+    <string name="auth_name">Your name</string>
+    <string name="auth_email">Email</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_show">Show</string>
+    <string name="auth_hide">Hide</string>
+    <string name="auth_working">Working\u2026</string>
+    <string name="auth_resend_confirmation">Resend the confirmation email</string>
+    <string name="auth_reset_password">Reset my password</string>
+    <string name="auth_need_account">Need an account? Sign up</string>
+    <string name="auth_have_account">Already have an account? Sign in</string>
+
     <!-- Settings (US-1383/1393) -->
     <string name="settings_language">Language</string>
     <string name="settings_language_system">Match my phone</string>

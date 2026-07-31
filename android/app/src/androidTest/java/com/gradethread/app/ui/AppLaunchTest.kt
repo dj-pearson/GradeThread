@@ -2,10 +2,8 @@ package com.gradethread.app.ui
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.gradethread.app.MainActivity
-import com.gradethread.app.ui.shell.ShellSection
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import org.junit.Rule
@@ -13,17 +11,18 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * US-1395: the app launches and the shell is on screen.
+ * US-1395: the app launches without the Hilt graph blowing up.
  *
- * The single most valuable instrumented test this app can have, and one the 134
- * JVM unit tests cannot replace: none of them constructs the real Hilt graph.
- * A missing `@Binds`, a `@Provides` that throws, a circular dependency, or a
+ * The most valuable instrumented test this app can have, and one the 130+ JVM
+ * unit tests cannot replace: none of them constructs the real object graph. A
+ * missing `@Binds`, a `@Provides` that throws, a circular dependency, or a
  * crash inside a ViewModel's `init` all compile perfectly and fail only when
- * Dagger assembles the graph on a device.
+ * Dagger assembles on a device.
  *
- * That risk is not theoretical here — this session alone added Realtime,
- * workspace, import, support, feedback and referral bindings to the singleton
- * component, plus `SavedStateHandle` to two ViewModels.
+ * The emulator has no session, so the correct landing is the SIGN-IN screen
+ * (US-2369). Asserting that is asserting the whole startup path: Application
+ * created, MainActivity survived onCreate, AuthRepository injected, the phase
+ * resolved to SignedOut, and the form composed.
  */
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
@@ -36,26 +35,20 @@ class AppLaunchTest {
     val compose = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun theShellMounts() {
+    fun aSessionlessLaunchReachesTheSignInForm() {
         hilt.inject()
 
-        // The bottom bar is the proof the shell composed: it renders every
-        // section label, so seeing them means the nav graph built and the
-        // Activity survived onCreate.
-        ShellSection.ordered.forEach { section ->
-            compose.onNodeWithText(section.label).assertExists(
-                "Shell section '${section.label}' is missing — the shell did not mount.",
-            )
-        }
+        compose.onNodeWithText("Sign in").assertExists(
+            "The app did not reach the sign-in form — startup or the Hilt graph failed.",
+        )
+        compose.onNodeWithText("Email").assertExists()
+        compose.onNodeWithText("Password").assertExists()
     }
 
     @Test
-    fun theAddSheetOpensAndCloses() {
+    fun theSignUpToggleSwapsTheForm() {
         hilt.inject()
 
-        // Add is the one bar item that opens a sheet rather than navigating, so
-        // it exercises a code path the section labels alone do not.
-        compose.onNodeWithText(ShellSection.ADD.label).performClick()
-        compose.onNodeWithText("Take photos").assertExists()
+        compose.onNodeWithText("Need an account? Sign up").assertExists()
     }
 }

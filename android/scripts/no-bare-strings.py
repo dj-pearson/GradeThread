@@ -31,6 +31,7 @@ SCOPE = [
     "feedback/FeedbackSheet.kt",
     "workspace/WorkspaceSwitcherRow.kt",
     "importer/ImportScreen.kt",
+    "auth/AuthScreen.kt",
 ]
 
 # A string literal handed to something that renders or speaks it.
