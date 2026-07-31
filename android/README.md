@@ -384,6 +384,36 @@ Four decisions worth keeping:
 Internal notes and agent identities are never modelled — the edge strips both,
 and a client type naming them would invite a request for them.
 
+## Feedback (US-1387)
+
+`feedback/` posts to `POST /api/notifications/feedback` from a sheet in
+Settings, with app version, Android version and `MANUFACTURER MODEL` attached.
+
+**The category is a message prefix, not a field.** The endpoint has no category
+column, and a picker whose value the client drops on the floor is a picker that
+does nothing — so it goes where a human triaging the row will read it.
+`source` stays `"android"`, because support groups on it.
+
+**The ViewModel is hoisted to `SettingsScreen`, not held inside the sheet.**
+That is the whole of AC3: Compose state inside a `ModalBottomSheet` dies with
+the sheet, so closing it to go and check a version number would throw away the
+draft. The text clears on a successful send and never otherwise — a failed send
+that wiped the field would lose the whole report.
+
+Sending confirms for ~1.2s before the sheet closes itself. Closing instantly
+reads as nothing having happened, which is how the same feedback gets sent three
+times. The confirmation is also announced, since it auto-dismisses.
+
+The sheet says feedback is **one-way** and offers the support inbox (US-1386)
+right there. Someone expecting a reply who never gets one concludes nobody read
+it.
+
+`app/src/test/java/com/gradethread/app/testing/MainDispatcherRule.kt` landed with
+this story — `viewModelScope` runs on `Dispatchers.Main.immediate`, which does
+not exist in a plain JVM test, and the resulting failure reads like a bug in the
+code under test rather than in the harness. Pass its `dispatcher` to `runTest`
+so the body and the ViewModel share one scheduler.
+
 ## Non-negotiables carried from iOS (see the plan's "hard parts")
 
 - Offline sync invariants: watermark reset BEFORE row wipe on sign-out;

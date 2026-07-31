@@ -6,6 +6,8 @@ import com.gradethread.app.analytics.ListingPerformanceProviding
 import com.gradethread.app.analytics.ListingPerformanceService
 import com.gradethread.app.consignment.ConsignorProviding
 import com.gradethread.app.consignment.ConsignorService
+import com.gradethread.app.feedback.FeedbackSending
+import com.gradethread.app.feedback.FeedbackService
 import com.gradethread.app.passport.PassportProviding
 import com.gradethread.app.passport.PassportService
 import com.gradethread.app.referrals.ReferralProviding
@@ -81,4 +83,9 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindSupport(impl: SupportService): SupportProviding
+
+    /** US-1387: one-way feedback. */
+    @Binds
+    @Singleton
+    abstract fun bindFeedback(impl: FeedbackService): FeedbackSending
 }

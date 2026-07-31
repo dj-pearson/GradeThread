@@ -45,8 +45,10 @@ fun SettingsScreen(
     onOpenMarketplaces: () -> Unit,
     onOpenCredits: () -> Unit,
     onOpenPlans: () -> Unit = {},
+    onOpenSupport: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
+    feedbackViewModel: com.gradethread.app.feedback.FeedbackViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -180,6 +182,22 @@ fun SettingsScreen(
             onClick = viewModel::changePassword,
         )
 
+        // ── Help ─────────────────────────────────────────────────────────────
+        SectionHeader("Help")
+        SettingRow(
+            title = "Support requests",
+            subtitle = "Open a request and read our replies",
+            onClick = onOpenSupport,
+        )
+        // US-1387: the sheet's ViewModel is hoisted to THIS screen, so closing
+        // the sheet to go and check a version number does not throw away what
+        // was typed.
+        SettingRow(
+            title = "Send feedback",
+            subtitle = "Tell us what worked, what didn't, what you wish existed",
+            onClick = feedbackViewModel::open,
+        )
+
         // ── Diagnostics ──────────────────────────────────────────────────────
         SectionHeader("Diagnostics")
         SettingRow(
@@ -205,6 +223,12 @@ fun SettingsScreen(
             ) { Text("Delete account") }
         }
     }
+
+    // US-1387: renders nothing until opened.
+    com.gradethread.app.feedback.FeedbackSheet(
+        onOpenSupport = onOpenSupport,
+        viewModel = feedbackViewModel,
+    )
 
     state.pendingConfirm?.let { confirm ->
         when (confirm) {

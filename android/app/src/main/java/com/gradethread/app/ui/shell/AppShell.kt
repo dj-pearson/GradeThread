@@ -402,6 +402,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 // stable surface that reaches it without an item in hand.
                 onOpenCredits = { navController.navigate(ShellRoutes.PAYWALL) },
                 onOpenPlans = { navController.navigate(ShellRoutes.PAYWALL) },
+                onOpenSupport = { navController.navigate(ShellRoutes.SUPPORT) },
             )
         }
         // US-1349: global search replaces the placeholder.
