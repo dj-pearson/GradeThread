@@ -37,14 +37,14 @@ import { edgeEnv } from "./env.ts";
 import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00507_autolister_handoff_sessions.sql)
+// supabase/migrations/. (00508_marketplace_event_item_link.sql)
 //
 // ⚠ 00479 IS DELIBERATELY SKIPPED. On 2026-07-19 /health/ready reported
 // applied="00479" while no 00479 file has ever existed in this repo (no file, no
 // git history, no branch). Reusing that number would let the boot guard read
 // "match" off prod's pre-existing row even if this migration never applied —
 // exactly the failure the guard exists to catch. See PENDING_MIGRATIONS.md.
-export const EXPECTED_SCHEMA_VERSION = "00507";
+export const EXPECTED_SCHEMA_VERSION = "00508";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

@@ -19,6 +19,8 @@
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
 //   TEST_USER_A_TEMPLATE_ID     a listing_templates.id (US-674)
 //   TEST_USER_A_RULE_ID         a repricing_rules.id (US-672)
+//   TEST_USER_A_AUTOMATION_RULE_ID  a flipdesk_automation_rules.id (US-2156;
+//                               OPTIONAL — skips until the seed script adds it)
 //   TEST_USER_A_ITEM_ID         an inventory_items.id (AutoLister, US-324)
 //   TEST_USER_A_BATCH_ID        a listing_generation_batches.id (AutoLister)
 //   TEST_USER_A_GARMENT_ID      a garments.id (Garment Passport, US-1090/1092)
@@ -3413,5 +3415,88 @@ Deno.test({
     const res = await fetch(`${BASE}/api/admin/registered-numbers`);
     await res.body?.cancel();
     assertDenied(res.status, "GET registered-numbers with no auth");
+  },
+});
+
+Deno.test({
+  // US-2156: the automations module had NO isolation case, and this story
+  // widened what its routes can do — a rule's action can now flip
+  // inventory_items.status, mint sibling `listings` rows on other marketplaces,
+  // and send eBay watcher offers. A cross-tenant hit on the rule CRUD would let
+  // B point one of those actions at A's inventory.
+  //
+  // Every handler scopes by id AND user_id (never the id alone), so B's
+  // PUT/PATCH/DELETE hit 0 rows and 404.
+  name: "US-2156: B cannot update, toggle or delete A's automation rule",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_AUTOMATION_RULE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_AUTOMATION_RULE_ID")!;
+    const put = await fetch(`${BASE}/api/flipdesk/automations/rules/${id}`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        name: "pwned",
+        trigger_json: { type: "days_listed_gt", days: 1, cooldown_days: 1 },
+        action_json: { type: "advance_status", status: "archived" },
+      }),
+    });
+    await put.body?.cancel();
+    assertDenied(put.status, "PUT automation rule");
+
+    const patch = await fetch(`${BASE}/api/flipdesk/automations/rules/${id}`, {
+      method: "PATCH",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ is_active: false }),
+    });
+    await patch.body?.cancel();
+    assertDenied(patch.status, "PATCH automation rule");
+
+    const del = await fetch(`${BASE}/api/flipdesk/automations/rules/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await del.body?.cancel();
+    assertDenied(del.status, "DELETE automation rule");
+  },
+});
+
+Deno.test({
+  // US-2156: dry-run and the per-rule activity log both read A's listings and
+  // A's action history through a rule id taken from the URL. Both scope the
+  // rule read by user_id first, so B gets a 404 and never learns what A sells.
+  name: "US-2156: B cannot dry-run A's automation rule or read its activity",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_AUTOMATION_RULE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_AUTOMATION_RULE_ID")!;
+    const dry = await fetch(
+      `${BASE}/api/flipdesk/automations/rules/${id}/dry-run`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    const dryBody = (await dry.json().catch(() => ({}))) as {
+      affected?: unknown[];
+    };
+    assertDenied(dry.status, "POST dry-run (A's rule)");
+    // Belt and braces: even if the status ever softened, no listing of A's may
+    // appear in the response.
+    assertEquals(
+      dryBody.affected ?? [],
+      [],
+      "dry-run must not leak A's listings to B",
+    );
+
+    const log = await fetch(
+      `${BASE}/api/flipdesk/automations/rules/${id}/actions`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const logBody = (await log.json().catch(() => ({}))) as {
+      actions?: unknown[];
+    };
+    // The activity read is scoped by user_id AND rule_id, so B's own (empty)
+    // history is what comes back — never A's.
+    assertEquals(
+      logBody.actions ?? [],
+      [],
+      "activity log must not leak A's automation actions to B",
+    );
   },
 });

@@ -11,15 +11,14 @@ import {
   getMarketplaceSpec,
   type MarketplacePlatform,
 } from "../lib/marketplace-specs.ts";
-import {
-  mapSiblingListingFields,
-  type StoredPlatformVariant,
-  validateSiblingForPublish,
-} from "../lib/cross-listing-fields.ts";
+import type { StoredPlatformVariant } from "../lib/cross-listing-fields.ts";
 import { generatePlatformVariants } from "../lib/ai-listing.ts";
 import { withAiAction } from "../lib/ai-metering.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
-import { recordRelist } from "../lib/passport-relist.ts";
+import {
+  crossPushPlatform,
+  ensureCrossListingGroup,
+} from "../lib/cross-push.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
 import { ebayOriginWriteLock } from "../lib/sync-precedence.ts";
 import {
@@ -235,15 +234,13 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
   // The group key is the source draft's own id; the source row points at
   // itself so every member of the group (including the source) is found with
   // one draft_id lookup.
-  const groupId = draft.draft_id ?? draft.id;
-  if (!draft.draft_id) {
-    const { error: selfErr } = await supabaseAdmin
-      .from("listings")
-      .update({ draft_id: draft.id })
-      .eq("id", draft.id);
-    if (selfErr) {
-      return c.json({ error: "Could not start the cross-listing group." }, 500);
-    }
+  const groupId = await ensureCrossListingGroup(
+    ownerId,
+    draft.id,
+    draft.draft_id,
+  );
+  if (!groupId) {
+    return c.json({ error: "Could not start the cross-listing group." }, 500);
   }
 
   function priceFor(platform: CrossListingPlatform): number {
@@ -274,147 +271,19 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
 
   for (const platform of platforms) {
     const price = priceFor(platform);
-    // US-708: resolve the adapter from the platform via the registry. An
-    // unknown platform yields a typed 501 NotImplemented rather than silently
-    // falling through to eBay (the US-599 gap).
-    const adapter = resolveAdapter(platform);
-    if (!adapter) {
-      results[platform] = toPushResult(
-        {
-          ok: false,
-          status: 501,
-          error: `${platform} cross-listing isn't supported yet.`,
-        },
-        "",
-        price,
-      );
-      continue;
-    }
-
-    if (platform === draft.platform) {
-      // The source draft IS this platform's row (eBay today) — publish it
-      // directly rather than minting a duplicate.
-      const res = await adapter.publish({
-        ownerId,
-        inventoryItemId: draft.inventory_item_id,
-        listingRowId: draft.id,
-        price,
-      });
-      results[platform] = toPushResult(res, draft.id, price);
-      continue;
-    }
-
-    // US-564: map the shared draft onto this platform's requirements (title /
-    // description clamped to its limits, condition/category/tags carried
-    // through) instead of copying the eBay draft verbatim.
-    const mapped = mapSiblingListingFields(
-      platform,
-      {
-        listing_title: draft.listing_title,
-        listing_description: draft.listing_description,
-      },
-      price,
-      variantMap[platform],
-    );
-
-    // Reuse the group's existing row for this platform (idempotent re-push)
-    // or create the denormalized sibling.
-    const { data: existing } = await supabaseAdmin
-      .from("listings")
-      .select("id")
-      .eq("draft_id", groupId)
-      .eq("platform", platform)
-      // US-1638: defense-in-depth — groupId already derives from the
-      // owner-verified draft, but scope the sibling lookup to the tenant too
-      // (free + index-backed via listings.user_id, migration 00146).
-      .eq("user_id", ownerId)
-      .maybeSingle();
-    let rowId = (existing as { id: string } | null)?.id ?? null;
-    if (rowId) {
-      const update: Record<string, unknown> = {
-        listing_price: price,
-        listing_title: mapped.listing_title,
-        listing_description: mapped.listing_description,
-      };
-      // Only overwrite platform_fields when we actually have a variant — never
-      // clobber a previously generated one with null.
-      if (mapped.platform_fields) update.platform_fields = mapped.platform_fields;
-      await supabaseAdmin
-        .from("listings")
-        .update(update)
-        .eq("id", rowId)
-        .eq("user_id", ownerId); // US-1638: tenant-scope the sibling update too
-    } else {
-      const { data: created, error: insErr } = await supabaseAdmin
-        .from("listings")
-        .insert({
-          inventory_item_id: draft.inventory_item_id,
-          platform,
-          // US-1077: a FlipDesk cross-listing sibling is GradeThread-originated.
-          listing_origin: "gradethread",
-          listing_status: "draft",
-          is_active: false,
-          listing_price: price,
-          listing_title: mapped.listing_title,
-          listing_description: mapped.listing_description,
-          platform_fields: mapped.platform_fields ?? undefined,
-          primary_photo_id: draft.primary_photo_id,
-          badge_enabled: draft.badge_enabled,
-          draft_id: groupId,
-        })
-        .select("id")
-        .single();
-      if (insErr || !created) {
-        results[platform] = {
-          ok: false,
-          status: 500,
-          error: `Could not create the ${platform} listing row.`,
-          listing_row_id: "",
-          price,
-        };
-        continue;
-      }
-      rowId = (created as { id: string }).id;
-
-      // US-1095: a NEW listing for a passport-linked item CONTINUES the chain —
-      // append a 'listed' event to the same garment (no new garment created;
-      // tenant-scoped via the item's owner). US-1124: awaited (not fire-and-forget)
-      // so the 'listed' event is reliably persisted before the response returns —
-      // the next buyer's passport claim then includes this relist. recordRelist is
-      // best-effort internally (never throws), so awaiting can't fail the push.
-      await recordRelist(draft.inventory_item_id, ownerId, platform);
-    }
-
-    // US-725: pre-flight the mapped sibling against the platform's requirements
-    // registry before spending an API call on a draft the platform will reject
-    // (over-limit title, missing required field, invalid condition, unmapped
-    // category). Error-level issues block this platform's publish; the sibling
-    // row stays a draft so the seller can fix it in the Listing Kit and re-push.
-    const preflight = validateSiblingForPublish(platform, mapped);
-    if (!preflight.ok) {
-      const blockers = preflight.issues
-        .filter((i) => i.level === "error")
-        .map((i) => i.message);
-      results[platform] = toPushResult(
-        {
-          ok: false,
-          status: 422,
-          error: blockers.join(" • "),
-          blockers,
-        },
-        rowId,
-        price,
-      );
-      continue;
-    }
-
-    const res = await adapter.publish({
+    // US-2156: the per-platform slice moved to lib/cross-push.ts so the
+    // crosslist_to automation action publishes through the exact same path a
+    // human cross-push does — find-or-create the sibling row, map it onto the
+    // platform's limits, pre-flight it, publish.
+    const { result, listingRowId } = await crossPushPlatform({
       ownerId,
-      inventoryItemId: draft.inventory_item_id,
-      listingRowId: rowId,
+      draft,
+      groupId,
+      platform,
       price,
+      variant: variantMap[platform],
     });
-    results[platform] = toPushResult(res, rowId, price);
+    results[platform] = toPushResult(result, listingRowId, price);
   }
 
   // US-2179: one successful publish anywhere makes the item live, so advance it

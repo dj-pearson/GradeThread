@@ -1,9 +1,10 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing pending.** Prod is at **00507** — confirmed by the operator on
-2026-07-31, right after PR #232 merged. `EXPECTED_SCHEMA_VERSION` is **00507**
-and the highest migration in the tree is `00507_autolister_handoff_sessions.sql`,
-so schema and code agree.
+**One pending: 00508.** Prod is at **00507** — confirmed by the operator on
+2026-07-31, right after PR #232 merged. `EXPECTED_SCHEMA_VERSION` is now
+**00508** and the highest migration in the tree is
+`00508_marketplace_event_item_link.sql`, so the edge boot guard expects 00508
+and prod does not have it yet.
 
 Why the entries stayed marked HELD after they were applied: this file is edited
 by hand and nothing flips the marker when the SQL runs. The session-start hook
@@ -11,6 +12,34 @@ reads these ⏳ markers, so a stale one tells every future session the branch is
 frozen when it is not — which is exactly what happened here, and what happened
 once before (see the US-2017 note in prd.json). **When you apply a migration,
 flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00508_marketplace_event_item_link.sql (US-2156 automation triggers, 2026-07-31)
+
+- **Apply order.** After 00507. Idempotent: `ADD COLUMN IF NOT EXISTS`,
+  `COMMENT ON COLUMN`, `CREATE INDEX IF NOT EXISTS`. Safe to re-run.
+- **What it does.** Adds one nullable column,
+  `marketplace_event_notifications.item_external_id` (the eBay legacy item id
+  the offer/return happened on), plus a partial index for the automation
+  lookup. The ledger already records WHICH event; this records WHAT it happened
+  to, so the new `offer_received` and `return_opened` automation triggers can
+  join it to `listings.platform_listing_id`.
+- **Risk: LOW.** New nullable column on a service-role-only table. It is NOT
+  part of the table's unique dedup key, so the US-1055 poll's idempotency is
+  unchanged. Existing rows stay null and simply produce no automation match.
+- **CLIENT reads/writes.** None. The SPA never touches this table — it is
+  service-role-only (deny-all to anon/authenticated, classified in
+  `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`). So a frontend deploy ahead of
+  the SQL changes nothing on the web app.
+- **What breaks if the edge deploys first.** The poll's insert would name a
+  column PostgREST doesn't know, so `claimMarketplaceEvent` fails-closed and
+  offer/return/dispute notifications go quiet until the SQL lands. Apply the
+  SQL first.
+- **After applying:** `NOTIFY pgrst, 'reload schema';` — PostgREST must learn
+  the new column or every insert naming it 400s at the API layer.
+- **Deploy order.** SQL → edge redeploy (its boot guard now expects 00508) →
+  frontend.
 
 ---
 

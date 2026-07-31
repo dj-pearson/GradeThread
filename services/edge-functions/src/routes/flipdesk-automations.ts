@@ -6,9 +6,19 @@ import { acquireJobLock } from "../lib/job-lock.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import {
   isEbayConfigured,
+  isNegotiationScopeAvailable,
+  sendOfferToInterestedBuyers,
   updateOfferPrice,
   withdrawOffer,
 } from "../lib/ebay-client.ts";
+import {
+  type CrossPushDraft,
+  crossPushPlatform,
+  ensureCrossListingGroup,
+} from "../lib/cross-push.ts";
+import type { CrossListingPlatform } from "../lib/marketplace-adapters/index.ts";
+import type { StoredPlatformVariant } from "../lib/cross-listing-fields.ts";
+import { notifyUser } from "../lib/notify.ts";
 import {
   createAdForListing,
   createItemPromotion,
@@ -20,7 +30,10 @@ import {
 import { filterListablePhotos } from "../lib/item-photo-storage.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { featureAllowedForUser, requireFlipdesk } from "../lib/plan-gate.ts";
-import { resyncItemListedStatus } from "../lib/active-listings.ts";
+import {
+  markItemListed,
+  resyncItemListedStatus,
+} from "../lib/active-listings.ts";
 import {
   type AutomationAction,
   type AutomationFacts,
@@ -82,6 +95,15 @@ interface AutomationListingRow {
   platform_offer_id: string | null;
   platform_listing_id: string | null;
   promo_rate_pct: number | null;
+  // US-2156 fact columns — all already stored, all read straight off the row.
+  compliance_violation_count: number | null;
+  price_range_low_cents: number | null;
+  price_range_high_cents: number | null;
+  draft_id: string | null;
+  // US-1507: which eBay account owns this listing. A multi-store seller's
+  // watcher offer must go out under the owning connection or eBay rejects the
+  // foreign listing; null/legacy rows fall back to the primary connection.
+  marketplace_connection_id: string | null;
   inventory_items: {
     user_id: string;
     title: string | null;
@@ -99,6 +121,34 @@ interface AutomationListingRow {
   };
 }
 
+/**
+ * The owner-wide facts the US-2156 triggers need that don't live on the listing
+ * row. Each is loaded ONLY when an active rule asks for it (see needsX below),
+ * so the common all-aging ruleset still pays for nothing.
+ */
+interface OwnerFactBundle {
+  /** eBay item id → days since the most recent offer landed on it. */
+  offerDaysByItemExternalId: Map<string, number>;
+  /** eBay item id → days since the most recent return opened on it. */
+  returnDaysByItemExternalId: Map<string, number>;
+  /** inventory_item_id → days since its grade report was created. */
+  gradeDaysByItemId: Map<string, number>;
+  /** draft_id (cross-listing group) → platforms that already have a row. */
+  platformsByGroupId: Map<string, string[]>;
+  /** US-1967: may this owner send offers to watchers at all? */
+  watcherOffersAvailable: boolean;
+}
+
+function emptyFactBundle(): OwnerFactBundle {
+  return {
+    offerDaysByItemExternalId: new Map(),
+    returnDaysByItemExternalId: new Map(),
+    gradeDaysByItemId: new Map(),
+    platformsByGroupId: new Map(),
+    watcherOffersAvailable: false,
+  };
+}
+
 function daysSince(iso: string | null): number {
   if (!iso) return 0;
   const t = new Date(iso).getTime();
@@ -109,8 +159,10 @@ function daysSince(iso: string | null): number {
 function listingFacts(
   l: AutomationListingRow,
   viewWindows: Map<string, ViewWindow[]>,
+  bundle: OwnerFactBundle,
 ): AutomationFacts {
   const item = l.inventory_items;
+  const itemExternalId = l.platform_listing_id;
   return {
     ageDays: daysSince(l.listed_at),
     views: l.views ?? 0,
@@ -128,6 +180,19 @@ function listingFacts(
     status: item.status,
     grade: item.grade_value,
     daysInStatus: item.updated_at ? daysSince(item.updated_at) : null,
+    // ── US-2156 ─────────────────────────────────────────────────
+    offerReceivedDaysAgo: itemExternalId
+      ? bundle.offerDaysByItemExternalId.get(itemExternalId) ?? null
+      : null,
+    returnOpenedDaysAgo: itemExternalId
+      ? bundle.returnDaysByItemExternalId.get(itemExternalId) ?? null
+      : null,
+    complianceViolations: l.compliance_violation_count ?? 0,
+    gradeCompletedDaysAgo: bundle.gradeDaysByItemId.get(l.inventory_item_id) ??
+      null,
+    priceCents: Math.round(l.listing_price * 100),
+    compLowCents: l.price_range_low_cents,
+    compHighCents: l.price_range_high_cents,
   };
 }
 
@@ -138,6 +203,7 @@ async function loadOwnerListings(
     .from("listings")
     .select(
       "id, inventory_item_id, listing_price, listed_at, watchers, views, last_metrics_synced_at, platform_offer_id, platform_listing_id, promo_rate_pct, " +
+        "compliance_violation_count, price_range_low_cents, price_range_high_cents, draft_id, marketplace_connection_id, " +
         "inventory_items!inner(user_id, title, brand, size, item_category, garment_category, acquired_price, target_price, status, grade_value, updated_at, exclude_from_automations, sources(name))",
     )
     .eq("platform", "ebay")
@@ -207,6 +273,221 @@ function maxViewWindowDays(rules: AutomationRuleRow[]): number {
   return max;
 }
 
+// ── US-2156 fact loading ──────────────────────────────────────────
+//
+// Same shape as maxViewWindowDays above: ask the ruleset what it needs, load
+// only that. A ruleset with no offer_received rule never queries the event
+// ledger; a ruleset with no crosslist_to action never queries sibling rows.
+
+/** Widest lookback (in days) any rule of `type` asks for; 0 when none do. */
+export function maxTriggerWindowDays(
+  rules: Array<{ trigger_json: AutomationTrigger }>,
+  type: "offer_received" | "return_opened" | "grade_completed",
+): number {
+  let max = 0;
+  for (const r of rules) {
+    if (r.trigger_json.type === type) {
+      max = Math.max(max, r.trigger_json.days);
+    }
+  }
+  return max;
+}
+
+/** Does any rule act with `type`? */
+export function usesAction(
+  rules: Array<{ action_json: AutomationAction }>,
+  type: AutomationAction["type"],
+): boolean {
+  return rules.some((r) => r.action_json.type === type);
+}
+
+/**
+ * Marketplace-event ledger lookups for the offer_received / return_opened
+ * triggers (00508). Keyed by the eBay item id, which is what
+ * listings.platform_listing_id holds, so the join needs no extra query.
+ *
+ * Tenant-scoped on user_id (US-268 — the service-role client bypasses RLS).
+ * Fails open to an EMPTY map: absent evidence means the trigger doesn't fire,
+ * which is the safe direction for a rule that can drop prices.
+ */
+async function loadEventDaysByItem(
+  ownerId: string,
+  sourceKind: "offer" | "return",
+  lookbackDays: number,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const since = new Date(Date.now() - lookbackDays * 86_400_000).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("marketplace_event_notifications")
+    .select("item_external_id, created_at")
+    .eq("user_id", ownerId)
+    .eq("source_kind", sourceKind)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1000);
+  if (error) {
+    console.error(
+      `[automations] ${sourceKind} event query failed:`,
+      error.message,
+    );
+    return map;
+  }
+  for (
+    const row of (data ?? []) as Array<
+      { item_external_id: string | null; created_at: string }
+    >
+  ) {
+    const id = row.item_external_id;
+    if (!id) continue;
+    // Rows arrive newest-first, so the first one wins — that's the most recent
+    // event for the item, which is what "days ago" means.
+    if (!map.has(id)) map.set(id, daysSince(row.created_at));
+  }
+  return map;
+}
+
+/**
+ * Days since each item's grade report was created, for the grade_completed
+ * trigger. Reads grade_reports through inventory_items.grade_report_id — the
+ * link the grading flow already writes — rather than re-deriving it.
+ */
+async function loadGradeDaysByItem(
+  ownerId: string,
+  itemIds: string[],
+  lookbackDays: number,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (itemIds.length === 0) return map;
+  const since = new Date(Date.now() - lookbackDays * 86_400_000).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, grade_reports!inner(created_at)")
+    .eq("user_id", ownerId)
+    .in("id", itemIds)
+    .gte("grade_reports.created_at", since);
+  if (error) {
+    console.error("[automations] grade report query failed:", error.message);
+    return map;
+  }
+  for (
+    const row of (data ?? []) as unknown as Array<
+      { id: string; grade_reports: { created_at: string } | null }
+    >
+  ) {
+    const created = row.grade_reports?.created_at;
+    if (created) map.set(row.id, daysSince(created));
+  }
+  return map;
+}
+
+/**
+ * Which platforms each cross-listing group already has a row on, so a
+ * crosslist_to action can no-op instead of minting a duplicate sibling every
+ * hour. Grouped by listings.draft_id (the US-149 group key), falling back to
+ * the listing's own id when it isn't in a group yet.
+ */
+async function loadPlatformsByGroup(
+  ownerId: string,
+  groupIds: string[],
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (groupIds.length === 0) return map;
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select("draft_id, platform, inventory_items!inner(user_id)")
+    .eq("inventory_items.user_id", ownerId)
+    .in("draft_id", groupIds)
+    .limit(2000);
+  if (error) {
+    console.error("[automations] sibling platform query failed:", error.message);
+    return map;
+  }
+  for (
+    const row of (data ?? []) as unknown as Array<
+      { draft_id: string | null; platform: string | null }
+    >
+  ) {
+    if (!row.draft_id || !row.platform) continue;
+    const list = map.get(row.draft_id) ?? [];
+    if (!list.includes(row.platform)) list.push(row.platform);
+    map.set(row.draft_id, list);
+  }
+  return map;
+}
+
+/**
+ * US-1967 capability for send_offer_to_watchers: the deployment must request
+ * the sell.negotiation scope AND this connection must not have 403'd on it.
+ * Reads the same two inputs /negotiation/capabilities does, and never calls
+ * eBay.
+ */
+async function loadWatcherOfferAvailability(ownerId: string): Promise<boolean> {
+  if (!isNegotiationScopeAvailable() || !isEbayConfigured()) return false;
+  try {
+    const { data } = await supabaseAdmin
+      .from("marketplace_connections")
+      .select("negotiation_access_denied")
+      .eq("user_id", ownerId)
+      .eq("platform", "ebay")
+      .eq("is_active", true)
+      .maybeSingle();
+    return (data as { negotiation_access_denied: boolean | null } | null)
+      ?.negotiation_access_denied !== true;
+  } catch (err) {
+    console.warn(
+      "[automations] negotiation capability read failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
+}
+
+/** Load exactly the extra facts this ruleset asks for — nothing more. */
+async function loadOwnerFacts(
+  ownerId: string,
+  rules: AutomationRuleRow[],
+  listings: AutomationListingRow[],
+): Promise<OwnerFactBundle> {
+  const bundle = emptyFactBundle();
+  const offerDays = maxTriggerWindowDays(rules, "offer_received");
+  const returnDays = maxTriggerWindowDays(rules, "return_opened");
+  const gradeDays = maxTriggerWindowDays(rules, "grade_completed");
+  const needsPlatforms = usesAction(rules, "crosslist_to");
+  const needsWatcherOffers = usesAction(rules, "send_offer_to_watchers");
+
+  const [offers, returns, grades, platforms, watcherOffers] = await Promise.all([
+    offerDays > 0
+      ? loadEventDaysByItem(ownerId, "offer", offerDays)
+      : Promise.resolve(new Map<string, number>()),
+    returnDays > 0
+      ? loadEventDaysByItem(ownerId, "return", returnDays)
+      : Promise.resolve(new Map<string, number>()),
+    gradeDays > 0
+      ? loadGradeDaysByItem(
+        ownerId,
+        listings.map((l) => l.inventory_item_id),
+        gradeDays,
+      )
+      : Promise.resolve(new Map<string, number>()),
+    needsPlatforms
+      ? loadPlatformsByGroup(
+        ownerId,
+        listings.map((l) => l.draft_id ?? l.id),
+      )
+      : Promise.resolve(new Map<string, string[]>()),
+    needsWatcherOffers
+      ? loadWatcherOfferAvailability(ownerId)
+      : Promise.resolve(false),
+  ]);
+
+  bundle.offerDaysByItemExternalId = offers;
+  bundle.returnDaysByItemExternalId = returns;
+  bundle.gradeDaysByItemId = grades;
+  bundle.platformsByGroupId = platforms;
+  bundle.watcherOffersAvailable = watcherOffers;
+  return bundle;
+}
+
 /** Latest action timestamp per "<ruleId>:<listingId>" — the cooldown anchor. */
 async function loadLastActionMap(
   ownerId: string,
@@ -245,6 +526,31 @@ export interface AutomationMatch {
   current_promo_rate_pct: number | null;
   new_promo_rate_pct: number | null;
   floored: boolean;
+  /**
+   * US-2156: one plain-English line describing what the non-price actions would
+   * do. The price/promo columns say nothing about a crosslist or a notify, and
+   * a dry run that shows a matched listing with no visible effect reads as a
+   * bug. Null for the price/promo/coupon/end actions the columns already cover.
+   */
+  effect: string | null;
+}
+
+/** Human-readable effect for the US-2156 actions; null when the columns say it. */
+export function describePlannedEffect(planned: PlannedAction): string | null {
+  switch (planned.kind) {
+    case "relist":
+      return "End the listing and return the item to Drafts to relist";
+    case "crosslist":
+      return `Cross-list to ${planned.platform}`;
+    case "send_watcher_offer":
+      return `Offer watchers ${planned.discountPct}% off`;
+    case "advance_status":
+      return `Move the item to ${planned.status}`;
+    case "notify":
+      return `Notify: ${planned.message}`;
+    default:
+      return null;
+  }
 }
 
 function describeMatch(
@@ -264,6 +570,7 @@ function describeMatch(
     current_promo_rate_pct: listing.promo_rate_pct,
     new_promo_rate_pct: planned.kind === "set_promo_rate" ? planned.newRatePct : null,
     floored: planned.kind === "price_drop" ? planned.floored : false,
+    effect: describePlannedEffect(planned),
   };
 }
 
@@ -292,16 +599,17 @@ async function evaluateRules(
   if (rules.length === 0 || listings.length === 0) return matches;
   const listingIds = listings.map((l) => l.id);
   const lookbackDays = maxViewWindowDays(rules);
-  const [lastAction, viewWindows] = await Promise.all([
+  const [lastAction, viewWindows, bundle] = await Promise.all([
     loadLastActionMap(ownerId, listingIds),
     lookbackDays > 0
       ? loadViewWindows(ownerId, listingIds, lookbackDays)
       : Promise.resolve(new Map<string, ViewWindow[]>()),
+    loadOwnerFacts(ownerId, rules, listings),
   ]);
   const now = new Date();
   for (const listing of listings) {
     if (listing.inventory_items.exclude_from_automations) continue;
-    const facts = listingFacts(listing, viewWindows);
+    const facts = listingFacts(listing, viewWindows, bundle);
     for (const rule of rules) {
       if (!scopeMatches(rule.scope_json, facts)) continue;
       if (!triggerMatches(rule.trigger_json, facts)) continue;
@@ -316,6 +624,11 @@ async function evaluateRules(
         currentCents: Math.round(listing.listing_price * 100),
         costBasisDollars: listing.inventory_items.acquired_price,
         currentPromoRatePct: listing.promo_rate_pct,
+        currentStatus: listing.inventory_items.status,
+        existingPlatforms: bundle.platformsByGroupId.get(
+          listing.draft_id ?? listing.id,
+        ) ?? [],
+        watcherOffersAvailable: bundle.watcherOffersAvailable,
       });
       if (!planned) continue;
       matches.push({ rule, listing, planned });
@@ -484,7 +797,139 @@ async function applyMatch(
       );
       return false;
     }
-  } else {
+  } else if (planned.kind === "advance_status") {
+    // US-2156: local-only, so nothing to push. planAction already refused the
+    // no-op (item already in that status) and the validator already refused a
+    // status an automation may not write (AUTOMATION_SETTABLE_STATUSES).
+    const { error } = await supabaseAdmin
+      .from("inventory_items")
+      .update({ status: planned.status })
+      .eq("id", listing.inventory_item_id)
+      .eq("user_id", ownerId); // US-268: never act on an id alone
+    if (error) {
+      console.error(
+        "[automations] advance_status failed for",
+        listing.inventory_item_id,
+        error.message,
+      );
+      return false;
+    }
+    before = { status: listing.inventory_items.status };
+    after = { status: planned.status };
+  } else if (planned.kind === "notify") {
+    // US-2156: the escape hatch for triggers whose right answer is a human
+    // decision, not a price change. Type 'system' because the seller explicitly
+    // built this rule — it is not one of the marketplace categories they can
+    // mute, and muting it would silently disable a rule they created.
+    // notifyUser never throws (best-effort, logs and swallows).
+    await notifyUser(ownerId, {
+      type: "system",
+      title: rule.name,
+      message: planned.message,
+      link: `/dashboard/flipdesk/item/${listing.inventory_item_id}`,
+    });
+    before = {};
+    after = { message: planned.message };
+  } else if (planned.kind === "send_watcher_offer") {
+    // US-2156 + US-1967: only reachable when the deployment holds the
+    // sell.negotiation scope and this connection hasn't 403'd on it —
+    // planAction returns null otherwise, so an unlicensed seller never gets a
+    // run of guaranteed failures. Needs a LIVE eBay listing id (the offer is
+    // sent to that listing's watchers).
+    const liveListingId = listing.platform_listing_id;
+    if (!liveListingId || !isEbayConfigured()) return false;
+    try {
+      await sendOfferToInterestedBuyers(
+        ownerId,
+        {
+          listingIds: [liveListingId],
+          message: rule.name,
+          discountPercentage: String(planned.discountPct),
+        },
+        // US-1507: send under the account that owns this listing, not whichever
+        // connection happens to be primary — eBay rejects a foreign listing.
+        listing.marketplace_connection_id ?? undefined,
+      );
+      ebaySynced = true;
+    } catch (err) {
+      console.error(
+        "[automations] sendOfferToInterestedBuyers failed for",
+        listing.id,
+        err instanceof Error ? err.message : String(err),
+      );
+      return false;
+    }
+    before = { price_cents: currentCents };
+    after = { discount_pct: planned.discountPct };
+  } else if (planned.kind === "crosslist") {
+    // US-2156: fan the item out to a second marketplace through the SAME path a
+    // human cross-push uses (lib/cross-push.ts), so a rule can never create a
+    // sibling the manual flow wouldn't. No AI variant is generated here — the
+    // stored one is reused when present, else the sibling copies the draft.
+    const groupId = await ensureCrossListingGroup(
+      ownerId,
+      listing.id,
+      listing.draft_id,
+    );
+    if (!groupId) return false;
+    const { data: draftRow } = await supabaseAdmin
+      .from("listings")
+      .select(
+        "id, inventory_item_id, platform, listing_title, listing_description, primary_photo_id, badge_enabled, platform_fields",
+      )
+      .eq("id", listing.id)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (!draftRow) return false;
+    const draft = draftRow as unknown as CrossPushDraft & {
+      platform_fields: Record<string, StoredPlatformVariant> | null;
+    };
+    const { result } = await crossPushPlatform({
+      ownerId,
+      draft,
+      groupId,
+      platform: planned.platform as CrossListingPlatform,
+      price: listing.listing_price,
+      variant: draft.platform_fields?.[planned.platform],
+    });
+    if (!result.ok) {
+      console.error(
+        "[automations] crosslist to",
+        planned.platform,
+        "failed for",
+        listing.id,
+        result.error,
+      );
+      return false;
+    }
+    // US-2179: keep the item's status and the activeListings accounting
+    // truthful after a successful publish, exactly like the manual cross-push
+    // does. No cap GATE is needed here (unlike the manual path): the rule only
+    // ever runs against listings that are already ACTIVE on eBay, so the item is
+    // already live and already occupies its slot — the cap counts live items,
+    // not listing rows, so fanning out to a second channel adds nothing. This
+    // call is what closes the one desync case, where the eBay listing is active
+    // but the item's status drifted off 'listed'.
+    await markItemListed(listing.inventory_item_id, ownerId);
+    ebaySynced = planned.platform === "ebay";
+    before = {};
+    after = {
+      platform: planned.platform,
+      platform_listing_id: result.platformListingId ?? null,
+      listing_url: result.listingUrl ?? null,
+    };
+  } else if (planned.kind === "end_listing" || planned.kind === "relist") {
+    // US-2156: `relist` and `end_listing` share the withdraw + local-end path.
+    // They differ in what happens AFTER: a relist tells the seller the item is
+    // back in the drafting queue and ready to re-push, an end_listing is the
+    // silent "stop selling this".
+    //
+    // A relist deliberately does NOT auto-republish. Re-publishing without a
+    // human would spend a fresh marketplace insertion fee and re-consume an
+    // activeListings cap slot on a listing nobody re-approved — and there is no
+    // undo on an automated bulk action (US-2172). Ending and handing it back is
+    // the reversible half.
+    const isRelist = planned.kind === "relist";
     if (hasLiveOffer) {
       try {
         await withdrawOffer(ownerId, offerId!);
@@ -522,7 +967,31 @@ async function applyMatch(
       return false;
     }
     before = { listing_status: "active", price_cents: currentCents };
-    after = { listing_status: "ended" };
+    after = { listing_status: "ended", relist: isRelist };
+    if (isRelist) {
+      // Best-effort — the listing IS ended either way, so a failed notice must
+      // not turn a completed relist into a reported error.
+      await notifyUser(ownerId, {
+        type: "item_status_change",
+        title: rule.name,
+        message:
+          `"${listing.inventory_items.title ?? "Your item"}" was ended and is back in Drafts, ready to relist.`,
+        link: `/dashboard/flipdesk/item/${listing.inventory_item_id}`,
+      });
+    }
+  } else {
+    // Exhaustive by construction: every PlannedAction kind has a branch above.
+    // A new kind that reaches here is a wiring bug, and the ONLY safe thing to
+    // do is nothing — the alternative (falling through to the end-listing arm,
+    // which is what the pre-US-2156 `else` did) would end a live listing for a
+    // rule that asked for something else entirely.
+    console.error(
+      "[automations] unhandled planned action kind",
+      (planned as { kind: string }).kind,
+      "for rule",
+      rule.id,
+    );
+    return false;
   }
 
   await supabaseAdmin.from("flipdesk_automation_actions").insert({
