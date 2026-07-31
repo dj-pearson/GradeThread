@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Truck } from "lucide-react";
+import { Loader2, Printer, Tag, Truck } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +14,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
-import { useEbayShipOrder } from "@/hooks/use-ebay";
+import {
+  type EbayShippingRate,
+  useEbayBuyLabel,
+  useEbayLogisticsCapability,
+  useEbayReprintLabel,
+  useEbayShipOrder,
+  useEbayShippingRates,
+} from "@/hooks/use-ebay";
 import type { ItemFullRow } from "@/types/database";
 
 // US-1039: mark a sold order shipped and push the tracking number + carrier to
@@ -23,7 +30,27 @@ import type { ItemFullRow } from "@/types/database";
 // shipped_at + tracking server-side); for a manual/other-marketplace sale (the
 // route returns 409) it records shipping locally. Either way the item moves to
 // the Shipped tab.
+//
+// US-2160: when the deployment can buy eBay labels, the dialog leads with
+// "Buy a label" — rate-shop, purchase, and the tracking number fills itself in.
+// Typing a tracking number by hand stays available underneath for postage bought
+// elsewhere. The buy path is hidden entirely when the capability is off, rather
+// than shown and then failing at checkout.
 const CARRIERS = ["USPS", "UPS", "FedEx", "DHL", "Other"] as const;
+
+function money(cents: number | null | undefined, currency: string | null): string {
+  if (cents == null) return "price unavailable";
+  const amount = (cents / 100).toFixed(2);
+  return currency && currency !== "USD" ? `${amount} ${currency}` : `$${amount}`;
+}
+
+function deliveryEstimate(rate: EbayShippingRate): string | null {
+  const d = rate.maxDeliveryDate ?? rate.minDeliveryDate;
+  if (!d) return null;
+  const parsed = new Date(d);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 export function ShipOrderDialog({
   item,
@@ -38,12 +65,128 @@ export function ShipOrderDialog({
   const [carrier, setCarrier] = useState<string>("USPS");
   const [busy, setBusy] = useState(false);
 
+  // ── US-2160: buy-a-label ──────────────────────────────────────
+  const capability = useEbayLogisticsCapability(!!item);
+  const canBuyLabels = capability.data?.labelPurchaseAvailable === true;
+  const rates = useEbayShippingRates();
+  const buyLabel = useEbayBuyLabel();
+  const reprint = useEbayReprintLabel();
+  const [weight, setWeight] = useState("1");
+  const [quoteId, setQuoteId] = useState<string | null>(null);
+  const [rateOptions, setRateOptions] = useState<EbayShippingRate[]>([]);
+  const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
+  const [labelUrl, setLabelUrl] = useState<string | null>(null);
+
   useEffect(() => {
     if (item) {
       setTracking("");
       setCarrier("USPS");
+      setWeight("1");
+      setQuoteId(null);
+      setRateOptions([]);
+      setSelectedRateId(null);
+      setLabelUrl(null);
     }
   }, [item]);
+
+  // The item's most-recent sale — both the label flow and the manual flow need
+  // its id, and the label flow additionally needs it to be an eBay order.
+  async function loadSale(): Promise<
+    { id: string; platform_order_id: string | null } | null
+  > {
+    if (!item) return null;
+    const { data, error } = await supabase
+      .from("sales")
+      .select("id, platform_order_id")
+      .eq("inventory_item_id", item.id)
+      .order("sale_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as { id: string; platform_order_id: string | null } | null) ?? null;
+  }
+
+  async function fetchRates() {
+    const w = Number(weight);
+    if (!Number.isFinite(w) || w <= 0) {
+      toast.error("Enter a parcel weight above zero.");
+      return;
+    }
+    try {
+      const sale = await loadSale();
+      if (!sale?.platform_order_id) {
+        toast.error("This sale has no eBay order, so there's no label to buy.");
+        return;
+      }
+      const quote = await rates.mutateAsync({
+        saleId: sale.id,
+        parcel: { weightValue: w },
+      });
+      setQuoteId(quote.shippingQuoteId);
+      setRateOptions(quote.rates);
+      // Preselect the cheapest KNOWN price so the common case is one click —
+      // but never auto-buy; the seller still confirms.
+      const priced = quote.rates.filter((r) => r.totalCostCents != null);
+      const cheapest = priced.reduce<EbayShippingRate | null>(
+        (best, r) =>
+          best == null || r.totalCostCents! < best.totalCostCents! ? r : best,
+        null,
+      );
+      setSelectedRateId(cheapest?.rateId ?? null);
+      if (quote.rates.length === 0) {
+        toast.error("eBay returned no rates for this parcel.");
+      }
+    } catch (err) {
+      const e = err as Error & { code?: string };
+      toast.error(
+        e.code === "ship_from_missing"
+          ? e.message
+          : `Couldn't get rates: ${e.message}`,
+        { duration: 10_000 },
+      );
+    }
+  }
+
+  async function purchase() {
+    if (!quoteId || !selectedRateId) return;
+    try {
+      const sale = await loadSale();
+      if (!sale) return;
+      const bought = await buyLabel.mutateAsync({
+        saleId: sale.id,
+        shippingQuoteId: quoteId,
+        rateId: selectedRateId,
+      });
+      if (bought.tracking_number) setTracking(bought.tracking_number);
+      if (bought.carrier) setCarrier(bought.carrier);
+      setLabelUrl(bought.label_download_url ?? null);
+      setRateOptions([]);
+      toast.success(
+        bought.already_purchased
+          ? "A label was already bought for this sale."
+          : bought.marked_shipped_on_ebay
+            ? "Label bought — tracking sent to eBay."
+            : "Label bought.",
+      );
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+    } catch (err) {
+      toast.error(`Couldn't buy the label: ${(err as Error).message}`, {
+        duration: 10_000,
+      });
+    }
+  }
+
+  async function reprintLabel() {
+    try {
+      const sale = await loadSale();
+      if (!sale) return;
+      const again = await reprint.mutateAsync({ saleId: sale.id });
+      setLabelUrl(again.label_download_url ?? null);
+      if (!again.label_download_url) toast.error("eBay returned no label link.");
+    } catch (err) {
+      toast.error(`Couldn't fetch the label: ${(err as Error).message}`);
+    }
+  }
 
   if (!item) return null;
 
@@ -130,6 +273,124 @@ export function ShipOrderDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          {/* US-2160: buy the postage here. Hidden entirely when the
+              deployment/connection can't — an entry point that always fails is
+              worse than none. */}
+          {canBuyLabels && (
+            <div className="space-y-3 rounded-lg bg-muted/50 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Tag className="h-4 w-4" />
+                Buy a label
+              </div>
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor="ship-weight">Parcel weight (lb)</Label>
+                  <Input
+                    id="ship-weight"
+                    type="number"
+                    min={0.1}
+                    step={0.1}
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                  />
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={fetchRates}
+                  disabled={rates.isPending || buyLabel.isPending}
+                >
+                  {rates.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Get rates
+                </Button>
+              </div>
+
+              {rateOptions.length > 0 && (
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    {rateOptions.map((r) => {
+                      const eta = deliveryEstimate(r);
+                      const buyable = r.totalCostCents != null;
+                      return (
+                        <label
+                          key={r.rateId}
+                          className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                            selectedRateId === r.rateId
+                              ? "bg-background"
+                              : "hover:bg-background/60"
+                          } ${buyable ? "" : "opacity-60"}`}
+                        >
+                          <input
+                            type="radio"
+                            name="ship-rate"
+                            value={r.rateId}
+                            checked={selectedRateId === r.rateId}
+                            onChange={() => setSelectedRateId(r.rateId)}
+                            /* A rate whose price eBay didn't return can't be
+                               recorded as a cost, so it isn't selectable. */
+                            disabled={!buyable}
+                          />
+                          <span className="flex-1 truncate">
+                            {[r.carrier, r.serviceName]
+                              .filter(Boolean)
+                              .join(" ") || "Shipping service"}
+                            {eta && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                &middot; by {eta}
+                              </span>
+                            )}
+                          </span>
+                          <span className="font-medium tabular-nums">
+                            {money(r.totalCostCents, r.currency)}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    className="w-full"
+                    onClick={purchase}
+                    disabled={!selectedRateId || buyLabel.isPending}
+                  >
+                    {buyLabel.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Buy this label
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    eBay charges your seller account. The postage is recorded as
+                    this sale&rsquo;s shipping cost.
+                  </p>
+                </div>
+              )}
+
+              {labelUrl && (
+                <div className="flex items-center gap-2">
+                  <Button asChild variant="secondary" className="flex-1">
+                    <a href={labelUrl} target="_blank" rel="noopener noreferrer">
+                      <Printer className="mr-2 h-4 w-4" />
+                      Open label
+                    </a>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={reprintLabel}
+                    disabled={reprint.isPending}
+                    title="eBay label links expire — this fetches a fresh one."
+                  >
+                    {reprint.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Refresh link"
+                    )}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="space-y-1">
             <Label htmlFor="ship-carrier">Carrier</Label>
             <select

@@ -21,6 +21,8 @@
 //   TEST_USER_A_RULE_ID         a repricing_rules.id (US-672)
 //   TEST_USER_A_AUTOMATION_RULE_ID  a flipdesk_automation_rules.id (US-2156;
 //                               OPTIONAL — skips until the seed script adds it)
+//   TEST_USER_A_SALE_ID         a sales.id owned by A (US-2160 label routes;
+//                               OPTIONAL — skips until the seed script adds it)
 //   TEST_USER_A_ITEM_ID         an inventory_items.id (AutoLister, US-324)
 //   TEST_USER_A_BATCH_ID        a listing_generation_batches.id (AutoLister)
 //   TEST_USER_A_GARMENT_ID      a garments.id (Garment Passport, US-1090/1092)
@@ -3498,5 +3500,80 @@ Deno.test({
       [],
       "activity log must not leak A's automation actions to B",
     );
+  },
+});
+
+Deno.test({
+  // US-2160 (AC4): the label routes are the highest-stakes writes in FlipDesk —
+  // buying a label SPENDS the seller's money and voiding one changes what a
+  // sale records as its shipping cost. A cross-tenant hit would let B charge A's
+  // eBay account, or wipe A's recorded postage.
+  //
+  // Every route resolves the sale THROUGH inventory_items.user_id before it
+  // touches eBay or writes anything, so B gets the same 404 as a nonexistent
+  // sale. Nothing reaches eBay on the denied path.
+  name: "US-2160: B cannot price, buy, reprint or void a label on A's sale",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SALE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_SALE_ID")!;
+
+    const rates = await fetch(
+      `${BASE}/api/flipdesk/logistics/sales/${id}/rates`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ weight_value: 2 }),
+      },
+    );
+    const ratesBody = (await rates.json().catch(() => ({}))) as {
+      rates?: unknown[];
+      shipping_quote_id?: string;
+    };
+    assertDenied(rates.status, "POST logistics rates (A's sale)");
+    // Belt and braces: no quote, and no rate, may leak even if the status ever
+    // softened — a rate id is directly purchasable.
+    assertEquals(ratesBody.rates ?? [], [], "rates must not leak to B");
+    assertEquals(
+      ratesBody.shipping_quote_id ?? "",
+      "",
+      "quote id must not leak to B",
+    );
+
+    const buy = await fetch(`${BASE}/api/flipdesk/logistics/sales/${id}/label`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ shipping_quote_id: "q1", rate_id: "r1" }),
+    });
+    await buy.body?.cancel();
+    assertDenied(buy.status, "POST logistics label (A's sale)");
+
+    const reprint = await fetch(
+      `${BASE}/api/flipdesk/logistics/sales/${id}/label`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await reprint.body?.cancel();
+    assertDenied(reprint.status, "GET logistics label (A's sale)");
+
+    const voidLabel = await fetch(
+      `${BASE}/api/flipdesk/logistics/sales/${id}/label/void`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await voidLabel.body?.cancel();
+    assertDenied(voidLabel.status, "POST logistics label void (A's sale)");
+  },
+});
+
+Deno.test({
+  // US-2160: the capability probe is per-connection, so it must answer for the
+  // CALLER's own eBay connection and never reveal anything about another
+  // tenant's. It takes no id, so the only thing to assert is that it stays
+  // authenticated — an anonymous caller must not learn the deployment's scope
+  // posture.
+  name: "US-2160: logistics capabilities rejects an unauthenticated caller",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/logistics/capabilities`);
+    await res.body?.cancel();
+    assertDenied(res.status, "GET logistics capabilities with no auth");
   },
 });

@@ -1,0 +1,609 @@
+import { Hono } from "hono";
+import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe, jsonError } from "../lib/http-errors.ts";
+import { isEbayConfigured, isLogisticsScopeAvailable } from "../lib/ebay-client.ts";
+import {
+  cancelShipment,
+  createShipmentFromQuote,
+  createShippingQuote,
+  findRate,
+  getShipment,
+  isLogisticsScopeError,
+  type LogisticsAddress,
+  type ParcelSpec,
+  type ShippingRate,
+} from "../lib/ebay-logistics.ts";
+import { createShippingFulfillment } from "../lib/ebay-client.ts";
+
+// eBay shipping labels inside FlipDesk (US-2160).
+//
+// The ship step used to leave the app: FlipDesk could push a tracking number the
+// seller bought elsewhere, but not price or buy the postage — so the real label
+// cost reached Expenses only if the seller retyped it from memory. These routes
+// close that loop:
+//
+//   GET  /capabilities            can this seller buy labels at all?
+//   POST /sales/:saleId/rates     price the parcel → quote id + rate options
+//   POST /sales/:saleId/label     buy a rate → tracking, label, recorded cost
+//   GET  /sales/:saleId/label     reprint (eBay label URLs expire)
+//   POST /sales/:saleId/label/void  cancel the shipment, undo the recorded cost
+//
+// SECURITY (US-268): the edge uses the service-role client, which BYPASSES RLS.
+// Every route here resolves the sale THROUGH inventory_items.user_id before it
+// touches eBay or writes anything — a saleId from the request body is never
+// trusted on its own.
+//
+// CAPABILITY (AC5, mirroring US-1967): sell.logistics is a limited-release
+// scope granted per keyset, so it is absent from the default consent list —
+// requesting an unlicensed scope fails the WHOLE consent screen. Clients ask
+// /capabilities first and hide the entry point, instead of discovering the
+// truth from a 403 in the middle of buying postage.
+
+export const flipdeskLogisticsRoutes = new Hono<{
+  Variables: { userId: string; workspaceOwnerId: string };
+}>();
+
+// ── Capability ────────────────────────────────────────────────────
+
+export interface LogisticsCapability {
+  label_purchase_available: boolean;
+  /** Machine-readable reason when unavailable; null when it works. */
+  code: "feature_unavailable" | "reconnect_required" | null;
+  /** Honest, seller-facing copy for the disabled state; null when available. */
+  detail: string | null;
+}
+
+const LOGISTICS_UNAVAILABLE = {
+  code: "feature_unavailable" as const,
+  detail:
+    "Buying shipping labels in GradeThread isn't switched on for this server yet. Buy your label in eBay and paste the tracking number here.",
+};
+
+const LOGISTICS_RECONNECT = {
+  code: "reconnect_required" as const,
+  detail:
+    "Your eBay connection predates label purchasing. Reconnect your eBay account in Marketplaces to buy labels here.",
+};
+
+/**
+ * Pure capability resolution — exported for tests.
+ * - deployment lacks the scope → permanently unavailable for everyone, so the
+ *   copy must NOT suggest reconnecting; nothing the seller does can fix it.
+ * - deployment has it but THIS token 403'd → the token predates the grant, and
+ *   a re-consent genuinely fixes it.
+ */
+export function logisticsCapability(
+  deploymentHasScope: boolean,
+  connectionDenied: boolean,
+): LogisticsCapability {
+  if (!deploymentHasScope) {
+    return {
+      label_purchase_available: false,
+      code: LOGISTICS_UNAVAILABLE.code,
+      detail: LOGISTICS_UNAVAILABLE.detail,
+    };
+  }
+  if (connectionDenied) {
+    return {
+      label_purchase_available: false,
+      code: LOGISTICS_RECONNECT.code,
+      detail: LOGISTICS_RECONNECT.detail,
+    };
+  }
+  return { label_purchase_available: true, code: null, detail: null };
+}
+
+async function readLogisticsDenied(ownerId: string): Promise<boolean> {
+  try {
+    // supabase-js reports query failures in `error` rather than throwing, so the
+    // fail-open has to check it explicitly — the catch below only covers a
+    // transport-level throw. Before 00509 applies, an unknown-column error lands
+    // here, and "not denied" is the right answer: the capability then rests on
+    // the deployment scope alone, which is the honest signal at that point.
+    const { data, error } = await supabaseAdmin
+      .from("marketplace_connections")
+      .select("logistics_access_denied")
+      .eq("user_id", ownerId) // US-268
+      .eq("platform", "ebay")
+      .eq("is_active", true)
+      .maybeSingle();
+    if (error) {
+      console.warn(
+        "[flipdesk-logistics] capability flag read failed:",
+        error.message,
+      );
+      return false;
+    }
+    return (data as { logistics_access_denied: boolean | null } | null)
+      ?.logistics_access_denied === true;
+  } catch (err) {
+    // Fail OPEN on a transport blip too: a momentary DB outage must not
+    // permanently hide a working feature.
+    console.warn(
+      "[flipdesk-logistics] capability flag read threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
+}
+
+/** Set/clear the sticky denial flag. Best-effort — never fails the request. */
+async function setLogisticsDenied(
+  ownerId: string,
+  denied: boolean,
+): Promise<void> {
+  try {
+    let q = supabaseAdmin
+      .from("marketplace_connections")
+      .update({ logistics_access_denied: denied })
+      .eq("user_id", ownerId) // US-268
+      .eq("platform", "ebay");
+    // Only clear rows that are actually set, so a success doesn't rewrite every
+    // connection row on every call.
+    if (!denied) q = q.eq("logistics_access_denied", true);
+    await q;
+  } catch (err) {
+    console.warn(
+      "[flipdesk-logistics] denial flag write failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+flipdeskLogisticsRoutes.get("/capabilities", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const denied = await readLogisticsDenied(ownerId);
+  return c.json(logisticsCapability(isLogisticsScopeAvailable(), denied));
+});
+
+// ── Shared loading + validation ───────────────────────────────────
+
+interface SaleRow {
+  id: string;
+  platform_order_id: string | null;
+  tracking_number: string | null;
+  shipped_at: string | null;
+  ebay_shipment_id: string | null;
+  shipping_cost: number | null;
+  inventory_item_id: string | null;
+}
+
+/**
+ * Load a sale the caller actually owns. Joins through inventory_items.user_id —
+ * the sale row is never fetched by id alone (US-268).
+ */
+async function loadOwnedSale(
+  ownerId: string,
+  saleId: string,
+): Promise<SaleRow | null> {
+  const { data } = await supabaseAdmin
+    .from("sales")
+    .select(
+      "id, platform_order_id, tracking_number, shipped_at, ebay_shipment_id, shipping_cost, inventory_item_id, inventory_items!inner(user_id)",
+    )
+    .eq("id", saleId)
+    .eq("inventory_items.user_id", ownerId)
+    .maybeSingle();
+  return (data as unknown as SaleRow | null) ?? null;
+}
+
+interface ShipFromRow {
+  line1?: unknown;
+  line2?: unknown;
+  city?: unknown;
+  state?: unknown;
+  postal_code?: unknown;
+  country?: unknown;
+}
+
+/**
+ * The seller's ship-from address (US-1442, users.ship_from_address). Returns
+ * null when it is missing or incomplete — eBay rejects a partial address with an
+ * opaque error, so the route says which field is missing instead.
+ */
+export function toLogisticsAddress(
+  raw: unknown,
+  name: string | null,
+  phone: string | null,
+): LogisticsAddress | null {
+  if (!raw || typeof raw !== "object") return null;
+  const a = raw as ShipFromRow;
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const line1 = str(a.line1);
+  const city = str(a.city);
+  const state = str(a.state);
+  const postalCode = str(a.postal_code);
+  const countryCode = str(a.country) || "US";
+  if (!line1 || !city || !state || !postalCode) return null;
+  return {
+    fullName: name,
+    addressLine1: line1,
+    addressLine2: str(a.line2) || null,
+    city,
+    stateOrProvince: state,
+    postalCode,
+    countryCode,
+    phoneNumber: phone,
+  };
+}
+
+/** Parse the parcel spec off a request body. Weight is the only hard require. */
+export function parseParcel(body: unknown): ParcelSpec | { error: string } {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+  const weight = num(b.weight_value);
+  if (weight == null) {
+    return { error: "A parcel weight above zero is required." };
+  }
+  const unit = b.weight_unit === "OUNCE"
+    ? "OUNCE"
+    : b.weight_unit === "KILOGRAM"
+    ? "KILOGRAM"
+    : b.weight_unit === "GRAM"
+    ? "GRAM"
+    : "POUND";
+  const length = num(b.length_value);
+  const width = num(b.width_value);
+  const height = num(b.height_value);
+  // eBay wants all three dimensions or none — sending one is an error there and
+  // a confusing one, so drop a partial set rather than pass it through.
+  const complete = length != null && width != null && height != null;
+  return {
+    weightValue: weight,
+    weightUnit: unit,
+    lengthValue: complete ? length : null,
+    widthValue: complete ? width : null,
+    heightValue: complete ? height : null,
+    dimensionUnit: b.dimension_unit === "CENTIMETER" ? "CENTIMETER" : "INCH",
+  };
+}
+
+/**
+ * Translate an eBay logistics failure into a client response, flipping the
+ * sticky denial flag on a scope 403 so every later render can gate cheaply.
+ * Returns the (status, body) pair rather than a Response so callers keep
+ * control of the shape.
+ */
+async function logisticsFailure(
+  ownerId: string,
+  err: unknown,
+  fallback: string,
+): Promise<{ status: 501 | 502; body: Record<string, unknown> }> {
+  if (isLogisticsScopeError(err)) {
+    await setLogisticsDenied(ownerId, true);
+    const cap = logisticsCapability(isLogisticsScopeAvailable(), true);
+    return {
+      status: 501,
+      body: { error: cap.detail, code: cap.code },
+    };
+  }
+  return {
+    status: 502,
+    body: {
+      error: fallback,
+      detail: err instanceof Error ? err.message.slice(0, 500) : String(err),
+    },
+  };
+}
+
+/** Shared preflight: capability + eBay config + owned sale with an order id. */
+async function preflight(
+  ownerId: string,
+  saleId: string,
+): Promise<
+  | { ok: true; sale: SaleRow; orderId: string }
+  | { ok: false; status: 404 | 409 | 501 | 503; body: Record<string, unknown> }
+> {
+  if (!isEbayConfigured()) {
+    return {
+      ok: false,
+      status: 503,
+      body: { error: "eBay is not configured on this server." },
+    };
+  }
+  const cap = logisticsCapability(
+    isLogisticsScopeAvailable(),
+    await readLogisticsDenied(ownerId),
+  );
+  if (!cap.label_purchase_available) {
+    return { ok: false, status: 501, body: { error: cap.detail, code: cap.code } };
+  }
+  const sale = await loadOwnedSale(ownerId, saleId);
+  if (!sale) return { ok: false, status: 404, body: { error: "Sale not found." } };
+  if (!sale.platform_order_id) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        error: "This sale has no eBay order, so there's no label to buy here.",
+      },
+    };
+  }
+  return { ok: true, sale, orderId: sale.platform_order_id };
+}
+
+// ── POST /sales/:saleId/rates ─────────────────────────────────────
+// Price the parcel. Buys nothing and reserves nothing, so it is safe to re-run
+// as the seller adjusts the weight.
+flipdeskLogisticsRoutes.post("/sales/:saleId/rates", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const saleId = c.req.param("saleId");
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+
+  const pre = await preflight(ownerId, saleId);
+  if (!pre.ok) return c.json(pre.body, pre.status);
+
+  const parcel = parseParcel(body);
+  if ("error" in parcel) return jsonError(c, 400, parcel.error);
+
+  const { data: userRow } = await supabaseAdmin
+    .from("users")
+    .select("ship_from_address, business_name, business_phone, full_name")
+    .eq("id", ownerId)
+    .maybeSingle();
+  const u = userRow as
+    | {
+      ship_from_address: unknown;
+      business_name: string | null;
+      business_phone: string | null;
+      full_name: string | null;
+    }
+    | null;
+  const shipFrom = toLogisticsAddress(
+    u?.ship_from_address,
+    u?.business_name ?? u?.full_name ?? null,
+    u?.business_phone ?? null,
+  );
+  if (!shipFrom) {
+    // A 409, not a 500: nothing is broken, the seller just hasn't told us where
+    // they ship from. The message names the exact place to fix it.
+    return c.json({
+      error:
+        "Add your ship-from address in Settings before buying a label — eBay needs it to price postage.",
+      code: "ship_from_missing",
+    }, 409);
+  }
+
+  try {
+    const quote = await createShippingQuote(ownerId, {
+      orderId: pre.orderId,
+      shipFrom,
+      parcel,
+    });
+    // A successful call proves the scope works — clear any stale denial.
+    await setLogisticsDenied(ownerId, false);
+    return c.json({
+      shipping_quote_id: quote.shippingQuoteId,
+      expires_at: quote.expiresAt,
+      rates: quote.rates,
+    });
+  } catch (err) {
+    console.error("[flipdesk-logistics] shipping quote failed:", err);
+    const f = await logisticsFailure(
+      ownerId,
+      err,
+      "eBay couldn't price this shipment.",
+    );
+    return c.json(f.body, f.status);
+  }
+});
+
+// ── POST /sales/:saleId/label ─────────────────────────────────────
+// BUY the chosen rate. This charges the seller, so the shape is strict: the
+// caller must name both the quote and the rate it was shown. Nothing is
+// defaulted, and the cheapest rate is never auto-picked server-side — a wrong
+// default here spends the seller's money.
+flipdeskLogisticsRoutes.post("/sales/:saleId/label", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const saleId = c.req.param("saleId");
+  let body: {
+    shipping_quote_id?: unknown;
+    rate_id?: unknown;
+    rates?: unknown;
+    label_message?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const quoteId = typeof body.shipping_quote_id === "string"
+    ? body.shipping_quote_id.trim()
+    : "";
+  const rateId = typeof body.rate_id === "string" ? body.rate_id.trim() : "";
+  if (!quoteId || !rateId) {
+    return jsonError(c, 400, "shipping_quote_id and rate_id are required");
+  }
+
+  const pre = await preflight(ownerId, saleId);
+  if (!pre.ok) return c.json(pre.body, pre.status);
+  const { sale } = pre;
+
+  // Already bought → return what we have rather than buying a second label.
+  // Without this, a double-click or a retried request bills the seller twice.
+  if (sale.ebay_shipment_id) {
+    return c.json({
+      already_purchased: true,
+      shipment_id: sale.ebay_shipment_id,
+      tracking_number: sale.tracking_number,
+    });
+  }
+
+  let shipment;
+  try {
+    shipment = await createShipmentFromQuote(ownerId, {
+      shippingQuoteId: quoteId,
+      rateId,
+      labelCustomMessage: typeof body.label_message === "string"
+        ? body.label_message.slice(0, 50)
+        : null,
+    });
+    await setLogisticsDenied(ownerId, false);
+  } catch (err) {
+    console.error("[flipdesk-logistics] label purchase failed:", err);
+    const f = await logisticsFailure(
+      ownerId,
+      err,
+      "eBay couldn't buy this label.",
+    );
+    return c.json(f.body, f.status);
+  }
+
+  // AC2: the real postage becomes the sale's shipping cost, so Finances and the
+  // per-item P&L stop depending on the seller retyping it. Only write a cost we
+  // actually got back — overwriting a real number with 0 would be worse than
+  // leaving it alone.
+  const patch: Record<string, unknown> = {
+    ebay_shipment_id: shipment.shipmentId,
+    label_purchased_at: new Date().toISOString(),
+  };
+  if (shipment.totalCostCents != null) {
+    patch.shipping_cost = shipment.totalCostCents / 100;
+  }
+  if (shipment.trackingNumber) patch.tracking_number = shipment.trackingNumber;
+  if (shipment.carrier) patch.carrier = shipment.carrier;
+  const { error: updErr } = await supabaseAdmin
+    .from("sales")
+    .update(patch)
+    .eq("id", sale.id); // sale already ownership-verified in preflight
+  if (updErr) {
+    // The label IS bought and the seller HAS been charged — never report that as
+    // a failure. Log loudly; the shipment id is in the response either way.
+    console.error(
+      "[flipdesk-logistics] label bought but sale write-back failed:",
+      updErr.message,
+    );
+  }
+
+  // AC3: the tracking number goes to eBay through the EXISTING fulfillment path
+  // rather than a second implementation, so the buyer sees tracking and the
+  // seller keeps late-shipment protection. Best-effort: the label is already
+  // paid for, so a fulfillment hiccup must not read as "the purchase failed" —
+  // the seller can still mark shipped from the normal button.
+  let pushedToEbay = false;
+  if (shipment.trackingNumber) {
+    try {
+      await createShippingFulfillment(ownerId, pre.orderId, {
+        trackingNumber: shipment.trackingNumber,
+        carrier: shipment.carrier,
+      });
+      pushedToEbay = true;
+      await supabaseAdmin
+        .from("sales")
+        .update({ shipped_at: sale.shipped_at ?? new Date().toISOString() })
+        .eq("id", sale.id);
+    } catch (err) {
+      console.error(
+        "[flipdesk-logistics] fulfillment push after label purchase failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  return c.json({
+    ok: true,
+    shipment_id: shipment.shipmentId,
+    tracking_number: shipment.trackingNumber,
+    carrier: shipment.carrier,
+    label_download_url: shipment.labelDownloadUrl,
+    cost_cents: shipment.totalCostCents,
+    currency: shipment.currency,
+    marked_shipped_on_ebay: pushedToEbay,
+  });
+});
+
+// ── GET /sales/:saleId/label ──────────────────────────────────────
+// Reprint. eBay's label URLs expire, so this re-reads the shipment for a fresh
+// one instead of handing back a stored link that 404s a week later.
+flipdeskLogisticsRoutes.get("/sales/:saleId/label", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const saleId = c.req.param("saleId");
+  const pre = await preflight(ownerId, saleId);
+  if (!pre.ok) return c.json(pre.body, pre.status);
+  const shipmentId = pre.sale.ebay_shipment_id;
+  if (!shipmentId) {
+    return c.json({ error: "No label was bought here for this sale." }, 404);
+  }
+  try {
+    const shipment = await getShipment(ownerId, shipmentId);
+    return c.json({
+      shipment_id: shipment.shipmentId,
+      tracking_number: shipment.trackingNumber,
+      carrier: shipment.carrier,
+      label_download_url: shipment.labelDownloadUrl,
+      cost_cents: shipment.totalCostCents,
+      currency: shipment.currency,
+    });
+  } catch (err) {
+    console.error("[flipdesk-logistics] label reprint failed:", err);
+    const f = await logisticsFailure(
+      ownerId,
+      err,
+      "eBay couldn't return this label.",
+    );
+    return c.json(f.body, f.status);
+  }
+});
+
+// ── POST /sales/:saleId/label/void ────────────────────────────────
+// Cancel the shipment. eBay refunds the postage inside its window and refuses
+// outside it — either way, only clear the local record when eBay accepted, so a
+// refused void never leaves the sale looking label-less while the charge stands.
+flipdeskLogisticsRoutes.post("/sales/:saleId/label/void", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const saleId = c.req.param("saleId");
+  const pre = await preflight(ownerId, saleId);
+  if (!pre.ok) return c.json(pre.body, pre.status);
+  const shipmentId = pre.sale.ebay_shipment_id;
+  if (!shipmentId) {
+    return c.json({ error: "No label was bought here for this sale." }, 404);
+  }
+  try {
+    await cancelShipment(ownerId, shipmentId);
+  } catch (err) {
+    console.error("[flipdesk-logistics] label void failed:", err);
+    const f = await logisticsFailure(
+      ownerId,
+      err,
+      "eBay wouldn't cancel this label.",
+    );
+    return c.json(f.body, f.status);
+  }
+  const { error } = await supabaseAdmin
+    .from("sales")
+    .update({
+      ebay_shipment_id: null,
+      label_purchased_at: null,
+      // The postage is refunded, so the recorded cost is no longer real.
+      shipping_cost: 0,
+    })
+    .eq("id", pre.sale.id);
+  if (error) {
+    return failSafe(
+      c,
+      500,
+      "The label was cancelled but we couldn't update the sale.",
+      error,
+      "logistics.void",
+    );
+  }
+  return c.json({ ok: true });
+});
+
+// Exported for the dry-run-style unit tests: which rate would a client be
+// buying? Guards the purchase path against an id that was never on the quote.
+export function assertRateOnQuote(
+  rates: ShippingRate[],
+  rateId: string,
+): ShippingRate | null {
+  return findRate(rates, rateId);
+}
