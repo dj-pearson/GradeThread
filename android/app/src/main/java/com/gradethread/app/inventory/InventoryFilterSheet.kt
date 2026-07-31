@@ -20,9 +20,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
+import com.gradethread.app.R
 import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.ui.theme.Spacing
 
@@ -57,7 +60,7 @@ fun InventoryFilterSheet(
     }
 
     Column(modifier.fillMaxWidth().padding(Spacing.md)) {
-        Text("Filters", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.filters_title), style = MaterialTheme.typography.titleLarge)
 
         LazyColumn(Modifier.weight(1f, fill = false)) {
             facetSection("Brand", facets.brands, draft.brands) { selected ->
@@ -80,12 +83,12 @@ fun InventoryFilterSheet(
             }
 
             item {
-                SectionLabel("Grade")
+                SectionLabel(stringResource(R.string.filters_section_grade))
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     FilterChip(
                         selected = draft.gradedOnly,
                         onClick = { draft = draft.copy(gradedOnly = !draft.gradedOnly) },
-                        label = { Text("Graded only") },
+                        label = { Text(stringResource(R.string.filters_graded_only)) },
                     )
                     listOf(7.0, 8.0, 9.0).forEach { min ->
                         FilterChip(
@@ -95,22 +98,28 @@ fun InventoryFilterSheet(
                                     minGrade = if (draft.minGrade == min) null else min,
                                 )
                             },
-                            label = { Text("${min.toInt()}+") },
+                            label = {
+                    Text(stringResource(R.string.filters_min_price, min.toInt()))
+                },
                         )
                     }
                 }
             }
 
             item {
-                SectionLabel("Price")
+                SectionLabel(stringResource(R.string.filters_section_price))
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                    PriceField("Min", draft.minPrice) { draft = draft.copy(minPrice = it) }
-                    PriceField("Max", draft.maxPrice) { draft = draft.copy(maxPrice = it) }
+                    PriceField(stringResource(R.string.filters_price_min), draft.minPrice) {
+                        draft = draft.copy(minPrice = it)
+                    }
+                    PriceField(stringResource(R.string.filters_price_max), draft.maxPrice) {
+                        draft = draft.copy(maxPrice = it)
+                    }
                 }
                 // The asymmetry is surprising enough to state outright.
                 if (draft.minPrice != null) {
                     Text(
-                        "Items with no price are hidden while a minimum is set.",
+                        stringResource(R.string.filters_no_price_hidden),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -118,7 +127,7 @@ fun InventoryFilterSheet(
             }
 
             item {
-                SectionLabel("Photos")
+                SectionLabel(stringResource(R.string.filters_section_photos))
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     PhotoState.entries.forEach { state ->
                         FilterChip(
@@ -127,9 +136,12 @@ fun InventoryFilterSheet(
                             label = {
                                 Text(
                                     when (state) {
-                                        PhotoState.ANY -> "Any"
-                                        PhotoState.WITH_PHOTO -> "With photos"
-                                        PhotoState.MISSING_PHOTO -> "Missing photos"
+                                        PhotoState.ANY ->
+                                            stringResource(R.string.filters_photos_any)
+                                        PhotoState.WITH_PHOTO ->
+                                            stringResource(R.string.filters_photos_with)
+                                        PhotoState.MISSING_PHOTO ->
+                                            stringResource(R.string.filters_photos_missing)
                                     },
                                 )
                             },
@@ -139,14 +151,22 @@ fun InventoryFilterSheet(
             }
 
             item {
-                SectionLabel("Added")
+                SectionLabel(stringResource(R.string.filters_section_added))
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     DateAddedBand.entries.forEach { band ->
                         FilterChip(
                             selected = draft.dateAdded == band,
                             onClick = { draft = draft.copy(dateAdded = band) },
                             label = {
-                                Text(band.days?.let { "Last $it days" } ?: "Any time")
+                                Text(
+                                    band.days?.let {
+                                        pluralStringResource(
+                                            R.plurals.filters_added_last_days,
+                                            it,
+                                            it,
+                                        )
+                                    } ?: stringResource(R.string.filters_added_any),
+                                )
                             },
                         )
                     }
@@ -157,13 +177,15 @@ fun InventoryFilterSheet(
         Button(
             onClick = { onApply(draft) },
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
-        ) { Text("Show $matchCount items") }
+        ) {
+            Text(pluralStringResource(R.plurals.filters_show_items, matchCount, matchCount))
+        }
 
         TextButton(
             onClick = onClear,
             modifier = Modifier.fillMaxWidth(),
             enabled = !draft.isEmpty,
-        ) { Text("Clear all") }
+        ) { Text(stringResource(R.string.common_clear_all)) }
     }
 }
 
@@ -188,7 +210,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.facetSection(
                             else selected + facet.value,
                         )
                     },
-                    label = { Text("${facet.label} (${facet.count})") },
+                    label = {
+                Text(stringResource(R.string.filters_facet, facet.label, facet.count))
+            },
                 )
             }
         }

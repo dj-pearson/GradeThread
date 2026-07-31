@@ -11,6 +11,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import com.gradethread.app.inventory.AspectSpecState
 import com.gradethread.app.inventory.AspectSync
 import com.gradethread.app.inventory.EbayAspect
@@ -34,26 +36,25 @@ fun SpecificsSection(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Item specifics", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.specifics_title), style = MaterialTheme.typography.titleMedium)
 
         when (val spec = state.specState) {
-            is AspectSpecState.Loading -> Hint("Loading what this eBay category asks for…")
+            is AspectSpecState.Loading -> Hint(stringResource(R.string.specifics_loading))
 
             // Distinct from a failure: the fix is to resolve a category, not to
             // retry. Saying "couldn't load" here would send the seller looking
             // for a network problem that isn't there.
-            is AspectSpecState.NoCategory -> Hint(
-                "No eBay category resolved yet, so there are no specifics to fill. " +
-                    "Pre-flight will ask for one.",
-            )
+            is AspectSpecState.NoCategory -> Hint(stringResource(R.string.specifics_no_category))
 
             is AspectSpecState.Failed -> Hint(spec.message)
             is AspectSpecState.Idle -> Unit
             is AspectSpecState.Loaded -> {
-                spec.categoryName?.takeIf { it.isNotBlank() }?.let { Hint("Category: $it") }
+                spec.categoryName?.takeIf { it.isNotBlank() }?.let {
+                    Hint(stringResource(R.string.specifics_category, it))
+                }
                 state.specificFields.forEach { field -> SpecificField(field, onSet) }
                 if (state.specificFields.isEmpty()) {
-                    Hint("This category asks for no specifics.")
+                    Hint(stringResource(R.string.specifics_none))
                 }
             }
         }
@@ -67,7 +68,11 @@ private fun SpecificField(
     onSet: (EbayAspect, List<String>) -> Unit,
 ) {
     val aspect = field.aspect
-    val label = if (aspect.required) "${aspect.name} (required)" else aspect.name
+    val label = if (aspect.required) {
+        stringResource(R.string.specifics_required, aspect.name)
+    } else {
+        aspect.name
+    }
 
     when {
         // A closed list the seller may pick several from.
@@ -101,7 +106,7 @@ private fun SpecificField(
             options = aspect.allowedValues,
             optionLabel = { it },
             onSelect = { onSet(aspect, listOf(it)) },
-            placeholder = "Choose one",
+            placeholder = stringResource(R.string.specifics_choose_one),
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -124,12 +129,14 @@ private fun SpecificField(
     field.autoFilledFrom?.let {
         // Not a gap. Saying so stops a seller from typing a measurement the
         // publish is about to overwrite with the item's own.
-        Hint("Filled at publish from your measurements: $it")
+        Hint(stringResource(R.string.specifics_autofilled, it))
     }
     if (field.values.any { AspectSync.willBeTruncated(it) }) {
         Hint(
-            "eBay cuts item specifics at ${AspectSync.EBAY_ASPECT_VALUE_MAX_LEN} " +
-                "characters — this one will be shortened.",
+            stringResource(
+                R.string.specifics_truncated,
+                AspectSync.EBAY_ASPECT_VALUE_MAX_LEN,
+            ),
         )
     }
 }

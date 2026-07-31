@@ -16,7 +16,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.ui.components.ErrorStateView
 import com.gradethread.app.ui.theme.Spacing
 
@@ -65,17 +67,17 @@ fun AiExtractScreen(
                     },
                 )
                 TextButton(onClick = { viewModel.skip(); onDone() }, Modifier.fillMaxWidth()) {
-                    Text("Skip these suggestions")
+                    Text(stringResource(R.string.aiextract_skip))
                 }
             }
 
             state.phase is AiExtractPhase.Failed -> ErrorStateView(
-                title = "AI couldn't read these photos",
+                title = stringResource(R.string.aiextract_failed_title),
                 message = (state.phase as AiExtractPhase.Failed).message,
                 // The item and its photos already exist, so "try again" here
                 // means re-running extraction — which the item canvas owns.
                 // Leaving is the honest primary action.
-                retryTitle = "Continue to the item",
+                retryTitle = stringResource(R.string.aiextract_failed_continue),
                 retry = { onDone() },
             )
 
@@ -93,9 +95,12 @@ private fun Progress(phase: AiExtractPhase?, onBackground: () -> Unit) {
     ) {
         when (phase) {
             is AiExtractPhase.Uploading -> {
-                Text("Saving your photos…", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "${phase.done} of ${phase.total} uploaded",
+                    stringResource(R.string.aiextract_uploading),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    stringResource(R.string.aiextract_uploaded_count, phase.done, phase.total),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -110,12 +115,12 @@ private fun Progress(phase: AiExtractPhase?, onBackground: () -> Unit) {
             else -> {
                 CircularProgressIndicator()
                 Text(
-                    "Reading your photos…",
+                    stringResource(R.string.aiextract_reading),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(top = Spacing.sm),
                 )
                 Text(
-                    "This takes up to a minute.",
+                    stringResource(R.string.aiextract_reading_sub),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -123,7 +128,7 @@ private fun Progress(phase: AiExtractPhase?, onBackground: () -> Unit) {
         }
         // The run lives in the manager, so leaving genuinely doesn't stop it.
         TextButton(onClick = onBackground, modifier = Modifier.padding(top = Spacing.md)) {
-            Text("Finish in the background")
+            Text(stringResource(R.string.aiextract_background))
         }
     }
 }

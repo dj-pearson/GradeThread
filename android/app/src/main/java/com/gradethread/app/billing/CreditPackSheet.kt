@@ -21,9 +21,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.grading.GradeTier
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -48,6 +51,7 @@ fun CreditPackSheet(
     onGranted: suspend () -> Unit,
     modifier: Modifier = Modifier,
     /** "single" or "bulk" — keeps the two funnels distinguishable. */
+    // no-bare-strings: wire value, not copy — it tags the funnel in telemetry.
     surface: String = "single",
     viewModel: CreditTopUpViewModel = hiltViewModel(),
 ) {
@@ -68,13 +72,18 @@ fun CreditPackSheet(
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(
-            "This grade needs $creditsRequired credits and you have $creditBalance.",
+            pluralStringResource(
+                R.plurals.credits_needed,
+                creditsRequired,
+                creditsRequired,
+                creditBalance,
+            ),
             style = MaterialTheme.typography.bodyMedium,
         )
 
         when (val phase = state.phase) {
             is CreditTopUpFlow.State.Granted -> Text(
-                "Credits added — you now have ${phase.balance}.",
+                pluralStringResource(R.plurals.credits_granted, phase.balance, phase.balance),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -86,9 +95,9 @@ fun CreditPackSheet(
                 CircularProgressIndicator(Modifier.padding(Spacing.xxs))
                 Text(
                     if (phase == CreditTopUpFlow.State.Purchasing) {
-                        "Opening Google Play…"
+                        stringResource(R.string.credits_opening_play)
                     } else {
-                        "Adding your credits…"
+                        stringResource(R.string.credits_adding)
                     },
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -96,11 +105,13 @@ fun CreditPackSheet(
 
             CreditTopUpFlow.State.TimedOut -> Column {
                 Text(
-                    "Google Play took the payment but the credits haven't landed yet. " +
-                        "They will — this is usually a short delay.",
+                    stringResource(R.string.credits_timed_out),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                BrandSecondaryButton(text = "Check again", modifier = Modifier.fillMaxWidth()) {
+                BrandSecondaryButton(
+                    text = stringResource(R.string.credits_check_again),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     viewModel.recheck(onGranted)
                 }
             }

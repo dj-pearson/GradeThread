@@ -72,6 +72,10 @@ SCOPE = [
     "disclosure/DisclosureScreen.kt",
     "scout/ScoutScreen.kt",
     "marketplaces/pricing/BulkPricingScreen.kt",
+    "ai/AiExtractScreen.kt",
+    "billing/CreditPackSheet.kt",
+    "inventory/InventoryFilterSheet.kt",
+    "marketplaces/publish/SpecificsSection.kt",
     "billing/PlanStepHost.kt",
     "grading/GradesListScreen.kt",
     "money/ExpenseFormSheet.kt",
@@ -107,6 +111,35 @@ SCOPE = [
     "widget/SellerSnapshotWidget.kt",
 ]
 
+# The opening of a call/argument that renders or speaks whatever it is given.
+# Deliberately does NOT require a quote after it — see _argument_literals for
+# why matching the literal's position was a losing game.
+SINK_OPENER = re.compile(
+    r"""
+    (?:
+        \bText\s*\(
+      | contentDescription\s*=\s*
+      | \btext\s*=\s*
+      | \blabel\s*=\s*
+      | placeholder\s*=\s*
+      | announceForAccessibility\s*\(
+      | \btitle\s*=\s*
+      | \bsubtitle\s*=\s*
+      | \bdescription\s*=\s*
+      | SectionHeader\s*\(
+      | SectionLabel\s*\(
+      | Panel(?:Header)?\s*\(
+      | InfoCard\s*\(
+      | \bHint\s*\(
+      | \bBadge\s*\(
+      | SectionPlaceholder\s*\(
+      | NumberField\s*\(
+      | \bField\s*\(
+    )
+    """,
+    re.VERBOSE,
+)
+
 # A string literal handed to something that renders or speaks it.
 UI_SINKS = re.compile(
     r"""
@@ -132,6 +165,14 @@ UI_SINKS = re.compile(
     """,
     re.VERBOSE,
 )
+
+# The escape hatch, for the one case a rule genuinely cannot judge: a default
+# argument holding a WIRE value rather than copy — `surface: String = "single"`
+# on a funnel tag. No pattern separates that from `title: String = "Save"`, and
+# guessing from the literal's shape ("single" has no spaces, but neither does
+# "Save") would be a rule that is wrong in both directions. So it is declared,
+# on the line or the line above, and a reviewer sees the claim in the diff.
+SUPPRESSION = re.compile(r"no-bare-strings:\s*\S")
 
 # Not user-facing: a route, a wire value, a key, a log category, a test tag.
 EXEMPT = re.compile(
@@ -162,6 +203,7 @@ ANIMATION_LOOKBACK = 8
 # `if (…) {` / `when (…) {` / `when {` as the argument to a UI sink.
 BRANCH_OPENER = re.compile(r"^(?:if\s*\(|when\s*[({])")
 BRANCH_SCAN_LIMIT = 40
+ARGUMENT_SCAN_LIMIT = 40
 
 # The same branch, but opened on the SAME line as the sink:
 # `Text(if (refreshing) "Refreshing…" else "Refresh")`. The wrapped form above
@@ -188,6 +230,37 @@ SAME_LINE_BRANCH = re.compile(
 # in it to translate, and moving it to a resource only invites a translator to
 # edit a format string.
 TRIVIAL = re.compile(r'"\s*"|"%[-+ 0,#]*[\d.]*[a-zA-Z]"')
+
+# Kotlin string-template holes: "$it", "${state.count}". Removed before judging a
+# literal, because the words around them are what a translator sees.
+INTERPOLATION = re.compile(r"\$\{[^}]*\}|\$\w+")
+
+
+def looks_like_copy(literal):
+    """Is this literal a sentence a translator should see, or a value?
+
+    Scanning a sink's whole argument (see _argument_literals) means the scan runs
+    into separators, wire values and `when` keys as well as copy — `" \u00b7 "`,
+    `"capture/photos"`, `"round99"`, `"${'$'}{a.length} / ${'$'}{MAX}"`. Position cannot
+    tell those apart from copy, so the literal itself has to.
+
+    Two signals, and a literal needs one of them:
+      • internal whitespace between words — "Any time", "cost ${'$'}it"
+      • an initial CAPITAL — "Refresh", "SKU", "YYYY-MM-DD"
+
+    Which makes the excluded set the lowercase-single-token one: identifiers,
+    slugs, enum keys, MIME types, animation labels. The known false negative is
+    genuinely lowercase one-word copy (`Text("ok")`); that is rarer than the
+    false positives the previous, positional rule produced, and a false positive
+    is what gets a guard switched off.
+    """
+    body = INTERPOLATION.sub("", literal.strip('"'))
+    if not re.search(r"[A-Za-z]{2,}", body):
+        return False
+    if re.search(r"[A-Za-z]\s+\S", body.strip()):
+        return True
+    first = next((c for c in body if c.isalpha()), "")
+    return first.isupper()
 
 # The same sinks, but with the literal wrapped onto the NEXT line — which is
 # what ktlint does to any argument list over 100 columns, so it is the COMMON
@@ -272,51 +345,72 @@ def scan(path):
 
     skip = preview_lines(lines)
     offenders = []
+    # A line can sit inside two nested sinks (`label = { Text(…) }`), so hits are
+    # deduped on line number — one offender per line, not one per enclosing call.
+    seen = set()
     for i, line in enumerate(lines):
         if i in skip:
             continue
         if EXEMPT.search(line):
             continue
-        if DEFAULT_ARG_COPY.search(line):
-            tail = line[DEFAULT_ARG_COPY.search(line).end() - 1:]
-            if not TRIVIAL.match(tail):
+        if SUPPRESSION.search(line) or (i and SUPPRESSION.search(lines[i - 1])):
+            continue
+        default_arg = DEFAULT_ARG_COPY.search(line)
+        if default_arg:
+            tail = line[default_arg.end() - 1:]
+            literal = re.match(r'"(?:\\.|[^"\\])*"', tail)
+            if literal and not TRIVIAL.match(tail) and looks_like_copy(literal.group()):
                 offenders.append((i + 1, line.strip()))
                 continue
-        same_line = SAME_LINE_BRANCH.search(line)
-        if same_line:
-            hits = _branch_literals(lines, i, from_column=same_line.end())
-            if hits:
-                offenders.extend(hits)
-                continue
-        match = UI_SINKS.search(line)
-        if match:
-            # The literal that follows the sink.
-            tail = line[match.end() - 1:]
-            if TRIVIAL.match(tail):
-                continue
-            if match.group().lstrip().startswith("label") and _in_animation_call(lines, i):
-                continue
-            offenders.append((i + 1, line.strip()))
+        opener = SINK_OPENER.search(line)
+        if not opener:
             continue
-        if not OPEN_SINK.search(line.rstrip()):
+        if opener.group().lstrip().startswith("label") and _in_animation_call(lines, i):
             continue
-        # Walk past comment lines to the first line that carries an argument.
-        for offset, following in enumerate(lines[i + 1:], start=i + 2):
-            stripped = following.strip()
-            if not stripped or stripped.startswith(("//", "*", "/*")):
-                continue
-            if stripped.startswith('"') and not TRIVIAL.match(stripped):
-                offenders.append((offset, stripped))
-            elif BRANCH_OPENER.match(stripped):
-                # The third guard hole. `Text(if (over) { "Using the first N…" }
-                # else { "Pick which shot goes where…" })` put the copy one level
-                # further in, and the walk above stopped at the `if (` line and
-                # declared the call clean. Conditional copy is common — an empty
-                # state, a singular/plural swap, an over-limit warning — so it is
-                # the LAST place that should be exempt.
-                offenders.extend(_branch_literals(lines, offset - 1))
+        for hit in _argument_literals(lines, i, opener.end(), skip):
+            if hit[0] not in seen:
+                seen.add(hit[0])
+                offenders.append(hit)
+    return sorted(offenders)
+
+
+def _argument_literals(lines, index, from_column, skip):
+    """Non-trivial string literals inside the sink's argument list.
+
+    Scanning the WHOLE argument rather than pattern-matching its shape is the
+    fourth revision of this rule, and the reason is that every earlier one lost
+    to ordinary Kotlin. First it read only `Text("x")`. Then ktlint's wrapped
+    form. Then `if (…) { … } else { … }`. Then the same conditional written on
+    one line. `Text(band.days?.let { "Last $it days" } ?: "Any time")` would have
+    been the fifth. There is no finite list of expression shapes copy can hide
+    in, so the rule stops enumerating them: find the argument list, read to its
+    close, and flag any literal that is not trivial.
+    """
+    found = []
+    depth = 1
+    for j in range(index, min(len(lines), index + ARGUMENT_SCAN_LIMIT)):
+        if j in skip:
             break
-    return offenders
+        segment = lines[j][from_column:] if j == index else lines[j]
+        stripped = lines[j].strip()
+        commented = stripped.startswith(("//", "*", "/*"))
+        if not commented and not EXEMPT.search(lines[j]) and not SUPPRESSION.search(lines[j]):
+            for lit in re.finditer(r'"(?:\\.|[^"\\])*"', segment):
+                if not TRIVIAL.match(lit.group()) and looks_like_copy(lit.group()):
+                    found.append((j + 1, stripped))
+                    break
+        if commented:
+            continue
+        bare = re.sub(r'"(?:\\.|[^"\\])*"', "", segment)
+        bare = re.sub(r"//.*", "", bare)
+        for ch in bare:
+            if ch in "{(":
+                depth += 1
+            elif ch in "})":
+                depth -= 1
+                if depth <= 0:
+                    return found
+    return found
 
 
 def _branch_literals(lines, index, from_column=0):
@@ -418,13 +512,48 @@ SELF_TESTS = [
     ),
     (
         "a wrapped branch with the literal after the condition",
-        'Text(\n    if (done) "\u2713 $x" else x,\n)',
+        'Text(\n    if (done) "Done $x" else x,\n)',
         True,
+    ),
+    (
+        "an elvis inside a sink — the shape that killed the positional rule",
+        'Text(band.days?.let { "Last $it days" } ?: "Any time")',
+        True,
+    ),
+    (
+        "a joinToString separator is not copy",
+        'Text(parts.joinToString(" \u00b7 "))',
+        False,
+    ),
+    (
+        "a when key inside a sink is not copy",
+        'Text(\n    when (mode) {\n        "round99" -> a\n        else -> b\n    },\n)',
+        False,
+    ),
+    (
+        "a route handed to a callback is not copy",
+        'Button(text = stringResource(R.string.go)) { onPick("capture/photos") }',
+        False,
+    ),
+    (
+        "a counter built only from interpolations is not copy",
+        'Text(state.error ?: "${state.body.length} / ${MAX}")',
+        False,
     ),
     (
         "a comment inside a branch is not copy",
         'Text(\n    if (a) {\n        // says "hello" in a comment\n        x\n    } else {\n        y\n    },\n)',
         False,
+    ),
+    (
+        "a declared wire value is exempt",
+        'fun X(\n    // no-bare-strings: wire value\n    heading: String = "Pick a plan",\n)',
+        False,
+    ),
+    (
+        "an undeclared copy default is still flagged",
+        'fun X(\n    heading: String = "Pick a plan",\n)',
+        True,
     ),
     (
         "a conditional of non-literals is fine",

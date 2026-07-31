@@ -1138,6 +1138,64 @@
     <string name="common_category">Category</string>
     <string name="common_amount">Amount</string>
 
+    <!-- US-2368 batch 3: AI extract, credits, inventory filters, eBay specifics. -->
+    <string name="common_clear_all">Clear all</string>
+    <string name="aiextract_skip">Skip these suggestions</string>
+    <string name="aiextract_failed_title">AI couldn\'t read these photos</string>
+    <string name="aiextract_failed_continue">Continue to the item</string>
+    <string name="aiextract_uploading">Saving your photos\u2026</string>
+    <string name="aiextract_uploaded_count">%1$d of %2$d uploaded</string>
+    <string name="aiextract_reading">Reading your photos\u2026</string>
+    <string name="aiextract_reading_sub">This takes up to a minute.</string>
+    <string name="aiextract_background">Finish in the background</string>
+    <string name="credits_opening_play">Opening Google Play\u2026</string>
+    <string name="credits_adding">Adding your credits\u2026</string>
+    <string name="credits_timed_out">Google Play took the payment but the credits haven\'t landed yet. They will \u2014 this is usually a short delay.</string>
+    <string name="credits_check_again">Check again</string>
+    <string name="filters_title">Filters</string>
+    <string name="filters_section_grade">Grade</string>
+    <string name="filters_section_price">Price</string>
+    <string name="filters_section_photos">Photos</string>
+    <string name="filters_section_added">Added</string>
+    <string name="filters_price_min">Min</string>
+    <string name="filters_price_max">Max</string>
+    <string name="filters_added_any">Any time</string>
+    <string name="import_sku">SKU %1$s</string>
+    <string name="import_cost">cost %1$s</string>
+    <string name="import_list">list %1$s</string>
+    <plurals name="filters_added_last_days">
+        <item quantity="one">Last %1$d day</item>
+        <item quantity="other">Last %1$d days</item>
+    </plurals>
+    <string name="filters_graded_only">Graded only</string>
+    <string name="filters_min_price">%1$d+</string>
+    <string name="filters_no_price_hidden">Items with no price are hidden while a minimum is set.</string>
+    <string name="filters_photos_any">Any</string>
+    <string name="filters_photos_with">With photos</string>
+    <string name="filters_photos_missing">Missing photos</string>
+    <string name="filters_facet">%1$s (%2$d)</string>
+    <string name="specifics_title">Item specifics</string>
+    <string name="specifics_loading">Loading what this eBay category asks for\u2026</string>
+    <string name="specifics_no_category">No eBay category resolved yet, so there are no specifics to fill. Pre-flight will ask for one.</string>
+    <string name="specifics_category">Category: %1$s</string>
+    <string name="specifics_none">This category asks for no specifics.</string>
+    <string name="specifics_required">%1$s (required)</string>
+    <string name="specifics_choose_one">Choose one</string>
+    <string name="specifics_autofilled">Filled at publish from your measurements: %1$s</string>
+    <string name="specifics_truncated">eBay cuts item specifics at %1$d characters \u2014 this one will be shortened.</string>
+    <plurals name="credits_needed">
+        <item quantity="one">This grade needs %1$d credit and you have %2$d.</item>
+        <item quantity="other">This grade needs %1$d credits and you have %2$d.</item>
+    </plurals>
+    <plurals name="credits_granted">
+        <item quantity="one">Credits added \u2014 you now have %1$d.</item>
+        <item quantity="other">Credits added \u2014 you now have %1$d.</item>
+    </plurals>
+    <plurals name="filters_show_items">
+        <item quantity="one">Show %1$d item</item>
+        <item quantity="other">Show %1$d items</item>
+    </plurals>
+
     <!-- US-2368 batch 2: plan step, grades list, expenses, shell. -->
     <string name="planstep_title">Pick a plan</string>
     <string name="planstep_subtitle">You can start free and change this any time in Settings.</string>
