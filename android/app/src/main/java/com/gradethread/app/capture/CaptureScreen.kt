@@ -216,7 +216,13 @@ fun CaptureScreen(
                         scope.launch { intake.persist(db) }
                     },
                     label = {
-                        Text(if (state.photoFor(slot) != null) "✓ ${slot.label}" else slot.label)
+                        Text(
+                            if (state.photoFor(slot) != null) {
+                                stringResource(R.string.checked_prefix, slot.label)
+                            } else {
+                                slot.label
+                            },
+                        )
                     },
                 )
             }
@@ -296,7 +302,11 @@ fun CaptureScreen(
         }
         if (intake.allRequiredFilled) {
             BrandPrimaryButton(
-                text = if (publish.publishing) "Saving…" else "Continue",
+                text = if (publish.publishing) {
+                    stringResource(R.string.common_saving)
+                } else {
+                    stringResource(R.string.common_continue)
+                },
                 modifier = Modifier.fillMaxWidth().padding(Spacing.md),
             ) { if (!publish.publishing) publishViewModel.publish(state) }
         }

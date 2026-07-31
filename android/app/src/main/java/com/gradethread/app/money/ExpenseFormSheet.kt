@@ -15,7 +15,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import com.gradethread.app.R
 import com.gradethread.app.ui.components.LabeledDropdown
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -54,7 +56,7 @@ fun ExpenseFormSheet(
 
     val parsedDate = remember(dateText) { parseIsoDate(dateText) }
     val dateError = if (dateText.isNotBlank() && parsedDate == null) {
-        "Use YYYY-MM-DD."
+        stringResource(R.string.expense_date_invalid)
     } else {
         null
     }
@@ -67,13 +69,17 @@ fun ExpenseFormSheet(
                 .padding(bottom = Spacing.xl),
         ) {
             Text(
-                if (initial.id == null) "Add expense" else "Edit expense",
+                if (initial.id == null) {
+                    stringResource(R.string.expense_add_title)
+                } else {
+                    stringResource(R.string.expense_edit_title)
+                },
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = Spacing.sm),
             )
 
             LabeledDropdown(
-                label = "Category",
+                label = stringResource(R.string.common_category),
                 selected = draft.category,
                 options = ExpenseDraft.CATEGORIES.map { it.first },
                 optionLabel = { ExpenseDraft.labelFor(it) },
@@ -84,7 +90,7 @@ fun ExpenseFormSheet(
             OutlinedTextField(
                 value = draft.amountText,
                 onValueChange = { draft = draft.copy(amountText = it) },
-                label = { Text("Amount") },
+                label = { Text(stringResource(R.string.common_amount)) },
                 prefix = { Text(com.gradethread.app.capture.CurrencyAmount.SYMBOL) },
                 // Decimal keyboard, but the text is still parsed leniently:
                 // some IMEs offer a comma on a decimal pad regardless.
@@ -97,12 +103,12 @@ fun ExpenseFormSheet(
             OutlinedTextField(
                 value = dateText,
                 onValueChange = { dateText = it },
-                label = { Text("Date spent") },
+                label = { Text(stringResource(R.string.expense_date_spent)) },
                 supportingText = {
                     Text(
                         dateError
                             ?: parsedDate?.let { formatFriendly(it) }
-                            ?: "YYYY-MM-DD",
+                            ?: stringResource(R.string.expense_date_format_hint),
                     )
                 },
                 isError = dateError != null,
@@ -113,7 +119,7 @@ fun ExpenseFormSheet(
             OutlinedTextField(
                 value = draft.description,
                 onValueChange = { draft = draft.copy(description = it) },
-                label = { Text("Note (optional)") },
+                label = { Text(stringResource(R.string.expense_note_optional)) },
                 modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xs),
             )
 
@@ -127,7 +133,7 @@ fun ExpenseFormSheet(
             }
 
             BrandPrimaryButton(
-                text = "Save",
+                text = stringResource(R.string.common_save),
                 // Disabled rather than failing on submit: the button state is
                 // the only place the seller learns the amount isn't usable yet.
                 enabled = validation == null && dateError == null,
@@ -140,7 +146,10 @@ fun ExpenseFormSheet(
                     ?: draft.spentOnMs
                 onSave(draft.copy(spentOnMs = spentOn))
             }
-            BrandSecondaryButton(text = "Cancel", modifier = Modifier.fillMaxWidth()) {
+            BrandSecondaryButton(
+                text = stringResource(R.string.common_cancel),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 onDismiss()
             }
         }

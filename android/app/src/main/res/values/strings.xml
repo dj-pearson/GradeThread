@@ -1133,6 +1133,42 @@
 
     <!-- US-2368: shared components and small surfaces. -->
     <string name="common_couldnt_load">Couldn\'t load</string>
+    <string name="common_saving">Saving\u2026</string>
+    <string name="common_dismiss">Dismiss</string>
+    <string name="common_category">Category</string>
+    <string name="common_amount">Amount</string>
+
+    <!-- US-2368 batch 2: plan step, grades list, expenses, shell. -->
+    <string name="planstep_title">Pick a plan</string>
+    <string name="planstep_subtitle">You can start free and change this any time in Settings.</string>
+    <string name="planstep_savings">Save %1$s%% versus paying monthly</string>
+    <string name="planstep_choose">Choose %1$s</string>
+    <string name="planstep_continue_free">Continue on Free</string>
+    <string name="grades_title">Certified grades</string>
+    <string name="grades_empty_title">No grades yet</string>
+    <string name="grades_empty_body">Grade an item from your inventory and it\'ll appear here with its certificate.</string>
+    <string name="a11y_grade">Grade %1$s</string>
+    <string name="a11y_grade_labeled">Grade %1$s, %2$s</string>
+    <string name="a11y_grade_pending">%1$s, pending review</string>
+    <string name="expense_add_title">Add expense</string>
+    <string name="expense_edit_title">Edit expense</string>
+    <string name="expense_date_spent">Date spent</string>
+    <string name="expense_date_format_hint">YYYY-MM-DD</string>
+    <string name="expense_note_optional">Note (optional)</string>
+    <string name="expense_date_invalid">Use YYYY-MM-DD.</string>
+    <string name="grades_pending_review">Pending review</string>
+    <string name="shell_placeholder_add">Add an item</string>
+    <string name="shell_placeholder_autolister">AutoLister</string>
+    <string name="shell_search">Search</string>
+    <string name="shell_tools">Tools</string>
+    <string name="shell_settings">Settings</string>
+    <string name="shell_add_take_photos">Take photos</string>
+    <string name="shell_add_details_first">Enter details first</string>
+    <string name="shell_add_autolister">AutoLister batch</string>
+    <string name="common_continue">Continue</string>
+    <!-- A tick in front of the selected row. A format string, not a
+         concatenation: the mark does not lead in every writing direction. -->
+    <string name="checked_prefix">\u2713 %1$s</string>
     <string name="a11y_image_unavailable">Image unavailable</string>
     <string name="notes_dictate_start">Dictate notes</string>
     <string name="notes_dictate_stop">Stop dictating notes</string>

@@ -22,12 +22,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gradethread.app.R
 import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.ui.theme.Spacing
 import java.util.Locale
@@ -55,12 +57,18 @@ fun GradesListScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Certified grades",
+                stringResource(R.string.grades_title),
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
-                Text(if (refreshing) "Refreshing…" else "Refresh")
+                Text(
+                    if (refreshing) {
+                        stringResource(R.string.common_refreshing)
+                    } else {
+                        stringResource(R.string.common_refresh)
+                    },
+                )
             }
         }
 
@@ -82,7 +90,9 @@ fun GradesListScreen(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::dismissRefreshError) { Text("Dismiss") }
+                TextButton(onClick = viewModel::dismissRefreshError) {
+                    Text(stringResource(R.string.common_dismiss))
+                }
             }
         }
 
@@ -107,10 +117,12 @@ fun GradesListScreen(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("No grades yet", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Grade an item from your inventory and it'll appear here with its " +
-                        "certificate.",
+                    stringResource(R.string.grades_empty_title),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    stringResource(R.string.grades_empty_body),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -130,22 +142,33 @@ fun GradesListScreen(
 private fun GradeRow(item: InventoryItemEntity, onClick: () -> Unit) {
     val score = item.gradeValue ?: return
     val pending = GradesList.isPendingReview(item)
+    val scoreText = String.format(Locale.US, "%.1f", score)
+    // Hoisted out of semantics { }, which is not a composable scope. Three
+    // separate resources rather than one glued together: a translator has to be
+    // able to move the grade, its tier and the review note relative to each other.
+    val gradeLabel = item.gradeLabel
+    val spokenBase = if (gradeLabel != null) {
+        stringResource(R.string.a11y_grade_labeled, scoreText, gradeLabel)
+    } else {
+        stringResource(R.string.a11y_grade, scoreText)
+    }
+    val spoken = if (pending) {
+        stringResource(R.string.a11y_grade_pending, spokenBase)
+    } else {
+        spokenBase
+    }
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            String.format(Locale.US, "%.1f", score),
+            scoreText,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = gradeColor(score),
             modifier = Modifier
                 .padding(end = Spacing.sm)
-                .semantics {
-                    contentDescription = "Grade ${String.format(Locale.US, "%.1f", score)}" +
-                        (item.gradeLabel?.let { ", $it" } ?: "") +
-                        if (pending) ", pending review" else ""
-                },
+                .semantics { contentDescription = spoken },
         )
         Column(Modifier.weight(1f)) {
             Text(item.title, style = MaterialTheme.typography.bodyMedium)
@@ -159,7 +182,7 @@ private fun GradeRow(item: InventoryItemEntity, onClick: () -> Unit) {
             )
         }
         if (pending) {
-            Badge("Pending review", Color(0xFFF59E0B))
+            Badge(stringResource(R.string.grades_pending_review), Color(0xFFF59E0B))
         }
         // US-819: dispute state rides the row, so the seller sees it without
         // opening each report.

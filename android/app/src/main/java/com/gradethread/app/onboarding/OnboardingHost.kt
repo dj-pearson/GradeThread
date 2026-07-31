@@ -247,7 +247,11 @@ private fun ActivationStep(viewModel: OnboardingViewModel, onConnectEbay: () -> 
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (row.done) "✓ ${row.item.title}" else row.item.title,
+                        if (row.done) {
+                            stringResource(R.string.checked_prefix, row.item.title)
+                        } else {
+                            row.item.title
+                        },
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }

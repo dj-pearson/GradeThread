@@ -200,7 +200,13 @@ private fun ShareScreen(
                     },
                     enabled = !saving,
                 ) {
-                    Text(if (saving) "Saving…" else "Save")
+                    Text(
+                        if (saving) {
+                            stringResource(R.string.common_saving)
+                        } else {
+                            stringResource(R.string.common_save)
+                        },
+                    )
                 }
             }
         }

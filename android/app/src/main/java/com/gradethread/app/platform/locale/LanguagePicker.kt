@@ -39,7 +39,7 @@ fun LanguagePicker(onDismiss: () -> Unit) {
             (listOf(AppLocale.SYSTEM_TAG) + AppLocale.SUPPORTED.map { it.tag }).forEach { tag ->
                 val label = AppLocale.label(tag, systemLabel)
                 Text(
-                    if (tag == current) "✓ $label" else label,
+                    if (tag == current) stringResource(R.string.checked_prefix, label) else label,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier
                         .fillMaxWidth()

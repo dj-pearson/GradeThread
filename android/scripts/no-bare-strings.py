@@ -72,6 +72,10 @@ SCOPE = [
     "disclosure/DisclosureScreen.kt",
     "scout/ScoutScreen.kt",
     "marketplaces/pricing/BulkPricingScreen.kt",
+    "billing/PlanStepHost.kt",
+    "grading/GradesListScreen.kt",
+    "money/ExpenseFormSheet.kt",
+    "ui/shell/AppShell.kt",
     "auth/TurnstileChallenge.kt",
     "platform/HapticFeedback.kt",
     "platform/locale/LanguagePicker.kt",
@@ -120,6 +124,8 @@ UI_SINKS = re.compile(
       | Panel(?:Header)?\s*\(\s*"
       | InfoCard\s*\(\s*"
       | \bHint\s*\(\s*"
+      | \bBadge\s*\(\s*"
+      | SectionPlaceholder\s*\(\s*"
       | NumberField\s*\(\s*"
       | \bField\s*\(\s*"
     )
@@ -157,6 +163,26 @@ ANIMATION_LOOKBACK = 8
 BRANCH_OPENER = re.compile(r"^(?:if\s*\(|when\s*[({])")
 BRANCH_SCAN_LIMIT = 40
 
+# The same branch, but opened on the SAME line as the sink:
+# `Text(if (refreshing) "Refreshing…" else "Refresh")`. The wrapped form above
+# only fires when the sink ends the line, so this shape — which ktlint leaves
+# alone because it fits in 100 columns — slipped past every rule in the file.
+SAME_LINE_BRANCH = re.compile(
+    r"""
+    (?:
+        \bText\s*\(
+      | contentDescription\s*=\s*
+      | \btext\s*=\s*
+      | \blabel\s*=\s*
+      | \btitle\s*=\s*
+      | \bsubtitle\s*=\s*
+      | \bdescription\s*=\s*
+    )
+    (?:if\s*\(|when\s*[({])
+    """,
+    re.VERBOSE,
+)
+
 # An empty or whitespace-only literal is a spacer, not copy. A literal that is
 # nothing but a number-format specifier is not copy either — "%.1f" has no words
 # in it to translate, and moving it to a resource only invites a translator to
@@ -182,6 +208,8 @@ OPEN_SINK = re.compile(
       | Panel(?:Header)?\s*\($
       | InfoCard\s*\($
       | \bHint\s*\($
+      | \bBadge\s*\($
+      | SectionPlaceholder\s*\($
       | NumberField\s*\($
       | \bField\s*\($
     )
@@ -254,6 +282,12 @@ def scan(path):
             if not TRIVIAL.match(tail):
                 offenders.append((i + 1, line.strip()))
                 continue
+        same_line = SAME_LINE_BRANCH.search(line)
+        if same_line:
+            hits = _branch_literals(lines, i, from_column=same_line.end())
+            if hits:
+                offenders.extend(hits)
+                continue
         match = UI_SINKS.search(line)
         if match:
             # The literal that follows the sink.
@@ -285,13 +319,21 @@ def scan(path):
     return offenders
 
 
-def _branch_literals(lines, index):
-    """String literals inside the if/when expression starting at `index`."""
+def _branch_literals(lines, index, from_column=0):
+    """String literals inside the if/when expression starting at `index`.
+
+    `from_column` is where the branch keyword sits on the opening line — 0 for
+    the wrapped form (`Text(` then `if (…)` on the next line), and the sink's end
+    for the same-line form (`Text(if (…) "a" else "b")`). Literals are matched
+    ANYWHERE on a line, not only at its start: a branch puts them after the
+    condition, and a start-of-line rule reads that as clean.
+    """
     found = []
     depth = 0
     started = False
     for j in range(index, min(len(lines), index + BRANCH_SCAN_LIMIT)):
-        bare = re.sub(r'"(?:\\.|[^"\\])*"', "", lines[j])
+        segment = lines[j][from_column:] if j == index else lines[j]
+        bare = re.sub(r'"(?:\\.|[^"\\])*"', "", segment)
         for ch in bare:
             if ch in "{(":
                 depth += 1
@@ -299,8 +341,11 @@ def _branch_literals(lines, index):
             elif ch in "})":
                 depth -= 1
         stripped = lines[j].strip()
-        if j > index and stripped.startswith('"') and not TRIVIAL.match(stripped):
-            found.append((j + 1, stripped))
+        if not stripped.startswith(("//", "*", "/*")):
+            for lit in re.finditer(r'"(?:\\.|[^"\\])*"', segment):
+                if not TRIVIAL.match(lit.group()):
+                    found.append((j + 1, stripped))
+                    break
         if started and depth <= 0:
             break
     return found
@@ -359,6 +404,26 @@ SELF_TESTS = [
     (
         "a bare format specifier is not copy",
         'Text("%.1f")',
+        False,
+    ),
+    (
+        "a conditional opened on the same line as the sink",
+        'Text(if (refreshing) "Refreshing\u2026" else "Refresh")',
+        True,
+    ),
+    (
+        "a same-line conditional of non-literals is fine",
+        "Text(if (refreshing) state.a else state.b)",
+        False,
+    ),
+    (
+        "a wrapped branch with the literal after the condition",
+        'Text(\n    if (done) "\u2713 $x" else x,\n)',
+        True,
+    ),
+    (
+        "a comment inside a branch is not copy",
+        'Text(\n    if (a) {\n        // says "hello" in a comment\n        x\n    } else {\n        y\n    },\n)',
         False,
     ),
     (
