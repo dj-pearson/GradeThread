@@ -130,8 +130,48 @@ struct ExtractAspectsResponse: Decodable, Equatable {
 /// client classify which existing values carry over vs. don't apply.
 struct DeriveAspectsResponse: Decodable, Equatable {
     let categoryId: String?
-    /// Aspect name → value(s) filled deterministically (never overwrites known).
+    /// Aspect name → value(s) filled deterministically. Gap-fill for most
+    /// aspects, but the ``columnOwned`` names below are authoritative.
     let derived: [String: [String]]
     /// Every aspect name valid for the (new) category.
     let validAspectNames: [String]
+    /// Aspects whose write-authority is a MAIN-PAGE column (Brand, Size, Color,
+    /// Material, Style). Their `derived` value must overwrite whatever the
+    /// aspect currently holds — even a manual or AI one — because the seller
+    /// just edited the column that owns it. Without this an AI-filled Brand
+    /// outranked the seller's own correction and had to be retyped in both
+    /// places. Matches the web composer's `projectColumnAspects`.
+    let columnOwned: [String]
+    /// Column-owned aspects whose backing column is now BLANK: the seller
+    /// deleted the value, so drop the aspect instead of keeping a stale copy.
+    let columnCleared: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case categoryId, derived, validAspectNames, columnOwned, columnCleared
+    }
+
+    /// Hand-rolled so an older edge build (no columnOwned/columnCleared) still
+    /// decodes — it just falls back to the previous gap-fill-only behaviour.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        categoryId = try c.decodeIfPresent(String.self, forKey: .categoryId)
+        derived = try c.decodeIfPresent([String: [String]].self, forKey: .derived) ?? [:]
+        validAspectNames = try c.decodeIfPresent([String].self, forKey: .validAspectNames) ?? []
+        columnOwned = try c.decodeIfPresent([String].self, forKey: .columnOwned) ?? []
+        columnCleared = try c.decodeIfPresent([String].self, forKey: .columnCleared) ?? []
+    }
+
+    init(
+        categoryId: String?,
+        derived: [String: [String]],
+        validAspectNames: [String],
+        columnOwned: [String] = [],
+        columnCleared: [String] = []
+    ) {
+        self.categoryId = categoryId
+        self.derived = derived
+        self.validAspectNames = validAspectNames
+        self.columnOwned = columnOwned
+        self.columnCleared = columnCleared
+    }
 }

@@ -23,6 +23,10 @@ import { nextUploadSortOrder } from "@/lib/photo-order";
 import { compressImage } from "@/lib/image-utils";
 import { normalizeToImageFile } from "@/lib/media-intake";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
+import {
+  useItemPhotoDisplayUrl,
+  useItemPhotoOriginalUrl,
+} from "@/hooks/use-item-photo-url";
 import { persistPhotoEdit, revertPhotoEdit } from "@/lib/photo-mutations";
 import {
   parseEditRecipe,
@@ -372,12 +376,13 @@ export function PhotoUploader({
   const editingRecipe = editingPhoto
     ? parseEditRecipe(editingPhoto.edit_recipe)
     : null;
-  const editingOriginalUrl =
-    editingPhoto?.original_storage_path && editingRecipe
-      ? supabase.storage
-          .from("item-photos")
-          .getPublicUrl(editingPhoto.original_storage_path).data.publicUrl
-      : null;
+  // US-2273: same private-bucket split as photo-manager — an iOS Garment Tag
+  // has no public photo_url, so a hardcoded item-photos URL opened the editor
+  // on a broken image.
+  const editingSrc = useItemPhotoDisplayUrl(editingPhoto ?? {}, { full: true });
+  const editingOriginal = useItemPhotoOriginalUrl(
+    editingPhoto && editingRecipe ? editingPhoto : null,
+  );
 
   async function refreshAfterPhotoWrite() {
     await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
@@ -516,8 +521,8 @@ export function PhotoUploader({
 
       <PhotoEditorDialog
         open={editingPhoto != null}
-        src={editingPhoto?.photo_url ?? ""}
-        originalSrc={editingOriginalUrl}
+        src={editingSrc.url}
+        originalSrc={editingOriginal}
         initialRecipe={editingRecipe}
         onRevert={editingPhoto?.original_storage_path ? revertEdit : undefined}
         // Grading evidence keeps the tone it was graded from — see the prop's

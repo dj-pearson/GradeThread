@@ -15,6 +15,16 @@ protocol AspectsProviding {
     func deriveAspects(
         itemId: String, categoryId: String, known: [String: [String]]
     ) async throws -> DeriveAspectsResponse
+    /// Fold specifics-editor edits back into the item's Brand/Size/Color/
+    /// Material/Style columns, so those five are entered ONCE wherever the
+    /// seller typed them. The columns are the write-authority at publish and in
+    /// ``InventoryAspectSync``, so without this an aspect typed here is
+    /// clobbered by the stale column on the next item save. Web does the same
+    /// write inline (composer `aspectWriteBackPatch`).
+    @discardableResult
+    func writeBackAspectColumns(
+        itemId: String, aspects: [String: [String]], sources: [String: String]
+    ) async throws -> [String: String]
 }
 
 struct EbayAspectsService: AspectsProviding {
@@ -83,6 +93,23 @@ struct EbayAspectsService: AspectsProviding {
             "/api/flipdesk/ebay/category/\(categoryId)/derive-aspects",
             body: Body(itemId: itemId, knownAspects: known.isEmpty ? nil : known)
         )
+    }
+
+    @discardableResult
+    func writeBackAspectColumns(
+        itemId: String, aspects: [String: [String]], sources: [String: String]
+    ) async throws -> [String: String] {
+        struct Body: Encodable {
+            let itemId: String
+            let aspects: [String: [String]]
+            let sources: [String: String]
+        }
+        struct Response: Decodable { let updated: [String: String]? }
+        let res: Response = try await post(
+            "/api/flipdesk/ebay/aspects/write-back",
+            body: Body(itemId: itemId, aspects: aspects, sources: sources)
+        )
+        return res.updated ?? [:]
     }
 
     // MARK: - Transport

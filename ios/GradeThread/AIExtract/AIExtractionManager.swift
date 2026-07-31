@@ -292,23 +292,52 @@ final class AIExtractionManager {
         await waitForRequiredUploads(itemId: itemId, photos: photos, uploadStore: uploadStore)
 
         // Build the extract request from whatever uploaded so far.
+        //
+        // Every `continue` below drops a photo the seller deliberately took. That
+        // used to be silent, which is why "the AI can't read brands" went
+        // undiagnosed for so long — the tag was missing from the request and
+        // nothing anywhere said so. Record the reason per dropped slot.
         var extractPhotos: [ExtractPhoto] = []
+        var dropped: [String: String] = [:]
         for entry in photos {
-            guard let task = uploadStore.task(for: entry.slot, inventoryItemId: itemId),
-                  case let .uploaded(publicURL) = task.phase
-            else { continue }
+            let slotName = entry.slot.serverPhotoType
+            guard let task = uploadStore.task(for: entry.slot, inventoryItemId: itemId) else {
+                dropped[slotName] = "no_task"
+                continue
+            }
+            guard case let .uploaded(publicURL) = task.phase else {
+                dropped[slotName] = "not_uploaded"
+                continue
+            }
             let url: String
             if entry.slot.isSensitive {
+                // Tag/certificate close-ups live in the PRIVATE bucket, so the
+                // model needs a signed URL. A failed mint silently cost us the
+                // single best photo for brand/size.
                 guard let signed = await PhotoSignedURLProvider.shared.signedURL(
                     bucket: entry.slot.storageBucket,
                     path: task.storagePath
-                ) else { continue }
+                ) else {
+                    dropped[slotName] = "sign_failed"
+                    continue
+                }
                 url = signed.absoluteString
             } else {
-                guard !publicURL.isEmpty else { continue }
+                guard !publicURL.isEmpty else {
+                    dropped[slotName] = "empty_public_url"
+                    continue
+                }
                 url = publicURL
             }
-            extractPhotos.append(ExtractPhoto(url: url, type: entry.slot.serverPhotoType))
+            extractPhotos.append(ExtractPhoto(url: url, type: slotName))
+        }
+        if !dropped.isEmpty {
+            Telemetry.event("ai_extract_photo_dropped", props: [
+                "item_id": itemId,
+                "dropped": dropped.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ","),
+                "sent": extractPhotos.count,
+                "captured": photos.count,
+            ])
         }
 
         // Diagnostic: how many of the captured photos actually reached the
@@ -446,8 +475,21 @@ final class AIExtractionManager {
         photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
         uploadStore: PhotoUploadStore
     ) async {
-        let requiredSlots = photos.map(\.slot).filter(\.isRequired)
-        let gateSlots = requiredSlots.isEmpty ? photos.map(\.slot) : requiredSlots
+        // Gate on the REQUIRED slots (front/back) plus every captured TAG.
+        //
+        // The tag is where brand and size are printed — the two fields sellers
+        // reported the AI being worst at. Tags are optional slots, so they used
+        // to be excluded from this gate: the extract request was assembled the
+        // moment front/back settled, the still-uploading tag had no `.uploaded`
+        // phase yet, and the request-builder below silently `continue`d past it.
+        // The seller photographed the tag and the model never saw it (edge logs
+        // showed photoCount:2, photoTypes:[front,back] on items shot with tags).
+        //
+        // Waiting costs a few seconds against a call that already takes 20-40s,
+        // and the same deadline still applies — a tag that never lands is left
+        // behind exactly as before, just no longer by default.
+        let gated = photos.map(\.slot).filter { $0.isRequired || $0.isTagSlot }
+        let gateSlots = gated.isEmpty ? photos.map(\.slot) : gated
         let total = photos.count
         let start = Date.now
         let deadline = start.addingTimeInterval(Self.waitTimeoutSeconds)

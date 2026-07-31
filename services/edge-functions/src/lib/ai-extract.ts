@@ -78,6 +78,68 @@ export const GARMENT_CATEGORIES = [
   "hat", "bag", "belt", "scarf", "other",
 ] as const;
 
+// ─── Placeholder values are ABSENT, not answers ─────────────────────
+//
+// Every prompt here says "omit any field you cannot support", and the model
+// mostly obeys — but not always. When it doesn't, it writes a placeholder
+// ("<UNKNOWN>", "N/A", "not visible") with confidence 0 instead of leaving the
+// slot out. Nothing downstream could tell that apart from a real answer, so it
+// was persisted onto the item, projected into the eBay specifics, and the
+// seller had to delete the literal string "<UNKNOWN>" out of BOTH places before
+// typing the real brand. Treat these as the omission the model meant.
+//
+// Matching is deliberately conservative: a bare "unknown"/"n/a"/"none" IS a
+// placeholder, but a value that merely CONTAINS one of those words ("Unknown
+// Pleasures" the album tee, "No Boundaries" the brand) is a real answer and
+// must survive. So this compares against the whole trimmed string only.
+const PLACEHOLDER_VALUES = new Set([
+  "unknown",
+  "n/a",
+  "na",
+  "none",
+  "null",
+  "nil",
+  "undefined",
+  "-",
+  "--",
+  "?",
+  "??",
+  "???",
+  "tbd",
+  "not visible",
+  "not specified",
+  "not applicable",
+  "not available",
+  "not determined",
+  "unspecified",
+  "unbranded",
+  "no brand",
+  "illegible",
+  "unreadable",
+  "cannot determine",
+  "can't determine",
+  "unclear",
+]);
+
+/**
+ * True when a model-emitted value is a stand-in for "I couldn't tell" rather
+ * than an answer. Handles the bracketed/parenthesised forms the model favours
+ * (`<UNKNOWN>`, `[unknown]`, `(n/a)`) on top of the bare words.
+ *
+ * Exported for tests — this guard is the only thing standing between a
+ * hallucinated placeholder and the seller's listing.
+ */
+export function isPlaceholderValue(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  let s = String(value).trim().toLowerCase();
+  if (s === "") return true;
+  // Strip one layer of the wrappers the model uses to signal "not a real value".
+  const wrapped = /^[<\[({]+(.*?)[>\])}]+$/.exec(s);
+  if (wrapped?.[1] !== undefined) s = wrapped[1].trim();
+  if (s === "") return true;
+  return PLACEHOLDER_VALUES.has(s);
+}
+
 const EXTRACT_FIELDS = [
   "title",
   "brand",
@@ -787,13 +849,10 @@ export function decodeExtraction(
     const field = raw[key];
     if (!field || typeof field !== "object") continue;
     const f = field as { value?: unknown; confidence?: unknown; source?: unknown };
-    if (
-      f.value === undefined ||
-      f.value === null ||
-      String(f.value).trim() === ""
-    ) {
-      continue;
-    }
+    // Empty AND placeholder both mean "the model had nothing" — see
+    // isPlaceholderValue. This is where a literal "<UNKNOWN>" brand used to get
+    // through and end up in the seller's listing.
+    if (isPlaceholderValue(f.value)) continue;
     let confidence = Number(f.confidence);
     if (Number.isNaN(confidence)) confidence = 0.5;
     confidence = Math.max(0, Math.min(1, confidence));
@@ -831,7 +890,7 @@ export function decodeExtraction(
         : [];
     let values = rawValues
       .map((v) => (typeof v === "string" ? v.trim() : String(v).trim()))
-      .filter((v) => v.length > 0 && v.toLowerCase() !== "unknown");
+      .filter((v) => !isPlaceholderValue(v));
     if (!MULTI_ATTRIBUTE_KEYS.has(spec.key)) values = values.slice(0, 1);
     if (values.length === 0) continue;
     let confidence = Number(s.confidence);
@@ -852,7 +911,7 @@ export function decodeExtraction(
   if (raw.research_identification && typeof raw.research_identification === "object") {
     const r = raw.research_identification as Record<string, unknown>;
     const str = (v: unknown): string | null =>
-      typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+      typeof v === "string" && !isPlaceholderValue(v) ? v.trim() : null;
     const identifiedStyle = str(r.identified_style);
     const rationale = str(r.identification_rationale);
     let confidence = Number(r.identification_confidence);
@@ -1462,7 +1521,7 @@ export async function extractEbayAspects(
 
     let values = f.values
       .map((v) => (typeof v === "string" ? v.trim() : String(v).trim()))
-      .filter((v) => v.length > 0);
+      .filter((v) => !isPlaceholderValue(v));
     // Final-pass safety net: drop any model-emitted value that isn't in the
     // allowed set when one was provided. The enum constraint should already
     // handle this, but better to silently drop than to surface garbage.

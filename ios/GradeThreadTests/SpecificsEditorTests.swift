@@ -139,6 +139,91 @@ final class SpecificsEditorTests: XCTestCase {
         XCTAssertEqual(result.sources["Style"], .aiExtracted)
     }
 
+    // The main-page column outranks its aspect for Brand/Size/Color/Material/
+    // Style. reconcileDerived above deliberately protects manual/AI values —
+    // correct for every OTHER aspect, but for these five it stranded the
+    // seller's edit: they fixed Brand on the item page, the AI-filled Brand
+    // aspect won, and they had to retype it in the specifics editor as well.
+    func test_applyColumnAuthority_columnBeatsManualAndAI() {
+        let reconciled = (
+            values: [
+                "Brand": ["<UNKNOWN>"],   // AI wrote a placeholder
+                "Size": ["S"],            // the seller typed this here earlier
+                "Pattern": ["Striped"],   // NOT column-owned
+            ],
+            sources: [
+                "Brand": AspectProvenance.aiExtracted,
+                "Size": AspectProvenance.manual,
+                "Pattern": AspectProvenance.aiExtracted,
+            ]
+        )
+        let result = SpecificsEditorModel.applyColumnAuthority(
+            to: reconciled,
+            derived: ["Brand": ["Woolx"], "Size": ["M"], "Pattern": ["Solid"]],
+            columnOwned: ["Brand", "Size"],
+            columnCleared: []
+        )
+        // Both column-owned aspects now match the item's columns, whatever
+        // provenance they carried before, and are re-stamped as derived.
+        XCTAssertEqual(result.values["Brand"], ["Woolx"])
+        XCTAssertEqual(result.values["Size"], ["M"])
+        XCTAssertEqual(result.sources["Brand"], .inventoryDerived)
+        XCTAssertEqual(result.sources["Size"], .inventoryDerived)
+        // A non-column aspect keeps the reconcile's answer — this must NOT
+        // become a blanket "server always wins" overwrite.
+        XCTAssertEqual(result.values["Pattern"], ["Striped"])
+        XCTAssertEqual(result.sources["Pattern"], .aiExtracted)
+    }
+
+    func test_applyColumnAuthority_blankedColumnDropsTheAspect() {
+        let reconciled = (
+            values: ["Brand": ["Nike"], "Color": ["Red"]],
+            sources: [
+                "Brand": AspectProvenance.inventoryDerived,
+                "Color": AspectProvenance.manual,
+            ]
+        )
+        // The seller cleared the Brand column on the item page: the specific has
+        // to go too, or they'd delete it and watch it come back.
+        let result = SpecificsEditorModel.applyColumnAuthority(
+            to: reconciled, derived: [:], columnOwned: [], columnCleared: ["Brand"]
+        )
+        XCTAssertNil(result.values["Brand"])
+        XCTAssertNil(result.sources["Brand"])
+        XCTAssertEqual(result.values["Color"], ["Red"])
+    }
+
+    // An older edge build sends neither list; behaviour must fall back to
+    // exactly what reconcileDerived decided, with nothing overwritten.
+    func test_applyColumnAuthority_isANoOpWithoutServerLists() {
+        let reconciled = (
+            values: ["Brand": ["Nike"]],
+            sources: ["Brand": AspectProvenance.manual]
+        )
+        let result = SpecificsEditorModel.applyColumnAuthority(
+            to: reconciled,
+            derived: ["Brand": ["Adidas"]],
+            columnOwned: [],
+            columnCleared: []
+        )
+        XCTAssertEqual(result.values["Brand"], ["Nike"])
+        XCTAssertEqual(result.sources["Brand"], .manual)
+    }
+
+    // A column-owned name with no derived value must not blank the aspect —
+    // "the server sent nothing for it" is not "the seller cleared it" (that is
+    // what columnCleared is for).
+    func test_applyColumnAuthority_missingDerivedValueLeavesAspectAlone() {
+        let reconciled = (
+            values: ["Brand": ["Nike"]],
+            sources: ["Brand": AspectProvenance.manual]
+        )
+        let result = SpecificsEditorModel.applyColumnAuthority(
+            to: reconciled, derived: [:], columnOwned: ["Brand"], columnCleared: []
+        )
+        XCTAssertEqual(result.values["Brand"], ["Nike"])
+    }
+
     // MARK: - US-825: provenance persistence
 
     func test_storedSources_encodesFilledAspectsOnly() {

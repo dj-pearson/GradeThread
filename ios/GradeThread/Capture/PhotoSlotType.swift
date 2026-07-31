@@ -170,6 +170,18 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// A garment TAG close-up — where brand, size and fabric content are
+    /// actually printed. Optional to capture, but when the seller does capture
+    /// one it is the single most valuable photo the AI extract can be given, so
+    /// the extract waits for it to finish uploading rather than racing ahead
+    /// with front/back alone (see `AIExtractionManager.waitForRequiredUploads`).
+    public var isTagSlot: Bool {
+        switch self {
+        case .tag, .tag2: return true
+        default: return false
+        }
+    }
+
     /// The default capture slots, always visible in the strip and never
     /// revealed/removed. Front + Back are required; Tag + Detail are shown so
     /// sellers naturally add them, but are skippable — many garments (e.g.

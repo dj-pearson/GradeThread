@@ -292,6 +292,29 @@ Deno.test({
 });
 
 Deno.test({
+  // The aspects write-back folds specifics-editor values into an item's
+  // Brand/Size/Color/Material/Style COLUMNS. Unscoped, B could overwrite the
+  // identity of A's garment — and those columns are the write-authority at
+  // publish, so the corruption would ride straight onto A's live listing.
+  name: "B cannot write back aspect columns onto A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/aspects/write-back`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        itemId,
+        aspects: { Brand: ["AttackerBrand"], Size: ["XXL"] },
+        sources: { Brand: "manual", Size: "manual" },
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST ebay/aspects/write-back");
+  },
+});
+
+Deno.test({
   // US-2175: cross-push is the WIDEST write in the listings module — one call
   // fans a source draft out into a listings row per platform (seven of them),
   // starts a cross-listing group by stamping draft_id, and then asks each

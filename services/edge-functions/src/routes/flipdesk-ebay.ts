@@ -15,6 +15,7 @@ import {
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import {
   applyColumnAspects,
+  columnAspectProjection,
   resolveItemAspects,
   reverseColumnAspects,
 } from "../lib/aspect-registry.ts";
@@ -1799,6 +1800,65 @@ flipdeskEbayRoutes.get("/category/:id/conditions", async (c) => {
 //
 // Tenant-scoped (US-268): the item is loaded by id AND user_id — an item id in
 // the body alone never grants access to another tenant's row.
+// POST /aspects/write-back — fold specifics-editor edits back into the item's
+// structured columns (Brand/Size/Color/Material/Style), so those five stay
+// SINGLE-ENTRY no matter which screen the seller typed them on.
+//
+// The web composer does this inline on save (aspectWriteBackPatch →
+// reverseProjectAspectColumns). iOS had no equivalent, so an aspect typed in
+// the specifics editor never reached its column — and since the column is the
+// write-authority at publish/revise, the seller's entry was silently clobbered
+// on the next item save and they had to type it in BOTH places. This endpoint
+// gives every non-web client the same close-the-loop write off the SHARED
+// registry, rather than a second mapping table that can drift.
+flipdeskEbayRoutes.post("/aspects/write-back", async (c) => {
+  // US-268: service-role client bypasses RLS — scope the item read AND the
+  // update to the caller's workspace, and never trust the body's item id alone.
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as
+    | string
+    | undefined;
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  let body: {
+    itemId?: string;
+    aspects?: Record<string, string[]>;
+    sources?: Record<string, string>;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = (body.itemId ?? "").trim();
+  if (!itemId) return c.json({ error: "itemId is required" }, 400);
+  const aspects = body.aspects ?? {};
+  const sources = body.sources ?? {};
+
+  const { data: item, error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, user_id, item_category, brand, size, color, material, style")
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (itemErr) return c.json({ error: "Could not load item." }, 500);
+  if (!item) return c.json({ error: "Item not found." }, 404);
+
+  const patch = reverseColumnAspects(
+    item as unknown as RegistryItem,
+    aspects,
+    sources,
+  );
+  if (Object.keys(patch).length === 0) return c.json({ updated: {} });
+
+  const { error: upErr } = await supabaseAdmin
+    .from("inventory_items")
+    .update(patch as never)
+    .eq("id", itemId)
+    .eq("user_id", userId);
+  if (upErr) return c.json({ error: "Could not update item." }, 500);
+  return c.json({ updated: patch });
+});
+
 flipdeskEbayRoutes.post("/category/:id/derive-aspects", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -1858,10 +1918,37 @@ flipdeskEbayRoutes.post("/category/:id/derive-aspects", async (c) => {
       );
       for (const [k, v] of Object.entries(measAspects)) derived[k] = v;
     }
+    // The five COLUMN-owned aspects (Brand/Size/Color/Material/Style) are not
+    // gap-fills — the main-page column is their write-authority, exactly as the
+    // web composer treats them (projectColumnAspects in src/lib/ebay-prefill.ts,
+    // and applyColumnAspects on the publish path). `derived` above only fills
+    // BLANKS, so an aspect the AI had already written stayed put and a seller who
+    // fixed Brand on the item page still had to retype it in the specifics
+    // editor. Force the projection here and name the aspects the client must
+    // overwrite regardless of their current provenance — that is the whole
+    // difference between the desktop and iOS behaviour.
+    const registryAspects = toRegistryAspects(list);
+    const projection = columnAspectProjection(
+      item as unknown as RegistryItem,
+      registryAspects,
+    );
+    for (const [name, values] of Object.entries(projection.set)) {
+      derived[name] = values;
+    }
     // US-825: tell the client these gap-fills are inventory_derived so its
     // provenance badges and the source map it persists stay accurate.
     const sources = sourcesFor(Object.keys(derived), "inventory_derived");
-    return c.json({ categoryId, derived, sources, validAspectNames });
+    return c.json({
+      categoryId,
+      derived,
+      sources,
+      validAspectNames,
+      // Overwrite these even if they are currently marked manual/AI.
+      columnOwned: Object.keys(projection.set),
+      // The backing column was blanked — drop these instead of keeping a stale
+      // value the seller believes they deleted.
+      columnCleared: projection.clear,
+    });
   } catch (err) {
     console.error("[flipdesk-ebay] derive-aspects failed:", err);
     return c.json({ error: "Aspect derivation failed" }, 502);

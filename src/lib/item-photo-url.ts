@@ -34,6 +34,8 @@ export interface PhotoLike {
   photo_url?: string | null;
   thumbnail_url?: string | null;
   storage_path?: string | null;
+  /** US-2208: the pristine pre-edit object, when one was preserved. */
+  original_storage_path?: string | null;
 }
 
 /**
@@ -137,4 +139,29 @@ export async function resolveItemPhotoDisplayUrl(
     expiresAt: now() + SIGNED_URL_TTL_SECONDS * 1000,
   });
   return signedUrl;
+}
+
+/**
+ * Resolve the PRISTINE pre-edit object's URL (US-2208 re-edit / revert).
+ *
+ * Same private-bucket split as the display URL: an iOS-captured tag's original
+ * lives in submission-images, so building a public item-photos URL for it — as
+ * the photo editor did — yields a 400 and the editor opens on a broken image.
+ * Returns "" when there is no preserved original.
+ */
+export async function resolveItemPhotoOriginalUrl(
+  photo: PhotoLike,
+  opts: Pick<ResolveOptions, "sign"> & {
+    publicUrl?: (path: string) => string;
+  } = {},
+): Promise<string> {
+  const path = (photo.original_storage_path ?? "").trim();
+  if (!path) return "";
+  // Keyed on the ROW's sensitivity, not the original's own path: the original is
+  // always written to the same bucket as the photo it backs.
+  if (!needsSignedDisplayUrl(photo)) {
+    return opts.publicUrl ? opts.publicUrl(path) : "";
+  }
+  const sign = opts.sign ?? defaultSigner;
+  return await sign(path);
 }

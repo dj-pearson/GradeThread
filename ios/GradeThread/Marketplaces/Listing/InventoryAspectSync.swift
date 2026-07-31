@@ -50,8 +50,21 @@ enum InventoryAspectSync {
             itemId: itemId, categoryId: cat, known: preserve
         ) else { return }
 
-        let result = SpecificsEditorModel.reconcileDerived(
+        var result = SpecificsEditorModel.reconcileDerived(
             into: current, sources: sources, derived: res.derived
+        )
+        // The main-page column WINS for Brand/Size/Color/Material/Style. The
+        // reconcile above deliberately protects manual/AI aspects, which is
+        // right for everything else — but those five are projections of a column
+        // the seller just edited, so protecting them stranded the edit and the
+        // seller had to retype it in the specifics editor too. The server names
+        // them (`columnOwned` / `columnCleared`); web does the same thing
+        // locally via projectColumnAspects.
+        result = SpecificsEditorModel.applyColumnAuthority(
+            to: result,
+            derived: res.derived,
+            columnOwned: res.columnOwned,
+            columnCleared: res.columnCleared
         )
         let filled = result.values.compactMapValues { v -> [String]? in
             let cleaned = v.filter { !$0.isEmpty }

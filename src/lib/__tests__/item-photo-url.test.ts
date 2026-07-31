@@ -12,6 +12,7 @@ import {
   itemPhotoPublishUrl,
   needsSignedDisplayUrl,
   resolveItemPhotoDisplayUrl,
+  resolveItemPhotoOriginalUrl,
   type PhotoLike,
   type SignedUrlSigner,
 } from "@/lib/item-photo-url";
@@ -154,5 +155,65 @@ describe("private photos never reach a public destination (AC6)", () => {
     expect(needsSignedDisplayUrl({ ...iosTag, photo_url: "https://x" })).toBe(false);
     expect(needsSignedDisplayUrl({ photo_type: "front", storage_path: "p" })).toBe(false);
     expect(needsSignedDisplayUrl({ photo_type: "tag", storage_path: null })).toBe(false);
+  });
+});
+
+// The PHOTO EDITOR opened on `photo.photo_url` and built the pre-edit original's
+// URL against the public item-photos bucket. Both are wrong for an iOS Garment
+// Tag: it lives in the PRIVATE bucket with an empty photo_url, so the editor
+// rendered a broken image and "Revert to original" pointed at a 400. This is the
+// desktop half of the "tag uploaded but corrupt" report — the bytes were always
+// fine, only the read path was.
+describe("resolveItemPhotoOriginalUrl (private-bucket originals)", () => {
+  const iosTagWithOriginal: PhotoLike = {
+    ...iosTag,
+    original_storage_path: "user-a/sub-1/tag_123_original.jpg",
+  };
+
+  it("signs the original for a private-bucket tag", async () => {
+    const sign = fakeSigner();
+    const url = await resolveItemPhotoOriginalUrl(iosTagWithOriginal, { sign });
+    expect(url).toContain("/object/sign/");
+    expect(url).toContain("tag_123_original.jpg");
+    // Signed against the ORIGINAL's path, not the current object's.
+    expect(sign).toHaveBeenCalledWith("user-a/sub-1/tag_123_original.jpg");
+  });
+
+  it("uses the public URL for a normal front photo, never a signed one", async () => {
+    const sign = fakeSigner();
+    const url = await resolveItemPhotoOriginalUrl(
+      {
+        photo_type: "front",
+        photo_url: "https://cdn.example.com/item-photos/front.jpg",
+        storage_path: "user-a/sub-1/front.jpg",
+        original_storage_path: "user-a/sub-1/front_original.jpg",
+      },
+      { sign, publicUrl: (p) => `https://cdn.example.com/item-photos/${p}` },
+    );
+    expect(url).toBe(
+      "https://cdn.example.com/item-photos/user-a/sub-1/front_original.jpg",
+    );
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it("returns empty when no original was preserved, without signing", async () => {
+    const sign = fakeSigner();
+    expect(await resolveItemPhotoOriginalUrl(iosTag, { sign })).toBe("");
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it("treats a web-uploaded tag (public photo_url) as public", async () => {
+    const sign = fakeSigner();
+    const url = await resolveItemPhotoOriginalUrl(
+      {
+        photo_type: "tag",
+        photo_url: "https://cdn.example.com/item-photos/tag.jpg",
+        storage_path: "user-a/sub-1/tag.jpg",
+        original_storage_path: "user-a/sub-1/tag_original.jpg",
+      },
+      { sign, publicUrl: (p) => `https://cdn.example.com/item-photos/${p}` },
+    );
+    expect(url).toContain("tag_original.jpg");
+    expect(sign).not.toHaveBeenCalled();
   });
 });

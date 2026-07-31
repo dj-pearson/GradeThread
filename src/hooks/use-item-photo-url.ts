@@ -10,8 +10,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   needsSignedDisplayUrl,
   resolveItemPhotoDisplayUrl,
+  resolveItemPhotoOriginalUrl,
   type PhotoLike,
 } from "@/lib/item-photo-url";
+import { supabase } from "@/lib/supabase";
 import { itemPhotoThumb } from "@/lib/images";
 
 export interface ItemPhotoUrlState {
@@ -72,4 +74,46 @@ export function useItemPhotoDisplayUrl(
   }, [key]);
 
   return state;
+}
+
+/**
+ * The PRISTINE pre-edit object's URL for the photo editor (US-2208), resolved
+ * across the same public/private split as the display URL. Pass null when no
+ * original should be used; returns null until it resolves, which the editor
+ * already treats as "edit the current image".
+ */
+export function useItemPhotoOriginalUrl(photo: PhotoLike | null): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  const key = `${photo?.original_storage_path ?? ""}|${photo?.photo_type ?? ""}|${
+    photo?.photo_url ?? ""
+  }|${photo?.storage_path ?? ""}`;
+  const latest = useRef(key);
+  latest.current = key;
+
+  useEffect(() => {
+    if (!photo?.original_storage_path) {
+      setUrl(null);
+      return;
+    }
+    let cancelled = false;
+    resolveItemPhotoOriginalUrl(photo, {
+      publicUrl: (path) =>
+        supabase.storage.from("item-photos").getPublicUrl(path).data.publicUrl,
+    })
+      .then((resolved) => {
+        if (cancelled || latest.current !== key) return;
+        setUrl(resolved || null);
+      })
+      .catch(() => {
+        if (cancelled || latest.current !== key) return;
+        setUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // key encodes every input that changes the resolved URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return url;
 }

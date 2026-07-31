@@ -223,6 +223,35 @@ final class PhotoIntakeTests: XCTestCase {
         XCTAssertEqual(PhotoSlotType.measurements.filter { $0.isRequired }.count, 0)
     }
 
+    // The AI extract gates on required-OR-tag: the tag is where brand and size
+    // are actually printed, and because it was merely OPTIONAL the request was
+    // assembled the instant front/back settled — the still-uploading tag was
+    // silently dropped and the model never saw it (edge logs showed
+    // photoCount:2 [front,back] on items shot WITH tags). Exactly the two tag
+    // slots qualify; widening this would make the extract wait on photos that
+    // do not carry brand/size.
+    func test_slotType_isTagSlot_isExactlyTheTwoTagSlots() {
+        XCTAssertTrue(PhotoSlotType.tag.isTagSlot)
+        XCTAssertTrue(PhotoSlotType.tag2.isTagSlot)
+        for slot in PhotoSlotType.allCases where slot != .tag && slot != .tag2 {
+            XCTAssertFalse(slot.isTagSlot, "\(slot) should not gate the AI extract")
+        }
+        // Tags stay OPTIONAL to capture — the gate is about waiting for one the
+        // seller actually took, not about demanding it.
+        XCTAssertFalse(PhotoSlotType.tag.isRequired)
+        XCTAssertFalse(PhotoSlotType.tag2.isRequired)
+    }
+
+    // Both tag slots are sensitive, so they upload to the PRIVATE bucket and the
+    // extract must send a SIGNED url for them. If these ever diverge, the tag is
+    // either dropped from the AI request or leaked to a public URL.
+    func test_tagSlots_arePrivateBucketAndSensitive() {
+        for slot in [PhotoSlotType.tag, PhotoSlotType.tag2] {
+            XCTAssertTrue(slot.isSensitive, "\(slot) must be sensitive")
+            XCTAssertEqual(slot.storageBucket, PhotoStorageBucket.privateBucket)
+        }
+    }
+
     func test_slotType_extendedSlots_rawValueIsServerType() {
         // Every non-defect slot's rawValue IS its server photo_type, so
         // drafts / share-inbox manifests / offline sync round-trip without

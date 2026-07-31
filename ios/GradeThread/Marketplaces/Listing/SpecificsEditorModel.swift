@@ -305,13 +305,14 @@ final class SpecificsEditorModel {
         // listing row + force the revise resync (below).
         let categoryChanged = cat != originalCategoryId
         let filled = nonEmptyValues()
+        let storedSources = Self.storedSources(sources, values: filled)
         do {
             try await SupabaseShared.client
                 .from("inventory_items")
                 .update(Patch(
                     ebay_category_id: cat,
                     ebay_aspects: filled,
-                    ebay_aspect_sources: Self.storedSources(sources, values: filled)
+                    ebay_aspect_sources: storedSources
                 ))
                 .eq("id", value: itemId)
                 .execute()
@@ -319,6 +320,15 @@ final class SpecificsEditorModel {
             errorMessage = message(error)
             return false
         }
+        // Close the single-entry loop: a Brand/Size/Color/Material/Style typed
+        // HERE has to reach its item column, because the column outranks the
+        // aspect on the next item-page save (InventoryAspectSync) and at
+        // publish. Without it the seller's entry silently reverted and they had
+        // to type it on the item page as well. Best-effort — the specifics are
+        // already saved, so a failure costs the mirror, not the edit.
+        try? await service.writeBackAspectColumns(
+            itemId: itemId, aspects: filled, sources: storedSources
+        )
         // US-1513: the item row is persisted — from here on, backing out loses
         // nothing (the listing mirror / revise below surface their own errors).
         rebaseline()
@@ -511,6 +521,42 @@ final class SpecificsEditorModel {
             newSources[name] = .inventoryDerived
         }
         return (values, newSources)
+    }
+
+    /// Force the MAIN-PAGE columns' authority over their aspects, after
+    /// ``reconcileDerived`` has done the gap-filling.
+    ///
+    /// Brand, Size, Color, Material and Style are projections of item columns,
+    /// not independent aspects — the seller enters them once on the item page
+    /// and both places must agree. `reconcileDerived` protects `manual` and
+    /// `ai_extracted` values, which is correct for every OTHER aspect but wrong
+    /// for these five: it meant an AI-filled Brand outranked the seller's own
+    /// correction, so fixing Brand on the item page left the eBay specific
+    /// stale and they had to type it twice (once in each place).
+    ///
+    /// The server decides membership — `columnOwned` are the aspects whose
+    /// column currently has a value, `columnCleared` the ones whose column the
+    /// seller blanked — so the mapping stays in the shared registry (US-822)
+    /// and no Swift table can drift from it. Pure.
+    nonisolated static func applyColumnAuthority(
+        to current: (values: [String: [String]], sources: [String: AspectProvenance]),
+        derived: [String: [String]],
+        columnOwned: [String],
+        columnCleared: [String]
+    ) -> (values: [String: [String]], sources: [String: AspectProvenance]) {
+        var values = current.values
+        var sources = current.sources
+        for name in columnOwned {
+            let nonEmpty = (derived[name] ?? []).filter { !$0.isEmpty }
+            guard !nonEmpty.isEmpty else { continue }
+            values[name] = nonEmpty
+            sources[name] = .inventoryDerived
+        }
+        for name in columnCleared {
+            values.removeValue(forKey: name)
+            sources.removeValue(forKey: name)
+        }
+        return (values, sources)
     }
 
     /// Merge AI suggestions into the current values: only fills aspects that are

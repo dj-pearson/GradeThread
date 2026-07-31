@@ -52,6 +52,10 @@ import { BulkToneDialog } from "@/components/flipdesk/bulk-tone-dialog";
 import { useRemoveBackground, useRemoveBgCapability } from "@/hooks/use-remove-bg";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import {
+  useItemPhotoDisplayUrl,
+  useItemPhotoOriginalUrl,
+} from "@/hooks/use-item-photo-url";
+import {
   persistRetag,
   persistDelete,
   persistPhotoEdit,
@@ -320,12 +324,16 @@ export function PhotoManager({
   const editingRecipe = editingPhoto
     ? parseEditRecipe(editingPhoto.edit_recipe)
     : null;
-  const editingOriginalUrl =
-    editingPhoto?.original_storage_path && editingRecipe
-      ? supabase.storage
-          .from("item-photos")
-          .getPublicUrl(editingPhoto.original_storage_path).data.publicUrl
-      : null;
+  // US-2273: an iOS-captured Garment Tag lives in the PRIVATE bucket with an
+  // empty photo_url, so both of these used to resolve to a public item-photos
+  // URL (or to "") and the editor opened on a broken image — the tag looked
+  // uploaded-but-corrupt on desktop while rendering fine on the phone. Both now
+  // go through the same resolver the galleries use, which signs the private
+  // case and leaves the public case exactly as it was.
+  const editingSrc = useItemPhotoDisplayUrl(editingPhoto ?? {}, { full: true });
+  const editingOriginal = useItemPhotoOriginalUrl(
+    editingPhoto && editingRecipe ? editingPhoto : null,
+  );
 
   async function retag(photo: ItemPhotoRow, photoType: FlipdeskPhotoType) {
     photosDirtyRef.current = true;
@@ -451,10 +459,10 @@ export function PhotoManager({
 
       <PhotoEditorDialog
         open={editingPhoto != null}
-        src={editingPhoto?.photo_url ?? ""}
+        src={editingSrc.url}
         // US-2208: re-edit from the pristine original with the previous recipe
         // replayed, so tone and JPEG generations never compound.
-        originalSrc={editingOriginalUrl}
+        originalSrc={editingOriginal}
         initialRecipe={editingRecipe}
         // Offered whenever an original was preserved — including after a bulk
         // tone match, which leaves no recipe but still has something to undo.

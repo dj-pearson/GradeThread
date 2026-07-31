@@ -415,6 +415,7 @@ app.use("/api/flipdesk/ebay/listings/*", authMiddleware);
 app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
 app.use("/api/flipdesk/ebay/comps", authMiddleware);
 app.use("/api/flipdesk/ebay/aspect-coverage", authMiddleware);
+app.use("/api/flipdesk/ebay/aspects/*", authMiddleware);
 app.use("/api/flipdesk/ebay/policies", authMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", authMiddleware);
 // US-1623: these eBay sub-paths were missing from the per-path whitelist, so
