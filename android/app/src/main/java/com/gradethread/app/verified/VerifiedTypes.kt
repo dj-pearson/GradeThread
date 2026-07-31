@@ -1,0 +1,178 @@
+package com.gradethread.app.verified
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * US-1375 (iOS `VerifiedTypes`): GradeThread Verified — the seller badge.
+ *
+ * `GET /api/verified/profile` returns `{ profile, stats }`. Snake_case on the
+ * wire, named explicitly here.
+ */
+@Serializable
+data class VerifiedProfile(
+    val handle: String? = null,
+    @SerialName("display_name") val displayName: String? = null,
+    val bio: String? = null,
+    /** The public profile page is switched on. */
+    val enabled: Boolean = false,
+    @SerialName("verified_since") val verifiedSince: String? = null,
+    /** Storefront opt-in: the public page lists the seller's active listings. */
+    @SerialName("show_listings") val showListings: Boolean = false,
+    /** The trust block is embedded in the seller's own eBay listings. */
+    @SerialName("embed_in_listings") val embedInListings: Boolean = false,
+)
+
+@Serializable
+data class VerifiedStats(
+    @SerialName("total_graded") val totalGraded: Int = 0,
+    @SerialName("average_grade") val averageGrade: Double = 0.0,
+)
+
+@Serializable
+data class VerifiedProfileResponse(
+    val profile: VerifiedProfile = VerifiedProfile(),
+    val stats: VerifiedStats = VerifiedStats(),
+)
+
+/**
+ * Where the seller stands.
+ *
+ * Derived from the profile itself rather than read from a column, because there
+ * ISN'T one — the badge is gated by `loadSellerCredentialBlock`, which needs a
+ * handle plus the public toggle. Naming the same three conditions here keeps
+ * this screen honest about what actually turns the badge on.
+ */
+enum class VerifiedStatus(val label: String, val detail: String) {
+    LOCKED(
+        "Not set up",
+        "Claim a handle and turn your profile on to get a verified badge.",
+    ),
+    HANDLE_NEEDED(
+        "Needs a handle",
+        "Your profile is switched on, but it has no address until you claim a handle.",
+    ),
+    HIDDEN(
+        "Ready, but hidden",
+        "You've claimed a handle. Turn your public profile on and the badge goes live.",
+    ),
+    LIVE(
+        "Live",
+        "Buyers can see your verified profile and your grading record.",
+    ),
+}
+
+/** One thing standing between the seller and a working badge. */
+data class VerifiedRequirement(
+    val title: String,
+    val detail: String,
+    val met: Boolean,
+)
+
+object VerifiedBadge {
+
+    /** Where the public profile lives once a handle is claimed. */
+    const val PROFILE_BASE = "https://gradethread.com/verified/"
+
+    /**
+     * A badge with no grades behind it says nothing.
+     *
+     * One is the bar, not a round number: the badge's whole content is the
+     * seller's grading record, and an empty record makes it decoration.
+     */
+    const val MIN_GRADES = 1
+
+    fun status(profile: VerifiedProfile): VerifiedStatus {
+        val hasHandle = !profile.handle.isNullOrBlank()
+        return when {
+            profile.enabled && hasHandle -> VerifiedStatus.LIVE
+            profile.enabled -> VerifiedStatus.HANDLE_NEEDED
+            hasHandle -> VerifiedStatus.HIDDEN
+            else -> VerifiedStatus.LOCKED
+        }
+    }
+
+    /**
+     * The checklist, in the order someone would actually do it.
+     *
+     * "Show in listings" is included but is NOT part of [status]: it controls
+     * the trust block inside eBay listings, not whether the badge exists.
+     * Folding it in would tell a seller with a perfectly live badge that they
+     * aren't verified.
+     */
+    fun requirements(profile: VerifiedProfile, stats: VerifiedStats): List<VerifiedRequirement> =
+        listOf(
+            VerifiedRequirement(
+                title = "Claim your handle",
+                detail = profile.handle?.takeIf { it.isNotBlank() }
+                    ?.let { "You're @$it." }
+                    ?: "This becomes your public address.",
+                met = !profile.handle.isNullOrBlank(),
+            ),
+            VerifiedRequirement(
+                title = "Get an item certified",
+                detail = if (stats.totalGraded >= MIN_GRADES) {
+                    "${stats.totalGraded} certified so far."
+                } else {
+                    "Your badge shows your grading record, so it needs at least one."
+                },
+                met = stats.totalGraded >= MIN_GRADES,
+            ),
+            VerifiedRequirement(
+                title = "Turn your public profile on",
+                detail = if (profile.enabled) {
+                    "Your profile is visible to buyers."
+                } else {
+                    "Nothing is public until you switch this on."
+                },
+                met = profile.enabled,
+            ),
+            VerifiedRequirement(
+                title = "Show the badge on your listings",
+                detail = if (profile.embedInListings) {
+                    "Your eBay listings carry your grading record."
+                } else {
+                    "Optional. Adds your record to the listings you publish."
+                },
+                met = profile.embedInListings,
+            ),
+        )
+
+    /** How far along, 0..1, over the requirements that actually gate the badge. */
+    fun progress(requirements: List<VerifiedRequirement>): Float {
+        val gating = requirements.dropLast(1)
+        if (gating.isEmpty()) return 0f
+        return gating.count { it.met }.toFloat() / gating.size
+    }
+
+    /**
+     * The single next thing to do, or null when the badge is live.
+     *
+     * One at a time: a list of four things nobody has started is a wall, and
+     * the first step is the only one that matters today.
+     */
+    fun nextStep(requirements: List<VerifiedRequirement>): VerifiedRequirement? =
+        requirements.dropLast(1).firstOrNull { !it.met }
+
+    fun profileUrl(profile: VerifiedProfile): String? =
+        profile.handle?.trim()?.takeIf { it.isNotEmpty() }?.let { PROFILE_BASE + it }
+
+    /** "Verified since 2026-03-04" from the raw ISO timestamp, or null. */
+    fun sinceLabel(profile: VerifiedProfile): String? {
+        val raw = profile.verifiedSince?.takeIf { it.isNotBlank() } ?: return null
+        // Kept as text and cut at the date: the edge sends fractional seconds,
+        // and this is display-only — parsing it just to reformat it would add a
+        // failure mode for no gain.
+        return "Verified since " + raw.take(10)
+    }
+
+    /** The grading record the badge actually shows a buyer. */
+    fun credentials(stats: VerifiedStats): String? {
+        if (stats.totalGraded < MIN_GRADES) return null
+        val items = if (stats.totalGraded == 1) "item" else "items"
+        // Locale-fixed: a grade is a score on a 1-10 scale, not a quantity to
+        // localize, and "8,4" would read as a different number entirely.
+        val average = String.format(java.util.Locale.US, "%.1f", stats.averageGrade)
+        return "${stats.totalGraded} certified $items · ${average} average grade"
+    }
+}

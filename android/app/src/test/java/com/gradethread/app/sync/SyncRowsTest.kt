@@ -69,13 +69,39 @@ class SyncRowsTest {
     }
 
     @Test
-    fun listingOriginIsNeverGuessed() {
-        // Provenance is owned by the eBay sync path. Inventing one here would
-        // corrupt the source-of-truth model.
-        val row = SyncRows.decodeListingRow(
+    fun listingOriginIsReadNotGuessed() {
+        // Provenance decides which side owns price and quantity, so it is read
+        // straight from the server column — never inferred, never invented.
+        val absent = SyncRows.decodeListingRow(
             obj("""{"id":"L1","inventory_item_id":"I1","platform":"ebay"}"""),
         )!!
-        assertNull(row.listingOrigin)
+        assertNull(absent.listingOrigin)
+
+        val present = SyncRows.decodeListingRow(
+            obj(
+                """{"id":"L1","inventory_item_id":"I1","platform":"ebay",
+                "listing_origin":"ebay"}""",
+            ),
+        )!!
+        assertEquals("ebay", present.listingOrigin)
+    }
+
+    @Test
+    fun listingDecodesTheEbayOwnedColumns() {
+        // US-1351: these four were dropped by the decoder, so every pulled
+        // listing looked eBay-native, quantity-less and error-free.
+        val row = SyncRows.decodeListingRow(
+            obj(
+                """{"id":"L1","inventory_item_id":"I1","platform":"ebay",
+                "platform_offer_id":"OF1","quantity":0,"listing_origin":"gradethread",
+                "publish_error":"eBay rejected the revise"}""",
+            ),
+        )!!
+        assertEquals("OF1", row.platformOfferId)
+        // 0 is out of stock, a real value — it must not decode as null.
+        assertEquals(0, row.quantity)
+        assertEquals("gradethread", row.listingOrigin)
+        assertEquals("eBay rejected the revise", row.publishError)
     }
 
     @Test

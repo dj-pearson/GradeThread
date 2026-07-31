@@ -2,4 +2,1131 @@
 <resources>
     <string name="app_name">GradeThread</string>
     <string name="placeholder_tagline">Android shell — features land per the US-1299 conversion backlog.</string>
+    <!-- US-1380: shown in the system widget picker. -->
+    <string name="widget_snapshot_label">Seller snapshot</string>
+    <string name="widget_snapshot_description">Sold today, pending payout, and your live listing count.</string>
+    <!-- US-1381: long-press shortcuts. Short labels are what the launcher
+         shows, and it truncates hard - keep them to about 10 characters. -->
+    <string name="shortcut_snap_short">Snap</string>
+    <string name="shortcut_snap_long">Snap to Value</string>
+    <string name="shortcut_add_short">Add item</string>
+    <string name="shortcut_add_long">Add an item</string>
+    <!-- US-1382: what the system share sheet calls us. -->
+    <string name="share_target_label">Add to GradeThread</string>
+
+    <!-- ══ US-1393: externalized UI strings ═════════════════════════════════
+         Scoped, not a big-bang conversion. android/scripts/no-bare-strings.py
+         enforces this for the directories listed in its SCOPE, and that list
+         grows as screens are converted. A guard that covered everything today
+         would either fail on ~90 files or be turned off, and a turned-off
+         guard protects nothing. -->
+
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_send">Send</string>
+    <string name="common_sending">Sending\u2026</string>
+    <string name="common_back">Back</string>
+    <string name="common_done">Done</string>
+    <string name="common_try_again">Try again</string>
+    <string name="common_ok">OK</string>
+
+    <!-- Onboarding (US-1384) -->
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_get_started">Get started</string>
+    <string name="onboarding_continue">Continue</string>
+    <string name="onboarding_start_selling">Start selling</string>
+    <string name="onboarding_skip">Skip for now</string>
+    <string name="onboarding_use_case_title">What brings you here?</string>
+    <string name="onboarding_use_case_subtitle">We\'ll start you on the right thing. You can do all of it either way.</string>
+    <string name="onboarding_activation_title">Two quick things</string>
+    <string name="onboarding_activation_subtitle">You can do both of these later from Settings.</string>
+    <string name="onboarding_activation_done">Done.</string>
+    <string name="onboarding_permission_blocked">Turn this on in your phone\'s settings.</string>
+
+    <!-- Referrals (US-1385) -->
+    <string name="referrals_title">Invite a friend</string>
+    <string name="referrals_your_code">Your code</string>
+    <string name="referrals_share_link">Share link</string>
+    <string name="referrals_copy_code">Copy code</string>
+    <string name="referrals_copy_link">Copy link</string>
+    <string name="referrals_code_copied">Referral code copied</string>
+    <string name="referrals_link_copied">Referral link copied</string>
+    <string name="referrals_not_ready">Your referral link isn\'t ready yet. Check back after your first grade.</string>
+    <string name="referrals_load_failed">Couldn\'t load your referral code.</string>
+    <string name="referrals_stat_referred">Referred</string>
+    <string name="referrals_stat_in_progress">In progress</string>
+    <string name="referrals_stat_rewarded">Rewarded</string>
+    <string name="referrals_redeem_title">Got a code?</string>
+    <string name="referrals_redeem_hint">One code, once \u2014 it\'s applied when you first sign up with a friend\'s link.</string>
+    <string name="referrals_redeem_label">Referral code</string>
+    <string name="referrals_redeem_apply">Apply code</string>
+    <string name="referrals_redeem_applying">Applying\u2026</string>
+    <string name="referrals_redeem_applied">Code applied.</string>
+    <string name="referrals_code_spoken">Your referral code is %1$s</string>
+
+    <!-- Support (US-1386) -->
+    <string name="support_title">Support</string>
+    <string name="support_new_request">New request</string>
+    <string name="support_compose_title">Open a request</string>
+    <string name="support_subject">Subject</string>
+    <string name="support_body_label">What\'s happening?</string>
+    <string name="support_load_failed">Couldn\'t load your requests.</string>
+    <string name="support_fallback_subject">Support request</string>
+    <string name="support_reply_label">Reply</string>
+    <string name="support_send_reply">Send reply</string>
+    <string name="support_detail_load_failed">Couldn\'t load that request.</string>
+    <string name="support_author_you">You</string>
+    <string name="support_author_support">Support</string>
+    <string name="support_said_you">You said: %1$s</string>
+    <string name="support_said_support">Support said: %1$s</string>
+
+    <!-- Feedback (US-1387) -->
+    <string name="feedback_title">Send feedback</string>
+    <string name="feedback_context">Goes straight to the team with your app version, Android version and device model for context.</string>
+    <string name="feedback_open_support">Open a support request</string>
+    <string name="feedback_sent_announcement">Feedback sent</string>
+    <string name="feedback_chip_state">%1$s, %2$s</string>
+    <string name="feedback_chip_selected">selected</string>
+    <string name="feedback_chip_unselected">not selected</string>
+
+    <!-- Workspace switcher (US-1388) -->
+    <string name="workspace_switch">Switch</string>
+    <string name="workspace_switching">Switching\u2026</string>
+    <string name="workspace_picker_title">Switch workspace</string>
+    <string name="workspace_picker_warning">This reloads your inventory, sales and listings for the workspace you pick.</string>
+    <string name="workspace_personal_subtitle">Your own inventory and sales</string>
+    <string name="workspace_shared_subtitle">Shared workspace</string>
+    <string name="workspace_access_changed">Workspace access changed</string>
+    <string name="workspace_spoken">Workspace: %1$s</string>
+    <string name="workspace_spoken_tappable">Workspace: %1$s. Tap to switch.</string>
+    <string name="workspace_row_current">%1$s, current workspace</string>
+
+    <!-- Import (US-1389) -->
+    <string name="import_title">Import from a spreadsheet</string>
+    <string name="import_intro">Export your inventory from Sheets or Excel as CSV, then pick the file. You\'ll choose which column is which before anything is imported.</string>
+    <string name="import_choose_file">Choose a file</string>
+    <string name="import_preview">Preview</string>
+    <string name="import_unnamed_column">(unnamed column)</string>
+    <string name="import_another">Import another</string>
+    <string name="import_commit">Import %1$d</string>
+    <string name="import_row_skipped">Row %1$d skipped \u2014 %2$s</string>
+    <string name="import_row_failed">Row %1$d: %2$s</string>
+    <string name="import_row_preview">Row %1$d: %2$s</string>
+
+    <!-- Auth (US-2369) -->
+    <string name="auth_sign_in">Sign in</string>
+    <string name="auth_create_account">Create account</string>
+    <string name="auth_subtitle">Grade, list and track your resale inventory.</string>
+    <string name="auth_name">Your name</string>
+    <string name="auth_email">Email</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_show">Show</string>
+    <string name="auth_hide">Hide</string>
+    <string name="auth_working">Working\u2026</string>
+    <string name="auth_resend_confirmation">Resend the confirmation email</string>
+    <string name="auth_reset_password">Reset my password</string>
+    <string name="auth_need_account">Need an account? Sign up</string>
+    <string name="auth_have_account">Already have an account? Sign in</string>
+
+    <!-- Settings (US-1383/1393) -->
+    <string name="settings_language">Language</string>
+    <string name="settings_language_system">Match my phone</string>
+
+    <!-- ══ Plurals ══════════════════════════════════════════════════════════
+         Kotlin string templates cannot pluralize: "1 rows" is what a `"$n
+         rows"` produces, and every language past English has more than two
+         forms. These are the counts the UI actually renders. -->
+    <plurals name="rows_found">
+        <item quantity="one">%1$d row found. Check the columns below.</item>
+        <item quantity="other">%1$d rows found. Check the columns below.</item>
+    </plurals>
+    <plurals name="photo_count">
+        <item quantity="one">%1$d photo</item>
+        <item quantity="other">%1$d photos</item>
+    </plurals>
+    <plurals name="sale_count">
+        <item quantity="one">%1$d sale</item>
+        <item quantity="other">%1$d sales</item>
+    </plurals>
+    <plurals name="grade_count">
+        <item quantity="one">%1$d grade</item>
+        <item quantity="other">%1$d grades</item>
+    </plurals>
+    <plurals name="item_count">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
+
+    <!-- US-2368: batch-externalized UI text. -->
+    <string name="analytics_analytics">Analytics</string>
+    <string name="analytics_apply">Apply</string>
+    <string name="analytics_back">Back</string>
+    <string name="analytics_cancel">Cancel</string>
+    <string name="analytics_community_benchmarks">Community benchmarks</string>
+    <string name="analytics_custom_range">Custom range</string>
+    <string name="analytics_how_many_days_back">How many days back?</string>
+    <string name="analytics_listing_performance">Listing performance</string>
+    <string name="analytics_what_this_means">What this means</string>
+    <string name="home_add_item">Add item</string>
+    <string name="home_certified_grades">Certified grades</string>
+    <string name="home_dismiss">Dismiss</string>
+    <string name="home_inventory_value">Inventory value</string>
+    <string name="home_listed">Listed</string>
+    <string name="home_net_profit_7_days">Net profit (7 days)</string>
+    <string name="home_nothing_here_yet">Nothing here yet</string>
+    <string name="home_quick_actions">Quick actions</string>
+    <string name="home_sitting_too_long">Sitting too long</string>
+    <string name="home_snap_to_value">Snap to Value</string>
+    <string name="home_sold_7_days">Sold (7 days)</string>
+    <string name="money_add">Add</string>
+    <string name="money_all_sales">All sales</string>
+    <string name="money_dismiss">Dismiss</string>
+    <string name="money_money">Money</string>
+    <string name="money_net_profit_mo">Net profit (mo)</string>
+    <string name="money_nothing_to_report_yet">Nothing to report yet</string>
+    <string name="money_payouts">Payouts</string>
+    <string name="money_remove">Remove</string>
+    <string name="money_revenue_mo">Revenue (mo)</string>
+    <string name="money_roi_mo">ROI (mo)</string>
+    <string name="settings_cancel">Cancel</string>
+    <string name="settings_continue">Continue</string>
+    <string name="settings_delete_account">Delete account</string>
+    <string name="settings_delete_your_account">Delete your account?</string>
+    <string name="settings_ok">OK</string>
+    <string name="settings_sign_out">Sign out</string>
+    <string name="settings_sign_out_2">Sign out?</string>
+    <string name="snap_brand_optional_unlocks_value">Brand (optional — unlocks value)</string>
+    <string name="snap_get_a_certified_grade">Get a certified grade</string>
+    <string name="snap_get_certified_grade">Get certified grade</string>
+    <string name="snap_item_e_g_better_sweater_optional">Item, e.g. Better Sweater (optional)</string>
+    <string name="snap_library">Library</string>
+    <string name="snap_list_it">List it</string>
+    <string name="snap_open_settings">Open Settings</string>
+    <string name="snap_take_photo">Take photo</string>
+    <string name="snap_the_garment_you_re_grading">The garment you\'re grading</string>
+    <string name="snap_try_again">Try again</string>
+
+    <!-- US-2368: spoken labels. A tile is three separate Texts on screen but one
+         idea to a screen reader, so it is read as a single sentence. Word order
+         differs between languages, which is exactly why these are positional. -->
+    <string name="home_tile_spoken">%1$s: %2$s, %3$s</string>
+    <string name="money_tile_spoken">%1$s: %2$s</string>
+    <string name="settings_toggle_spoken">%1$s, %2$s</string>
+    <string name="settings_toggle_on">on</string>
+    <string name="settings_toggle_off">off</string>
+    <!-- The bullet glyph is part of the resource so a locale that uses a
+         different list marker can change it without touching Kotlin. -->
+    <string name="analytics_bullet">• %1$s</string>
+    <string name="analytics_next">Next</string>
+
+    <!-- Shared across screens. -->
+    <string name="common_refresh">Refresh</string>
+    <string name="common_refreshing">Refreshing…</string>
+
+    <!-- Home. -->
+    <string name="home_today">Today</string>
+    <string name="home_refresh">Refresh</string>
+    <string name="home_refreshing">Refreshing…</string>
+    <string name="home_last_14_days">Last 14 days</string>
+    <string name="home_get_set_up">Get set up</string>
+    <string name="home_progress_of">%1$d of %2$d</string>
+    <string name="home_active_listings">active listings</string>
+    <string name="home_after_fees">after fees &amp; cost</string>
+    <string name="home_empty_body">Add your first item and your inventory value, sales and profit will appear here.</string>
+    <string name="home_trend_spoken">Revenue trend over the last 14 days, total %1$s</string>
+    <string name="home_step_done_spoken">%1$s, done</string>
+    <plurals name="home_on_hand">
+        <item quantity="one">%1$d on hand</item>
+        <item quantity="other">%1$d on hand</item>
+    </plurals>
+    <plurals name="home_aging_body">
+        <item quantity="one">%1$d item on hand hasn\'t moved in %2$d days. Reprice or relist it.</item>
+        <item quantity="other">%1$d items on hand haven\'t moved in %2$d days. Reprice or relist them.</item>
+    </plurals>
+
+    <!-- Money. -->
+    <string name="money_expenses">Expenses</string>
+    <string name="money_expenses_this_month">Operating expenses this month: %1$s. Net profit is before expenses.</string>
+    <string name="money_revenue_title">Revenue, last 6 months</string>
+    <string name="money_revenue_spoken">Revenue by month: %1$s</string>
+    <string name="money_revenue_spoken_item">%1$s %2$s</string>
+    <string name="money_cash_flow_title">Cash flow — in vs out</string>
+    <string name="money_cash_flow_spoken">Cash flow by month: %1$s</string>
+    <string name="money_cash_flow_spoken_item">%1$s net %2$s</string>
+    <string name="money_this_month_summary">This month: in %1$s, out %2$s, net %3$s</string>
+    <string name="money_aging_title">Inventory aging — capital tied up</string>
+    <string name="money_aging_spoken">Inventory aging: %1$s</string>
+    <string name="money_aging_spoken_item">%1$s, %2$d items, %3$s</string>
+    <plurals name="money_aging_oldest">
+        <item quantity="one">%1$d item held 60+ days (%2$s of cost basis).</item>
+        <item quantity="other">%1$d items held 60+ days (%2$s of cost basis).</item>
+    </plurals>
+    <string name="money_time_on_market_title">Time on market</string>
+    <string name="money_time_on_market_summary">Average %1$d days to sell across %2$d sales.</string>
+    <string name="money_days_to_sell_spoken">Days to sell: %1$s</string>
+    <string name="money_days_to_sell_spoken_item">%1$s, %2$d</string>
+    <string name="money_roi_by_source">ROI by source</string>
+    <string name="money_profit_by_item">Profit by item</string>
+    <string name="money_no_completed_sales">No completed sales yet — refunded and cancelled orders don\'t count here.</string>
+    <string name="money_expenses_empty">Record supplies, shipping and software so your P&amp;L reflects what you actually spend.</string>
+    <string name="money_empty_body">Once you catalog items and record sales, your revenue, profit, cash flow and inventory aging appear here — computed on your device, so it works offline.</string>
+    <string name="money_source_row_detail">%1$d/%2$d sold · spend %3$s</string>
+    <string name="money_sale_row_detail">%1$s · sold %2$s · cost %3$s</string>
+
+    <!-- Settings. -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_signed_in">Signed in</string>
+    <string name="settings_section_account">Account</string>
+    <string name="settings_section_plan">Plan &amp; credits</string>
+    <string name="settings_section_connections">Connections</string>
+    <string name="settings_section_preferences">Preferences</string>
+    <string name="settings_section_security">Security</string>
+    <string name="settings_section_help">Help</string>
+    <string name="settings_section_diagnostics">Diagnostics</string>
+    <string name="settings_section_danger">Account actions</string>
+    <string name="settings_plan">Plan</string>
+    <string name="settings_plan_loading">Loading your plan…</string>
+    <string name="settings_plan_unavailable">Plan details aren\'t available offline. Pull down to retry when you\'re online.</string>
+    <string name="settings_grading_credits">Grading credits</string>
+    <string name="settings_credits_subtitle">%1$d available · %2$d used this month</string>
+    <string name="settings_ebay">eBay</string>
+    <string name="settings_ebay_subtitle">Connect or manage your linked accounts</string>
+    <string name="settings_show_cost">Show cost and profit on rows</string>
+    <string name="settings_show_cost_subtitle">Off by default — sourcing happens in public.</string>
+    <string name="settings_confirm_bulk">Confirm bulk actions</string>
+    <string name="settings_confirm_bulk_subtitle">Ask before changing several items at once.</string>
+    <string name="settings_haptics">Haptic feedback</string>
+    <string name="settings_haptics_subtitle">Vibrate on section changes and key actions.</string>
+    <string name="settings_background_refresh">Background refresh</string>
+    <string name="settings_background_refresh_subtitle">Check for sales and finished grades about every 30 minutes.</string>
+    <string name="settings_analytics">Share usage analytics</string>
+    <string name="settings_analytics_subtitle">Product analytics only. Crash reports are always sent.</string>
+    <string name="settings_change_password">Change password</string>
+    <string name="settings_change_password_subtitle">We\'ll email you a link to set a new one.</string>
+    <string name="settings_support">Support requests</string>
+    <string name="settings_support_subtitle">Open a request and read our replies</string>
+    <string name="settings_feedback">Send feedback</string>
+    <string name="settings_feedback_subtitle">Tell us what worked, what didn\'t, what you wish existed</string>
+    <string name="settings_app_version">App version</string>
+    <string name="settings_app_version_value">%1$s (%2$d)</string>
+    <string name="settings_edge_endpoint">Edge endpoint</string>
+    <string name="settings_sign_out_body">This clears the copy of your inventory, sales and queued changes stored on this device. Anything that hasn\'t synced yet will be lost.</string>
+    <string name="settings_delete_account_body">This removes your account, your inventory and your grade history permanently. It can\'t be undone.</string>
+
+    <!-- Snap. -->
+    <string name="snap_intro">Snap a photo of any garment for an instant AI condition grade and a resale value range.</string>
+    <string name="snap_camera_denied">Camera access is off. Turn it on in Settings to take a photo — or choose one from your library instead.</string>
+    <string name="snap_photo_placeholder">Take or choose a photo</string>
+    <string name="snap_reading">Reading the photo…</string>
+    <string name="snap_whats_it_worth">What\'s it worth?</string>
+
+    <!-- Analytics. -->
+    <string name="analytics_empty_title">Nothing to analyse yet</string>
+    <string name="analytics_empty_body">Add items and record a few sales, and this fills in by itself.</string>
+    <string name="analytics_grade_distribution">Grade distribution</string>
+    <string name="analytics_graded_average">%1$d graded · average %2$s</string>
+    <string name="analytics_grade_distribution_spoken">Graded items by tier: %1$s</string>
+    <!-- Reused wherever a chart is read out as "<label> <value>" pairs. -->
+    <string name="analytics_pair_spoken_item">%1$s %2$s</string>
+    <string name="analytics_top_brands">Top brands by profit</string>
+    <string name="analytics_over_range">Over %1$s</string>
+    <string name="analytics_top_brands_spoken">Top brands by net profit: %1$s</string>
+    <string name="analytics_sell_through_title">Sell-through by brand</string>
+    <string name="analytics_sell_through_basis">Of the items that reached the market</string>
+    <string name="analytics_sell_through_spoken">Sell-through by brand: %1$s</string>
+    <string name="analytics_sell_through_spoken_item">%1$s %2$d of %3$d</string>
+    <string name="analytics_ratio">%1$d/%2$d</string>
+    <string name="analytics_inventory_value">Inventory value by status</string>
+    <string name="analytics_on_hand_total">%1$s on hand</string>
+    <string name="analytics_inventory_value_spoken">On-hand inventory value by status: %1$s</string>
+    <string name="analytics_custom">Custom</string>
+    <string name="analytics_no_summary">No summary</string>
+    <string name="analytics_summary_cost">Get a plain-language read on these numbers. Uses one AI action.</string>
+    <string name="analytics_writing">Writing…</string>
+    <string name="analytics_write_again">Write it again</string>
+    <string name="analytics_summarise">Summarise</string>
+    <string name="analytics_profit_on_revenue">%1$s profit on %2$s revenue</string>
+    <string name="analytics_units_fees_cogs">%1$d sold · %2$s fees · %3$s cost of goods</string>
+    <string name="analytics_sell_through">Sell-through %1$s</string>
+    <string name="analytics_roi_title">Does grading pay?</string>
+    <string name="analytics_roi_subtitle">Graded versus ungraded, by sale price</string>
+    <string name="analytics_roi_not_enough">Not enough sales yet to compare (%1$d graded, %2$d not).</string>
+    <!-- Two sentences, not one with a swapped verb: word order differs. -->
+    <string name="analytics_roi_more">Graded items netted %1$s more on average (%2$d vs %3$d).</string>
+    <string name="analytics_roi_less">Graded items netted %1$s less on average (%2$d vs %3$d).</string>
+
+    <!-- US-2368: automations screen text. -->
+    <string name="automations_automations">Automations</string>
+    <string name="automations_rules_server_applies_its_own">Rules the server applies on its own — no need to keep the app open.</string>
+    <string name="automations_that_didn_t_work">That didn\'t work</string>
+    <string name="automations_worth_knowing">Worth knowing</string>
+    <string name="automations_new_rule">New rule</string>
+    <string name="automations_run_all_rules_now">Run all rules now</string>
+    <string name="automations_what_this_rule_would_do">What this rule would do</string>
+    <string name="automations_close">Close</string>
+    <string name="automations_changes_already_made_stay_as">Changes it already made stay as they are.</string>
+    <string name="automations_delete">Delete</string>
+    <string name="automations_cancel">Cancel</string>
+    <string name="automations_preview">Preview</string>
+    <string name="automations_edit">Edit</string>
+    <string name="automations_name">Name</string>
+    <string name="automations_when">When</string>
+    <string name="automations_trigger">Trigger</string>
+    <string name="automations_then">Then</string>
+    <string name="automations_action">Action</string>
+    <string name="automations_which_listings">To which listings</string>
+    <string name="automations_add_filter">Add a filter</string>
+    <string name="automations_active">Active</string>
+    <string name="automations_save">Save</string>
+    <string name="automations_field">Field</string>
+    <string name="automations_text">Is</string>
+    <string name="automations_value">Value</string>
+    <string name="automations_remove_this_filter">Remove this filter</string>
+    <string name="automations_loading">Loading\u2026</string>
+    <string name="automations_no_rules_yet">No rules yet. A rule watches for something \u2014 a listing sitting 30 days, say \u2014 and then acts on it.</string>
+    <string name="automations_match_row">%1$s \u2014 %2$s</string>
+    <string name="automations_and_more">\u2026and %1$d more.</string>
+    <string name="automations_delete_rule">Delete \"%1$s\"?</string>
+    <string name="automations_edit_rule">Edit rule</string>
+    <string name="automations_field_days">Days</string>
+    <string name="automations_field_watchers">Fewer than this many watchers</string>
+    <string name="automations_field_cooldown">Wait this many days before repeating</string>
+    <string name="automations_field_percent">Percent</string>
+    <string name="automations_field_margin_floor">Never cut below this margin %</string>
+    <string name="automations_scope_all">All active</string>
+    <string name="automations_scope_filter">Filtered</string>
+    <string name="automations_scope_widened">Those filters have no values yet, so this would apply to every active listing.</string>
+    <plurals name="automations_cooldown">
+        <item quantity="one">Waits %1$d day before touching the same listing again.</item>
+        <item quantity="other">Waits %1$d days before touching the same listing again.</item>
+    </plurals>
+
+    <!-- US-2368: drafts screen text. -->
+    <string name="drafts_draft_listings">Draft listings</string>
+    <string name="drafts_that_didn_t_work">That didn\'t work</string>
+    <string name="drafts_done">Done</string>
+    <string name="drafts_back">Back</string>
+    <string name="drafts_resume">Resume</string>
+    <string name="drafts_estimated">   estimated</string>
+    <string name="drafts_edit">Edit</string>
+    <string name="drafts_unschedule">Unschedule</string>
+    <string name="drafts_delete">Delete</string>
+    <string name="drafts_edit_draft">Edit draft</string>
+    <string name="drafts_title">Title</string>
+    <string name="drafts_description">Description</string>
+    <string name="drafts_price">Price</string>
+    <string name="drafts_save">Save</string>
+    <string name="drafts_cancel">Cancel</string>
+    <string name="drafts_new_price">New price</string>
+    <string name="drafts_change_by_use_10_cut">Change by (use -10 to cut)</string>
+    <string name="drafts_text">%</string>
+    <string name="drafts_title_all_them">Title for all of them</string>
+    <string name="drafts_apply">Apply</string>
+    <string name="drafts_schedule_this_drop">Schedule this drop</string>
+    <string name="drafts_date_yyyy_mm_dd">Date (YYYY-MM-DD)</string>
+    <string name="drafts_time_hh_mm">Time (HH:MM)</string>
+    <string name="drafts_that_date_doesn_t_parse">That date doesn\'t parse. Use YYYY-MM-DD.</string>
+    <string name="drafts_that_time_doesn_t_parse">That time doesn\'t parse. Use HH:MM on a 24-hour clock.</string>
+    <string name="drafts_schedule">Schedule</string>
+    <string name="drafts_loading">Loading\u2026</string>
+    <string name="drafts_empty">No drafts yet. Generate them from items in your inventory, and they land here for review before anything is published.</string>
+    <string name="drafts_selected_of">%1$d of %2$d selected</string>
+    <string name="drafts_clear_all">Clear all</string>
+    <string name="drafts_select_all">Select all</string>
+    <string name="drafts_edit_together">Edit %1$d together</string>
+    <string name="drafts_retry_failed">Retry the %1$d that failed</string>
+    <string name="drafts_reschedule">Reschedule</string>
+    <string name="drafts_bulk_title">Edit %1$d drafts</string>
+    <string name="drafts_mode_set">Set price</string>
+    <string name="drafts_mode_percent">Adjust %</string>
+    <string name="drafts_mode_round99">End in .99</string>
+    <string name="drafts_mode_title">Title</string>
+    <string name="drafts_timezone_note">Times are your own \u2014 %1$s. The server publishes it; your phone doesn\'t need to be on.</string>
+    <string name="drafts_bullet_prefix">\u2022 </string>
+    <!-- The currency symbol sits in resources for the same reason the copy does:
+         it is not $ everywhere, and it is not always a prefix. -->
+    <string name="drafts_currency_prefix">$</string>
+
+    <!-- US-2368: negotiation screen text. -->
+    <string name="negotiation_offers_messages">Offers &amp; messages</string>
+    <string name="negotiation_showing_one_listing_only">Showing one listing only.</string>
+    <string name="negotiation_show_all">Show all</string>
+    <string name="negotiation_that_didn_t_work">That didn\'t work</string>
+    <string name="negotiation_done">Done</string>
+    <string name="negotiation_offers">Offers</string>
+    <string name="negotiation_messages">Messages</string>
+    <string name="negotiation_send_offer_interested_buyers">Send an offer to interested buyers</string>
+    <string name="negotiation_back">Back</string>
+    <string name="negotiation_couldn_t_load_offers">Couldn\'t load offers</string>
+    <string name="negotiation_accept">Accept</string>
+    <string name="negotiation_counter">Counter</string>
+    <string name="negotiation_decline">Decline</string>
+    <string name="negotiation_couldn_t_load_messages">Couldn\'t load messages</string>
+    <string name="negotiation_reply">Reply</string>
+    <string name="negotiation_counter_this_offer">Counter this offer</string>
+    <string name="negotiation_counter_price">Counter price</string>
+    <string name="negotiation_this_counter_below_what_item">This counter is below what the item cost you.</string>
+    <string name="negotiation_note_buyer_optional">Note to the buyer (optional)</string>
+    <string name="negotiation_send_counter">Send counter</string>
+    <string name="negotiation_cancel">Cancel</string>
+    <string name="negotiation_reply_2">Your reply</string>
+    <string name="negotiation_send">Send</string>
+    <string name="negotiation_checking_which_listings_are_eligible">Checking which listings are eligible…</string>
+    <string name="negotiation_no_listings_are_eligible_offer">No listings are eligible for an offer right now.</string>
+    <string name="negotiation_note_buyers_optional">Note to buyers (optional)</string>
+    <string name="negotiation_send_offers">Send offers</string>
+    <string name="negotiation_close">Close</string>
+    <string name="negotiation_loading_offers">Loading offers\u2026</string>
+    <string name="negotiation_loading_messages">Loading messages\u2026</string>
+    <string name="negotiation_no_open_offers">No open offers right now.</string>
+    <string name="negotiation_no_messages">No buyer messages in the last 30 days.</string>
+    <string name="negotiation_replied">Replied</string>
+    <string name="negotiation_listing_fallback">Listing %1$s</string>
+    <!-- Quotation marks are not the same glyphs in every language. -->
+    <string name="negotiation_quoted">\u201c%1$s\u201d</string>
+    <string name="negotiation_no_cost_basis">No cost basis on this item, so there\'s no margin to show.</string>
+    <string name="negotiation_you_keep">You keep %1$s (%2$d%% after fees)</string>
+    <string name="negotiation_a_buyer">a buyer</string>
+    <string name="negotiation_message_from">Message from %1$s</string>
+    <string name="negotiation_reply_to">Reply to %1$s</string>
+    <string name="negotiation_send_blocked">Sending offers isn\'t available on this eBay connection yet.</string>
+    <string name="negotiation_discount">Discount: %1$d%%</string>
+
+    <!-- US-2368: templates screen text. -->
+    <string name="templates_listing_templates">Listing templates</string>
+    <string name="templates_pick_one_publish_screen_fill">Pick one in the publish screen to fill in the parts you type every time.</string>
+    <string name="templates_that_didn_t_work">That didn\'t work</string>
+    <string name="templates_no_templates_yet">No templates yet</string>
+    <string name="templates_new_template">New template</string>
+    <string name="templates_back">Back</string>
+    <string name="templates_delete">Delete</string>
+    <string name="templates_keep">Keep</string>
+    <string name="templates_default">Default</string>
+    <string name="templates_edit">Edit</string>
+    <string name="templates_name">Name</string>
+    <string name="templates_description_block">Description block</string>
+    <string name="templates_added_under_listing_s_own">Added under the listing\'s own description.</string>
+    <string name="templates_ebay_condition">eBay condition</string>
+    <string name="templates_example_used_excellent_leave_blank">For example USED_EXCELLENT. Leave blank to not set one.</string>
+    <string name="templates_condition_notes">Condition notes</string>
+    <string name="templates_item_specifics">Item specifics</string>
+    <string name="templates_these_fill_blanks_only_anything">These fill blanks only. Anything you\'ve already set on a listing stays.</string>
+    <string name="templates_remove">Remove</string>
+    <string name="templates_aspect">Aspect</string>
+    <string name="templates_value">Value</string>
+    <string name="templates_add">Add</string>
+    <string name="templates_ebay_policies">eBay policies</string>
+    <string name="templates_category_id">Category id</string>
+    <string name="templates_shipping_policy_id">Shipping policy id</string>
+    <string name="templates_return_policy_id">Return policy id</string>
+    <string name="templates_payment_policy_id">Payment policy id</string>
+    <string name="templates_use_by_default">Use by default</string>
+    <string name="templates_pre_selected_when_publish_only">Pre-selected when you publish. Only one template can be the default.</string>
+    <string name="templates_cancel">Cancel</string>
+
+    <!-- US-2368: marketplaces screen text. -->
+    <string name="marketplaces_ebay_accounts">eBay accounts</string>
+    <string name="marketplaces_loading">Loading…</string>
+    <string name="marketplaces_finishing_connection">Finishing the connection…</string>
+    <string name="marketplaces_offers_messages">Offers &amp; messages</string>
+    <string name="marketplaces_bulk_pricing">Bulk pricing</string>
+    <string name="marketplaces_after_sale">After the sale</string>
+    <string name="marketplaces_repricing">Repricing</string>
+    <string name="marketplaces_draft_listings">Draft listings</string>
+    <string name="marketplaces_automations">Automations</string>
+    <string name="marketplaces_refresh">Refresh</string>
+    <string name="marketplaces_listings">Listings</string>
+    <string name="marketplaces_no_listings_cached_yet_sync">No listings cached yet. Sync to pull the ones live on eBay.</string>
+    <string name="marketplaces_rename_this_account">Rename this account</string>
+    <string name="marketplaces_label">Label</string>
+    <string name="marketplaces_save">Save</string>
+    <string name="marketplaces_cancel">Cancel</string>
+    <string name="marketplaces_disconnect">Disconnect</string>
+    <string name="marketplaces_primary">Primary</string>
+    <string name="marketplaces_needs_reconnecting_ebay_stopped_accepting">Needs reconnecting — eBay stopped accepting the saved sign-in.</string>
+    <string name="marketplaces_rename">Rename</string>
+    <string name="marketplaces_make_primary">Make primary</string>
+    <string name="marketplaces_dismiss">Dismiss</string>
+    <string name="templates_intro">Save the condition, the specifics and the boilerplate you reuse, then apply them with one tap when you list.</string>
+    <string name="templates_delete_title">Delete %1$s?</string>
+    <string name="templates_delete_body">Listings you\'ve already published keep everything this template filled in. Only the preset goes.</string>
+    <string name="templates_new">New template</string>
+    <string name="templates_edit_title">Edit template</string>
+    <string name="templates_saving">Saving\u2026</string>
+
+    <string name="marketplaces_empty">No eBay account connected yet. Connecting one lets FlipDesk publish listings and pull your sales.</string>
+    <string name="marketplaces_opening_ebay">Opening eBay\u2026</string>
+    <string name="marketplaces_connect_ebay">Connect an eBay account</string>
+    <string name="marketplaces_syncing">Syncing from eBay\u2026</string>
+    <string name="marketplaces_sync_listings">Sync listings from eBay</string>
+    <string name="marketplaces_disconnect_title">Disconnect %1$s?</string>
+    <string name="marketplaces_disconnect_body">FlipDesk stops publishing and syncing for this account. Listings already live on eBay stay live.</string>
+
+    <!-- US-2368: reconciliation screen text. -->
+    <string name="reconciliation_unmatched_ebay_listings">Unmatched eBay listings</string>
+    <string name="reconciliation_that_didn_t_work">That didn\'t work</string>
+    <string name="reconciliation_done">Done</string>
+    <string name="reconciliation_loading">Loading…</string>
+    <string name="reconciliation_nothing_reconcile_every_ebay_listing">Nothing to reconcile. Every eBay listing is matched to an item.</string>
+    <string name="reconciliation_back">Back</string>
+    <string name="reconciliation_create_them">Create them</string>
+    <string name="reconciliation_cancel">Cancel</string>
+    <string name="reconciliation_create_item">Create item</string>
+    <string name="reconciliation_link">Link</string>
+    <string name="reconciliation_ignore">Ignore</string>
+    <string name="reconciliation_create_item_2">Create an item</string>
+    <string name="reconciliation_title">Title</string>
+    <string name="reconciliation_sku">SKU</string>
+    <string name="reconciliation_target_price">Target price</string>
+    <string name="reconciliation_item_starts_as_listed_ebay">The item starts as Listed — eBay says this listing is live.</string>
+    <string name="reconciliation_create">Create</string>
+    <string name="reconciliation_link_item">Link to an item</string>
+    <string name="reconciliation_search_items">Search your items</string>
+
+    <!-- US-2368: publish screen text. -->
+    <string name="publish_check_this_first">Check this first</string>
+    <string name="publish_ve_hit_plan_limit">You\'ve hit a plan limit</string>
+    <string name="publish_publish_failed">Publish failed</string>
+    <string name="publish_back_composer">Back to the composer</string>
+    <string name="publish_listing_title">Listing title</string>
+    <string name="publish_condition">Condition</string>
+    <string name="publish_condition_notes_optional">Condition notes (optional)</string>
+    <string name="publish_price">Price</string>
+    <string name="publish_still_needed_this_category">Still needed for this category</string>
+    <string name="publish_fix_these_before_publishing">Fix these before publishing</string>
+    <string name="publish_worth_look">Worth a look</string>
+    <string name="publish_publishing_stays_off_until_blockers">Publishing stays off until the blockers above are cleared.</string>
+    <string name="publish_est_net_profit">Est. net profit</string>
+    <string name="publish_no_cost_basis_this_item">No cost basis on this item, so this is revenue after fees — not profit.</string>
+    <string name="publish_ready_publish">Ready to publish</string>
+    <string name="publish_s_live_ebay">It\'s live on eBay</string>
+    <string name="publish_view_ebay">View on eBay</string>
+    <string name="publish_done">Done</string>
+    <string name="reconciliation_intro">These are live on eBay but aren\'t linked to anything in your inventory. Create an item, link an existing one, or ignore it.</string>
+    <string name="reconciliation_creating">Creating items\u2026 %1$d of %2$d</string>
+    <string name="reconciliation_create_all">Create items for all %1$d</string>
+    <string name="reconciliation_create_title">Create %1$d items?</string>
+    <string name="reconciliation_create_body">One new inventory item per listing, using each listing\'s title, SKU and price. You can edit them afterwards.</string>
+    <string name="reconciliation_sku_row">\u0020\u0020\u0020SKU %1$s</string>
+    <string name="reconciliation_no_match">Nothing matches. Items sync to this device, so a very new one may not be here yet.</string>
+
+    <string name="publish_list_title">List on eBay</string>
+    <string name="publish_relist_title">Relist on eBay</string>
+    <string name="publish_to_ebay">Publish to eBay</string>
+    <string name="publish_relist_note">This item has been listed before. Publishing ends the old listing first, then creates a new one.</string>
+    <string name="publish_checking">Checking\u2026</string>
+    <string name="publish_save_and_check">Save and check</string>
+    <string name="publish_publishing">Publishing\u2026</string>
+    <string name="publish_bullet_prefix">\u2022 </string>
+    <string name="publish_net_and_margin">%1$s \u00b7 %2$d%% margin</string>
+    <string name="publish_fees_and_costs">eBay fees ~%1$s \u00b7 your costs %2$s</string>
+    <string name="publish_price_with_currency">%1$s %2$s</string>
+    <string name="publish_quantity">Qty %1$s</string>
+    <!-- Only ever a fallback: the connection reports its own currency. -->
+    <string name="publish_default_currency">USD</string>
+    <string name="publish_done_syncing">The listing is up. Its details will finish syncing here shortly.</string>
+    <string name="publish_done_synced">The listing is up and synced.</string>
+    <string name="publish_listing_id">Listing %1$s</string>
+    <string name="publish_offer_id">Offer %1$s</string>
+    <string name="publish_sku">SKU %1$s</string>
+
+    <!-- US-2368: repricing screen text. -->
+    <string name="repricing_repricing">Repricing</string>
+    <string name="repricing_that_didn_t_work">That didn\'t work</string>
+    <string name="repricing_scan">Scan</string>
+    <string name="repricing_worth_knowing">Worth knowing</string>
+    <string name="repricing_new_rule">New rule</string>
+    <string name="repricing_back">Back</string>
+    <string name="repricing_prices_already_changed_stay_as">Prices it already changed stay as they are.</string>
+    <string name="repricing_delete">Delete</string>
+    <string name="repricing_cancel">Cancel</string>
+    <string name="repricing_apply">Apply</string>
+    <string name="repricing_dismiss">Dismiss</string>
+    <string name="repricing_edit">Edit</string>
+    <string name="repricing_name">Name</string>
+    <string name="repricing_never_below">Never below</string>
+    <string name="repricing_only_this_brand_optional">Only this brand (optional)</string>
+    <string name="repricing_auto_accept_offers">Auto-accept offers</string>
+    <string name="repricing_save">Save</string>
+
+    <!-- US-2368: intake screen text. -->
+    <string name="intake_resume_unsaved_item">Resume your unsaved item?</string>
+    <string name="intake_resume">Resume</string>
+    <string name="intake_discard">Discard</string>
+    <string name="intake_title">Title</string>
+    <string name="intake_brand">Brand</string>
+    <string name="intake_style">Style</string>
+    <string name="intake_size">Size</string>
+    <string name="intake_color">Color</string>
+    <string name="intake_material">Material</string>
+    <string name="intake_category">Category</string>
+    <string name="intake_status">Status</string>
+    <string name="intake_source">Source</string>
+    <string name="intake_no_source">No source</string>
+    <string name="intake_container">Container</string>
+    <string name="intake_sourced_by">Sourced by</string>
+    <string name="intake_purchase_price">Purchase price</string>
+    <string name="intake_save_add_another">Save &amp; add another</string>
+    <string name="intake_that_sku_already_use">That SKU is already in use</string>
+    <string name="intake_combine">Combine</string>
+    <string name="intake_cancel">Cancel</string>
+    <string name="repricing_loading">Loading\u2026</string>
+    <string name="repricing_suggestions_count">Suggestions (%1$d)</string>
+    <string name="repricing_rules_count">Rules (%1$d)</string>
+    <string name="repricing_no_suggestions">No open suggestions. Run a scan to compare your live listings against current comps.</string>
+    <string name="repricing_no_rules">No rules yet. A rule drops prices on a schedule until its floor.</string>
+    <string name="repricing_scanning">Scanning\u2026</string>
+    <string name="repricing_scan_button">Scan for suggestions</string>
+    <string name="repricing_delete_rule">Delete \"%1$s\"?</string>
+    <string name="repricing_field_drop_pct">Drop %</string>
+    <string name="repricing_field_interval">Every (days)</string>
+    <string name="repricing_field_min_age">Only listings older than (days)</string>
+    <string name="repricing_floor_warning">Leave the floor blank and the rule keeps cutting with nothing to stop it.</string>
+
+    <string name="intake_unsaved_draft">You have an unsaved draft.</string>
+    <string name="intake_merge_body">Combine these details into the existing item. Pick which value to keep for each field.</string>
+    <string name="intake_blank_value">(blank)</string>
+    <!-- Leading space is deliberate: it is appended to the value above it. -->
+    <string name="intake_chosen_marker">\u0020\u2713</string>
+
+    <!-- US-2368: tools screen text. -->
+    <string name="tools_what_s_worth">What\'s it worth?</string>
+    <string name="tools_snap_one_photo_instant_condition">Snap one photo for an instant condition grade and resale range</string>
+    <string name="tools_certified_grades">Certified grades</string>
+    <string name="tools_every_graded_item_its_report">Every graded item, its report and its certificate</string>
+    <string name="tools_analytics">Analytics</string>
+    <string name="tools_grades_brands_sell_through_inventory">Grades, brands, sell-through, inventory value and listing performance</string>
+    <string name="tools_consignors">Consignors</string>
+    <string name="tools_who_sell_their_split_what">Who you sell for, their split, and what you owe them</string>
+    <string name="tools_listing_templates">Listing templates</string>
+    <string name="tools_save_condition_specifics_boilerplate_reuse">Save the condition, specifics and boilerplate you reuse</string>
+    <string name="tools_scout">Scout</string>
+    <string name="tools_find_underpriced_listings_ebay_graded">Find underpriced listings on eBay, graded and ranked by profit</string>
+    <string name="tools_prospect">Prospect</string>
+    <string name="tools_shop_photograph_find_out_if">In a shop? Photograph it and find out if it\'s worth buying</string>
+    <string name="tools_verified_seller">Verified seller</string>
+    <string name="tools_badge_status_what_s_left">Your badge status and what\'s left to set up</string>
+    <string name="tools_shipping">Shipping</string>
+    <string name="tools_what_s_sold_still_needs">What\'s sold and still needs posting, with tracking</string>
+    <string name="tools_invite_friend">Invite a friend</string>
+    <string name="tools_share_code_earn_grading_credits">Share your code and earn grading credits</string>
+    <string name="tools_import_spreadsheet">Import a spreadsheet</string>
+    <string name="tools_bring_inventory_from_csv_sheets">Bring your inventory in from CSV or Sheets</string>
+    <string name="tools_support">Support</string>
+    <string name="tools_open_request_read_our_replies">Open a request and read our replies</string>
+
+    <!-- US-2368: prospect screen text. -->
+    <string name="prospect_prospect">Prospect</string>
+    <string name="prospect_remove">Remove</string>
+    <string name="prospect_take_photo">Take photo</string>
+    <string name="prospect_library">Library</string>
+    <string name="prospect_camera_off">Camera is off</string>
+    <string name="prospect_what_does_cost">What does it cost?</string>
+    <string name="prospect_optional_but_there_s_no">Optional, but there\'s no buy-or-walk verdict without it.</string>
+    <string name="prospect_open_inventory">Open it in inventory</string>
+    <string name="prospect_start_over">Start over</string>
+    <string name="prospect_back">Back</string>
+    <string name="prospect_couldn_t_read_that_one">Couldn\'t read that one</string>
+    <string name="prospect_take_this_with_pinch_salt">Take this with a pinch of salt</string>
+    <string name="prospect_see_sold_listings">See the sold listings</string>
+
+    <!-- US-2368: canvas screen text. -->
+    <string name="canvas_item_not_found">Item not found</string>
+    <string name="canvas_may_have_been_deleted_hasn">It may have been deleted, or it hasn\'t synced to this device yet.</string>
+    <string name="canvas_back">Back</string>
+    <string name="canvas_item">Item</string>
+    <string name="canvas_title_required_save">Title is required to save.</string>
+    <string name="canvas_category">Category</string>
+    <string name="canvas_no_category_set_pick_one">No category set. Pick one to unlock category-specific photos and specifics.</string>
+    <string name="canvas_pricing_sourcing">Pricing &amp; sourcing</string>
+    <string name="canvas_notes">Notes</string>
+    <string name="canvas_discard_changes">Discard changes</string>
+    <string name="canvas_grading">Grading</string>
+    <string name="canvas_grade">Grade</string>
+    <string name="canvas_report">Report</string>
+    <string name="canvas_passport">Passport</string>
+    <string name="canvas_selling">Selling</string>
+    <string name="canvas_flaw_disclosure">Flaw disclosure</string>
+    <string name="canvas_dismiss">Dismiss</string>
+
+    <!-- US-2368: graderequest screen text. -->
+    <string name="graderequest_get_certified_grade">Get a certified grade</string>
+    <string name="graderequest_can_leave_this_screen_grade">You can leave this screen — the grade lands on the item either way.</string>
+    <string name="graderequest_submitted_human_review">Submitted for human review</string>
+    <string name="graderequest_still_grading">Still grading</string>
+    <string name="graderequest_needs_clearer_photos">Needs clearer photos</string>
+    <string name="graderequest_couldn_t_grade_this_item">Couldn\'t grade this item</string>
+    <string name="graderequest_not_ready_grade_yet">Not ready to grade yet</string>
+    <string name="graderequest_grade_this_item">Grade this item</string>
+    <string name="graderequest_use_credits">Use credits</string>
+    <string name="graderequest_cancel">Cancel</string>
+    <string name="graderequest_view_full_report">View full report</string>
+    <string name="graderequest_done">Done</string>
+    <string name="graderequest_try_again">Try again</string>
+    <string name="canvas_field_title">Title</string>
+    <string name="canvas_field_brand">Brand</string>
+    <string name="canvas_field_sku">SKU</string>
+    <string name="canvas_field_size">Size</string>
+    <string name="canvas_field_color">Color</string>
+    <string name="canvas_field_material">Material</string>
+    <string name="canvas_field_style">Style</string>
+    <string name="canvas_field_garment_type">Garment type</string>
+    <string name="canvas_field_garment_category">Garment category</string>
+    <string name="canvas_field_acquired_price">Acquired price</string>
+    <string name="canvas_field_target_price">Target price</string>
+    <string name="canvas_field_sourced_by">Sourced by</string>
+    <string name="canvas_field_container">Container</string>
+    <string name="canvas_field_location_bin">Location bin</string>
+    <string name="canvas_field_split_pct">Split % (optional)</string>
+    <string name="canvas_field_description">Description</string>
+    <string name="canvas_field_condition_notes">Condition notes</string>
+    <string name="canvas_saved_offline">Saved on this device \u2014 it\'ll sync when you\'re back online.</string>
+    <string name="canvas_saving">Saving\u2026</string>
+    <string name="canvas_save_changes">Save changes</string>
+    <string name="canvas_saved">Saved</string>
+    <string name="canvas_save_before_list">Save your changes to list</string>
+
+    <string name="prospect_intro">Photograph the front and the brand tag. We\'ll work out what it is, what it sells for, and whether it\'s worth buying.</string>
+    <string name="prospect_photo_count">%1$d of %2$d photos</string>
+    <string name="prospect_camera_denied">Turn camera access on in Settings, or pick a photo from your library instead.</string>
+    <string name="prospect_not_on_plan">Not on your plan</string>
+    <string name="prospect_failed">That didn\'t work</string>
+    <string name="prospect_checking">Checking\u2026</string>
+    <string name="prospect_check_it">Check it</string>
+    <string name="prospect_adding">Adding\u2026</string>
+    <string name="prospect_add_to_inventory">Add to inventory</string>
+    <string name="prospect_retry_hint">Try a clearer shot of the brand tag, or a straight-on photo of the front.</string>
+    <string name="prospect_sells_for">Sells for %1$s</string>
+    <string name="prospect_graded">Graded %1$s \u00b7 %2$d%% confident</string>
+
+    <string name="graderequest_sending">Sending your item\u2026</string>
+    <string name="graderequest_in_progress">Grading in progress\u2026</string>
+    <string name="graderequest_human_review_body">The AI wasn\'t confident enough to certify this one on its own, so a grader is checking it. You\'ll see the final grade on the item when it clears.</string>
+    <string name="graderequest_provisional">Provisional score %1$s</string>
+    <string name="graderequest_slow_body">This one\'s taking longer than usual. Nothing is lost \u2014 the grade will appear on the item as soon as it\'s done.</string>
+    <string name="graderequest_not_charged">You weren\'t charged.</string>
+    <string name="graderequest_balance">%1$d credits \u00b7 %2$d included grades left</string>
+    <string name="graderequest_bullet">\u2022 %1$s</string>
+    <string name="graderequest_included">Included</string>
+    <string name="graderequest_tier_detail">%1$s \u00b7 %2$s</string>
+    <plurals name="graderequest_credit_cost">
+        <item quantity="one">%1$d credit</item>
+        <item quantity="other">%1$d credits</item>
+    </plurals>
+    <plurals name="graderequest_spend_title">
+        <item quantity="one">Use %1$d credit?</item>
+        <item quantity="other">Use %1$d credits?</item>
+    </plurals>
+    <plurals name="graderequest_spend_body">
+        <item quantity="one">%1$s grading costs %2$d credit. You have %3$d. You\'re only charged when the grade succeeds.</item>
+        <item quantity="other">%1$s grading costs %2$d credits. You have %3$d. You\'re only charged when the grade succeeds.</item>
+    </plurals>
+
+    <!-- US-2368: aifill screen text. -->
+    <string name="aifill_ai_fill">AI fill</string>
+    <string name="aifill_device_ocr_filled_gaps">On-device OCR filled in the gaps</string>
+    <string name="aifill_resolving_ebay_category">Resolving eBay category…</string>
+    <string name="aifill_condition_summary">Condition summary</string>
+    <string name="aifill_ai_filled_these">AI filled these</string>
+    <string name="aifill_suggestions_review">Suggestions to review</string>
+    <string name="aifill_measurements_estimated">Measurements (estimated)</string>
+    <string name="aifill_apply_changes">Apply changes</string>
+    <string name="aifill_undo_ai_fill">Undo AI fill</string>
+    <string name="aifill_cancel">Cancel</string>
+    <string name="aifill_identified">  Identified</string>
+
+    <!-- US-2368: gradereport screen text. -->
+    <string name="gradereport_couldn_t_load_this_report">Couldn\'t load this report</string>
+    <string name="gradereport_no_grade_yet">No grade yet</string>
+    <string name="gradereport_done">Done</string>
+    <string name="gradereport_share_certificate">Share certificate</string>
+    <string name="gradereport_condition_factors">Condition factors</string>
+    <string name="gradereport_detected_issues">Detected issues</string>
+    <string name="gradereport_condition_summary">Condition summary</string>
+    <string name="gradereport_pending_human_review">Pending human review</string>
+    <string name="gradereport_try_again">Try again</string>
+
+    <!-- US-2368: consignors screen text. -->
+    <string name="consignors_consignors">Consignors</string>
+    <string name="consignors_split_their_share_what_s">The split is their share of what\'s left after fees.</string>
+    <string name="consignors_that_didn_t_work">That didn\'t work</string>
+    <string name="consignors_no_consignors_yet">No consignors yet</string>
+    <string name="consignors_add_consignor">Add a consignor</string>
+    <string name="consignors_payout_report">Payout report</string>
+    <string name="consignors_back">Back</string>
+    <string name="consignors_remove">Remove</string>
+    <string name="consignors_keep">Keep</string>
+    <string name="consignors_edit">Edit</string>
+    <string name="consignors_name">Name</string>
+    <string name="consignors_default_split">Default split %</string>
+    <string name="consignors_email_optional">Email (optional)</string>
+    <string name="consignors_phone_optional">Phone (optional)</string>
+    <string name="consignors_notes_optional">Notes (optional)</string>
+    <string name="consignors_cancel">Cancel</string>
+
+    <!-- US-2368: postsale screen text. -->
+    <string name="postsale_after_sale">After the sale</string>
+    <string name="postsale_that_didn_t_work">That didn\'t work</string>
+    <string name="postsale_done">Done</string>
+    <string name="postsale_back">Back</string>
+    <string name="postsale_mark_shipped">Mark shipped</string>
+    <string name="postsale_tracking_number">Tracking number</string>
+    <string name="postsale_carrier_optional">Carrier (optional)</string>
+    <string name="postsale_cancel">Cancel</string>
+    <string name="postsale_note_optional">Note (optional)</string>
+    <string name="postsale_leave">Leave it</string>
+    <string name="aifill_low_confidence_body">AI couldn\'t read the tag confidently. The suggestions below came from on-device OCR \u2014 double-check before opting in.</string>
+    <string name="aifill_category_pending_body">We\'re still matching this item to a category. It\'ll appear on the item shortly \u2014 you don\'t need to wait.</string>
+    <string name="aifill_uncheck_hint">Uncheck a field to undo its AI fill \u2014 it\'s restored to what it was before.</string>
+    <string name="aifill_low_confidence_hint">Lower-confidence suggestions weren\'t applied automatically. Check any you want to add.</string>
+    <string name="aifill_keep_measurements">Keep measurements</string>
+    <string name="aifill_measurements_removed">Measurements removed</string>
+    <string name="aifill_measurement">%1$s: %2$s in</string>
+    <string name="aifill_field_spoken">%1$s: %2$s. %3$s</string>
+    <string name="aifill_kept">kept.</string>
+    <string name="aifill_will_undo">will be undone.</string>
+    <string name="aifill_will_revert">Will revert to \"%1$s\"</string>
+    <string name="aifill_will_clear">Will be cleared</string>
+    <string name="aifill_suggestion_spoken">%1$s: %2$s. %3$s. Confidence %4$d percent. %5$s</string>
+    <string name="aifill_accepted">accepted.</string>
+    <string name="aifill_not_accepted">not accepted.</string>
+    <string name="aifill_percent">\u0020\u0020%1$d%%</string>
+
+    <string name="gradereport_not_graded">This item hasn\'t been graded. Request a certified grade from the item\'s Grade action.</string>
+    <string name="gradereport_share_subject">GradeThread certificate \u2014 %1$s %2$s</string>
+    <string name="gradereport_share_chooser">Share certificate</string>
+    <string name="gradereport_dispute">Dispute this grade</string>
+    <string name="gradereport_disclaimer">AI-assisted condition assessment. Grades reflect the photos supplied and are not an authentication or appraisal.</string>
+    <string name="gradereport_overall_spoken">Overall grade %1$s out of 10, %2$s</string>
+    <string name="gradereport_factor_spoken">%1$s, weighted %2$s: %3$s out of 10</string>
+    <string name="gradereport_factor_label">%1$s (%2$s)</string>
+    <string name="gradereport_defect_separator">\u0020\u00b7 %1$s</string>
+    <string name="gradereport_confidence">Confidence: %1$s (%2$d%%)</string>
+    <string name="gradereport_below_threshold">This grade\'s confidence is below our certify threshold, so a reviewer is taking a look. You\'ll be able to share a public certificate once it clears.</string>
+    <plurals name="gradereport_dispute_days">
+        <item quantity="one">Dispute this grade (%1$d day left)</item>
+        <item quantity="other">Dispute this grade (%1$d days left)</item>
+    </plurals>
+
+    <string name="consignors_intro">Add whoever you sell for, then set them on an item\'s page and we\'ll track what you owe them.</string>
+    <string name="consignors_remove_title">Remove %1$s?</string>
+    <string name="consignors_remove_body">Their items stay, along with everything they\'ve already sold. The items just stop being linked to them.</string>
+    <string name="consignors_split_pct">%1$s%%</string>
+    <string name="consignors_new">New consignor</string>
+    <string name="consignors_edit_title">Edit consignor</string>
+
+    <string name="postsale_to_post">To post (%1$d)</string>
+    <string name="postsale_nothing_to_post">Nothing waiting to be posted.</string>
+    <string name="postsale_feedback_count">Feedback (%1$d)</string>
+    <string name="postsale_nobody_waiting">Nobody waiting on feedback.</string>
+    <string name="postsale_leave_feedback">Leave feedback</string>
+    <string name="postsale_tracking_note">This tells eBay and the buyer. Sending the same tracking twice is safe.</string>
+    <string name="postsale_the_buyer">the buyer</string>
+    <string name="postsale_feedback_title">Leave feedback for %1$s</string>
+    <string name="postsale_positive_only">eBay only lets sellers leave positive feedback, so there\'s no rating to pick.</string>
+    <string name="postsale_order_fallback">Order %1$s</string>
+    <string name="postsale_indented">\u0020\u0020\u0020%1$s</string>
+
+    <!-- US-2368: bulkgrade screen text. -->
+    <string name="bulkgrade_grades_land_each_item_as">Grades land on each item as they finish — no need to wait here.</string>
+    <string name="bulkgrade_done">Done</string>
+    <string name="bulkgrade_close">Close</string>
+    <string name="bulkgrade_try_again">Try again</string>
+    <string name="bulkgrade_use_credits">Use credits</string>
+    <string name="bulkgrade_cancel">Cancel</string>
+
+    <!-- US-2368: inventorylist screen text. -->
+    <string name="inventorylist_search_inventory">Search inventory</string>
+    <string name="inventorylist_dismiss">Dismiss</string>
+    <string name="inventorylist_no_photos">No photos</string>
+    <string name="inventorylist_no_photos_yet">No photos yet</string>
+    <string name="inventorylist_grade">Grade</string>
+    <string name="inventorylist_nothing_here_yet">Nothing here yet</string>
+    <string name="inventorylist_items_source_will_show_up">Items you source will show up here. Try clearing filters if you expected some.</string>
+
+    <!-- US-2368: promotion screen text. -->
+    <string name="promotion_promote_discount">Promote or discount</string>
+    <string name="promotion_that_didn_t_work">That didn\'t work</string>
+    <string name="promotion_done">Done</string>
+    <string name="promotion_loading">Loading…</string>
+    <string name="promotion_couldn_t_load_this_listing">Couldn\'t load this listing\'s promotion settings.</string>
+    <string name="promotion_close">Close</string>
+    <string name="promotion_promoted_listing">Promoted listing</string>
+    <string name="promotion_ad_rate">Ad rate</string>
+    <string name="promotion_text">%</string>
+    <string name="promotion_stop">Stop</string>
+    <string name="promotion_sale">Sale</string>
+    <string name="promotion_percent_off">Percent off</string>
+    <string name="promotion_end_sale">End sale</string>
+
+    <!-- US-2368: community screen text. -->
+    <string name="community_community_insights">Community insights</string>
+    <string name="community_loading">Loading…</string>
+    <string name="community_not_available">Not available</string>
+    <string name="community_that_didn_t_work">That didn\'t work</string>
+    <string name="community_refresh">Refresh</string>
+    <string name="community_back">Back</string>
+    <string name="community_not_enough_community_data_yet">Not enough community data yet</string>
+    <string name="community_nothing_act_right_now">Nothing to act on right now</string>
+    <string name="community_what_numbers_suggest">What the numbers suggest</string>
+    <string name="community_sell_through_by_brand">Sell-through by brand</string>
+    <string name="community_average_sale_price">Average sale price</string>
+    <string name="community_categories_move">Categories on the move</string>
+    <string name="community_text">You</string>
+    <string name="inventorylist_filters">Filters</string>
+    <string name="inventorylist_filters_count">Filters (%1$d)</string>
+    <string name="inventorylist_board">Board</string>
+    <string name="inventorylist_list">List</string>
+    <string name="inventorylist_label_count">%1$s (%2$d)</string>
+    <string name="inventorylist_price_listed">listed</string>
+    <string name="inventorylist_price_target">target</string>
+    <string name="inventorylist_price_cost">cost</string>
+    <string name="inventorylist_price_row">$%1$s %2$s</string>
+    <string name="inventorylist_grade_spoken">Certified grade %1$s%2$s</string>
+    <string name="inventorylist_grade_label_suffix">, %1$s</string>
+    <plurals name="inventorylist_items">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
+
+    <string name="bulkgrade_counts">%1$d ready \u00b7 %2$d blocked \u00b7 %3$d credits</string>
+    <string name="bulkgrade_blocked_count">%1$d won\'t be submitted</string>
+    <string name="bulkgrade_blocked_row">\u2022 %1$s \u2014 %2$s</string>
+    <string name="bulkgrade_not_ready">not ready</string>
+    <string name="bulkgrade_and_more">\u2026and %1$d more</string>
+    <plurals name="bulkgrade_title">
+        <item quantity="one">Grade %1$d item</item>
+        <item quantity="other">Grade %1$d items</item>
+    </plurals>
+    <plurals name="bulkgrade_confirm_title">
+        <item quantity="one">Grade %1$d item?</item>
+        <item quantity="other">Grade %1$d items?</item>
+    </plurals>
+    <plurals name="bulkgrade_confirm_body">
+        <item quantity="one">%1$s grading costs %2$d credit per item. You have %3$d. You\'re only charged for grades that succeed.</item>
+        <item quantity="other">%1$s grading costs %2$d credits per item. You have %3$d. You\'re only charged for grades that succeed.</item>
+    </plurals>
+    <plurals name="bulkgrade_tier_cost">
+        <item quantity="one">%1$d credit</item>
+        <item quantity="other">%1$d credits</item>
+    </plurals>
+
+    <string name="promotion_ad_rate_range">eBay accepts %1$s\u2013%2$s%%. You only pay it when the ad makes the sale.</string>
+    <string name="promotion_markdown_range">eBay accepts %1$s\u2013%2$s%% off. Ending the sale puts the original price back.</string>
+    <string name="promotion_update_rate">Update rate</string>
+    <string name="promotion_promote">Promote</string>
+    <string name="promotion_update_sale">Update sale</string>
+    <string name="promotion_start_sale">Start sale</string>
+
+    <string name="community_privacy_note">Every figure is pooled across at least %1$d sellers. No individual seller\'s numbers are shown, including yours.</string>
+    <string name="community_too_thin">We need more sellers working the same brands and categories before these numbers mean anything. Check back soon.</string>
+    <string name="community_nothing_actionable">We have data for your brands and categories, but nothing in it is strong enough to act on today.</string>
+    <string name="community_sell_through_spoken">Community sell-through by brand: %1$s</string>
+    <string name="community_pair_spoken_item">%1$s %2$s</string>
+    <string name="community_you_row">%1$d listed \u00b7 %2$d sold</string>
+    <string name="community_tap_to_see">Tap to see your %1$s items</string>
+    <string name="community_brand_row">%1$d sellers \u00b7 %2$d of %3$d sold</string>
+    <string name="community_trend_up">Sales up %1$s over 30 days \u00b7 %2$d sellers</string>
+    <string name="community_trend_down">Sales down %1$s over 30 days \u00b7 %2$d sellers</string>
+    <string name="community_trend_flat">%1$d sold in 30 days \u00b7 %2$d sellers</string>
+
+    <!-- US-2368: photos screen text. -->
+    <string name="photos_more">More</string>
+    <string name="photos_duplicate_item">Duplicate item</string>
+    <string name="photos_share_certificate">Share certificate</string>
+    <string name="photos_delete_item">Delete item</string>
+    <string name="photos_no_photos_yet">No photos yet.</string>
+    <string name="photos_add_photos">Add photos</string>
+    <string name="photos_dismiss">Dismiss</string>
+    <string name="photos_delete_this_item">Delete this item?</string>
+    <string name="photos_delete">Delete</string>
+    <string name="photos_cancel">Cancel</string>
+    <string name="photos_cover">Cover</string>
+    <string name="photos_text">←</string>
+    <string name="photos_text_2">→</string>
+    <string name="photos_remove">Remove</string>
+
+    <!-- US-2368: search screen text. -->
+    <string name="search_search_inventory_listings_sales_sources">Search inventory, listings, sales, sources</string>
+    <string name="search_clear">Clear</string>
+
+    <!-- US-2368: disclosure screen text. -->
+    <string name="disclosure_flaw_disclosure">Flaw disclosure</string>
+    <string name="disclosure_that_didn_t_work">That didn\'t work</string>
+    <string name="disclosure_done">Done</string>
+    <string name="disclosure_photos">Photos</string>
+    <string name="disclosure_save_this_annotated_photo">Save this annotated photo</string>
+    <string name="disclosure_back">Back</string>
+
+    <!-- US-2368: scout screen text. -->
+    <string name="scout_scout">Scout</string>
+    <string name="scout_keyword">Keyword</string>
+    <string name="scout_brand_optional">Brand (optional)</string>
+    <string name="scout_worth_buying">Worth buying</string>
+    <string name="scout_prospect_store">Prospect in store</string>
+    <string name="scout_back">Back</string>
+    <string name="scout_asking">Asking</string>
+    <string name="scout_sells">Sells for</string>
+    <string name="scout_profit">Profit</string>
+
+    <!-- US-2368: bulkpricing screen text. -->
+    <string name="bulkpricing_bulk_pricing">Bulk pricing</string>
+    <string name="bulkpricing_that_didn_t_work">That didn\'t work</string>
+    <string name="bulkpricing_pushed">Pushed</string>
+    <string name="bulkpricing_text">%</string>
+    <string name="bulkpricing_loading_live_listings">Loading your live listings…</string>
+    <string name="bulkpricing_back">Back</string>
+    <string name="photos_count">Photos (%1$d)</string>
+    <string name="photos_still_needed">Still needed to grade: %1$s</string>
+    <string name="photos_delete_body">Its photos go with it, and this can\'t be undone. Any grade or certificate for it is deleted too.</string>
+    <string name="photos_spoken">%1$s photo</string>
+    <string name="photos_spoken_cover">%1$s photo, cover image</string>
+
+    <string name="search_keep_typing">Keep typing \u2014 %1$d characters minimum.</string>
+    <string name="search_hint">Search by title, brand, SKU, size, colour, buyer or source.</string>
+    <string name="search_searching">Searching\u2026</string>
+    <string name="search_no_results">Nothing matched that. Results come from what\'s synced to this device, so a very new item may not be here yet.</string>
+    <string name="search_items">Items (%1$d)</string>
+    <string name="search_listings">Listings (%1$d)</string>
+    <string name="search_sales">Sales (%1$d)</string>
+    <string name="search_sources">Sources (%1$d)</string>
+    <string name="search_listing_subtitle">%1$s \u00b7 %2$s \u00b7 %3$s</string>
+
+    <string name="disclosure_loading">Loading\u2026</string>
+    <string name="disclosure_not_graded">This item hasn\'t been graded yet. Grade it and its flaws show up here.</string>
+    <string name="disclosure_no_flaws">The grade found no flaws worth disclosing.</string>
+    <string name="disclosure_noted">%1$d noted</string>
+    <string name="disclosure_unplaced">The grade couldn\'t place these flaws on a photo, so there\'s nothing to mark up \u2014 the written disclosure still applies.</string>
+    <string name="disclosure_photo_tab">%1$s (%2$d)</string>
+    <string name="disclosure_rendering">Marking up the photo\u2026</string>
+    <string name="disclosure_working">Working\u2026</string>
+    <string name="disclosure_add_to_listing">Add to the live eBay listing</string>
+    <string name="disclosure_edits_description">This edits the description buyers see on the live listing.</string>
+
+    <string name="scout_intro">Search live eBay listings. Each one is graded from its own photos and ranked by what you\'d make on it.</string>
+    <string name="scout_searching_in">Searching in %1$s</string>
+    <string name="scout_scan">Scan</string>
+    <string name="scout_grade_confidence">Grade %1$s \u00b7 %2$d%% confident</string>
+
+    <string name="bulkpricing_pushing_through">Pushing through %1$s</string>
+    <string name="bulkpricing_primary_store_fallback">your primary eBay store</string>
+    <string name="bulkpricing_multi_account">You have more than one eBay account connected. Bulk edits all go through the primary one.</string>
+    <string name="bulkpricing_new_price">New price</string>
+    <string name="bulkpricing_reduce_by">Reduce by</string>
+    <string name="bulkpricing_price_invalid">Enter a price greater than zero.</string>
+    <string name="bulkpricing_reduction_invalid">Enter a reduction between 1 and 99%.</string>
+    <string name="bulkpricing_selected_of">%1$d of %2$d selected</string>
+    <string name="bulkpricing_empty">No live listings that FlipDesk published. Imported eBay listings are edited on eBay, so they can\'t be repriced here.</string>
+    <string name="bulkpricing_pushing">Pushing to eBay\u2026</string>
+    <string name="bulkpricing_nothing_to_push">Nothing to push</string>
+    <string name="bulkpricing_arrow">\u0020\u0020\u2192\u0020\u0020%1$s</string>
+    <string name="bulkpricing_qty">\u0020\u0020\u0020Qty %1$s</string>
+    <plurals name="bulkpricing_push_count">
+        <item quantity="one">Push %1$d price change</item>
+        <item quantity="other">Push %1$d price changes</item>
+    </plurals>
+    <plurals name="disclosure_preview_spoken">
+        <item quantity="one">Photo with %1$d flaw marked</item>
+        <item quantity="other">Photo with %1$d flaws marked</item>
+    </plurals>
 </resources>

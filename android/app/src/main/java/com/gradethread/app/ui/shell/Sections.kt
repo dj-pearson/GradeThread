@@ -48,6 +48,85 @@ object ShellRoutes {
 
     /** US-1371: the sales list, reached from [ShellSection.MONEY]. */
     const val SALES = "sales"
+
+    /** US-1365: payouts against the books, reached from [ShellSection.MONEY]. */
+    const val PAYOUTS = "payouts"
+
+    /** US-1367: plans + credit packs, reached from a plan gate or Settings. */
+    const val PAYWALL = "paywall"
+
+    /** US-1368: the analytics tab, reached from Tools or Money. */
+    const val ANALYTICS = "analytics"
+
+    /** US-1368: the per-listing engagement drill-down, reached from Analytics. */
+    const val LISTING_PERFORMANCE = "listing-performance"
+
+    /** US-1369: anonymized community benchmarks, reached from Analytics. */
+    const val COMMUNITY = "community"
+
+    /** US-1372: the people you sell for, reached from Tools. */
+    const val CONSIGNORS = "consignors"
+
+    /** US-1385: your referral code and a friend's, reached from Tools. */
+    const val REFERRALS = "referrals"
+
+    /** US-1389: CSV / Sheets import, reached from Tools. */
+    const val IMPORT = "import"
+
+    /** US-1386: the support inbox, reached from Tools or a support.reply push. */
+    const val SUPPORT = "support"
+
+    /** US-1386: one support thread. Where a support.reply push lands. */
+    fun supportThread(ticketId: String) = "support/$ticketId"
+
+    /** US-1372: what each consignor is owed, reached from Consignors. */
+    const val CONSIGNMENT_REPORT = "consignment-report"
+
+    /** US-1373: saved listing presets, reached from Tools. */
+    const val TEMPLATES = "templates"
+
+    /** US-1374: ScoutAI deal finder, reached from Tools. */
+    const val SCOUT = "scout"
+
+    /** US-1374: in-store prospecting, reached from Scout or Tools. */
+    const val PROSPECT = "prospect"
+
+    /** US-1375: verified-seller status, reached from Tools. */
+    const val VERIFIED = "verified"
+
+    /** US-1377: the shipping queue, reached from Tools or a mark-shipped push. */
+    const val FULFILLMENT = "fulfillment"
+
+    /**
+     * US-1354: the offers + messages inbox, reached from Marketplaces or from
+     * a `gradethread.com/app/negotiation/<itemId>` deep link.
+     */
+    const val NEGOTIATION = "negotiation"
+
+    /** The graph pattern — the item filter is optional. */
+    const val NEGOTIATION_PATTERN = "$NEGOTIATION?item={item}"
+
+    /** A navigable route, scoped to one listing when [itemId] is given. */
+    fun negotiation(itemId: String? = null): String =
+        itemId?.takeIf { it.isNotBlank() }?.let { "$NEGOTIATION?item=$it" } ?: NEGOTIATION
+
+    /** US-1355: the bulk price editor, reached from Marketplaces. */
+    const val BULK_PRICING = "bulk-pricing"
+
+    /** US-1356: the orphan-listing queue, reached from the shell banner. */
+    const val RECONCILE = "reconcile"
+
+    /** US-1357: what still needs posting, and who to thank. */
+    const val POST_SALE = "post-sale"
+
+    /** US-1358: repricing rules + the scan's suggestions. */
+    const val REPRICING = "repricing"
+
+    /** US-1359: the AutoLister drafts library. */
+    const val DRAFTS = "drafts"
+
+    /** US-1362: trigger/action/scope automation rules. */
+    const val AUTOMATIONS = "automations"
 }
 
 /** Which navigation chrome a window width gets (pure; unit-tested). */

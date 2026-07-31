@@ -1,0 +1,8 @@
+# US-1392: app identity for fastlane supply.
+#
+# The service-account JSON is passed as CONTENT, not a path: CI holds it in a
+# secret store and writing it to disk to satisfy a path argument would leave the
+# Play publishing key on the runner filesystem for the rest of the job.
+json_key_data(ENV["PLAY_SERVICE_ACCOUNT_JSON"]) if ENV["PLAY_SERVICE_ACCOUNT_JSON"]
+
+package_name("com.gradethread.app")

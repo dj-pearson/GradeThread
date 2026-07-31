@@ -48,6 +48,58 @@ object MeasurementCatalog {
 
     private val byKey: Map<String, Spec> = specs.associateBy { it.key }
 
+    /**
+     * US-1353: the eBay aspect names each measurement can fill, in preference
+     * order — the `aspects` arrays of `MEASUREMENT_SPECS` in
+     * `services/edge-functions/src/lib/measurements.ts`.
+     *
+     * The edge fills these itself at publish (`resolveMeasurementAspects`), so
+     * this list is not a second writer. It is here so the specifics editor can
+     * SAY which blanks the publish will fill from the measurements already on
+     * the item, instead of showing them as gaps the seller has to type twice.
+     */
+    val aspectCandidates: Map<String, List<String>> = mapOf(
+        "chest" to listOf("Chest Size", "Chest", "Pit to Pit"),
+        "bust" to listOf("Bust", "Bust Size"),
+        "waist" to listOf("Waist Size", "Waist"),
+        "hip" to listOf("Hip Size", "Hip", "Hips"),
+        "inseam" to listOf("Inseam", "Inseam Length"),
+        "rise" to listOf("Rise", "Front Rise"),
+        "leg_opening" to listOf("Leg Opening", "Hem Width"),
+        "sleeve" to listOf("Sleeve Length", "Sleeve"),
+        "shoulder" to listOf("Shoulder Width", "Shoulder to Shoulder", "Shoulder"),
+        "length" to listOf("Length", "Garment Length", "Total Length"),
+        "width" to listOf("Width"),
+        "insole" to listOf("Insole Length", "Insole"),
+        "size_us" to listOf("US Shoe Size", "Shoe Size"),
+        "case_diameter" to listOf("Case Diameter", "Case Size"),
+        "lug_width" to listOf("Lug Width"),
+        "band_length" to listOf("Band Length", "Strap Length"),
+    )
+
+    /**
+     * US-1353: one measurement as eBay will see it — `"20 in"`, `"US 10"`,
+     * `"42 mm"` (edge `formatMeasurementValue`).
+     *
+     * Locale.US and never the editing formatter: this is a value published to a
+     * marketplace, not a number being typed. A German locale's "20,5 in" is not
+     * what the server would send, and showing it would misreport the listing.
+     */
+    fun publishValue(key: String, value: Double): String? {
+        if (!value.isFinite() || value <= 0.0) return null
+        val rounded = Math.round(value * 100) / 100.0
+        val number = if (rounded % 1.0 == 0.0) {
+            rounded.toLong().toString()
+        } else {
+            String.format(Locale.US, "%s", rounded)
+        }
+        return when (kind(key)) {
+            Kind.SHOE -> "US $number"
+            Kind.MM -> "$number mm"
+            Kind.LENGTH -> "$number in"
+        }
+    }
+
     /** Human label; a non-canonical key de-underscores rather than vanishing. */
     fun label(key: String): String = byKey[key]?.label
         ?: key.split("_").joinToString(" ") { part ->

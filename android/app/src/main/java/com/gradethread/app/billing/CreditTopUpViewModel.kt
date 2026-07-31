@@ -109,18 +109,18 @@ class CreditTopUpViewModel @Inject constructor(
             }
 
             when (val signal = billing.events.first()) {
-                is BillingRepository.PurchaseSignal.Cancelled ->
+                is PlaySignal.Cancelled ->
                     // Backing out of a purchase dialog is a decision, not a
                     // failure — saying "something went wrong" would be a lie.
                     _state.value = _state.value.copy(phase = CreditTopUpFlow.State.Idle)
 
-                is BillingRepository.PurchaseSignal.Error ->
+                is PlaySignal.Error ->
                     _state.value = _state.value.copy(
                         phase = CreditTopUpFlow.State.Idle,
                         errorMessage = signal.message,
                     )
 
-                is BillingRepository.PurchaseSignal.Updated -> {
+                is PlaySignal.Updated -> {
                     _state.value = _state.value.copy(phase = CreditTopUpFlow.State.AwaitingGrant)
                     settle(signal.purchases, baseline, onGranted)
                 }
@@ -129,11 +129,11 @@ class CreditTopUpViewModel @Inject constructor(
     }
 
     private suspend fun settle(
-        purchases: List<com.android.billingclient.api.Purchase>,
+        purchases: List<PlayPurchase>,
         baseline: Int,
         onGranted: suspend () -> Unit,
     ) {
-        val outcomes = purchases.map { billing.verifyAndConsume(it) }
+        val outcomes = purchases.map { billing.verifyAndSettle(it) }
         val failure = outcomes.filterIsInstance<BillingRepository.PurchaseOutcome.Failed>()
             .firstOrNull()
         val verifiedBalance = outcomes

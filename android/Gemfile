@@ -1,0 +1,6 @@
+source "https://rubygems.org"
+
+# US-1392: fastlane drives the Play Console upload (`supply`) — AAB, metadata,
+# changelogs and screenshots. Pinned to the same 2.x line the iOS lane uses so
+# both platforms move together rather than drifting a major version apart.
+gem "fastlane", "~> 2.220"

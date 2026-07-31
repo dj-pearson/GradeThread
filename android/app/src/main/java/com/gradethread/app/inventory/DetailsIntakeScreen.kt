@@ -13,6 +13,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.collectAsState
@@ -51,13 +53,15 @@ fun DetailsIntakeScreen(
         // abandoned form is how duplicate items get created.
         AlertDialog(
             onDismissRequest = viewModel::discardDraft,
-            title = { Text("Resume your unsaved item?") },
-            text = { Text(draft.title.ifBlank { "You have an unsaved draft." }) },
+            title = { Text(stringResource(R.string.intake_resume_unsaved_item)) },
+            text = {
+                Text(draft.title.ifBlank { stringResource(R.string.intake_unsaved_draft) })
+            },
             confirmButton = {
-                TextButton(onClick = viewModel::resumeDraft) { Text("Resume") }
+                TextButton(onClick = viewModel::resumeDraft) { Text(stringResource(R.string.intake_resume)) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::discardDraft) { Text("Discard") }
+                TextButton(onClick = viewModel::discardDraft) { Text(stringResource(R.string.intake_discard)) }
             },
         )
     }
@@ -93,7 +97,7 @@ fun DetailsIntakeScreen(
             ValidatedTextField(
                 value = form.title,
                 onValueChange = { v -> viewModel.update { it.copy(title = v) } },
-                label = "Title",
+                label = stringResource(R.string.intake_title),
                 errorMessage = titleError,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -108,7 +112,7 @@ fun DetailsIntakeScreen(
             ValidatedTextField(
                 value = form.brand,
                 onValueChange = { v -> viewModel.update { it.copy(brand = v) } },
-                label = "Brand",
+                label = stringResource(R.string.intake_brand),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -116,7 +120,7 @@ fun DetailsIntakeScreen(
             ValidatedTextField(
                 value = form.style,
                 onValueChange = { v -> viewModel.update { it.copy(style = v) } },
-                label = "Style",
+                label = stringResource(R.string.intake_style),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -124,7 +128,7 @@ fun DetailsIntakeScreen(
             ValidatedTextField(
                 value = form.size,
                 onValueChange = { v -> viewModel.update { it.copy(size = v) } },
-                label = "Size",
+                label = stringResource(R.string.intake_size),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -132,7 +136,7 @@ fun DetailsIntakeScreen(
             ValidatedTextField(
                 value = form.color,
                 onValueChange = { v -> viewModel.update { it.copy(color = v) } },
-                label = "Color",
+                label = stringResource(R.string.intake_color),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -140,13 +144,13 @@ fun DetailsIntakeScreen(
             ValidatedTextField(
                 value = form.material,
                 onValueChange = { v -> viewModel.update { it.copy(material = v) } },
-                label = "Material",
+                label = stringResource(R.string.intake_material),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
         item {
             LabeledDropdown(
-                label = "Category",
+                label = stringResource(R.string.intake_category),
                 selected = FlipdeskCategory.from(form.category),
                 options = FlipdeskCategory.entries,
                 optionLabel = { it.label },
@@ -156,7 +160,7 @@ fun DetailsIntakeScreen(
         }
         item {
             LabeledDropdown(
-                label = "Status",
+                label = stringResource(R.string.intake_status),
                 selected = IntakeStatus.from(form.status),
                 options = IntakeStatus.entries,
                 optionLabel = { it.label },
@@ -166,12 +170,12 @@ fun DetailsIntakeScreen(
         }
         item {
             LabeledDropdown(
-                label = "Source",
+                label = stringResource(R.string.intake_source),
                 selected = state.sources.firstOrNull { it.id == form.sourceId },
                 options = state.sources,
                 optionLabel = { it.name },
                 onSelect = { s -> viewModel.update { it.copy(sourceId = s.id) } },
-                placeholder = "No source",
+                placeholder = stringResource(R.string.intake_no_source),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -179,7 +183,7 @@ fun DetailsIntakeScreen(
             ValidatedTextField(
                 value = form.container,
                 onValueChange = { v -> viewModel.update { it.copy(container = v) } },
-                label = "Container",
+                label = stringResource(R.string.intake_container),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -187,7 +191,7 @@ fun DetailsIntakeScreen(
             ValidatedTextField(
                 value = form.sourcedBy,
                 onValueChange = { v -> viewModel.update { it.copy(sourcedBy = v) } },
-                label = "Sourced by",
+                label = stringResource(R.string.intake_sourced_by),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -195,7 +199,7 @@ fun DetailsIntakeScreen(
             ValidatedTextField(
                 value = form.purchasePriceText,
                 onValueChange = { v -> viewModel.update { it.copy(purchasePriceText = v) } },
-                label = "Purchase price",
+                label = stringResource(R.string.intake_purchase_price),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -214,13 +218,15 @@ fun DetailsIntakeScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BrandPrimaryButton(
-                    text = if (state.saving) "Saving…" else "Save",
+                    text = stringResource(
+                        if (state.saving) R.string.templates_saving else R.string.common_save,
+                    ),
                     enabled = !state.saving,
                     onClick = { viewModel.save() },
                     modifier = Modifier.weight(1f),
                 )
                 BrandSecondaryButton(
-                    text = "Save & add another",
+                    text = stringResource(R.string.intake_save_add_another),
                     enabled = !state.saving,
                     onClick = { viewModel.save(addAnother = true) },
                     modifier = Modifier.weight(1f),
@@ -238,14 +244,17 @@ private fun MergeSkuDialog(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    // Read here, not inside the ifBlank lambdas — those run inside a
+    // non-composable `let` chain on each conflict row.
+    val blank = stringResource(R.string.intake_blank_value)
+    val chosen = stringResource(R.string.intake_chosen_marker)
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("That SKU is already in use") },
+        title = { Text(stringResource(R.string.intake_that_sku_already_use)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 Text(
-                    "Combine these details into the existing item. " +
-                        "Pick which value to keep for each field.",
+                    stringResource(R.string.intake_merge_body),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 prompt.conflicts.forEach { conflict ->
@@ -255,14 +264,14 @@ private fun MergeSkuDialog(
                         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                             TextButton(onClick = { onToggle(conflict.field, false) }) {
                                 Text(
-                                    conflict.current.display.ifBlank { "(blank)" } +
-                                        if (!keepExisting) " ✓" else "",
+                                    conflict.current.display.ifBlank { blank } +
+                                        if (!keepExisting) chosen else "",
                                 )
                             }
                             TextButton(onClick = { onToggle(conflict.field, true) }) {
                                 Text(
-                                    conflict.existing.display.ifBlank { "(blank)" } +
-                                        if (keepExisting) " ✓" else "",
+                                    conflict.existing.display.ifBlank { blank } +
+                                        if (keepExisting) chosen else "",
                                 )
                             }
                         }
@@ -270,7 +279,7 @@ private fun MergeSkuDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Combine") } },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.intake_combine)) } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(stringResource(R.string.intake_cancel)) } },
     )
 }

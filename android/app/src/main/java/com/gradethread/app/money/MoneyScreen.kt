@@ -21,6 +21,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -48,6 +51,7 @@ import java.util.Locale
 @Composable
 fun MoneyScreen(
     onOpenSales: () -> Unit,
+    onOpenPayouts: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MoneyViewModel = hiltViewModel(),
 ) {
@@ -68,9 +72,13 @@ fun MoneyScreen(
                 Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Money", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.money_money), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                 TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
-                    Text(if (refreshing) "Refreshing…" else "Refresh")
+                    Text(
+                        stringResource(
+                            if (refreshing) R.string.common_refreshing else R.string.common_refresh,
+                        ),
+                    )
                 }
             }
         }
@@ -89,17 +97,17 @@ fun MoneyScreen(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 KpiTile(
-                    label = "Revenue (mo)",
+                    label = stringResource(R.string.money_revenue_mo),
                     value = Money.format(state.metrics.revenueThisMonth),
                     modifier = Modifier.weight(1f),
                 )
                 KpiTile(
-                    label = "Net profit (mo)",
+                    label = stringResource(R.string.money_net_profit_mo),
                     value = Money.format(state.metrics.netProfitThisMonth),
                     modifier = Modifier.weight(1f),
                 )
                 KpiTile(
-                    label = "ROI (mo)",
+                    label = stringResource(R.string.money_roi_mo),
                     // "—" rather than 0% when no cost basis is recorded.
                     value = Money.formatPercent(state.metrics.roiThisMonth),
                     modifier = Modifier.weight(1f),
@@ -108,8 +116,10 @@ fun MoneyScreen(
         }
         item {
             Text(
-                "Operating expenses this month: ${Money.format(state.expensesThisMonth)}. " +
-                    "Net profit is before expenses.",
+                stringResource(
+                    R.string.money_expenses_this_month,
+                    Money.format(state.expensesThisMonth),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xxs),
@@ -123,18 +133,27 @@ fun MoneyScreen(
 
         // ── Revenue chart ────────────────────────────────────────────────────
         item {
-            Panel("Revenue, last 6 months") {
+            val revenueItem = stringResource(R.string.money_revenue_spoken_item)
+            Panel(stringResource(R.string.money_revenue_title)) {
                 BarChart(
                     bars = state.metrics.monthlyRevenue.map { BarDatum(it.label, it.revenue) },
-                    description = "Revenue by month: " + state.metrics.monthlyRevenue
-                        .joinToString(", ") { "${it.label} ${Money.formatCompact(it.revenue)}" },
+                    description = stringResource(
+                        R.string.money_revenue_spoken,
+                        state.metrics.monthlyRevenue.joinToString(", ") {
+                            revenueItem.format(it.label, Money.formatCompact(it.revenue))
+                        },
+                    ),
                 )
             }
         }
 
         // ── Cash flow ────────────────────────────────────────────────────────
         item {
-            Panel("Cash flow — in vs out") {
+            // The per-entry template is read ONCE, here, and formatted inside
+            // the join: `joinToString`'s lambda is not a composable scope, so a
+            // stringResource call inside it would not compile.
+            val cashFlowItem = stringResource(R.string.money_cash_flow_spoken_item)
+            Panel(stringResource(R.string.money_cash_flow_title)) {
                 GroupedBarChart(
                     labels = state.cashFlow.map { it.label },
                     seriesA = state.cashFlow.map { it.revenue },
@@ -142,15 +161,21 @@ fun MoneyScreen(
                     // showing expenses alone would make a month that bought
                     // heavily look profitable.
                     seriesB = state.cashFlow.map { it.expenses + it.costBasis },
-                    description = "Cash flow by month: " + state.cashFlow.joinToString(", ") {
-                        "${it.label} net ${Money.formatCompact(it.net)}"
-                    },
+                    description = stringResource(
+                        R.string.money_cash_flow_spoken,
+                        state.cashFlow.joinToString(", ") {
+                            cashFlowItem.format(it.label, Money.formatCompact(it.net))
+                        },
+                    ),
                 )
                 state.cashFlow.lastOrNull()?.let { current ->
                     Text(
-                        "This month: in ${Money.format(current.revenue)}, " +
-                            "out ${Money.format(current.expenses + current.costBasis)}, " +
-                            "net ${Money.format(current.net)}",
+                        stringResource(
+                            R.string.money_this_month_summary,
+                            Money.format(current.revenue),
+                            Money.format(current.expenses + current.costBasis),
+                            Money.format(current.net),
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = Spacing.xxs),
@@ -161,17 +186,25 @@ fun MoneyScreen(
 
         // ── Inventory aging ──────────────────────────────────────────────────
         item {
-            Panel("Inventory aging — capital tied up") {
+            val agingItem = stringResource(R.string.money_aging_spoken_item)
+            Panel(stringResource(R.string.money_aging_title)) {
                 BarChart(
                     bars = state.aging.map { BarDatum(it.label, it.count.toDouble()) },
-                    description = "Inventory aging: " + state.aging.joinToString(", ") {
-                        "${it.label}, ${it.count} items, ${Money.formatCompact(it.value)}"
-                    },
+                    description = stringResource(
+                        R.string.money_aging_spoken,
+                        state.aging.joinToString(", ") {
+                            agingItem.format(it.label, it.count, Money.formatCompact(it.value))
+                        },
+                    ),
                 )
                 state.aging.lastOrNull()?.takeIf { it.count > 0 }?.let { oldest ->
                     Text(
-                        "${oldest.count} items held 60+ days " +
-                            "(${Money.format(oldest.value)} of cost basis).",
+                        pluralStringResource(
+                            R.plurals.money_aging_oldest,
+                            oldest.count,
+                            oldest.count,
+                            Money.format(oldest.value),
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = Spacing.xxs),
@@ -183,18 +216,26 @@ fun MoneyScreen(
         // ── Time on market ───────────────────────────────────────────────────
         if (state.timeOnMarket.hasData) {
             item {
-                Panel("Time on market") {
+                val daysToSellItem = stringResource(R.string.money_days_to_sell_spoken_item)
+                Panel(stringResource(R.string.money_time_on_market_title)) {
                     Text(
-                        "Average ${state.timeOnMarket.averageDays} days to sell " +
-                            "across ${state.timeOnMarket.soldCount} sales.",
+                        stringResource(
+                            R.string.money_time_on_market_summary,
+                            state.timeOnMarket.averageDays,
+                            state.timeOnMarket.soldCount,
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     BarChart(
                         bars = state.timeOnMarket.distribution.map {
                             BarDatum(it.label, it.count.toDouble())
                         },
-                        description = "Days to sell: " + state.timeOnMarket.distribution
-                            .joinToString(", ") { "${it.label}, ${it.count}" },
+                        description = stringResource(
+                            R.string.money_days_to_sell_spoken,
+                            state.timeOnMarket.distribution.joinToString(", ") {
+                                daysToSellItem.format(it.label, it.count)
+                            },
+                        ),
                         modifier = Modifier.padding(top = Spacing.xs),
                     )
                 }
@@ -203,7 +244,7 @@ fun MoneyScreen(
 
         // ── ROI by source ────────────────────────────────────────────────────
         if (state.sourceRoi.isNotEmpty()) {
-            item { PanelHeader("ROI by source") }
+            item { PanelHeader(stringResource(R.string.money_roi_by_source)) }
             items(state.sourceRoi, key = { it.sourceId ?: "__none__" }) { row ->
                 SourceRoiRowView(row)
                 HorizontalDivider()
@@ -217,11 +258,14 @@ fun MoneyScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Profit by item",
+                    stringResource(R.string.money_profit_by_item),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = onOpenSales) { Text("All sales") }
+                TextButton(onClick = onOpenSales) { Text(stringResource(R.string.money_all_sales)) }
+                // US-1365: the "did I actually get paid" question sits next to
+                // the sales it is about, not in a settings screen.
+                TextButton(onClick = onOpenPayouts) { Text(stringResource(R.string.money_payouts)) }
             }
         }
         item {
@@ -241,7 +285,7 @@ fun MoneyScreen(
         if (sortedRows.isEmpty()) {
             item {
                 Text(
-                    "No completed sales yet — refunded and cancelled orders don't count here.",
+                    stringResource(R.string.money_no_completed_sales),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(Spacing.md),
@@ -261,7 +305,7 @@ fun MoneyScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Expenses",
+                    stringResource(R.string.money_expenses),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
@@ -269,14 +313,13 @@ fun MoneyScreen(
                     onClick = {
                         sheetDraft = ExpenseDraft(spentOnMs = System.currentTimeMillis())
                     },
-                ) { Text("Add") }
+                ) { Text(stringResource(R.string.money_add)) }
             }
         }
         if (state.expenses.isEmpty()) {
             item {
                 Text(
-                    "Record supplies, shipping and software so your P&L reflects what you " +
-                        "actually spend.",
+                    stringResource(R.string.money_expenses_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
@@ -306,10 +349,9 @@ fun MoneyScreen(
 @Composable
 private fun EmptyState() {
     Column(Modifier.fillMaxWidth().padding(Spacing.xl)) {
-        Text("Nothing to report yet", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.money_nothing_to_report_yet), style = MaterialTheme.typography.titleMedium)
         Text(
-            "Once you catalog items and record sales, your revenue, profit, cash flow and " +
-                "inventory aging appear here — computed on your device, so it works offline.",
+            stringResource(R.string.money_empty_body),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -328,7 +370,7 @@ private fun Banner(message: String, onDismiss: () -> Unit) {
             color = MaterialTheme.colorScheme.error,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onDismiss) { Text("Dismiss") }
+        TextButton(onClick = onDismiss) { Text(stringResource(R.string.money_dismiss)) }
     }
 }
 
@@ -351,8 +393,9 @@ private fun Panel(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun KpiTile(label: String, value: String, modifier: Modifier = Modifier) {
+    val spoken = stringResource(R.string.money_tile_spoken, label, value)
     Card(modifier) {
-        Column(Modifier.padding(Spacing.sm).semantics { contentDescription = "$label: $value" }) {
+        Column(Modifier.padding(Spacing.sm).semantics { contentDescription = spoken }) {
             Text(
                 label,
                 style = MaterialTheme.typography.labelSmall,
@@ -376,8 +419,12 @@ private fun SourceRoiRowView(row: SourceRoiRow) {
         Column(Modifier.weight(1f)) {
             Text(row.sourceName, style = MaterialTheme.typography.bodyMedium)
             Text(
-                "${row.soldCount}/${row.acquiredCount} sold · " +
-                    "spend ${Money.format(row.spend)}",
+                stringResource(
+                    R.string.money_source_row_detail,
+                    row.soldCount,
+                    row.acquiredCount,
+                    Money.format(row.spend),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -411,8 +458,12 @@ private fun ItemProfitRowView(row: ItemProfitRow) {
         Column(Modifier.weight(1f)) {
             Text(row.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
             Text(
-                "${formatDate(row.saleDateMs)} · sold ${Money.format(row.revenue)} · " +
-                    "cost ${Money.format(row.costBasis)}",
+                stringResource(
+                    R.string.money_sale_row_detail,
+                    formatDate(row.saleDateMs),
+                    Money.format(row.revenue),
+                    Money.format(row.costBasis),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -463,7 +514,7 @@ private fun ExpenseRowView(
             )
         }
         Text(Money.format(expense.amount), style = MaterialTheme.typography.bodyMedium)
-        TextButton(onClick = onDelete) { Text("Remove") }
+        TextButton(onClick = onDelete) { Text(stringResource(R.string.money_remove)) }
     }
 }
 

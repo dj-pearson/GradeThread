@@ -10,6 +10,8 @@ import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.fragment.app.FragmentActivity
+import com.gradethread.app.auth.AuthRepository
+import com.gradethread.app.auth.AuthScreen
 import com.gradethread.app.platform.applock.AppLock
 import com.gradethread.app.platform.applock.LockScreen
 import com.gradethread.app.platform.applock.PrivacyCover
@@ -27,6 +29,18 @@ import dagger.hilt.android.AndroidEntryPoint
  */
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
+
+    /**
+     * US-2369: the phase the shell/sign-in switch reads.
+     *
+     * Injected rather than reached through a ViewModel: the phase is
+     * process-wide (AuthRepository is a @Singleton whose tail is started in
+     * Application.onCreate), and a ViewModel here would just be a second
+     * lifetime holding the same StateFlow.
+     */
+    @javax.inject.Inject
+    lateinit var authRepository: AuthRepository
+
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,13 +55,29 @@ class MainActivity : FragmentActivity() {
         setContent {
             GradeThreadTheme {
                 val locked by AppLock.locked.collectAsState()
+                val authPhase by authRepository.phase.collectAsState()
                 if (locked) {
                     LockScreen(onUnlock = { AppLock.promptUnlock(this) })
                 } else {
-                    val sizeClass = calculateWindowSizeClass(this)
-                    AppShell(
-                        isCompactWidth = sizeClass.widthSizeClass == WindowWidthSizeClass.Compact,
-                    )
+                    // US-2369: the shell used to compose UNCONDITIONALLY, so
+                    // the app was unusable by anyone without a session — there
+                    // was nowhere to sign in. Loading renders nothing rather
+                    // than flashing the form: the session restores from
+                    // encrypted storage in milliseconds, and a sign-in screen
+                    // that appears and vanishes on every cold start reads as a
+                    // bug.
+                    when (authPhase) {
+                        is AuthRepository.Phase.SignedIn -> {
+                            val sizeClass = calculateWindowSizeClass(this)
+                            AppShell(
+                                isCompactWidth =
+                                    sizeClass.widthSizeClass == WindowWidthSizeClass.Compact,
+                            )
+                        }
+
+                        AuthRepository.Phase.SignedOut -> AuthScreen()
+                        AuthRepository.Phase.Loading -> Unit
+                    }
                 }
             }
         }

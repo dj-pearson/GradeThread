@@ -1,0 +1,197 @@
+package com.gradethread.app.consignment
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.gradethread.app.money.Money
+import com.gradethread.app.sync.db.GradeThreadDb
+import com.gradethread.app.ui.components.InfoCard
+import com.gradethread.app.ui.components.InfoTone
+import com.gradethread.app.ui.theme.BrandSecondaryButton
+import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.cardStyle
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+/**
+ * US-1372 AC3: what each consignor is owed.
+ *
+ * Items and sales come from Room, so the money math works offline; only the
+ * consignor NAMES need the network, and a failure there leaves the last list
+ * in place rather than blanking the report.
+ */
+@HiltViewModel
+class ConsignmentReportViewModel @Inject constructor(
+    db: GradeThreadDb,
+    private val service: ConsignorProviding,
+) : ViewModel() {
+
+    data class State(
+        val rows: List<ConsignmentReportRow> = emptyList(),
+        val consignorCount: Int = 0,
+        val unsoldConsigned: Int = 0,
+        val loading: Boolean = false,
+        val errorMessage: String? = null,
+    ) {
+        val totalOwed: Double get() = ConsignmentReport.totalOwed(rows)
+        val totalYourCut: Double get() = ConsignmentReport.totalYourCut(rows)
+        val emptyMessage: String
+            get() = ConsignmentReport.emptyMessage(consignorCount, unsoldConsigned)
+    }
+
+    private val consignors = MutableStateFlow<List<Consignor>>(emptyList())
+    private val loading = MutableStateFlow(false)
+    private val error = MutableStateFlow<String?>(null)
+
+    val state: StateFlow<State> = combine(
+        db.items().observeAll(),
+        db.sales().observeAll(),
+        consignors,
+        loading,
+        error,
+    ) { items, sales, people, isLoading, errorMessage ->
+        State(
+            rows = ConsignmentReport.compute(items, sales, people),
+            consignorCount = people.size,
+            unsoldConsigned = ConsignmentReport.unsoldConsignedCount(items, sales),
+            loading = isLoading,
+            errorMessage = errorMessage,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), State())
+
+    fun load() {
+        if (loading.value) return
+        loading.value = true
+        error.value = null
+        viewModelScope.launch {
+            runCatching { service.list() }
+                .onSuccess { consignors.value = it }
+                .onFailure {
+                    error.value = "Couldn't load your consignors, so names may be missing."
+                }
+            loading.value = false
+        }
+    }
+
+    fun dismissError() {
+        error.value = null
+    }
+}
+
+@Composable
+fun ConsignmentReportScreen(
+    onClose: () -> Unit = {},
+    viewModel: ConsignmentReportViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsState()
+    LaunchedEffect(Unit) { viewModel.load() }
+
+    Column(
+        Modifier.fillMaxSize().padding(Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        Text("Consignment payouts", style = MaterialTheme.typography.titleLarge)
+        Text(
+            // Naming what's excluded, because a consignor will ask.
+            "From completed sales only. Cancelled and refunded orders don't count.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        state.errorMessage?.let { InfoCard("Heads up", it, tone = InfoTone.Warning) }
+
+        if (state.rows.isNotEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().cardStyle(),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+            ) {
+                Text(
+                    "${Money.format(state.totalOwed)} owed",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    "You keep ${Money.format(state.totalYourCut)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        LazyColumn(
+            Modifier.fillMaxWidth().weight(1f),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            if (state.rows.isEmpty()) {
+                item { InfoCard("Nothing to pay out yet", state.emptyMessage) }
+            }
+            items(state.rows, key = { it.consignorId }) { row -> ReportCard(row) }
+        }
+
+        BrandSecondaryButton(
+            text = if (state.loading) "Refreshing…" else "Refresh",
+            enabled = !state.loading,
+            modifier = Modifier.fillMaxWidth(),
+        ) { viewModel.load() }
+        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+    }
+}
+
+@Composable
+private fun ReportCard(row: ConsignmentReportRow) {
+    Column(
+        Modifier.fillMaxWidth().cardStyle(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                row.consignorName,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                Money.format(row.consignorPayout),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Text(
+            "${row.itemsSold} ${if (row.itemsSold == 1) "item" else "items"} · " +
+                "${Money.format(row.grossRevenue)} sold · " +
+                "${Money.format(row.fees)} fees",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            // The three numbers side by side, so the arithmetic is checkable
+            // rather than something the seller has to trust.
+            "${Money.format(row.netProceeds)} after fees · " +
+                "you keep ${Money.format(row.yourCut)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}

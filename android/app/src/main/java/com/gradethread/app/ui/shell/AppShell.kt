@@ -22,14 +22,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.gradethread.app.billing.PlanStepHost
+import com.gradethread.app.ui.state.Restorable
+import com.gradethread.app.marketplaces.reconciliation.ReconcileBanner
+import com.gradethread.app.plangate.PlanGateHost
 import androidx.navigation.compose.rememberNavController
 import com.gradethread.app.R
 import androidx.compose.runtime.LaunchedEffect
@@ -57,11 +64,20 @@ fun AppShell(
     isCompactWidth: Boolean,
     // Chrome slots the platform stories fill in; empty by default.
     statusBar: @Composable () -> Unit = {},
-    reconcileBanner: @Composable () -> Unit = {},
+    /**
+     * US-1356: override the shell-wide orphan banner. Null uses the real one,
+     * which reads the count itself and navigates into the queue.
+     */
+    reconcileBanner: (@Composable () -> Unit)? = null,
 ) {
     val navController = rememberNavController()
     val haptics = rememberHapticFeedback()
-    var addSheetOpen by remember { mutableStateOf(false) }
+    // US-1390: saveable, not remembered. A rotation with the Add sheet open
+    // otherwise closes it mid-choice, and on a foldable that happens every time
+    // someone opens the device.
+    var addSheetOpen by rememberSaveable(key = Restorable.Keys.ADD_SHEET_OPEN) {
+        mutableStateOf(false)
+    }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -138,11 +154,34 @@ fun AppShell(
             }
             androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
                 statusBar()
-                reconcileBanner()
+                // US-1367: a 402 raised by ANY request in ANY tab has to reach
+                // the seller, so the gate lives here rather than per-screen.
+                // PlanGateNotifier has been publishing since US-1306 with
+                // nothing subscribed to it.
+                PlanGateHost(onUpgrade = { navController.navigate(ShellRoutes.PAYWALL) })
+                if (reconcileBanner != null) {
+                    reconcileBanner()
+                } else {
+                    ReconcileBanner(
+                        onOpen = { navController.navigate(ShellRoutes.RECONCILE) },
+                    )
+                }
                 ShellNavHost(navController)
             }
         }
     }
+
+    // US-1367: the one-time post-signup plan step, over everything. It decides
+    // for itself whether it should appear and renders nothing otherwise.
+    PlanStepHost()
+
+    // US-1384: the first run, ABOVE the plan step — asking someone to pick a
+    // plan before they know what the app does is the wrong order. Like the plan
+    // step, it decides for itself whether to appear.
+    com.gradethread.app.onboarding.OnboardingHost(
+        onFirstAction = { route -> navController.navigate(route) { launchSingleTop = true } },
+        onConnectEbay = { navController.navigate(ShellSection.MARKETPLACES.route) },
+    )
 
     if (addSheetOpen) {
         AddMethodSheet(
@@ -206,6 +245,7 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellSection.MONEY.route) {
             com.gradethread.app.money.MoneyScreen(
                 onOpenSales = { navController.navigate(ShellRoutes.SALES) },
+                onOpenPayouts = { navController.navigate(ShellRoutes.PAYOUTS) },
             )
         }
         // US-1371: the sales list with per-item P&L.
@@ -214,9 +254,151 @@ private fun ShellNavHost(navController: NavHostController) {
                 onOpenItem = { itemId -> navController.navigate("item/$itemId") },
             )
         }
+        // US-1368: analytics + the listing-performance drill-down.
+        composable(ShellRoutes.ANALYTICS) {
+            com.gradethread.app.analytics.AnalyticsScreen(
+                onOpenListingPerformance = {
+                    navController.navigate(ShellRoutes.LISTING_PERFORMANCE)
+                },
+                onOpenCommunity = { navController.navigate(ShellRoutes.COMMUNITY) },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1377: the shipping queue.
+        composable(ShellRoutes.FULFILLMENT) {
+            com.gradethread.app.fulfillment.FulfillmentScreen(
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1375: verified-seller status (read-only).
+        composable(ShellRoutes.VERIFIED) {
+            com.gradethread.app.verified.VerifiedScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1374: ScoutAI + in-store prospecting.
+        composable(ShellRoutes.SCOUT) {
+            com.gradethread.app.scout.ScoutScreen(
+                onOpenProspect = { navController.navigate(ShellRoutes.PROSPECT) },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        composable(ShellRoutes.PROSPECT) {
+            com.gradethread.app.scout.ProspectScreen(
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1373: saved listing presets.
+        composable(ShellRoutes.TEMPLATES) {
+            com.gradethread.app.templates.TemplatesScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1372: consignors + the payout report.
+        composable(ShellRoutes.CONSIGNORS) {
+            com.gradethread.app.consignment.ConsignorsScreen(
+                onOpenReport = { navController.navigate(ShellRoutes.CONSIGNMENT_REPORT) },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        composable(ShellRoutes.CONSIGNMENT_REPORT) {
+            com.gradethread.app.consignment.ConsignmentReportScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1369: community benchmarks. A brand tap files a filter request and
+        // switches to the inventory TAB, so the seller lands on the real list
+        // with its own back stack rather than a one-off copy of it.
+        composable(ShellRoutes.COMMUNITY) {
+            com.gradethread.app.analytics.CommunityInsightsScreen(
+                onOpenInventory = { toSection(ShellSection.INVENTORY) },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        composable(ShellRoutes.LISTING_PERFORMANCE) {
+            com.gradethread.app.analytics.ListingPerformanceScreen(
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1367: plans + credit packs.
+        composable(ShellRoutes.PAYWALL) {
+            com.gradethread.app.billing.PaywallScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1365: payouts reconciled against the recorded sales.
+        composable(ShellRoutes.PAYOUTS) {
+            com.gradethread.app.money.PayoutReconciliationScreen(
+                onOpenItem = { itemId -> navController.navigate("item/$itemId") },
+                onClose = { navController.popBackStack() },
+            )
+        }
         // US-1350: eBay connections replace the placeholder.
         composable(ShellSection.MARKETPLACES.route) {
-            com.gradethread.app.marketplaces.MarketplacesScreen()
+            com.gradethread.app.marketplaces.MarketplacesScreen(
+                onOpenNegotiation = { navController.navigate(ShellRoutes.negotiation()) },
+                onOpenBulkPricing = { navController.navigate(ShellRoutes.BULK_PRICING) },
+                onOpenPostSale = { navController.navigate(ShellRoutes.POST_SALE) },
+                onOpenRepricing = { navController.navigate(ShellRoutes.REPRICING) },
+                onOpenDrafts = { navController.navigate(ShellRoutes.DRAFTS) },
+                onOpenAutomations = { navController.navigate(ShellRoutes.AUTOMATIONS) },
+            )
+        }
+        // US-1354: the offers + messages inbox. The item argument is optional —
+        // a deep link scopes the inbox to one listing, the tab entry doesn't.
+        composable(
+            ShellRoutes.NEGOTIATION_PATTERN,
+            arguments = listOf(
+                navArgument("item") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
+            com.gradethread.app.marketplaces.negotiation.NegotiationInboxScreen(
+                filterItemId = entry.arguments?.getString("item"),
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1362: automation rules.
+        composable(ShellRoutes.AUTOMATIONS) {
+            com.gradethread.app.automations.AutomationsScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1359: the AutoLister drafts library.
+        composable(ShellRoutes.DRAFTS) {
+            com.gradethread.app.autolister.DraftsLibraryScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1358: repricing rules + suggestions.
+        composable(ShellRoutes.REPRICING) {
+            com.gradethread.app.pricing.RepricingScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1357: post-sale shipping + feedback, fed from the synced sales.
+        composable(ShellRoutes.POST_SALE) {
+            com.gradethread.app.marketplaces.postsale.PostSaleScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1356: the orphan-listing queue.
+        composable(ShellRoutes.RECONCILE) {
+            com.gradethread.app.marketplaces.reconciliation.ReconciliationScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
+        // US-1355: the bulk price editor.
+        composable(ShellRoutes.BULK_PRICING) {
+            com.gradethread.app.marketplaces.pricing.BulkPricingScreen(
+                onClose = { navController.popBackStack() },
+            )
         }
         // US-1383: settings replace the placeholder — including the app's only
         // route to signing out.
@@ -225,7 +407,9 @@ private fun ShellNavHost(navController: NavHostController) {
                 onOpenMarketplaces = { toSection(ShellSection.MARKETPLACES) },
                 // The credit top-up lives in the grading flow; Tools is the
                 // stable surface that reaches it without an item in hand.
-                onOpenCredits = { navController.navigate(ShellRoutes.TOOLS) },
+                onOpenCredits = { navController.navigate(ShellRoutes.PAYWALL) },
+                onOpenPlans = { navController.navigate(ShellRoutes.PAYWALL) },
+                onOpenSupport = { navController.navigate(ShellRoutes.SUPPORT) },
             )
         }
         // US-1349: global search replaces the placeholder.
@@ -245,7 +429,47 @@ private fun ShellNavHost(navController: NavHostController) {
             ToolsScreen(
                 onSnap = { navController.navigate(ShellRoutes.SNAP) },
                 onGrades = { navController.navigate(ShellRoutes.GRADES) },
+                onAnalytics = { navController.navigate(ShellRoutes.ANALYTICS) },
+                onConsignors = { navController.navigate(ShellRoutes.CONSIGNORS) },
+                onTemplates = { navController.navigate(ShellRoutes.TEMPLATES) },
+                onScout = { navController.navigate(ShellRoutes.SCOUT) },
+                onProspect = { navController.navigate(ShellRoutes.PROSPECT) },
+                onVerified = { navController.navigate(ShellRoutes.VERIFIED) },
+                onShipping = { navController.navigate(ShellRoutes.FULFILLMENT) },
+                onReferrals = { navController.navigate(ShellRoutes.REFERRALS) },
+                onSupport = { navController.navigate(ShellRoutes.SUPPORT) },
+                onImport = { navController.navigate(ShellRoutes.IMPORT) },
             )
+        }
+        // US-1389: CSV / Sheets import.
+        composable(ShellRoutes.IMPORT) {
+            com.gradethread.app.importer.ImportScreen(
+                onDone = {
+                    navController.navigate(ShellSection.INVENTORY.route) {
+                        popUpTo(ShellRoutes.IMPORT) { inclusive = true }
+                    }
+                },
+            )
+        }
+        // US-1386: the support inbox, and the thread a support.reply push
+        // deep-links straight to.
+        composable(ShellRoutes.SUPPORT) {
+            com.gradethread.app.support.SupportScreen(
+                onOpenTicket = { id -> navController.navigate(ShellRoutes.supportThread(id)) },
+            )
+        }
+        composable(
+            "support/{ticketId}",
+            arguments = listOf(navArgument("ticketId") { type = NavType.StringType }),
+        ) { entry ->
+            com.gradethread.app.support.SupportThreadScreen(
+                ticketId = entry.arguments?.getString("ticketId").orEmpty(),
+                onBack = { navController.popBackStack() },
+            )
+        }
+        // US-1385: your referral code, and applying a friend's.
+        composable(ShellRoutes.REFERRALS) {
+            com.gradethread.app.referrals.ReferralsScreen()
         }
         // US-1335: Snap-to-Value. Both CTAs leave the screen, so it pops
         // itself first — a back-press from the certified-grade flow must not
@@ -302,6 +526,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
                 onGrade = { navController.navigate("grade/$itemId") },
                 onOpenReport = { navController.navigate("report/$itemId") },
+                onOpenPassport = { navController.navigate("passport/$itemId") },
                 onOpenItem = { newId ->
                     // Replaces this canvas rather than stacking: back from a
                     // duplicate should reach the list, not the item it copied.
@@ -309,6 +534,13 @@ private fun ShellNavHost(navController: NavHostController) {
                         popUpTo("item/{itemId}") { inclusive = true }
                     }
                 },
+            )
+        }
+        // US-1376: the item's pedigree timeline.
+        composable("passport/{itemId}") { entry ->
+            com.gradethread.app.passport.PassportScreen(
+                itemId = entry.arguments?.getString("itemId").orEmpty(),
+                onClose = { navController.popBackStack() },
             )
         }
         // US-1341: the certified-grades history.

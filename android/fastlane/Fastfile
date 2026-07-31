@@ -1,0 +1,99 @@
+# US-1392: Play Console lanes for GradeThread / FlipDesk.
+#
+#   bundle exec fastlane internal    — upload the AAB to the internal track
+#   bundle exec fastlane beta        — promote/upload to the closed beta track
+#   bundle exec fastlane production  — upload to production, HALTED for review
+#   bundle exec fastlane metadata    — push listing text + screenshots only
+#
+# Auth: a Play Developer API service-account JSON, passed as CONTENT via
+# PLAY_SERVICE_ACCOUNT_JSON (see Appfile). No key file is ever written to disk.
+
+default_platform(:android)
+
+# Where Gradle puts the bundle. Named once so a lane can't drift from the build.
+AAB_PATH = File.expand_path("../app/build/outputs/bundle/release/app-release.aab", __dir__)
+
+platform :android do
+  before_all do
+    unless ENV["PLAY_SERVICE_ACCOUNT_JSON"].to_s.strip.empty?
+      # Fail here rather than three minutes into an upload: a truncated or
+      # unquoted secret is the usual cause, and supply's own error names a
+      # JSON parse failure without saying which value was wrong.
+      begin
+        require "json"
+        JSON.parse(ENV["PLAY_SERVICE_ACCOUNT_JSON"])
+      rescue JSON::ParserError => e
+        UI.user_error!("PLAY_SERVICE_ACCOUNT_JSON is not valid JSON: #{e.message}")
+      end
+    end
+  end
+
+  desc "Build the signed release bundle"
+  lane :bundle do
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      project_dir: File.expand_path("..", __dir__),
+      # Fail on an unsigned bundle rather than uploading one Play will reject
+      # minutes later with a message that does not name the cause.
+      print_command: false,
+    )
+    UI.user_error!("No AAB at #{AAB_PATH}") unless File.exist?(AAB_PATH)
+  end
+
+  desc "Upload to the internal track"
+  lane :internal do
+    upload(track: "internal")
+  end
+
+  desc "Upload to the closed beta track"
+  lane :beta do
+    upload(track: "beta")
+  end
+
+  desc "Upload to production, halted for a human to roll out"
+  lane :production do
+    # release_status 'draft' rather than 'completed': production is the one
+    # track where an automated 100% rollout is unrecoverable — Play has no
+    # un-publish, only a halt that leaves the bad build on devices that already
+    # took it. A human opens the Console and rolls it out.
+    upload(track: "production", release_status: "draft")
+  end
+
+  desc "Push listing text and screenshots without a binary"
+  lane :metadata do
+    supply(
+      track: "internal",
+      skip_upload_aab: true,
+      skip_upload_apk: true,
+      skip_upload_changelogs: false,
+      skip_upload_metadata: false,
+      skip_upload_images: false,
+      skip_upload_screenshots: false,
+      validate_only: false,
+    )
+  end
+
+  # Shared upload. `changelog_from_git_commit` is deliberately NOT used: Play
+  # shows the changelog to every tester, and raw commit subjects leak internal
+  # story ids and half-finished work. The text in
+  # metadata/android/en-US/changelogs/ is written for people.
+  private_lane :upload do |options|
+    bundle unless File.exist?(AAB_PATH)
+
+    supply(
+      aab: AAB_PATH,
+      track: options[:track],
+      release_status: options[:release_status] || "completed",
+      # Metadata and images ride along on every upload so the listing can never
+      # drift from the binary that is live.
+      skip_upload_metadata: false,
+      skip_upload_changelogs: false,
+      skip_upload_images: false,
+      skip_upload_screenshots: false,
+      # Play rejects an upload that names a mapping file it cannot find, and
+      # R8 only writes one when minification ran.
+      mapping_paths: Dir[File.expand_path("../app/build/outputs/mapping/release/mapping.txt", __dir__)],
+    )
+  end
+end

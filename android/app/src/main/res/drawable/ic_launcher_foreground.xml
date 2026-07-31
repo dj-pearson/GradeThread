@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  US-1381: the app mark — a hang tag, which is what a garment grade physically
+  is. Drawn inside the 66dp adaptive safe zone (x 30..82, y 38..70 of a 108
+  viewport) so no launcher mask can clip it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M30,54 L46,38 H76 A6,6 0 0 1 82,44 V64 A6,6 0 0 1 76,70 H46 Z M52,54 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+</vector>

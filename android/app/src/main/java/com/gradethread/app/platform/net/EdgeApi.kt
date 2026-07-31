@@ -107,8 +107,19 @@ class EdgeApi(
     suspend fun patchRaw(path: String, jsonBody: String): String =
         perform("PATCH", path, emptyMap(), jsonBody.toRequestBody(JSON_MEDIA))
 
-    suspend fun deleteRaw(path: String): String =
-        perform("DELETE", path, emptyMap(), null)
+    /** US-1358: some edge resources are replaced wholesale (repricing rules). */
+    suspend fun putRaw(path: String, jsonBody: String): String =
+        perform("PUT", path, emptyMap(), jsonBody.toRequestBody(JSON_MEDIA))
+
+    /**
+     * US-1378: a DELETE may carry a body.
+     *
+     * `DELETE /api/notifications/register` identifies the device token in the
+     * body rather than the path, because a push token is a credential and does
+     * not belong in a URL that proxies and access logs record.
+     */
+    suspend fun deleteRaw(path: String, jsonBody: String? = null): String =
+        perform("DELETE", path, emptyMap(), jsonBody?.toRequestBody(JSON_MEDIA))
 
     /**
      * POSTs one image part + optional string fields as multipart/form-data

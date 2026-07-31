@@ -10,6 +10,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import com.gradethread.app.ui.theme.Spacing
 
@@ -24,6 +26,16 @@ import com.gradethread.app.ui.theme.Spacing
 fun ToolsScreen(
     onSnap: () -> Unit,
     onGrades: () -> Unit = {},
+    onAnalytics: () -> Unit = {},
+    onConsignors: () -> Unit = {},
+    onTemplates: () -> Unit = {},
+    onScout: () -> Unit = {},
+    onProspect: () -> Unit = {},
+    onVerified: () -> Unit = {},
+    onShipping: () -> Unit = {},
+    onReferrals: () -> Unit = {},
+    onSupport: () -> Unit = {},
+    onImport: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -31,14 +43,64 @@ fun ToolsScreen(
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
         ToolRow(
-            title = "What's it worth?",
-            subtitle = "Snap one photo for an instant condition grade and resale range",
+            title = stringResource(R.string.tools_what_s_worth),
+            subtitle = stringResource(R.string.tools_snap_one_photo_instant_condition),
             onClick = onSnap,
         )
         ToolRow(
-            title = "Certified grades",
-            subtitle = "Every graded item, its report and its certificate",
+            title = stringResource(R.string.tools_certified_grades),
+            subtitle = stringResource(R.string.tools_every_graded_item_its_report),
             onClick = onGrades,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_analytics),
+            subtitle = stringResource(R.string.tools_grades_brands_sell_through_inventory),
+            onClick = onAnalytics,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_consignors),
+            subtitle = stringResource(R.string.tools_who_sell_their_split_what),
+            onClick = onConsignors,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_listing_templates),
+            subtitle = stringResource(R.string.tools_save_condition_specifics_boilerplate_reuse),
+            onClick = onTemplates,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_scout),
+            subtitle = stringResource(R.string.tools_find_underpriced_listings_ebay_graded),
+            onClick = onScout,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_prospect),
+            subtitle = stringResource(R.string.tools_shop_photograph_find_out_if),
+            onClick = onProspect,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_verified_seller),
+            subtitle = stringResource(R.string.tools_badge_status_what_s_left),
+            onClick = onVerified,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_shipping),
+            subtitle = stringResource(R.string.tools_what_s_sold_still_needs),
+            onClick = onShipping,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_invite_friend),
+            subtitle = stringResource(R.string.tools_share_code_earn_grading_credits),
+            onClick = onReferrals,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_import_spreadsheet),
+            subtitle = stringResource(R.string.tools_bring_inventory_from_csv_sheets),
+            onClick = onImport,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_support),
+            subtitle = stringResource(R.string.tools_open_request_read_our_replies),
+            onClick = onSupport,
         )
     }
 }

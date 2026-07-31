@@ -3,6 +3,7 @@ package com.gradethread.app.platform.deeplink
 import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -37,6 +38,13 @@ class DeepLinkTest {
             DeepLinkRoute.NegotiationInbox("i1"),
             route("https://gradethread.com/app/negotiation/i1"),
         )
+        // US-1354: the filter rides through to the inbox route, so a push about
+        // one listing opens that listing's offers rather than the whole inbox.
+        assertEquals(
+            "negotiation?item=i1",
+            DeepLinkRoute.NegotiationInbox("i1").toNavRoute(),
+        )
+        assertEquals("negotiation", DeepLinkRoute.NegotiationInbox(null).toNavRoute())
         assertEquals(DeepLinkRoute.GradesList, route("https://gradethread.com/app/grades"))
         assertEquals(
             DeepLinkRoute.SupportTickets("t7"),
@@ -67,6 +75,63 @@ class DeepLinkTest {
     }
 
     @Test
+    fun supportReply_landsOnTheThread_notOnSettings() {
+        // US-1386: this used to fall back to Settings, so a "support replied"
+        // push dropped the seller on a preferences screen with no reply in
+        // sight.
+        assertEquals(
+            "support/t7",
+            DeepLinkRoute.SupportTickets("t7").toNavRoute(),
+        )
+        assertEquals("support", DeepLinkRoute.SupportTickets(null).toNavRoute())
+        // A push with an empty ticket_id is the same as no ticket, not a route
+        // to a thread called "".
+        assertEquals("support", DeepLinkRoute.SupportTickets("  ").toNavRoute())
+    }
+
+    @Test
+    fun shortcutLinks_parse() {
+        // US-1381: its own host, not the widget's — the two grammars are edited
+        // by different features and a shared one drifts.
+        assertEquals(
+            DeepLinkRoute.CaptureItem,
+            DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/capture")),
+        )
+        assertEquals(
+            DeepLinkRoute.AddItem,
+            DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/add")),
+        )
+        assertEquals(
+            DeepLinkRoute.SalesTab(null),
+            DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/money")),
+        )
+        assertNull(DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/nope")))
+        // The widget host does NOT answer for shortcut paths, or vice versa.
+        assertNull(DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://widget/capture")))
+        assertNull(DeepLinkRoute.fromUri(Uri.parse("com.gradethread.app://shortcut/shipping")))
+    }
+
+    @Test
+    fun everyShortcutLink_thatShips_resolves() {
+        // Every Uri in shortcuts.xml and in the dynamic spec, parsed back. A
+        // typo in the XML is a long-press that opens nothing, with no crash to
+        // notice it by.
+        val uris = com.gradethread.app.platform.shortcuts.AppShortcuts.STATIC_URIS +
+            com.gradethread.app.platform.shortcuts.AppShortcuts.soldTodaySpec(null).uri
+        uris.forEach { assertNotNull(it, DeepLinkRoute.fromUri(Uri.parse(it))) }
+    }
+
+    @Test
+    fun everyWidgetLink_theWidgetActuallyBuilds_resolves() {
+        // US-1380: the widget builds these strings itself, in its own file. A
+        // typo there is a tap that opens nothing, and there is no crash to
+        // notice — so every value the widget can emit is parsed back here.
+        com.gradethread.app.widget.WidgetDeepLink.entries.forEach { link ->
+            assertNotNull(link.uri, DeepLinkRoute.fromUri(Uri.parse(link.uri)))
+        }
+    }
+
+    @Test
     fun foreignUris_fallThrough() {
         assertNull(DeepLinkRoute.fromUri(null))
         assertNull(DeepLinkRoute.fromUri(Uri.parse("https://evil.com/app/item/x")))
@@ -90,11 +155,15 @@ class DeepLinkTest {
             "capture/photos", "capture/details", "capture/autolister",
             // US-1335 / US-1341: the Tools hub's real destinations.
             "snap", "grades",
+            // US-1354: the offers + messages inbox.
+            "negotiation",
         )
         for (route in routes) {
+            // Compared on the PATH: an optional query argument (the inbox's
+            // item filter) is part of the link, not part of the destination.
             assertTrue(
                 "${route::class.simpleName} → ${route.toNavRoute()} is unregistered",
-                route.toNavRoute() in registered,
+                route.toNavRoute().substringBefore("?") in registered,
             )
         }
     }

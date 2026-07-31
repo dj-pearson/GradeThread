@@ -11,6 +11,7 @@ import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -174,6 +175,23 @@ fun CaptureScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
+        // US-1382: what the last share drain did, when it needs saying. Shown
+        // HERE because this is where the shared photos landed — a toast fired
+        // from a background drain would be gone before anyone looked.
+        val shareNotice by com.gradethread.app.intake.IntakeDrainer.lastMessage.collectAsState()
+        shareNotice?.let { notice ->
+            Text(
+                notice,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                    .clickable { com.gradethread.app.intake.IntakeDrainer.clearMessage() },
+            )
+        }
+
         // Hint for the active slot.
         Text(
             state.active.hint,

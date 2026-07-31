@@ -4,20 +4,26 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.sync.db.GradeThreadDb
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
  * US-1350: eBay account connections.
+ * US-1351: the listing pull and the listings it merges into the local cache.
  */
 @HiltViewModel
 class MarketplacesViewModel @Inject constructor(
     private val repository: MarketplaceConnectionRepository,
+    private val ebaySync: EbaySyncService,
+    db: GradeThreadDb,
 ) : ViewModel() {
 
     companion object {
@@ -32,6 +38,22 @@ class MarketplacesViewModel @Inject constructor(
          */
         const val CONFIRM_POLLS = 6
         const val CONFIRM_INTERVAL_MS = 1_000L
+
+        /**
+         * US-1351: plain-language sync summary. Deltas are named only when
+         * they're non-zero — "+0 since last sync" is noise, and a seller
+         * reading "0 listings" wants the total, not arithmetic.
+         */
+        fun syncedMessage(summary: EbaySyncSummary): String {
+            val parts = mutableListOf("${summary.listingsCount} listings")
+            if (summary.listingsDelta != 0) {
+                parts += "${signed(summary.listingsDelta)} since last sync"
+            }
+            if (summary.salesDelta != 0) parts += "${signed(summary.salesDelta)} sales"
+            return parts.joinToString(", ") + "."
+        }
+
+        private fun signed(delta: Int): String = if (delta > 0) "+$delta" else "$delta"
     }
 
     data class State(
@@ -44,12 +66,27 @@ class MarketplacesViewModel @Inject constructor(
         val errorMessage: String? = null,
         /** The consent URL to open in a Custom Tab; cleared once launched. */
         val pendingConsentUrl: String? = null,
+        /** US-1351: a listing pull is in flight. */
+        val syncing: Boolean = false,
     ) {
         val hasPrimary: Boolean get() = connections.any { it.isPrimary }
+
+        /** Nothing to sync from — don't offer the button as if there were. */
+        val canSync: Boolean get() = connections.isNotEmpty()
     }
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
+
+    /**
+     * US-1351: the cached listings, straight off Room.
+     *
+     * Reactive rather than fetched: the sync merges rows on a background
+     * coroutine, and Room re-emits, so the list updates as the pull lands
+     * instead of only when the screen is re-entered.
+     */
+    val listings: Flow<List<ListingCardModel>> =
+        db.listings().observeAll().map { rows -> rows.map { ListingCardModel.from(it) } }
 
     /** The nonce for the in-flight attempt. Null when nothing is in progress. */
     private var pendingNonce: String? = null
@@ -177,6 +214,45 @@ class MarketplacesViewModel @Inject constructor(
                 .onFailure { error ->
                     _state.value = _state.value.copy(errorMessage = repository.message(error))
                 }
+        }
+    }
+
+    /**
+     * US-1351: pull listings from eBay.
+     *
+     * The completion copy names what happened for each outcome. A timeout in
+     * particular is NOT reported as a failure — the sync keeps running on the
+     * server, and telling the seller it broke would send them to re-run a job
+     * that is already working.
+     */
+    fun syncListings() {
+        if (_state.value.syncing) return
+        _state.value = _state.value.copy(syncing = true, errorMessage = null, message = null)
+        viewModelScope.launch {
+            val baseline = ebaySync.snapshot()
+            val message: String
+            var isError = false
+            when (val outcome = ebaySync.sync(baseline)) {
+                is EbaySyncCompletion.Completed -> message = syncedMessage(outcome.summary)
+                is EbaySyncCompletion.TimedOut ->
+                    message = "Still syncing on eBay's side. Refresh in a minute to see the rest."
+
+                is EbaySyncCompletion.ConnectionFlagged -> {
+                    isError = true
+                    message = "eBay stopped accepting this connection: ${outcome.message}"
+                }
+
+                is EbaySyncCompletion.Failed -> {
+                    isError = true
+                    message = outcome.message
+                }
+            }
+            _state.value = _state.value.copy(
+                syncing = false,
+                connections = repository.list(),
+                message = message.takeIf { !isError },
+                errorMessage = message.takeIf { isError },
+            )
         }
     }
 

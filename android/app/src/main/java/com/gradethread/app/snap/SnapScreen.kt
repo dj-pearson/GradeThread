@@ -32,6 +32,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -106,8 +108,7 @@ fun SnapScreen(
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         Text(
-            "Snap a photo of any garment for an instant AI condition grade and a " +
-                "resale value range.",
+            stringResource(R.string.snap_intro),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -115,7 +116,7 @@ fun SnapScreen(
         PhotoArea(state.photo)
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            BrandSecondaryButton(text = "Take photo", modifier = Modifier.weight(1f)) {
+            BrandSecondaryButton(text = stringResource(R.string.snap_take_photo), modifier = Modifier.weight(1f)) {
                 haptics.light()
                 cameraDenied = false
                 val granted = ContextCompat.checkSelfPermission(
@@ -124,7 +125,7 @@ fun SnapScreen(
                 ) == PackageManager.PERMISSION_GRANTED
                 if (granted) launchCamera() else requestCamera.launch(Manifest.permission.CAMERA)
             }
-            BrandSecondaryButton(text = "Library", modifier = Modifier.weight(1f)) {
+            BrandSecondaryButton(text = stringResource(R.string.snap_library), modifier = Modifier.weight(1f)) {
                 haptics.light()
                 pickPhoto.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
@@ -135,12 +136,11 @@ fun SnapScreen(
         if (cameraDenied) {
             Column(Modifier.fillMaxWidth()) {
                 Text(
-                    "Camera access is off. Turn it on in Settings to take a photo — or " +
-                        "choose one from your library instead.",
+                    stringResource(R.string.snap_camera_denied),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
-                BrandSecondaryButton(text = "Open Settings", modifier = Modifier.fillMaxWidth()) {
+                BrandSecondaryButton(text = stringResource(R.string.snap_open_settings), modifier = Modifier.fillMaxWidth()) {
                     context.startActivity(
                         Intent(
                             Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
@@ -154,20 +154,22 @@ fun SnapScreen(
         OutlinedTextField(
             value = state.brand,
             onValueChange = viewModel::setBrand,
-            label = { Text("Brand (optional — unlocks value)") },
+            label = { Text(stringResource(R.string.snap_brand_optional_unlocks_value)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = state.keyword,
             onValueChange = viewModel::setKeyword,
-            label = { Text("Item, e.g. Better Sweater (optional)") },
+            label = { Text(stringResource(R.string.snap_item_e_g_better_sweater_optional)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
 
         BrandPrimaryButton(
-            text = if (state.loading) "Reading the photo…" else "What's it worth?",
+            text = stringResource(
+                if (state.loading) R.string.snap_reading else R.string.snap_whats_it_worth,
+            ),
             enabled = state.canEvaluate,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -209,7 +211,7 @@ private fun PhotoArea(photo: File?) {
     if (photo != null) {
         AsyncImage(
             model = photo,
-            contentDescription = "The garment you're grading",
+            contentDescription = stringResource(R.string.snap_the_garment_you_re_grading),
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
         )
@@ -225,7 +227,7 @@ private fun PhotoArea(photo: File?) {
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                "Take or choose a photo",
+                stringResource(R.string.snap_photo_placeholder),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -253,12 +255,12 @@ private fun ErrorCard(
     ) {
         Text(message, style = MaterialTheme.typography.bodyMedium)
         if (isUpgradePrompt) {
-            BrandPrimaryButton(text = "Get a certified grade", modifier = Modifier.fillMaxWidth()) {
+            BrandPrimaryButton(text = stringResource(R.string.snap_get_a_certified_grade), modifier = Modifier.fillMaxWidth()) {
                 onUpgrade()
             }
         } else {
             BrandSecondaryButton(
-                text = "Try again",
+                text = stringResource(R.string.snap_try_again),
                 enabled = canRetry,
                 modifier = Modifier.fillMaxWidth(),
             ) { onRetry() }
@@ -316,10 +318,10 @@ private fun ResultCard(
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            BrandPrimaryButton(text = "Get certified grade", modifier = Modifier.weight(1f)) {
+            BrandPrimaryButton(text = stringResource(R.string.snap_get_certified_grade), modifier = Modifier.weight(1f)) {
                 onCertifiedGrade()
             }
-            BrandSecondaryButton(text = "List it", modifier = Modifier.weight(1f)) { onList() }
+            BrandSecondaryButton(text = stringResource(R.string.snap_list_it), modifier = Modifier.weight(1f)) { onList() }
         }
     }
 }

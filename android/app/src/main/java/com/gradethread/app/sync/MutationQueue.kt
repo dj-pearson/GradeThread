@@ -226,4 +226,7 @@ enum class MutationKind(val wire: String) {
     CREATE_EXPENSE("createExpense"),
     DELETE_EXPENSE("deleteExpense"),
     REVISE_LISTING("reviseListing"),
+
+    /** US-1377: `shipped_at` (+ tracking) stamped on a sale while offline. */
+    MARK_SHIPPED("markShipped"),
 }

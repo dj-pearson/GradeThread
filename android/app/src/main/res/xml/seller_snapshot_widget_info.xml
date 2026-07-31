@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  US-1380: the seller-snapshot widget's system metadata.
+
+  updatePeriodMillis is 0 on purpose. The system's own period has a 30-minute
+  FLOOR and it would redraw on that schedule whether or not the numbers moved;
+  the app publishes after every sync instead, which is both fresher and cheaper.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_snapshot_description"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:minWidth="140dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="1"
+    android:resizeMode="horizontal"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

@@ -30,6 +30,9 @@ class SyncWatermark(private val context: Context) {
         EXPENSES("expenses"),
         LISTINGS("listings"),
         SOURCES("sources"),
+
+        /** US-1365: eBay payouts, the deposit side of reconciliation. */
+        PAYOUTS("payouts"),
     }
 
     private fun cursorKey(table: Table) = stringPreferencesKey("cursor.${table.key}")

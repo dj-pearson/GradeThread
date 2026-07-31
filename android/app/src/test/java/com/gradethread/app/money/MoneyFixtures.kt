@@ -92,6 +92,8 @@ object MoneyFixtures {
         otherCosts: Double? = null,
         status: String = "completed",
         saleDate: Long = 0L,
+        payoutReference: String? = null,
+        payoutAmount: Double? = null,
     ) = SaleEntity(
         id = id,
         inventoryItemId = itemId,
@@ -108,7 +110,8 @@ object MoneyFixtures {
         status = status,
         buyerUsername = null,
         platformOrderId = null,
-        payoutReference = null,
+        payoutReference = payoutReference,
+        payoutAmount = payoutAmount,
         saleDate = saleDate,
         soldAt = null,
         shippedAt = null,

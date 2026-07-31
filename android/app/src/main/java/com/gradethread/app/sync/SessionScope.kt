@@ -69,6 +69,10 @@ class SessionScope(
         // Watermarks BEFORE rows — the crash-safety ordering rule.
         resetWatermarks()
         wipeRows(true)
+        // US-1369: a pending "show me this brand" request names a brand from the
+        // OUTGOING account's inventory. Left set, it would apply to whoever
+        // signs in next.
+        com.gradethread.app.inventory.InventoryFilterRequests.clear()
         hooks.clearances.forEach { it() }
     }
 
@@ -94,7 +98,12 @@ class SessionScope(
                     db.expenses().clearAll()
                     db.listings().clearAll()
                     db.sources().clearAll()
+                    db.payouts().clearAll() // US-1365: deposits are tenant data too
                     db.captureDrafts().clearAll() // an in-flight capture is tenant data
+                    // US-1382: staged share photos are someone's garments, in
+                    // their house. The FILES are removed separately, by
+                    // IntakeInboxStore.clearAll — this only drops the rows.
+                    db.intakeBatches().clearAll()
                     if (includeQueue) db.pendingMutations().clearAll()
                 }
             }

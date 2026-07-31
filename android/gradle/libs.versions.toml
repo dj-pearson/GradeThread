@@ -5,6 +5,10 @@ agp = "8.9.2"
 kotlin = "2.1.20"
 ksp = "2.1.20-2.0.0"
 coreKtx = "1.15.0"
+# US-1393: per-app locales. AppCompatDelegate.setApplicationLocales is the only
+# API that works below Android 13, and it needs the library present even though
+# this app uses ComponentActivity rather than AppCompatActivity.
+appcompat = "1.7.0"
 lifecycle = "2.8.7"
 activityCompose = "1.10.1"
 composeBom = "2025.04.00"
@@ -35,6 +39,10 @@ mlkitBarcode = "17.3.0"
 mlkitTextRecognition = "16.0.1"
 exifinterface = "1.4.0"
 workManager = "2.10.0"
+# US-1380: home-screen widgets. Glance renders to RemoteViews, so the widget
+# layout is NOT Compose UI at runtime and cannot share a single component with
+# the app — everything drawable is redeclared in `widget/`.
+glance = "1.1.1"
 # US-1338: Play Billing. NOTE: this DOES pull com.google.android.gms
 # play-services-base + basement transitively (verified against the resolved
 # debugRuntimeClasspath, not assumed). It is the only way to take a Play
@@ -46,11 +54,24 @@ workManager = "2.10.0"
 # than being downloaded from Play, so scanning works with no network and on a
 # Play-less device. That property is unaffected by this dependency.
 billing = "7.1.1"
+
+# US-1378: FCM push. Added WITHOUT the google-services Gradle plugin, so no
+# google-services.json is needed to build — Firebase is initialized manually
+# from BuildConfig values (see PushConfig), exactly like the Sentry DSN. An
+# unconfigured build simply has no push, which is the correct outcome for a
+# fork or a CI checkout that has no Firebase project.
+firebaseBom = "33.7.0"
 lifecycleProcess = "2.8.7"
 serialization = "1.8.0"
 junit = "4.13.2"
 robolectric = "4.14.1"
 androidxTestCore = "1.6.1"
+# US-1395: the instrumented lane. An emulator test is the only thing that can
+# catch a Hilt graph that fails at runtime or a crash in Application.onCreate —
+# no JVM unit test constructs the real object graph.
+androidxTestRunner = "1.6.2"
+androidxTestExtJunit = "1.2.1"
+espresso = "3.6.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -95,11 +116,22 @@ mlkit-text-recognition = { group = "com.google.mlkit", name = "text-recognition"
 mlkit-text-recognition-japanese = { group = "com.google.mlkit", name = "text-recognition-japanese", version.ref = "mlkitTextRecognition" }
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
+androidx-glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
 play-billing = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
 androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycleProcess" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-test-core = { group = "androidx.test", name = "core-ktx", version.ref = "androidxTestCore" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+hilt-android-testing = { group = "com.google.dagger", name = "hilt-android-testing", version.ref = "hilt" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

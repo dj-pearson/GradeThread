@@ -54,6 +54,10 @@ class SettingsViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val client: SupabaseClient,
     private val db: GradeThreadDb,
+    private val pushRegistration: com.gradethread.app.platform.push.PushRegistration,
+    private val backgroundRefresh: com.gradethread.app.sync.BackgroundRefreshStore,
+    private val onboarding: com.gradethread.app.onboarding.OnboardingStore,
+    private val realtime: com.gradethread.app.sync.RealtimeService,
 ) : ViewModel() {
 
     data class State(
@@ -64,6 +68,7 @@ class SettingsViewModel @Inject constructor(
         val confirmBulkActions: Boolean = true,
         val hapticsEnabled: Boolean = true,
         val analyticsEnabled: Boolean = false,
+        val backgroundRefreshEnabled: Boolean = true,
         /** Non-null while a destructive action is awaiting confirmation. */
         val pendingConfirm: Confirm? = null,
         val busy: Boolean = false,
@@ -112,6 +117,11 @@ class SettingsViewModel @Inject constructor(
                 update { it.copy(hapticsEnabled = value) }
             }
         }
+        viewModelScope.launch {
+            backgroundRefresh.enabled.collect { value ->
+                update { it.copy(backgroundRefreshEnabled = value) }
+            }
+        }
     }
 
     private fun update(transform: (State) -> State) {
@@ -155,6 +165,20 @@ class SettingsViewModel @Inject constructor(
 
     fun setHapticsEnabled(enabled: Boolean) {
         viewModelScope.launch { preferences.setHapticsEnabled(enabled) }
+    }
+
+    /**
+     * US-1379: the background refresh toggle.
+     *
+     * The stored flag AND the WorkManager schedule move together. Storing the
+     * flag alone would leave the periodic work running and merely silent, which
+     * still spends the seller's battery and data on a switch they turned off.
+     */
+    fun setBackgroundRefreshEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            backgroundRefresh.setEnabled(enabled)
+            com.gradethread.app.sync.BackgroundRefreshWorker.apply(context, enabled)
+        }
     }
 
     fun setAnalyticsEnabled(enabled: Boolean) {
@@ -212,13 +236,44 @@ class SettingsViewModel @Inject constructor(
             val wiped = runCatching {
                 sessionScope.signOutWipe(
                     SessionScope.Hooks(
-                        // Realtime/upload teardown belong to their own stories;
+                        // US-2367: the socket goes FIRST. It is authenticated
+                        // with the session being thrown away, and an event
+                        // arriving mid-wipe would write the outgoing account's
+                        // rows back into a database we are emptying.
+                        stopRealtime = { runCatching { realtime.pause() } },
+                        // Upload teardown belongs to its own story;
                         // the row + watermark wipe is what AC2 requires and what
                         // leaks tenant data without it.
                         clearances = emptyList(),
                     ),
                 )
             }.isSuccess
+            // US-1378: the push token goes BEFORE the session does, because
+            // unregistering needs the session's own token to authenticate. Left
+            // behind, the server would keep pushing this account's sales to a
+            // phone somebody else may now be holding.
+            runCatching { pushRegistration.clear() }
+            // US-1379: the next account must start with NO baseline. Left in
+            // place, their first refresh would compare their rows against the
+            // previous seller's and announce the whole catalogue as new.
+            runCatching { backgroundRefresh.clear() }
+            // US-1384: the next account gets its own first run, and its own
+            // use-case answer. Reusing the previous seller's would route a
+            // brand-new user into a flow they never chose.
+            runCatching { onboarding.clear() }
+            // US-1382: staged share photos are someone's garments, in their
+            // house. The next account on this device must not inherit them.
+            runCatching {
+                com.gradethread.app.intake.IntakeInboxStore.clearAll(context, db)
+            }
+            // US-1380: the widget sits on a home screen anyone can see, so the
+            // previous seller's takings come off it now, not at the next sync.
+            runCatching {
+                com.gradethread.app.widget.WidgetPublisher.publishSignedOut(
+                    context,
+                    System.currentTimeMillis(),
+                )
+            }
             WorkspaceScope.clear()
             auth.signOut()
             update {
