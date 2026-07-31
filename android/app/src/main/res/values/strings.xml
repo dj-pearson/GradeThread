@@ -354,4 +354,97 @@
     <!-- Two sentences, not one with a swapped verb: word order differs. -->
     <string name="analytics_roi_more">Graded items netted %1$s more on average (%2$d vs %3$d).</string>
     <string name="analytics_roi_less">Graded items netted %1$s less on average (%2$d vs %3$d).</string>
+
+    <!-- US-2368: automations screen text. -->
+    <string name="automations_automations">Automations</string>
+    <string name="automations_rules_server_applies_its_own">Rules the server applies on its own — no need to keep the app open.</string>
+    <string name="automations_that_didn_t_work">That didn\'t work</string>
+    <string name="automations_worth_knowing">Worth knowing</string>
+    <string name="automations_new_rule">New rule</string>
+    <string name="automations_run_all_rules_now">Run all rules now</string>
+    <string name="automations_what_this_rule_would_do">What this rule would do</string>
+    <string name="automations_close">Close</string>
+    <string name="automations_changes_already_made_stay_as">Changes it already made stay as they are.</string>
+    <string name="automations_delete">Delete</string>
+    <string name="automations_cancel">Cancel</string>
+    <string name="automations_preview">Preview</string>
+    <string name="automations_edit">Edit</string>
+    <string name="automations_name">Name</string>
+    <string name="automations_when">When</string>
+    <string name="automations_trigger">Trigger</string>
+    <string name="automations_then">Then</string>
+    <string name="automations_action">Action</string>
+    <string name="automations_which_listings">To which listings</string>
+    <string name="automations_add_filter">Add a filter</string>
+    <string name="automations_active">Active</string>
+    <string name="automations_save">Save</string>
+    <string name="automations_field">Field</string>
+    <string name="automations_text">Is</string>
+    <string name="automations_value">Value</string>
+    <string name="automations_remove_this_filter">Remove this filter</string>
+    <string name="automations_loading">Loading\u2026</string>
+    <string name="automations_no_rules_yet">No rules yet. A rule watches for something \u2014 a listing sitting 30 days, say \u2014 and then acts on it.</string>
+    <string name="automations_match_row">%1$s \u2014 %2$s</string>
+    <string name="automations_and_more">\u2026and %1$d more.</string>
+    <string name="automations_delete_rule">Delete \"%1$s\"?</string>
+    <string name="automations_edit_rule">Edit rule</string>
+    <string name="automations_field_days">Days</string>
+    <string name="automations_field_watchers">Fewer than this many watchers</string>
+    <string name="automations_field_cooldown">Wait this many days before repeating</string>
+    <string name="automations_field_percent">Percent</string>
+    <string name="automations_field_margin_floor">Never cut below this margin %</string>
+    <string name="automations_scope_all">All active</string>
+    <string name="automations_scope_filter">Filtered</string>
+    <string name="automations_scope_widened">Those filters have no values yet, so this would apply to every active listing.</string>
+    <plurals name="automations_cooldown">
+        <item quantity="one">Waits %1$d day before touching the same listing again.</item>
+        <item quantity="other">Waits %1$d days before touching the same listing again.</item>
+    </plurals>
+
+    <!-- US-2368: drafts screen text. -->
+    <string name="drafts_draft_listings">Draft listings</string>
+    <string name="drafts_that_didn_t_work">That didn\'t work</string>
+    <string name="drafts_done">Done</string>
+    <string name="drafts_back">Back</string>
+    <string name="drafts_resume">Resume</string>
+    <string name="drafts_estimated">   estimated</string>
+    <string name="drafts_edit">Edit</string>
+    <string name="drafts_unschedule">Unschedule</string>
+    <string name="drafts_delete">Delete</string>
+    <string name="drafts_edit_draft">Edit draft</string>
+    <string name="drafts_title">Title</string>
+    <string name="drafts_description">Description</string>
+    <string name="drafts_price">Price</string>
+    <string name="drafts_save">Save</string>
+    <string name="drafts_cancel">Cancel</string>
+    <string name="drafts_new_price">New price</string>
+    <string name="drafts_change_by_use_10_cut">Change by (use -10 to cut)</string>
+    <string name="drafts_text">%</string>
+    <string name="drafts_title_all_them">Title for all of them</string>
+    <string name="drafts_apply">Apply</string>
+    <string name="drafts_schedule_this_drop">Schedule this drop</string>
+    <string name="drafts_date_yyyy_mm_dd">Date (YYYY-MM-DD)</string>
+    <string name="drafts_time_hh_mm">Time (HH:MM)</string>
+    <string name="drafts_that_date_doesn_t_parse">That date doesn\'t parse. Use YYYY-MM-DD.</string>
+    <string name="drafts_that_time_doesn_t_parse">That time doesn\'t parse. Use HH:MM on a 24-hour clock.</string>
+    <string name="drafts_schedule">Schedule</string>
+    <string name="drafts_loading">Loading\u2026</string>
+    <string name="drafts_empty">No drafts yet. Generate them from items in your inventory, and they land here for review before anything is published.</string>
+    <string name="drafts_selected_of">%1$d of %2$d selected</string>
+    <string name="drafts_clear_all">Clear all</string>
+    <string name="drafts_select_all">Select all</string>
+    <string name="drafts_edit_together">Edit %1$d together</string>
+    <string name="drafts_retry_failed">Retry the %1$d that failed</string>
+    <string name="drafts_schedule">Schedule</string>
+    <string name="drafts_reschedule">Reschedule</string>
+    <string name="drafts_bulk_title">Edit %1$d drafts</string>
+    <string name="drafts_mode_set">Set price</string>
+    <string name="drafts_mode_percent">Adjust %</string>
+    <string name="drafts_mode_round99">End in .99</string>
+    <string name="drafts_mode_title">Title</string>
+    <string name="drafts_timezone_note">Times are your own \u2014 %1$s. The server publishes it; your phone doesn\'t need to be on.</string>
+    <string name="drafts_bullet_prefix">\u2022 </string>
+    <!-- The currency symbol sits in resources for the same reason the copy does:
+         it is not $ everywhere, and it is not always a prefix. -->
+    <string name="drafts_currency_prefix">$</string>
 </resources>

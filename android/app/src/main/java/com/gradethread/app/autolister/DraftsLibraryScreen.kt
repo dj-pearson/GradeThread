@@ -24,6 +24,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -59,30 +61,41 @@ fun DraftsLibraryScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Draft listings", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.drafts_draft_listings), style = MaterialTheme.typography.titleLarge)
 
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
-        state.banner?.let { InfoCard("Done", it, tone = InfoTone.Success) }
+        state.errorMessage?.let { InfoCard(stringResource(R.string.drafts_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.banner?.let { InfoCard(stringResource(R.string.drafts_done), it, tone = InfoTone.Success) }
 
         state.batch?.let { batch -> BatchPanel(batch, state, viewModel) }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "${state.selected.size} of ${state.drafts.size} selected",
+                stringResource(
+                    R.string.drafts_selected_of,
+                    state.selected.size,
+                    state.drafts.size,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = viewModel::toggleAll) {
-                Text(if (state.allSelected) "Clear all" else "Select all")
+                Text(
+                    stringResource(
+                        if (state.allSelected) {
+                            R.string.drafts_clear_all
+                        } else {
+                            R.string.drafts_select_all
+                        },
+                    ),
+                )
             }
         }
 
         when {
-            state.loading -> Hint("Loading…")
+            state.loading -> Hint(stringResource(R.string.drafts_loading))
             state.drafts.isEmpty() -> Hint(
-                "No drafts yet. Generate them from items in your inventory, and they " +
-                    "land here for review before anything is published.",
+                stringResource(R.string.drafts_empty),
             )
 
             else -> LazyColumn(
@@ -106,13 +119,13 @@ fun DraftsLibraryScreen(
 
         if (state.selected.isNotEmpty()) {
             BrandPrimaryButton(
-                text = "Edit ${state.selected.size} together",
+                text = stringResource(R.string.drafts_edit_together, state.selected.size),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { bulkOpen = true }
         }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.drafts_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }
 
     editing?.let { draft ->
@@ -181,22 +194,23 @@ private fun BatchPanel(
                 color = MaterialTheme.colorScheme.error,
             )
             BrandSecondaryButton(
-                text = "Resume",
+                text = stringResource(R.string.drafts_resume),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { viewModel.resume() }
         }
         if (state.failedJobs.isNotEmpty()) {
+            val bulletPrefix = stringResource(R.string.drafts_bullet_prefix)
             Text(
                 state.failedJobs.mapNotNull { it.error }.distinct().take(3)
-                    .joinToString("\n") { "• $it" },
+                    .joinToString("\n") { bulletPrefix + it },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (state.canRetry) {
             BrandSecondaryButton(
-                text = "Retry the ${batch.failedCount} that failed",
+                text = stringResource(R.string.drafts_retry_failed, batch.failedCount),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { viewModel.retryFailed() }
@@ -236,7 +250,7 @@ private fun DraftCard(
                 // The seller should know which numbers were guessed before
                 // bulk-publishing them.
                 Text(
-                    "   estimated",
+                    stringResource(R.string.drafts_estimated),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -256,15 +270,23 @@ private fun DraftCard(
             )
         }
         Row {
-            TextButton(onClick = onEdit, enabled = !busy) { Text("Edit") }
+            TextButton(onClick = onEdit, enabled = !busy) { Text(stringResource(R.string.drafts_edit)) }
             TextButton(onClick = onSchedule, enabled = !busy) {
-                Text(if (draft.scheduledPublishAt == null) "Schedule" else "Reschedule")
+                Text(
+                    stringResource(
+                        if (draft.scheduledPublishAt == null) {
+                            R.string.drafts_schedule
+                        } else {
+                            R.string.drafts_reschedule
+                        },
+                    ),
+                )
             }
             if (draft.scheduledPublishAt != null) {
-                TextButton(onClick = onClearSchedule, enabled = !busy) { Text("Unschedule") }
+                TextButton(onClick = onClearSchedule, enabled = !busy) { Text(stringResource(R.string.drafts_unschedule)) }
             }
             TextButton(onClick = onDelete, enabled = !busy) {
-                Text("Delete", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.drafts_delete), color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -285,25 +307,25 @@ private fun DraftEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit draft") },
+        title = { Text(stringResource(R.string.drafts_edit_draft)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title") },
+                    label = { Text(stringResource(R.string.drafts_title)) },
                 )
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("Description") },
+                    label = { Text(stringResource(R.string.drafts_description)) },
                     minLines = 3,
                 )
                 OutlinedTextField(
                     value = price,
                     onValueChange = { price = it },
-                    label = { Text("Price") },
-                    prefix = { Text("$") },
+                    label = { Text(stringResource(R.string.drafts_price)) },
+                    prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = KeyboardType.Decimal,
@@ -315,9 +337,9 @@ private fun DraftEditorDialog(
             TextButton(
                 enabled = !busy,
                 onClick = { onSave(title, description, price) },
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.drafts_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.drafts_cancel)) } },
     )
 }
 
@@ -344,16 +366,17 @@ private fun BulkEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit ${state.selected.size} drafts") },
+        title = { Text(stringResource(R.string.drafts_bulk_title, state.selected.size)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
-                    listOf(
-                        "set" to "Set price",
-                        "percent" to "Adjust %",
-                        "round99" to "End in .99",
-                        "title" to "Title",
-                    ).forEach { (key, label) ->
+                    val modes = listOf(
+                        "set" to stringResource(R.string.drafts_mode_set),
+                        "percent" to stringResource(R.string.drafts_mode_percent),
+                        "round99" to stringResource(R.string.drafts_mode_round99),
+                        "title" to stringResource(R.string.drafts_mode_title),
+                    )
+                    modes.forEach { (key, label) ->
                         FilterChip(
                             selected = mode == key,
                             onClick = { mode = key },
@@ -365,23 +388,23 @@ private fun BulkEditDialog(
                     "set" -> OutlinedTextField(
                         value = priceText,
                         onValueChange = { priceText = it },
-                        label = { Text("New price") },
-                        prefix = { Text("$") },
+                        label = { Text(stringResource(R.string.drafts_new_price)) },
+                        prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
                         singleLine = true,
                     )
 
                     "percent" -> OutlinedTextField(
                         value = percentText,
                         onValueChange = { percentText = it },
-                        label = { Text("Change by (use -10 to cut)") },
-                        suffix = { Text("%") },
+                        label = { Text(stringResource(R.string.drafts_change_by_use_10_cut)) },
+                        suffix = { Text(stringResource(R.string.drafts_text)) },
                         singleLine = true,
                     )
 
                     "title" -> OutlinedTextField(
                         value = titleText,
                         onValueChange = { titleText = it },
-                        label = { Text("Title for all of them") },
+                        label = { Text(stringResource(R.string.drafts_title_all_them)) },
                     )
                 }
                 change?.let {
@@ -406,9 +429,9 @@ private fun BulkEditDialog(
                         change?.let(onPrice)
                     }
                 },
-            ) { Text("Apply") }
+            ) { Text(stringResource(R.string.drafts_apply)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.drafts_cancel)) } },
     )
 }
 
@@ -462,37 +485,36 @@ private fun ScheduleDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Schedule this drop") },
+        title = { Text(stringResource(R.string.drafts_schedule_this_drop)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 OutlinedTextField(
                     value = dateText,
                     onValueChange = { dateText = it },
-                    label = { Text("Date (YYYY-MM-DD)") },
+                    label = { Text(stringResource(R.string.drafts_date_yyyy_mm_dd)) },
                     singleLine = true,
                 )
                 OutlinedTextField(
                     value = timeText,
                     onValueChange = { timeText = it },
-                    label = { Text("Time (HH:MM)") },
+                    label = { Text(stringResource(R.string.drafts_time_hh_mm)) },
                     singleLine = true,
                 )
                 Text(
-                    "Times are your own — ${zone.id}. The server publishes it; " +
-                        "your phone doesn't need to be on.",
+                    stringResource(R.string.drafts_timezone_note, zone.id),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (dateText.isNotBlank() && date == null) {
                     Text(
-                        "That date doesn't parse. Use YYYY-MM-DD.",
+                        stringResource(R.string.drafts_that_date_doesn_t_parse),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
                 if (timeText.isNotBlank() && time == null) {
                     Text(
-                        "That time doesn't parse. Use HH:MM on a 24-hour clock.",
+                        stringResource(R.string.drafts_that_time_doesn_t_parse),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -510,8 +532,8 @@ private fun ScheduleDialog(
             TextButton(
                 enabled = date != null && time != null && !busy,
                 onClick = { onSchedule(date!!, time!!) },
-            ) { Text("Schedule") }
+            ) { Text(stringResource(R.string.drafts_schedule)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.drafts_cancel)) } },
     )
 }

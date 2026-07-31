@@ -25,6 +25,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -56,23 +59,20 @@ fun AutomationsScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text("Automations", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.automations_automations), style = MaterialTheme.typography.titleLarge)
         Text(
-            "Rules the server applies on its own — no need to keep the app open.",
+            stringResource(R.string.automations_rules_server_applies_its_own),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        state.errorMessage?.let { InfoCard("That didn't work", it, tone = InfoTone.Error) }
-        state.warning?.let { InfoCard("Worth knowing", it, tone = InfoTone.Warning) }
-        state.banner?.let { InfoCard("Done", it, tone = InfoTone.Success) }
+        state.errorMessage?.let { InfoCard(stringResource(R.string.automations_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.warning?.let { InfoCard(stringResource(R.string.automations_worth_knowing), it, tone = InfoTone.Warning) }
+        state.banner?.let { InfoCard(stringResource(R.string.common_done), it, tone = InfoTone.Success) }
 
         when {
-            state.loading -> Hint("Loading…")
-            state.rules.isEmpty() -> Hint(
-                "No rules yet. A rule watches for something — a listing sitting 30 days, " +
-                    "say — and then acts on it.",
-            )
+            state.loading -> Hint(stringResource(R.string.automations_loading))
+            state.rules.isEmpty() -> Hint(stringResource(R.string.automations_no_rules_yet))
 
             else -> LazyColumn(
                 Modifier.fillMaxWidth().weight(1f),
@@ -92,24 +92,27 @@ fun AutomationsScreen(
         }
 
         BrandSecondaryButton(
-            text = "New rule",
+            text = stringResource(R.string.automations_new_rule),
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth(),
         ) { editing = AutomationDraft() }
 
         BrandSecondaryButton(
-            text = "Run all rules now",
+            text = stringResource(R.string.automations_run_all_rules_now),
             enabled = !state.busy && state.rules.any { it.isActive },
             modifier = Modifier.fillMaxWidth(),
         ) { viewModel.runNow() }
 
-        BrandSecondaryButton(text = "Back", modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.common_back),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onClose() }
     }
 
     state.dryRun?.let { result ->
         AlertDialog(
             onDismissRequest = viewModel::closeDryRun,
-            title = { Text("What this rule would do") },
+            title = { Text(stringResource(R.string.automations_what_this_rule_would_do)) },
             text = {
                 Column(
                     Modifier.verticalScroll(rememberScrollState()),
@@ -118,21 +121,28 @@ fun AutomationsScreen(
                     Text(Automations.dryRunSummary(result))
                     result.matches.take(20).forEach { match ->
                         Text(
-                            "${match.displayTitle} — ${Automations.matchSummary(match)}",
+                            stringResource(
+                                R.string.automations_match_row,
+                                match.displayTitle,
+                                Automations.matchSummary(match),
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
                     if (result.matches.size > 20) {
                         // Never a silent truncation: the count says what's hidden.
                         Text(
-                            "…and ${result.matches.size - 20} more.",
+                            stringResource(
+                                R.string.automations_and_more,
+                                result.matches.size - 20,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = viewModel::closeDryRun) { Text("Close") } },
+            confirmButton = { TextButton(onClick = viewModel::closeDryRun) { Text(stringResource(R.string.automations_close)) } },
         )
     }
 
@@ -151,15 +161,15 @@ fun AutomationsScreen(
     deleting?.let { rule ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Delete \"${rule.name}\"?") },
-            text = { Text("Changes it already made stay as they are.") },
+            title = { Text(stringResource(R.string.automations_delete_rule, rule.name)) },
+            text = { Text(stringResource(R.string.automations_changes_already_made_stay_as)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(rule)
                     deleting = null
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.automations_delete)) }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.automations_cancel)) } },
         )
     }
 }
@@ -188,7 +198,11 @@ private fun RuleCard(
         }
         Text(Automations.sentence(rule), style = MaterialTheme.typography.bodyMedium)
         Text(
-            "Waits ${rule.trigger.cooldownDays} days before touching the same listing again.",
+            pluralStringResource(
+                R.plurals.automations_cooldown,
+                rule.trigger.cooldownDays,
+                rule.trigger.cooldownDays,
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -196,10 +210,10 @@ private fun RuleCard(
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         Row {
-            TextButton(onClick = onDryRun, enabled = !busy) { Text("Preview") }
-            TextButton(onClick = onEdit, enabled = !busy) { Text("Edit") }
+            TextButton(onClick = onDryRun, enabled = !busy) { Text(stringResource(R.string.automations_preview)) }
+            TextButton(onClick = onEdit, enabled = !busy) { Text(stringResource(R.string.automations_edit)) }
             TextButton(onClick = onDelete, enabled = !busy) {
-                Text("Delete", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.automations_delete), color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -216,7 +230,17 @@ private fun RuleEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial.id == null) "New rule" else "Edit rule") },
+        title = {
+            Text(
+                stringResource(
+                    if (initial.id == null) {
+                        R.string.automations_new_rule
+                    } else {
+                        R.string.automations_edit_rule
+                    },
+                ),
+            )
+        },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -225,36 +249,42 @@ private fun RuleEditorDialog(
                 OutlinedTextField(
                     value = draft.name,
                     onValueChange = { draft = draft.copy(name = it) },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.automations_name)) },
                     singleLine = true,
                 )
 
-                Text("When", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.automations_when), style = MaterialTheme.typography.titleSmall)
                 LabeledDropdown(
-                    label = "Trigger",
+                    label = stringResource(R.string.automations_trigger),
                     selected = draft.triggerType,
                     options = Automations.triggerTypes.map { it.first },
                     optionLabel = { Automations.label(Automations.triggerTypes, it) },
                     onSelect = { draft = draft.copy(triggerType = it) },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                NumberField("Days", draft.triggerDays.toString()) {
+                NumberField(stringResource(R.string.automations_field_days), draft.triggerDays.toString()) {
                     draft = draft.copy(triggerDays = it.toIntOrNull() ?: draft.triggerDays)
                 }
                 if (draft.triggerType == "watchers_lt_after_days") {
-                    NumberField("Fewer than this many watchers", draft.triggerWatchers.toString()) {
+                    NumberField(
+                        stringResource(R.string.automations_field_watchers),
+                        draft.triggerWatchers.toString(),
+                    ) {
                         draft = draft.copy(
                             triggerWatchers = it.toIntOrNull() ?: draft.triggerWatchers,
                         )
                     }
                 }
-                NumberField("Wait this many days before repeating", draft.cooldownDays.toString()) {
+                NumberField(
+                    stringResource(R.string.automations_field_cooldown),
+                    draft.cooldownDays.toString(),
+                ) {
                     draft = draft.copy(cooldownDays = it.toIntOrNull() ?: draft.cooldownDays)
                 }
 
-                Text("Then", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.automations_then), style = MaterialTheme.typography.titleSmall)
                 LabeledDropdown(
-                    label = "Action",
+                    label = stringResource(R.string.automations_action),
                     selected = draft.actionType,
                     options = Automations.actionTypes.map { it.first },
                     optionLabel = { Automations.label(Automations.actionTypes, it) },
@@ -262,21 +292,31 @@ private fun RuleEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (draft.actionType != "end_listing") {
-                    NumberField("Percent", Automations.formatPct(draft.actionPct)) {
+                    NumberField(
+                        stringResource(R.string.automations_field_percent),
+                        Automations.formatPct(draft.actionPct),
+                    ) {
                         draft = draft.copy(actionPct = it.toDoubleOrNull() ?: draft.actionPct)
                     }
                 }
                 if (draft.actionType == "price_drop_pct") {
-                    NumberField("Never cut below this margin %", draft.marginFloorPct.toString()) {
+                    NumberField(
+                        stringResource(R.string.automations_field_margin_floor),
+                        draft.marginFloorPct.toString(),
+                    ) {
                         draft = draft.copy(
                             marginFloorPct = it.toIntOrNull() ?: draft.marginFloorPct,
                         )
                     }
                 }
 
-                Text("To which listings", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.automations_which_listings), style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
-                    listOf("all" to "All active", "filter" to "Filtered").forEach { (key, label) ->
+                    val scopeLabels = listOf(
+                        "all" to stringResource(R.string.automations_scope_all),
+                        "filter" to stringResource(R.string.automations_scope_filter),
+                    )
+                    scopeLabels.forEach { (key, label) ->
                         FilterChip(
                             selected = draft.scopeMode == key,
                             onClick = { draft = draft.copy(scopeMode = key) },
@@ -306,13 +346,12 @@ private fun RuleEditorDialog(
                     }
                     TextButton(onClick = {
                         draft = draft.copy(scopeRules = draft.scopeRules + ScopeRuleDraft())
-                    }) { Text("Add a filter") }
+                    }) { Text(stringResource(R.string.automations_add_filter)) }
                     if (Automations.scopeSilentlyWidened(draft)) {
                         // Empty clauses would quietly turn a filtered rule into
                         // one that touches everything.
                         Text(
-                            "Those filters have no values yet, so this would apply to every " +
-                                "active listing.",
+                            stringResource(R.string.automations_scope_widened),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -320,7 +359,7 @@ private fun RuleEditorDialog(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Active", modifier = Modifier.weight(1f))
+                    Text(stringResource(R.string.automations_active), modifier = Modifier.weight(1f))
                     Switch(
                         checked = draft.isActive,
                         onCheckedChange = { draft = draft.copy(isActive = it) },
@@ -339,9 +378,9 @@ private fun RuleEditorDialog(
             TextButton(
                 enabled = Automations.isValid(draft) && !busy,
                 onClick = { onSave(draft) },
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.automations_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.automations_cancel)) } },
     )
 }
 
@@ -353,7 +392,7 @@ private fun ScopeRuleRow(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         LabeledDropdown(
-            label = "Field",
+            label = stringResource(R.string.automations_field),
             selected = rule.field,
             options = Automations.scopeFields.map { it.first },
             optionLabel = { Automations.label(Automations.scopeFields, it) },
@@ -361,7 +400,7 @@ private fun ScopeRuleRow(
             modifier = Modifier.fillMaxWidth(),
         )
         LabeledDropdown(
-            label = "Is",
+            label = stringResource(R.string.automations_text),
             selected = rule.op,
             options = Automations.scopeOps.map { it.first },
             optionLabel = { Automations.label(Automations.scopeOps, it) },
@@ -372,11 +411,11 @@ private fun ScopeRuleRow(
             OutlinedTextField(
                 value = rule.value,
                 onValueChange = { onChange(rule.copy(value = it)) },
-                label = { Text("Value") },
+                label = { Text(stringResource(R.string.automations_value)) },
                 singleLine = true,
             )
         }
-        TextButton(onClick = onRemove) { Text("Remove this filter") }
+        TextButton(onClick = onRemove) { Text(stringResource(R.string.automations_remove_this_filter)) }
     }
 }
 

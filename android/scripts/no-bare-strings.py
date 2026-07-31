@@ -37,6 +37,8 @@ SCOPE = [
     "settings/SettingsScreen.kt",
     "snap/SnapScreen.kt",
     "analytics/AnalyticsScreen.kt",
+    "automations/AutomationsScreen.kt",
+    "autolister/DraftsLibraryScreen.kt",
 ]
 
 # A string literal handed to something that renders or speaks it.
@@ -55,6 +57,8 @@ UI_SINKS = re.compile(
       | SectionHeader\s*\(\s*"
       | Panel(?:Header)?\s*\(\s*"
       | InfoCard\s*\(\s*"
+      | \bHint\s*\(\s*"
+      | NumberField\s*\(\s*"
     )
     """,
     re.VERBOSE,
@@ -93,6 +97,8 @@ OPEN_SINK = re.compile(
       | SectionHeader\s*\($
       | Panel(?:Header)?\s*\($
       | InfoCard\s*\($
+      | \bHint\s*\($
+      | NumberField\s*\($
     )
     """,
     re.VERBOSE,
