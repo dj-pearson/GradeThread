@@ -117,6 +117,7 @@ import {
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
 import { runOrderReport, shouldUseFeedForOrders } from "../lib/ebay-feed.ts";
+import { type FailedOrder, planOrdersWatermark } from "../lib/sync-watermark.ts";
 // US-713: the Depop connector shares this token-refresh cron (no separate
 // Coolify task). The sweep is a no-op while DEPOP_ENABLED is off.
 import { refreshExpiringDepopConnections } from "../lib/depop-client.ts";
@@ -3028,6 +3029,12 @@ async function doListingsPull(
   let salesUpdated = 0;
   let salesSkipped = 0;
   let salesReversed = 0; // US-459: cancelled/refunded line items handled.
+  // US-2320: what the cursor is allowed to move to depends on these two.
+  // `ordersFetchComplete` false means we do not know what we did not see;
+  // `failedOrders` are orders we DID see and did not fully persist, so the
+  // cursor can rewind to the earliest of them instead of freezing.
+  let ordersFetchComplete = true;
+  const failedOrders: FailedOrder[] = [];
   try {
     // US-1474: high-volume sellers (large catalog) can pull orders via the Feed
     // API report instead of paging, when EBAY_FEED_SYNC is enabled AND the
@@ -3037,6 +3044,8 @@ async function doListingsPull(
     let orders: RemoteOrder[];
     if (shouldUseFeedForOrders(offers.length)) {
       try {
+        // The Feed report is all-or-nothing: it throws unless the whole report
+        // downloaded and parsed, so reaching here means a complete read.
         orders = await runOrderReport(userId, sinceISO);
       } catch (feedErr) {
         errors.push(
@@ -3044,10 +3053,14 @@ async function doListingsPull(
             feedErr instanceof Error ? feedErr.message : String(feedErr)
           }`,
         );
-        orders = await listRecentOrders(userId, sinceISO, errors);
+        const paged = await listRecentOrders(userId, sinceISO, errors);
+        orders = paged.orders;
+        ordersFetchComplete = paged.complete;
       }
     } else {
-      orders = await listRecentOrders(userId, sinceISO, errors);
+      const paged = await listRecentOrders(userId, sinceISO, errors);
+      orders = paged.orders;
+      ordersFetchComplete = paged.complete;
     }
     for (const order of orders) {
       // Failed-payment orders shouldn't flip an item to sold.
@@ -3218,10 +3231,16 @@ async function doListingsPull(
 
           if (existing) {
             const existingSaleId = (existing as { id: string }).id;
-            await supabaseAdmin
+            // US-2320: the error used to be discarded and the counter bumped
+            // regardless, so a failed write was reported as a synced sale — and
+            // the cursor then moved past it. Throw instead: the per-order catch
+            // above records it as a failed order, which is what rewinds the
+            // cursor to re-pull it.
+            const { error: updErr } = await supabaseAdmin
               .from("sales")
               .update(salePayload)
               .eq("id", existingSaleId);
+            if (updErr) throw new Error(`sale update failed: ${updErr.message}`);
             salesUpdated += 1;
             // US-2022: this sweep is the OTHER way a sale reverses — an order
             // previously synced as completed comes back CANCELED or
@@ -3237,11 +3256,16 @@ async function doListingsPull(
               });
             }
           } else {
-            const { data: insertedSale } = await supabaseAdmin
+            const { data: insertedSale, error: insErr } = await supabaseAdmin
               .from("sales")
               .insert(salePayload)
               .select("id")
               .maybeSingle();
+            // US-2320: same defect on the insert side, and worse — a failed
+            // insert left `insertedSale` null, so the consignor payout and the
+            // sale notification below were skipped too, while salesNew still
+            // counted the sale as imported.
+            if (insErr) throw new Error(`sale insert failed: ${insErr.message}`);
             salesNew += 1;
             // US-626: a brand-new sale → celebrate it on iOS (best-effort).
             // Only for genuine completed sales, never a cancelled/refunded one.
@@ -3306,6 +3330,12 @@ async function doListingsPull(
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           errors.push(`order ${order.orderId}: ${msg.slice(0, 160)}`);
+          // US-2320: this order was fetched and not persisted. Recording it is
+          // what lets the cursor rewind to it rather than skipping past it.
+          failedOrders.push({
+            orderId: order.orderId,
+            lastModifiedDate: order.lastModifiedDate ?? null,
+          });
         }
       }
     }
@@ -3316,6 +3346,10 @@ async function doListingsPull(
     errors.push(
       `orders sync: ${err instanceof Error ? err.message : String(err)}`
     );
+    // US-2320: carrying on is fine; carrying on AND stamping the cursor is not.
+    // A throw here can happen mid-page, so we do not know which orders we never
+    // saw — the only safe cursor is the one we started with.
+    ordersFetchComplete = false;
   }
 
   // ── Finances enrichment (fees + payout) ─────────────────────────
@@ -3580,10 +3614,44 @@ async function doListingsPull(
 
   // Stamp last_synced_at so the UI can show "Synced 2m ago" + the next
   // /listings/pull picks up where this one left off.
-  await supabaseAdmin
-    .from("marketplace_connections")
-    .update({ last_synced_at: new Date().toISOString() })
-    .eq("id", connId);
+  //
+  // US-2320: this column is the ORDERS CURSOR, not a "the job ran" ping —
+  // doListingsPull reads it back as `since` for the next incremental pull. It
+  // used to be stamped unconditionally, so any orders failure moved the cursor
+  // past orders that were never written and nothing ever asked for them again.
+  const watermark = planOrdersWatermark({
+    fetchComplete: ordersFetchComplete,
+    failedOrders,
+    now: new Date().toISOString(),
+  });
+  if (watermark.advance) {
+    await supabaseAdmin
+      .from("marketplace_connections")
+      .update({ last_synced_at: watermark.to })
+      .eq("id", connId);
+    if (watermark.reason === "rewound") {
+      console.warn(
+        `[flipdesk-ebay] ${failedOrders.length} order(s) failed to persist; ` +
+          `cursor rewound to ${watermark.to} so they re-pull next sync`,
+      );
+      errors.push(
+        `orders: ${failedOrders.length} order(s) not saved — sync cursor held at ` +
+          `${watermark.to} so they are re-pulled. This sync is PARTIAL.`,
+      );
+    }
+  } else {
+    // The cursor stays where it was, so the next pull re-asks for the same
+    // window. The UI's completion poll watches this column, so leaving it alone
+    // is also what stops "Synced just now" from claiming a sync that lost data.
+    console.error(
+      `[flipdesk-ebay] orders pass incomplete (${watermark.reason}); ` +
+        `last_synced_at NOT advanced — the next sync re-pulls this window`,
+    );
+    errors.push(
+      `orders: sync cursor NOT advanced (${watermark.reason}). This sync is ` +
+        `PARTIAL — the missing orders will be re-pulled on the next sync.`,
+    );
+  }
 
   console.log(
     `[flipdesk-ebay] pull complete: matched=${matched} unmatched=${unmatched} ` +
