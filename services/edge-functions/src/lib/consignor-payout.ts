@@ -64,7 +64,8 @@ function getStripe(): Stripe | null {
 export type ProcessOutcome =
   | "transferred" // ledger row paid via Stripe transfer
   | "queued" // ledger row created/kept pending (consignor not onboarded)
-  | "skipped" // nothing to do (not consigned / not completed / $0 / already settled)
+  | "skipped" // nothing to do (not consigned / not completed / $0 / already settled
+  //          / already paid by hand — US-2290)
   | "failed"; // transfer attempted and errored (row marked failed)
 
 export interface ProcessResult {
@@ -191,22 +192,31 @@ export async function processSaleConsignorPayout(
     reconciledNet,
   });
 
-  // Existing AUTO payout for this sale (idempotency unit).
-  const { data: existingRaw } = await supabaseAdmin
+  // Existing payouts for this sale. US-2290: BOTH sources, not just 'auto'.
+  //
+  // This read used to filter .eq("source","auto"), so the engine was blind to
+  // anything an operator had already paid. A consignor settled by hand — cash,
+  // bank transfer, anything outside Stripe — was recorded as source='manual',
+  // the sweep saw no auto row, and paid them again. One query now returns both
+  // and the plan decides, so the two paths can no longer be blind to each other.
+  const { data: payoutRows } = await supabaseAdmin
     .from("consignor_payouts")
-    .select("id, status")
+    .select("id, status, source")
     .eq("sale_id", saleId)
-    .eq("source", "auto")
-    .eq("user_id", ownerId)
-    .maybeSingle();
-  const existing = (existingRaw as ExistingAutoPayout | null) ?? null;
+    .eq("user_id", ownerId);
+  const allPayouts = (payoutRows ?? []) as Array<
+    { id: string; status: string; source: string | null }
+  >;
+  const existing =
+    (allPayouts.find((r) => r.source === "auto") as ExistingAutoPayout | undefined) ?? null;
+  const manualPayouts = allPayouts.filter((r) => r.source !== "auto");
 
   const stripe = opts.stripe !== undefined ? opts.stripe : getStripe();
   const onboarded = Boolean(
     consignor.stripe_connect_account_id && consignor.payouts_enabled && stripe,
   );
 
-  const plan = planAutoPayout({ existing, share, onboarded });
+  const plan = planAutoPayout({ existing, manual: manualPayouts, share, onboarded });
 
   // US-2022 AC3: the return-window hold. No transfer means nothing to claw
   // back, so holding until the return window closes removes most of this

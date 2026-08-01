@@ -75,7 +75,7 @@ export interface ExistingAutoPayout {
 
 export type AutoPayoutPlan =
   // Nothing to do.
-  | { action: "skip"; reason: "zero_share" | "already_settled" }
+  | { action: "skip"; reason: "zero_share" | "already_settled" | "paid_manually" }
   // No row yet → create one, then transfer (onboarded) or queue (not onboarded).
   | { action: "create"; settle: "transfer" | "queue" }
   // Row already exists (pending/failed) → fire the transfer now (consignor has
@@ -84,14 +84,49 @@ export type AutoPayoutPlan =
   // Row already exists and stays queued (consignor still not onboarded).
   | { action: "requeue"; payoutId: string };
 
-// Decide what to do for one sale given any existing AUTO payout row, the
-// computed share, and whether the consignor can receive a Stripe transfer.
+/**
+ * US-2290: does an operator-created payout for this sale block the engine?
+ *
+ * The two paths filed under different `source` values and each only looked for
+ * its own, so neither could see the other. An operator who paid a consignor by
+ * hand — cash, bank transfer, anything outside Stripe — had that payout
+ * recorded as `source='manual'`, and the sweep, which searches only for
+ * `source='auto'`, found nothing and paid them a second time.
+ *
+ * A `failed` manual row does NOT block: nothing moved, so the engine picking
+ * the sale up is the recovery, not a duplicate. Every other status does,
+ * including `pending` — a pending manual row is exactly the cash payout an
+ * operator recorded so the balance would track, and it is the case this bug
+ * hit hardest.
+ *
+ * Note what this deliberately does NOT do: forbid a second MANUAL payout for
+ * one sale. 00301's own comment establishes that as an intentional override
+ * (a partial payout, a top-up), and an operator adding one is a decision, not
+ * an accident. What was never a decision is the engine adding one behind them.
+ */
+export function manualPayoutBlocksAuto(
+  manualRows: ReadonlyArray<{ status: string }>,
+): boolean {
+  return manualRows.some((r) => r.status !== "failed");
+}
+
+// Decide what to do for one sale given any existing AUTO payout row, any
+// operator-created rows, the computed share, and whether the consignor can
+// receive a Stripe transfer.
 export function planAutoPayout(args: {
   existing: ExistingAutoPayout | null;
+  /** Operator-created payouts already on this sale (US-2290). */
+  manual?: ReadonlyArray<{ status: string }>;
   share: number;
   onboarded: boolean;
 }): AutoPayoutPlan {
   const { existing, share, onboarded } = args;
+
+  // Checked BEFORE the auto row, and before the zero-share shortcut: a human
+  // has already settled this sale, so nothing the engine computes is relevant.
+  if (manualPayoutBlocksAuto(args.manual ?? [])) {
+    return { action: "skip", reason: "paid_manually" };
+  }
 
   if (existing) {
     if (SETTLED_STATUSES.has(existing.status)) {
