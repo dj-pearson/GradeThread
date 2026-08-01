@@ -41,7 +41,9 @@ const imgTagWithSrc = (relPath: string, srcNeedle: string) =>
 const ITEM_PHOTO_GRIDS: ReadonlyArray<readonly [string, string]> = [
   ["src/components/flipdesk/photo-manager.tsx", "photo={photo}"],
   ["src/components/flipdesk/photo-uploader.tsx", "photo={first}"],
-  ["src/pages/flipdesk/listings.tsx", "photo={cover}"],
+  // US-2173: the listings table moved into its own component; the cover
+  // thumbnail moved with it.
+  ["src/pages/flipdesk/listings-table.tsx", "photo={cover}"],
 ];
 
 // Each entry: [file, the dynamic src expression that identifies the grid img].

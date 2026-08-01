@@ -6,15 +6,28 @@ import UIKit
 /// the auto-derived item groups (set cover, split, merge, delete), then Generate.
 ///
 /// Generate pushes `AutoListerQueueView`, which runs the create-items → upload →
-/// classify → submit pipeline via `AutoListerGenerator`. The shared upload
-/// service/store come from the environment (same as `PhotoIntakeView`).
+/// classify → submit pipeline via `AutoListerGenerator`. When that run ends with
+/// listings generated, the queue is swapped for `DraftsLibraryView` — the batch
+/// is finished here and reviewed there. The shared upload service/store come
+/// from the environment (same as `PhotoIntakeView`).
 struct AutoListerView: View {
+    /// The two screens this one pushes: the generation queue, then the drafts
+    /// library the finished run lands in.
+    private enum Route: Hashable {
+        case queue
+        case drafts
+    }
+
     @StateObject private var model = AutoListerReviewModel()
     @Environment(\.photoUploadService) private var uploadService
     @Environment(PhotoUploadStore.self) private var uploadStore
     @State private var showingPicker = false
-    /// Set when the user taps Generate; drives the push to the queue.
+    /// Set when the user taps Generate; the photo payload the queue runs on.
     @State private var pendingGroups: [PreparedGroup]?
+    /// Which screen is pushed on top of the review grid. One binding for both
+    /// steps so a finished run can swap the queue for the drafts library in
+    /// place — the seller's next stop is the drafts, not the grid they left.
+    @State private var route: Route?
     // US-674: optional listing template applied to every generated draft.
     @State private var templateStore = TemplateStore()
     @State private var selectedTemplateId: String?
@@ -108,20 +121,40 @@ struct AutoListerView: View {
                 ))
             }
             .navigationDestination(
-                isPresented: Binding(
-                    get: { pendingGroups != nil },
-                    set: { if !$0 { pendingGroups = nil } }
+                item: Binding(
+                    get: { route },
+                    set: { newRoute in
+                        route = newRoute
+                        // Popping back to the grid releases the batch snapshot
+                        // (it holds full-size photos).
+                        if newRoute == nil { pendingGroups = nil }
+                    }
                 )
-            ) {
-                if let groups = pendingGroups, let service = uploadService {
-                    AutoListerQueueView(
-                        groups: groups,
-                        uploadService: service,
-                        uploadStore: uploadStore,
-                        templateId: selectedTemplateId
-                    )
+            ) { destination in
+                switch destination {
+                case .queue:
+                    if let groups = pendingGroups, let service = uploadService {
+                        AutoListerQueueView(
+                            groups: groups,
+                            uploadService: service,
+                            uploadStore: uploadStore,
+                            templateId: selectedTemplateId,
+                            onFinished: finishToDrafts
+                        )
+                    }
+                case .drafts:
+                    DraftsLibraryView()
                 }
             }
+    }
+
+    /// The generated batch is done — hand the seller to the drafts library and
+    /// empty the review grid behind them, so the same photos can't be generated
+    /// a second time.
+    private func finishToDrafts() {
+        route = .drafts
+        pendingGroups = nil
+        model.clearBatch()
     }
 
     /// Open the library picker unless the batch is already full, in which case
@@ -819,6 +852,7 @@ struct AutoListerView: View {
                     ]
                 )
                 pendingGroups = model.preparedGroups()
+                route = .queue
             } label: {
                 Text("Generate \(count) listing\(count == 1 ? "" : "s")")
                     .frame(maxWidth: .infinity)

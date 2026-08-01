@@ -10,6 +10,10 @@ struct AutoListerQueueView: View {
     let uploadStore: PhotoUploadStore
     /// US-674: optional listing template applied to every generated draft.
     var templateId: String? = nil
+    /// Called when the seller closes a run that generated at least one listing.
+    /// The host swaps this screen for the drafts library — a finished batch's
+    /// next step is reviewing the drafts, not the photo grid it came from.
+    var onFinished: () -> Void = {}
 
     @StateObject private var generator = AutoListerGenerator()
     @State private var didStart = false
@@ -217,7 +221,7 @@ struct AutoListerQueueView: View {
                     } label: {
                         Label("Resume", systemImage: "arrow.clockwise")
                     }
-                    Button("Done") { dismiss() }
+                    finishButton
                 }
             } else if generator.batch.isTerminal {
                 Section {
@@ -228,11 +232,27 @@ struct AutoListerQueueView: View {
                             Label("Retry failed", systemImage: "arrow.clockwise")
                         }
                     }
-                    Button("Done") { dismiss() }
+                    finishButton
                 }
             }
         }
     }
+
+    /// The way out of a finished run. Anything generated → straight to the
+    /// drafts library, which is where the seller finishes the work. Nothing
+    /// generated → back to the review grid, whose photos are still intact.
+    @ViewBuilder
+    private var finishButton: some View {
+        if generatedCount > 0 {
+            Button("Review \(generatedCount) draft\(generatedCount == 1 ? "" : "s")") {
+                onFinished()
+            }
+        } else {
+            Button("Done") { dismiss() }
+        }
+    }
+
+    private var generatedCount: Int { generator.batch.batch?.succeededCount ?? 0 }
 
     private func jobRow(_ job: AutolisterJob) -> some View {
         HStack(spacing: 12) {

@@ -22,6 +22,10 @@ import { resolve } from "node:path";
 // guarded is unchanged — only the address is.
 const QUERIES_FILE = "src/pages/flipdesk/listings-page-queries.ts";
 const PAGE_FILE = "src/pages/flipdesk/listings.tsx";
+// US-2173 AC3: the desktop table became its own component, so anything asserted
+// about what a ROW renders now lives here. The page still owns the main read,
+// the mutations and the hook-order constraint, which is why both are scanned.
+const TABLE_FILE = "src/pages/flipdesk/listings-table.tsx";
 /** Kept for the error messages below, which name the file a rename broke. */
 const FILE = QUERIES_FILE;
 
@@ -31,6 +35,10 @@ function source(): string {
 
 function pageSource(): string {
   return readFileSync(resolve(process.cwd(), PAGE_FILE), "utf8");
+}
+
+function tableSource(): string {
+  return readFileSync(resolve(process.cwd(), TABLE_FILE), "utf8");
 }
 
 /**
@@ -143,10 +151,15 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
     it("reuses the shared chip and mapping rather than re-deriving a score", () => {
       // The weights live server-side (lib/listing-quality-score.ts). A second
       // client-side derivation would drift from the number the server persists.
-      expect(pageSource()).toContain("QualityScoreChip");
+      // The chip renders inside a row, so it moved to the table component with
+      // the rest of the row markup; the mapping is still the query module's.
+      // All three files are checked for a re-derived band, since any of them
+      // could grow one.
+      expect(tableSource()).toContain("QualityScoreChip");
       expect(src).toContain("scoreMapFromRows");
       expect(src).not.toMatch(/function\s+\w*[sS]coreBand/);
       expect(pageSource()).not.toMatch(/function\s+\w*[sS]coreBand/);
+      expect(tableSource()).not.toMatch(/function\s+\w*[sS]coreBand/);
     });
   });
 
