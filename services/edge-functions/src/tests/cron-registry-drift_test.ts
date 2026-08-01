@@ -317,7 +317,7 @@ Deno.test("US-2310: every registered cron endpoint is reachable with only the jo
   );
 });
 
-Deno.test("US-2310: the known-broken list is not silently growing", async () => {
+Deno.test("US-2310: the known-broken list is not silently growing", () => {
   // Stated as its own case so the NUMBER is visible in the test output. Three
   // scheduled tasks have most likely never run in production; that is a fact
   // worth seeing on every CI run until it is zero.

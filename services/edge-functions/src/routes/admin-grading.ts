@@ -402,6 +402,124 @@ adminGradingRoutes.post("/prompts", async (c) => {
   return c.json({ prompt: data }, 201);
 });
 
+// PATCH /prompts/:id — edit a CANDIDATE prompt's name, text, scope or notes.
+//
+// US-2348: the admin SPA used to do this with a direct supabase-js UPDATE
+// against RLS, which any is_admin() caller can do — including one whose
+// grading:review scope was deliberately revoked. That routed around this
+// router's scope guard, the step-up on activate, and the whole
+// shadow → eval → canary lifecycle, and it let someone rewrite the prompt_text
+// of the LIVE prompt, biasing every grade the platform issues.
+//
+// So this route exists to be the ONLY way, and it enforces what the direct
+// write could not: an ACTIVE prompt's text is immutable. Hot-editing a live
+// prompt is exactly what the versioning lifecycle exists to prevent — a new
+// version goes through shadow-compare and the eval gate before it can serve
+// traffic. Deactivate it, or create a new version.
+adminGradingRoutes.patch("/prompts/:id", async (c) => {
+  const id = c.req.param("id");
+  let body: {
+    version_name?: string;
+    prompt_text?: string;
+    garment_scope?: string | null;
+    notes?: string | null;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const { data: existing, error: readErr } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("id, is_active, prompt_text")
+    .eq("id", id)
+    .maybeSingle();
+  if (readErr) {
+    return failSafe(c, 500, "Couldn't load the prompt.", readErr, "admin.grading.prompts.update");
+  }
+  if (!existing) return c.json({ error: "Prompt version not found" }, 404);
+
+  const patch: Record<string, unknown> = {};
+  if (body.version_name !== undefined) {
+    const name = body.version_name.trim();
+    if (!name) return c.json({ error: "version_name cannot be blank" }, 400);
+    patch.version_name = name;
+  }
+  if (body.prompt_text !== undefined) {
+    if (!body.prompt_text.trim()) {
+      return c.json({ error: "prompt_text cannot be blank" }, 400);
+    }
+    if (existing.is_active && body.prompt_text !== existing.prompt_text) {
+      return c.json({
+        error:
+          "This version is ACTIVE — its prompt text drives live grading and cannot be edited in place. " +
+          "Deactivate it first, or create a new version and take it through the eval gate.",
+      }, 409);
+    }
+    patch.prompt_text = body.prompt_text;
+  }
+  if (body.garment_scope !== undefined) {
+    patch.garment_scope = body.garment_scope?.trim() || null;
+  }
+  if (body.notes !== undefined) patch.notes = body.notes?.trim() || null;
+
+  if (Object.keys(patch).length === 0) {
+    return c.json({ error: "Nothing to update" }, 400);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .update(patch)
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) {
+    return failSafe(c, 400, "Couldn't update the prompt.", error, "admin.grading.prompts.update");
+  }
+  await auditLog(c, "update_prompt_version", "ai_prompt_version", id, {
+    fields: Object.keys(patch),
+  });
+  return c.json({ prompt: data });
+});
+
+// DELETE /prompts/:id — remove a candidate version.
+//
+// US-2348: same story as PATCH. An ACTIVE version is refused: deleting the row
+// that is serving live traffic silently reverts grading to the code default
+// with nothing in the change log explaining why the numbers moved.
+adminGradingRoutes.delete("/prompts/:id", async (c) => {
+  const id = c.req.param("id");
+  const { data: existing, error: readErr } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("id, is_active, version_name")
+    .eq("id", id)
+    .maybeSingle();
+  if (readErr) {
+    return failSafe(c, 500, "Couldn't load the prompt.", readErr, "admin.grading.prompts.delete");
+  }
+  if (!existing) return c.json({ error: "Prompt version not found" }, 404);
+  if (existing.is_active) {
+    return c.json({
+      error:
+        "This version is ACTIVE and is serving live grading. Deactivate it first — " +
+        "deleting it would silently revert to the code default.",
+    }, 409);
+  }
+
+  const { error } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .delete()
+    .eq("id", id);
+  if (error) {
+    return failSafe(c, 400, "Couldn't delete the prompt.", error, "admin.grading.prompts.delete");
+  }
+  await auditLog(c, "delete_prompt_version", "ai_prompt_version", id, {
+    version_name: existing.version_name,
+  });
+  return c.json({ ok: true });
+});
+
 // POST /prompts/:id/eval — run the eval gate against the golden set.
 adminGradingRoutes.post("/prompts/:id/eval", async (c) => {
   const userId = c.get("userId");

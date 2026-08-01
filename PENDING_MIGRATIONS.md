@@ -1,10 +1,10 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Two pending: 00508 and 00509 — apply 00508 FIRST.** Prod is at **00507** —
-confirmed by the operator on 2026-07-31, right after PR #232 merged.
-`EXPECTED_SCHEMA_VERSION` is now **00509** and the highest migration in the tree
-is `00509_ebay_shipping_labels.sql`, so the edge boot guard expects 00509 and
-prod has neither.
+**One pending: 00510.** Prod is at **00509** — the operator confirmed on
+2026-08-01 that 00507, 00508 and 00509 are all applied.
+`EXPECTED_SCHEMA_VERSION` is **00510** and the highest migration in the tree is
+`00510_prompt_versions_service_role_writes.sql`, so the edge boot guard expects
+00510 and prod is one behind.
 
 Why the entries stayed marked HELD after they were applied: this file is edited
 by hand and nothing flips the marker when the SQL runs. The session-start hook
@@ -15,7 +15,38 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00509_ebay_shipping_labels.sql (US-2160 buy eBay labels, 2026-07-31)
+## ⏳ HELD: 00510_prompt_versions_service_role_writes.sql (US-2348 prompt writes, 2026-08-01)
+
+- **Apply order.** After 00509. Idempotent: three `DROP POLICY IF EXISTS` and
+  one `COMMENT ON TABLE`. Safe to re-run.
+- **What it does.** Revokes the RLS INSERT/UPDATE/DELETE policies on
+  `ai_prompt_versions` that 00003 granted to every `is_admin()` caller. No
+  replacement policy is created: with RLS on and no permissive policy for a
+  command, that command is denied for every non-service role, and the edge's
+  service-role client bypasses RLS entirely. The SELECT policy is deliberately
+  KEPT — the admin UI still lists prompts directly.
+- **Risk: MEDIUM — this one is order-sensitive.** It removes a capability the
+  frontend currently uses. Cloudflare Pages auto-deploys the frontend on push,
+  and the SAME commit repoints all four writes at
+  `/api/admin/grading/prompts`, so the frontend is fine either way. What is NOT
+  fine is applying the SQL while an OLD frontend build is still live: prompt
+  create/edit/delete/deactivate would fail with an RLS error until the new
+  build lands. The window is small and the surface is admin-only, but prefer
+  SQL AFTER the frontend deploy here, which is the opposite of the usual order.
+- **New edge routes in the same commit.** `PATCH /api/admin/grading/prompts/:id`
+  and `DELETE /api/admin/grading/prompts/:id` do not exist in the deployed edge
+  yet. Until the edge redeploys, the new frontend's edit and delete buttons 404.
+  So: frontend deploy → edge redeploy → SQL is the safe sequence, and the edge
+  redeploy must not lag.
+- **CLIENT reads/writes.** Reads are untouched. Writes move entirely to the
+  edge.
+- **After applying:** `NOTIFY pgrst, 'reload schema';` — policies changed, and
+  PostgREST caches them.
+- **Deploy order.** frontend → edge → SQL (00508, 00509, then 00510).
+
+---
+
+## ✅ APPLIED: 00509_ebay_shipping_labels.sql (US-2160 buy eBay labels, 2026-07-31 · applied 2026-08-01)
 
 - **Apply order.** After 00508. Idempotent: `ADD COLUMN IF NOT EXISTS`,
   `COMMENT ON COLUMN`, `CREATE INDEX IF NOT EXISTS`. Safe to re-run.
@@ -48,7 +79,7 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00508_marketplace_event_item_link.sql (US-2156 automation triggers, 2026-07-31)
+## ✅ APPLIED: 00508_marketplace_event_item_link.sql (US-2156 automation triggers, 2026-07-31 · applied 2026-08-01)
 
 - **Apply order.** After 00507. Idempotent: `ADD COLUMN IF NOT EXISTS`,
   `COMMENT ON COLUMN`, `CREATE INDEX IF NOT EXISTS`. Safe to re-run.
