@@ -1529,6 +1529,14 @@ async function handleChargeRefunded(event: Stripe.Event) {
     return;
   }
 
+  // US-2293: a refunded API overage pack must give the credits back too.
+  // checkout.session.completed grants api_overage in its own branch; this path
+  // had no matching arm, so the money was returned and the credits were kept.
+  if (userId && product === "api_overage") {
+    await clawbackApiOverage(event, charge, userId, meta);
+    return;
+  }
+
   if (!userId || product !== "credit_pack") {
     // Subscription refunds: Stripe handles them; we just log the event.
     console.log(`[Webhook] charge.refunded product=${product ?? "?"} user=${userId ?? "?"} — no DB change`);
@@ -1617,6 +1625,41 @@ export function proportionalClawback(
   return Math.max(0, Math.min(granted, revoked));
 }
 
+/**
+ * US-2293: how many API overage credits a refund can actually take back.
+ *
+ * The bug this closes: `charge.refunded` dispatched on `per_grade` and
+ * `credit_pack` and logged everything else as "no DB change" — so a refunded
+ * API overage pack returned the money and left the credits in the wallet.
+ * api_overage was granted by a THIRD branch of checkout.session.completed that
+ * the refund path never grew a matching arm for.
+ *
+ * Clamped to the CURRENT balance, not the granted amount, because API credits
+ * are spent as they are used: a customer who bought 1,000, used 900, and then
+ * refunded can only give back the 100 they still hold. Taking 1,000 would drive
+ * the wallet negative and bill them for calls they already paid for.
+ *
+ * The shortfall is returned rather than swallowed. It is the number a human
+ * needs — "we refunded a pack whose credits were already consumed" is a real
+ * commercial event (and a plausible abuse signal), and a clawback that silently
+ * takes what it can get and reports success hides it.
+ */
+export function planApiOverageClawback(args: {
+  granted: number;
+  /** The refund increment for THIS event, in minor units. */
+  refunded: number;
+  /** The charge total, in minor units. */
+  total: number;
+  /** The wallet balance right now. */
+  balance: number;
+}): { revoke: number; shortfall: number } {
+  const owed = proportionalClawback(args.granted, args.refunded, args.total);
+  if (owed <= 0) return { revoke: 0, shortfall: 0 };
+  const balance = Number.isFinite(args.balance) ? Math.max(0, args.balance) : 0;
+  const revoke = Math.min(owed, balance);
+  return { revoke, shortfall: owed - revoke };
+}
+
 // US-384 / US-1443: DEBIT clawed-back credits from the wallet (not just append a
 // ledger row). The row-locked RPC subtracts from grade_credit_balance, clamps at
 // zero, writes a balance-consistent ledger row, and reports any shortfall
@@ -1678,6 +1721,114 @@ async function clawbackCreditPack(
 // for review, and WITHHOLD its public certificate (clearing certificate_id makes
 // the public_grade_reports view stop resolving it — US-348). The grade row is
 // retained so a human can reconcile; we don't hard-delete a paid artifact.
+/**
+ * US-2293: reverse an API overage grant when its charge is refunded.
+ *
+ * Deliberately NOT routed through `revoke_grade_credits`: API overage credits
+ * live in a different wallet (`api_credit_wallet`, 00415) from grading credits,
+ * and revoking the wrong one would take credits the customer still paid for
+ * while leaving the refunded ones in place — a second money bug wearing the
+ * first one's fix.
+ *
+ * Idempotency comes from the webhook envelope: `claimWebhookEvent` runs ONCE
+ * before any side effect (US-390), so a Stripe redelivery of this event never
+ * reaches here. Two SEPARATE partial refunds are two distinct events and each
+ * correctly claws back its own increment — the same shape as the credit-pack
+ * path after US-2033.
+ */
+async function clawbackApiOverage(
+  event: Stripe.Event,
+  charge: Stripe.Charge,
+  userId: string,
+  meta: Record<string, string | undefined>,
+): Promise<void> {
+  const granted = Number.parseInt(meta.credits ?? "", 10);
+  if (!Number.isFinite(granted) || granted <= 0) {
+    console.error(
+      `[Webhook] charge.refunded api_overage invalid credits metadata (charge=${charge.id})`,
+    );
+    return;
+  }
+
+  // Same increment rule as the credit-pack path (US-2033): the NEWEST refund's
+  // own amount, not the cumulative total — so two partial refunds claw back
+  // their own halves instead of the second one recomputing the whole thing.
+  const { incremental } = resolveRefundClawback({
+    id: charge.id,
+    amount_refunded: charge.amount_refunded,
+    refunds: charge.refunds
+      ? {
+        data: (charge.refunds.data ?? []).map((r) => ({
+          id: r.id,
+          amount: r.amount,
+          created: r.created,
+        })),
+      }
+      : null,
+  });
+
+  const { data: walletRow } = await supabaseAdmin
+    .from("api_credit_wallet")
+    .select("balance")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const balance = Number((walletRow as { balance?: number } | null)?.balance ?? 0);
+
+  const { revoke, shortfall } = planApiOverageClawback({
+    granted,
+    refunded: incremental,
+    total: charge.amount,
+    balance,
+  });
+
+  await recordEvent(userId, event.type, event.id, null, null, {
+    product: "api_overage",
+    granted,
+    revoke,
+    shortfall,
+    charge_id: charge.id,
+  });
+
+  if (revoke <= 0) {
+    // Nothing recoverable. Still worth a line: a refund whose credits were all
+    // spent is a commercial event, not a no-op.
+    console.log(
+      `[Webhook] charge.refunded api_overage charge=${charge.id} user=${userId} ` +
+        `balance=${balance} — nothing to claw back (shortfall=${shortfall})`,
+    );
+    return;
+  }
+
+  const { data, error } = await supabaseAdmin.rpc("debit_api_credits", {
+    p_user_id: userId,
+    p_credits: revoke,
+    p_notes: `api_overage refund clawback (charge ${charge.id})`,
+  });
+  // US-397 shape: a dropped clawback leaves the credits in the wallet, so a
+  // transient DB failure must retry rather than be swallowed.
+  failIfDbError(error, `debit_api_credits for user ${userId}`);
+  if (data === -1) {
+    // The balance moved between the read and the debit (a concurrent API call
+    // spent it). Not an error — it is the shortfall case, discovered a moment
+    // later — but it must be visible rather than logged as success.
+    console.warn(
+      `[Webhook] charge.refunded api_overage charge=${charge.id} user=${userId} ` +
+        `debit of ${revoke} lost a race with a concurrent spend — nothing revoked`,
+    );
+    return;
+  }
+  if (shortfall > 0) {
+    console.warn(
+      `[Webhook] charge.refunded api_overage charge=${charge.id} user=${userId} ` +
+        `revoked ${revoke}, SHORTFALL ${shortfall} credits already spent`,
+    );
+  }
+  console.log(
+    `[Webhook] charge.refunded api_overage charge=${charge.id} user=${userId} ` +
+      `revoked ${revoke} credit(s), balance now ${data}`,
+  );
+}
+
 async function refundPerGrade(
   event: Stripe.Event,
   chargeId: string,
