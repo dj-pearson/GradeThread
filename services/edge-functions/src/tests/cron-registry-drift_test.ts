@@ -193,3 +193,164 @@ Deno.test("US-2012: launch-checklist does not hardcode a migration version", asy
     );
   }
 });
+
+// ── US-2310 [P0]: every registered cron must be REACHABLE with only its secret ─
+//
+// The invariant the three existing guards do not cover, and the one that
+// actually cost us: a cron can be registered, documented, scheduled in Coolify
+// — and 401 on every single fire, forever, silently.
+//
+// Three entries were in exactly that state. Their endpoints sit under a
+// `app.use(<prefix>, authMiddleware)` mount, and their handlers have no
+// requireJobSecret branch, so the documented curl-with-job-secret invocation is
+// rejected BEFORE the handler runs. They are also `recorded: false`, so they
+// write no cron_runs row — which means cron-fleet-health, whose only input is
+// that ledger, structurally cannot see them. A task that never runs and a task
+// that runs fine look identical to every monitor we have.
+//
+// So this asserts the property directly from source: for each registry entry,
+// either the path is outside every authMiddleware mount, or the handler that
+// serves it calls requireJobSecret. Static, but the failure is static too —
+// it is a mounting decision, not a runtime condition.
+
+/** Route files that can serve a registered cron endpoint. */
+const ROUTE_FILES = [
+  "flipdesk-ebay.ts",
+  "flipdesk-images.ts",
+  "flipdesk-reconciliation.ts",
+  "flipdesk-listings.ts",
+  "flipdesk-google.ts",
+  "flipdesk-whatnot.ts",
+  "content.ts",
+];
+
+/** `app.use("<prefix>", authMiddleware)` prefixes, wildcards resolved. */
+function authPrefixes(main: string): string[] {
+  return [...main.matchAll(/app\.use\("([^"]+)",\s*authMiddleware\)/g)]
+    .map((m) => m[1] ?? "")
+    .filter(Boolean);
+}
+
+function isBehindAuth(endpoint: string, prefixes: string[]): boolean {
+  return prefixes.some((p) =>
+    p.endsWith("/*") ? endpoint.startsWith(p.slice(0, -1)) : endpoint === p
+  );
+}
+
+/**
+ * Does the handler serving `endpoint` accept a job secret?
+ *
+ * Matched by the route's own path suffix within its sub-router, then by
+ * looking for a requireJobSecret call inside the following block. Coarse, but
+ * it distinguishes exactly the two cases that matter: a handler that checks the
+ * secret, and one that never had the chance.
+ */
+async function handlerAcceptsJobSecret(endpoint: string): Promise<boolean | null> {
+  const tail = "/" + endpoint.split("/").slice(3).join("/"); // strip /api/<area>
+  for (const file of ROUTE_FILES) {
+    let src: string;
+    try {
+      src = await Deno.readTextFile(new URL(`../routes/${file}`, import.meta.url));
+    } catch {
+      continue;
+    }
+    // Try progressively shorter suffixes — sub-routers are mounted at varying
+    // depths (/api/flipdesk/ebay/... vs /api/flipdesk/...).
+    const parts = endpoint.split("/").filter(Boolean);
+    for (let i = 2; i < parts.length; i++) {
+      const suffix = "/" + parts.slice(i).join("/");
+      const idx = src.indexOf(`.post("${suffix}"`);
+      if (idx === -1) continue;
+      const body = src.slice(idx, idx + 1200);
+      return body.includes("requireJobSecret");
+    }
+    void tail;
+  }
+  return null; // handler not found in the scanned files
+}
+
+/**
+ * The crons US-2310 found already broken, verified 2026-08-01.
+ *
+ * This list exists so the guard can be green TODAY while still catching the
+ * next one — not to excuse these. Fixing them is not a one-line change: all
+ * three are per-user handlers, so each needs a job-secret branch AND a
+ * server-side tenant loop, which is the open half of US-2310.
+ *
+ * It may only ever SHRINK. The test below pins its exact contents, so fixing an
+ * entry without removing it from here fails just as loudly as adding a new
+ * broken cron — which is what stops a "temporary" allowlist from becoming
+ * permanent.
+ */
+const KNOWN_UNREACHABLE_CRONS = [
+  "ebay-orders-sync → /api/flipdesk/ebay/listings/pull",
+  "photo-archive → /api/flipdesk/images/archive",
+  "reconciliation-sweep → /api/flipdesk/reconciliation/run",
+] as const;
+
+Deno.test("US-2310: every registered cron endpoint is reachable with only the job secret", async () => {
+  const main = await Deno.readTextFile(MAIN_TS);
+  const prefixes = authPrefixes(main);
+  const unreachable: string[] = [];
+
+  for (const entry of CRON_REGISTRY) {
+    // /api/jobs/* is mounted outside authMiddleware by construction and every
+    // handler there gates on the secret — covered by the first guard above.
+    if (entry.endpoint.startsWith("/api/jobs/")) continue;
+    if (!isBehindAuth(entry.endpoint, prefixes)) continue;
+
+    const gated = await handlerAcceptsJobSecret(entry.endpoint);
+    // `null` = the handler could not be located. Do NOT pass on that: an
+    // unfindable handler is exactly how this hid, so it counts as a failure and
+    // the fix is to add its file to ROUTE_FILES.
+    if (gated !== true) unreachable.push(`${entry.name} → ${entry.endpoint}`);
+  }
+
+  // Exact equality, both directions. A NEW broken cron fails here; so does a
+  // FIXED one that was left in the list.
+  assertEquals(
+    unreachable.sort(),
+    [...KNOWN_UNREACHABLE_CRONS].sort(),
+    "A cron behind authMiddleware with no requireJobSecret branch 401s on every " +
+      "fire and leaves no trace. Either add the secret branch + a tenant loop, " +
+      "or — if you just fixed one — remove it from KNOWN_UNREACHABLE_CRONS.",
+  );
+});
+
+Deno.test("US-2310: the known-broken list is not silently growing", async () => {
+  // Stated as its own case so the NUMBER is visible in the test output. Three
+  // scheduled tasks have most likely never run in production; that is a fact
+  // worth seeing on every CI run until it is zero.
+  assertEquals(
+    KNOWN_UNREACHABLE_CRONS.length,
+    3,
+    "US-2310's remaining work is to take this to 0 — it must never go up",
+  );
+});
+
+Deno.test("US-2310: an unrecorded cron is a deliberate, justified choice", async () => {
+  // `recorded: false` means no cron_runs row, which means cron-fleet-health
+  // cannot see the task at all. That is sometimes right (the run is recorded
+  // under a different name via cronNameForPath) and sometimes how a dead task
+  // stays invisible for months. Either way it should be argued, not defaulted:
+  // every unrecorded entry must carry a comment saying why.
+  const src = await Deno.readTextFile(new URL("../lib/cron-runs.ts", import.meta.url));
+  const undocumented: string[] = [];
+  for (const entry of CRON_REGISTRY) {
+    if (entry.recorded !== false) continue;
+    const at = src.indexOf(`name: "${entry.name}"`);
+    if (at === -1) continue;
+    // The comment block immediately above the entry, or an inline `healthy`
+    // note on it, counts as the justification.
+    const before = src.slice(Math.max(0, at - 400), at);
+    const lastComment = before.lastIndexOf("//");
+    const hasNote = lastComment !== -1 && !before.slice(lastComment).includes("},");
+    if (!hasNote && !entry.healthy) undocumented.push(entry.name);
+  }
+  assertEquals(
+    undocumented,
+    [],
+    `recorded:false with no stated reason — these are invisible to ` +
+      `cron-fleet-health and nothing explains why: ${undocumented.join(", ")}`,
+  );
+});
