@@ -83,6 +83,19 @@ inert until they pass the eval gate and are explicitly activated
   visual-verification discrepancies (US-1537).
 - Caps COMPOSE via min-of-caps; penalties floor at 0. Never raise confidence
   post-composite. New caps: follow `composeConfidenceCap` (peer-norm.ts).
+- **The mechanism, not just the rule (US-2299).** "Never raise post-composite"
+  is enforced by a running `confidenceCeiling` in `grading-pipeline.ts`, and
+  every provenance boost (verified capture, live capture, verified 360) clamps
+  to it. A new cap must therefore do TWO things or it is not a cap:
+  1. lower the confidence value, **and**
+  2. lower the reported ceiling — `applyGradingConfidencePolicy` returns
+     `confidenceCeiling`, `compositeGrade` passes it out as
+     `confidence_ceiling`, and the pipeline seeds from it.
+  Doing only (1) is invisible: the review gate still fires, so the grade goes
+  to a human and looks handled — while the next boost lifts the STORED number
+  straight back over the cap. That number is what the public confidence label
+  and the calibration miner read, so the damage lands somewhere nobody is
+  looking. This shipped exactly that way, with four caps and no ceiling.
 
 ## Injection defense (US-346)
 
