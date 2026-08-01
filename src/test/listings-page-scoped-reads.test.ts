@@ -87,16 +87,19 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
     });
   }
 
-  it("declares the one read that is still tenant-wide", () => {
-    // The main items_full read still loads the whole inventory — that is
-    // US-2167, and it needs a column projection + server-side paging across all
-    // 11 consumers of useItemsFull, not a change confined to this file.
-    //
-    // Asserted rather than ignored so the remaining gap is visible and counted.
-    // When US-2167 lands, this expectation flips and the comment goes.
+  it("the main items_full read is projected and bounded (US-2167)", () => {
+    // This expectation is the FLIPPED form of the one that stood here while the
+    // read was unbounded. It still loads the whole tenant — search, tab
+    // filtering and sort run client-side over the full set and can't move
+    // server-side until scoreListability has a SQL equivalent (US-2168 AC3) —
+    // but it no longer does so in ONE request, which is what PostgREST's
+    // db-max-rows silently truncated.
     const block = queryBlockByKeyExpr(src, "listingsItemsKey");
     expect(block).toContain("LISTINGS_COLUMNS");
-    expect(block).not.toContain(".range(");
+    // Paged through the shared loop rather than a second copy of it, so the cap
+    // is handled in one place.
+    expect(block).toContain("fetchItemsPaged");
+    expect(block).not.toMatch(/\.order\("created_at"[^)]*\)\s*;/);
   });
 
   describe("the quality-score read (US-2170)", () => {

@@ -56,7 +56,24 @@ export function itemsListQueryKey(userId: string | undefined) {
 // same sequence either way. They differ only in the column list.
 const ITEMS_FULL_PAGE = 1000;
 
-async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
+/**
+ * Read every `items_full` row for the current tenant in bounded pages, newest
+ * first, for an explicit column projection.
+ *
+ * US-2167: exported so the listings page reuses this loop instead of keeping
+ * its own single unbounded request. That page holds the ONE items_full read
+ * this hook does not own (it projects its own wider LISTINGS_COLUMNS under its
+ * own query key), and it was the last read that could be silently truncated by
+ * PostgREST's `db-max-rows` — a cap reported only in a header supabase-js does
+ * not surface. Sharing the loop means the cap is handled in one place rather
+ * than remembered in two.
+ *
+ * This bounds each REQUEST, not the result: the caller still receives the whole
+ * set. Serving a rendered page straight from the server is a different change,
+ * and on the listings page it is blocked on search/sort moving server-side
+ * (US-2168 AC3 — `scoreListability` has no SQL equivalent).
+ */
+export async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
   // `.bind(supabase)` is LOAD-BEARING. supabase-js implements `from()` as
   // `return this.rest.from(relation)`, so the method only works while it is
   // still attached to the client. Hoisting it into a bare local

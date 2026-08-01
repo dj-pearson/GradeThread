@@ -148,7 +148,7 @@ import {
   useEndListing,
   useUpdateListingPrice,
 } from "@/hooks/use-listing-lifecycle";
-import { useDeleteItem } from "@/hooks/use-items-full";
+import { useDeleteItem, fetchItemsPaged } from "@/hooks/use-items-full";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import {
   MARKETPLACE_LABELS,
@@ -734,24 +734,15 @@ export function FlipdeskListingsPage() {
     // Gated on visibility (US-576 pattern): a backgrounded tab stops polling
     // entirely, and refetchOnWindowFocus covers the return.
     refetchInterval: isActive && visible ? 2 * 60 * 1000 : false,
-    queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
-          };
-        }
-      )("items_full")
-        .select(LISTINGS_COLUMNS)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
+    // US-2167: paged through the shared fetchItemsPaged loop rather than issued
+    // as one unbounded request. This was the last items_full read that could be
+    // silently truncated: PostgREST caps a response at `db-max-rows` and reports
+    // it only in the Content-Range header, which supabase-js does not surface —
+    // so a seller past the cap saw a short table, correct-looking and quietly
+    // missing rows, on the surface where a missed listing costs money. Same
+    // order and same materialized array as before, so the client-side search,
+    // tab filtering, sort and paging below are untouched.
+    queryFn: () => fetchItemsPaged<ItemFullRow>(LISTINGS_COLUMNS),
   });
 
   // US-404: stage-tab counts come from a server-side grouped count (one row per
