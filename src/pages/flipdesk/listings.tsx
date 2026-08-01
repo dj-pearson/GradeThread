@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect, type ReactNode } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -7,12 +7,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Pencil,
-  ExternalLink,
   Plus,
   Upload,
-  Clock,
-  AlertCircle,
-  AlertTriangle,
   FileText,
   Loader2,
   Truck,
@@ -25,15 +21,9 @@ import {
   Rocket,
   RotateCcw,
   X,
-  ChevronUp,
-  ChevronDown,
-  ChevronsUpDown,
   Tag,
   SlidersHorizontal,
-  CheckCircle2,
   Archive,
-  Layers,
-  CalendarClock,
   Trash2,
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
@@ -68,15 +58,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { ClickableRow } from "@/components/clickable-row";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -89,8 +70,6 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
-import { InlineCell } from "@/components/flipdesk/inline-cell";
-import { InlineStatusSelect } from "@/components/flipdesk/inline-status-select";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useUrlParamState } from "@/hooks/use-url-param-state";
 import { useInventorySelection } from "@/stores/inventory-selection";
@@ -120,7 +99,6 @@ import { downloadItemsCsv } from "@/lib/items-csv";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 // US-2170: the quality chip + its persisted-column mapping, shared with the
 // AutoLister drafts cockpit so there is ONE scoring presentation, not two.
-import { QualityScoreChip } from "@/components/flipdesk/quality-score-chip";
 import {
   type TabId,
   statusParamToTab,
@@ -133,12 +111,13 @@ import {
 import {
   matchesSearch,
   matchesSoldFilter,
-  payoutState,
   planListingDemote,
   type SoldFilter,
 } from "@/pages/flipdesk/listings-filter";
 import { usePageRowDetails } from "@/pages/flipdesk/listings-page-queries";
 import { LISTINGS_COLUMNS } from "@/pages/flipdesk/listings-columns";
+import { ListingsTable } from "@/pages/flipdesk/listings-table";
+import { fmtMoney, marginPct } from "@/pages/flipdesk/listings-format";
 import {
   useEbayConnection,
   usePublishToEbay,
@@ -167,14 +146,10 @@ import {
 } from "@/lib/bulk-status-undo";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import {
-  MARKETPLACE_LABELS,
   ITEM_STATUSES,
   ITEM_STATUS_LABELS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { itemPhotoThumb } from "@/lib/images";
-import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
-import { needsSignedDisplayUrl } from "@/lib/item-photo-url";
 import type {
   ItemFullRow,
   ItemStatus,
@@ -220,67 +195,13 @@ async function syncListingForDraftStatus(it: ItemFullRow): Promise<boolean> {
 
 // Default eBay handling window for the ship-by countdown when no explicit
 // handling time is stored on the listing.
-const DEFAULT_HANDLING_DAYS = 3;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
 // US-733: below this row count the desktop table renders unchanged; above it,
 // rows are virtualized. Kept comfortably above the 50-row min page size so the
 // smallest page never virtualizes.
 const VIRTUALIZE_ROW_THRESHOLD = 60;
 
-
-function fmtMoney(n: number | null | undefined): string {
-  if (n == null || isNaN(n)) return "";
-  return `$${n.toFixed(2)}`;
-}
-
-function daysSince(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (isNaN(t)) return null;
-  return Math.floor((Date.now() - t) / DAY_MS);
-}
-
-
-function scoreColor(score: number): string {
-  if (score >= 70) return "text-emerald-600 dark:text-emerald-400";
-  if (score >= 45) return "text-amber-600 dark:text-amber-400";
-  return "text-muted-foreground";
-}
-
-// Without US-125 reconciliation, payout state is inferred: a recorded payout
-// amount = cleared; abnormally high fees (>20% of sale) = discrepancy.
-function marginPct(it: ItemFullRow): number | null {
-  if (it.sale_price == null || it.sale_price <= 0) return null;
-  if (it.net_profit == null) return null;
-  return (it.net_profit / it.sale_price) * 100;
-}
-
-interface ShipBy {
-  label: string;
-  tone: "red" | "amber" | "green" | "none";
-}
-
-function shipByInfo(it: ItemFullRow): ShipBy {
-  const sold = it.sold_at_raw ?? it.sale_date;
-  const t = sold ? new Date(sold).getTime() : null;
-  if (t == null || isNaN(t)) return { label: "", tone: "none" };
-  const dueBy = t + DEFAULT_HANDLING_DAYS * DAY_MS;
-  const msLeft = dueBy - Date.now();
-  if (msLeft < 0) {
-    return {
-      label: `${Math.ceil(-msLeft / DAY_MS)}d overdue`,
-      tone: "red",
-    };
-  }
-  const hoursLeft = msLeft / HOUR_MS;
-  if (hoursLeft < 24) return { label: `${Math.round(hoursLeft)}h left`, tone: "red" };
-  if (hoursLeft < 48)
-    return { label: `${Math.round(hoursLeft)}h left`, tone: "amber" };
-  return { label: `${Math.round(hoursLeft / 24)}d left`, tone: "green" };
-}
 
 export function FlipdeskListingsPage() {
   const user = useAuthStore((s) => s.user);
@@ -2051,900 +1972,55 @@ export function FlipdeskListingsPage() {
                   onQuickEdit={setQuickEditItem}
                 />
               </div>
-              <div
-                ref={tableScrollRef}
-                className={cn(
-                  "hidden overflow-x-auto md:block",
-                  virtualize && "max-h-[70dvh] overflow-y-auto",
-                )}
-              >
-                <Table className="text-xs">
-                  <TableHeader
-                    className={cn(
-                      virtualize &&
-                        "sticky top-0 z-10 [&_th]:bg-background",
-                    )}
-                  >
-                    <TableRow>
-                      {selectable && (
-                        <TableHead className="w-8 px-2">
-                          <input
-                            type="checkbox"
-                            checked={allOnPageSelected}
-                            onChange={toggleSelectAll}
-                            className="h-3.5 w-3.5 cursor-pointer"
-                            aria-label="Select all on page"
-                          />
-                        </TableHead>
-                      )}
-                      <TableHead className="w-10" />
-                      <TableHead className="w-12 px-1" />
-                      <TableHead className="min-w-[220px]">Title</TableHead>
-                      <TableHead className="w-24">
-                        <button
-                          type="button"
-                          onClick={() => toggleColumnSort("item_number")}
-                          className="inline-flex items-center gap-1 font-medium hover:text-foreground"
-                        >
-                          SKU
-                          {columnSort?.field === "item_number" ? (
-                            columnSort.dir === "asc" ? (
-                              <ChevronUp className="h-3 w-3" />
-                            ) : (
-                              <ChevronDown className="h-3 w-3" />
-                            )
-                          ) : (
-                            <ChevronsUpDown className="h-3 w-3 opacity-50" />
-                          )}
-                        </button>
-                      </TableHead>
-                      <TableHead className="w-32">Brand · Size</TableHead>
-                      {isSold ? (
-                        <>
-                          <TableHead className="w-20 text-right">
-                            Sold $
-                          </TableHead>
-                          <TableHead className="w-20 text-right">Net</TableHead>
-                          <TableHead className="w-16 text-right">
-                            Margin
-                          </TableHead>
-                          <TableHead className="w-24">Payout</TableHead>
-                          <TableHead className="w-24">Ship by</TableHead>
-                          <TableHead className="w-10">Buyer</TableHead>
-                        </>
-                      ) : isToList ? (
-                        <>
-                          <TableHead className="w-20 text-right">
-                            Cost
-                          </TableHead>
-                          <TableHead className="w-20 text-right">
-                            Target / List
-                          </TableHead>
-                          <TableHead className="w-20 text-right">
-                            Score
-                          </TableHead>
-                        </>
-                      ) : isActive ? (
-                        <>
-                          <TableHead className="w-24 text-right">
-                            <SortHeader
-                              field="list_price"
-                              align="right"
-                              columnSort={columnSort}
-                              onToggle={toggleColumnSort}
-                            >
-                              Price
-                            </SortHeader>
-                          </TableHead>
-                          <TableHead className="hidden w-16 text-right 2xl:table-cell">
-                            <SortHeader
-                              field="listing_views"
-                              align="right"
-                              columnSort={columnSort}
-                              onToggle={toggleColumnSort}
-                            >
-                              Views
-                            </SortHeader>
-                          </TableHead>
-                          <TableHead className="hidden w-16 text-right 2xl:table-cell">
-                            <SortHeader
-                              field="listing_watchers"
-                              align="right"
-                              columnSort={columnSort}
-                              onToggle={toggleColumnSort}
-                            >
-                              Watchers
-                            </SortHeader>
-                          </TableHead>
-                          <TableHead className="hidden w-16 text-right 2xl:table-cell">Impr.</TableHead>
-                          <TableHead className="hidden w-16 text-right 2xl:table-cell">CTR</TableHead>
-                          <TableHead className="w-20 text-right">
-                            <SortHeader
-                              field="list_date"
-                              align="right"
-                              columnSort={columnSort}
-                              onToggle={toggleColumnSort}
-                            >
-                              Days listed
-                            </SortHeader>
-                          </TableHead>
-                        </>
-                      ) : isShipped ? (
-                        <>
-                          <TableHead className="w-20 text-right">Net</TableHead>
-                          <TableHead className="w-20">Carrier</TableHead>
-                          <TableHead className="min-w-[150px]">
-                            Tracking
-                          </TableHead>
-                          <TableHead className="w-36">Delivery</TableHead>
-                        </>
-                      ) : (
-                        <>
-                          <TableHead className="w-20 text-right">
-                            Cost
-                          </TableHead>
-                          <TableHead className="w-20 text-right">
-                            Target / List
-                          </TableHead>
-                          <TableHead className="w-20 text-right">
-                            Sale
-                          </TableHead>
-                          <TableHead className="w-20 text-right">Net</TableHead>
-                        </>
-                      )}
-                      <TableHead className="w-24">Status</TableHead>
-                      <TableHead className="hidden min-w-[140px] 2xl:table-cell">
-                        Notes
-                      </TableHead>
-                      {(isDrafts || isActive) && (
-                        <TableHead className="w-28">Platforms</TableHead>
-                      )}
-                      {/* US-2170: the Listing Quality Score, next to the other
-                          listing-health columns. Sortable now that items_full
-                          exposes quality_score (00506) — surfaces the weakest
-                          live listings on the Active tab and the weakest drafts,
-                          so a seller fixes the lowest scores first. */}
-                      {(isDrafts || isActive) && (
-                        <TableHead className="w-20 text-center">
-                          <span
-                            className="inline-flex"
-                            title="Listing Quality Score — 0-100 across every ranking lever"
-                          >
-                            <SortHeader
-                              field="quality_score"
-                              columnSort={columnSort}
-                              onToggle={toggleColumnSort}
-                            >
-                              Quality
-                            </SortHeader>
-                          </span>
-                        </TableHead>
-                      )}
-                      {!isSold && !isActive && (
-                        <TableHead className="w-16 text-right">Age</TableHead>
-                      )}
-                      {isActive && (
-                        <TableHead className="w-32 text-right">
-                          Actions
-                        </TableHead>
-                      )}
-                      {/* US-1568 AC3: draft price / batch / schedule parity. */}
-                      {tab === "drafts" && (
-                        <TableHead className="w-40">Draft</TableHead>
-                      )}
-                      {tab === "drafts" && (
-                        <TableHead className="w-32 text-right" />
-                      )}
-                      <TableHead className="w-8" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {virtualize && vPadTop > 0 && (
-                      <tr aria-hidden="true" style={{ height: vPadTop }}>
-                        <td />
-                      </tr>
-                    )}
-                    {(virtualize
-                      ? virtualItems.map((vi) => ({
-                          it: pageRows[vi.index],
-                          measureRef: rowVirtualizer.measureElement,
-                          vIndex: vi.index,
-                        }))
-                      : pageRows.map((it) => ({
-                          it,
-                          measureRef: undefined,
-                          vIndex: undefined,
-                        }))
-                    ).map(({ it, measureRef, vIndex }) => {
-                      if (!it) return null;
-                      const age = daysSince(it.updated_at);
-                      const aging = age != null && age >= 14;
-                      const score = scoreById.get(it.id) ?? 0;
-                      const isSel = selected.has(it.id);
-                      const pay = payoutState(it);
-                      const ship = shipByInfo(it);
-                      const m = marginPct(it);
-                      const repeat =
-                        it.buyer_id != null &&
-                        (buyerCounts.get(it.buyer_id) ?? 0) > 1;
-                      return (
-                        <ClickableRow
-                          key={it.id}
-                          ref={measureRef}
-                          data-index={vIndex}
-                          className={cn(
-                            "hover:bg-muted/30",
-                            isSel && "bg-brand-navy/5",
-                          )}
-                          // One editor for every tab. This used to send Drafts to
-                          // the composer and everything else to a narrower
-                          // canvas that had no eBay specifics editor — which is
-                          // how a listed item ended up unable to save (eBay
-                          // rejecting the revision for a missing required
-                          // specific the seller had no way to fill).
-                          onActivate={() =>
-                            navigate(`/dashboard/flipdesk/items/${it.id}/draft`)
-                          }
-                          activateLabel={`Open ${it.item_title ?? it.listing_title ?? "item"}`}
-                        >
-                          {selectable && (
-                            <TableCell
-                              className="px-2"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSel}
-                                onChange={() => toggleSelected(it.id)}
-                                className="h-3.5 w-3.5 cursor-pointer"
-                                aria-label="Select row"
-                              />
-                            </TableCell>
-                          )}
-                          <TableCell
-                            className="px-2"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() =>
-                                navigate(
-                                  `/dashboard/flipdesk/items/${it.id}/draft`,
-                                )
-                              }
-                              aria-label="Open full editor"
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </Button>
-                          </TableCell>
-                          <TableCell className="px-1">
-                            {(() => {
-                              const cover = coverByItem?.get(it.id);
-                              // US-2273: a private-bucket cover (iOS tag/cert with
-                              // an empty photo_url) has no thumbnail but can still
-                              // be shown via a signed URL, so admit it here too.
-                              const canShow =
-                                cover &&
-                                (itemPhotoThumb(cover) || needsSignedDisplayUrl(cover));
-                              return canShow ? (
-                                <ItemPhotoImg
-                                  photo={cover}
-                                  displayWidth={40}
-                                  alt=""
-                                  loading="lazy"
-                                  width={40}
-                                  height={40}
-                                  className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-border"
-                                />
-                              ) : (
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
-                                  <FileText className="h-4 w-4" />
-                                </div>
-                              );
-                            })()}
-                          </TableCell>
-                          <TableCell className="max-w-[280px] font-medium">
-                            <div className="flex items-center gap-1.5">
-                              {/* US-1569: a placeholder item title falls back
-                                  to the draft's generated listing title. */}
-                              <span className="truncate">
-                                {/^item\s+\d+$/i.test(it.item_title ?? "") ||
-                                /^untitled/i.test(it.item_title ?? "") ||
-                                !(it.item_title ?? "").trim()
-                                  ? (it.listing_title ?? it.item_title)
-                                  : it.item_title}
-                              </span>
-                              {tab === "drafts" && it.listing_needs_review && (() => {
-                                // US-1568 AC3: show the aspect_review count ("N to
-                                // fix") like the AutoLister cockpit, when known.
-                                const n = draftMetaByItem?.get(it.id)?.aspectCount ?? 0;
-                                return (
-                                  <Badge
-                                    variant="outline"
-                                    className="shrink-0 border-amber-400 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300"
-                                    title="The AI flagged fields to double-check before publishing"
-                                  >
-                                    {n > 0 ? `${n} to fix` : "Needs review"}
-                                  </Badge>
-                                );
-                              })()}
-                              {it.grade_value != null && (
-                                <Badge
-                                  variant="secondary"
-                                  className="shrink-0 px-1.5 py-0 text-[10px]"
-                                  title={
-                                    it.grade_label
-                                      ? `Graded ${it.grade_label}`
-                                      : "GradeThread grade"
-                                  }
-                                >
-                                  {Number(it.grade_value).toFixed(1)}
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="max-w-[120px] truncate font-mono text-[11px] tabular-nums text-muted-foreground">
-                            {it.item_number ?? ""}
-                          </TableCell>
-                          <TableCell className="max-w-[140px] truncate text-muted-foreground">
-                            {[it.brand, it.size].filter(Boolean).join(" · ")}
-                          </TableCell>
-                          {isSold ? (
-                            <>
-                              <TableCell className="text-right tabular-nums">
-                                {fmtMoney(it.sale_price)}
-                              </TableCell>
-                              <TableCell
-                                className={cn(
-                                  "text-right tabular-nums",
-                                  it.net_profit != null &&
-                                    it.net_profit < 0 &&
-                                    "text-destructive",
-                                )}
-                              >
-                                {fmtMoney(it.net_profit)}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {m == null ? "" : `${m.toFixed(0)}%`}
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                    pay === "cleared"
-                                      ? "default"
-                                      : pay === "discrepancy"
-                                        ? "destructive"
-                                        : "secondary"
-                                  }
-                                  className="text-[10px]"
-                                >
-                                  {pay}
-                                </Badge>
-                              </TableCell>
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center gap-2">
-                                  {ship.tone !== "none" && (
-                                    <span
-                                      className={cn(
-                                        "inline-flex items-center gap-1 text-[10px] font-medium",
-                                        ship.tone === "red" &&
-                                          "text-destructive",
-                                        ship.tone === "amber" &&
-                                          "text-amber-600 dark:text-amber-400",
-                                        ship.tone === "green" &&
-                                          "text-emerald-600 dark:text-emerald-400",
-                                      )}
-                                    >
-                                      <Truck className="h-3 w-3" />
-                                      {ship.label}
-                                    </span>
-                                  )}
-                                  {ship.tone !== "green" && (
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-6 px-2 text-[10px]"
-                                      onClick={() => setShipItem(it)}
-                                      title="Mark shipped + push tracking to eBay"
-                                    >
-                                      Mark shipped
-                                    </Button>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                {repeat && (
-                                  <span
-                                    title="Repeat buyer"
-                                    className="text-amber-500"
-                                  >
-                                    <Star className="h-3.5 w-3.5 fill-current" />
-                                  </span>
-                                )}
-                              </TableCell>
-                            </>
-                          ) : isToList ? (
-                            <>
-                              <TableCell
-                                className="text-right tabular-nums"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <InlineCell
-                                  value={it.purchase_price}
-                                  type="number"
-                                  align="right"
-                                  onChange={(v) =>
-                                    updateItemMoney(
-                                      it,
-                                      v,
-                                      "acquired_price",
-                                      "purchase_price",
-                                      "Cost",
-                                    )
-                                  }
-                                />
-                              </TableCell>
-                              <TableCell
-                                className="text-right tabular-nums"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <InlineCell
-                                  value={it.target_price}
-                                  type="number"
-                                  align="right"
-                                  onChange={(v) =>
-                                    updateItemMoney(
-                                      it,
-                                      v,
-                                      "target_price",
-                                      "target_price",
-                                      "Target",
-                                    )
-                                  }
-                                />
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <span
-                                  className={cn(
-                                    "font-mono font-semibold tabular-nums",
-                                    scoreColor(score),
-                                  )}
-                                >
-                                  {score}
-                                </span>
-                              </TableCell>
-                            </>
-                          ) : isActive ? (
-                            <>
-                              <TableCell
-                                className="text-right tabular-nums"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <InlineCell
-                                  value={it.list_price}
-                                  type="number"
-                                  align="right"
-                                  onChange={(v) => updateListingPrice(it, v)}
-                                />
-                              </TableCell>
-                              <TableCell className="hidden text-right tabular-nums text-muted-foreground 2xl:table-cell">
-                                {it.listing_views ?? "—"}
-                              </TableCell>
-                              <TableCell className="hidden text-right tabular-nums text-muted-foreground 2xl:table-cell">
-                                {it.listing_watchers ?? "—"}
-                              </TableCell>
-                              <TableCell className="hidden text-right tabular-nums text-muted-foreground 2xl:table-cell">
-                                {metricsByItem?.get(it.id)?.impressions?.toLocaleString() ?? "—"}
-                              </TableCell>
-                              <TableCell className="hidden text-right tabular-nums text-muted-foreground 2xl:table-cell">
-                                {(() => {
-                                  const ctr = metricsByItem?.get(it.id)?.ctr;
-                                  return ctr == null ? "—" : `${(ctr * 100).toFixed(1)}%`;
-                                })()}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {daysSince(it.list_date) ?? "—"}
-                              </TableCell>
-                            </>
-                          ) : isShipped ? (
-                            <>
-                              <TableCell
-                                className={cn(
-                                  "text-right tabular-nums",
-                                  it.net_profit != null &&
-                                    it.net_profit < 0 &&
-                                    "text-destructive",
-                                )}
-                              >
-                                {fmtMoney(it.net_profit)}
-                              </TableCell>
-                              <TableCell className="text-muted-foreground">
-                                {it.carrier ?? "—"}
-                              </TableCell>
-                              <TableCell
-                                className="font-mono text-[11px]"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <InlineCell
-                                  value={it.tracking}
-                                  type="text"
-                                  placeholder="Add tracking"
-                                  onChange={(v) => updateTracking(it, v)}
-                                />
-                              </TableCell>
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                {it.delivered_at ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                                    <CheckCircle2 className="h-3 w-3" />
-                                    Delivered{" "}
-                                    {new Date(
-                                      it.delivered_at,
-                                    ).toLocaleDateString()}
-                                  </span>
-                                ) : (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-6 px-2 text-[10px]"
-                                    onClick={() => markDelivered(it)}
-                                    title="Mark this order delivered"
-                                  >
-                                    Mark delivered
-                                  </Button>
-                                )}
-                              </TableCell>
-                            </>
-                          ) : (
-                            <>
-                              <TableCell
-                                className="text-right tabular-nums"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <InlineCell
-                                  value={it.purchase_price}
-                                  type="number"
-                                  align="right"
-                                  onChange={(v) =>
-                                    updateItemMoney(
-                                      it,
-                                      v,
-                                      "acquired_price",
-                                      "purchase_price",
-                                      "Cost",
-                                    )
-                                  }
-                                />
-                              </TableCell>
-                              <TableCell
-                                className="text-right tabular-nums"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <InlineCell
-                                  value={it.target_price}
-                                  type="number"
-                                  align="right"
-                                  onChange={(v) =>
-                                    updateItemMoney(
-                                      it,
-                                      v,
-                                      "target_price",
-                                      "target_price",
-                                      "Target",
-                                    )
-                                  }
-                                />
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {fmtMoney(it.sale_price)}
-                              </TableCell>
-                              <TableCell
-                                className={cn(
-                                  "text-right tabular-nums",
-                                  it.net_profit != null &&
-                                    it.net_profit < 0 &&
-                                    "text-destructive",
-                                )}
-                              >
-                                {fmtMoney(it.net_profit)}
-                              </TableCell>
-                            </>
-                          )}
-                          <TableCell onClick={(e) => e.stopPropagation()}>
-                            <InlineStatusSelect
-                              value={it.status}
-                              onChange={(next) => updateItemStatus(it, next)}
-                            />
-                          </TableCell>
-                          <TableCell
-                            className="hidden max-w-[220px] text-muted-foreground 2xl:table-cell"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <InlineCell
-                              value={it.notes}
-                              type="text"
-                              placeholder="Add notes"
-                              truncate
-                              onChange={(v) => updateItemNotes(it, v)}
-                            />
-                          </TableCell>
-                          {(isDrafts || isActive) && (
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {(platformsByItem?.get(it.id) ?? []).map(
-                                  (l) => (
-                                    <span
-                                      key={l.id}
-                                      className="inline-flex items-center gap-0.5"
-                                    >
-                                      <span
-                                        title={`${MARKETPLACE_LABELS[l.platform]} — ${l.status}`}
-                                        className={cn(
-                                          "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                                          l.status === "active"
-                                            ? "border-emerald-400/60 text-emerald-600 dark:text-emerald-400"
-                                            : l.status === "sold"
-                                              ? "border-brand-navy/40 text-brand-navy dark:text-foreground"
-                                              : "text-muted-foreground",
-                                        )}
-                                      >
-                                        {MARKETPLACE_LABELS[l.platform]}
-                                      </span>
-                                      {/* Provenance tag (US-1077/US-1081): only eBay
-                                          listings have a meaningful origin — who owns
-                                          the fields and which way sync flows. */}
-                                      {l.platform === "ebay" && (
-                                        <span
-                                          title={
-                                            l.origin === "ebay"
-                                              ? "Created on eBay — eBay owns the fields; edit on eBay"
-                                              : "Created in GradeThread — source of truth; edit here"
-                                          }
-                                          className={cn(
-                                            "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                                            l.origin === "ebay"
-                                              ? "border-amber-400/60 text-amber-600 dark:text-amber-400"
-                                              : "border-brand-navy/40 text-brand-navy dark:text-foreground",
-                                          )}
-                                        >
-                                          {l.origin === "ebay" ? "eBay-made" : "GT"}
-                                        </span>
-                                      )}
-                                    </span>
-                                  ),
-                                )}
-                              </div>
-                            </TableCell>
-                          )}
-                          {/* US-2170: quality chip. Renders an em dash for an
-                              unscored listing — never a 0, which would read as a
-                              confident "this is terrible" for a listing nobody
-                              has run a publish check on. */}
-                          {(isDrafts || isActive) && (
-                            <TableCell className="text-center">
-                              <QualityScoreChip
-                                score={
-                                  it.listing_id
-                                    ? qualityByListing[it.listing_id]
-                                    : undefined
-                                }
-                              />
-                            </TableCell>
-                          )}
-                          {!isSold && !isActive && (
-                            <TableCell className="text-right">
-                              {age != null && (
-                                <span
-                                  className={cn(
-                                    "inline-flex items-center gap-1 tabular-nums",
-                                    aging
-                                      ? "font-medium text-destructive"
-                                      : "text-muted-foreground",
-                                  )}
-                                >
-                                  {aging ? (
-                                    <AlertCircle className="h-3 w-3" />
-                                  ) : (
-                                    <Clock className="h-3 w-3" />
-                                  )}
-                                  {age}d
-                                </span>
-                              )}
-                            </TableCell>
-                          )}
-                          {isActive && (
-                            <TableCell
-                              className="text-right"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <div className="flex items-center justify-end gap-1">
-                                {ebayConnection && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                    onClick={() => setPublishItem(it)}
-                                    aria-label="Relist as a new listing"
-                                    title="End this listing and relist as a new one"
-                                  >
-                                    <RotateCcw className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-6 px-2 text-[10px]"
-                                  onClick={() => setRecordSaleItem(it)}
-                                >
-                                  Sold
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 text-destructive"
-                                  onClick={() => setEndTarget(it)}
-                                  aria-label="End listing early"
-                                  title="End listing early"
-                                >
-                                  <XCircle className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          )}
-                          {tab === "drafts" && (() => {
-                            // US-1568 AC3: the draft's generated price (+ "est."
-                            // badge), batch link, and scheduled-drop date — the
-                            // listing-level info the AutoLister cockpit shows.
-                            const dm = draftMetaByItem?.get(it.id);
-                            const price = dm?.listingPrice ?? it.list_price;
-                            return (
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                <div className="flex flex-col items-start gap-0.5 text-[11px]">
-                                  <span className="inline-flex items-center gap-1 font-mono tabular-nums">
-                                    {price != null ? `$${price.toFixed(2)}` : "—"}
-                                    {dm?.priceIsEstimated && (
-                                      <Badge
-                                        variant="outline"
-                                        className="px-1 py-0 text-[9px]"
-                                        title={
-                                          dm.priceCompSource === "active_asking"
-                                            ? "Based on active asking prices (not sold comps) — may run high. Verify before publishing."
-                                            : "AI estimate — verify before publishing"
-                                        }
-                                      >
-                                        est.
-                                      </Badge>
-                                    )}
-                                  </span>
-                                  {dm?.scheduledPublishAt && (
-                                    <span className="inline-flex items-center gap-1 text-muted-foreground">
-                                      <CalendarClock className="h-3 w-3" />
-                                      {new Date(dm.scheduledPublishAt).toLocaleDateString()}
-                                    </span>
-                                  )}
-                                  {dm?.batchId && (
-                                    <Link
-                                      to={`/dashboard/flipdesk/autolister/queue?batch=${dm.batchId}`}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="inline-flex items-center gap-1 text-brand-red-text hover:underline"
-                                      title="Open this batch (publish all / bulk edit)"
-                                    >
-                                      <Layers className="h-3 w-3" /> Queue
-                                    </Link>
-                                  )}
-                                </div>
-                              </TableCell>
-                            );
-                          })()}
-                          {tab === "drafts" && (
-                            <TableCell
-                              className="text-right"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <div className="flex items-center justify-end gap-1">
-                                {(() => {
-                                  const issue = publishIssuesByItem?.get(it.id);
-                                  return issue ? (
-                                    <span
-                                      title={issue}
-                                      className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-                                    >
-                                      <AlertTriangle className="h-3 w-3" />
-                                      eBay inactive — review &amp; relist
-                                    </span>
-                                  ) : null;
-                                })()}
-                                {(() => {
-                                  const isRelist = it.listing_status === "ended";
-                                  if (ebayConnection) {
-                                    return (
-                                      <>
-                                        <Button
-                                          size="sm"
-                                          className="h-6 px-2 text-[10px]"
-                                          onClick={() => setPublishItem(it)}
-                                          title={
-                                            isRelist
-                                              ? "Republish to eBay (same SKU, new listing)"
-                                              : undefined
-                                          }
-                                        >
-                                          {isRelist ? (
-                                            <RotateCcw className="mr-1 h-3 w-3" />
-                                          ) : (
-                                            <Rocket className="mr-1 h-3 w-3" />
-                                          )}
-                                          {isRelist ? "Relist" : "Publish"}
-                                        </Button>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-6 px-2 text-[10px]"
-                                          onClick={() => setMarkListedItem(it)}
-                                          title="Skip eBay API — just record that it's live"
-                                        >
-                                          Mark
-                                        </Button>
-                                      </>
-                                    );
-                                  }
-                                  return (
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-6 px-2 text-[10px]"
-                                      onClick={() => setMarkListedItem(it)}
-                                    >
-                                      {isRelist ? "Relist" : "List it"}
-                                    </Button>
-                                  );
-                                })()}
-                              </div>
-                            </TableCell>
-                          )}
-                          <TableCell onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center justify-end gap-1">
-                              {it.link && (
-                                <a
-                                  href={it.link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex text-brand-red-text"
-                                  aria-label="Open listing"
-                                >
-                                  <ExternalLink className="h-3 w-3" />
-                                </a>
-                              )}
-                              {/* Delete a duplicate item. Hidden on terminal
-                                  accounting tabs (sold/shipped/returned) where a
-                                  hard delete is never appropriate; the server
-                                  still guards live listings + any sale. */}
-                              {!isSold && !isShipped && tab !== "returned" && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                                  onClick={() => setDeleteTarget(it)}
-                                  aria-label="Delete item"
-                                  title="Delete this item and its photos (for removing a duplicate)"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </ClickableRow>
-                      );
-                    })}
-                    {virtualize && vPadBottom > 0 && (
-                      <tr aria-hidden="true" style={{ height: vPadBottom }}>
-                        <td />
-                      </tr>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+              {/* US-2173 AC3: the desktop table is its own component now. The
+                  US-733 virtualization decision stays here — the hook must be
+                  created on every render, and this component is not mounted on
+                  mobile — so its output is passed down rather than computed
+                  there. */}
+              <ListingsTable
+                pageRows={pageRows}
+                tab={tab}
+                isActive={isActive}
+                isDrafts={isDrafts}
+                isShipped={isShipped}
+                isSold={isSold}
+                isToList={isToList}
+                selectable={selectable}
+                selected={selected}
+                allOnPageSelected={allOnPageSelected}
+                toggleSelected={toggleSelected}
+                toggleSelectAll={toggleSelectAll}
+                columnSort={columnSort}
+                toggleColumnSort={toggleColumnSort}
+                tableScrollRef={tableScrollRef}
+                virtualize={virtualize}
+                virtualItems={virtualItems}
+                rowVirtualizer={rowVirtualizer}
+                vPadTop={vPadTop}
+                vPadBottom={vPadBottom}
+                platformsByItem={platformsByItem}
+                draftMetaByItem={draftMetaByItem}
+                publishIssuesByItem={publishIssuesByItem}
+                coverByItem={coverByItem}
+                metricsByItem={metricsByItem}
+                qualityByListing={qualityByListing}
+                scoreById={scoreById}
+                buyerCounts={buyerCounts}
+                updateTracking={updateTracking}
+                updateListingPrice={updateListingPrice}
+                updateItemStatus={updateItemStatus}
+                updateItemMoney={updateItemMoney}
+                updateItemNotes={updateItemNotes}
+                markDelivered={markDelivered}
+                setPublishItem={setPublishItem}
+                setMarkListedItem={setMarkListedItem}
+                setRecordSaleItem={setRecordSaleItem}
+                setShipItem={setShipItem}
+                setEndTarget={setEndTarget}
+                setDeleteTarget={setDeleteTarget}
+                ebayConnection={ebayConnection}
+                navigate={navigate}
+              />
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs">
                 <div className="flex items-center gap-2">
@@ -3437,43 +2513,6 @@ export function FlipdeskListingsPage() {
         }}
       />
     </div>
-  );
-}
-
-function SortHeader({
-  field,
-  children,
-  align = "left",
-  columnSort,
-  onToggle,
-}: {
-  field: keyof ItemFullRow;
-  children: ReactNode;
-  align?: "left" | "right";
-  columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
-  onToggle: (field: keyof ItemFullRow) => void;
-}) {
-  const isActive = columnSort?.field === field;
-  return (
-    <button
-      type="button"
-      onClick={() => onToggle(field)}
-      className={cn(
-        "inline-flex items-center gap-1 font-medium hover:text-foreground",
-        align === "right" && "ml-auto",
-      )}
-    >
-      {children}
-      {isActive ? (
-        columnSort!.dir === "asc" ? (
-          <ChevronUp className="h-3 w-3" />
-        ) : (
-          <ChevronDown className="h-3 w-3" />
-        )
-      ) : (
-        <ChevronsUpDown className="h-3 w-3 opacity-50" />
-      )}
-    </button>
   );
 }
 
