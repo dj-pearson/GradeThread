@@ -1,5 +1,6 @@
 // US-1700: conversion wiring — click-id normalization, platform mapping, the
 // event → conversion-definition map, and the attribution upsert (fake client).
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   DEFAULT_CONVERSION_DEFINITIONS,

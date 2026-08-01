@@ -1,3 +1,4 @@
+import "./_env.ts";
 import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import {
   buildLeaveFeedbackXml,

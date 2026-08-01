@@ -6,6 +6,7 @@
 //   • Min-matched-photos guardrail (a single lucky near-collision is filtered
 //     when minMatchedPhotos > 1).
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   normalizePhashes,

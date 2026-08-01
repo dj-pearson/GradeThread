@@ -1,5 +1,6 @@
 // US-1097: garment fingerprint pure helpers (wear score, defect summary,
 // payload shape, perceptual similarity). No DB, no image decode.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   buildFingerprintedEventPayload,

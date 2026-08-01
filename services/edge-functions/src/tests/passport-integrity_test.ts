@@ -3,6 +3,7 @@
 // Covers each anomaly builder + the operator-safety evidence guard (no image
 // bytes / URLs / PII ever cross into a signal an admin sees).
 
+import "./_env.ts";
 import { assert, assertEquals, assertThrows } from "@std/assert";
 import {
   assertSafePassportEvidence,

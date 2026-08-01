@@ -4,6 +4,7 @@
 // contract via an injected inserter (no DB), including the duplicate-delivery
 // path for the money events the AC calls out (charge.refunded,
 // checkout.session.completed).
+import "./_env.ts";
 import { assert, assertEquals, assertThrows } from "@std/assert";
 import {
   claimWebhookEvent,

@@ -1,6 +1,7 @@
 // Unit tests for the AI-action quality-gated cascade (US-1065 follow-up).
 //
 //   deno test src/tests/ai-action-cascade_test.ts
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   type ActionCascadeConfig,

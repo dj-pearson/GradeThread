@@ -5,6 +5,7 @@
 // with a live eBay id AND a configured eBay client is pushable; anything else is
 // skipped (retried next run), never recorded as a clean success.
 
+import "./_env.ts";
 import { assert } from "@std/assert";
 import { promoRatePushable } from "../routes/flipdesk-automations.ts";
 

@@ -5,6 +5,7 @@
 // Context exposing just get/json/header (the three members the gate touches).
 //
 //   deno test src/tests/plan-gate_test.ts
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import type { Context } from "hono";
 import {

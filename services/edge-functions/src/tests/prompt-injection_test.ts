@@ -4,6 +4,7 @@
 // invariants that make that guarantee hold: seller free-text is sanitized
 // (control chars / role tags / fence chars stripped, length-capped) and wrapped
 // in a delimited UNTRUSTED block that the seller cannot break out of.
+import "./_env.ts";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import {
   applyGradingConfidencePolicy,

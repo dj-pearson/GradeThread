@@ -5,6 +5,7 @@
 // present. These tests pin the candidate extraction + payout parsing the live
 // handler and the parked-event drain both depend on.
 
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   extractEbayCandidates,

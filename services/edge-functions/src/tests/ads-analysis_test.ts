@@ -1,5 +1,6 @@
 // US-1701: Claude ads analysis — input shaping, recommendation validation +
 // parsing, and a report-only analyzeAds run with a MOCKED model + fake DB.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   analyzeAds,

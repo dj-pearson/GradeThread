@@ -6,6 +6,7 @@
 // upsell picker, and (4) the admin pricing validator. Pure + file reads only (the
 // deno test task runs with --allow-read), no DB fixture.
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   CREDIT_PACKS,

@@ -7,6 +7,7 @@
 //      below the plan limit.
 // Pure imports only (the cap table + helper), so no DB fixture is needed.
 
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import { AI_ACTION_LIMITS } from "../routes/flipdesk-ai.ts";
 import { effectiveAiCap, __testing } from "../lib/plan-gate.ts";

@@ -30,7 +30,18 @@ Deno.test("enterAiFeature tags the current async context across awaits", async (
     enterAiFeature("autolister");
     return await deepCall();
   }
-  assertEquals(await entry(), "autolister");
+  // US-2379: enterWith() escapes into the CALLER's async context — that is the
+  // whole point of it, and it means an unconfined call here leaks "autolister"
+  // into whatever test the runner picks next. Under --shuffle that landed on
+  // "currentAiFeature is undefined with no context", which then failed for a
+  // reason that had nothing to do with it. Confining the call to a run() scope
+  // keeps the assertion honest (enterWith still overrides the outer value and
+  // still propagates across the await) without the leak.
+  const tagged = await withAiFeature(
+    { feature: "outer-scope", userId: null },
+    () => entry(),
+  );
+  assertEquals(tagged, "autolister");
 });
 
 Deno.test("withAiFeature scopes the context to the callback", async () => {

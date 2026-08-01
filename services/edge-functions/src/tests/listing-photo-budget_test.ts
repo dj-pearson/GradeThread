@@ -3,6 +3,7 @@
 //   2. easy-category model routing (isEasyAspectCategory)
 //   3. measured ~30-50% per-item cost reduction at batch scale
 
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   APPROX_IMAGE_TOKENS,

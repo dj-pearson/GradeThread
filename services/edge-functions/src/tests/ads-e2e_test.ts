@@ -2,6 +2,7 @@
 //   sync → analyze → approve → dry-run apply → audit row + rollback-payload.
 // Exercised through the composable, injectable library functions + an in-memory
 // supabase, proving the loop's data flow without touching Google/Apple.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { syncGoogleAds } from "../lib/google-ads-sync.ts";
 import { analyzeAds } from "../lib/ads-analysis.ts";

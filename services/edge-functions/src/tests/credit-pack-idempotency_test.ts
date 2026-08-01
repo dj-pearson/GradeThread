@@ -5,6 +5,7 @@
 // key is stable within a bucket, distinct across users/packs, and rolls over to
 // a fresh key in a later window.
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   CREDIT_PACK_IDEMPOTENCY_WINDOW_MS,

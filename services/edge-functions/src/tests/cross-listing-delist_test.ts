@@ -10,6 +10,7 @@
 // must never be reported as "ended" — that is the whole story. The marketplace
 // calls are injected, so every arm is asserted without a network or a DB.
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   attemptUpstreamDelist,

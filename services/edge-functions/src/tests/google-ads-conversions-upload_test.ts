@@ -1,5 +1,6 @@
 // US-1704: offline conversion upload — datetime formatting, upload-row
 // construction, batch skips (dedupe reasons), and partial-failure index parsing.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   type AttributionRow,

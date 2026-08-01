@@ -3,6 +3,7 @@
 // shape the SPA + plan-gate expect. Pure imports only (validator + constants),
 // so no DB fixture is needed.
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { validateBody } from "../routes/admin-pricing.ts";
 import { FALLBACK_MATRIX, GATE_FLAG_KEYS } from "../lib/pricing-config.ts";

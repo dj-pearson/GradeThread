@@ -5,6 +5,7 @@
 // locally is logged as a clean success, hiding the desync.
 // endListingWritesApplied is the gate the handler checks before recording.
 
+import "./_env.ts";
 import { assert } from "@std/assert";
 import { endListingWritesApplied } from "../routes/flipdesk-automations.ts";
 

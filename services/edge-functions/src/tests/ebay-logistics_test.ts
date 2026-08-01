@@ -3,6 +3,7 @@
 // Money lands in sales.shipping_cost from these functions, so the parsing is
 // what the per-item P&L rests on. Everything here is network-free.
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   cheapestRate,

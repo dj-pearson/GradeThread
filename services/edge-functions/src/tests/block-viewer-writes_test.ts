@@ -5,6 +5,7 @@
 // mutating verbs, allowed on reads, and every other role (and the no-role
 // webhook/cron case) passes through untouched.
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { Hono } from "hono";
 import { blockViewerWrites } from "../middleware/workspace.ts";

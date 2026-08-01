@@ -1,4 +1,5 @@
 // US-1897: Listing Quality Score + the business-policy signal parser (pure).
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   computeListingQualityScore,

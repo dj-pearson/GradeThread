@@ -1,5 +1,6 @@
 // US-2101: UTM persist route input sanitisation. sanitizeUtmSet is pure, so the
 // validation is tested directly without a DB.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { sanitizeUtmSet } from "../routes/utm-attribution.ts";
 

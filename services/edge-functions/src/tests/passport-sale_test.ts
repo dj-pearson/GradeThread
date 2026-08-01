@@ -10,6 +10,7 @@
 //   • idempotency: a re-synced sale (sold-to node already owns the garment) is
 //     a no-op (no duplicate node/event/token).
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { minimizeLinkageRef } from "../lib/garment-passport.ts";
 import { recordEbaySale, type SaleDb } from "../lib/passport-sale.ts";

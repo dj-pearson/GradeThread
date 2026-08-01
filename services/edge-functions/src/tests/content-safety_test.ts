@@ -3,6 +3,7 @@
 // No Supabase / Anthropic / Deno.env — runs standalone:
 //   deno test src/tests/content-safety_test.ts
 
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   htmlToReviewText,

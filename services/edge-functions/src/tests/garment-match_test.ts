@@ -1,4 +1,5 @@
 // US-1098: candidate-match ranking + wear-monotonicity gate. Pure — no DB.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   type FingerprintRecord,

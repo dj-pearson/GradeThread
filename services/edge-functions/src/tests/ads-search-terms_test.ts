@@ -1,4 +1,5 @@
 // US-1706: search-terms mining — waste/opportunity classification + rec rows.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   buildSearchTermRecommendationRows,

@@ -4,6 +4,7 @@
 // 204 that leaves the connection + long-lived refresh token alive while eBay
 // considers the account deleted. accountDeletionOutcome is the decision point.
 
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import { accountDeletionOutcome } from "../routes/flipdesk-webhooks.ts";
 

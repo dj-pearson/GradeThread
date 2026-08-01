@@ -3,6 +3,7 @@
 // dedupe is enforced by passing this deterministic key to Stripe; here we pin
 // that the key is stable for identical inputs and distinct across them.
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { perGradeIdempotencyKey } from "../routes/payments.ts";
 

@@ -1,4 +1,5 @@
 // US-1705: guardrails block over-limit applies.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { checkGuardrails, DEFAULT_GUARDRAILS, type Guardrails } from "../lib/ads-guardrails.ts";
 

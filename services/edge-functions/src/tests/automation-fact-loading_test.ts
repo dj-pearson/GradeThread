@@ -11,6 +11,7 @@
 // listing with no visible effect reads as a bug, because the price/promo
 // columns say nothing about a crosslist, a notify or a status move.
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import type {
   AutomationAction,

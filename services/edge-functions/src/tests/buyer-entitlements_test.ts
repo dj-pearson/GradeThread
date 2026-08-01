@@ -1,5 +1,6 @@
 // US-1800: buyer entitlement resolution — the fail-safe gating contract.
 // Pure (no DB): resolveBuyerEntitlements + buyerFeatureEnabled.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   buyerFeatureEnabled,

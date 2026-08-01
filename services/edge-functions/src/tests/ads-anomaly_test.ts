@@ -1,4 +1,5 @@
 // US-1705: anomaly detection fires past thresholds; pacing projection.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   computePacing,
