@@ -1,10 +1,10 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Three pending: 00508, 00509, 00510 — apply in that order.** Prod is at
-**00507** — confirmed by the operator on 2026-07-31, right after PR #232 merged.
-`EXPECTED_SCHEMA_VERSION` is now **00510** and the highest migration in the tree
-is `00510_prompt_versions_service_role_writes.sql`, so the edge boot guard
-expects 00510 and prod has none of the three.
+**One pending: 00510.** Prod is at **00509** — the operator confirmed on
+2026-08-01 that 00507, 00508 and 00509 are all applied.
+`EXPECTED_SCHEMA_VERSION` is **00510** and the highest migration in the tree is
+`00510_prompt_versions_service_role_writes.sql`, so the edge boot guard expects
+00510 and prod is one behind.
 
 Why the entries stayed marked HELD after they were applied: this file is edited
 by hand and nothing flips the marker when the SQL runs. The session-start hook
@@ -46,7 +46,7 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00509_ebay_shipping_labels.sql (US-2160 buy eBay labels, 2026-07-31)
+## ✅ APPLIED: 00509_ebay_shipping_labels.sql (US-2160 buy eBay labels, 2026-07-31 · applied 2026-08-01)
 
 - **Apply order.** After 00508. Idempotent: `ADD COLUMN IF NOT EXISTS`,
   `COMMENT ON COLUMN`, `CREATE INDEX IF NOT EXISTS`. Safe to re-run.
@@ -79,7 +79,7 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00508_marketplace_event_item_link.sql (US-2156 automation triggers, 2026-07-31)
+## ✅ APPLIED: 00508_marketplace_event_item_link.sql (US-2156 automation triggers, 2026-07-31 · applied 2026-08-01)
 
 - **Apply order.** After 00507. Idempotent: `ADD COLUMN IF NOT EXISTS`,
   `COMMENT ON COLUMN`, `CREATE INDEX IF NOT EXISTS`. Safe to re-run.
