@@ -46,7 +46,7 @@ export interface DivergenceResult {
 // Pure mirror of webhooks.ts mapSubscriptionStatus for the RAW Stripe status
 // string (we only have the recorded string here, not a Stripe.Subscription).
 // Kept in sync deliberately — both fail closed on unknown statuses.
-function mapRawStripeStatus(raw: string | null): SubscriptionStatus | null {
+export function mapRawStripeStatus(raw: string | null): SubscriptionStatus | null {
   switch (raw) {
     case "trialing":
       return "trialing";
@@ -140,5 +140,68 @@ export function detectDivergence(
     planDiverged,
     expected,
     reasons,
+  };
+}
+
+
+// ── US-2295: the divergence this job could never see ────────────────────────
+//
+// detectDivergence above compares our CACHED state against the latest webhook
+// event WE RECORDED. Both sides come out of our own database, so it answers one
+// question well — "did we receive an event and fail to apply it?" — and is
+// structurally blind to the other: "did Stripe change something we never heard
+// about?"
+//
+// A missed webhook produces no event row. The candidate loop then hits
+// `if (!row.latest_event_type) continue;` and the account is skipped in silence.
+// That is the exact drift the job was built to catch, and it was the one case
+// guaranteed to be invisible.
+//
+// This is the Stripe side of the comparison. Status only, deliberately: status
+// is where the revenue leaks (a canceled sub still reading active is served for
+// free; a live sub reading canceled is a customer locked out of what they pay
+// for), and mapping a Stripe price back to a plan tier needs a mapping this
+// module does not own. Plan drift is still covered by detectDivergence whenever
+// an event WAS recorded.
+
+export interface StripeSubscriptionState {
+  /** Stripe's subscription id, for the flag detail. */
+  id: string;
+  /** The raw Stripe status string, e.g. "active" | "past_due" | "canceled". */
+  status: string | null;
+}
+
+export interface StripeDivergenceResult {
+  diverged: boolean;
+  expectedStatus: SubscriptionStatus | null;
+  reasons: string[];
+}
+
+/**
+ * Compare our cached subscription status against what Stripe says RIGHT NOW.
+ *
+ * Fails CLOSED on an unmapped Stripe status: `mapRawStripeStatus` returns null
+ * for anything it does not recognise, and an unknown status is not evidence of
+ * divergence — flagging on it would fill the queue with noise the first time
+ * Stripe adds a state, and a noisy queue is an ignored queue.
+ */
+export function detectStripeDivergence(
+  cached: CachedSubscriptionState,
+  stripe: StripeSubscriptionState,
+): StripeDivergenceResult {
+  const expectedStatus = mapRawStripeStatus(stripe.status);
+  if (expectedStatus === null) {
+    return { diverged: false, expectedStatus: null, reasons: [] };
+  }
+  if (cached.status === expectedStatus) {
+    return { diverged: false, expectedStatus, reasons: [] };
+  }
+  return {
+    diverged: true,
+    expectedStatus,
+    reasons: [
+      `stripe: cached '${cached.status ?? "—"}' vs Stripe '${stripe.status}' ` +
+      `(maps to '${expectedStatus}') on subscription ${stripe.id}`,
+    ],
   };
 }
