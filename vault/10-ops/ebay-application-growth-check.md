@@ -26,6 +26,22 @@ rather than three times (US-2160 and US-1421).
 
 ---
 
+## Status: ON HOLD (decided 2026-08-01)
+
+**Not submitting yet.** GradeThread has one active seller besides the operator,
+so eBay-side call volume is a rounding error against the 5,000/day default. eBay
+declines applications without usage, and a decline costs a queue slot.
+
+**Revisit when connected sellers reach roughly 15–20** — that is where the
+arithmetic below puts steady-state usage near the default limit, which is the
+condition eBay actually asks for. Nothing is blocked by waiting: the label and
+send-offer features are built and dark behind capability gates, so the only cost
+of the hold is that they stay invisible.
+
+Everything below is ready to submit as-is when that day comes.
+
+---
+
 ## ⚠ Read this before submitting
 
 eBay's own wording: *"We cannot approve applications which are in beta or do not

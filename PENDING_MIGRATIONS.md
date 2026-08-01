@@ -1,10 +1,27 @@
-# PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
+# PENDING MIGRATIONS
 
-**Two pending: 00508 and 00509 — apply 00508 FIRST.** Prod is at **00507** —
-confirmed by the operator on 2026-07-31, right after PR #232 merged.
-`EXPECTED_SCHEMA_VERSION` is now **00509** and the highest migration in the tree
-is `00509_ebay_shipping_labels.sql`, so the edge boot guard expects 00509 and
-prod has neither.
+## 🚨 00508 + 00509 ARE MERGED TO MAIN AND NOT APPLIED TO PROD
+
+**This is past "held".** A held migration is safe by definition — it is unpushed,
+so nothing depends on it. These went to main in PR #235 on 2026-07-31, so the
+safety of "not yet pushed" is gone:
+
+- `EXPECTED_SCHEMA_VERSION` on main is **00509**. Prod is at **00507**.
+- The edge boot guard compares those two and **exits non-zero when the DB is
+  behind**, which Coolify turns into a restart loop. The next edge deploy — for
+  any reason, including an unrelated change — will not come up.
+- There is a ~40s grace window (US-778) for the deploy/migrate race. It does not
+  help here: the migrations are not merely late, they are absent.
+
+**Apply 00508 then 00509, then `NOTIFY pgrst, 'reload schema';`, then redeploy
+the edge.** Both are idempotent and safe to re-run. Details for each below.
+
+The frontend is NOT at risk and never was: the SPA reads none of the new columns,
+and the label capability probe fails closed, so Cloudflare Pages deploying ahead
+of the SQL just leaves the feature hidden.
+
+**When you apply them, flip the markers in this file in the same sitting** — see
+the note below about why a stale marker is its own bug.
 
 Why the entries stayed marked HELD after they were applied: this file is edited
 by hand and nothing flips the marker when the SQL runs. The session-start hook
@@ -15,7 +32,7 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00509_ebay_shipping_labels.sql (US-2160 buy eBay labels, 2026-07-31)
+## 🚨 MERGED, NOT APPLIED: 00509_ebay_shipping_labels.sql (US-2160 buy eBay labels, 2026-07-31)
 
 - **Apply order.** After 00508. Idempotent: `ADD COLUMN IF NOT EXISTS`,
   `COMMENT ON COLUMN`, `CREATE INDEX IF NOT EXISTS`. Safe to re-run.
@@ -48,7 +65,7 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00508_marketplace_event_item_link.sql (US-2156 automation triggers, 2026-07-31)
+## 🚨 MERGED, NOT APPLIED: 00508_marketplace_event_item_link.sql (US-2156 automation triggers, 2026-07-31)
 
 - **Apply order.** After 00507. Idempotent: `ADD COLUMN IF NOT EXISTS`,
   `COMMENT ON COLUMN`, `CREATE INDEX IF NOT EXISTS`. Safe to re-run.
