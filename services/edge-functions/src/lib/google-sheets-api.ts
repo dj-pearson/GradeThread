@@ -6,8 +6,20 @@
 // never exhaust the user's quota even on huge sheets, and concurrent surfaces
 // (the user's own Apps Script, etc.) keep headroom.
 
+import { googleFetch } from "./google-fetch.ts";
+import { isRetryableError, withRetry } from "./retry.ts";
+
 const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
 const MAX_REQUESTS_PER_MINUTE = 200;
+
+// US-2321: the 429 path used to self-recurse with a flat 2s sleep, no attempt
+// counter, no growth and no ceiling — the comment said "one retry" and the code
+// said forever. Under project-level quota exhaustion (which does not clear in
+// 2s) that hammers Google every 2 seconds per in-flight request per replica,
+// indefinitely. That is how a project gets rate-limit banned rather than merely
+// throttled. Bounded exponential backoff via lib/retry.ts instead, which also
+// honors Retry-After when Google sends one.
+const SHEETS_MAX_ATTEMPTS = 3;
 
 export interface SheetTabMeta {
   sheetId: number;
@@ -31,7 +43,10 @@ export class SheetsClient {
     private readonly token: string,
     private readonly spreadsheetId: string,
     /** Injectable for tests. */
-    private readonly fetchFn: typeof fetch = fetch,
+    // US-2321: a bare `fetch` default meant every SheetsClient in the codebase
+    // ran with no deadline, because all four construction sites take the
+    // default. The deadline has to be the default or it is not a deadline.
+    private readonly fetchFn: typeof fetch = googleFetch,
     private readonly sleep: (ms: number) => Promise<void> = (ms) =>
       new Promise((r) => setTimeout(r, ms)),
   ) {}
@@ -47,28 +62,49 @@ export class SheetsClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    await this.throttle();
-    const res = await this.fetchFn(
-      `${SHEETS_API}/${encodeURIComponent(this.spreadsheetId)}${path}`,
+    // The throttle is inside the retried body on purpose: a retry is another
+    // request against the same per-minute quota, so it must take a slot.
+    return await withRetry(
+      async () => {
+        await this.throttle();
+        const res = await this.fetchFn(
+          `${SHEETS_API}/${encodeURIComponent(this.spreadsheetId)}${path}`,
+          {
+            ...init,
+            headers: {
+              Authorization: `Bearer ${this.token}`,
+              ...(init?.body ? { "Content-Type": "application/json" } : {}),
+              ...(init?.headers ?? {}),
+            },
+          },
+        );
+        if (!res.ok) {
+          const detail = (await res.text()).slice(0, 300);
+          const err = new SheetsApiError(
+            res.status,
+            `Sheets API ${res.status}: ${detail}`,
+          );
+          // Surface Retry-After so withRetry can honor Google's own number
+          // instead of guessing — it caps it (maxRetryAfterMs), so a hostile or
+          // misconfigured header cannot stall a sync. Seconds on the wire, ms
+          // on the error, which is the shape retryAfterMs() reads.
+          const after = Number(res.headers.get("retry-after"));
+          if (Number.isFinite(after) && after > 0) {
+            (err as { retryAfterMs?: number }).retryAfterMs = after * 1000;
+          }
+          throw err;
+        }
+        return (await res.json()) as T;
+      },
       {
-        ...init,
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          ...(init?.body ? { "Content-Type": "application/json" } : {}),
-          ...(init?.headers ?? {}),
-        },
+        maxAttempts: SHEETS_MAX_ATTEMPTS,
+        baseDelayMs: 2_000,
+        sleep: this.sleep,
+        // SheetsApiError carries `status`, which isRetryableError already reads
+        // — so 429 and 5xx retry and a 403 quota-denied or a 404 does not.
+        isRetryable: isRetryableError,
       },
     );
-    if (res.status === 429) {
-      // Quota blip despite the local throttle — one retry after a beat.
-      await this.sleep(2_000);
-      return await this.request<T>(path, init);
-    }
-    if (!res.ok) {
-      const detail = (await res.text()).slice(0, 300);
-      throw new SheetsApiError(res.status, `Sheets API ${res.status}: ${detail}`);
-    }
-    return (await res.json()) as T;
   }
 
   /** Tab list (id + title) — the cheap structure probe each sync starts with. */
