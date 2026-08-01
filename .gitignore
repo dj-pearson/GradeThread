@@ -139,3 +139,22 @@ dist-ext/
 dist-ext/
 /extension.zip
 .flake-logs/
+
+# US-2284 [P0] — SIGNING KEYS AND BUILD ARTIFACTS ARE NEVER COMMITTED.
+#
+# extension.pem is the Chrome Web Store signing identity: anyone holding it can
+# publish an update that every installed user auto-receives. It WAS committed
+# (2026-07-13, e1dbc4da) and lived in the repo for weeks. gitleaks did not catch
+# it on any run after that commit, because push-mode only scans NEW commits — a
+# leak that is already in history is permanently invisible to it. That is why
+# .github/workflows/secret-scan-history.yml now sweeps the FULL history on a
+# schedule, and why these patterns are broad rather than path-specific.
+#
+# Removing a key from the index does NOT un-leak it. Rotation is the fix; the
+# ignore rule only stops the next one.
+*.pem
+*.crx
+*.p12
+*.keystore
+*.jks
+ios-screenshots/**/*.zip

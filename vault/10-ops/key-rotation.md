@@ -6,7 +6,7 @@ status: current
 source_of_truth: vault
 code_refs:
   - services/edge-functions/src/lib/crypto-aes.ts
-reviewed: 2026-07-19
+reviewed: 2026-08-01
 tags: [ops, security, secrets, rotation]
 summary: How to rotate every secret the platform holds, including the keyed dual-key path for marketplace token encryption.
 ---
@@ -222,6 +222,58 @@ the raw secret — `X-Internal-Job-Timestamp: <unix seconds>` plus
 Prefer this for new callers: the secret never leaves the caller.
 
 ---
+
+## Chrome Web Store extension signing key (`extension.pem`) — US-2284
+
+**This key WAS leaked.** It was committed to the repository on 2026-07-13
+(`e1dbc4da`) and untracked on 2026-08-01. It is still in git history, and
+untracking a key does not un-leak it — anyone who cloned the repo in that window
+holds it.
+
+What it grants: the ability to publish a Chrome Web Store update that **every
+installed user auto-receives**. That is the whole blast radius — not read access
+to something, but code execution in the browsers of everyone who installed the
+extension.
+
+### Rotate it
+
+1. In the Chrome Web Store developer dashboard, generate a new signing key for
+   the extension and upload a build signed with it.
+2. Revoke / retire the old key so a package signed with the leaked one is no
+   longer accepted.
+3. Store the new key where the team's other signing secrets live — **the
+   location, never the value, goes in this file**. It does NOT go in the repo:
+   `.gitignore` now refuses `*.pem`, `*.crx`, `*.p12`, `*.keystore` and `*.jks`,
+   which stops the next one but not this one.
+4. Record the rotation in the incident log (see [[incident-response]]) — an
+   exposed key is a SEV regardless of whether it was used.
+
+> **Storage location:** _to be filled in by the owner at rotation time._ Name
+> the vault/manager entry here so the next person does not have to ask. This
+> line is deliberately left blank rather than guessed at.
+
+### Then decide: rewrite history, or treat the old key as burned
+
+Both are defensible and it is the owner's call, so it is recorded here rather
+than assumed:
+
+- **Treat as burned** (usually right for a signing key) — once rotated, the
+  historical copy is inert. No rewrite, no disruption. Uncomment the documented
+  allowlist stanza in `.gitleaks.toml` so the scheduled full-history scan stops
+  reporting a finding that no longer matters.
+- **Rewrite** (BFG / `git-filter-repo`) — removes it from history, and rewrites
+  every open PR and invalidates every existing clone.
+
+Until one of those happens, `.github/workflows/secret-scan-history.yml` reports
+the key every Monday. That red run is the finding working, not a broken job.
+
+### Why the scan did not catch it for weeks
+
+`secret-scan.yml` runs gitleaks in push/PR mode, which scans the commits in the
+triggering event. Once a secret lands, every later run is green while the secret
+sits in history. `secret-scan-history.yml` exists to ask the other question —
+"is the repository clean?" rather than "is this change clean?" — and only that
+one finds a leak nobody noticed landing.
 
 ## After any rotation
 
