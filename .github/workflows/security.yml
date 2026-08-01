@@ -34,7 +34,12 @@ jobs:
       # tracked in .github/SECURITY_ADVISORY_ALLOWLIST.md. Resolve a runtime
       # advisory by upgrading the dep; do NOT lower this threshold to pass.
       - name: Audit production dependencies (blocking)
-        run: npm audit --omit=dev --audit-level=high
+        # scripts/audit-gate.mjs runs the same audit at the same --audit-level
+        # (high) and fails on every finding EXCEPT the dated, per-advisory
+        # acceptances written in .github/SECURITY_ADVISORY_ALLOWLIST.md. An
+        # acceptance whose "Re-check by" date has passed blocks again, so this
+        # cannot become a permanent suppression by neglect.
+        run: node scripts/audit-gate.mjs
       # INFORMATIONAL: full tree incl. devDependencies. Surfaces build-tool
       # advisories for triage without blocking the gate on a dev-only CVE that
       # would force a breaking build-tooling major (see the allowlist file).

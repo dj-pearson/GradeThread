@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/active-listings.ts
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - src/lib/constants.ts
-reviewed: 2026-07-31
+reviewed: 2026-08-01
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
@@ -34,6 +34,12 @@ Since US-2179 the rule has teeth: `plan-gate-coverage_test.ts` walks
 `src/routes/` and fails CI when a route puts an item live, connects a
 marketplace, or ends a listing without the matching enforcement. It exists
 because the rule was silently broken for every non-eBay channel — see below.
+
+An exemption goes in that test's `GOES_LIVE_ALLOWLIST` with a written reason,
+never in the route. The one entry today is the automations crosslist action
+(US-2378): it only runs against listings that are already live, so its
+`markItemListed` call repairs the count rather than consuming a new slot, and
+gating it would refuse to FIX the number for a seller sitting at their cap.
 
 ## Two capacities are enforced outside the gate
 

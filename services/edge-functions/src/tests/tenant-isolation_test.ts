@@ -3631,7 +3631,11 @@ Deno.test({
     const bulk = await fetch(`${BASE}/api/flipdesk/listings/bulk-edit`, {
       method: "POST",
       headers: authHeaders(B_JWT!),
-      body: JSON.stringify({ listing_ids: [id], edit: { listing_price: 1 } }),
+      // `price` is the WIRE name (normalizeBulkEdit maps it to the
+      // listing_price column). Sending the column name makes the patch empty
+      // and the route 400s on validation — which would prove nothing about the
+      // ownership filter this case exists to test.
+      body: JSON.stringify({ listing_ids: [id], edit: { price: 1 } }),
     });
     const bulkBody = (await bulk.json().catch(() => ({}))) as {
       summary?: { ok?: number };

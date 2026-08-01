@@ -34,38 +34,52 @@ struct AutoListerView: View {
     // US-1160: confirm before discarding a group's imported photos.
     @State private var pendingGroupDelete: ReviewGroup?
 
+    // The screen is assembled in stages rather than one modifier chain. The
+    // whole chain in a single `body` is one expression, and the type checker
+    // gives up on it ("unable to type-check in reasonable time") — it had
+    // already started failing the release build intermittently. Each stage is
+    // its own expression, so the solver's work stays bounded.
     var body: some View {
-        content
+        chrome
+    }
+
+    /// Title, toolbar, and the pushes out of this screen.
+    private var chrome: some View {
+        dialogs
             .navigationTitle("AutoLister")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
-            .sheet(isPresented: $showingPicker) {
-                // Bound the pick to the batch's remaining capacity so the seller
-                // can't over-select (the batch caps at `maxBatchPhotos`). We only
-                // open the picker when capacity > 0, so this is never 0
-                // (PHPicker treats 0 as unlimited).
-                PhotoLibraryPicker(selectionLimit: model.remainingCapacity) { results in
-                    showingPicker = false
-                    Task {
-                        await model.importPicks(results)
-                        HapticFeedback.light()
+            .navigationDestination(
+                item: Binding(
+                    get: { route },
+                    set: { newRoute in
+                        route = newRoute
+                        // Popping back to the grid releases the batch snapshot
+                        // (it holds full-size photos).
+                        if newRoute == nil { pendingGroups = nil }
                     }
-                }
-                .ignoresSafeArea()
-            }
-            .onAppear { Telemetry.event("autolister_opened") }
-            .task { await templateStore.load() }
-            .alert(
-                "Something went wrong",
-                isPresented: Binding(
-                    get: { model.actionError != nil },
-                    set: { if !$0 { model.actionError = nil } }
                 )
-            ) {
-                Button("OK", role: .cancel) { model.actionError = nil }
-            } message: {
-                Text(model.actionError ?? "")
+            ) { destination in
+                switch destination {
+                case .queue:
+                    if let groups = pendingGroups, let service = uploadService {
+                        AutoListerQueueView(
+                            groups: groups,
+                            uploadService: service,
+                            uploadStore: uploadStore,
+                            templateId: selectedTemplateId,
+                            onFinished: finishToDrafts
+                        )
+                    }
+                case .drafts:
+                    DraftsLibraryView()
+                }
             }
+    }
+
+    /// US-1909 metered-pass confirms + the delete-group confirm.
+    private var dialogs: some View {
+        alerts
             .confirmationDialog(
                 "Delete group?",
                 isPresented: Binding(
@@ -120,31 +134,37 @@ struct AutoListerView: View {
                     windowCount: confirm.windowCount
                 ))
             }
-            .navigationDestination(
-                item: Binding(
-                    get: { route },
-                    set: { newRoute in
-                        route = newRoute
-                        // Popping back to the grid releases the batch snapshot
-                        // (it holds full-size photos).
-                        if newRoute == nil { pendingGroups = nil }
+    }
+
+    /// The photo picker, the lifecycle hooks, and the action-error alert.
+    private var alerts: some View {
+        content
+            .sheet(isPresented: $showingPicker) {
+                // Bound the pick to the batch's remaining capacity so the seller
+                // can't over-select (the batch caps at `maxBatchPhotos`). We only
+                // open the picker when capacity > 0, so this is never 0
+                // (PHPicker treats 0 as unlimited).
+                PhotoLibraryPicker(selectionLimit: model.remainingCapacity) { results in
+                    showingPicker = false
+                    Task {
+                        await model.importPicks(results)
+                        HapticFeedback.light()
                     }
-                )
-            ) { destination in
-                switch destination {
-                case .queue:
-                    if let groups = pendingGroups, let service = uploadService {
-                        AutoListerQueueView(
-                            groups: groups,
-                            uploadService: service,
-                            uploadStore: uploadStore,
-                            templateId: selectedTemplateId,
-                            onFinished: finishToDrafts
-                        )
-                    }
-                case .drafts:
-                    DraftsLibraryView()
                 }
+                .ignoresSafeArea()
+            }
+            .onAppear { Telemetry.event("autolister_opened") }
+            .task { await templateStore.load() }
+            .alert(
+                "Something went wrong",
+                isPresented: Binding(
+                    get: { model.actionError != nil },
+                    set: { if !$0 { model.actionError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { model.actionError = nil }
+            } message: {
+                Text(model.actionError ?? "")
             }
     }
 

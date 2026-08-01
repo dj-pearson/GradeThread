@@ -121,9 +121,43 @@ async function mockBackend(page: Page) {
   await page.route("**/api/payments/**", (r) =>
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(billing) }));
 
+  // Profile row. Without it the catch-all returns no profile, the first-run
+  // onboarding dialog owns the screen (6 steps, "Next" — `dismissOverlays`
+  // only knows Accept/Skip), and the board underneath is never reachable.
+  // `flipdesk_onboarded` keeps the FlipDesk-specific tour closed too.
+  await page.route("**/rest/v1/users**", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: USER_ID, email: "e2e@example.com", full_name: "E2E User",
+        role: "user", use_case: "seller",
+        onboarded_at: "2026-06-01T00:00:00.000Z",
+        flipdesk_onboarded: true,
+        created_at: "2026-05-01T00:00:00.000Z",
+        updated_at: "2026-06-01T00:00:00.000Z",
+      }),
+    }));
+
   // The pipeline board's data source.
-  await page.route("**/rest/v1/items_full**", (r) =>
-    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(ITEMS) }));
+  //
+  // US-2169: the client walks this table in pages and stops only on an EMPTY
+  // response (a short page can't be told apart from a server row-cap). A mock
+  // that answers every Range header with the same rows therefore never ends
+  // the loop — the query stays pending and the board renders nothing. Serve
+  // the fixture for the first page, empty for the rest, like a real server.
+  await page.route("**/rest/v1/items_full**", (r) => {
+    // postgrest-js sends `.range(from, to)` as `offset`/`limit` SEARCH PARAMS,
+    // not a Range header — reading the header would leave `start` pinned at 0
+    // and the loop would still never end.
+    const offset = new URL(r.request().url()).searchParams.get("offset");
+    const start = Number.parseInt(offset ?? "0", 10) || 0;
+    return r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(start === 0 ? ITEMS : []),
+    });
+  });
 }
 
 async function login(page: Page) {

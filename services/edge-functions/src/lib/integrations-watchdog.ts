@@ -15,7 +15,7 @@
 // this is a typed schedule, and neither derives cleanly from the other.
 //
 // @sourceNote vault/10-ops/key-rotation.md
-// @reviewed 2026-07-19
+// @reviewed 2026-08-01
 //
 // scripts/runbook-sync.mjs fails when that note has a commit newer than the date
 // above. Bumping it asserts a human re-read both — cadences here, procedure
@@ -23,6 +23,13 @@
 // EDGE_ENCRYPTION_KEY procedures US-2049 found in the markdown (this registry
 // only records that rotation needs dual-key re-encryption, which is true, and
 // defers the steps to the note).
+//
+// Re-verified 2026-08-01 after US-2284 added the Chrome Web Store extension
+// signing key to the note: the cadences above are unchanged, and the new key is
+// carried below as an event-driven entry. It is the first entry whose location
+// is neither `edge` nor `ci` — that is the point, since a leaked signing key is
+// exactly the kind of secret an operator forgets precisely because no
+// deployment env holds it.
 //
 // The rotation SCHEDULE from vault/10-ops/key-rotation.md, checked in as structured data so
 // the agent can compute a due/overdue calendar. `cadence_days: null` = an
@@ -46,6 +53,7 @@ export const KEY_ROTATION_REGISTRY: readonly RotationEntry[] = [
   { secret: "SUPABASE_SERVICE_ROLE_KEY", location: "edge", cadence_days: null, note: "On leak — high blast radius, coordinate." },
   { secret: "UNSUBSCRIBE_SECRET", location: "edge", cadence_days: null, note: "On leak — rotating invalidates outstanding unsubscribe links (acceptable)." },
   { secret: "DEPLOY_REGISTRY_TOKENS", location: "ci", cadence_days: 90, note: "Deploy/registry tokens in GitHub Actions (US-522 inventory)." },
+  { secret: "CHROME_EXTENSION_SIGNING_KEY", location: "chrome-web-store", cadence_days: null, note: "US-2284: leaked to git history 2026-07-13, untracked 2026-08-01 — rotation still OWED. Grants a store update every installed user auto-receives (see vault/10-ops/key-rotation.md)." },
 ];
 
 // The warn window: a scheduled secret within this many days of its next due date

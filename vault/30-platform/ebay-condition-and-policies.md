@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-07-31
+reviewed: 2026-08-01
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
