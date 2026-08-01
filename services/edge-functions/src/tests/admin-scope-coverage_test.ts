@@ -31,6 +31,15 @@ async function adminRouterFiles(): Promise<string[]> {
 
 const MUTATION_RE = /\.(post|put|patch|delete)\(/;
 
+// True when every route registration in the file passes requireScope(scope) as
+// an argument — the mount-safe equivalent of a whole-router use("*") guard.
+function allRoutesGuarded(src: string, scope: string | null): boolean {
+  if (!scope) return false;
+  const regs = [...src.matchAll(/^\w+Routes\.(?:get|post|put|patch|delete)\((.*)$/gm)];
+  if (regs.length === 0) return false;
+  return regs.every((m) => m[1].includes(`requireScope("${scope}")`));
+}
+
 Deno.test("US-1560: every admin router is classified, and no stale entries remain", async () => {
   const files = await adminRouterFiles();
   const mapped = ADMIN_ROUTER_SCOPES.map((e) => e.file).sort();
@@ -77,9 +86,19 @@ Deno.test("US-1560: each router's source matches its declared guard mode", async
           src.includes(`requireScope("${entry.scope}")`),
           `${entry.file}: source doesn't guard with the registered scope ${entry.scope}`,
         );
+        // "router" mode means EVERY route carries the scope, reads included —
+        // not that it is attached one particular way. use("*") is the usual
+        // shape, but US-2377: a sub-app wildcard leaks onto the parent router,
+        // so a router mounted at a shared prefix must attach the scope per
+        // route instead. Both satisfy the mode; a router with neither doesn't.
+        const wildcard = /\.use\(\s*"\*"\s*,\s*requireScope\(/.test(src);
+        const perRoute = allRoutesGuarded(src, entry.scope);
         assert(
-          /\.use\(\s*"\*"\s*,\s*requireScope\(/.test(src),
-          `${entry.file}: router mode expects a use("*", requireScope(...)) guard`,
+          wildcard || perRoute,
+          `${entry.file}: router mode means every route carries ${entry.scope} — ` +
+            `attach it with use("*", requireScope(...)), or as a per-route argument ` +
+            "on every registration (required when the router is mounted at a prefix " +
+            "other routers live under — see router-mount-isolation_test.ts)",
         );
       }
     }

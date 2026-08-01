@@ -37,8 +37,11 @@ type AdminEnv = {
 
 export const adminComplianceRoutes = new Hono<AdminEnv>();
 
-// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
-adminComplianceRoutes.use("*", requireScope("moderation:write"));
+// US-1560: every route carries moderation:write (see lib/admin-scope-map.ts).
+// US-2377: per route, not use("*") — /api/admin/compliance is the parent mount
+// of /api/admin/compliance/legal, and a sub-app wildcard becomes a wildcard on
+// the PARENT router, so a router-wide guard here also forced moderation:write
+// onto the legal routes, which ask for content:publish instead.
 
 const db = supabaseAdmin as unknown as CheckedUpdateClient;
 const exportDb = supabaseAdmin as unknown as ExportDb;
@@ -112,7 +115,7 @@ async function removeAll(bucket: string, objectPaths: string[]) {
 }
 
 // ── GET / and /data-requests — the queue (paginated, ?status= ?type=) ─────────
-adminComplianceRoutes.get("/data-requests", async (c) => {
+adminComplianceRoutes.get("/data-requests", requireScope("moderation:write"), async (c) => {
   const statusParam = c.req.query("status");
   const status = statusParam && FILTERABLE_STATUSES.has(statusParam)
     ? statusParam
@@ -167,7 +170,7 @@ adminComplianceRoutes.get("/data-requests", async (c) => {
 });
 
 // ── GET /data-requests/count — cheap nav badge poll ──────────────────────────
-adminComplianceRoutes.get("/data-requests/count", async (c) => {
+adminComplianceRoutes.get("/data-requests/count", requireScope("moderation:write"), async (c) => {
   const { count, error } = await supabaseAdmin
     .from("data_requests")
     .select("id", { count: "exact", head: true })
@@ -180,7 +183,7 @@ adminComplianceRoutes.get("/data-requests/count", async (c) => {
 });
 
 // ── GET /data-requests/:id — full detail ─────────────────────────────────────
-adminComplianceRoutes.get("/data-requests/:id", async (c) => {
+adminComplianceRoutes.get("/data-requests/:id", requireScope("moderation:write"), async (c) => {
   const id = c.req.param("id");
   const { data } = await supabaseAdmin
     .from("data_requests")
@@ -203,7 +206,7 @@ adminComplianceRoutes.get("/data-requests/:id", async (c) => {
 });
 
 // ── POST /data-requests — admin opens a request on a user's behalf ───────────
-adminComplianceRoutes.post("/data-requests", async (c) => {
+adminComplianceRoutes.post("/data-requests", requireScope("moderation:write"), async (c) => {
   let body: { user_id?: unknown; type?: unknown; notes?: unknown };
   try {
     body = await c.req.json();
@@ -258,7 +261,7 @@ adminComplianceRoutes.post("/data-requests", async (c) => {
 });
 
 // ── POST /data-requests/:id/reject — decline a request (audited) ─────────────
-adminComplianceRoutes.post("/data-requests/:id/reject", async (c) => {
+adminComplianceRoutes.post("/data-requests/:id/reject", requireScope("moderation:write"), async (c) => {
   const id = c.req.param("id");
   let body: { reason?: unknown };
   try {
@@ -318,7 +321,7 @@ adminComplianceRoutes.post("/data-requests/:id/reject", async (c) => {
 // the user row + storage are anonymized, and we are obligated to keep
 // transaction/audit history. A non-PII account_deletion_log row is written as
 // the durable proof of erasure (same record self-serve deletion writes).
-adminComplianceRoutes.post("/data-requests/:id/process", async (c) => {
+adminComplianceRoutes.post("/data-requests/:id/process", requireScope("moderation:write"), async (c) => {
   const id = c.req.param("id");
 
   const { data: existing } = await supabaseAdmin
@@ -555,7 +558,7 @@ async function processDelete(
 }
 
 // ── GET /data-requests/:id/download — mint a fresh signed URL for the archive ─
-adminComplianceRoutes.get("/data-requests/:id/download", async (c) => {
+adminComplianceRoutes.get("/data-requests/:id/download", requireScope("moderation:write"), async (c) => {
   const id = c.req.param("id");
   const { data } = await supabaseAdmin
     .from("data_requests")

@@ -53,8 +53,11 @@ type AdminEnv = {
 
 export const adminMarketplaceOpsRoutes = new Hono<AdminEnv>();
 
-// US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
-adminMarketplaceOpsRoutes.use("*", requireScope("marketplace:write"));
+// US-1560: every route carries marketplace:write (see lib/admin-scope-map.ts).
+// US-2377: per route, not use("*") — /api/admin/marketplace is the parent mount
+// of /api/admin/marketplace/pipeline, and a sub-app wildcard becomes a wildcard
+// on the PARENT router. The leak was harmless here (pipeline asks for the same
+// scope) but it's the same pattern that broke billing, so it goes too.
 
 const SETTING_STUCK_MIN = "marketplace_sync_stuck_threshold_min";
 const STUCK_MIN_FALLBACK = 15;
@@ -87,7 +90,7 @@ async function stuckThresholdMs(): Promise<number> {
 }
 
 // ── GET /sync-runs — cross-tenant sync-run history, paginated + stuck-flagged ──
-adminMarketplaceOpsRoutes.get("/sync-runs", async (c) => {
+adminMarketplaceOpsRoutes.get("/sync-runs", requireScope("marketplace:write"), async (c) => {
   const { page, limit, from } = pageParams(c);
   const statusFilter = c.req.query("status")?.trim() || null; // running|success|partial|failed|stuck
 
@@ -172,7 +175,7 @@ adminMarketplaceOpsRoutes.get("/sync-runs", async (c) => {
 });
 
 // ── GET /conflicts — cross-tenant open cross-source conflicts, paginated ──
-adminMarketplaceOpsRoutes.get("/conflicts", async (c) => {
+adminMarketplaceOpsRoutes.get("/conflicts", requireScope("marketplace:write"), async (c) => {
   const { page, limit, from } = pageParams(c);
 
   const { data, error, count } = await supabaseAdmin
@@ -234,7 +237,7 @@ adminMarketplaceOpsRoutes.get("/conflicts", async (c) => {
 });
 
 // ── GET /orphan-sales — cross-tenant orphan eBay sales, paginated + filterable ──
-adminMarketplaceOpsRoutes.get("/orphan-sales", async (c) => {
+adminMarketplaceOpsRoutes.get("/orphan-sales", requireScope("marketplace:write"), async (c) => {
   const { page, limit, from } = pageParams(c);
   const rawStatus = c.req.query("status")?.trim() || "unmatched";
   const statusFilter = ORPHAN_STATUSES.has(rawStatus) ? rawStatus : null; // null = all
@@ -265,7 +268,7 @@ adminMarketplaceOpsRoutes.get("/orphan-sales", async (c) => {
 });
 
 // ── GET /counts — sidebar badge: open conflicts + unmatched orphans + stuck ──
-adminMarketplaceOpsRoutes.get("/counts", async (c) => {
+adminMarketplaceOpsRoutes.get("/counts", requireScope("marketplace:write"), async (c) => {
   const thresholdMs = await stuckThresholdMs();
   const stuckCutoffIso = new Date(Date.now() - thresholdMs).toISOString();
 
@@ -297,7 +300,7 @@ adminMarketplaceOpsRoutes.get("/counts", async (c) => {
 });
 
 // ── POST /sync-runs/:id/rerun — re-run a failed sync (super_admin + step-up) ──
-adminMarketplaceOpsRoutes.post("/sync-runs/:id/rerun", async (c) => {
+adminMarketplaceOpsRoutes.post("/sync-runs/:id/rerun", requireScope("marketplace:write"), async (c) => {
   if (c.get("adminRole") !== "super_admin") {
     return jsonError(c, 403, "Super admin required to re-run a sync.");
   }
@@ -340,7 +343,7 @@ adminMarketplaceOpsRoutes.post("/sync-runs/:id/rerun", async (c) => {
 });
 
 // ── POST /conflicts/:id/resolve — accept eBay or FlipDesk side (super_admin) ──
-adminMarketplaceOpsRoutes.post("/conflicts/:id/resolve", async (c) => {
+adminMarketplaceOpsRoutes.post("/conflicts/:id/resolve", requireScope("marketplace:write"), async (c) => {
   if (c.get("adminRole") !== "super_admin") {
     return jsonError(c, 403, "Super admin required to resolve a conflict.");
   }
@@ -396,7 +399,7 @@ adminMarketplaceOpsRoutes.post("/conflicts/:id/resolve", async (c) => {
 });
 
 // ── POST /orphan-sales/:id/match — link an orphan to an item (super_admin) ──
-adminMarketplaceOpsRoutes.post("/orphan-sales/:id/match", async (c) => {
+adminMarketplaceOpsRoutes.post("/orphan-sales/:id/match", requireScope("marketplace:write"), async (c) => {
   if (c.get("adminRole") !== "super_admin") {
     return jsonError(c, 403, "Super admin required to match an orphan sale.");
   }
@@ -462,7 +465,7 @@ adminMarketplaceOpsRoutes.post("/orphan-sales/:id/match", async (c) => {
 // GET /notifications — read-only health probe. Which required topic buckets are
 // actually subscribed, and to a destination that reaches US. No writes, so it's
 // safe for the console to poll.
-adminMarketplaceOpsRoutes.get("/notifications", async (c) => {
+adminMarketplaceOpsRoutes.get("/notifications", requireScope("marketplace:write"), async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ configured: false, health: null });
   }
@@ -488,7 +491,7 @@ adminMarketplaceOpsRoutes.get("/notifications", async (c) => {
 // it DOES mutate the shared, app-wide eBay config for the whole environment, so
 // it carries the same super_admin + MFA step-up + audit gate as the other
 // mutations on this router.
-adminMarketplaceOpsRoutes.post("/notifications/reconcile", async (c) => {
+adminMarketplaceOpsRoutes.post("/notifications/reconcile", requireScope("marketplace:write"), async (c) => {
   if (c.get("adminRole") !== "super_admin") {
     return jsonError(c, 403, "Super admin required to reconcile eBay notifications.");
   }

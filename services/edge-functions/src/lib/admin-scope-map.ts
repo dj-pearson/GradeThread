@@ -7,9 +7,15 @@
 // permission gates surface X?".
 //
 // Modes:
-//   • "router"    — the whole router is guarded with use("*", requireScope(s)):
-//                    reads included. Chosen for single-concern routers where
-//                    revoking the scope should coherently close the surface.
+//   • "router"    — EVERY route in the router carries the scope, reads
+//                    included. Chosen for single-concern routers where revoking
+//                    the scope should coherently close the surface. Usually
+//                    written as use("*", requireScope(s)) — but US-2377: hono
+//                    turns a sub-app's use("*") into a wildcard on the PARENT
+//                    router, so a router mounted at a prefix other routers live
+//                    under (admin-billing at /api/admin, admin-compliance,
+//                    admin-marketplace-ops) must pass requireScope per route
+//                    instead. Same guarantee, no leak; both satisfy this mode.
 //   • "mutations" — per-mutation requireScope guards; reads stay role-gated
 //                    (mixed-concern routers where each write maps to a
 //                    different scope).

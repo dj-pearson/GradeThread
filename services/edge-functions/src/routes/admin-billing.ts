@@ -46,7 +46,14 @@ export const adminBillingRoutes = new Hono<AdminEnv>();
 // (on top of the inherited admin role + AAL2 + per-action step-up). admin and
 // super_admin both hold it in the seed, so this is no behavior change at launch;
 // it lets a scoped admin be granted/denied billing without changing their role.
-adminBillingRoutes.use("*", requireScope("billing:write"));
+//
+// US-2377: the scope is attached PER ROUTE, never as adminBillingRoutes.use("*").
+// This router is mounted at the bare /api/admin prefix (its own paths are a mix
+// of /users/*, /billing/*, /coupons and /charges/*), and hono's app.route()
+// rewrites a sub-app's use("*") into a plain wildcard on the PARENT router. A
+// router-wide guard here therefore registered as ALL /api/admin/* and ran ahead
+// of all 54 sibling admin routers — revoking billing:write from a role would
+// have 403'd that role out of the entire admin surface. Keep it per route.
 
 // US-587: FlipDesk price IDs are data-driven (DB pricing_plans + env fallback),
 // loaded via getFlipdeskPriceIds() so a price-ID change in admin needs no deploy.
@@ -109,7 +116,7 @@ async function recordAdminEvent(
 // and the new price is swapped in immediately. For paid → free: cancels the
 // existing Stripe subscription. For free → paid: errors (admin should email
 // the user a magic-link to Checkout — we don't store cards on file).
-adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
+adminBillingRoutes.post("/users/:id/change-plan", requireScope("billing:write"), async (c) => {
   // US-399: changing a paying customer's plan (incl. an immediate cancel) is
   // destructive — require a fresh MFA step-up like refunds.
   const stepUp = requireStepUp(c);
@@ -332,7 +339,7 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
 // Adds credits to a user's GradeThread balance using the existing
 // grant_grade_credits RPC with reason='admin_grant'. The reason text is
 // stored in the ledger notes column for audit.
-adminBillingRoutes.post("/users/:id/comp-credits", async (c) => {
+adminBillingRoutes.post("/users/:id/comp-credits", requireScope("billing:write"), async (c) => {
   // US-399: granting credits mints value — require a fresh MFA step-up like refunds.
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
@@ -410,7 +417,7 @@ adminBillingRoutes.post("/users/:id/comp-credits", async (c) => {
 
 // GET /billing/users/:id/ledger — append-only ledger with running balance_after,
 // server-side paginated (newest-first for display). Tenant-scoped by user_id.
-adminBillingRoutes.get("/billing/users/:id/ledger", async (c) => {
+adminBillingRoutes.get("/billing/users/:id/ledger", requireScope("billing:write"), async (c) => {
   const targetUserId = c.req.param("id");
 
   const limitRaw = Number(c.req.query("limit"));
@@ -474,7 +481,7 @@ adminBillingRoutes.get("/billing/users/:id/ledger", async (c) => {
 //     notes: string }
 // Writes a NEW ledger row updating grade_credit_balance atomically; never
 // mutates history. Destructive (mints/burns value) → fresh MFA step-up.
-adminBillingRoutes.post("/billing/users/:id/adjust", async (c) => {
+adminBillingRoutes.post("/billing/users/:id/adjust", requireScope("billing:write"), async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -561,7 +568,7 @@ adminBillingRoutes.post("/billing/users/:id/adjust", async (c) => {
 // reason? }. The Stripe refund + the wallet claw-back share a per-charge
 // idempotency key so a retry — or the charge.refunded webhook — can't
 // double-refund. Destructive → fresh MFA step-up.
-adminBillingRoutes.post("/billing/users/:id/refund-pack", async (c) => {
+adminBillingRoutes.post("/billing/users/:id/refund-pack", requireScope("billing:write"), async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -742,7 +749,7 @@ adminBillingRoutes.post("/billing/users/:id/refund-pack", async (c) => {
 // Body: { trial_ends_at: string | null }  (ISO 8601 timestamp, or null to clear)
 // Rare exception path (US-221): lets an admin extend or clear a user's Pro
 // trial window. Writes users.trial_ends_at directly and audit-logs before/after.
-adminBillingRoutes.post("/users/:id/set-trial", async (c) => {
+adminBillingRoutes.post("/users/:id/set-trial", requireScope("billing:write"), async (c) => {
   // US-399: extending entitlement for free is destructive — require step-up.
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
@@ -807,7 +814,7 @@ adminBillingRoutes.post("/users/:id/set-trial", async (c) => {
 //
 // Refunds a Stripe charge. If the charge was a credit pack, the
 // charge.refunded webhook handler will write a ledger reversal.
-adminBillingRoutes.post("/charges/:id/refund", async (c) => {
+adminBillingRoutes.post("/charges/:id/refund", requireScope("billing:write"), async (c) => {
   // US-270: manual refund is destructive — require a fresh MFA step-up.
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
@@ -890,7 +897,7 @@ adminBillingRoutes.post("/charges/:id/refund", async (c) => {
 // Listing of Stripe coupons + promotion codes with redemption counts. Creation
 // (POST /coupons), name edits (POST /coupons/:id) and promo-code pause/resume
 // (POST /promotion-codes/:id) are all available in-app to super_admins (US-586).
-adminBillingRoutes.get("/coupons", async (c) => {
+adminBillingRoutes.get("/coupons", requireScope("billing:write"), async (c) => {
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
@@ -942,7 +949,7 @@ adminBillingRoutes.get("/coupons", async (c) => {
 //
 // Body: { name?, percent_off?|amount_off?+currency, duration, duration_in_months?,
 //         max_redemptions?, redeem_by?(unix sec), promo_code? }
-adminBillingRoutes.post("/coupons", async (c) => {
+adminBillingRoutes.post("/coupons", requireScope("billing:write"), async (c) => {
   if (c.get("adminRole") !== "super_admin") {
     return c.json({ error: "Super admin required to create coupons." }, 403);
   }
@@ -1030,7 +1037,7 @@ adminBillingRoutes.post("/coupons", async (c) => {
 // Delete a Stripe coupon. Existing subscriptions that already applied it keep
 // it; new redemptions are blocked and any promo codes referencing it stop
 // working. super_admin + step-up; audited.
-adminBillingRoutes.post("/coupons/:id/archive", async (c) => {
+adminBillingRoutes.post("/coupons/:id/archive", requireScope("billing:write"), async (c) => {
   if (c.get("adminRole") !== "super_admin") {
     return c.json({ error: "Super admin required." }, 403);
   }
@@ -1060,7 +1067,7 @@ adminBillingRoutes.post("/coupons/:id/archive", async (c) => {
 // discount you archive + recreate. super_admin + step-up; audited.
 //
 // Body: { name: string | null }
-adminBillingRoutes.post("/coupons/:id", async (c) => {
+adminBillingRoutes.post("/coupons/:id", requireScope("billing:write"), async (c) => {
   if (c.get("adminRole") !== "super_admin") {
     return c.json({ error: "Super admin required to edit coupons." }, 403);
   }
@@ -1107,7 +1114,7 @@ adminBillingRoutes.post("/coupons/:id", async (c) => {
 // step-up; audited.
 //
 // Body: { active: boolean }
-adminBillingRoutes.post("/promotion-codes/:id", async (c) => {
+adminBillingRoutes.post("/promotion-codes/:id", requireScope("billing:write"), async (c) => {
   if (c.get("adminRole") !== "super_admin") {
     return c.json({ error: "Super admin required to edit promotion codes." }, 403);
   }
@@ -1147,7 +1154,7 @@ adminBillingRoutes.post("/promotion-codes/:id", async (c) => {
 //
 // Lists the target user's recent Stripe charges + subscription state for
 // the admin billing tab UI.
-adminBillingRoutes.get("/users/:id/payments", async (c) => {
+adminBillingRoutes.get("/users/:id/payments", requireScope("billing:write"), async (c) => {
   const targetUserId = c.req.param("id");
 
   const { data: targetUser, error: userError } = await supabaseAdmin
@@ -1216,7 +1223,7 @@ adminBillingRoutes.get("/users/:id/payments", async (c) => {
 // public.pending_refunds. These endpoints let an operator see + complete them.
 
 // GET /pending-refunds — open operator queue.
-adminBillingRoutes.get("/pending-refunds", async (c) => {
+adminBillingRoutes.get("/pending-refunds", requireScope("billing:write"), async (c) => {
   const { data, error } = await supabaseAdmin
     .from("pending_refunds")
     .select(
@@ -1255,7 +1262,7 @@ adminBillingRoutes.get("/pending-refunds", async (c) => {
 
 // POST /pending-refunds/:id/resolve — issue the Stripe refund (idempotent on
 // the submission) and close the row. Destructive → fresh MFA step-up required.
-adminBillingRoutes.post("/pending-refunds/:id/resolve", async (c) => {
+adminBillingRoutes.post("/pending-refunds/:id/resolve", requireScope("billing:write"), async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -1345,7 +1352,7 @@ adminBillingRoutes.post("/pending-refunds/:id/resolve", async (c) => {
 // row here. See vault/10-ops/incident-response.md → "3a. Dead-lettered webhook".
 
 // GET /webhook-dead-letters — open (unresolved) queue, newest first.
-adminBillingRoutes.get("/webhook-dead-letters", async (c) => {
+adminBillingRoutes.get("/webhook-dead-letters", requireScope("billing:write"), async (c) => {
   const { data, error } = await supabaseAdmin
     .from("webhook_dead_letters")
     .select(
@@ -1367,7 +1374,7 @@ adminBillingRoutes.get("/webhook-dead-letters", async (c) => {
 // operator has replayed/handled it. Body: { note?: string }. This is an
 // acknowledgement (no money moves here), so no step-up — just admin-gated +
 // audited. The replay itself happens out of band (see the note above).
-adminBillingRoutes.post("/webhook-dead-letters/:id/resolve", async (c) => {
+adminBillingRoutes.post("/webhook-dead-letters/:id/resolve", requireScope("billing:write"), async (c) => {
   const adminId = c.get("userId");
   const id = c.req.param("id");
 
@@ -1437,7 +1444,7 @@ interface PastDueRow {
 // GET /billing/reconciliation — three operator panels (AC1). The past-due/paused
 // account list is the primary server-side-paginated surface; recent failed
 // invoices and precomputed divergences are bounded secondary panels.
-adminBillingRoutes.get("/billing/reconciliation", async (c) => {
+adminBillingRoutes.get("/billing/reconciliation", requireScope("billing:write"), async (c) => {
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 25, 1), 100);
   const offset = Math.max(Number(c.req.query("offset")) || 0, 0);
 
@@ -1549,7 +1556,7 @@ function pickRelevantSubscription(
 // currently reports, so running it twice yields the same result, and it NEVER
 // writes processed_webhook_events — a real future webhook (a new event.id) is
 // unaffected, so this can't double-apply an event already processed (AC5).
-adminBillingRoutes.post("/billing/reconciliation/users/:id/resync", async (c) => {
+adminBillingRoutes.post("/billing/reconciliation/users/:id/resync", requireScope("billing:write"), async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -1687,7 +1694,7 @@ adminBillingRoutes.post("/billing/reconciliation/users/:id/resync", async (c) =>
 
 // POST /billing/reconciliation/users/:id/dunning-email — send a dunning nudge
 // (AC2). Reuses the US-582 transactional sender + in-app notification + audit.
-adminBillingRoutes.post("/billing/reconciliation/users/:id/dunning-email", async (c) => {
+adminBillingRoutes.post("/billing/reconciliation/users/:id/dunning-email", requireScope("billing:write"), async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -1745,7 +1752,7 @@ adminBillingRoutes.post("/billing/reconciliation/users/:id/dunning-email", async
 
 // POST /billing/reconciliation/flags/:flagId/resolve — manually clear a
 // divergence flag without re-syncing (AC2 "mark resolved").
-adminBillingRoutes.post("/billing/reconciliation/flags/:flagId/resolve", async (c) => {
+adminBillingRoutes.post("/billing/reconciliation/flags/:flagId/resolve", requireScope("billing:write"), async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 

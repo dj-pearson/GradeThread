@@ -1753,19 +1753,11 @@ async function clawbackApiOverage(
   // Same increment rule as the credit-pack path (US-2033): the NEWEST refund's
   // own amount, not the cumulative total — so two partial refunds claw back
   // their own halves instead of the second one recomputing the whole thing.
-  const { incremental } = resolveRefundClawback({
-    id: charge.id,
-    amount_refunded: charge.amount_refunded,
-    refunds: charge.refunds
-      ? {
-        data: (charge.refunds.data ?? []).map((r) => ({
-          id: r.id,
-          amount: r.amount,
-          created: r.created,
-        })),
-      }
-      : null,
-  });
+  // Stripe.Charge already satisfies resolveRefundClawback's structural
+  // parameter, so it goes straight in — the same call the credit-pack path
+  // makes. Re-mapping refunds.data by hand (as this first did) lost the element
+  // type and failed `deno check src/main.ts` with an implicit any.
+  const { incremental } = resolveRefundClawback(charge);
 
   const { data: walletRow } = await supabaseAdmin
     .from("api_credit_wallet")
