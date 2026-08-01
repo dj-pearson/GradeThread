@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
+import { fetchAllPages, READ_PAGE_SIZE } from "@/lib/paged-read";
 import {
   useEbayBulkPriceQuantity,
   useEbayConnection,
@@ -40,7 +41,7 @@ type SortKey = "age_new" | "age_old" | "price_high" | "price_low" | "title";
 
 // US-2229: load every active eBay listing in chunks so a seller past 500 rows
 // can still reach and select the rest — no silent truncation.
-const FETCH_CHUNK = 1000;
+const FETCH_CHUNK = READ_PAGE_SIZE;
 const PAGE_SIZE = 50;
 
 interface RawListingRow {
@@ -68,8 +69,12 @@ export function FlipdeskBulkPricingPage() {
     queryKey: ["bulk_pricing_listings"],
     enabled: connected,
     queryFn: async (): Promise<BulkRow[]> => {
-      const all: RawListingRow[] = [];
-      for (let from = 0; ; from += FETCH_CHUNK) {
+      // US-2169: this loop used to advance by FETCH_CHUNK and stop on a short
+      // page, which silently truncates the moment PostgREST's `db-max-rows` is
+      // lower than the chunk. On THIS page that means a bulk markdown quietly
+      // skipping listings the seller believes they just repriced. fetchAllPages
+      // advances by the rows actually returned and stops only on an empty one.
+      const all = await fetchAllPages<RawListingRow>(async (from, to) => {
         const { data, error } = await supabase
           .from("listings")
           .select(
@@ -79,12 +84,10 @@ export function FlipdeskBulkPricingPage() {
           .eq("listing_status", "active")
           .not("platform_offer_id", "is", null)
           .order("listed_at", { ascending: false })
-          .range(from, from + FETCH_CHUNK - 1);
+          .range(from, to);
         if (error) throw error;
-        const batch = (data ?? []) as unknown as RawListingRow[];
-        all.push(...batch);
-        if (batch.length < FETCH_CHUNK) break;
-      }
+        return (data ?? []) as unknown as RawListingRow[];
+      }, FETCH_CHUNK);
       return all.map((l) => ({
         id: l.id,
         title: l.listing_title || "Untitled listing",

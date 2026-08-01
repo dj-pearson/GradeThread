@@ -37,6 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
+import { fetchAllPages } from "@/lib/paged-read";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEbayConnection } from "@/hooks/use-ebay";
 import { usePerformanceSuggestions } from "@/hooks/use-repricing";
@@ -148,19 +149,25 @@ export function FlipdeskListingPerformancePage(
     queryKey: ["listing_performance", user?.id],
     enabled: !!user,
     staleTime: 60_000,
-    queryFn: async (): Promise<PerfRow[]> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select(
-          "id, inventory_item_id, listing_title, listing_url, listing_price, listed_at, views_total, watchers_count, impressions_7d, click_through_rate, last_metrics_synced_at, view_trend_7d",
-        )
-        .eq("platform", "ebay")
-        .eq("listing_status", "active")
-        .order("views_total", { ascending: false })
-        .limit(1000);
-      if (error) throw error;
-      return (data ?? []) as PerfRow[];
-    },
+    // US-2169: paged rather than capped at a flat 1000. This report ranks every
+    // active eBay listing by views and the seller pages through it here, so a
+    // silent cut at 1000 hid the exact tail — the low-view listings — that the
+    // report exists to surface. fetchAllPages advances by the rows actually
+    // returned, so it is also independent of the server's own row ceiling.
+    queryFn: (): Promise<PerfRow[]> =>
+      fetchAllPages<PerfRow>(async (from, to) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select(
+            "id, inventory_item_id, listing_title, listing_url, listing_price, listed_at, views_total, watchers_count, impressions_7d, click_through_rate, last_metrics_synced_at, view_trend_7d",
+          )
+          .eq("platform", "ebay")
+          .eq("listing_status", "active")
+          .order("views_total", { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        return (data ?? []) as PerfRow[];
+      }),
   });
 
   // Titles fall back to the inventory item when listing_title is blank.

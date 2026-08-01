@@ -82,9 +82,11 @@ describe("every items_full read is bounded (US-2167)", () => {
 
   it("pages the shared read rather than trusting the server's cap", () => {
     const src = read("src/hooks/use-items-full.ts");
-    // The loop must keep going until a SHORT page. Stopping on a full page is
-    // the same silent truncation this file exists to prevent.
-    expect(src).toContain("batch.length < ITEMS_FULL_PAGE");
+    // US-2169 moved the loop itself into src/lib/paged-read.ts, which owns the
+    // stop-on-EMPTY / advance-by-received rule and is guarded by
+    // src/test/row-cap-contract.test.ts. What matters here is that this file
+    // uses that reader instead of hand-rolling a loop again.
+    expect(src).toContain("fetchAllPages");
     expect(src).toContain("export async function fetchItemsPaged");
   });
 

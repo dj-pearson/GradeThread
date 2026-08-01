@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { TruncatedNotice } from "@/components/flipdesk/truncated-notice";
+import { fetchCapped } from "@/lib/paged-read";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
@@ -132,11 +134,15 @@ export function FlipdeskAutolisterDraftsPage() {
   const bulkPublish = useBulkPublish();
   const { data: ebayConnection } = useEbayConnection();
 
-  const { data: drafts = [], isLoading } = useQuery({
+  // US-2169: capped reads report their own truncation. `.limit(500)` rendered
+  // as if it were everything meant a seller past 500 drafts published against a
+  // queue they could not tell was cut short. fetchCapped asks for one row past
+  // the cap, so `truncated` is a fact rather than a guess.
+  const { data: draftsRead, isLoading } = useQuery({
     queryKey: ["autolister_drafts", user?.id],
     enabled: !!user,
     staleTime: 30_000,
-    queryFn: async (): Promise<DraftRow[]> => {
+    queryFn: () => fetchCapped<DraftRow>(async (limit) => {
       const { data, error } = await supabase
         .from("listings")
         .select(
@@ -149,11 +155,14 @@ export function FlipdeskAutolisterDraftsPage() {
         // here — its durable home is Inventory → Drafts until published.
         .is("reviewed_at", null)
         .order("created_at", { ascending: false })
-        .limit(500);
+        .limit(limit);
       if (error) throw error;
       return (data ?? []) as DraftRow[];
-    },
+    }),
   });
+  // Memoized so the `?? []` fallback does not mint a new array each render —
+  // several useMemos below take it as a dependency.
+  const drafts = useMemo<DraftRow[]>(() => draftsRead?.rows ?? [], [draftsRead]);
 
   // Titles fall back to the inventory item when the listing_title is blank.
   const itemIds = useMemo(
@@ -592,6 +601,14 @@ export function FlipdeskAutolisterDraftsPage() {
           </Button>
         }
       />
+
+      {draftsRead?.truncated && (
+        <TruncatedNotice
+          limit={draftsRead.limit}
+          noun="drafts"
+          action="Publish or review some to see the rest."
+        />
+      )}
 
       <Card>
         <CardHeader>

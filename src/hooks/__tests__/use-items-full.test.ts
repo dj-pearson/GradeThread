@@ -155,7 +155,33 @@ describe("the read is bounded", () => {
       { start: 0, end: PAGE - 1 },
       { start: PAGE, end: PAGE * 2 - 1 },
       { start: PAGE * 2, end: PAGE * 3 - 1 },
+      // US-2169: the short page no longer ends the loop, so the confirming
+      // empty request is always paid. See the next test for why.
+      { start: PAGE * 2 + 7, end: PAGE * 3 + 6 },
     ]);
+  });
+
+  it("walks past a server row cap SMALLER than the page size (US-2169)", async () => {
+    // The hole this closes: nothing in the repo sets or asserts PostgREST's
+    // `db-max-rows`. If an operator sets it BELOW 1000, every request comes
+    // back capped-short — and a loop that stopped on a short page would stop
+    // after the first one, truncating silently. That is the exact failure the
+    // paging was written to prevent, reintroduced by the paging itself.
+    //
+    // Here the server caps every response at 400 rows against a 950-row
+    // catalog. The loop must return all 950.
+    const CAP = 400;
+    const TOTAL = 950;
+    const catalog = rows("c", TOTAL);
+    pages = new Proxy({} as Record<number, { id: string }[]>, {
+      get: (_t, key) => catalog.slice(Number(key), Number(key) + CAP),
+    });
+
+    const all = (await useItemsFullOptions().queryFn()) as { id: string }[];
+    expect(all).toHaveLength(TOTAL);
+    expect(all.map((r) => r.id)).toEqual(catalog.map((r) => r.id));
+    // Advanced by rows RECEIVED (400, 400, 150), not by the page size.
+    expect(rangeCalls.map((c) => c.start)).toEqual([0, CAP, CAP * 2, TOTAL]);
   });
 
   it("preserves page order, so the canonical newest-first array is intact", async () => {
@@ -167,15 +193,18 @@ describe("the read is bounded", () => {
     expect(all[PAGE + 1]?.id).toBe("p2-1");
   });
 
-  it("stops on a short page instead of looping forever", async () => {
+  it("stops on an EMPTY response instead of looping forever", async () => {
     pages[0] = rows("only", 4);
+    pages[4] = [];
     await useItemsFullOptions().queryFn();
-    expect(rangeCalls).toHaveLength(1);
+    expect(rangeCalls).toHaveLength(2);
   });
 
-  it("pays one empty request rather than guessing on an exact multiple", async () => {
-    // Guessing that a full page is the last page is the same silent truncation
-    // this loop exists to remove, so the extra round trip is deliberate.
+  it("pays one empty request rather than guessing where the end is", async () => {
+    // Guessing that a page is the last page is the same silent truncation this
+    // loop exists to remove, so the extra round trip is deliberate — and after
+    // US-2169 it is paid on every read, not only on an exact multiple, because
+    // a short page can mean "server cap" as easily as "end of data".
     pages[0] = rows("p1", PAGE);
     pages[PAGE] = [];
     const all = await useItemsFullOptions().queryFn();
@@ -206,7 +235,7 @@ describe("nothing else about the shared query changed", () => {
   it("still reads items_full newest-first", async () => {
     pages[0] = rows("a", 1);
     await useItemsFullOptions().queryFn();
-    expect(fromCalls).toEqual(["items_full"]);
+    expect(new Set(fromCalls)).toEqual(new Set(["items_full"]));
     expect(orderCalls[0]).toEqual({ col: "created_at", opts: { ascending: false } });
   });
 
@@ -283,7 +312,7 @@ describe("the list read is projected", () => {
     pages[PAGE] = rows("p2", 3);
     const all = (await useItemsListOptions().queryFn()) as { id: string }[];
     expect(all).toHaveLength(PAGE + 3);
-    expect(fromCalls).toEqual(["items_full", "items_full"]);
+    expect(fromCalls).toEqual(["items_full", "items_full", "items_full"]);
     expect(orderCalls[0]).toEqual({
       col: "created_at",
       opts: { ascending: false },

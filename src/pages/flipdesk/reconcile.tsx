@@ -64,6 +64,7 @@ import { CrossSourceConflicts } from "@/components/flipdesk/cross-source-conflic
 import { useSyncConflicts } from "@/hooks/use-sync-conflicts";
 import { ReconciliationPayoutsTab } from "@/pages/flipdesk/reconciliation";
 import { supabase } from "@/lib/supabase";
+import { fetchCapped } from "@/lib/paged-read";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { readCaptureTime } from "@/lib/exif";
 import {
@@ -133,7 +134,10 @@ const ACCEPT = "image/*";
 const NEEDS_SORTING_DROP = "__needs_sorting__";
 const NEW_CLUSTER_DROP = "__new_cluster__";
 // item statuses eligible to receive a linked cluster (no photos yet)
-const LINKABLE_STATUSES = new Set(["sourced", "cataloged", "drafted"]);
+const LINKABLE_STATUSES = ["sourced", "cataloged", "drafted"] as const;
+// Candidates for the cluster-link picker. Well under any plausible server row
+// ceiling, so the fetchCapped +1 probe is always answerable (US-2169).
+const LINKABLE_PICKER_LIMIT = 200;
 
 // US-963: the unified Reconcile area hosts four flows as tabs. The active tab is
 // reflected in the `?tab=` query param so the old /reconciliation route can deep
@@ -188,36 +192,47 @@ export function FlipdeskReconcilePage() {
   );
 
   // Photo-less items the user can link a cluster to (US-285).
-  const { data: linkableItems = [] } = useQuery({
+  const { data: linkableRead } = useQuery({
     queryKey: ["reconcile_linkable_items", workspaceOwnerId],
     enabled: !!workspaceOwnerId && photos.length > 0,
     staleTime: 60_000,
-    queryFn: async (): Promise<PhotolessItem[]> => {
-      const { data, error } = await supabase
-        .from("items_full")
-        .select("id, item_title, brand, item_number, status, photo_count")
-        .order("updated_at", { ascending: false })
-        .limit(200);
-      if (error) throw error;
-      const rows = (data ?? []) as Array<{
-        id: string;
-        item_title: string;
-        brand: string | null;
-        item_number: string | null;
-        status: string;
-        photo_count: number;
-      }>;
-      return rows
-        .filter((r) => r.photo_count === 0 && LINKABLE_STATUSES.has(r.status))
-        .map((r) => ({
+    // US-2169: both predicates now run SERVER-side. They used to run on the
+    // client, over whichever 200 items happened to be the most recently
+    // updated — so a seller whose 200 latest touches were all photographed saw
+    // an EMPTY picker while plenty of linkable items existed. That is worse
+    // than truncation: the cap silently selected the wrong 200 rows. Filtering
+    // first means the limit applies to real candidates, and `truncated` then
+    // means what it says.
+    queryFn: () =>
+      fetchCapped<PhotolessItem>(async (limit) => {
+        const { data, error } = await supabase
+          .from("items_full")
+          .select("id, item_title, brand, item_number, status")
+          .eq("photo_count", 0)
+          .in("status", [...LINKABLE_STATUSES])
+          .order("updated_at", { ascending: false })
+          .limit(limit);
+        if (error) throw error;
+        const rows = (data ?? []) as Array<{
+          id: string;
+          item_title: string;
+          brand: string | null;
+          item_number: string | null;
+          status: string;
+        }>;
+        return rows.map((r) => ({
           id: r.id,
           title: r.item_title,
           brand: r.brand,
           sku: r.item_number,
           status: r.status,
         }));
-    },
+      }, LINKABLE_PICKER_LIMIT),
   });
+  const linkableItems = useMemo<PhotolessItem[]>(
+    () => linkableRead?.rows ?? [],
+    [linkableRead],
+  );
 
   // Restore an in-progress session on mount.
   useEffect(() => {
@@ -812,6 +827,7 @@ export function FlipdeskReconcilePage() {
                   onMerge={(from) => applyMerge(cluster.clusterId, from)}
                   linkTarget={linkTargets[cluster.clusterId] ?? null}
                   linkableItems={linkableItems}
+                  linkableTruncated={linkableRead?.truncated ?? false}
                   onLink={(t) =>
                     setLinkTargets((prev) => {
                       const next = { ...prev };
@@ -869,6 +885,7 @@ function ClusterCard({
   onMerge,
   linkTarget,
   linkableItems,
+  linkableTruncated,
   onLink,
   suggestion,
   suggesting,
@@ -885,6 +902,7 @@ function ClusterCard({
   onMerge: (fromClusterId: string) => void;
   linkTarget: LinkTarget | null;
   linkableItems: PhotolessItem[];
+  linkableTruncated: boolean;
   onLink: (t: LinkTarget | null) => void;
   suggestion: ItemSuggestion | null;
   suggesting: boolean;
@@ -916,6 +934,7 @@ function ClusterCard({
           <div className="flex items-center gap-1">
             <LinkPicker
               items={linkableItems}
+              truncated={linkableTruncated}
               current={linkTarget}
               onLink={onLink}
               suggestion={suggestion}
@@ -958,6 +977,7 @@ function ClusterCard({
 
 function LinkPicker({
   items,
+  truncated,
   current,
   onLink,
   suggestion,
@@ -965,6 +985,8 @@ function LinkPicker({
   onSuggest,
 }: {
   items: PhotolessItem[];
+  /** True when the candidate pool itself was capped — US-2169. */
+  truncated: boolean;
   current: LinkTarget | null;
   onLink: (t: LinkTarget | null) => void;
   suggestion: ItemSuggestion | null;
@@ -1052,6 +1074,15 @@ function LinkPicker({
           {filtered.length === 0 && (
             <div className="px-2 py-3 text-center text-xs text-muted-foreground">
               No photo-less items match.
+              {/* US-2169: a search that finds nothing against a CAPPED pool
+                  reads as "you have no such item", which is a different claim
+                  from "it isn't in the newest few hundred". Say which. */}
+              {truncated && (
+                <span className="mt-1 block">
+                  Only the {LINKABLE_PICKER_LIMIT} most recently updated were
+                  searched.
+                </span>
+              )}
             </div>
           )}
           {filtered.map((it) => (
