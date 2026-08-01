@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
+import { CI_VITE_ENV } from "./scripts/lib/ci-env";
 
 // Separate from vite.config.ts so the PWA/Sentry build plugins don't run under
 // tests. jsdom gives us localStorage + a window for the consent helpers.
@@ -7,6 +8,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // US-2375: the real web-vitals library arms timers that outlive jsdom
+      // teardown and crash the run from an unrelated file. See the stub.
+      "web-vitals": path.resolve(__dirname, "./src/test/stubs/web-vitals.ts"),
     },
   },
   test: {
@@ -14,13 +18,15 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
     globals: true,
-    // Dummy Supabase env so modules that construct the client at import time
-    // (src/lib/supabase.ts throws when these are unset) load under tests — CI
-    // doesn't provide real VITE_* vars, and tests never hit the network.
-    env: {
-      VITE_SUPABASE_URL: "http://localhost:54321",
-      VITE_SUPABASE_ANON_KEY: "test-anon-key",
-    },
+    // Placeholder VITE_* env so modules that read it at import time load under
+    // tests — src/lib/supabase.ts and src/lib/edge-api.ts both throw when these
+    // are unset. Tests never hit the network; these hosts are never called.
+    //
+    // US-2375: this MUST be the same object the workflows declare, or a test
+    // can pass in one runner and fail in the other purely on ambient config.
+    // scripts/lib/ci-env.ts is that single source and explains the history;
+    // src/test/ci-env-parity.test.ts fails if a workflow drifts from it.
+    env: { ...CI_VITE_ENV },
     // US-519: coverage with a FAILING minimum threshold so coverage of the
     // tested modules can't silently erode. Thresholds sit a margin below the
     // current numbers so a genuine regression trips CI without flapping on a
