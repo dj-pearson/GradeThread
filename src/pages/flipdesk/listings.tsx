@@ -149,6 +149,12 @@ import {
   useUpdateListingPrice,
 } from "@/hooks/use-listing-lifecycle";
 import { useDeleteItem, fetchItemsPaged } from "@/hooks/use-items-full";
+import {
+  planStatusUndo,
+  undoEntriesFor,
+  describeSkipped,
+  type StatusUndoEntry,
+} from "@/lib/bulk-status-undo";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import {
   MARKETPLACE_LABELS,
@@ -1724,9 +1730,16 @@ export function FlipdeskListingsPage() {
     setBulkPublishProgress(null);
     setSelected(new Set());
     await qc.invalidateQueries({ queryKey: ["items_full"] });
+    // US-2172 AC4: publishing is NOT undoable, and saying nothing is what makes
+    // a seller look for an Undo that isn't there. Taking a live listing down is
+    // End — a real marketplace operation that costs the insertion fee again on
+    // relist — so the toast names it instead of offering a button that would
+    // quietly do the wrong thing.
+    const PUBLISH_IS_FINAL = "Publishing can't be undone — use End to take one down.";
     if (errors.length === 0) {
       toast.success(
         `Published ${published} listing${published === 1 ? "" : "s"} to eBay.`,
+        { description: PUBLISH_IS_FINAL, duration: 10_000 },
       );
     } else if (published === 0) {
       toast.error(
@@ -1736,7 +1749,7 @@ export function FlipdeskListingsPage() {
     } else {
       toast.warning(
         `Published ${published}, ${errors.length} failed. First: ${errors[0]?.title} — ${errors[0]?.message}`,
-        { duration: 14_000 },
+        { description: PUBLISH_IS_FINAL, duration: 14_000 },
       );
     }
   }
@@ -1772,7 +1785,12 @@ export function FlipdeskListingsPage() {
     setSelected(new Set());
     await qc.invalidateQueries({ queryKey: ["items_full"] });
     if (errors.length === 0) {
-      toast.success(`Deleted ${deleted} item${deleted === 1 ? "" : "s"}.`);
+      // US-2172 AC4: the confirm dialog already says a delete is permanent; the
+      // toast repeats it because that is the moment a seller looks for Undo.
+      toast.success(`Deleted ${deleted} item${deleted === 1 ? "" : "s"}.`, {
+        description: "Deletes are permanent — there's nothing to undo.",
+        duration: 10_000,
+      });
     } else if (deleted === 0) {
       toast.error(
         `Couldn't delete ${errors.length}. First: ${errors[0]?.title} — ${errors[0]?.message}`,
@@ -1840,6 +1858,81 @@ export function FlipdeskListingsPage() {
     }
   }
 
+  // US-2172: put a bulk status change back.
+  //
+  // Deliberately re-reads the CURRENT state instead of trusting the cached
+  // array the batch ran against: the seconds between the action and the undo
+  // click are exactly where a sale lands, and restoring `active` over a sold
+  // listing re-exposes stock that is already gone. planStatusUndo owns those
+  // rules; this owns the IO and the reporting.
+  async function undoBulkStatus(entries: StatusUndoEntry[]) {
+    setBusy(true);
+    try {
+      const ids = entries.map((e) => e.itemId);
+      const { data: fresh, error: readErr } = await supabase
+        .from("items_full")
+        .select("id, status, listing_status")
+        .in("id", ids);
+      if (readErr) throw readErr;
+      const current = ((fresh ?? []) as unknown as Array<{
+        id: string;
+        status: string;
+        listing_status: string | null;
+      }>).map((r) => ({
+        itemId: r.id,
+        status: r.status,
+        listingStatus: r.listing_status,
+      }));
+
+      const plan = planStatusUndo(entries, current);
+      const failures: string[] = [];
+      let restored = 0;
+      for (const e of plan.restore) {
+        const { error } = await supabase
+          .from("inventory_items")
+          .update({ status: e.previousStatus } as never)
+          .eq("id", e.itemId);
+        if (error) {
+          failures.push(error.message);
+          continue;
+        }
+        if (e.listing) {
+          const { error: lErr } = await supabase
+            .from("listings")
+            .update({
+              listing_status: e.listing.previousStatus,
+              is_active: e.listing.previousIsActive,
+            } as never)
+            .eq("id", e.listing.id);
+          // The status IS back even if the listing half failed, so this counts
+          // as restored and the listing error is reported separately rather
+          // than swallowed or double-counted.
+          if (lErr) failures.push(lErr.message);
+        }
+        restored++;
+      }
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+
+      const skippedLine = describeSkipped(plan.skipped);
+      if (failures.length === 0 && plan.skipped.length === 0) {
+        toast.success(`Put ${restored} item${restored === 1 ? "" : "s"} back.`);
+      } else {
+        toast.warning(
+          `Put ${restored} back.` +
+            (skippedLine ? ` Skipped: ${skippedLine}.` : "") +
+            (failures.length > 0 ? ` ${failures.length} failed: ${failures[0]}` : ""),
+          { duration: 14_000 },
+        );
+      }
+    } catch (err) {
+      toast.error(
+        `Undo failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // US-1459: apply an arbitrary status to every selected item. Backward and
   // off-pipeline (archive / keeping / wearing) transitions are allowed — this is
   // the deliberate cleanup path. 'grading' is intentionally not offered (it's
@@ -1851,6 +1944,10 @@ export function FlipdeskListingsPage() {
     let done = 0;
     let liveSkipped = 0;
     const demote = DRAFT_LIKE_STATUSES.has(next);
+    // US-2172: record where each row came from, so the batch is reversible.
+    // Captured per row as it succeeds rather than up front, because a row whose
+    // write failed never changed and must not be offered for undo.
+    const undoEntries: StatusUndoEntry[] = [];
     for (const id of selected) {
       const it = items.find((i) => i.id === id);
       if (!it || it.status === next) continue;
@@ -1863,14 +1960,41 @@ export function FlipdeskListingsPage() {
         continue;
       }
       done++;
+      const entry: StatusUndoEntry = {
+        itemId: it.id,
+        title: it.item_title,
+        appliedStatus: next,
+        previousStatus: it.status,
+      };
       // Keep the listing row consistent so a re-drafted item stops showing as a
       // live listing (a genuinely live eBay offer is left alone + counted).
       if (demote) {
         try {
-          if (await syncListingForDraftStatus(it)) liveSkipped++;
+          const wasLive = await syncListingForDraftStatus(it);
+          if (wasLive) liveSkipped++;
+          // Only a row we actually REWROTE carries a listing half. A live eBay
+          // offer was left alone, so undoing it must not touch the listing.
+          undoEntries.push(
+            wasLive || !it.listing_id
+              ? entry
+              : {
+                ...entry,
+                listing: {
+                  id: it.listing_id,
+                  previousStatus: it.listing_status,
+                  // Derived, not read: is_active isn't in LISTINGS_COLUMNS, and
+                  // a guessed boolean is worse than a rule. `active` is the only
+                  // listing state that means live, so it is the only one that
+                  // restores true — which is also what the demote wrote false.
+                  previousIsActive: it.listing_status === "active",
+                },
+              },
+          );
         } catch (e) {
           errors.push({ message: e instanceof Error ? e.message : String(e) });
         }
+      } else {
+        undoEntries.push(entry);
       }
     }
     setBusy(false);
@@ -1878,14 +2002,25 @@ export function FlipdeskListingsPage() {
     setBulkStatusOpen(false);
     setBulkStatusValue("");
     await qc.invalidateQueries({ queryKey: ["items_full"] });
+
+    // US-2172: undo. A bulk status change pushes nothing to a marketplace, so
+    // there is no error to notice — the seller simply finds their selection in
+    // the wrong stage with no record of where each row came from.
+    const undoable = undoEntriesFor(undoEntries);
+    const undoAction = undoable.length > 0
+      ? { label: "Undo", onClick: () => void undoBulkStatus(undoable) }
+      : undefined;
+
     if (errors.length === 0) {
       toast.success(
         `Set ${done} item${done === 1 ? "" : "s"} to ${ITEM_STATUS_LABELS[next]}.`,
+        // Longer than a default toast: undo is only useful while it's on screen.
+        { duration: 15_000, action: undoAction },
       );
     } else {
       toast.warning(
         `Updated ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
-        { duration: 12_000 },
+        { duration: 15_000, action: undoAction },
       );
     }
     if (liveSkipped > 0) {

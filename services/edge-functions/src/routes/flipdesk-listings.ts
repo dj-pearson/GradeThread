@@ -31,6 +31,7 @@ import {
   type LoadedListing,
   MAX_BULK_EDIT_ITEMS,
   normalizeBulkEdit,
+  normalizeBulkEditItems,
   processBulkEdit,
   summarizeBulkEdit,
 } from "../lib/bulk-listing-edit.ts";
@@ -1307,14 +1308,25 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
   // Bulk multi-listing actions are a Pro+ feature (US-208).
   const gate = await requireFlipdesk(c, { feature: "bulkActions", userId });
   if (gate) return gate;
-  let body: { listing_ids?: unknown; edit?: unknown };
+  let body: { listing_ids?: unknown; edit?: unknown; items?: unknown };
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const ids = Array.isArray(body.listing_ids)
+  // US-2172: TWO body shapes. The original `listing_ids` + one shared `edit`,
+  // and `items: [{ listing_id, edit }]` where each row carries its own patch.
+  // Undo requires the second: reversing a bulk edit means putting every listing
+  // back to ITS former value, which no single shared patch can express.
+  const perItem = body.items !== undefined ? normalizeBulkEditItems(body.items) : null;
+  if (body.items !== undefined && !perItem) {
+    return c.json({ error: "items must be a non-empty array of { listing_id, edit }." }, 400);
+  }
+
+  const ids = perItem
+    ? perItem.ids
+    : Array.isArray(body.listing_ids)
     ? [...new Set(body.listing_ids.filter((x): x is string => typeof x === "string"))]
     : [];
   if (ids.length === 0) return c.json({ error: "listing_ids required" }, 400);
@@ -1322,15 +1334,24 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
     return c.json({ error: `Too many listings (max ${MAX_BULK_EDIT_ITEMS}).` }, 400);
   }
 
-  const patch = normalizeBulkEdit(body.edit as Record<string, unknown> | null);
-  if (!patch) return c.json({ error: "No valid fields to edit." }, 400);
-  const fieldNames = Object.keys(patch);
+  const patch = perItem ? null : normalizeBulkEdit(body.edit as Record<string, unknown> | null);
+  if (!perItem && !patch) return c.json({ error: "No valid fields to edit." }, 400);
+  /** The patch this listing gets — its own under `items`, else the shared one. */
+  const patchFor = (id: string): BulkEditPatch =>
+    perItem ? (perItem.patchById.get(id) ?? {}) : patch!;
+  const fieldNames = (id: string) => Object.keys(patchFor(id));
+  /** Every column any row in this batch touches — what the prior-value read needs. */
+  const allFields = [...new Set(ids.flatMap(fieldNames))];
 
   // Load only the caller's listings (tenant-scoped via the parent item owner).
   const { data: rows } = await supabaseAdmin
     .from("listings")
+    // US-2172: the editable columns come back too, so the response can hand the
+    // caller each row's PRIOR value and an undo can put it back. Read from the
+    // same snapshot the write is planned against — re-reading afterwards would
+    // return the value we just wrote.
     .select(
-      "id, platform, platform_offer_id, platform_listing_id, listing_origin, batch_id, synced_to_ebay_at, listing_price, inventory_item_id, inventory_items!inner(user_id)",
+      "id, platform, platform_offer_id, platform_listing_id, listing_origin, batch_id, synced_to_ebay_at, listing_price, quantity, ebay_condition, ebay_condition_description, shipping_policy_id, payment_policy_id, return_policy_id, platform_category_id, inventory_item_id, inventory_items!inner(user_id)",
     )
     .in("id", ids)
     .eq("inventory_items.user_id", userId);
@@ -1343,6 +1364,13 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
     batch_id: string | null;
     synced_to_ebay_at: string | null;
     listing_price: number | null;
+    quantity: number | null;
+    ebay_condition: string | null;
+    ebay_condition_description: string | null;
+    shipping_policy_id: string | null;
+    payment_policy_id: string | null;
+    return_policy_id: string | null;
+    platform_category_id: string | null;
     inventory_item_id: string | null;
   };
   const byId = new Map<string, OwnedListingRow>(
@@ -1369,11 +1397,17 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
   const apply = async (
     listing: LoadedListing,
     applyFields: string[],
-  ): Promise<{ ok: boolean; error?: string }> => {
+  ): Promise<{ ok: boolean; error?: string; previous?: Record<string, unknown> }> => {
     const row = byId.get(listing.id)!;
+    const rowPatch = patchFor(listing.id) as Record<string, unknown>;
     const writePatch: Record<string, unknown> = {};
+    // US-2172: captured BEFORE the write, and only for the fields actually
+    // applied — a blocked or unwritten field has nothing to undo, and offering
+    // to restore one would push a value nobody changed.
+    const previous: Record<string, unknown> = {};
     for (const f of applyFields) {
-      writePatch[f] = (patch as Record<string, unknown>)[f];
+      writePatch[f] = rowPatch[f];
+      previous[f] = (row as unknown as Record<string, unknown>)[f] ?? null;
     }
     if (Object.keys(writePatch).length > 0) {
       const { error } = await supabaseAdmin
@@ -1390,14 +1424,14 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
     if (!row.inventory_item_id) {
       return { ok: false, error: "Listing has no linked inventory item." };
     }
-    const price = (patch as BulkEditPatch).listing_price ?? row.listing_price ?? 0;
+    const price = (rowPatch.listing_price as number | undefined) ?? row.listing_price ?? 0;
     const res = await adapter.updateListing({
       ownerId: userId,
       inventoryItemId: row.inventory_item_id,
       listingRowId: listing.id,
       price,
     });
-    return res.ok ? { ok: true } : { ok: false, error: res.error };
+    return res.ok ? { ok: true, previous } : { ok: false, error: res.error };
   };
 
   const results = await processBulkEdit(ids, fieldNames, resolve, apply);
@@ -1406,7 +1440,7 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
   await writeAuditLog(c, {
     action: "flipdesk.bulk_edit_listings",
     targetType: "listings",
-    details: { requested: ids.length, fields: fieldNames, ...summary },
+    details: { requested: ids.length, fields: allFields, per_item: !!perItem, ...summary },
   });
   return c.json({ ok: true, results, summary, total: results.length });
 };

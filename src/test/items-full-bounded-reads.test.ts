@@ -52,6 +52,13 @@ const DECLARED: readonly DeclaredRead[] = [
     bounds: [".limit("],
     why: "the photo-less link picker asks for at most 200 candidates",
   },
+  {
+    file: "src/pages/flipdesk/listings.tsx",
+    bounds: ['.in("id", ids)', "fetchItemsPaged"],
+    why:
+      "the main read goes through the shared paged loop; the only direct " +
+      "from-call is the US-2172 undo, bounded by the ids it is putting back",
+  },
 ];
 
 function sourceFiles(): string[] {
@@ -98,7 +105,10 @@ describe("every items_full read is bounded (US-2167)", () => {
     // hook's loop is what keeps the cap handled in one place.
     const src = read("src/pages/flipdesk/listings.tsx");
     expect(src).toContain("fetchItemsPaged<ItemFullRow>(LISTINGS_COLUMNS)");
-    expect(src).not.toContain(FROM_CALL);
+    // Exactly ONE direct from-call is expected here — the US-2172 undo's
+    // read-back, which is scoped to the ids it is restoring. A second one would
+    // be a new tenant-wide read wearing the first one's declaration.
+    expect(src.split(FROM_CALL).length - 1).toBe(1);
   });
 
   it("counts tab totals with a server-side aggregate, not loaded rows", () => {
