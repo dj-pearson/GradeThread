@@ -128,7 +128,22 @@ import {
   type QualityScoreSummary,
 } from "@/components/flipdesk/quality-score-chip";
 import { scoreMapFromRows, type QualityScoreRow } from "@/pages/flipdesk/draft-quality";
-import { type TabId, statusParamToTab } from "@/pages/flipdesk/inventory-tabs";
+import {
+  type TabId,
+  statusParamToTab,
+  // US-2178: the tab predicates and the two status sets now live in the sibling
+  // module so they can be unit-tested without importing this whole page.
+  TABS,
+  TO_LIST_STATUSES,
+  DRAFT_LIKE_STATUSES,
+} from "@/pages/flipdesk/inventory-tabs";
+import {
+  matchesSearch,
+  matchesSoldFilter,
+  payoutState,
+  planListingDemote,
+  type SoldFilter,
+} from "@/pages/flipdesk/listings-filter";
 import {
   useEbayConnection,
   usePublishToEbay,
@@ -194,8 +209,6 @@ interface DraftMeta {
 }
 
 type SortPreset = "listability" | "oldest" | "best_roi" | "highest_comp";
-type SoldFilter = "all" | "awaiting_payout" | "discrepancy" | "d7" | "d30" | "ytd";
-
 const SORT_PRESET_LABELS: Record<SortPreset, string> = {
   listability: "Listability score",
   oldest: "Oldest first",
@@ -212,51 +225,22 @@ const SOLD_FILTER_LABELS: Record<SoldFilter, string> = {
   ytd: "Year to date",
 };
 
-// Every "pre-listed" prep stage shows up in To List so nothing gets
-// stranded mid-pipeline. The Drafts tab covers `drafted`; Active covers
-// `listed`; everything else terminal (sold, shipped, returned, archived)
-// has its own tab.
-const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set([
-  "sourced",
-  "acquired",
-  "cataloged",
-  "measured",
-  "photographed",
-  // US-1429: `grading` (mid-grade) is a pre-listed prep stage too — include it
-  // so an item being graded isn't stranded out of To List (and so an Overview
-  // "?status=grading" deep-link lands on a tab that actually shows it).
-  "grading",
-  "graded",
-  "comped",
-]);
-
-// Item statuses that mean "being prepped / drafted, not on a marketplace".
-// Moving an item here should also demote a LOCAL listing row so the composer's
-// live-listing test and the tabs don't desync (item shows as a draft while its
-// listing still says active).
-const DRAFT_LIKE_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
-  ...TO_LIST_STATUSES,
-  "drafted",
-]);
-
 // Keep the listing row consistent when an item moves back to a draft-like
 // status. A LOCAL (never-published) listing is demoted to draft + is_active
 // false; a genuinely LIVE eBay offer is left untouched and reported as `true`
 // so the caller can tell the seller to End it (we never silently pull a live
 // marketplace offer down). Returns true only when a live listing was left.
 async function syncListingForDraftStatus(it: ItemFullRow): Promise<boolean> {
-  if (!it.listing_id || !it.listing_status) return false;
-  // Terminal listing states never get rewound to a draft.
-  if (it.listing_status === "sold" || it.listing_status === "ended") return false;
-  // A live eBay offer (active + a real marketplace URL) must be Ended, not draft-ed.
-  if (it.listing_status === "active" && !!it.link) return true;
-  const patch = it.listing_status === "draft"
-    ? { is_active: false }
-    : { listing_status: "draft", is_active: false };
+  // US-2178: the decision lives in planListingDemote (pure, unit-tested); this
+  // performs it. The rule that matters is that a LIVE marketplace offer is
+  // never silently demoted — the caller reports it so the seller can End it.
+  const plan = planListingDemote(it);
+  if (plan.action === "none") return false;
+  if (plan.action === "live") return true;
   const { error } = await supabase
     .from("listings")
-    .update(patch as never)
-    .eq("id", it.listing_id);
+    .update(plan.patch as never)
+    .eq("id", it.listing_id as string);
   if (error) throw error;
   return false;
 }
@@ -264,92 +248,6 @@ async function syncListingForDraftStatus(it: ItemFullRow): Promise<boolean> {
 // Default eBay handling window for the ship-by countdown when no explicit
 // handling time is stored on the listing.
 const DEFAULT_HANDLING_DAYS = 3;
-
-interface TabDef {
-  id: TabId;
-  label: string;
-  matches: (it: ItemFullRow) => boolean;
-  sortKey: keyof ItemFullRow;
-  sortDir: "asc" | "desc";
-  emptyCta: { label: string; to: string };
-}
-
-const TABS: TabDef[] = [
-  {
-    id: "all",
-    label: "All",
-    // US-1483: exclude archived items so archived inventory isn't permanently
-    // mixed into the active list — they have their own Archived tab.
-    matches: (it) => it.status !== "archived",
-    sortKey: "created_at",
-    sortDir: "desc",
-    emptyCta: { label: "Add an item", to: "/dashboard/flipdesk/intake" },
-  },
-  {
-    id: "to_list",
-    label: "To List",
-    matches: (it) => TO_LIST_STATUSES.has(it.status),
-    sortKey: "updated_at",
-    sortDir: "asc",
-    emptyCta: { label: "Add an item", to: "/dashboard/flipdesk/intake" },
-  },
-  {
-    id: "drafts",
-    label: "Drafts",
-    matches: (it) => it.status === "drafted",
-    sortKey: "updated_at",
-    sortDir: "asc",
-    emptyCta: { label: "View To-List queue", to: "?tab=to_list" },
-  },
-  {
-    id: "active",
-    label: "Active",
-    matches: (it) => it.status === "listed",
-    sortKey: "list_date",
-    sortDir: "desc",
-    emptyCta: { label: "View drafts", to: "?tab=drafts" },
-  },
-  {
-    id: "sold",
-    label: "Sold",
-    // US-1451: a refunded/cancelled sale is no longer revenue — exclude it from
-    // the Sold view + its aggregates even if the item's status restore lagged
-    // (the edge return/cancel flow moves the item to 'returned' too).
-    matches: (it) =>
-      it.status === "sold" &&
-      it.sale_status !== "refunded" &&
-      it.sale_status !== "cancelled",
-    sortKey: "sale_date",
-    sortDir: "desc",
-    emptyCta: { label: "View active listings", to: "?tab=active" },
-  },
-  {
-    id: "shipped",
-    label: "Shipped",
-    matches: (it) => it.status === "shipped",
-    sortKey: "sale_date",
-    sortDir: "desc",
-    emptyCta: { label: "View sold items", to: "?tab=sold" },
-  },
-  {
-    id: "returned",
-    label: "Returned",
-    matches: (it) => it.status === "returned",
-    sortKey: "updated_at",
-    sortDir: "desc",
-    emptyCta: { label: "View completed", to: "?tab=all" },
-  },
-  {
-    // US-1483: dedicated home for archived items (previously only visible mixed
-    // into All). Personal keeping/wearing items still live in All.
-    id: "archived",
-    label: "Archived",
-    matches: (it) => it.status === "archived",
-    sortKey: "updated_at",
-    sortDir: "desc",
-    emptyCta: { label: "View all items", to: "?tab=all" },
-  },
-];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -457,25 +355,8 @@ interface PlatformChip {
   origin: "ebay" | "gradethread";
 }
 
-type PayoutState = "cleared" | "pending" | "discrepancy";
-
 // Without US-125 reconciliation, payout state is inferred: a recorded payout
 // amount = cleared; abnormally high fees (>20% of sale) = discrepancy.
-function payoutState(it: ItemFullRow): PayoutState {
-  if (it.payout != null && it.payout > 0) {
-    if (
-      it.sale_price != null &&
-      it.sale_price > 0 &&
-      it.fees != null &&
-      it.fees > it.sale_price * 0.2
-    ) {
-      return "discrepancy";
-    }
-    return "cleared";
-  }
-  return "pending";
-}
-
 function marginPct(it: ItemFullRow): number | null {
   if (it.sale_price == null || it.sale_price <= 0) return null;
   if (it.net_profit == null) return null;
@@ -812,42 +693,14 @@ export function FlipdeskListingsPage() {
   }, [items]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime();
+    // US-2178: the search and sold-window predicates moved to
+    // listings-filter.ts so they can be unit-tested. `now` is passed in rather
+    // than read inside, which is what makes the date windows assertable.
+    const now = Date.now();
     const rows = items.filter((it) => {
       if (!activeTab.matches(it)) return false;
-      if (q) {
-        const hay = [
-          it.item_title,
-          it.brand,
-          it.style,
-          it.item_number,
-          it.container,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      if (isSold && soldFilter !== "all") {
-        const soldT = it.sale_date ? new Date(it.sale_date).getTime() : null;
-        if (soldFilter === "awaiting_payout" && payoutState(it) !== "pending")
-          return false;
-        if (soldFilter === "discrepancy" && payoutState(it) !== "discrepancy")
-          return false;
-        if (
-          soldFilter === "d7" &&
-          (soldT == null || soldT < Date.now() - 7 * DAY_MS)
-        )
-          return false;
-        if (
-          soldFilter === "d30" &&
-          (soldT == null || soldT < Date.now() - 30 * DAY_MS)
-        )
-          return false;
-        if (soldFilter === "ytd" && (soldT == null || soldT < yearStart))
-          return false;
-      }
+      if (!matchesSearch(it, search)) return false;
+      if (isSold && !matchesSoldFilter(it, soldFilter, now)) return false;
       // Advanced filter — composes on top of stage tab + search + sold-tab filter.
       if (filterQuery.rules.length > 0 && !evalQuery(it, filterQuery)) {
         return false;
