@@ -23,9 +23,9 @@ import { supabaseAdmin } from "./supabase.ts";
 import { getSetting } from "./system-settings.ts";
 import {
   type AutoPayoutMode,
+  classifySaleCurrency,
   computeConsignorShare,
   type ExistingAutoPayout,
-  isPayableCurrency,
   parseAutoPayoutMode,
   planAutoPayout,
 } from "./consignor-payout-math.ts";
@@ -89,8 +89,14 @@ interface SaleRow {
   // already received the item.
   sold_at: string | null;
   sale_date: string | null;
-  /** US-2031: NULL = the marketplace never reported one; treated as USD. */
+  /**
+   * US-2031: NULL = the marketplace never reported one.
+   * US-2292: which no longer means "treated as USD" on its own — see
+   * classifySaleCurrency, which needs created_at to tell a legacy blank from a
+   * currency a connector had the chance to record and did not.
+   */
   currency: string | null;
+  created_at: string | null;
   inventory_items: {
     user_id: string;
     consignor_id: string | null;
@@ -99,7 +105,7 @@ interface SaleRow {
 }
 
 const SALE_SELECT =
-  "id, status, sale_price, platform_fees, payment_processing_fees, inventory_item_id, sold_at, sale_date, currency, " +
+  "id, status, sale_price, platform_fees, payment_processing_fees, inventory_item_id, sold_at, sale_date, currency, created_at, " +
   "inventory_items!inner(user_id, consignor_id, consignment_split_pct)";
 
 // Process the consignor payout for a single sale. Idempotent and safe to call
@@ -137,17 +143,33 @@ export async function processSaleConsignorPayout(
   // account would otherwise just never see their consignor paid and would have
   // no way to find out why. Checked after ownership so the ops event can name
   // the tenant it belongs to.
-  if (!isPayableCurrency(sale.currency)) {
+  //
+  // US-2292: a MISSING currency is refused too, once the connectors were able
+  // to record one. Reading a blank as USD is how a 200 GBP Shopify sale paid
+  // its consignor 120 dollars: nothing was wrong with the arithmetic, the unit
+  // was just assumed. Legacy rows written before any connector recorded a
+  // currency stay payable — see classifySaleCurrency for why that line exists.
+  const verdict = classifySaleCurrency(
+    sale.currency,
+    sale.created_at,
+    Deno.env.get("SALE_CURRENCY_RECORDED_SINCE") || undefined,
+  );
+  if (!verdict.payable) {
+    const shown = sale.currency ?? "unrecorded";
     console.error(
-      `[consignor-payout] REFUSING payout for sale ${saleId}: currency ${sale.currency} is not USD`,
+      `[consignor-payout] REFUSING payout for sale ${saleId}: currency ${shown} is not USD (${verdict.reason})`,
     );
     await emitOpsEvent("consignor.payout_currency_refused", "critical", {
-      title: `Consignor payout refused — sale is in ${sale.currency}, not USD`,
+      title: verdict.reason === "unrecorded"
+        ? `Consignor payout refused — sale has no recorded currency`
+        : `Consignor payout refused — sale is in ${shown}, not USD`,
       source: "consignor-payout.currency",
       actorUserId: ownerId,
-      data: { sale_id: saleId, currency: sale.currency },
+      data: { sale_id: saleId, currency: sale.currency, reason: verdict.reason },
     }).catch(() => { /* never let the ops feed break the guard */ });
-    return skip("currency_not_supported");
+    return skip(
+      verdict.reason === "unrecorded" ? "currency_unrecorded" : "currency_not_supported",
+    );
   }
 
   // Load the consignor (tenant-scoped to the item owner).

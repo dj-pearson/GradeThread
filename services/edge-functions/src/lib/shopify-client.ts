@@ -28,6 +28,7 @@
 //   EDGE_ENCRYPTION_KEY   (shared with the eBay path)
 
 import { supabaseAdmin } from "./supabase.ts";
+import { normalizeSaleCurrency } from "./consignor-payout-math.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
 import { fetchWithTimeout } from "./circuit-breaker.ts";
 
@@ -567,6 +568,11 @@ export interface ShopifyOrder {
   name: string;
   financialStatus: string | null;
   totalPrice: number;
+  /**
+   * US-2292: ISO 4217, lowercased, or null when Shopify did not report one.
+   * Recorded on the sale so a non-USD order is not paid out as dollars.
+   */
+  currency: string | null;
   /** Shopify's processing fee on this order, when expanded; null otherwise. */
   processedAt: string | null;
   /** Set when the order was cancelled; null for live orders (US-711 refunds). */
@@ -605,6 +611,7 @@ export async function listPaidOrders(
       name?: string;
       financial_status?: string;
       total_price?: string;
+      currency?: string;
       processed_at?: string;
       created_at?: string;
       cancelled_at?: string | null;
@@ -620,6 +627,7 @@ export async function listPaidOrders(
     name: o.name ?? "",
     financialStatus: o.financial_status ?? null,
     totalPrice: o.total_price != null ? Number(o.total_price) : 0,
+    currency: normalizeSaleCurrency(o.currency),
     processedAt: o.processed_at ?? o.created_at ?? null,
     cancelledAt: o.cancelled_at ?? null,
     lineItems: (o.line_items ?? []).map((li) => ({

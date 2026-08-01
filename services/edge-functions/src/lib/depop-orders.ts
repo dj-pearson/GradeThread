@@ -18,6 +18,7 @@
 // order maps to OUR inventory_items.sku (we publish products keyed by that SKU).
 
 import { supabaseAdmin } from "./supabase.ts";
+import { normalizeSaleCurrency } from "./consignor-payout-math.ts";
 import { reverseConsignorPayoutsForSales } from "./consignor-payout.ts";
 import {
   type DepopOrder,
@@ -154,6 +155,10 @@ export async function ingestDepopOrder(
         sold_at: soldAt,
         sale_date: soldAt.slice(0, 10),
         buyer_username: order.buyerUsername || null,
+        // US-2292: the connector already parsed this and then dropped it on the
+        // floor. A null currency reads as payable, so a non-USD sale paid the
+        // consignor their share as if it were dollars.
+        currency: normalizeSaleCurrency(order.currency),
         status: "completed",
         platform_order_ref: {
           platform: "depop",
