@@ -30,6 +30,10 @@ import { createShippingFulfillment } from "../lib/ebay-client.ts";
 //   GET  /sales/:saleId/label     reprint (eBay label URLs expire)
 //   POST /sales/:saleId/label/void  cancel the shipment, undo the recorded cost
 //
+// ⚠ The API's real limits (US-only ship-from? USPS-only? seller payment method
+// required?) are UNVERIFIED — see the note in lib/ebay-logistics.ts. Nothing
+// here asserts them to a seller until they are confirmed.
+//
 // SECURITY (US-268): the edge uses the service-role client, which BYPASSES RLS.
 // Every route here resolves the sale THROUGH inventory_items.user_id before it
 // touches eBay or writes anything — a saleId from the request body is never

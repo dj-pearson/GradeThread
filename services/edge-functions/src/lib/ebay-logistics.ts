@@ -1,4 +1,4 @@
-// eBay Sell Logistics API v1 client (US-2160): rate-shop and buy a shipping
+// eBay Sell Logistics API (v1_beta) client (US-2160): rate-shop and buy a shipping
 // label without leaving FlipDesk.
 //
 // The ship step was the one pipeline step that left the app. FlipDesk could push
@@ -8,10 +8,10 @@
 // wrong by whatever the seller misremembered.
 //
 // The flow is two calls, in this order, and the order matters:
-//   1. POST /sell/logistics/v1/shipping_quote — describe the parcel and the two
+//   1. POST /sell/logistics/v1_beta/shipping_quote — describe the parcel and the two
 //      addresses; eBay returns a quote id and a list of RATES (carrier, service,
 //      price, delivery window). A quote EXPIRES, so rates are not durable.
-//   2. POST /sell/logistics/v1/shipment with { shippingQuoteId, rateId } —
+//   2. POST /sell/logistics/v1_beta/shipment with { shippingQuoteId, rateId } —
 //      BUYS the chosen rate. This is the step that charges the seller. It
 //      returns the shipment id, the tracking number, and a label download URL.
 // Plus the two lifecycle calls: cancel a shipment (voids the label, refunds the
@@ -29,6 +29,21 @@
 // per-connection denial flag rather than letting a seller round-trip into a
 // guaranteed 403. See logisticsCapability() in routes/flipdesk-logistics.ts.
 //
+// ⚠ UNVERIFIED CONSTRAINTS — confirm against eBay's docs before shipping any
+// copy that asserts them. Source: LLM recollection, not developer.ebay.com
+// (which 403s automated fetches). Recorded because if true they shape what this
+// feature can honestly promise, and the first real API responses after the scope
+// grant will settle each one:
+//   • Ship-from may be UNITED STATES ONLY (international destinations fine).
+//   • Rates/labels may be USPS ONLY — making the "rate shop" a service
+//     comparison rather than a carrier comparison.
+//   • The seller may need a PAYMENT METHOD on their eBay account before a
+//     shipment can be created; eBay bills the postage there, not to us.
+//   • The API may still be BETA, so contracts can change.
+// None of these are asserted in seller-facing copy yet, deliberately: the whole
+// surface is dark until the scope is granted, so there is no cost to waiting for
+// facts and a real cost to telling sellers something wrong.
+//
 // TENANCY: every function here takes eBay-side ids only and performs NO
 // ownership check. Callers MUST resolve the local sale and verify ownership
 // first (US-268).
@@ -43,6 +58,23 @@ import {
 } from "./ebay-client.ts";
 
 const LOGISTICS_TIMEOUT_MS = 25_000;
+
+// The API version segment, overridable without a redeploy.
+//
+// It was first written as /sell/logistics/v1. Two independent LLM recollections
+// (mine and another model's) both say the API is v1_beta, and neither is an
+// authoritative source — developer.ebay.com returns 403 to automated fetches, so
+// this could not be confirmed from the docs.
+//
+// So it is a constant AND an env override. The risk is bounded either way: every
+// call 403s until eBay grants sell.logistics, so nobody can reach a wrong path
+// before then, and the first real call after the grant will say plainly whether
+// it is right. If it is wrong, EBAY_LOGISTICS_VERSION fixes it in the Coolify
+// env rather than in a build. Confirm against eBay's docs when you apply for the
+// scope, and delete this note once it is verified.
+const LOGISTICS_BASE = `/sell/logistics/${
+  Deno.env.get("EBAY_LOGISTICS_VERSION")?.trim() || "v1_beta"
+}`;
 
 export interface LogisticsError extends Error {
   status: number;
@@ -72,7 +104,7 @@ async function logisticsFetch<T>(
   // A non-retried call still gets the breaker and the timeout — it just never
   // repeats the request, because repeating a purchase bills the seller twice.
   const res = await ebayResilientFetch(
-    `${apiHost()}/sell/logistics/v1${path}`,
+    `${apiHost()}${LOGISTICS_BASE}${path}`,
     {
       ...requestInit,
       headers: {
