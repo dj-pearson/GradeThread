@@ -75,11 +75,16 @@ function stripComments(s: string): string {
 // genuine global `fetch(` matches.
 const BARE_FETCH = /(?<![\w.$])fetch\s*\(/g;
 
+// URLs all the way down, never url.pathname. A file: URL's pathname on Windows
+// is "/C:/Users/..." — the leading slash makes it an invalid path, so reading it
+// throws NotFound and this guard fails locally while passing in CI. Deno.readDir
+// and Deno.readTextFile both take a URL directly; href arithmetic gives the same
+// relative path on either platform.
 async function scan(): Promise<Map<string, number>> {
   const found = new Map<string, number>();
   for await (const entry of walk(SRC)) {
-    if (!entry.endsWith(".ts")) continue;
-    const rel = `src/${entry.slice(SRC.pathname.length)}`;
+    const rel = `src/${decodeURIComponent(entry.href.slice(SRC.href.length))}`;
+    if (!rel.endsWith(".ts")) continue;
     if (rel.startsWith("src/tests/")) continue;
     const src = stripComments(await Deno.readTextFile(entry));
     const n = src.match(BARE_FETCH)?.length ?? 0;
@@ -88,11 +93,11 @@ async function scan(): Promise<Map<string, number>> {
   return found;
 }
 
-async function* walk(dir: URL): AsyncGenerator<string> {
+async function* walk(dir: URL): AsyncGenerator<URL> {
   for await (const e of Deno.readDir(dir)) {
     const child = new URL(`${e.name}${e.isDirectory ? "/" : ""}`, dir);
     if (e.isDirectory) yield* walk(child);
-    else yield child.pathname;
+    else yield child;
   }
 }
 

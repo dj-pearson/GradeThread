@@ -173,9 +173,11 @@ Deno.test("US-2218: caption block is empty with no references", () => {
 
 // ── 4. Rights, privacy and private storage ─────────────────────────────────
 
-const MIGRATION = await Deno.readTextFile(
+// Normalized to "\n": git checks .sql out with native line endings, so on
+// Windows a multi-line assertion below would fail against a file CI reads as LF.
+const MIGRATION = (await Deno.readTextFile(
   new URL("../../../../supabase/migrations/00500_authenticity_references.sql", import.meta.url),
-);
+)).replace(/\r\n/g, "\n");
 
 Deno.test("US-2218: rights are mandatory at the schema level", () => {
   // A NULL default would have made omitting provenance the easy path.

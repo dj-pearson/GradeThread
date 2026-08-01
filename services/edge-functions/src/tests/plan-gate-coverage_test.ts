@@ -56,7 +56,21 @@ function writesTable(text: string, table: string, ops: string[]): boolean {
 const GOES_LIVE = /status: "listed"|markItemListed\(/;
 const ACTIVE_LISTINGS_GATE = /kind: "activeListings"/;
 
-const GOES_LIVE_ALLOWLIST: Record<string, string> = {};
+const GOES_LIVE_ALLOWLIST: Record<string, string> = {
+  // The crosslist action calls markItemListed, so it trips the GOES_LIVE
+  // pattern — but it cannot consume a slot. loadOwnerListings selects
+  // .eq("platform","ebay").eq("listing_status","active"), so every listing a
+  // rule can act on is ALREADY live and already occupies its slot, and the cap
+  // counts live ITEMS rather than listing rows, so fanning one out to a second
+  // channel adds nothing to the count. The markItemListed call exists to close
+  // the one desync case (eBay active, item status drifted off 'listed'), which
+  // is accounting repair, not a new publish. Gating it would refuse to FIX the
+  // count for a seller sitting at their cap. See flipdesk-automations.ts:919.
+  "flipdesk-automations.ts":
+    "crosslist only runs against already-active eBay listings, so the item's " +
+    "slot is already consumed; markItemListed here repairs the count rather " +
+    "than adding to it",
+};
 
 Deno.test("drift: every route that puts an item live gates the activeListings cap", async () => {
   const offenders: string[] = [];

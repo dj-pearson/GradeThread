@@ -301,6 +301,18 @@ async function main(): Promise<void> {
     created_by: aId,
   });
 
+  // A FlipDesk automation rule owned by A (US-2156). Deliberately is_active
+  // false: the cases only need an id B can aim PUT/PATCH/DELETE/dry-run at, and
+  // an active rule would be picked up by the hourly fan-out and start acting on
+  // the fixture inventory. The trigger/action pair is the cheapest valid one.
+  out.TEST_USER_A_AUTOMATION_RULE_ID = await insert("flipdesk_automation_rules", {
+    user_id: aId,
+    name: "Tenant-A fixture rule",
+    trigger_json: { type: "days_listed_gt", days: 30, cooldown_days: 7 },
+    action_json: { type: "advance_status", status: "archived" },
+    is_active: false,
+  });
+
   // A passport owner node linked to A (owner_node_kind 'seller').
   out.TEST_USER_A_PASSPORT_NODE_ID = await insert("owner_nodes", {
     pseudonymous_label: "Tenant-A fixture node",

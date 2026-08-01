@@ -192,6 +192,10 @@ Deno.test("US-1979: a real program failure is never swallowed", () => {
 const listingsRoute = Deno.readTextFileSync(
   new URL("../routes/flipdesk-listings.ts", import.meta.url),
 );
+// loadOwnedListing — the owner-verified select the delist call sites read from.
+const lifecycleSrc = Deno.readTextFileSync(
+  new URL("../lib/listing-lifecycle.ts", import.meta.url),
+);
 const ebayAdapterSrc = Deno.readTextFileSync(
   new URL("../lib/marketplace-adapters/ebay.ts", import.meta.url),
 );
@@ -225,9 +229,13 @@ Deno.test("US-2166: the owned-listing load actually selects those columns", () =
   // The fields can only be passed if they were read. `variations` comes off the
   // listing; the group key (sku) lives on the ITEM, so the join has to ask for
   // it — that asymmetry is what makes this worth pinning.
-  assert(listingsRoute.includes("variations, "), "must select listings.variations");
+  //
+  // The loader itself has since moved out of the route and into
+  // lib/listing-lifecycle.ts (loadOwnedListing), which is where the select now
+  // lives — so this reads the loader rather than the route that calls it.
+  assert(lifecycleSrc.includes("variations, "), "must select listings.variations");
   assert(
-    listingsRoute.includes("inventory_items!inner(user_id, sku)"),
+    lifecycleSrc.includes("inventory_items!inner(user_id, sku)"),
     "must select the item sku (the group key)",
   );
 });
@@ -316,11 +324,18 @@ Deno.test("US-2166: revise refuses a non-eBay listing rather than guessing", () 
     ebayRoute.includes('code: "not_an_ebay_listing"'),
     "revise must reject a non-eBay row with a machine-readable code",
   );
-  const revise = ebayRoute.slice(
-    ebayRoute.indexOf('flipdeskEbayRoutes.post("/listings/:id/revise"'),
-  );
+  // Sliced to the END of the handler — the next route registration — rather
+  // than to a fixed character count. A 4000-char window used to stand in for
+  // "inside the handler" and broke the moment someone wrote a paragraph of
+  // comment above the guard: the guard was 4024 chars in, still first in the
+  // handler, and the test called it missing.
+  const start = ebayRoute.indexOf('flipdeskEbayRoutes.post("/listings/:id/revise"');
+  assert(start >= 0, "the revise route is missing");
+  const rest = ebayRoute.slice(start + 1);
+  const end = rest.search(/\nflipdeskEbayRoutes\.(get|post|put|patch|delete)\(/);
+  const revise = end === -1 ? rest : rest.slice(0, end);
   assert(
-    revise.slice(0, 4000).includes('!== "ebay"'),
+    revise.includes('!== "ebay"'),
     "the platform guard must run inside the revise handler",
   );
 });

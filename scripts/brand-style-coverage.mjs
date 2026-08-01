@@ -21,8 +21,12 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const MIGRATIONS = new URL("../supabase/migrations/", import.meta.url).pathname;
+// fileURLToPath, never url.pathname: on Windows the pathname of a file: URL is
+// "/C:/Users/..." and readdirSync rejects the leading slash, so the guard that
+// imports this script fails locally while passing in CI.
+const MIGRATIONS = fileURLToPath(new URL("../supabase/migrations/", import.meta.url));
 
 /**
  * Count tuples inserted into a table across every migration. Parses the VALUES

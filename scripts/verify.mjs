@@ -105,7 +105,12 @@ if (on("vault")) {
 // ── Edge (Deno) — mirrors security.yml "deno-check" job ───────────────────────
 if (on("edge")) {
   run("edge: deno lint", "deno lint", { cwd: edgeDir });
-  run("edge: deno check src/main.ts", "deno check src/main.ts", { cwd: edgeDir });
+  // US-2378: src/tests/ is checked alongside main.ts. `deno test` type-checks
+  // first, so a type error in a test file runs ZERO tests — checking the tree
+  // here names the broken file instead of letting it look like a test failure.
+  run("edge: deno check src/main.ts + tests", "deno check src/main.ts src/tests/", {
+    cwd: edgeDir,
+  });
   run("edge: deno test", "deno test --allow-net --allow-env --allow-read", { cwd: edgeDir });
   run("edge: frozen lockfile", "deno cache --frozen src/main.ts", { cwd: edgeDir });
 }

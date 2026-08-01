@@ -27,7 +27,13 @@ const MIGRATION_URL = new URL(
   "../../../../supabase/migrations/00498_sizing_charts_backfill.sql",
   import.meta.url,
 );
-const committed = await Deno.readTextFile(MIGRATION_URL);
+// The generators emit "\n"; git checks these .sql files out with native line
+// endings, so on Windows the committed copy is CRLF and a raw string compare
+// reports the whole file as drifted. What this guard is about is the SQL, not
+// how the working copy stores newlines — normalize both sides.
+const lf = (s: string) => s.replace(/\r\n/g, "\n");
+
+const committed = lf(await Deno.readTextFile(MIGRATION_URL));
 
 Deno.test("US-2214: the committed backfill matches what the code generates", async () => {
   // The whole guard in one assertion. If someone edits sizing-charts.ts and does
@@ -186,8 +192,10 @@ Deno.test("US-2214: the in-code fallback is observable when it fires", async () 
 // ── US-2215: the size_system / size_class migration is generated too ───────
 
 Deno.test("US-2215: the committed 00499 matches what the code generates", async () => {
-  const committed499 = await Deno.readTextFile(
-    new URL("../../../../supabase/migrations/00499_size_systems.sql", import.meta.url),
+  const committed499 = lf(
+    await Deno.readTextFile(
+      new URL("../../../../supabase/migrations/00499_size_systems.sql", import.meta.url),
+    ),
   );
   assertEquals(
     buildSystemsSql(SIZING_CHARTS),

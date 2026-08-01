@@ -70,7 +70,15 @@ jobs:
       - run: deno lint
       # Matches the Dockerfile note that type-checking happens separately
       # (the container runs with --no-check for fast cold-starts).
-      - run: deno check src/main.ts
+      #
+      # US-2378: src/tests/ is checked here TOO, not just src/main.ts. `deno
+      # test` type-checks before it runs anything, so a type error in a test
+      # file means zero tests execute — the suite reports a failure that reads
+      # like a compile problem, and the ~5,000 real assertions behind it stop
+      # being run without anyone noticing which ones. Checking the test tree in
+      # this job names the broken file directly, in the job whose whole purpose
+      # is types.
+      - run: deno check src/main.ts src/tests/
 
   deno-test:
     name: Deno test (edge)
