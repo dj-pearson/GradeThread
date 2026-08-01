@@ -259,3 +259,112 @@ Deno.test("effectiveAiActionsUsed: zeroes a stale counter, keeps a current one",
   assertEquals(effectiveAiActionsUsed(750, thisMonth, now), 750);
   assertEquals(effectiveAiActionsUsed(null, thisMonth, now), 0);
 });
+
+// ── US-2297: the STREAMING bypass, and what compensates for it ──────────────
+//
+// The route-level drift test above proves every route that imports a
+// model-calling lib is metered or allow-listed. It says nothing about the OTHER
+// hole in the cost model.
+//
+// applyAiLimiter (ai-config.ts) wraps `messages.create` so every non-streaming
+// call goes through the process-wide limiter — global concurrency cap, daily
+// volume ceiling, retry authority — in ONE place, so no call site can forget.
+// Streaming deliberately BYPASSES it: an SSE flow is a long-lived single call,
+// not the concurrency spike the limiter exists for, and wrapping a stream in
+// await/retry would break it.
+//
+// That bypass is correct and it is also the gap. A streaming call site is
+// bounded by NOTHING the client provides — no daily ceiling, no concurrency
+// cap. Each one has to carry its own gate and its own meter, and today each one
+// does. Nothing enforced that, so the next streaming feature would have been
+// unbounded with no test to notice.
+//
+// So: every streaming call site is enumerated with the control that replaces
+// the limiter. A new one fails until its author declares which control it has —
+// which is the moment that decision actually gets made.
+
+interface StreamingSite {
+  readonly file: string;
+  /** What bounds this call, given the limiter does not. */
+  readonly control: string;
+}
+
+const STREAMING_CALL_SITES: readonly StreamingSite[] = [
+  {
+    file: "lib/content-ai-stream.ts",
+    control:
+      "content system — operator cost, not user spend. Driven by the content " +
+      "scheduler and admin tooling, never by an unauthenticated or self-serve " +
+      "request, so there is no per-user surface to meter.",
+  },
+  {
+    file: "routes/support-assistant.ts",
+    control:
+      "US-834/US-831 — gated BEFORE any model call (non-subscribers and " +
+      "locked-out users are rejected) and metered explicitly POST-stream via " +
+      "incrementUsage, precisely because the limiter's create() path is bypassed.",
+  },
+];
+
+// \b before `stream` matters: without it `ended_upstream: true` in the listings
+// routes matches, and a false positive in a guard is how a guard gets deleted.
+const STREAM_MARKER = /messages\.stream\(|\bstream:\s*true/;
+
+async function edgeSourceFiles(): Promise<{ name: string; text: string }[]> {
+  const out: { name: string; text: string }[] = [];
+  for (const dir of ["lib", "routes"]) {
+    const base = new URL(`../${dir}/`, import.meta.url);
+    for await (const entry of Deno.readDir(base)) {
+      if (!entry.isFile || !entry.name.endsWith(".ts")) continue;
+      out.push({
+        name: `${dir}/${entry.name}`,
+        text: await Deno.readTextFile(new URL(entry.name, base)),
+      });
+    }
+  }
+  return out;
+}
+
+Deno.test("US-2297: every streaming AI call site is declared with its control", async () => {
+  const found = (await edgeSourceFiles())
+    // ai-config.ts is where the bypass is IMPLEMENTED and documented; it makes
+    // no model call of its own.
+    .filter((f) => f.name !== "lib/ai-config.ts")
+    .filter((f) => STREAM_MARKER.test(f.text))
+    .map((f) => f.name)
+    .sort();
+
+  assertEquals(
+    found,
+    STREAMING_CALL_SITES.map((s) => s.file).sort(),
+    "A streaming call bypasses the global daily ceiling and concurrency cap " +
+      "entirely, so it must carry its own gate and meter. Declare it in " +
+      "STREAMING_CALL_SITES with the control that replaces the limiter — or, " +
+      "if you removed one, drop it from the list.",
+  );
+});
+
+Deno.test("US-2297: the streaming controls are still actually in the code", async () => {
+  // A declaration nobody checks is a comment. The support assistant is the one
+  // that matters — it is user-facing, so losing either half (the gate or the
+  // post-stream meter) makes an unbounded, unbilled model call reachable by any
+  // authenticated user.
+  const support = await Deno.readTextFile(
+    new URL("../routes/support-assistant.ts", import.meta.url),
+  );
+  assert(support.includes("incrementUsage"), "post-stream metering is gone");
+  assert(
+    /loadGateAndDecide|applySupportLockout/.test(support),
+    "the pre-call gate is gone",
+  );
+});
+
+Deno.test("US-2297: non-streaming calls stay bounded in ONE place", async () => {
+  // The property that makes the route-level allow-list safe: a call site cannot
+  // opt out of the global ceiling by accident, because it is applied by the
+  // client factory rather than per call site.
+  const cfg = await Deno.readTextFile(new URL("../lib/ai-config.ts", import.meta.url));
+  assert(cfg.includes("function applyAiLimiter"));
+  assert(cfg.includes("messages.create = ("), "the create() wrapper is gone");
+  assert(cfg.includes("runAiCall("), "calls no longer route through the limiter");
+});
