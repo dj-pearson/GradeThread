@@ -1,3 +1,10 @@
+// deno-lint-ignore-file no-explicit-any
+//
+// `any` is the POINT of this file: it stands in for third-party modules whose
+// real .d.ts files live behind registries this sandbox cannot reach. It is a
+// local development aid and is never bundled or deployed — but `deno lint` (no
+// path argument, as CI runs it) walks the whole project, so the exemption has to
+// be declared here rather than assumed.
 // Loose stubs so tsc can type-check services/edge-functions/src locally when
 // deno.land / esm.sh / jsr are unreachable (this sandbox's egress policy).
 //

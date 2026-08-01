@@ -157,11 +157,17 @@ Deno.test("US-2165: whatnot is unresolved, and the reason names it", () => {
   });
 });
 
-Deno.test("US-2165: an extension marketplace is queued, not ended", () => {
+Deno.test("US-2165: an extension marketplace is queued, not ended", async () => {
+  // await each one: firing three floating promises and returning would let the
+  // test pass before a single assertion ran, and Deno's op sanitizer would flag
+  // the leak. A vacuous test on an oversell path is worse than no test.
   for (const platform of ["poshmark", "mercari", "grailed"]) {
-    attemptUpstreamDelist("owner-1", row({ platform }), deps()).then((o) =>
-      assertEquals(o.kind, "queued", platform)
+    const outcome = await attemptUpstreamDelist(
+      "owner-1",
+      row({ platform }),
+      deps(),
     );
+    assertEquals(outcome.kind, "queued", platform);
   }
 });
 
@@ -233,7 +239,7 @@ Deno.test("US-2165: a Depop row with no SKU is nothing_live, not unresolved", ()
   ).then((outcome) => assertEquals(outcome.kind, "nothing_live"));
 });
 
-Deno.test("US-2165: a successful Shopify and Depop delete is ended", () => {
+Deno.test("US-2165: a successful Shopify and Depop delete is ended", async () => {
   const shopify = attemptUpstreamDelist(
     "owner-1",
     row({ platform: "shopify", platform_listing_id: "gid://p/1" }),
@@ -250,5 +256,7 @@ Deno.test("US-2165: a successful Shopify and Depop delete is ended", () => {
       deleteDepopProduct: () => Promise.resolve(),
     }),
   ).then((o) => assertEquals(o.kind, "ended"));
-  return Promise.all([shopify, depop]);
+  // await, not return: Deno.test wants Promise<void>, and returning
+  // Promise.all's tuple fails the type check.
+  await Promise.all([shopify, depop]);
 });

@@ -6,6 +6,19 @@ sandboxed session whose egress policy blocks `deno.land`, `esm.sh` and `jsr.io`,
 where `deno check` fails at import resolution and every edge change would
 otherwise ship unverified.
 
+## Two gaps this harness does NOT close — check these before pushing
+
+1. **`deno lint` with no path argument.** CI runs `deno lint`, which walks the
+   WHOLE project (1275 files, including this directory). Running
+   `deno lint src/` instead passes locally and fails in CI. Always run it
+   bare.
+2. **`Deno.test` signatures.** This harness types `Deno` as `any`, so a test
+   callback returning something other than `void | Promise<void>` (the classic
+   is `return Promise.all([...])`, whose tuple is not `Promise<void>`) type-checks
+   here and fails `deno test` in CI. Prefer `async` + `await` in test bodies —
+   it also avoids floating promises, which Deno's op sanitizer rejects and which
+   silently make a test vacuous.
+
 ## Run it
 
 ```bash
