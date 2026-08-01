@@ -5,8 +5,6 @@ import { downloadBlob } from "@/lib/download";
 import { useAuth } from "@/hooks/use-auth";
 import type {
   AiPromptVersionRow,
-  AiPromptVersionInsert,
-  AiPromptVersionUpdate,
   HumanReviewRow,
   GradeReportRow,
   AdminAuditLogInsert,
@@ -264,6 +262,12 @@ export function AdminAiModelsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createPromptText, setCreatePromptText] = useState("");
+  // US-2348: the old direct insert never sent a stage, so every prompt created
+  // here silently became 'composite' (the column default) whatever it was
+  // written for. The edge route requires one, so it is now a choice.
+  const [createStage, setCreateStage] = useState<"per_image" | "composite">(
+    "composite",
+  );
   const [createLoading, setCreateLoading] = useState(false);
 
   // View / Edit dialog
@@ -540,6 +544,28 @@ export function AdminAiModelsPage() {
 
   // ─── Actions ──────────────────────────────────────────────────────
 
+  // US-2348: every ai_prompt_versions mutation goes through the edge, which
+  // carries the grading:review scope guard, the step-up on activate, the audit
+  // row and invalidatePromptCache(). The browser client reaches this table
+  // through RLS that grants any is_admin() caller full CRUD, so a direct write
+  // from here routed around all four — including for an admin whose scope had
+  // been deliberately revoked.
+  async function promptsApi(
+    suffix: string,
+    init: { method: string; body?: string },
+  ): Promise<unknown> {
+    const res = await edgeFetch(`/api/admin/grading/prompts${suffix}`, {
+      method: init.method,
+      headers: init.body ? { "Content-Type": "application/json" } : undefined,
+      body: init.body,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error ?? `HTTP ${res.status}`);
+    }
+    return await res.json().catch(() => ({}));
+  }
+
   async function handleCreate() {
     if (!createName.trim() || !createPromptText.trim()) {
       toast.error("Missing fields", {
@@ -550,21 +576,17 @@ export function AdminAiModelsPage() {
 
     setCreateLoading(true);
     try {
-      const insertData: AiPromptVersionInsert = {
-        version_name: createName.trim(),
-        prompt_text: createPromptText.trim(),
-        is_active: false,
-      };
-
-      const { data: created, error } = await supabase
-        .from("ai_prompt_versions")
-        .insert(insertData as never)
-        .select()
-        .single();
-      if (error) throw error;
-
-      await logAuditAction("create_prompt_version", "ai_prompt_version", (created as AiPromptVersionRow).id, {
-        version_name: createName.trim(),
+      // US-2348: server-side (POST /grading/prompts). A direct supabase-js
+      // insert went through RLS, which grants any is_admin() caller full CRUD —
+      // so it worked even for an admin whose grading:review scope had been
+      // revoked, and it wrote no edge audit row.
+      await promptsApi("", {
+        method: "POST",
+        body: JSON.stringify({
+          version_name: createName.trim(),
+          prompt_text: createPromptText.trim(),
+          stage: createStage,
+        }),
       });
 
       toast.success("Prompt version created", {
@@ -626,15 +648,10 @@ export function AdminAiModelsPage() {
     if (!deactivateTarget) return;
     setActionLoading(true);
     try {
-      const { error } = await supabase
-        .from("ai_prompt_versions")
-        .update({ is_active: false } as never)
-        .eq("id", deactivateTarget.id);
-      if (error) throw error;
-
-      await logAuditAction("deactivate_prompt_version", "ai_prompt_version", deactivateTarget.id, {
-        version_name: deactivateTarget.version_name,
-      });
+      // US-2348: server-side. The direct update also skipped
+      // invalidatePromptCache(), so every replica kept serving the prompt the
+      // admin had just turned off until its cache expired.
+      await promptsApi(`/${deactivateTarget.id}/deactivate`, { method: "POST" });
 
       toast.success("Prompt version deactivated", {
         description: `"${deactivateTarget.version_name}" has been deactivated.`,
@@ -663,15 +680,9 @@ export function AdminAiModelsPage() {
         return;
       }
 
-      const { error } = await supabase
-        .from("ai_prompt_versions")
-        .delete()
-        .eq("id", deleteTarget.id);
-      if (error) throw error;
-
-      await logAuditAction("delete_prompt_version", "ai_prompt_version", deleteTarget.id, {
-        version_name: deleteTarget.version_name,
-      });
+      // US-2348: server-side. The active-prompt check above is a courtesy —
+      // the edge route refuses it too, which is the check that actually holds.
+      await promptsApi(`/${deleteTarget.id}`, { method: "DELETE" });
 
       toast.success("Prompt version deleted", {
         description: `"${deleteTarget.version_name}" has been deleted.`,
@@ -700,23 +711,17 @@ export function AdminAiModelsPage() {
 
     setEditLoading(true);
     try {
-      const updateData: AiPromptVersionUpdate = {
-        version_name: editName.trim(),
-        prompt_text: editPromptText.trim(),
-      };
-
-      const { error } = await supabase
-        .from("ai_prompt_versions")
-        .update(updateData as never)
-        .eq("id", viewingVersion.id);
-      if (error) throw error;
-
-      await logAuditAction("update_prompt_version", "ai_prompt_version", viewingVersion.id, {
-        version_name: editName.trim(),
-        changes: {
-          name_changed: editName.trim() !== viewingVersion.version_name,
-          prompt_changed: editPromptText.trim() !== viewingVersion.prompt_text,
-        },
+      // US-2348: server-side. This is the write that mattered most — the direct
+      // update could rewrite the prompt_text of the LIVE active version, which
+      // biases every grade the platform issues, with no scope check, no step-up
+      // and no eval gate. The edge route refuses to edit an active version's
+      // text at all.
+      await promptsApi(`/${viewingVersion.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          version_name: editName.trim(),
+          prompt_text: editPromptText.trim(),
+        }),
       });
 
       toast.success("Prompt version updated", {
@@ -1604,6 +1609,25 @@ export function AdminAiModelsPage() {
                 onChange={(e) => setCreateName(e.target.value)}
                 className="mt-1"
               />
+            </div>
+
+            <div>
+              <Label htmlFor="create-stage">Stage</Label>
+              <select
+                id="create-stage"
+                value={createStage}
+                onChange={(e) =>
+                  setCreateStage(e.target.value as "per_image" | "composite")
+                }
+                className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="composite">Composite (the overall grade)</option>
+                <option value="per_image">Per image (one photo at a time)</option>
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Which grading stage this prompt drives. Only one version can be
+                active per stage.
+              </p>
             </div>
 
             <div>
