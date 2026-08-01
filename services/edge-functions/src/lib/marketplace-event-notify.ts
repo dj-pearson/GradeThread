@@ -44,6 +44,12 @@ export type MarketplaceEventKind = "offer" | "return" | "dispute";
  * this is the FIRST time we've seen it (insert succeeded) → the caller should
  * deliver. Returns false on a duplicate (23505) or any other error (fail-closed:
  * a transient failure must not let the next poll re-notify).
+ *
+ * US-2156: `itemExternalId` is the marketplace-side item id the event happened
+ * on (00508). It is NOT part of the dedup key — it rides along so the ledger can
+ * answer "did this listing get an offer this week?" for the automation
+ * evaluator. Optional so callers that genuinely have no item (disputes are keyed
+ * to an order) stay honest about it.
  */
 export async function claimMarketplaceEvent(
   userId: string,
@@ -51,6 +57,7 @@ export async function claimMarketplaceEvent(
   externalId: string,
   status: string,
   notificationType: string,
+  itemExternalId?: string | null,
 ): Promise<boolean> {
   if (!userId || !externalId) return false;
   try {
@@ -62,6 +69,7 @@ export async function claimMarketplaceEvent(
         external_id: externalId,
         status,
         notification_type: notificationType,
+        item_external_id: itemExternalId ?? null,
       });
     if (!error) return true;
     if (error.code === "23505") return false; // already notified — expected

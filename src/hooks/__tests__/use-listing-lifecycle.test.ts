@@ -29,6 +29,9 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 const {
+  BULK_PRICE_CHUNK_SIZE,
+  chunkForBulkPrice,
+  mergeBulkPriceResponses,
   undoableFrom,
   useBulkEndListings,
   useBulkListingPrice,
@@ -151,6 +154,57 @@ describe("useEndListing", () => {
     const hook = useEndListing() as unknown as MutationLike<{ listingId: string }, unknown>;
     await expect(hook.mutationFn({ listingId: "l1" })).rejects.toThrow("still live");
   });
+
+  // US-2162 (AC3): Poshmark/Mercari/Grailed have no server-side delist API, so
+  // the server queues the row for the Lister extension instead of refusing. The
+  // response must carry `queued` WITH `ended_upstream: false` — the listing is
+  // still live and buyable until the extension runs, and the UI keys the
+  // still-live warning off exactly this shape.
+  it("surfaces a queued extension delist as NOT ended upstream", async () => {
+    edgeFetch.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        listing_id: "l1",
+        ended_upstream: false,
+        queued: true,
+        note: "Poshmark has no end-listing API, so the GradeThread Lister " +
+          "extension will end it in your browser next time you open FlipDesk. " +
+          "It stays live until then.",
+      }),
+    );
+    const hook = useEndListing() as unknown as MutationLike<
+      { listingId: string },
+      { ended_upstream?: boolean; queued?: boolean; note?: string }
+    >;
+    const res = await hook.mutationFn({ listingId: "l1" });
+
+    expect(res.queued).toBe(true);
+    // The pairing is the contract: queued must never arrive claiming the
+    // marketplace listing is gone.
+    expect(res.ended_upstream).toBe(false);
+    expect(res.note).toContain("stays live");
+  });
+
+  // US-2162 (AC6): the regression guard. A non-eBay listing must never be ended
+  // through the eBay namespace, regardless of whether an eBay connection exists
+  // — the old code gated on `ebayConnection` rather than the row's platform, so
+  // a Shopify row was sent to the eBay endpoint, 409'd, and fell through to a
+  // local-only write that reported success.
+  it("never routes a non-eBay listing id through the eBay namespace", async () => {
+    edgeFetch.mockResolvedValue(
+      jsonResponse({ ok: true, listing_id: "shopify-row", ended_upstream: true }),
+    );
+    const hook = useEndListing() as unknown as MutationLike<
+      { listingId: string },
+      unknown
+    >;
+    await hook.mutationFn({ listingId: "shopify-row" });
+
+    expect(lastPath()).toBe("/api/flipdesk/listings/shopify-row/end");
+    expect(lastPath()).not.toContain("/ebay/");
+    // One call: no eBay attempt, no fallback second request.
+    expect(edgeFetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("useBulkListingPrice", () => {
@@ -205,6 +259,68 @@ describe("useBulkListingPrice", () => {
     expect(res.failed).toBe(1);
     // A failed row must carry a reason the seller can act on.
     expect(res.results.find((r) => !r.ok)?.error).toContain("Shopify");
+  });
+
+  // US-2163 (AC6): a mixed eBay + Shopify selection must reprice BOTH upstream
+  // and report each row's outcome. The old code sent every row to the eBay
+  // endpoint; the Shopify row 409'd and its local price was advanced anyway and
+  // reported as "updated locally only" — a number that marketplace never saw,
+  // which then fed margin and ROI.
+  it("reprices a mixed eBay + Shopify selection upstream, per row", async () => {
+    edgeFetch.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        total: 2,
+        succeeded: 2,
+        failed: 0,
+        results: [
+          {
+            listing_id: "ebay-row",
+            ok: true,
+            price: 45,
+            previous_price: 50,
+            pushed: true,
+          },
+          {
+            listing_id: "shopify-row",
+            ok: true,
+            price: 27,
+            previous_price: 30,
+            pushed: true,
+          },
+        ],
+      }),
+    );
+    const hook = useBulkListingPrice() as unknown as MutationLike<
+      { listingIds: string[]; dropPct?: number },
+      {
+        succeeded: number;
+        results: Array<{ listing_id: string; ok: boolean; pushed?: boolean }>;
+      }
+    >;
+    const res = await hook.mutationFn({
+      listingIds: ["ebay-row", "shopify-row"],
+      dropPct: 10,
+    });
+
+    // One agnostic request carried both platforms — never the eBay namespace.
+    expect(lastPath()).toBe("/api/flipdesk/listings/bulk-price");
+    expect(lastPath()).not.toContain("/ebay/");
+    expect(edgeFetch).toHaveBeenCalledTimes(1);
+    expect(lastJson()).toEqual({
+      listing_ids: ["ebay-row", "shopify-row"],
+      drop_pct: 10,
+    });
+
+    // `pushed` on BOTH is the claim that matters: each row reached its own
+    // marketplace, rather than one succeeding and the other being written local
+    // only. A row reported ok:true with pushed:false would be the old bug.
+    expect(res.succeeded).toBe(2);
+    expect(res.results.every((r) => r.ok && r.pushed)).toBe(true);
+    expect(res.results.map((r) => r.listing_id)).toEqual([
+      "ebay-row",
+      "shopify-row",
+    ]);
   });
 });
 
@@ -363,5 +479,74 @@ describe("useBulkListingPrice per-row shape (US-2172)", () => {
     });
     // Sending both would let the two disagree; the server derives ids from items.
     expect(lastJson()).not.toHaveProperty("listing_ids");
+  });
+});
+
+// ── US-2163 (AC2 + AC5): chunking is what makes progress and cancel possible ──
+
+describe("chunkForBulkPrice", () => {
+  it("splits at 25, matching /listings/bulk-price-quantity", () => {
+    expect(BULK_PRICE_CHUNK_SIZE).toBe(25);
+    const ids = Array.from({ length: 60 }, (_, i) => `l${i}`);
+    const chunks = chunkForBulkPrice(ids);
+    expect(chunks.map((c) => c.length)).toEqual([25, 25, 10]);
+    // Nothing is lost or duplicated in the split.
+    expect(chunks.flat()).toEqual(ids);
+  });
+
+  it("keeps a small selection to a single request", () => {
+    // The whole point is NOT to go back to one call per listing.
+    expect(chunkForBulkPrice(["a", "b", "c"])).toEqual([["a", "b", "c"]]);
+    expect(chunkForBulkPrice([])).toEqual([]);
+  });
+
+  it("costs 4 requests for the 100-listing cap, not 100", () => {
+    // The old browser loop tripped the 30-req/60s limit around row 30.
+    const ids = Array.from({ length: 100 }, (_, i) => `l${i}`);
+    expect(chunkForBulkPrice(ids)).toHaveLength(4);
+  });
+});
+
+describe("mergeBulkPriceResponses", () => {
+  const part = (rows: Array<{ listing_id: string; ok: boolean }>) => ({
+    ok: true as const,
+    total: rows.length,
+    succeeded: rows.filter((r) => r.ok).length,
+    failed: rows.filter((r) => !r.ok).length,
+    results: rows,
+  });
+
+  it("recomputes counts from the merged rows", () => {
+    const merged = mergeBulkPriceResponses([
+      part([{ listing_id: "a", ok: true }, { listing_id: "b", ok: false }]),
+      part([{ listing_id: "c", ok: true }]),
+    ]);
+    expect(merged.total).toBe(3);
+    expect(merged.succeeded).toBe(2);
+    expect(merged.failed).toBe(1);
+    expect(merged.results.map((r) => r.listing_id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("a cancelled batch reports only what was actually sent", () => {
+    // This is the honesty property: counts come from the rows we have, never
+    // from the size of the selection. A seller who stopped after one chunk must
+    // not be told the whole selection was repriced.
+    const merged = mergeBulkPriceResponses([
+      part([{ listing_id: "a", ok: true }]),
+    ]);
+    expect(merged.total).toBe(1);
+    expect(merged.succeeded).toBe(1);
+  });
+
+  it("merges nothing into an empty, valid result", () => {
+    // Cancelled before the first chunk returned.
+    const merged = mergeBulkPriceResponses([]);
+    expect(merged).toEqual({
+      ok: true,
+      total: 0,
+      succeeded: 0,
+      failed: 0,
+      results: [],
+    });
   });
 });

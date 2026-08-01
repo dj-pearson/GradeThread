@@ -69,7 +69,8 @@ export async function handleDemandMatchesCron(c: Context): Promise<Response> {
             type: "system",
             title: "A buyer wants what you graded",
             message: "One of your graded items matches an active buyer request on the demand board.",
-            link: "/dashboard/flipdesk/demand",
+            // US-2161: Buyer Demand is a Sourcing tab now.
+            link: "/dashboard/flipdesk/sourcing?tab=demand",
           });
           sellersNotified++;
         } catch { /* best-effort per seller */ }

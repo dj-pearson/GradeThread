@@ -14,6 +14,15 @@ export const DEFAULT_MARGIN_FLOOR_PCT = 10;
 // stays pure (no network-touching imports).
 export const MIN_COUPON_PCT = 5;
 export const MAX_COUPON_PCT = 70;
+// US-2156: send-offer-to-watchers discount bounds. eBay's Negotiation API takes
+// a PERCENTAGE_DISCOUNT between 5 and 60 for send_offer_to_interested_buyers.
+export const MIN_WATCHER_OFFER_PCT = 5;
+export const MAX_WATCHER_OFFER_PCT = 60;
+export const AUTOMATION_MESSAGE_MAX = 280;
+
+// US-2156: how far a comp_price_moved rule may say the price has drifted. A
+// bound keeps a fat-fingered 1000 from meaning "never fires".
+export const MAX_COMP_DRIFT_PCT = 200;
 
 // ── Wire shapes ─────────────────────────────────────────────────
 
@@ -30,6 +39,48 @@ export type AutomationTrigger =
     watchers: number;
     days: number;
     cooldown_days: number;
+  }
+  // ── US-2156: the non-aging half of the vocabulary ─────────────
+  // Every one of these reads a fact the system ALREADY stores, so a rule can
+  // react to the pipeline rather than only to the calendar. See AutomationFacts
+  // for where each fact comes from.
+  //
+  // A buyer sent a best offer on this listing inside the last `days` days
+  // (marketplace_event_notifications, written by the US-1055 poll).
+  | { type: "offer_received"; days: number; cooldown_days: number }
+  // A buyer opened a return against this listing's item inside `days`.
+  | { type: "return_opened"; days: number; cooldown_days: number }
+  // The listing carries at least `min_violations` open policy violations
+  // (listings.compliance_violation_count, US-1305 / 00326).
+  | {
+    type: "compliance_violation";
+    min_violations: number;
+    cooldown_days: number;
+  }
+  // A grade landed for this item inside `days`. `max_grade` (nullable) narrows
+  // it to grades AT OR BELOW a value, which is the useful shape — "anything
+  // that came back a 6 or worse, drop the price".
+  | {
+    type: "grade_completed";
+    days: number;
+    max_grade: number | null;
+    cooldown_days: number;
+  }
+  // The item is sitting in `status` and landed there inside `days`.
+  | {
+    type: "item_status_changed";
+    status: string;
+    days: number;
+    cooldown_days: number;
+  }
+  // The asking price has drifted away from the stored comp range by `pct`:
+  //   above → price is >pct% ABOVE the comp high (p75) — overpriced
+  //   below → price is >pct% BELOW the comp low  (p25) — leaving money behind
+  | {
+    type: "comp_price_moved";
+    direction: "above" | "below";
+    pct: number;
+    cooldown_days: number;
   };
 
 export type AutomationAction =
@@ -39,7 +90,57 @@ export type AutomationAction =
   // "auto-coupon items >90 days" merchandising lever). The coupon code is
   // generated at apply time; the cover photo is the required promotion image.
   | { type: "create_coded_coupon"; discount_pct: number }
-  | { type: "end_listing" };
+  | { type: "end_listing" }
+  // ── US-2156 ───────────────────────────────────────────────────
+  // End the listing and put the item back in the drafting queue so the seller
+  // (or the autolister) can push a fresh listing. Deliberately NOT an
+  // end-then-immediately-republish: a relist that re-publishes without a human
+  // would re-consume an activeListings cap slot and re-charge marketplace
+  // insertion fees on a listing the seller never re-approved.
+  | { type: "relist" }
+  // Fan the item out to a second marketplace via the US-708 adapter registry.
+  | { type: "crosslist_to"; platform: string }
+  // eBay Negotiation: offer `discount_pct` off to everyone watching. Gated on
+  // the US-1967 negotiation capability — unlicensed deployments skip it.
+  | { type: "send_offer_to_watchers"; discount_pct: number }
+  // Move the item to another pipeline status. Restricted to the statuses a
+  // human may hand-set (see AUTOMATION_SETTABLE_STATUSES).
+  | { type: "advance_status"; status: string }
+  // Tell the seller something happened. The escape hatch for every trigger
+  // whose right answer is a human decision, not a price change.
+  | { type: "notify"; message: string };
+
+/**
+ * Statuses an automation may write (US-2156).
+ *
+ * Mirrors INTAKE_STATUSES (US-1484): the system/terminal states — grading,
+ * graded, comped, drafted, listed, sold, shipped, completed, returned — are
+ * owned by their own flows (a grade submission, a publish, a marketplace sale
+ * webhook). Letting a rule fabricate one would, for example, mark an item
+ * 'grading' without a submission or a charge, or 'sold' with no sale row. So a
+ * rule may only move an item through the early pipeline or park it off it.
+ */
+export const AUTOMATION_SETTABLE_STATUSES: readonly string[] = [
+  "sourced",
+  "acquired",
+  "cataloged",
+  "measured",
+  "photographed",
+  "archived",
+  "keeping",
+  "wearing",
+];
+
+/** Marketplaces a crosslist_to action may target (mirrors CROSS_LISTING_PLATFORMS). */
+export const AUTOMATION_CROSSLIST_PLATFORMS: readonly string[] = [
+  "ebay",
+  "shopify",
+  "poshmark",
+  "mercari",
+  "depop",
+  "etsy",
+  "whatnot",
+];
 
 // Scope mirrors the US-143 FilterQuery shape (src/lib/item-filter.ts) so the
 // web UI can reuse the existing FilterBuilder component verbatim.
@@ -154,6 +255,53 @@ function normalizeTrigger(
       }
       return { type: "watchers_lt_after_days", watchers, days, cooldown_days: cooldown };
     }
+    // ── US-2156 ───────────────────────────────────────────────
+    case "offer_received": {
+      const days = posInt(t.days);
+      if (days == null) return { error: "Trigger needs a positive day count" };
+      return { type: "offer_received", days, cooldown_days: cooldown };
+    }
+    case "return_opened": {
+      const days = posInt(t.days);
+      if (days == null) return { error: "Trigger needs a positive day count" };
+      return { type: "return_opened", days, cooldown_days: cooldown };
+    }
+    case "compliance_violation": {
+      // Default 1 — "any open violation" is the shape a seller means.
+      const min = posInt(t.min_violations, 1)!;
+      return { type: "compliance_violation", min_violations: min, cooldown_days: cooldown };
+    }
+    case "grade_completed": {
+      const days = posInt(t.days);
+      if (days == null) return { error: "Trigger needs a positive day count" };
+      let maxGrade: number | null = null;
+      if (t.max_grade != null) {
+        const g = typeof t.max_grade === "number" && Number.isFinite(t.max_grade)
+          ? t.max_grade
+          : NaN;
+        if (!(g >= 1 && g <= 10)) {
+          return { error: "Grade threshold must be between 1 and 10" };
+        }
+        maxGrade = g;
+      }
+      return { type: "grade_completed", days, max_grade: maxGrade, cooldown_days: cooldown };
+    }
+    case "item_status_changed": {
+      const status = typeof t.status === "string" ? t.status.trim() : "";
+      if (!status) return { error: "Trigger needs an item status" };
+      const days = posInt(t.days);
+      if (days == null) return { error: "Trigger needs a positive day count" };
+      return { type: "item_status_changed", status, days, cooldown_days: cooldown };
+    }
+    case "comp_price_moved": {
+      const direction = t.direction === "below" ? "below" : t.direction === "above" ? "above" : null;
+      if (!direction) return { error: "Trigger needs a direction of above or below" };
+      const pct = typeof t.pct === "number" && Number.isFinite(t.pct) ? t.pct : NaN;
+      if (!(pct > 0 && pct <= MAX_COMP_DRIFT_PCT)) {
+        return { error: `Comp drift must be between 1 and ${MAX_COMP_DRIFT_PCT}%` };
+      }
+      return { type: "comp_price_moved", direction, pct, cooldown_days: cooldown };
+    }
     default:
       return { error: "Unknown trigger type" };
   }
@@ -193,6 +341,45 @@ function normalizeAction(raw: unknown): AutomationAction | { error: string } {
     }
     case "end_listing":
       return { type: "end_listing" };
+    // ── US-2156 ───────────────────────────────────────────────
+    case "relist":
+      return { type: "relist" };
+    case "crosslist_to": {
+      const platform = typeof a.platform === "string" ? a.platform.trim().toLowerCase() : "";
+      if (!AUTOMATION_CROSSLIST_PLATFORMS.includes(platform)) {
+        return { error: "Unknown marketplace for cross-listing" };
+      }
+      return { type: "crosslist_to", platform };
+    }
+    case "send_offer_to_watchers": {
+      const pct = typeof a.discount_pct === "number" && Number.isFinite(a.discount_pct)
+        ? a.discount_pct
+        : 0;
+      if (pct < MIN_WATCHER_OFFER_PCT || pct > MAX_WATCHER_OFFER_PCT) {
+        return {
+          error:
+            `Watcher offer must be between ${MIN_WATCHER_OFFER_PCT} and ${MAX_WATCHER_OFFER_PCT}%`,
+        };
+      }
+      return { type: "send_offer_to_watchers", discount_pct: pct };
+    }
+    case "advance_status": {
+      const status = typeof a.status === "string" ? a.status.trim() : "";
+      if (!AUTOMATION_SETTABLE_STATUSES.includes(status)) {
+        return { error: "An automation can't set that item status" };
+      }
+      return { type: "advance_status", status };
+    }
+    case "notify": {
+      const message = typeof a.message === "string" ? a.message.trim() : "";
+      if (!message) return { error: "Notification needs a message" };
+      if (message.length > AUTOMATION_MESSAGE_MAX) {
+        return {
+          error: `Notification must be ${AUTOMATION_MESSAGE_MAX} characters or fewer`,
+        };
+      }
+      return { type: "notify", message };
+    }
     default:
       return { error: "Unknown action type" };
   }
@@ -304,6 +491,31 @@ export interface AutomationFacts {
   status: string | null;
   grade: number | null;
   daysInStatus: number | null;
+
+  // ── US-2156 facts ───────────────────────────────────────────────
+  // All of these are OPTIONAL on the wire so every existing caller (and every
+  // existing test) keeps compiling; an absent fact simply never fires its
+  // trigger, which is the safe direction — a rule that can't see its evidence
+  // must not act.
+  /**
+   * Days since the most recent best offer landed on this listing, or null when
+   * none is on record. Sourced from marketplace_event_notifications rows the
+   * US-1055 poll writes (source_kind 'offer'), joined to the listing by the
+   * eBay item id.
+   */
+  offerReceivedDaysAgo?: number | null;
+  /** Same shape for returns (source_kind 'return'). */
+  returnOpenedDaysAgo?: number | null;
+  /** listings.compliance_violation_count (00326). */
+  complianceViolations?: number | null;
+  /** Days since this item's grade report was created, or null if ungraded. */
+  gradeCompletedDaysAgo?: number | null;
+  /** Current asking price in cents — the comp_price_moved left-hand side. */
+  priceCents?: number | null;
+  /** listings.price_range_low_cents (comp p25). */
+  compLowCents?: number | null;
+  /** listings.price_range_high_cents (comp p75). */
+  compHighCents?: number | null;
 }
 
 /**
@@ -333,6 +545,37 @@ export function hasViewsWithin(f: AutomationFacts, days: number): boolean {
   return inWindow.some((w) => w.views > 0);
 }
 
+/** True when `daysAgo` is a real reading inside the last `days` days (US-2156). */
+function withinDays(daysAgo: number | null | undefined, days: number): boolean {
+  return daysAgo != null && Number.isFinite(daysAgo) && daysAgo >= 0 &&
+    daysAgo <= days;
+}
+
+/**
+ * Has the asking price drifted off the stored comp range? (US-2156)
+ *
+ * Both sides need a real number, so a listing with no comp data NEVER fires —
+ * the alternative (treating a missing p25 as 0) would mark every uncomped
+ * listing as wildly overpriced and mass-drop prices on the strength of absent
+ * evidence.
+ */
+export function compDriftMatches(
+  f: AutomationFacts,
+  direction: "above" | "below",
+  pct: number,
+): boolean {
+  const price = f.priceCents;
+  if (price == null || !Number.isFinite(price) || price <= 0) return false;
+  if (direction === "above") {
+    const high = f.compHighCents;
+    if (high == null || !Number.isFinite(high) || high <= 0) return false;
+    return price > high * (1 + pct / 100);
+  }
+  const low = f.compLowCents;
+  if (low == null || !Number.isFinite(low) || low <= 0) return false;
+  return price < low * (1 - pct / 100);
+}
+
 export function triggerMatches(
   t: AutomationTrigger,
   f: AutomationFacts,
@@ -344,6 +587,24 @@ export function triggerMatches(
       return f.ageDays > t.days && !hasViewsWithin(f, t.days);
     case "watchers_lt_after_days":
       return f.ageDays >= t.days && f.watchers < t.watchers;
+    // ── US-2156 ───────────────────────────────────────────────
+    case "offer_received":
+      return withinDays(f.offerReceivedDaysAgo, t.days);
+    case "return_opened":
+      return withinDays(f.returnOpenedDaysAgo, t.days);
+    case "compliance_violation":
+      return (f.complianceViolations ?? 0) >= t.min_violations;
+    case "grade_completed": {
+      if (!withinDays(f.gradeCompletedDaysAgo, t.days)) return false;
+      if (t.max_grade == null) return true;
+      // A grade threshold with no grade on record can't be evaluated — don't
+      // guess, don't fire.
+      return f.grade != null && f.grade <= t.max_grade;
+    }
+    case "item_status_changed":
+      return f.status === t.status && withinDays(f.daysInStatus, t.days);
+    case "comp_price_moved":
+      return compDriftMatches(f, t.direction, t.pct);
   }
 }
 
@@ -453,12 +714,33 @@ export type PlannedAction =
   | { kind: "price_drop"; newCents: number; floored: boolean }
   | { kind: "set_promo_rate"; newRatePct: number }
   | { kind: "create_coupon"; discountPct: number }
-  | { kind: "end_listing" };
+  | { kind: "end_listing" }
+  // ── US-2156 ───────────────────────────────────────────────────
+  | { kind: "relist" }
+  | { kind: "crosslist"; platform: string }
+  | { kind: "send_watcher_offer"; discountPct: number }
+  | { kind: "advance_status"; status: string }
+  | { kind: "notify"; message: string };
 
 export interface PlanInput {
   currentCents: number;
   costBasisDollars: number | null;
   currentPromoRatePct: number | null;
+  // ── US-2156 ─────────────────────────────────────────────────
+  /** The item's current pipeline status — advance_status no-ops when equal. */
+  currentStatus?: string | null;
+  /**
+   * Platforms this item already has a listing row on. crosslist_to is a no-op
+   * for one that's already there, so a rule can't mint duplicate sibling rows
+   * on every hourly run.
+   */
+  existingPlatforms?: readonly string[];
+  /**
+   * US-1967 negotiation capability for this deployment/connection. When false a
+   * send_offer_to_watchers rule plans NOTHING — the seller sees no action rather
+   * than a run of guaranteed 403s.
+   */
+  watcherOffersAvailable?: boolean;
 }
 
 /**
@@ -490,5 +772,24 @@ export function planAction(
       return { kind: "create_coupon", discountPct: action.discount_pct };
     case "end_listing":
       return { kind: "end_listing" };
+    // ── US-2156 ───────────────────────────────────────────────
+    case "relist":
+      return { kind: "relist" };
+    case "crosslist_to": {
+      // Already listed there → nothing to do. Without this an hourly rule would
+      // mint a fresh sibling row every pass.
+      if ((i.existingPlatforms ?? []).includes(action.platform)) return null;
+      return { kind: "crosslist", platform: action.platform };
+    }
+    case "send_offer_to_watchers": {
+      if (i.watcherOffersAvailable !== true) return null;
+      return { kind: "send_watcher_offer", discountPct: action.discount_pct };
+    }
+    case "advance_status": {
+      if (i.currentStatus === action.status) return null;
+      return { kind: "advance_status", status: action.status };
+    }
+    case "notify":
+      return { kind: "notify", message: action.message };
   }
 }

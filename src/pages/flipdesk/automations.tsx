@@ -46,11 +46,16 @@ import {
 } from "@/lib/item-filter";
 import {
   type AutomationAction,
+  AUTOMATION_CROSSLIST_PLATFORMS,
+  AUTOMATION_MESSAGE_MAX,
+  AUTOMATION_SETTABLE_STATUSES,
   type AutomationDryRunMatch,
   type AutomationRule,
   type AutomationRuleInput,
   type AutomationScopeRule,
   type AutomationTrigger,
+  MAX_WATCHER_OFFER_PCT,
+  MIN_WATCHER_OFFER_PCT,
   useAutomationRuleActions,
   useAutomationRules,
   useCreateAutomationRule,
@@ -59,6 +64,12 @@ import {
   useRunAutomations,
   useUpdateAutomationRule,
 } from "@/hooks/use-automations";
+import { useEbayNegotiationCapability } from "@/hooks/use-ebay";
+import {
+  ITEM_STATUS_LABELS,
+  ITEM_STATUSES,
+  MARKETPLACE_LABELS,
+} from "@/lib/constants";
 
 // Price-drop and promo scheduler (US-150). Rules run hourly server-side;
 // "Run now" applies them immediately, "Dry run" previews per rule without
@@ -76,6 +87,24 @@ function describeTrigger(t: AutomationTrigger): string {
       return `no views after ${t.days} days`;
     case "watchers_lt_after_days":
       return `fewer than ${t.watchers} watchers after ${t.days} days`;
+    case "offer_received":
+      return `an offer came in within ${t.days} days`;
+    case "return_opened":
+      return `a return was opened within ${t.days} days`;
+    case "compliance_violation":
+      return t.min_violations > 1
+        ? `${t.min_violations} or more policy violations`
+        : "a policy violation is open";
+    case "grade_completed":
+      return t.max_grade == null
+        ? `graded within ${t.days} days`
+        : `graded ${t.max_grade} or lower within ${t.days} days`;
+    case "item_status_changed":
+      return `moved to ${t.status} within ${t.days} days`;
+    case "comp_price_moved":
+      return t.direction === "above"
+        ? `priced more than ${t.pct}% above comps`
+        : `priced more than ${t.pct}% below comps`;
   }
 }
 
@@ -89,6 +118,16 @@ function describeAction(a: AutomationAction): string {
       return `create a ${a.discount_pct}% coded coupon`;
     case "end_listing":
       return "end the listing";
+    case "relist":
+      return "end it and send the item back to Drafts to relist";
+    case "crosslist_to":
+      return `cross-list it to ${a.platform}`;
+    case "send_offer_to_watchers":
+      return `offer watchers ${a.discount_pct}% off`;
+    case "advance_status":
+      return `move the item to ${a.status}`;
+    case "notify":
+      return `notify me: “${a.message}”`;
   }
 }
 
@@ -104,7 +143,64 @@ const ACTION_LABELS: Record<AutomationAction["type"], string> = {
   set_promo_rate_pct: "Promo rate",
   create_coded_coupon: "Coded coupon",
   end_listing: "End listing",
+  relist: "Relist",
+  crosslist_to: "Cross-list",
+  send_offer_to_watchers: "Offer to watchers",
+  advance_status: "Move status",
+  notify: "Notify",
 };
+
+/**
+ * Actions that reach eBay when they succeed. US-2156: the "local only" marker
+ * means "we changed our copy but the marketplace doesn't know" — which is a
+ * warning for a price drop and nonsense for a notify or a status move, neither
+ * of which has anything to push.
+ */
+const EBAY_BACKED_ACTIONS = new Set<AutomationAction["type"]>([
+  "price_drop_pct",
+  "set_promo_rate_pct",
+  "create_coded_coupon",
+  "end_listing",
+  "relist",
+  "send_offer_to_watchers",
+]);
+
+// US-2156. Split so the "When" picker groups the calendar triggers apart from
+// the pipeline ones, and so each row can say which extra inputs it needs.
+const TRIGGER_OPTIONS: Array<{
+  value: AutomationTrigger["type"];
+  label: string;
+  group: "Aging" | "Pipeline";
+  /** Shows the trailing "…days" input. */
+  days: boolean;
+}> = [
+  { value: "days_listed_gt", label: "Listed more than…", group: "Aging", days: true },
+  { value: "no_views_in_days", label: "No views after…", group: "Aging", days: true },
+  { value: "watchers_lt_after_days", label: "Few watchers after…", group: "Aging", days: true },
+  { value: "offer_received", label: "An offer came in…", group: "Pipeline", days: true },
+  { value: "return_opened", label: "A return was opened…", group: "Pipeline", days: true },
+  { value: "grade_completed", label: "A grade came back…", group: "Pipeline", days: true },
+  { value: "item_status_changed", label: "The item moved to…", group: "Pipeline", days: true },
+  { value: "compliance_violation", label: "A policy violation is open", group: "Pipeline", days: false },
+  { value: "comp_price_moved", label: "Price drifted from comps…", group: "Pipeline", days: false },
+];
+
+const ACTION_OPTIONS: Array<{
+  value: AutomationAction["type"];
+  label: string;
+  /** Shows the trailing "…%" input, and its cap. */
+  pctMax: number | null;
+}> = [
+  { value: "price_drop_pct", label: "Drop price by %", pctMax: 90 },
+  { value: "set_promo_rate_pct", label: "Set promo rate %", pctMax: 100 },
+  { value: "create_coded_coupon", label: "Create coded coupon %", pctMax: 70 },
+  { value: "send_offer_to_watchers", label: "Offer watchers % off", pctMax: MAX_WATCHER_OFFER_PCT },
+  { value: "crosslist_to", label: "Cross-list to…", pctMax: null },
+  { value: "advance_status", label: "Move the item to…", pctMax: null },
+  { value: "notify", label: "Notify me", pctMax: null },
+  { value: "relist", label: "End it and relist", pctMax: null },
+  { value: "end_listing", label: "End the listing", pctMax: null },
+];
 
 // ── Create/edit dialog ──────────────────────────────────────────
 
@@ -133,6 +229,11 @@ function RuleDialog({
 }) {
   const create = useCreateAutomationRule();
   const update = useUpdateAutomationRule();
+  // US-1967 + US-2156: don't offer an action the deployment can't perform. Only
+  // probed while the dialog is open — the answer changes on a licensing change,
+  // not minute to minute.
+  const negotiation = useEbayNegotiationCapability(open);
+  const watcherOffersAvailable = negotiation.data?.sendOfferAvailable ?? false;
 
   const [name, setName] = useState(initial?.name ?? "");
   const [isActive, setIsActive] = useState(initial?.is_active ?? true);
@@ -140,7 +241,11 @@ function RuleDialog({
     initial?.trigger_json.type ?? "days_listed_gt",
   );
   const [triggerDays, setTriggerDays] = useState(
-    String(initial?.trigger_json.days ?? 30),
+    // US-2156: two triggers (compliance_violation, comp_price_moved) carry no
+    // day count at all, so this reads it only when the shape has one.
+    String(
+      initial && "days" in initial.trigger_json ? initial.trigger_json.days : 30,
+    ),
   );
   const [triggerWatchers, setTriggerWatchers] = useState(
     String(
@@ -172,6 +277,50 @@ function RuleDialog({
         : 10,
     ),
   );
+  // ── US-2156 per-shape inputs ──────────────────────────────────
+  const [minViolations, setMinViolations] = useState(
+    String(
+      initial?.trigger_json.type === "compliance_violation"
+        ? initial.trigger_json.min_violations
+        : 1,
+    ),
+  );
+  const [maxGrade, setMaxGrade] = useState(
+    initial?.trigger_json.type === "grade_completed" &&
+      initial.trigger_json.max_grade != null
+      ? String(initial.trigger_json.max_grade)
+      : "",
+  );
+  const [triggerStatus, setTriggerStatus] = useState(
+    initial?.trigger_json.type === "item_status_changed"
+      ? initial.trigger_json.status
+      : "returned",
+  );
+  const [compDirection, setCompDirection] = useState<"above" | "below">(
+    initial?.trigger_json.type === "comp_price_moved"
+      ? initial.trigger_json.direction
+      : "above",
+  );
+  const [compPct, setCompPct] = useState(
+    String(
+      initial?.trigger_json.type === "comp_price_moved"
+        ? initial.trigger_json.pct
+        : 20,
+    ),
+  );
+  const [actionPlatform, setActionPlatform] = useState(
+    initial?.action_json.type === "crosslist_to"
+      ? initial.action_json.platform
+      : AUTOMATION_CROSSLIST_PLATFORMS[0],
+  );
+  const [actionStatus, setActionStatus] = useState(
+    initial?.action_json.type === "advance_status"
+      ? initial.action_json.status
+      : "archived",
+  );
+  const [actionMessage, setActionMessage] = useState(
+    initial?.action_json.type === "notify" ? initial.action_json.message : "",
+  );
   const [scopeMode, setScopeMode] = useState<"all" | "filter">(
     initial?.scope_json.type === "filter" ? "filter" : "all",
   );
@@ -183,31 +332,77 @@ function RuleDialog({
 
   const saving = create.isPending || update.isPending;
 
+  // US-2156: one arm per trigger/action shape. The server re-validates all of
+  // it (normalizeAutomationInput) — this only has to produce the right shape.
+  function buildTrigger(days: number, cooldown: number): AutomationTrigger {
+    switch (triggerType) {
+      case "watchers_lt_after_days":
+        return {
+          type: triggerType,
+          watchers: Math.max(1, Math.trunc(Number(triggerWatchers) || 1)),
+          days,
+          cooldown_days: cooldown,
+        };
+      case "compliance_violation":
+        return {
+          type: triggerType,
+          min_violations: Math.max(1, Math.trunc(Number(minViolations) || 1)),
+          cooldown_days: cooldown,
+        };
+      case "grade_completed": {
+        const g = Number(maxGrade);
+        return {
+          type: triggerType,
+          days,
+          max_grade: maxGrade.trim() && Number.isFinite(g) ? g : null,
+          cooldown_days: cooldown,
+        };
+      }
+      case "item_status_changed":
+        return { type: triggerType, status: triggerStatus, days, cooldown_days: cooldown };
+      case "comp_price_moved":
+        return {
+          type: triggerType,
+          direction: compDirection,
+          pct: Math.max(1, Math.trunc(Number(compPct) || 1)),
+          cooldown_days: cooldown,
+        };
+      default:
+        return { type: triggerType, days, cooldown_days: cooldown };
+    }
+  }
+
+  function buildAction(pct: number): AutomationAction {
+    switch (actionType) {
+      case "price_drop_pct":
+        return {
+          type: actionType,
+          pct,
+          margin_floor_pct: Math.max(0, Math.trunc(Number(marginFloorPct) || 0)),
+        };
+      case "set_promo_rate_pct":
+        return { type: actionType, pct };
+      case "create_coded_coupon":
+        return { type: actionType, discount_pct: pct };
+      case "send_offer_to_watchers":
+        return { type: actionType, discount_pct: pct };
+      case "crosslist_to":
+        return { type: actionType, platform: actionPlatform };
+      case "advance_status":
+        return { type: actionType, status: actionStatus };
+      case "notify":
+        return { type: actionType, message: actionMessage.trim() };
+      default:
+        return { type: actionType };
+    }
+  }
+
   function buildInput(): AutomationRuleInput {
     const days = Math.max(1, Math.trunc(Number(triggerDays) || 1));
     const cooldown = Math.max(1, Math.trunc(Number(cooldownDays) || 7));
-    const trigger: AutomationTrigger =
-      triggerType === "watchers_lt_after_days"
-        ? {
-            type: triggerType,
-            watchers: Math.max(1, Math.trunc(Number(triggerWatchers) || 1)),
-            days,
-            cooldown_days: cooldown,
-          }
-        : { type: triggerType, days, cooldown_days: cooldown };
+    const trigger = buildTrigger(days, cooldown);
     const pct = Number(actionPct) || 0;
-    const action: AutomationAction =
-      actionType === "price_drop_pct"
-        ? {
-            type: actionType,
-            pct,
-            margin_floor_pct: Math.max(0, Math.trunc(Number(marginFloorPct) || 0)),
-          }
-        : actionType === "set_promo_rate_pct"
-          ? { type: actionType, pct }
-          : actionType === "create_coded_coupon"
-            ? { type: actionType, discount_pct: pct }
-            : { type: actionType };
+    const action = buildAction(pct);
     return {
       name: name.trim(),
       is_active: isActive,
@@ -231,7 +426,10 @@ function RuleDialog({
     else create.mutate(input, { onSuccess });
   }
 
-  const needsPct = actionType !== "end_listing";
+  const triggerNeedsDays =
+    TRIGGER_OPTIONS.find((o) => o.value === triggerType)?.days ?? true;
+  const actionPctMax =
+    ACTION_OPTIONS.find((o) => o.value === actionType)?.pctMax ?? null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -267,11 +465,11 @@ function RuleDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="days_listed_gt">Listed more than…</SelectItem>
-                  <SelectItem value="no_views_in_days">No views after…</SelectItem>
-                  <SelectItem value="watchers_lt_after_days">
-                    Few watchers after…
-                  </SelectItem>
+                  {TRIGGER_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               {triggerType === "watchers_lt_after_days" && (
@@ -287,18 +485,104 @@ function RuleDialog({
                   watchers,
                 </span>
               )}
-              <span className="flex items-center gap-1.5 text-sm">
-                <Input
-                  type="number"
-                  min={1}
-                  value={triggerDays}
-                  onChange={(e) => setTriggerDays(e.target.value)}
-                  className="w-20"
-                  aria-label="Day threshold"
-                />
-                days
-              </span>
+              {triggerType === "item_status_changed" && (
+                <Select value={triggerStatus} onValueChange={setTriggerStatus}>
+                  <SelectTrigger className="w-40" aria-label="Item status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ITEM_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {ITEM_STATUS_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {triggerType === "grade_completed" && (
+                <span className="flex items-center gap-1.5 text-sm">
+                  grade at most
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    step={0.5}
+                    value={maxGrade}
+                    onChange={(e) => setMaxGrade(e.target.value)}
+                    className="w-20"
+                    placeholder="any"
+                    aria-label="Maximum grade"
+                  />
+                </span>
+              )}
+              {triggerType === "compliance_violation" && (
+                <span className="flex items-center gap-1.5 text-sm">
+                  at least
+                  <Input
+                    type="number"
+                    min={1}
+                    value={minViolations}
+                    onChange={(e) => setMinViolations(e.target.value)}
+                    className="w-20"
+                    aria-label="Minimum violations"
+                  />
+                  open
+                </span>
+              )}
+              {triggerType === "comp_price_moved" && (
+                <span className="flex items-center gap-1.5 text-sm">
+                  <Select
+                    value={compDirection}
+                    onValueChange={(v) => setCompDirection(v as "above" | "below")}
+                  >
+                    <SelectTrigger className="w-28" aria-label="Drift direction">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="above">above</SelectItem>
+                      <SelectItem value="below">below</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  comps by
+                  <Input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={compPct}
+                    onChange={(e) => setCompPct(e.target.value)}
+                    className="w-20"
+                    aria-label="Comp drift percent"
+                  />
+                  %
+                </span>
+              )}
+              {triggerNeedsDays && (
+                <span className="flex items-center gap-1.5 text-sm">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={triggerDays}
+                    onChange={(e) => setTriggerDays(e.target.value)}
+                    className="w-20"
+                    aria-label="Day threshold"
+                  />
+                  days
+                </span>
+              )}
             </div>
+            {triggerType === "offer_received" && (
+              <p className="text-xs text-muted-foreground">
+                Reads the offers eBay has already told us about. Offers that
+                landed before this feature shipped aren't on record, so a brand
+                new rule starts matching from today.
+              </p>
+            )}
+            {triggerType === "comp_price_moved" && (
+              <p className="text-xs text-muted-foreground">
+                Compares your asking price to the comp range stored on the
+                listing. A listing with no comps yet never matches.
+              </p>
+            )}
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
               Re-apply at most every
               <Input
@@ -324,24 +608,33 @@ function RuleDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="price_drop_pct">Drop price by %</SelectItem>
-                  <SelectItem value="set_promo_rate_pct">Set promo rate %</SelectItem>
-                  <SelectItem value="create_coded_coupon">Create coded coupon %</SelectItem>
-                  <SelectItem value="end_listing">End the listing</SelectItem>
+                  {ACTION_OPTIONS.map((o) => (
+                    <SelectItem
+                      key={o.value}
+                      value={o.value}
+                      // US-1967: the negotiation scope is unlicensed on the
+                      // production keyset, so the option is disabled rather
+                      // than offered and then silently skipped at run time.
+                      disabled={
+                        o.value === "send_offer_to_watchers" &&
+                        !watcherOffersAvailable
+                      }
+                    >
+                      {o.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {needsPct && (
+              {actionPctMax != null && (
                 <span className="flex items-center gap-1.5 text-sm">
                   <Input
                     type="number"
-                    min={1}
-                    max={
-                      actionType === "price_drop_pct"
-                        ? 90
-                        : actionType === "create_coded_coupon"
-                          ? 70
-                          : 100
+                    min={
+                      actionType === "send_offer_to_watchers"
+                        ? MIN_WATCHER_OFFER_PCT
+                        : 1
                     }
+                    max={actionPctMax}
                     value={actionPct}
                     onChange={(e) => setActionPct(e.target.value)}
                     className="w-20"
@@ -350,7 +643,44 @@ function RuleDialog({
                   %
                 </span>
               )}
+              {actionType === "crosslist_to" && (
+                <Select value={actionPlatform} onValueChange={setActionPlatform}>
+                  <SelectTrigger className="w-40" aria-label="Marketplace">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AUTOMATION_CROSSLIST_PLATFORMS.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {MARKETPLACE_LABELS[p] ?? p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {actionType === "advance_status" && (
+                <Select value={actionStatus} onValueChange={setActionStatus}>
+                  <SelectTrigger className="w-40" aria-label="New item status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AUTOMATION_SETTABLE_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {ITEM_STATUS_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
+            {actionType === "notify" && (
+              <Input
+                value={actionMessage}
+                onChange={(e) => setActionMessage(e.target.value)}
+                placeholder="Check this one — it may need a new photo"
+                maxLength={AUTOMATION_MESSAGE_MAX}
+                aria-label="Notification message"
+              />
+            )}
             {actionType === "price_drop_pct" && (
               <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 Never below cost +
@@ -484,6 +814,10 @@ function DryRunResults({
             {m.action_type === "end_listing" && (
               <span className="text-muted-foreground">would be ended</span>
             )}
+            {/* US-2156: the price/promo columns say nothing about a crosslist,
+                a notify or a status move — without this the row reads as a
+                match with no effect. */}
+            {m.effect && <span className="text-muted-foreground">{m.effect}</span>}
           </li>
         ))}
       </ul>
@@ -539,7 +873,34 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
             {a.action_type === "end_listing" && (
               <span className="text-muted-foreground">ended</span>
             )}
-            {!a.ebay_synced && (
+            {/* US-2156: one line per new action, read off what was recorded. */}
+            {a.action_type === "relist" && (
+              <span className="text-muted-foreground">ended, back in Drafts</span>
+            )}
+            {a.action_type === "crosslist_to" && (
+              <span className="text-muted-foreground">
+                cross-listed to {String(a.after_json?.platform ?? "another marketplace")}
+              </span>
+            )}
+            {a.action_type === "send_offer_to_watchers" && (
+              <span className="text-muted-foreground">
+                offered watchers {String(a.after_json?.discount_pct ?? "")}% off
+              </span>
+            )}
+            {a.action_type === "advance_status" && (
+              <span className="text-muted-foreground">
+                {String(a.before_json?.status ?? "?")} →{" "}
+                {String(a.after_json?.status ?? "?")}
+              </span>
+            )}
+            {a.action_type === "notify" && (
+              <span className="truncate text-muted-foreground">
+                {String(a.after_json?.message ?? "notified")}
+              </span>
+            )}
+            {/* A local-only marker is meaningless for actions that never touch
+                eBay — it would read as a failure on a notify that worked. */}
+            {!a.ebay_synced && EBAY_BACKED_ACTIONS.has(a.action_type) && (
               <span className="text-amber-600 dark:text-amber-400">local only</span>
             )}
           </li>

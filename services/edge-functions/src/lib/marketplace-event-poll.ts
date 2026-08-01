@@ -47,6 +47,9 @@ export interface MarketplacePollDeps {
     externalId: string,
     status: string,
     notificationType: string,
+    // US-2156: the marketplace item the event happened on (00508). Optional so
+    // existing fakes keep type-checking.
+    itemExternalId?: string | null,
   ) => Promise<boolean>;
   notifyOffer: (ev: OfferReceivedEvent) => Promise<void>;
   notifyReturn: (ev: ReturnOpenedEvent) => Promise<void>;
@@ -88,7 +91,14 @@ export async function pollMarketplaceEventsForUser(
     const offers = await deps.fetchOffers(ownerId);
     for (const offer of offers) {
       if (!offer.bestOfferId) continue;
-      const fresh = await deps.claim(ownerId, "offer", offer.bestOfferId, "received", "offer_received");
+      const fresh = await deps.claim(
+        ownerId,
+        "offer",
+        offer.bestOfferId,
+        "received",
+        "offer_received",
+        offer.itemId || null,
+      );
       if (!fresh) continue;
       await deps.notifyOffer({
         userId: ownerId,
@@ -110,7 +120,14 @@ export async function pollMarketplaceEventsForUser(
     const returns = await deps.fetchReturns(ownerId);
     for (const ret of returns) {
       if (!ret.returnId) continue;
-      const fresh = await deps.claim(ownerId, "return", ret.returnId, "opened", "return_opened");
+      const fresh = await deps.claim(
+        ownerId,
+        "return",
+        ret.returnId,
+        "opened",
+        "return_opened",
+        ret.itemId || null,
+      );
       if (!fresh) continue;
       await deps.notifyReturn({
         userId: ownerId,

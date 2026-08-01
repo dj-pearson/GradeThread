@@ -276,8 +276,10 @@ async function main(): Promise<void> {
     subject: "Tenant-A fixture ticket",
   });
 
-  // A sale, scoped to A via its inventory item (sales has no user_id column;
-  // ownership is verified through inventory_item_id → user_id).
+  // A sale, scoped to A via its inventory item. sales DOES carry user_id since
+  // 00146, filled by the set_sales_tenant BEFORE trigger from inventory_item_id
+  // — so this insert stays correct without naming it, and every handler verifies
+  // ownership through inventory_items.user_id.
   out.TEST_USER_A_SALE_ID = await insert("sales", {
     inventory_item_id: itemId,
     sale_price: 42.0,

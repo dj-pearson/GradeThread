@@ -1,9 +1,10 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing pending.** Prod is at **00507** — confirmed by the operator on
-2026-07-31, right after PR #232 merged. `EXPECTED_SCHEMA_VERSION` is **00507**
-and the highest migration in the tree is `00507_autolister_handoff_sessions.sql`,
-so schema and code agree.
+**Two pending: 00508 and 00509 — apply 00508 FIRST.** Prod is at **00507** —
+confirmed by the operator on 2026-07-31, right after PR #232 merged.
+`EXPECTED_SCHEMA_VERSION` is now **00509** and the highest migration in the tree
+is `00509_ebay_shipping_labels.sql`, so the edge boot guard expects 00509 and
+prod has neither.
 
 Why the entries stayed marked HELD after they were applied: this file is edited
 by hand and nothing flips the marker when the SQL runs. The session-start hook
@@ -11,6 +12,67 @@ reads these ⏳ markers, so a stale one tells every future session the branch is
 frozen when it is not — which is exactly what happened here, and what happened
 once before (see the US-2017 note in prd.json). **When you apply a migration,
 flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00509_ebay_shipping_labels.sql (US-2160 buy eBay labels, 2026-07-31)
+
+- **Apply order.** After 00508. Idempotent: `ADD COLUMN IF NOT EXISTS`,
+  `COMMENT ON COLUMN`, `CREATE INDEX IF NOT EXISTS`. Safe to re-run.
+- **What it does.** Three columns. `marketplace_connections.logistics_access_denied`
+  (boolean, default false) mirrors the existing `negotiation_access_denied` — a
+  sticky flag set when a connection's token 403s a `/sell/logistics` call, so
+  the label surfaces gate cheaply instead of re-probing eBay. `sales.ebay_shipment_id`
+  and `sales.label_purchased_at` record a label bought in FlipDesk; the shipment
+  id is what a reprint and a void need. The label PRICE goes into the existing
+  `sales.shipping_cost`, so Finances and the per-item P&L need no change.
+- **Risk: LOW.** Three new nullable/defaulted columns and one partial index. No
+  existing column, view, enum or policy changes. `logistics_access_denied` has a
+  `NOT NULL DEFAULT false`, so the rewrite is metadata-only on Postgres 11+.
+- **CLIENT reads/writes.** The SPA does NOT read these columns directly — the
+  ship dialog calls the edge (`/api/flipdesk/logistics/*`). A frontend deploy
+  ahead of the SQL degrades to the capability probe failing closed, which HIDES
+  the "Buy a label" block entirely (`useEbayLogisticsCapability` returns
+  unavailable on a non-OK response). The manual tracking-number path is
+  untouched. So the frontend-first ordering is safe here, not just tolerable.
+- **After applying:** `NOTIFY pgrst, 'reload schema';` — PostgREST must learn
+  the new columns or the label routes 400 at the API layer.
+- **Deploy order.** SQL (00508 then 00509) → edge redeploy (its boot guard now
+  expects 00509) → frontend.
+- **NOT a blocker for the feature being off.** `sell.logistics` is a limited-
+  release eBay scope that is deliberately absent from the default consent list
+  (same posture as `sell.negotiation`, US-1967). Until the prod keyset is
+  granted it and `EBAY_SCOPES` names it, `/capabilities` reports
+  `feature_unavailable` and no label UI renders. The migration is still needed
+  first so the edge boots.
+
+---
+
+## ⏳ HELD: 00508_marketplace_event_item_link.sql (US-2156 automation triggers, 2026-07-31)
+
+- **Apply order.** After 00507. Idempotent: `ADD COLUMN IF NOT EXISTS`,
+  `COMMENT ON COLUMN`, `CREATE INDEX IF NOT EXISTS`. Safe to re-run.
+- **What it does.** Adds one nullable column,
+  `marketplace_event_notifications.item_external_id` (the eBay legacy item id
+  the offer/return happened on), plus a partial index for the automation
+  lookup. The ledger already records WHICH event; this records WHAT it happened
+  to, so the new `offer_received` and `return_opened` automation triggers can
+  join it to `listings.platform_listing_id`.
+- **Risk: LOW.** New nullable column on a service-role-only table. It is NOT
+  part of the table's unique dedup key, so the US-1055 poll's idempotency is
+  unchanged. Existing rows stay null and simply produce no automation match.
+- **CLIENT reads/writes.** None. The SPA never touches this table — it is
+  service-role-only (deny-all to anon/authenticated, classified in
+  `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`). So a frontend deploy ahead of
+  the SQL changes nothing on the web app.
+- **What breaks if the edge deploys first.** The poll's insert would name a
+  column PostgREST doesn't know, so `claimMarketplaceEvent` fails-closed and
+  offer/return/dispute notifications go quiet until the SQL lands. Apply the
+  SQL first.
+- **After applying:** `NOTIFY pgrst, 'reload schema';` — PostgREST must learn
+  the new column or every insert naming it 400s at the API layer.
+- **Deploy order.** SQL → edge redeploy (its boot guard now expects 00508) →
+  frontend.
 
 ---
 

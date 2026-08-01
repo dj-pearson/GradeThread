@@ -2,7 +2,11 @@
 // automation-rules.ts is pure (no DB/network), imported directly.
 import { assert, assertEquals } from "@std/assert";
 import {
+  type AutomationAction,
+  AUTOMATION_MESSAGE_MAX,
+  AUTOMATION_SETTABLE_STATUSES,
   type AutomationFacts,
+  type AutomationTrigger,
   computeFloorCents,
   DEFAULT_COOLDOWN_DAYS,
   DEFAULT_MARGIN_FLOOR_PCT,
@@ -341,4 +345,375 @@ Deno.test("US-1448: planAction passes the coupon through (apply-time gating)", (
     { currentCents: 5000, costBasisDollars: 10, currentPromoRatePct: null },
   );
   assertEquals(planned, { kind: "create_coupon", discountPct: 20 });
+});
+
+// ── US-2156: the non-aging trigger/action vocabulary ─────────────────────────
+//
+// The point of this story is that a rule can react to the PIPELINE (offers,
+// returns, compliance, grades, status, comps) and act with more than a price
+// change. Two properties matter most and are asserted throughout:
+//   1. A trigger whose evidence is ABSENT never fires. Every new fact is
+//      optional on the wire, and "I can't see it" must mean "don't act", not
+//      "act on a zero".
+//   2. The existing three triggers and four actions are untouched.
+
+const BASE_PLAN = {
+  currentCents: 5000,
+  costBasisDollars: null,
+  currentPromoRatePct: null,
+} as const;
+
+function normTrigger(trigger_json: unknown) {
+  return normalizeAutomationInput({
+    name: "Rule",
+    trigger_json,
+    action_json: { type: "end_listing" },
+  });
+}
+
+function normAction(action_json: unknown) {
+  return normalizeAutomationInput({
+    name: "Rule",
+    trigger_json: { type: "days_listed_gt", days: 30 },
+    action_json,
+  });
+}
+
+// ── Validation ──────────────────────────────────────────────────────
+
+Deno.test("US-2156: every new trigger normalizes and keeps the cooldown default", () => {
+  const cases: Array<[unknown, AutomationTrigger]> = [
+    [{ type: "offer_received", days: 7 }, {
+      type: "offer_received",
+      days: 7,
+      cooldown_days: DEFAULT_COOLDOWN_DAYS,
+    }],
+    [{ type: "return_opened", days: 14 }, {
+      type: "return_opened",
+      days: 14,
+      cooldown_days: DEFAULT_COOLDOWN_DAYS,
+    }],
+    // min_violations defaults to 1 — "any open violation" is what a seller means.
+    [{ type: "compliance_violation" }, {
+      type: "compliance_violation",
+      min_violations: 1,
+      cooldown_days: DEFAULT_COOLDOWN_DAYS,
+    }],
+    [{ type: "grade_completed", days: 3 }, {
+      type: "grade_completed",
+      days: 3,
+      max_grade: null,
+      cooldown_days: DEFAULT_COOLDOWN_DAYS,
+    }],
+    [{ type: "grade_completed", days: 3, max_grade: 6 }, {
+      type: "grade_completed",
+      days: 3,
+      max_grade: 6,
+      cooldown_days: DEFAULT_COOLDOWN_DAYS,
+    }],
+    [{ type: "item_status_changed", status: "returned", days: 2 }, {
+      type: "item_status_changed",
+      status: "returned",
+      days: 2,
+      cooldown_days: DEFAULT_COOLDOWN_DAYS,
+    }],
+    [{ type: "comp_price_moved", direction: "above", pct: 25 }, {
+      type: "comp_price_moved",
+      direction: "above",
+      pct: 25,
+      cooldown_days: DEFAULT_COOLDOWN_DAYS,
+    }],
+  ];
+  for (const [raw, expected] of cases) {
+    const r = normTrigger(raw);
+    if (!r.ok) throw new Error(`${JSON.stringify(raw)} → ${r.error}`);
+    assertEquals(r.value.trigger_json, expected);
+  }
+});
+
+Deno.test("US-2156: new triggers reject nonsense input", () => {
+  const bad: unknown[] = [
+    { type: "offer_received" }, // no day count
+    { type: "offer_received", days: 0 },
+    { type: "return_opened", days: -1 },
+    { type: "grade_completed", days: 7, max_grade: 11 }, // off the 1-10 scale
+    { type: "grade_completed", days: 7, max_grade: 0 },
+    { type: "item_status_changed", days: 3 }, // no status
+    { type: "item_status_changed", status: "   ", days: 3 },
+    { type: "comp_price_moved", pct: 20 }, // no direction
+    { type: "comp_price_moved", direction: "sideways", pct: 20 },
+    { type: "comp_price_moved", direction: "above", pct: 0 },
+    { type: "comp_price_moved", direction: "above", pct: 500 },
+  ];
+  for (const raw of bad) {
+    assertEquals(
+      normTrigger(raw).ok,
+      false,
+      `${JSON.stringify(raw)} must be rejected`,
+    );
+  }
+});
+
+Deno.test("US-2156: every new action normalizes", () => {
+  const cases: Array<[unknown, AutomationAction]> = [
+    [{ type: "relist" }, { type: "relist" }],
+    // Platform is lower-cased so a UI that sends "Etsy" doesn't mint an
+    // unroutable action.
+    [{ type: "crosslist_to", platform: "Etsy" }, {
+      type: "crosslist_to",
+      platform: "etsy",
+    }],
+    [{ type: "send_offer_to_watchers", discount_pct: 10 }, {
+      type: "send_offer_to_watchers",
+      discount_pct: 10,
+    }],
+    [{ type: "advance_status", status: "archived" }, {
+      type: "advance_status",
+      status: "archived",
+    }],
+    [{ type: "notify", message: "  Check this one  " }, {
+      type: "notify",
+      message: "Check this one",
+    }],
+  ];
+  for (const [raw, expected] of cases) {
+    const r = normAction(raw);
+    if (!r.ok) throw new Error(`${JSON.stringify(raw)} → ${r.error}`);
+    assertEquals(r.value.action_json, expected);
+  }
+});
+
+Deno.test("US-2156: advance_status refuses the statuses an automation must not write", () => {
+  // US-1484's rule, enforced here: 'grading' without a submission or a charge,
+  // or 'sold' with no sale row, would be a fabricated state.
+  for (const status of ["grading", "graded", "listed", "sold", "shipped", "completed", "bogus"]) {
+    assertEquals(
+      normAction({ type: "advance_status", status }).ok,
+      false,
+      `advance_status → ${status} must be rejected`,
+    );
+  }
+  for (const status of AUTOMATION_SETTABLE_STATUSES) {
+    assert(normAction({ type: "advance_status", status }).ok, status);
+  }
+});
+
+Deno.test("US-2156: crosslist/watcher-offer/notify bounds", () => {
+  assertEquals(normAction({ type: "crosslist_to", platform: "craigslist" }).ok, false);
+  assertEquals(normAction({ type: "crosslist_to" }).ok, false);
+  for (const pct of [4, 61, 0, Number.NaN]) {
+    assertEquals(
+      normAction({ type: "send_offer_to_watchers", discount_pct: pct }).ok,
+      false,
+      `discount_pct=${pct}`,
+    );
+  }
+  assert(normAction({ type: "send_offer_to_watchers", discount_pct: 5 }).ok);
+  assert(normAction({ type: "send_offer_to_watchers", discount_pct: 60 }).ok);
+  assertEquals(normAction({ type: "notify", message: "" }).ok, false);
+  assertEquals(normAction({ type: "notify", message: "   " }).ok, false);
+  assertEquals(
+    normAction({ type: "notify", message: "x".repeat(AUTOMATION_MESSAGE_MAX + 1) }).ok,
+    false,
+  );
+  assert(normAction({ type: "notify", message: "x".repeat(AUTOMATION_MESSAGE_MAX) }).ok);
+});
+
+Deno.test("US-2156: the pre-existing vocabulary still validates unchanged", () => {
+  // AC6 — stored rules written before this story keep working verbatim.
+  const legacy: AutomationTrigger[] = [
+    { type: "days_listed_gt", days: 30, cooldown_days: 7 },
+    { type: "no_views_in_days", days: 14, cooldown_days: 7 },
+    { type: "watchers_lt_after_days", watchers: 2, days: 10, cooldown_days: 7 },
+  ];
+  const legacyActions: AutomationAction[] = [
+    { type: "price_drop_pct", pct: 10, margin_floor_pct: 10 },
+    { type: "set_promo_rate_pct", pct: 5 },
+    { type: "create_coded_coupon", discount_pct: 15 },
+    { type: "end_listing" },
+  ];
+  for (const t of legacy) {
+    for (const a of legacyActions) {
+      const r = normalizeAutomationInput({ name: "Legacy", trigger_json: t, action_json: a });
+      if (!r.ok) throw new Error(`${t.type}/${a.type} → ${r.error}`);
+      assertEquals(r.value.trigger_json, t);
+      assertEquals(r.value.action_json, a);
+    }
+  }
+});
+
+// ── Trigger evaluation ──────────────────────────────────────────────
+
+Deno.test("US-2156: offer_received / return_opened fire only inside the window", () => {
+  const t: AutomationTrigger = { type: "offer_received", days: 7, cooldown_days: 7 };
+  assert(triggerMatches(t, facts({ offerReceivedDaysAgo: 0 })));
+  assert(triggerMatches(t, facts({ offerReceivedDaysAgo: 7 })));
+  assert(!triggerMatches(t, facts({ offerReceivedDaysAgo: 8 })));
+  // Absent evidence must NOT fire — this is the whole safety property.
+  assert(!triggerMatches(t, facts({ offerReceivedDaysAgo: null })));
+  assert(!triggerMatches(t, facts()));
+
+  const r: AutomationTrigger = { type: "return_opened", days: 30, cooldown_days: 7 };
+  assert(triggerMatches(r, facts({ returnOpenedDaysAgo: 3 })));
+  assert(!triggerMatches(r, facts({ returnOpenedDaysAgo: 31 })));
+  assert(!triggerMatches(r, facts()));
+  // An offer must not satisfy a return rule, or vice versa.
+  assert(!triggerMatches(r, facts({ offerReceivedDaysAgo: 1 })));
+});
+
+Deno.test("US-2156: compliance_violation counts open violations", () => {
+  const t: AutomationTrigger = {
+    type: "compliance_violation",
+    min_violations: 2,
+    cooldown_days: 7,
+  };
+  assert(!triggerMatches(t, facts({ complianceViolations: 1 })));
+  assert(triggerMatches(t, facts({ complianceViolations: 2 })));
+  assert(triggerMatches(t, facts({ complianceViolations: 9 })));
+  assert(!triggerMatches(t, facts({ complianceViolations: 0 })));
+  assert(!triggerMatches(t, facts()));
+});
+
+Deno.test("US-2156: grade_completed windows the grade, and max_grade needs a grade", () => {
+  const any: AutomationTrigger = {
+    type: "grade_completed",
+    days: 5,
+    max_grade: null,
+    cooldown_days: 7,
+  };
+  assert(triggerMatches(any, facts({ gradeCompletedDaysAgo: 2 })));
+  assert(!triggerMatches(any, facts({ gradeCompletedDaysAgo: 6 })));
+  assert(!triggerMatches(any, facts()));
+
+  const low: AutomationTrigger = {
+    type: "grade_completed",
+    days: 5,
+    max_grade: 6,
+    cooldown_days: 7,
+  };
+  assert(triggerMatches(low, facts({ gradeCompletedDaysAgo: 1, grade: 5.5 })));
+  assert(triggerMatches(low, facts({ gradeCompletedDaysAgo: 1, grade: 6 })));
+  assert(!triggerMatches(low, facts({ gradeCompletedDaysAgo: 1, grade: 8 })));
+  // Graded recently but the grade itself is unknown — a threshold rule cannot
+  // be evaluated, so it must not fire.
+  assert(!triggerMatches(low, facts({ gradeCompletedDaysAgo: 1, grade: null })));
+});
+
+Deno.test("US-2156: item_status_changed needs BOTH the status and the recency", () => {
+  const t: AutomationTrigger = {
+    type: "item_status_changed",
+    status: "returned",
+    days: 3,
+    cooldown_days: 7,
+  };
+  assert(triggerMatches(t, facts({ status: "returned", daysInStatus: 1 })));
+  // Right status, but it landed there weeks ago — this is a "changed" trigger,
+  // not a "is currently" trigger.
+  assert(!triggerMatches(t, facts({ status: "returned", daysInStatus: 30 })));
+  assert(!triggerMatches(t, facts({ status: "listed", daysInStatus: 1 })));
+  assert(!triggerMatches(t, facts({ status: "returned", daysInStatus: null })));
+});
+
+Deno.test("US-2156: comp_price_moved compares price against the stored comp range", () => {
+  const above: AutomationTrigger = {
+    type: "comp_price_moved",
+    direction: "above",
+    pct: 20,
+    cooldown_days: 7,
+  };
+  // p75 is $50; 20% above is $60. $61 fires, $60 does not (strictly greater).
+  assert(triggerMatches(above, facts({ priceCents: 6100, compHighCents: 5000 })));
+  assert(!triggerMatches(above, facts({ priceCents: 6000, compHighCents: 5000 })));
+  assert(!triggerMatches(above, facts({ priceCents: 4000, compHighCents: 5000 })));
+
+  const below: AutomationTrigger = {
+    type: "comp_price_moved",
+    direction: "below",
+    pct: 20,
+    cooldown_days: 7,
+  };
+  // p25 is $50; 20% below is $40. $39 fires, $40 does not.
+  assert(triggerMatches(below, facts({ priceCents: 3900, compLowCents: 5000 })));
+  assert(!triggerMatches(below, facts({ priceCents: 4000, compLowCents: 5000 })));
+
+  // No comp data → never fires. Treating a missing p25 as 0 would mark every
+  // uncomped listing as wildly overpriced and mass-drop prices on absent
+  // evidence.
+  assert(!triggerMatches(above, facts({ priceCents: 9999 })));
+  assert(!triggerMatches(below, facts({ priceCents: 1 })));
+  assert(!triggerMatches(above, facts({ priceCents: 9999, compHighCents: 0 })));
+  assert(!triggerMatches(above, facts({ compHighCents: 5000 })));
+});
+
+// ── Action planning ─────────────────────────────────────────────────
+
+Deno.test("US-2156: relist and notify always plan", () => {
+  assertEquals(planAction({ type: "relist" }, BASE_PLAN), { kind: "relist" });
+  assertEquals(planAction({ type: "notify", message: "Look at this" }, BASE_PLAN), {
+    kind: "notify",
+    message: "Look at this",
+  });
+});
+
+Deno.test("US-2156: advance_status no-ops when the item is already there", () => {
+  assertEquals(
+    planAction({ type: "advance_status", status: "archived" }, {
+      ...BASE_PLAN,
+      currentStatus: "archived",
+    }),
+    null,
+  );
+  assertEquals(
+    planAction({ type: "advance_status", status: "archived" }, {
+      ...BASE_PLAN,
+      currentStatus: "listed",
+    }),
+    { kind: "advance_status", status: "archived" },
+  );
+});
+
+Deno.test("US-2156: crosslist_to no-ops for a platform the group already has", () => {
+  // Without this an hourly rule would mint a fresh sibling row every pass.
+  assertEquals(
+    planAction({ type: "crosslist_to", platform: "etsy" }, {
+      ...BASE_PLAN,
+      existingPlatforms: ["ebay", "etsy"],
+    }),
+    null,
+  );
+  assertEquals(
+    planAction({ type: "crosslist_to", platform: "etsy" }, {
+      ...BASE_PLAN,
+      existingPlatforms: ["ebay"],
+    }),
+    { kind: "crosslist", platform: "etsy" },
+  );
+});
+
+Deno.test("US-2156: send_offer_to_watchers plans nothing without the negotiation scope", () => {
+  // US-1967: the scope is unlicensed on the production keyset, so the seller
+  // must see NO action rather than a run of guaranteed 403s.
+  const action: AutomationAction = { type: "send_offer_to_watchers", discount_pct: 10 };
+  assertEquals(planAction(action, BASE_PLAN), null);
+  assertEquals(
+    planAction(action, { ...BASE_PLAN, watcherOffersAvailable: false }),
+    null,
+  );
+  assertEquals(
+    planAction(action, { ...BASE_PLAN, watcherOffersAvailable: true }),
+    { kind: "send_watcher_offer", discountPct: 10 },
+  );
+});
+
+Deno.test("US-2156: the pre-existing actions plan exactly as before", () => {
+  // AC6 — the new PlanInput fields are all optional and change nothing.
+  assertEquals(
+    planAction({ type: "price_drop_pct", pct: 10, margin_floor_pct: 0 }, BASE_PLAN),
+    { kind: "price_drop", newCents: 4500, floored: false },
+  );
+  assertEquals(planAction({ type: "set_promo_rate_pct", pct: 4 }, BASE_PLAN), {
+    kind: "set_promo_rate",
+    newRatePct: 4,
+  });
+  assertEquals(planAction({ type: "end_listing" }, BASE_PLAN), { kind: "end_listing" });
 });

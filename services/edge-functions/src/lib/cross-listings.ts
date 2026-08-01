@@ -43,7 +43,7 @@ import {
 // impossible to add by omission — every method needs an arm, and the
 // 'unsupported' arm is now a loud, durable marker instead of a no-op.
 
-interface SiblingRow {
+export interface SiblingRow {
   id: string;
   platform: string;
   platform_offer_id: string | null;
@@ -219,7 +219,7 @@ export async function autoEndCrossListings(
 // What happened to ONE sibling's upstream listing. US-2165 (AC4): the caller
 // must be able to tell "we ended it on the marketplace" from "we only ended our
 // own row", so these are distinct outcomes rather than a single boolean.
-type DelistOutcome =
+export type DelistOutcome =
   /** Confirmed ended upstream (or the marketplace reported it already gone). */
   | { kind: "ended" }
   /** No server write API — the Lister extension will end it in the seller's tab. */
@@ -247,10 +247,69 @@ function errText(err: unknown): string {
 // is simply ended. Only a row that WAS published and could not be pulled earns
 // the marker — that distinction is what keeps the badge meaningful instead of
 // firing on every ordinary draft.
-async function attemptUpstreamDelist(
+//
+// US-2164 (AC5): the marketplace calls are injectable so the dispatch itself is
+// unit-testable without a network or a DB. That matters most for the arms whose
+// correctness is a CLASSIFICATION rather than a call — a disabled Etsy connector
+// must produce an `unresolved` marker, not a clean `ended`, and there is no way
+// to assert that from the outside. Defaults wire to the real implementations, so
+// production behaviour is unchanged; only tests pass deps.
+export interface DelistDeps {
+  withdrawOffer: (ownerId: string, offerId: string) => Promise<unknown>;
+  isOfferAlreadyEndedError: (err: unknown) => boolean;
+  isNoEbayConnectionError: (err: unknown) => boolean;
+  getShopifyConnection: (
+    ownerId: string,
+  ) => Promise<{ shop: string; token: string } | null>;
+  deleteProductGraphql: (
+    shop: string,
+    token: string,
+    productId: string,
+  ) => Promise<unknown>;
+  getDepopConnection: (ownerId: string) => Promise<{ token: string } | null>;
+  deleteDepopProduct: (token: string, sku: string) => Promise<unknown>;
+  isEtsyEnabled: () => boolean;
+  getEtsyConnection: (
+    ownerId: string,
+  ) => Promise<{ token: string; shopId: string | null } | null>;
+  setEtsyListingState: (
+    token: string,
+    shopId: string,
+    listingId: string,
+    state: "active" | "inactive",
+  ) => Promise<unknown>;
+}
+
+const defaultDelistDeps: DelistDeps = {
+  withdrawOffer,
+  isOfferAlreadyEndedError,
+  isNoEbayConnectionError,
+  getShopifyConnection,
+  deleteProductGraphql,
+  getDepopConnection,
+  deleteDepopProduct,
+  isEtsyEnabled,
+  getEtsyConnection,
+  setEtsyListingState,
+};
+
+export async function attemptUpstreamDelist(
   ownerId: string,
   row: SiblingRow,
+  deps: DelistDeps = defaultDelistDeps,
 ): Promise<DelistOutcome> {
+  const {
+    withdrawOffer,
+    isOfferAlreadyEndedError,
+    isNoEbayConnectionError,
+    getShopifyConnection,
+    deleteProductGraphql,
+    getDepopConnection,
+    deleteDepopProduct,
+    isEtsyEnabled,
+    getEtsyConnection,
+    setEtsyListingState,
+  } = deps;
   const method = delistMethodFor(row.platform);
   switch (method) {
     case "ebay_api": {

@@ -175,3 +175,161 @@ Deno.test("US-1979: a real program failure is never swallowed", () => {
   assert(!isAlreadyInProgramStateError("nope"), "a bare string is not evidence");
   assert(!isAlreadyInProgramStateError(null), "null is not evidence");
 });
+
+// ── US-2166: the platform-agnostic end must reach the SAME decision ─────────
+//
+// US-2162 pointed the listings page at POST /api/flipdesk/listings/:id/end, but
+// the eBay adapter's delist looked only at platformOfferId — which a variation
+// listing does not have. So a seller with a multi-variation eBay listing got
+// "This listing has no eBay offer id to withdraw" and the listing stayed LIVE:
+// the exact US-1978 bug, reintroduced through a different door.
+//
+// The fix routes the adapter through resolveEndStrategy and plumbs the two
+// fields it needs (variations + the item SKU) down from the route. These guard
+// the wiring, because the decision itself is already covered above and what
+// broke was the inputs never arriving.
+
+const listingsRoute = Deno.readTextFileSync(
+  new URL("../routes/flipdesk-listings.ts", import.meta.url),
+);
+const ebayAdapterSrc = Deno.readTextFileSync(
+  new URL("../lib/marketplace-adapters/ebay.ts", import.meta.url),
+);
+
+Deno.test("US-2166: the eBay adapter delists via resolveEndStrategy", () => {
+  // Not an offer-id check any more — the group arm has to exist and has to use
+  // the group withdraw.
+  assert(ebayAdapterSrc.includes("resolveEndStrategy("));
+  assert(ebayAdapterSrc.includes("withdrawByInventoryItemGroup("));
+});
+
+Deno.test("US-2166: every delist call site passes variations AND the item SKU", () => {
+  // Dropping either one silently degrades a group listing back to the
+  // no-offer-id dead end, so both must ride along on EVERY call — the single
+  // end and the bulk end alike.
+  const callSites = listingsRoute.split("adapter.delist({").length - 1;
+  assert(callSites >= 2, `expected the single + bulk end call sites, saw ${callSites}`);
+  assertEquals(
+    listingsRoute.split("variations: row.variations,").length - 1,
+    callSites,
+    "every adapter.delist call must pass variations",
+  );
+  assertEquals(
+    listingsRoute.split("itemSku: row.item_sku,").length - 1,
+    callSites,
+    "every adapter.delist call must pass itemSku",
+  );
+});
+
+Deno.test("US-2166: the owned-listing load actually selects those columns", () => {
+  // The fields can only be passed if they were read. `variations` comes off the
+  // listing; the group key (sku) lives on the ITEM, so the join has to ask for
+  // it — that asymmetry is what makes this worth pinning.
+  assert(listingsRoute.includes("variations, "), "must select listings.variations");
+  assert(
+    listingsRoute.includes("inventory_items!inner(user_id, sku)"),
+    "must select the item sku (the group key)",
+  );
+});
+
+// ── US-2166 (AC1 + AC5): one implementation, two mount points ───────────────
+//
+// price and bulk-edit each used to exist twice — once platform-agnostic, once
+// under the eBay namespace. Two copies of an operation that moves a seller's
+// prices is how a fix lands in one and not the other, and the price pair had
+// already drifted (the agnostic one reports a marketplace-accepted-but-locally-
+// unsaved write; the eBay one ignored it).
+//
+// The eBay paths must KEEP ANSWERING — shipped iOS, Android and extension
+// builds call them and cannot be redeployed — so these pin both halves: the
+// route is still registered, and it forwards rather than re-implementing.
+
+const ebayRoute = Deno.readTextFileSync(
+  new URL("../routes/flipdesk-ebay.ts", import.meta.url),
+);
+
+Deno.test("US-2166: the eBay price path forwards to the shared core", () => {
+  assert(
+    ebayRoute.includes('flipdeskEbayRoutes.post("/listings/:id/price"'),
+    "the shipped-client path must stay registered",
+  );
+  assert(
+    ebayRoute.includes("applyListingPrice("),
+    "it must call the shared core",
+  );
+  // The tell that it kept its own copy: the direct marketplace call.
+  assert(
+    !ebayRoute.includes("await updateOfferPrice("),
+    "it must not still push the price itself",
+  );
+});
+
+Deno.test("US-2166: bulk-edit is mounted with the listing operations, and forwards", () => {
+  assert(
+    ebayRoute.includes('flipdeskEbayRoutes.post("/listings/bulk-edit"'),
+    "the shipped-client path must stay registered",
+  );
+  assert(
+    ebayRoute.includes("bulkEditListingsHandler(c)"),
+    "it must forward to the moved handler",
+  );
+  assert(
+    listingsRoute.includes('flipdeskListingsRoutes.post("/bulk-edit"'),
+    "the canonical mount must exist",
+  );
+  assert(
+    !ebayRoute.includes("processBulkEdit("),
+    "the handler body must no longer live in the eBay router",
+  );
+});
+
+Deno.test("US-2166: the moved bulk-edit keeps its Pro+ gate", () => {
+  // A move is the easiest place to drop a plan gate, and dropping this one
+  // hands a paid bulk action to every tier.
+  const handler = listingsRoute.slice(
+    listingsRoute.indexOf("export const bulkEditListingsHandler"),
+  );
+  assert(
+    handler.slice(0, 600).includes('feature: "bulkActions"'),
+    "bulk edit must still require the bulkActions entitlement",
+  );
+});
+
+// ── US-2166: revise is the eBay operator, and says so ───────────────────────
+//
+// Owner's decision, 2026-07-31: revise does NOT become platform-agnostic. What
+// it means on eBay — item aspects, leaf categories, markdown Sale overlays, the
+// inventory_item vs offer field split — has no counterpart on the marketplaces
+// the adapter covers, so forcing it into a shared shape would produce an
+// operation that is eBay's everywhere except in name. AC1 listed revise beside
+// price and end; AC3 said the aspects/markdown pieces stay eBay-side. The
+// decision resolves that tension in AC3's favour.
+//
+// Being the eBay operator means declaring it. loadListingOwned does not filter
+// by platform, so a Shopify or Etsy listing id CAN reach this handler — and
+// before this it went on to call eBay's inventory/offer APIs with that row's
+// ids. These pin the refusal, because a silently-wrong marketplace call is the
+// failure mode that decision is meant to prevent.
+
+Deno.test("US-2166: revise refuses a non-eBay listing rather than guessing", () => {
+  assert(
+    ebayRoute.includes('code: "not_an_ebay_listing"'),
+    "revise must reject a non-eBay row with a machine-readable code",
+  );
+  const revise = ebayRoute.slice(
+    ebayRoute.indexOf('flipdeskEbayRoutes.post("/listings/:id/revise"'),
+  );
+  assert(
+    revise.slice(0, 4000).includes('!== "ebay"'),
+    "the platform guard must run inside the revise handler",
+  );
+});
+
+Deno.test("US-2166: revise stays OUT of the agnostic listing routes", () => {
+  // The inverse guard: if a later change adds a /revise to the agnostic router,
+  // this decision has been reversed by accident rather than on purpose.
+  assert(
+    !listingsRoute.includes('flipdeskListingsRoutes.post("/:id/revise"'),
+    "revise is deliberately not a platform-agnostic route",
+  );
+});

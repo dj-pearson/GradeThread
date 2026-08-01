@@ -19,6 +19,10 @@
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
 //   TEST_USER_A_TEMPLATE_ID     a listing_templates.id (US-674)
 //   TEST_USER_A_RULE_ID         a repricing_rules.id (US-672)
+//   TEST_USER_A_AUTOMATION_RULE_ID  a flipdesk_automation_rules.id (US-2156;
+//                               OPTIONAL — skips until the seed script adds it)
+//   TEST_USER_A_SALE_ID         a sales.id owned by A (US-2160 label routes;
+//                               OPTIONAL — skips until the seed script adds it)
 //   TEST_USER_A_ITEM_ID         an inventory_items.id (AutoLister, US-324)
 //   TEST_USER_A_BATCH_ID        a listing_generation_batches.id (AutoLister)
 //   TEST_USER_A_GARMENT_ID      a garments.id (Garment Passport, US-1090/1092)
@@ -1689,7 +1693,27 @@ Deno.test({
 // 503 = eBay isn't configured on the server, so the handler returns BEFORE the
 // ownership check ever runs (it never touched A's listing). A configured server
 // reaches loadListingOwned and 404s. Either is a pass — A's row is untouched.
-const DENIED_OR_UNCONFIGURED = new Set([401, 403, 404, 422, 503]);
+// 501 = the US-2160 label routes' capability gate: sell.logistics is a
+// limited-release scope kept off the default consent list, so preflight returns
+// before the ownership lookup on any deployment that lacks it. Same reasoning as
+// 503 — the handler never touched A's row.
+const DENIED_OR_UNCONFIGURED = new Set([401, 403, 404, 422, 501, 503]);
+
+/**
+ * US-2160: the label routes gate on the eBay capability BEFORE the ownership
+ * lookup, so on a deployment without sell.logistics (which is every deployment
+ * until eBay grants the limited-release scope) they answer 501 and never reach
+ * loadOwnedSale. Asserting the strict 401/403/404 set there would fail red on a
+ * correctly-configured server while proving nothing. Either way A's row is
+ * untouched, which is what the case is really claiming.
+ */
+function assertDeniedOrGated(status: number, what: string): void {
+  assert(
+    DENIED_OR_UNCONFIGURED.has(status),
+    `${what} should be denied or capability-gated ` +
+      `(401/403/404/422/501/503) but got ${status}`,
+  );
+}
 
 // revise (POST /listings/:id/revise) is scoped via loadListingOwned. B revising
 // A's listing must be refused — never a 200 that mutated A's eBay listing.
@@ -3413,5 +3437,219 @@ Deno.test({
     const res = await fetch(`${BASE}/api/admin/registered-numbers`);
     await res.body?.cancel();
     assertDenied(res.status, "GET registered-numbers with no auth");
+  },
+});
+
+Deno.test({
+  // US-2156: the automations module had NO isolation case, and this story
+  // widened what its routes can do — a rule's action can now flip
+  // inventory_items.status, mint sibling `listings` rows on other marketplaces,
+  // and send eBay watcher offers. A cross-tenant hit on the rule CRUD would let
+  // B point one of those actions at A's inventory.
+  //
+  // Every handler scopes by id AND user_id (never the id alone), so B's
+  // PUT/PATCH/DELETE hit 0 rows and 404.
+  name: "US-2156: B cannot update, toggle or delete A's automation rule",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_AUTOMATION_RULE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_AUTOMATION_RULE_ID")!;
+    const put = await fetch(`${BASE}/api/flipdesk/automations/rules/${id}`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        name: "pwned",
+        trigger_json: { type: "days_listed_gt", days: 1, cooldown_days: 1 },
+        action_json: { type: "advance_status", status: "archived" },
+      }),
+    });
+    await put.body?.cancel();
+    assertDenied(put.status, "PUT automation rule");
+
+    const patch = await fetch(`${BASE}/api/flipdesk/automations/rules/${id}`, {
+      method: "PATCH",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ is_active: false }),
+    });
+    await patch.body?.cancel();
+    assertDenied(patch.status, "PATCH automation rule");
+
+    const del = await fetch(`${BASE}/api/flipdesk/automations/rules/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await del.body?.cancel();
+    assertDenied(del.status, "DELETE automation rule");
+  },
+});
+
+Deno.test({
+  // US-2156: dry-run and the per-rule activity log both read A's listings and
+  // A's action history through a rule id taken from the URL. Both scope the
+  // rule read by user_id first, so B gets a 404 and never learns what A sells.
+  name: "US-2156: B cannot dry-run A's automation rule or read its activity",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_AUTOMATION_RULE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_AUTOMATION_RULE_ID")!;
+    const dry = await fetch(
+      `${BASE}/api/flipdesk/automations/rules/${id}/dry-run`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    const dryBody = (await dry.json().catch(() => ({}))) as {
+      affected?: unknown[];
+    };
+    assertDenied(dry.status, "POST dry-run (A's rule)");
+    // Belt and braces: even if the status ever softened, no listing of A's may
+    // appear in the response.
+    assertEquals(
+      dryBody.affected ?? [],
+      [],
+      "dry-run must not leak A's listings to B",
+    );
+
+    const log = await fetch(
+      `${BASE}/api/flipdesk/automations/rules/${id}/actions`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const logBody = (await log.json().catch(() => ({}))) as {
+      actions?: unknown[];
+    };
+    // The activity read is scoped by user_id AND rule_id, so B's own (empty)
+    // history is what comes back — never A's.
+    assertEquals(
+      logBody.actions ?? [],
+      [],
+      "activity log must not leak A's automation actions to B",
+    );
+  },
+});
+
+Deno.test({
+  // US-2160 (AC4): the label routes are the highest-stakes writes in FlipDesk —
+  // buying a label SPENDS the seller's money and voiding one changes what a
+  // sale records as its shipping cost. A cross-tenant hit would let B charge A's
+  // eBay account, or wipe A's recorded postage.
+  //
+  // Every route resolves the sale THROUGH inventory_items.user_id before it
+  // touches eBay or writes anything, so B gets the same 404 as a nonexistent
+  // sale. Nothing reaches eBay on the denied path.
+  name: "US-2160: B cannot price, buy, reprint or void a label on A's sale",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SALE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_SALE_ID")!;
+
+    const rates = await fetch(
+      `${BASE}/api/flipdesk/logistics/sales/${id}/rates`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ weight_value: 2 }),
+      },
+    );
+    const ratesBody = (await rates.json().catch(() => ({}))) as {
+      rates?: unknown[];
+      shipping_quote_id?: string;
+    };
+    assertDeniedOrGated(rates.status, "POST logistics rates (A's sale)");
+    // Belt and braces: no quote, and no rate, may leak even if the status ever
+    // softened — a rate id is directly purchasable.
+    assertEquals(ratesBody.rates ?? [], [], "rates must not leak to B");
+    assertEquals(
+      ratesBody.shipping_quote_id ?? "",
+      "",
+      "quote id must not leak to B",
+    );
+
+    const buy = await fetch(`${BASE}/api/flipdesk/logistics/sales/${id}/label`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ shipping_quote_id: "q1", rate_id: "r1" }),
+    });
+    await buy.body?.cancel();
+    assertDeniedOrGated(buy.status, "POST logistics label (A's sale)");
+
+    const reprint = await fetch(
+      `${BASE}/api/flipdesk/logistics/sales/${id}/label`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await reprint.body?.cancel();
+    assertDeniedOrGated(reprint.status, "GET logistics label (A's sale)");
+
+    const voidLabel = await fetch(
+      `${BASE}/api/flipdesk/logistics/sales/${id}/label/void`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await voidLabel.body?.cancel();
+    assertDeniedOrGated(voidLabel.status, "POST logistics label void (A's sale)");
+  },
+});
+
+Deno.test({
+  // US-2160: the capability probe is per-connection, so it must answer for the
+  // CALLER's own eBay connection and never reveal anything about another
+  // tenant's. It takes no id, so the only thing to assert is that it stays
+  // authenticated — an anonymous caller must not learn the deployment's scope
+  // posture.
+  name: "US-2160: logistics capabilities rejects an unauthenticated caller",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/logistics/capabilities`);
+    await res.body?.cancel();
+    assertDenied(res.status, "GET logistics capabilities with no auth");
+  },
+});
+
+Deno.test({
+  // US-2166 (AC6): the lifecycle operations gained canonical mount points under
+  // /api/flipdesk/listings. They resolve the listing through
+  // inventory_items.user_id before any write, so B repricing, ending or
+  // bulk-editing A's listing must be refused at the NEW paths too — the old
+  // eBay-namespaced cases prove nothing about these.
+  name: "US-2166: B cannot reprice, end or bulk-edit A's listing at the agnostic paths",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+
+    const price = await fetch(`${BASE}/api/flipdesk/listings/${id}/price`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ price: 1 }),
+    });
+    await price.body?.cancel();
+    assertDenied(price.status, "POST listings/:id/price (A's listing)");
+
+    const end = await fetch(`${BASE}/api/flipdesk/listings/${id}/end`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await end.body?.cancel();
+    assertDenied(end.status, "POST listings/:id/end (A's listing)");
+
+    // Bulk takes ids in the BODY, so a denial here cannot come from the URL —
+    // it has to come from the per-row ownership filter. A 402 is also a pass:
+    // B lacking the bulkActions entitlement is refused even earlier, and never
+    // reaches A's rows either way.
+    const bulk = await fetch(`${BASE}/api/flipdesk/listings/bulk-edit`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [id], edit: { listing_price: 1 } }),
+    });
+    const bulkBody = (await bulk.json().catch(() => ({}))) as {
+      summary?: { ok?: number };
+      results?: Array<{ ok?: boolean }>;
+    };
+    if (bulk.status === 200) {
+      // The route answers 200 with per-row outcomes, so the assertion is that
+      // A's row was NOT edited — not that the call failed.
+      assertEquals(
+        bulkBody.results?.filter((r) => r.ok).length ?? 0,
+        0,
+        "bulk-edit must not apply to another tenant's listing",
+      );
+    } else {
+      assert(
+        [401, 402, 403, 404].includes(bulk.status),
+        `POST listings/bulk-edit for another tenant should be denied, got ${bulk.status}`,
+      );
+    }
   },
 });

@@ -85,7 +85,7 @@ export function FlipdeskOnboarding() {
       desc: "Where inventory comes from — a thrift store, estate sale, or auction lot.",
       done: sources.length > 0,
       cta: "Add a source",
-      to: "/dashboard/flipdesk/sources",
+      to: "/dashboard/flipdesk/sourcing?tab=sources",
     },
     {
       icon: PackagePlus,

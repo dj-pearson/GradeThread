@@ -301,7 +301,7 @@ export function FlipdeskBulkPricingPage() {
           subtitle="Select active eBay listings and update their price and/or quantity in one go. Changes push straight to eBay."
         />
         <Button asChild variant="outline" size="sm">
-          <a href="/dashboard/flipdesk/repricing">
+          <a href="/dashboard/flipdesk/pricing?tab=repricing">
             <TrendingUp className="mr-2 h-4 w-4" />
             Condition-aware repricing
           </a>

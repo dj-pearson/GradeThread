@@ -31,6 +31,12 @@ export interface ListingEndResponse {
   /** false when nothing was live upstream (unpublished draft, or already gone). */
   ended_upstream?: boolean;
   already_ended?: boolean;
+  /**
+   * US-2162: the marketplace has no end-listing API, so the row is stamped for
+   * the Lister extension to end in the seller's own browser. The listing is
+   * STILL LIVE until then — `ended_upstream` is false and the copy must say so.
+   */
+  queued?: boolean;
   note?: string;
 }
 
@@ -56,6 +62,8 @@ export interface BulkEndRowResult {
   ok: boolean;
   ended_upstream?: boolean;
   already_ended?: boolean;
+  /** US-2162: queued for the Lister extension; still live until it runs. */
+  queued?: boolean;
   error?: string;
 }
 
@@ -140,6 +148,51 @@ export function useEndListing() {
  * tripped the 30-req/60s rate limit on /api/flipdesk/listings/* at around the
  * 30th selected row.
  */
+/**
+ * US-2163 (AC2): how many listings ride in one bulk-price request.
+ *
+ * Matches the 25-per-call chunking /listings/bulk-price-quantity already uses.
+ * The point is not the server's comfort — it processes rows sequentially either
+ * way — it is that a chunk boundary is the only place a long batch can report
+ * progress or be cancelled. One request for 100 listings is a black box; four
+ * requests of 25 is four progress ticks and three chances to stop.
+ *
+ * It is still nothing like the old per-listing loop: 100 listings cost 4
+ * requests, comfortably inside the 30-per-60s limit on /api/flipdesk/listings/*
+ * that the loop used to trip around row 30.
+ */
+export const BULK_PRICE_CHUNK_SIZE = 25;
+
+/** Split ids into BULK_PRICE_CHUNK_SIZE-sized chunks. Pure, so it is testable. */
+export function chunkForBulkPrice<T>(
+  items: readonly T[],
+  size = BULK_PRICE_CHUNK_SIZE,
+): T[][] {
+  if (size < 1) return items.length > 0 ? [[...items]] : [];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
+/** Merge per-chunk responses into the single result the UI reports. */
+export function mergeBulkPriceResponses(
+  parts: readonly BulkPriceResponse[],
+): BulkPriceResponse {
+  const results = parts.flatMap((p) => p.results);
+  return {
+    ok: true,
+    // Counts are recomputed from the merged rows rather than summed from the
+    // parts, so a cancelled batch reports what actually happened instead of a
+    // total that includes chunks never sent.
+    total: results.length,
+    succeeded: results.filter((r) => r.ok).length,
+    failed: results.filter((r) => !r.ok).length,
+    results,
+  };
+}
+
 export function useBulkListingPrice() {
   const invalidate = useLifecycleInvalidation();
   return useMutation<

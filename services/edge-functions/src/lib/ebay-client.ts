@@ -83,17 +83,23 @@ export async function fetchWithEbayRetry(
 // fully-retried-then-failed call counts as one breaker failure) around
 // fetchWithEbayRetry over a timeout-bounded fetch. The side-channel families
 // call THIS instead of a raw fetch.
+// US-2160: `retry` forwards RetryOptions to the inner withRetry. It exists for
+// one reason — a NON-IDEMPOTENT call (buying a shipping label charges the
+// seller and eBay offers no idempotency key) must pass `{ maxAttempts: 1 }`, so
+// a 5xx surfaces as an error the seller resolves by re-checking rather than
+// silently billing twice. Omit it and the default 3-attempt backoff applies,
+// which is what every existing caller wants.
 export function ebayResilientFetch(
   url: string | URL,
   init: RequestInit = {},
-  opts: { timeoutMs?: number; label?: string } = {},
+  opts: { timeoutMs?: number; label?: string; retry?: RetryOptions } = {},
 ): Promise<Response> {
   const label = opts.label ??
     `${init.method ?? "GET"} ${typeof url === "string" ? url : url.toString()}`;
   return ebayBreaker().execute(() =>
     fetchWithEbayRetry(
       () => fetchWithTimeout(url, init, opts.timeoutMs ?? EBAY_TIMEOUT_MS),
-      { label },
+      { label, ...(opts.retry ?? {}) },
     )
   );
 }
@@ -280,6 +286,17 @@ function getScopes(): string {
 // Incoming Best Offers (Trading API, sell scope) are NOT affected by this.
 export function isNegotiationScopeAvailable(): boolean {
   return getScopes().includes("api_scope/sell.negotiation");
+}
+
+// US-2160: same question for sell.logistics (buy a shipping label). The Sell
+// Logistics API is a LIMITED RELEASE surface — eBay grants the scope per keyset
+// after an application, exactly like sell.negotiation — so it is absent from the
+// default list above for the same reason: requesting an unlicensed scope fails
+// the whole consent screen and blocks every (re)connect. Every label surface
+// gates on this so a seller learns the feature is off BEFORE they try to buy
+// postage, instead of discovering it from a 403 mid-checkout.
+export function isLogisticsScopeAvailable(): boolean {
+  return getScopes().includes("api_scope/sell.logistics");
 }
 
 function basicAuthHeader(): string {

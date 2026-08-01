@@ -643,7 +643,7 @@ function StaleNudge({
     : "Grade this item to add a verified condition badge + certificate — graded listings earn more buyer trust.";
 
   const cta = isGraded
-    ? { label: "Reprice", to: "/dashboard/flipdesk/repricing" }
+    ? { label: "Reprice", to: "/dashboard/flipdesk/pricing?tab=repricing" }
     : {
         label: "Grade it",
         to: `/dashboard/flipdesk/items/${item.id}#canvas-grading`,

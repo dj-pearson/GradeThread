@@ -4,10 +4,7 @@ import {
   LayoutDashboard,
   FileText,
   DollarSign,
-  Lightbulb,
   Menu,
-  MapPin,
-  Megaphone,
   Plug,
   Ruler,
   Scale,
@@ -18,21 +15,16 @@ import {
   Boxes,
   Sparkles,
   ShieldCheck,
-  TrendingUp,
   ClipboardList,
   Radar,
-  ScanBarcode,
   Camera,
   ChevronDown,
   CircleUser,
-  Zap,
-  Eye,
   CalendarClock,
   Handshake,
   Tag,
   Tags,
   ShieldAlert,
-  Users,
   Search,
   ShoppingBag,
 } from "lucide-react";
@@ -99,6 +91,17 @@ type NavGroup = {
 //   • /dashboard/flipdesk/{overview,grid,prep,pipeline,listings,reconciliation}
 //     and /dashboard/inventory* — legacy aliases that redirect (Navigate /
 //     InventoryModeRedirect) to their canonical surfaces; kept for old links.
+//   • US-2161 consolidated three clusters into tabbed hosts. The old paths all
+//     still resolve — they Navigate to the canonical route plus its tab — so
+//     deep links, the command palette and flipdesk-search keep working, and
+//     they are deliberately NOT listed here because the host is the one nav
+//     entry:
+//       /flipdesk/{repricing,bulk-pricing,automations} and
+//       /dashboard/analytics/suggestions   → /flipdesk/pricing?tab=…
+//       /flipdesk/{scout,scout/buy,sources,demand}
+//                                          → /flipdesk/sourcing?tab=…
+//       /flipdesk/community                → /flipdesk/analytics/community
+//     Analytics keeps PATH-based tabs (not ?tab=) because it already had them.
 const navGroups: NavGroup[] = [
   {
     title: "Grading",
@@ -110,7 +113,9 @@ const navGroups: NavGroup[] = [
       // here; the single canonical inventory lives under FlipDesk.
       // Finances moved to the FlipDesk group — it reports purely on reseller
       // data (inventory/listings/sales) alongside Expenses/Reconciliation.
-      { to: "/dashboard/analytics/suggestions", icon: Lightbulb, label: "Price Suggestions", end: false },
+      // US-2161: Price Suggestions moved to FlipDesk → Pricing. It sat here
+      // while the other three pricing surfaces sat under FlipDesk, so "change
+      // my prices" was split across two sections of the nav.
     ],
   },
   {
@@ -142,11 +147,14 @@ const navGroups: NavGroup[] = [
         title: "Sourcing",
         items: [
           { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
-          { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
-          { to: "/dashboard/flipdesk/demand", icon: Megaphone, label: "Buyer Demand", end: false, requiresFlipdeskFlag: "compPulls" },
+          // US-2161: ScoutAI + Buy Decision + Sources + Buyer Demand were four
+          // entries answering one question — what should I buy, and where from.
+          // They are ?tab= tabs of this one destination now. NOT plan-gated at
+          // the nav level any more: two of the four tabs need compPulls and two
+          // do not, so gating the whole entry would hide Sources from a seller
+          // who is entitled to it.
+          { to: "/dashboard/flipdesk/sourcing", icon: Radar, label: "Sourcing", end: false },
           { to: "/dashboard/flipdesk/consignment", icon: Handshake, label: "Consignment", end: false },
-          { to: "/dashboard/flipdesk/scout", icon: Radar, label: "ScoutAI", end: true, requiresFlipdeskFlag: "compPulls" },
-          { to: "/dashboard/flipdesk/scout/buy", icon: ScanBarcode, label: "Buy Decision", end: false, requiresFlipdeskFlag: "compPulls" },
         ],
       },
       {
@@ -155,14 +163,14 @@ const navGroups: NavGroup[] = [
           { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
           { to: "/dashboard/flipdesk/offers", icon: Tag, label: "Offers & Messages", end: false },
           { to: "/dashboard/flipdesk/post-sale", icon: ShieldAlert, label: "Returns & Disputes", end: false },
-          { to: "/dashboard/flipdesk/bulk-pricing", icon: Tags, label: "Bulk pricing", end: false },
+          // US-2161: Repricing + Bulk pricing + Price Suggestions + Automations.
+          { to: "/dashboard/flipdesk/pricing", icon: Tags, label: "Pricing", end: false },
           { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
           { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
           // US-963: one Reconcile entry hosts Photos→Items, eBay SKU match,
           // Payouts & fees, and Cross-source as tabs. Always visible — it now
           // carries the reconciliation/payout flows, not just the photo tool.
           { to: "/dashboard/flipdesk/reconcile", icon: Scale, label: "Reconcile", end: false },
-          { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
           // US-1579: MeasureCard info + PDF download + mailed-card request.
           { to: "/dashboard/flipdesk/measure-card", icon: Ruler, label: "MeasureCard", end: false },
         ],
@@ -170,10 +178,10 @@ const navGroups: NavGroup[] = [
       {
         title: "Automate & insights",
         items: [
-          { to: "/dashboard/flipdesk/automations", icon: Zap, label: "Automations", end: false },
-          { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: true },
-          { to: "/dashboard/flipdesk/analytics/performance", icon: Eye, label: "Listing Performance", end: false },
-          { to: "/dashboard/flipdesk/community", icon: Users, label: "Community Insights", end: false },
+          // US-2161: Automations is a Pricing tab; Listing Performance and
+          // Community Insights are Analytics tabs. `end: false` so the nav item
+          // stays highlighted on every /analytics/* tab, not just the index.
+          { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: false },
         ],
       },
     ],

@@ -7,10 +7,19 @@ import type { FilterField, FilterOp } from "@/lib/item-filter";
 // activity log, and on-demand run. Wire shapes mirror
 // services/edge-functions/src/lib/automation-rules.ts.
 
+// Mirrors services/edge-functions/src/lib/automation-rules.ts — the server is
+// the authority on shape and bounds; this is the client's copy of the contract.
 export type AutomationTrigger =
   | { type: "days_listed_gt"; days: number; cooldown_days: number }
   | { type: "no_views_in_days"; days: number; cooldown_days: number }
-  | { type: "watchers_lt_after_days"; watchers: number; days: number; cooldown_days: number };
+  | { type: "watchers_lt_after_days"; watchers: number; days: number; cooldown_days: number }
+  // US-2156: the non-aging half — react to the pipeline, not just the calendar.
+  | { type: "offer_received"; days: number; cooldown_days: number }
+  | { type: "return_opened"; days: number; cooldown_days: number }
+  | { type: "compliance_violation"; min_violations: number; cooldown_days: number }
+  | { type: "grade_completed"; days: number; max_grade: number | null; cooldown_days: number }
+  | { type: "item_status_changed"; status: string; days: number; cooldown_days: number }
+  | { type: "comp_price_moved"; direction: "above" | "below"; pct: number; cooldown_days: number };
 
 export type AutomationAction =
   | { type: "price_drop_pct"; pct: number; margin_floor_pct: number }
@@ -18,7 +27,40 @@ export type AutomationAction =
   // US-1448: aged-inventory coded coupon (server generates the code + uses
   // the cover photo as eBay's required promotion image).
   | { type: "create_coded_coupon"; discount_pct: number }
-  | { type: "end_listing" };
+  | { type: "end_listing" }
+  // US-2156.
+  | { type: "relist" }
+  | { type: "crosslist_to"; platform: string }
+  | { type: "send_offer_to_watchers"; discount_pct: number }
+  | { type: "advance_status"; status: string }
+  | { type: "notify"; message: string };
+
+// US-2156 bounds — kept in lockstep with the server validator.
+export const AUTOMATION_MESSAGE_MAX = 280;
+export const MIN_WATCHER_OFFER_PCT = 5;
+export const MAX_WATCHER_OFFER_PCT = 60;
+
+/** Statuses an automation may write (server: AUTOMATION_SETTABLE_STATUSES). */
+export const AUTOMATION_SETTABLE_STATUSES = [
+  "sourced",
+  "acquired",
+  "cataloged",
+  "measured",
+  "photographed",
+  "archived",
+  "keeping",
+  "wearing",
+] as const;
+
+/** Marketplaces a crosslist_to action may target. */
+export const AUTOMATION_CROSSLIST_PLATFORMS = [
+  "shopify",
+  "poshmark",
+  "mercari",
+  "depop",
+  "etsy",
+  "whatnot",
+] as const;
 
 // Same vocabulary the US-143 FilterBuilder edits, plus the discriminator.
 // The builder's per-rule `id` keys are accepted and ignored server-side, and
@@ -66,6 +108,12 @@ export interface AutomationDryRunMatch {
   current_promo_rate_pct: number | null;
   new_promo_rate_pct: number | null;
   floored: boolean;
+  /**
+   * US-2156: plain-English line for the actions the price/promo columns say
+   * nothing about (crosslist, notify, advance status, watcher offer, relist).
+   * Null for the price/promo/coupon/end actions.
+   */
+  effect?: string | null;
 }
 
 export interface AutomationActionRow {

@@ -1,13 +1,17 @@
 import {
+  type ListingVariations,
   publishItemForOwner,
+  resolveEndStrategy,
   triggerEbaySyncForUser,
 } from "../../routes/flipdesk-ebay.ts";
 import {
   buildConsentUrl,
   getUserAccessToken,
   isEbayConfigured,
+  withdrawByInventoryItemGroup,
   withdrawOffer,
 } from "../ebay-client.ts";
+
 import { mapSiblingListingFields } from "../cross-listing-fields.ts";
 import type {
   AdapterResult,
@@ -102,15 +106,31 @@ export const ebayAdapter: MarketplaceAdapter = {
   },
 
   async delist(input): Promise<AdapterResult> {
-    if (!input.platformOfferId) {
-      return {
-        ok: false,
-        status: 409,
-        error: "This listing has no eBay offer id to withdraw.",
-      };
+    // US-2166: use the SAME pure decision the eBay-namespaced DELETE route uses
+    // (US-1978). A multi-variation listing publishes as an inventory_item_group
+    // and carries no platform_offer_id, so the old offer-id-only check reported
+    // "no offer id to withdraw" and left it LIVE on eBay. Group is resolved
+    // first for exactly that reason.
+    const strategy = resolveEndStrategy({
+      variations: (input.variations ?? null) as ListingVariations | null,
+      itemSku: input.itemSku ?? null,
+      platformOfferId: input.platformOfferId,
+    });
+    if (strategy.kind === "group") {
+      await withdrawByInventoryItemGroup(input.ownerId, strategy.groupKey);
+      return { ok: true };
     }
-    await withdrawOffer(input.ownerId, input.platformOfferId);
-    return { ok: true };
+    if (strategy.kind === "offer") {
+      await withdrawOffer(input.ownerId, strategy.offerId);
+      return { ok: true };
+    }
+    // Nothing live to withdraw. The caller decides whether that is a clean
+    // "already gone" or a conflict; saying so honestly beats inventing an id.
+    return {
+      ok: false,
+      status: 409,
+      error: "This listing has no eBay offer id to withdraw.",
+    };
   },
 
   // The eBay pull-sync reconciles both listings and orders in one run.

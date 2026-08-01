@@ -69,6 +69,17 @@ import { PageHeader } from "@/components/ui/page-header";
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
 // in (US-408).
+const ListingPerformancePage = lazy(() =>
+  import("@/pages/flipdesk/listing-performance").then((m) => ({
+    default: m.FlipdeskListingPerformancePage,
+  }))
+);
+const CommunityInsightsPage = lazy(() =>
+  import("@/pages/flipdesk/community-insights").then((m) => ({
+    default: m.FlipdeskCommunityInsightsPage,
+  }))
+);
+
 const SellThroughChart = lazy(() =>
   import("@/components/flipdesk/sell-through-chart").then((m) => ({
     default: m.SellThroughChart,
@@ -148,11 +159,18 @@ const csvDate = (): string => new Date().toISOString().slice(0, 10);
 export function FlipdeskAnalyticsPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  // US-2161: Listing Performance and Community Insights were their own sidebar
+  // entries; they are analytics, so they fold into this tab set. Path-based like
+  // the existing tabs (not ?tab=) so every deep link stays a real URL.
   const tab = location.pathname.endsWith("/grading-roi")
     ? "grading-roi"
     : location.pathname.endsWith("/returns")
       ? "returns"
-      : "sell-through";
+      : location.pathname.endsWith("/performance")
+        ? "performance"
+        : location.pathname.endsWith("/community")
+          ? "community"
+          : "sell-through";
 
   return (
     <div className="space-y-6">
@@ -170,7 +188,11 @@ export function FlipdeskAnalyticsPage() {
               ? "/dashboard/flipdesk/analytics/grading-roi"
               : v === "returns"
                 ? "/dashboard/flipdesk/analytics/returns"
-                : "/dashboard/flipdesk/analytics",
+                : v === "performance"
+                  ? "/dashboard/flipdesk/analytics/performance"
+                  : v === "community"
+                    ? "/dashboard/flipdesk/analytics/community"
+                    : "/dashboard/flipdesk/analytics",
           )
         }
       >
@@ -178,6 +200,8 @@ export function FlipdeskAnalyticsPage() {
           <TabsTrigger value="sell-through">Sell-through</TabsTrigger>
           <TabsTrigger value="grading-roi">Grading ROI</TabsTrigger>
           <TabsTrigger value="returns">Return reduction</TabsTrigger>
+          <TabsTrigger value="performance">Listing performance</TabsTrigger>
+          <TabsTrigger value="community">Community</TabsTrigger>
         </TabsList>
 
         <TabsContent value="sell-through" className="mt-6">
@@ -190,6 +214,25 @@ export function FlipdeskAnalyticsPage() {
 
         <TabsContent value="returns" className="mt-6">
           <ReturnReductionReport />
+        </TabsContent>
+
+        {/* Lazy + mounted only when active: both run their own queries, and
+            firing them on every Analytics visit would cost every seller a sync
+            probe and a cohort read they didn't ask for. `embedded` drops their
+            duplicate titles while keeping their controls. */}
+        <TabsContent value="performance" className="mt-6">
+          {tab === "performance" && (
+            <Suspense fallback={<Loading />}>
+              <ListingPerformancePage embedded />
+            </Suspense>
+          )}
+        </TabsContent>
+        <TabsContent value="community" className="mt-6">
+          {tab === "community" && (
+            <Suspense fallback={<Loading />}>
+              <CommunityInsightsPage embedded />
+            </Suspense>
+          )}
         </TabsContent>
       </Tabs>
     </div>

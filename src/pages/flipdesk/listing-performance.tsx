@@ -101,7 +101,16 @@ function relativeTime(iso: string | null | undefined): string {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
-export function FlipdeskListingPerformancePage() {
+/**
+ * US-2161: `embedded` renders this inside the Analytics tab set, which already
+ * has its own PageHeader. It drops the redundant title and subtitle ONLY — the
+ * header's action controls are preserved and re-rendered above the content,
+ * because hiding a working control to tidy up the nav would be a feature
+ * regression wearing a tidy-up's clothes.
+ */
+export function FlipdeskListingPerformancePage(
+  { embedded = false }: { embedded?: boolean } = {},
+) {
   const user = useAuthStore((s) => s.user);
   const { data: connection } = useEbayConnection();
   const { data: suggestions = [] } = usePerformanceSuggestions();
@@ -325,10 +334,11 @@ export function FlipdeskListingPerformancePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Listing Performance"
-        subtitle="Views, watchers and impressions per active eBay listing. Spot duds before they age out."
-        actions={
+      {/* US-2161: the actions are defined once and rendered either inside the
+          PageHeader (standalone) or on their own row (embedded in Analytics,
+          which already has a header). Never dropped. */}
+      {(() => {
+        const actions = (
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
               Synced {relativeTime(lastSynced)} · auto every 6h
@@ -347,8 +357,17 @@ export function FlipdeskListingPerformancePage() {
               Sync now
             </Button>
           </div>
-        }
-      />
+        );
+        return embedded ? (
+          <div className="flex justify-end">{actions}</div>
+        ) : (
+          <PageHeader
+            title="Listing Performance"
+            subtitle="Views, watchers and impressions per active eBay listing. Spot duds before they age out."
+            actions={actions}
+          />
+        );
+      })()}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>

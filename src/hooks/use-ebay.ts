@@ -2794,3 +2794,203 @@ export function useSetEbayProgram() {
     onError: (e) => toast.error(e.message),
   });
 }
+
+// ── US-2160: buy an eBay shipping label without leaving FlipDesk ─────────────
+//
+// Three steps, and the middle one spends money:
+//   1. useEbayLogisticsCapability — can this seller buy labels at all? Cheap,
+//      no eBay round trip. Surfaces gate on it so the entry point is hidden
+//      rather than failing mid-checkout (same contract as the negotiation
+//      capability above, US-1967).
+//   2. useEbayShippingRates — price the parcel. Buys nothing, safe to re-run as
+//      the seller adjusts the weight.
+//   3. useEbayBuyLabel — BUYS the chosen rate. The server records the real
+//      postage as the sale's shipping cost and pushes the tracking number to
+//      eBay through the existing fulfillment path.
+// Plus reprint (label URLs expire, so the server re-fetches) and void.
+
+export interface EbayLogisticsCapability {
+  labelPurchaseAvailable: boolean;
+  code: "feature_unavailable" | "reconnect_required" | null;
+  detail: string | null;
+}
+
+export function useEbayLogisticsCapability(enabled = true) {
+  const tenantKey = useEbayTenantKey();
+  return useQuery({
+    queryKey: ["ebay_logistics_capability", tenantKey],
+    enabled,
+    // Licensing state doesn't change minute to minute.
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<EbayLogisticsCapability> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/logistics/capabilities`,
+        { headers: await ebayHeaders() }
+      );
+      const json = await res.json().catch(() => ({}));
+      // Fail CLOSED here, unlike the negotiation probe: showing a "Buy label"
+      // button that can't work invites the seller to start spending money and
+      // then dead-ends. Hiding it costs them one manual label.
+      if (!res.ok) {
+        return {
+          labelPurchaseAvailable: false,
+          code: "feature_unavailable",
+          detail: null,
+        };
+      }
+      return {
+        labelPurchaseAvailable: json.label_purchase_available === true,
+        code: json.code ?? null,
+        detail: json.detail ?? null,
+      };
+    },
+  });
+}
+
+export interface EbayShippingRate {
+  rateId: string;
+  carrier: string | null;
+  serviceName: string | null;
+  totalCostCents: number | null;
+  currency: string | null;
+  minDeliveryDate: string | null;
+  maxDeliveryDate: string | null;
+  additionalOptions: string[];
+}
+
+export interface EbayShippingQuote {
+  shippingQuoteId: string;
+  expiresAt: string | null;
+  rates: EbayShippingRate[];
+}
+
+export interface ParcelInput {
+  weightValue: number;
+  weightUnit?: "POUND" | "OUNCE" | "KILOGRAM" | "GRAM";
+  lengthValue?: number | null;
+  widthValue?: number | null;
+  heightValue?: number | null;
+}
+
+function parcelBody(parcel: ParcelInput): Record<string, unknown> {
+  return {
+    weight_value: parcel.weightValue,
+    weight_unit: parcel.weightUnit ?? "POUND",
+    length_value: parcel.lengthValue ?? undefined,
+    width_value: parcel.widthValue ?? undefined,
+    height_value: parcel.heightValue ?? undefined,
+  };
+}
+
+/** Step 2: price the parcel. A 409 means the ship-from address is missing. */
+export function useEbayShippingRates() {
+  return useMutation<
+    EbayShippingQuote,
+    Error & { status?: number; code?: string },
+    { saleId: string; parcel: ParcelInput }
+  >({
+    mutationFn: async ({ saleId, parcel }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/logistics/sales/${encodeURIComponent(
+          saleId
+        )}/rates`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify(parcelBody(parcel)),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number; code?: string } = new Error(
+          json.detail || json.error || "Couldn't price this shipment."
+        );
+        err.status = res.status;
+        err.code = json.code;
+        throw err;
+      }
+      return {
+        shippingQuoteId: json.shipping_quote_id ?? "",
+        expiresAt: json.expires_at ?? null,
+        rates: (json.rates ?? []) as EbayShippingRate[],
+      };
+    },
+  });
+}
+
+export interface EbayPurchasedLabel {
+  ok?: true;
+  already_purchased?: true;
+  shipment_id: string;
+  tracking_number: string | null;
+  carrier?: string | null;
+  label_download_url?: string | null;
+  cost_cents?: number | null;
+  currency?: string | null;
+  marked_shipped_on_ebay?: boolean;
+}
+
+/**
+ * Step 3: BUY the rate. Both ids are required — the server never picks a rate,
+ * because a wrong default here spends the seller's money.
+ */
+export function useEbayBuyLabel() {
+  return useMutation<
+    EbayPurchasedLabel,
+    Error & { status?: number; code?: string },
+    { saleId: string; shippingQuoteId: string; rateId: string }
+  >({
+    mutationFn: async ({ saleId, shippingQuoteId, rateId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/logistics/sales/${encodeURIComponent(
+          saleId
+        )}/label`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({
+            shipping_quote_id: shippingQuoteId,
+            rate_id: rateId,
+          }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number; code?: string } = new Error(
+          json.detail || json.error || "Couldn't buy this label."
+        );
+        err.status = res.status;
+        err.code = json.code;
+        throw err;
+      }
+      return json as EbayPurchasedLabel;
+    },
+  });
+}
+
+/** Reprint: the server re-reads the shipment because label URLs expire. */
+export function useEbayReprintLabel() {
+  return useMutation<
+    EbayPurchasedLabel,
+    Error & { status?: number },
+    { saleId: string }
+  >({
+    mutationFn: async ({ saleId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/logistics/sales/${encodeURIComponent(
+          saleId
+        )}/label`,
+        { headers: await ebayHeaders() }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number } = new Error(
+          json.detail || json.error || "Couldn't fetch this label."
+        );
+        err.status = res.status;
+        throw err;
+      }
+      return json as EbayPurchasedLabel;
+    },
+  });
+}

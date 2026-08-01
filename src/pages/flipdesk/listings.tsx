@@ -139,6 +139,9 @@ import {
 // an eBay connection existed rather than on the listing's own platform, so every
 // non-eBay row fell into a local-only write that left the marketplace untouched.
 import {
+  type BulkPriceResponse,
+  chunkForBulkPrice,
+  mergeBulkPriceResponses,
   undoableFrom,
   useBulkEndListings,
   useBulkListingPrice,
@@ -552,6 +555,15 @@ export function FlipdeskListingsPage() {
   const [endTarget, setEndTarget] = useState<ItemFullRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ItemFullRow | null>(null);
   const [bulkDropPct, setBulkDropPct] = useState<string>("10");
+  // US-2163 (AC5): a markdown across a large selection is a long, expensive,
+  // irreversible-feeling operation. `null` means idle; otherwise it reports how
+  // far the chunked batch has got so the seller can see it moving and stop it.
+  const [dropProgress, setDropProgress] = useState<
+    { done: number; total: number } | null
+  >(null);
+  // A ref, not state: the cancel must be visible to the loop already running,
+  // and a state update would not reach the closure mid-flight.
+  const dropCancelled = useRef(false);
   const [markListedItem, setMarkListedItem] = useState<ItemFullRow | null>(
     null,
   );
@@ -1537,6 +1549,13 @@ export function FlipdeskListingsPage() {
         toast.success("That listing was already ended.");
       } else if (res.ended_upstream) {
         toast.success("Listing ended on the marketplace.");
+      } else if (res.queued) {
+        // US-2162: the marketplace has no end API, so this is QUEUED, not
+        // ended. Saying "ended" here is the oversell lie in a different
+        // costume, so it gets the long, explicit toast the still-live cases do.
+        toast.warning(res.note ?? "Queued to be ended by the Lister extension.", {
+          duration: 12_000,
+        });
       } else {
         // Nothing was live to end — an unpublished draft, or the marketplace
         // reported it already gone. Distinct from the old "ended locally",
@@ -1579,10 +1598,39 @@ export function FlipdeskListingsPage() {
       return;
     }
 
+    // US-2163 (AC2 + AC5): send the selection in 25-listing chunks rather than
+    // as one opaque request. A chunk boundary is the only place a long batch can
+    // report progress or be stopped — one request for 100 listings is a black
+    // box. It stays nothing like the old per-listing loop: 100 listings cost 4
+    // requests, well inside the 30-per-60s limit that loop used to trip.
+    const chunks = chunkForBulkPrice(listingIds);
+    dropCancelled.current = false;
+    setDropProgress({ done: 0, total: listingIds.length });
     setBusy(true);
     try {
-      const res = await bulkPrice.mutateAsync({ listingIds, dropPct: pct });
+      const parts: BulkPriceResponse[] = [];
+      let cancelledAfter = 0;
+      for (const chunk of chunks) {
+        if (dropCancelled.current) break;
+        parts.push(await bulkPrice.mutateAsync({ listingIds: chunk, dropPct: pct }));
+        cancelledAfter += chunk.length;
+        setDropProgress({ done: cancelledAfter, total: listingIds.length });
+      }
+      const res = mergeBulkPriceResponses(parts);
+      const stopped = dropCancelled.current && res.total < listingIds.length;
       setSelected(new Set());
+
+      if (stopped) {
+        // Be exact about what a mid-batch cancel means: the chunks already sent
+        // ARE repriced on their marketplaces. Implying a clean stop would send
+        // the seller looking for prices that already moved. The undo offered
+        // below still covers them.
+        toast.warning(
+          `Stopped after ${res.total} of ${listingIds.length}. ` +
+            `Those ${res.total} are already repriced — use Undo to put them back.`,
+          { duration: 15_000 },
+        );
+      }
 
       // US-2172: undo. A markdown across a large selection is the single most
       // expensive mis-click on this page, and it was irreversible — the seller's
@@ -1649,6 +1697,8 @@ export function FlipdeskListingsPage() {
       );
     } finally {
       setBusy(false);
+      setDropProgress(null);
+      dropCancelled.current = false;
     }
   }
 
@@ -1765,14 +1815,26 @@ export function FlipdeskListingsPage() {
     try {
       const res = await bulkEnd.mutateAsync({ listingIds });
       setSelected(new Set());
+      // US-2162: a queued row is NOT ended — Poshmark/Mercari/Grailed have no
+      // end API, so the Lister extension ends it in the seller's browser and
+      // the listing stays buyable until then. Counting those as "ended" is the
+      // oversell lie this story removed from the single-end path, so the bulk
+      // summary must separate them too.
+      const queued = res.results.filter((r) => r.ok && r.queued).length;
+      const queuedNote = queued > 0
+        ? ` ${queued} queued for the Lister extension — still live until it runs.`
+        : "";
       if (res.failed === 0) {
-        toast.success(`Ended ${res.succeeded} listing${res.succeeded === 1 ? "" : "s"}.`);
+        const ended = res.succeeded - queued;
+        const msg = `Ended ${ended} listing${ended === 1 ? "" : "s"}.${queuedNote}`;
+        if (queued > 0) toast.warning(msg, { duration: 14_000 });
+        else toast.success(msg);
       } else {
         // A failed end means the listing is STILL LIVE — surface the reason and
         // leave it up long enough to act on.
         const firstError = res.results.find((r) => !r.ok)?.error;
         toast.warning(
-          `Ended ${res.succeeded}, ${res.failed} still live.${
+          `Ended ${res.succeeded - queued}, ${res.failed} still live.${queuedNote}${
             firstError ? ` First: ${firstError}` : ""
           }`,
           { duration: 14_000 },
@@ -3375,18 +3437,37 @@ export function FlipdeskListingsPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button
-                    variant="outline"
-                    onClick={bulkPriceDrop}
-                    disabled={busy}
-                  >
-                    {busy ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <TrendingDown className="mr-2 h-4 w-4" />
-                    )}
-                    Drop price
-                  </Button>
+                  {/* US-2163 (AC5): while a chunked markdown runs, the button
+                      becomes a live counter and a Stop. */}
+                  {dropProgress ? (
+                    <>
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                        {dropProgress.done} / {dropProgress.total}
+                      </span>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          dropCancelled.current = true;
+                        }}
+                      >
+                        Stop
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={bulkPriceDrop}
+                      disabled={busy}
+                    >
+                      {busy ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <TrendingDown className="mr-2 h-4 w-4" />
+                      )}
+                      Drop price
+                    </Button>
+                  )}
                   <Button
                     variant="destructive"
                     onClick={bulkEndListings}

@@ -86,7 +86,6 @@ import {
   syncBusinessPolicies,
   syncExistingOffer,
   updateOfferFields,
-  updateOfferPrice,
   bulkUpdatePriceQuantity,
   EBAY_BULK_MAX,
   upsertConnection,
@@ -222,19 +221,15 @@ import {
   LISTING_PULL_ALLOWED_ON_GT_ORIGIN,
   validateEbayOriginEdit,
 } from "../lib/sync-precedence.ts";
-import { resolveAdapter } from "../lib/marketplace-adapters/index.ts";
+// US-2166: the shared platform-agnostic lifecycle core.
+import { applyListingPrice } from "../lib/listing-lifecycle.ts";
+// US-2166 (AC5): the bulk-edit handler now lives with the other
+// platform-agnostic listing operations; this file only forwards to it.
+import { bulkEditListingsHandler } from "./flipdesk-listings.ts";
 import {
   itemHasActiveListing,
   resyncItemListedStatus,
 } from "../lib/active-listings.ts";
-import {
-  MAX_BULK_EDIT_ITEMS,
-  normalizeBulkEdit,
-  processBulkEdit,
-  summarizeBulkEdit,
-  type BulkEditPatch,
-  type LoadedListing,
-} from "../lib/bulk-listing-edit.ts";
 import {
   buildPriceQtyRequest,
   chunk,
@@ -4832,6 +4827,22 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/evidence", async (c) => {
 // the user manually marked an item "listed" via MarkListedDialog), the
 // route returns 409 and the UI falls back to local-only.
 
+// US-2166: this path now DELEGATES to the shared lifecycle core rather than
+// keeping its own copy. It stays mounted because shipped iOS, Android and
+// browser-extension builds call it and cannot be redeployed — but a second
+// implementation of a money-touching operation is how a fix lands in one and
+// not the other, and these two had already drifted: the shared core reports
+// honestly when the marketplace accepted a price our copy then failed to save,
+// while this route used to ignore that write error entirely.
+//
+// Behaviour the delegation IMPROVES for callers of this path, all additive:
+//   • the origin gate reads the row's real platform instead of a hardcoded
+//     "ebay" (a Shopify row was being told eBay owns its price),
+//   • a never-published draft records its price instead of 409-ing on a missing
+//     offer id,
+//   • a marketplace-accepted-but-locally-unsaved write is reported, not hidden.
+// The success body gains `pushed` and keeps every field it had, so an older
+// client that ignores the new key is unaffected.
 flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -4850,83 +4861,21 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
     return c.json({ error: "price must be a positive number" }, 400);
   }
 
-  const row = await loadListingOwned(listingId, userId);
-  if (!row.ok) return c.json(row.error, row.status);
-
-  // US-1976: an eBay-originated listing is a read-only mirror — eBay owns its
-  // price, so reject a reprice with the same 409 + locked_fields contract as
-  // /revise. Checked BEFORE the offer-id gate so an eBay-origin row that carries
-  // an offer id is still rejected as locked, not silently repriced.
-  const priceLock = ebayOriginWriteLock(
-    {
-      listing_origin: row.listing.listing_origin,
-      platform: "ebay",
-      platform_listing_id: row.listing.platform_listing_id,
-      batch_id: row.listing.batch_id,
-      synced_to_ebay_at: row.listing.synced_to_ebay_at,
-    },
-    ["listing_price"],
-  );
-  if (priceLock.locked) {
+  const res = await applyListingPrice(userId, listingId, price);
+  if (!res.ok) {
     return c.json(
-      {
-        error:
-          "This listing was created on eBay, so eBay owns its price. Reprice it on eBay — changes here would be overwritten on the next sync.",
-        locked_fields: priceLock.lockedFields,
-      },
-      409
+      res.lockedFields
+        ? { error: res.error, locked_fields: res.lockedFields }
+        : { error: res.error },
+      res.status,
     );
   }
-
-  if (!row.listing.platform_offer_id) {
-    return c.json(
-      {
-        error:
-          "This listing has no eBay offer id. Sync from eBay or republish to enable price updates.",
-      },
-      409
-    );
-  }
-
-  try {
-    // US-1507: price the offer via the listing's own connection (null → primary).
-    await updateOfferPrice(
-      userId, row.listing.platform_offer_id, price, "USD",
-      row.listing.marketplace_connection_id ?? undefined,
-    );
-  } catch (err) {
-    console.error("[flipdesk-ebay] updateOfferPrice failed:", err);
-    return c.json(
-      {
-        error: "eBay rejected the price update.",
-        // US-1511: mapped/human detail only — raw blob stays in the log above.
-        detail: ebayFailureDetail(
-          err,
-          "eBay rejected the price update. Check the price is valid for this listing and try again.",
-        ),
-      },
-      502
-    );
-  }
-
-  await supabaseAdmin
-    .from("listings")
-    .update({ listing_price: price })
-    .eq("id", listingId);
-
-  // US-1504: mirror the new live price onto the item's target_price so the canvas
-  // "price not pushed to eBay" badge (which compares target_price vs the live
-  // listing price) doesn't invert after an eBay-side reprice — and re-saving the
-  // canvas won't revert the live price to a stale target.
-  if (row.listing.inventory_item_id) {
-    await supabaseAdmin
-      .from("inventory_items")
-      .update({ target_price: price })
-      .eq("id", row.listing.inventory_item_id)
-      .eq("user_id", userId);
-  }
-
-  return c.json({ ok: true, listing_id: listingId, price });
+  return c.json({
+    ok: true,
+    listing_id: listingId,
+    price: res.price,
+    pushed: res.pushed,
+  });
 });
 
 // ── Bulk price / quantity update (US-1046 clean surface) ────────────
@@ -5072,121 +5021,13 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
 });
 
 // ── Bulk-edit live listings (US-1292) ───────────────────────────────
-// POST /listings/bulk-edit — body { listing_ids: string[], edit: {...} }.
-// Multi-select bulk edit of shared fields (price, quantity, condition, business
-// policies, category) applied across connected marketplaces via the adapter
-// abstraction. Tenant-scoped (US-268); respects field-ownership locks on
-// marketplace-originated listings (US-1080 — never overwrites eBay-owned fields
-// on an eBay-originated listing); bounded by MAX_BULK_EDIT_ITEMS. Reports a
-// per-item outcome (ok | blocked | error) so a partial-failure batch is legible.
-flipdeskEbayRoutes.post("/listings/bulk-edit", async (c) => {
-  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  // Bulk multi-listing actions are a Pro+ feature (US-208).
-  const gate = await requireFlipdesk(c, { feature: "bulkActions", userId });
-  if (gate) return gate;
-  let body: { listing_ids?: unknown; edit?: unknown };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
+// US-2166 (AC5): the handler MOVED to routes/flipdesk-listings.ts. It was
+// always adapter-driven and never eBay-specific — only its mount point was
+// wrong, which is exactly what the story called out. This path stays registered
+// because shipped iOS, Android and browser-extension builds call it and cannot
+// be redeployed; it forwards rather than keeping a second copy.
+flipdeskEbayRoutes.post("/listings/bulk-edit", (c) => bulkEditListingsHandler(c));
 
-  const ids = Array.isArray(body.listing_ids)
-    ? [...new Set(body.listing_ids.filter((x): x is string => typeof x === "string"))]
-    : [];
-  if (ids.length === 0) return c.json({ error: "listing_ids required" }, 400);
-  if (ids.length > MAX_BULK_EDIT_ITEMS) {
-    return c.json({ error: `Too many listings (max ${MAX_BULK_EDIT_ITEMS}).` }, 400);
-  }
-
-  const patch = normalizeBulkEdit(body.edit as Record<string, unknown> | null);
-  if (!patch) return c.json({ error: "No valid fields to edit." }, 400);
-  const fieldNames = Object.keys(patch);
-
-  // Load only the caller's listings (tenant-scoped via the parent item owner).
-  const { data: rows } = await supabaseAdmin
-    .from("listings")
-    .select(
-      "id, platform, platform_offer_id, platform_listing_id, listing_origin, batch_id, synced_to_ebay_at, listing_price, inventory_item_id, inventory_items!inner(user_id)",
-    )
-    .in("id", ids)
-    .eq("inventory_items.user_id", userId);
-  type OwnedListingRow = {
-    id: string;
-    platform: string | null;
-    platform_offer_id: string | null;
-    platform_listing_id: string | null;
-    listing_origin: string | null;
-    batch_id: string | null;
-    synced_to_ebay_at: string | null;
-    listing_price: number | null;
-    inventory_item_id: string | null;
-  };
-  const byId = new Map<string, OwnedListingRow>(
-    ((rows ?? []) as unknown as OwnedListingRow[]).map((r) => [r.id, r]),
-  );
-
-  const resolve = (id: string): LoadedListing | null => {
-    const row = byId.get(id);
-    if (!row) return null;
-    return {
-      id,
-      origin: deriveListingOrigin({
-        listing_origin: row.listing_origin,
-        platform: row.platform,
-        platform_listing_id: row.platform_listing_id,
-        batch_id: row.batch_id,
-        synced_to_ebay_at: row.synced_to_ebay_at,
-      }),
-    };
-  };
-
-  // Persist the writable fields locally, then push the listing to its
-  // marketplace through the adapter (an idempotent re-publish for eBay).
-  const apply = async (
-    listing: LoadedListing,
-    applyFields: string[],
-  ): Promise<{ ok: boolean; error?: string }> => {
-    const row = byId.get(listing.id)!;
-    const writePatch: Record<string, unknown> = {};
-    for (const f of applyFields) {
-      writePatch[f] = (patch as Record<string, unknown>)[f];
-    }
-    if (Object.keys(writePatch).length > 0) {
-      const { error } = await supabaseAdmin
-        .from("listings")
-        .update(writePatch as never)
-        .eq("id", listing.id);
-      if (error) return { ok: false, error: error.message.slice(0, 200) };
-    }
-
-    const adapter = resolveAdapter(row.platform);
-    if (!adapter) {
-      return { ok: false, error: `${row.platform ?? "This marketplace"} isn't a supported marketplace.` };
-    }
-    if (!row.inventory_item_id) {
-      return { ok: false, error: "Listing has no linked inventory item." };
-    }
-    const price = (patch as BulkEditPatch).listing_price ?? row.listing_price ?? 0;
-    const res = await adapter.updateListing({
-      ownerId: userId,
-      inventoryItemId: row.inventory_item_id,
-      listingRowId: listing.id,
-      price,
-    });
-    return res.ok ? { ok: true } : { ok: false, error: res.error };
-  };
-
-  const results = await processBulkEdit(ids, fieldNames, resolve, apply);
-  const summary = summarizeBulkEdit(results);
-
-  await writeAuditLog(c, {
-    action: "flipdesk.bulk_edit_listings",
-    targetType: "listings",
-    details: { requested: ids.length, fields: fieldNames, ...summary },
-  });
-  return c.json({ ok: true, results, summary, total: results.length });
-});
 
 // ── Markdown / Sale events (US-1045) ────────────────────────────────
 // POST /listings/:id/sale — start an eBay markdown Sale (strike-through price +
@@ -5660,6 +5501,32 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   const row = await loadListingOwned(listingId, userId);
   if (!row.ok) return c.json(row.error, row.status);
 
+  // US-2166 DECISION (owner's call, 2026-07-31): revise is an eBay OPERATOR, not
+  // a platform-agnostic lifecycle step, so it deliberately stays here rather
+  // than moving alongside price and end. What "revise" means on eBay — item
+  // aspects, leaf categories, markdown Sale overlays, inventory_item vs offer
+  // field split — has no counterpart on the marketplaces the adapter covers.
+  // Forcing it into a shared shape would produce an operation that is eBay's
+  // everywhere except in name. This matches AC3, which already said the
+  // aspects/markdown pieces stay eBay-side; AC1 listing revise alongside price
+  // and end is resolved in AC3's favour.
+  //
+  // Being the eBay operator means SAYING SO. loadListingOwned does not filter by
+  // platform, so a Shopify or Etsy listing id can reach this handler; before
+  // this it would have gone on to call eBay's inventory/offer APIs with that
+  // row's ids. Refuse it plainly and point at the route that does handle it.
+  if ((row.listing.platform ?? "ebay") !== "ebay") {
+    return c.json(
+      {
+        error:
+          `This is a ${row.listing.platform} listing, and revise is an eBay-only operation. ` +
+          "Change its price with the listing price endpoint, or edit it on that marketplace.",
+        code: "not_an_ebay_listing",
+      },
+      409,
+    );
+  }
+
   // US-1080: eBay-originated listings are a read-only mirror in GradeThread —
   // eBay owns title/description/price/photos. Revising those here would be
   // overwritten on the next inbound sync, so reject the write server-side
@@ -5671,7 +5538,8 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     // US-1976: consult the persisted marker first (parity with the /price + end
     // gates), falling back to the provenance signals until it backfills.
     listing_origin: row.listing.listing_origin,
-    platform: "ebay",
+    // US-2166: the row's own platform, not a literal.
+    platform: row.listing.platform,
     platform_listing_id: row.listing.platform_listing_id,
     batch_id: row.listing.batch_id,
     synced_to_ebay_at: row.listing.synced_to_ebay_at,
@@ -6412,7 +6280,8 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
   const endLock = ebayOriginWriteLock(
     {
       listing_origin: row.listing.listing_origin,
-      platform: "ebay",
+      // US-2166: the row's own platform, not a literal.
+      platform: row.listing.platform,
       platform_listing_id: row.listing.platform_listing_id,
       batch_id: row.listing.batch_id,
       synced_to_ebay_at: row.listing.synced_to_ebay_at,
@@ -8794,6 +8663,13 @@ function generateState(): string {
 interface ListingRowForManage {
   id: string;
   inventory_item_id: string;
+  // US-2166: the row's REAL marketplace. These routes live in the eBay
+  // namespace but loadListingOwned does not filter by platform, so a non-eBay
+  // listing id can reach them — and every origin gate below used to hardcode
+  // "ebay", which derives the wrong provenance for such a row and can lock (or
+  // fail to lock) the wrong fields. Carrying the actual value removes the
+  // guess.
+  platform: string | null;
   platform_offer_id: string | null;
   platform_listing_id: string | null;
   // The values that were actually published. A photos-only revise re-PUTs the
@@ -8883,7 +8759,7 @@ async function loadListingOwned(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, marketplace_connection_id, listing_origin, variations, inventory_sku, inventory_items!inner(user_id, sku)"
+      "id, inventory_item_id, platform, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, marketplace_connection_id, listing_origin, variations, inventory_sku, inventory_items!inner(user_id, sku)"
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -8901,6 +8777,7 @@ async function loadListingOwned(
     listing: {
       id: row.id,
       inventory_item_id: row.inventory_item_id,
+      platform: row.platform,
       platform_offer_id: row.platform_offer_id,
       platform_listing_id: row.platform_listing_id,
       listing_title: row.listing_title,
@@ -8998,7 +8875,9 @@ interface ListingVariation {
   price_cents?: number | null;
   sku_suffix?: string | null;
 }
-interface ListingVariations {
+// US-2166: exported so the eBay adapter can type the variation matrix it now
+// receives on delist (a group listing has no offer id and must end by group key).
+export interface ListingVariations {
   specifications: string[];
   variants: ListingVariation[];
 }

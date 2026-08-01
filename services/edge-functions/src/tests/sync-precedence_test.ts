@@ -649,3 +649,79 @@ Deno.test("EQUIVALENCE: every eBay-owned field is exactly one of allowed or lock
     assert(allowed !== locked, `${f} must be exactly one of allowed / locked`);
   }
 });
+
+// ── US-2166: the origin gate must read the row's REAL platform ──────────────
+//
+// The eBay-namespaced listing routes (/api/flipdesk/ebay/listings/:id/{price,
+// revise} and DELETE :id) passed the literal "ebay" into these helpers, but
+// loadListingOwned never filtered by platform — so a non-eBay listing id
+// reaching those paths was judged as though it were an eBay row.
+//
+// That is not a theoretical mismatch. deriveListingOrigin returns "ebay" for
+// (platform === "ebay" && platform_listing_id), and EVERY published Shopify
+// listing has a platform_listing_id. With the literal, such a row derived
+// "ebay" and the seller was told "this listing was created on eBay, so eBay
+// owns its price" about their own Shopify listing — a 409 on a legitimate
+// reprice, with advice that makes no sense for the marketplace they are on.
+
+Deno.test("US-2166: a published Shopify row is NOT eBay-originated", () => {
+  const shopifyRow = {
+    listing_origin: null,
+    platform: "shopify",
+    platform_listing_id: "gid://shopify/Product/1",
+    batch_id: null,
+    synced_to_ebay_at: null,
+  };
+  assertEquals(deriveListingOrigin(shopifyRow), "gradethread");
+  assertEquals(
+    ebayOriginWriteLock(shopifyRow, ["listing_price"]).locked,
+    false,
+  );
+});
+
+Deno.test("US-2166: the same row judged as 'ebay' WAS falsely locked", () => {
+  // The exact bug, pinned so a regression is unmistakable: swap only the
+  // platform for the old hardcoded literal and the identical Shopify row flips
+  // to eBay-owned and locks the price.
+  const asEbayLiteral = {
+    listing_origin: null,
+    platform: "ebay", // what the route used to pass, regardless of the row
+    platform_listing_id: "gid://shopify/Product/1",
+    batch_id: null,
+    synced_to_ebay_at: null,
+  };
+  assertEquals(deriveListingOrigin(asEbayLiteral), "ebay");
+  assertEquals(ebayOriginWriteLock(asEbayLiteral, ["listing_price"]).locked, true);
+});
+
+Deno.test("US-2166: a genuine eBay row still locks", () => {
+  // The fix must not open a gate: an eBay-originated mirror stays read-only.
+  const ebayRow = {
+    listing_origin: null,
+    platform: "ebay",
+    platform_listing_id: "1234567890",
+    batch_id: null,
+    synced_to_ebay_at: null,
+  };
+  assertEquals(deriveListingOrigin(ebayRow), "ebay");
+  assertEquals(ebayOriginWriteLock(ebayRow, ["listing_price"]).locked, true);
+  assertEquals(
+    ebayOriginWriteLock(ebayRow, ["listing_status", "is_active"]).locked,
+    true,
+  );
+});
+
+Deno.test("US-2166: a null platform is not treated as eBay", () => {
+  // Legacy rows can carry a null platform; guessing "ebay" for them is the same
+  // false lock in a quieter costume.
+  assertEquals(
+    deriveListingOrigin({
+      listing_origin: null,
+      platform: null,
+      platform_listing_id: "abc",
+      batch_id: null,
+      synced_to_ebay_at: null,
+    }),
+    "gradethread",
+  );
+});
