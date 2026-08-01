@@ -247,6 +247,19 @@ export interface CompositeGradeResult {
   // lowers the grade.
   style_attributes: DetectedStyleAttribute[];
   confidence_score: number;
+  /**
+   * US-2299: the highest confidence this grade may EVER hold, given the caps
+   * compositeGrade applied (authenticity flag, defaulted factor, suspected
+   * prompt injection, defect divergence). 1 when none fired.
+   *
+   * The pipeline seeds its running confidenceCeiling from this, so a
+   * post-composite provenance boost (verified capture, live capture, verified
+   * 360) can raise an UNCAPPED grade but can never lift a capped one past its
+   * cap. Before this existed the ceiling started at 1 and knew nothing about
+   * these caps, so a grade held to 0.5 for a hallucinated factor could be
+   * stored at up to 1.0.
+   */
+  confidence_ceiling: number;
   needs_human_review: boolean;
   image_validity: ImageValidity;
   // US-336/US-338: aggregated photo-authenticity assessment.
@@ -1802,6 +1815,26 @@ export interface ConfidencePolicyInput {
 export interface ConfidencePolicyResult {
   finalConfidence: number;
   needsHumanReview: boolean;
+  /**
+   * US-2299: the CEILING these caps established — the min of whichever fired,
+   * or 1 when none did.
+   *
+   * Distinct from finalConfidence on purpose. finalConfidence is where this
+   * grade landed; the ceiling is how high it is ALLOWED to go afterwards.
+   * Seeding a later clamp from finalConfidence would freeze confidence
+   * entirely and disable the provenance boosts, which are a deliberate
+   * feature. Seeding from the ceiling lets an uncapped grade still earn its
+   * boost while a capped one cannot be lifted past its cap.
+   *
+   * The pipeline's running confidenceCeiling starts from this. Without it the
+   * ceiling started at 1 and knew nothing about the caps applied in here, so a
+   * grade capped at 0.5 for a hallucinated factor could be boosted back to 1.0
+   * and stored that way — violating the contract's "never raise confidence
+   * post-composite" rule. The review gate held; the STORED number did not, and
+   * that number feeds the public confidence label and the calibration miner
+   * that derives future thresholds.
+   */
+  confidenceCeiling: number;
 }
 
 // Final confidence + human-review decision. A flagged authenticity signal OR a
@@ -1810,22 +1843,25 @@ export interface ConfidencePolicyResult {
 export function applyGradingConfidencePolicy(
   input: ConfidencePolicyInput,
 ): ConfidencePolicyResult {
-  let finalConfidence = input.confidenceScore;
+  // US-2299: caps compose by MIN, and the composed value is reported so a later
+  // stage can enforce it rather than re-deriving it (and getting it wrong).
+  let confidenceCeiling = 1;
   if (input.authenticityFlagged) {
-    finalConfidence = Math.min(finalConfidence, AUTHENTICITY_FLAG_CONFIDENCE_CAP);
+    confidenceCeiling = Math.min(confidenceCeiling, AUTHENTICITY_FLAG_CONFIDENCE_CAP);
   }
   if (input.defaultedFactorCount > 0) {
-    finalConfidence = Math.min(finalConfidence, DEFAULTED_FACTOR_CONFIDENCE_CAP);
+    confidenceCeiling = Math.min(confidenceCeiling, DEFAULTED_FACTOR_CONFIDENCE_CAP);
   }
   if (input.injectionSuspected) {
-    finalConfidence = Math.min(finalConfidence, PROMPT_INJECTION_CONFIDENCE_CAP);
+    confidenceCeiling = Math.min(confidenceCeiling, PROMPT_INJECTION_CONFIDENCE_CAP);
   }
+  const finalConfidence = Math.min(input.confidenceScore, confidenceCeiling);
   const needsHumanReview =
     finalConfidence < input.reviewThreshold ||
     input.authenticityFlagged ||
     input.defaultedFactorCount > 0 ||
     (input.injectionSuspected ?? false);
-  return { finalConfidence, needsHumanReview };
+  return { finalConfidence, needsHumanReview, confidenceCeiling };
 }
 
 // US-485: partial-success grading. One flaky image (transient vision API error)
@@ -2397,11 +2433,16 @@ export async function compositeGrade(
     });
     let finalConfidence = policy.finalConfidence;
     let needsHumanReview = policy.needsHumanReview;
+    // US-2299: the composed ceiling travels out with the grade so the pipeline's
+    // provenance boosts clamp to it. It must pick up EVERY cap applied in here,
+    // including the divergence one below.
+    let confidenceCeiling = policy.confidenceCeiling;
     // US-1029: a large gap between the model's read and the defect-derived
     // ceiling means the structured defects and the holistic score disagree —
     // route to a human and cap confidence.
     if (largeDefectDivergence) {
       needsHumanReview = true;
+      confidenceCeiling = Math.min(confidenceCeiling, DEFECT_DIVERGENCE_CONFIDENCE_CAP);
       finalConfidence = Math.min(finalConfidence, DEFECT_DIVERGENCE_CONFIDENCE_CAP);
     }
 
@@ -2423,6 +2464,7 @@ export async function compositeGrade(
       defects_found: defectsFound,
       style_attributes: styleAttributes,
       confidence_score: finalConfidence,
+      confidence_ceiling: confidenceCeiling,
       needs_human_review: needsHumanReview,
       image_validity: imageValidity,
       image_authenticity: imageAuthenticity,

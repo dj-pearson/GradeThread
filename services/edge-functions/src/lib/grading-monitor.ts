@@ -162,6 +162,34 @@ export function evaluateAlerts(
   // fails, then activate — and it also silently breaks cross-run comparisons,
   // because the denominator moved underneath them.
   const gs = inputs.golden_set;
+
+  // US-2301: an EMPTY golden set is not "nothing to check", it is the accuracy
+  // gate being switched off.
+  //
+  // runScheduledEval skipped cleanly on zero cases, reasoning that a fresh
+  // deployment legitimately has none. True — and it means the state where no
+  // prompt has ever been evaluated, and none can be, produces silence. The
+  // monitor is the only thing that would ever say so, and it said nothing.
+  //
+  // Deliberately an ALERT rather than a thrown error: throwing would break the
+  // monitor cron on a fresh deploy, which trades a silent gap for a noisy one
+  // and teaches operators to ignore the job. Critical severity because every
+  // grade served in this state is ungated, and eval_passed reads null rather
+  // than false — so no other rule in this function fires.
+  if (gs && gs.active === 0) {
+    alerts.push({
+      code: "golden_set_empty",
+      severity: "critical",
+      metric: "golden_set_active_cases",
+      value: 0,
+      threshold: 1,
+      message:
+        "The golden set is EMPTY, so the eval gate cannot run and no prompt version " +
+        "can be qualified. Every grade being served is ungated. Promote real " +
+        "human-corrected grades into grading_eval_cases (never synthetic cases).",
+    });
+  }
+
   if (gs && gs.baseline !== null && gs.active < gs.baseline) {
     alerts.push({
       code: "golden_set_shrank",
@@ -284,8 +312,12 @@ async function runScheduledEval(t: MonitorThresholds): Promise<MonitorEvalResult
     return { ...base, skipped_reason: "MONITOR_RUN_EVAL=false" };
   }
 
-  // No golden cases → nothing to eval. Skip cleanly (this is the common state
-  // for a fresh deployment, not an error).
+  // No golden cases → nothing to eval. The RUN still skips (there is genuinely
+  // nothing to measure), but US-2301: this is no longer silent — the golden-set
+  // size travels to evaluateAlerts, which raises `golden_set_empty` at critical.
+  // An empty set means the accuracy gate is switched off, not that everything is
+  // fine, and this skip was the only thing standing between that state and an
+  // alert.
   const { count: caseCount } = await supabaseAdmin
     .from("grading_eval_cases")
     .select("id", { count: "exact", head: true })

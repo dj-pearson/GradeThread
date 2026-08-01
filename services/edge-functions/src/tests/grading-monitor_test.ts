@@ -255,3 +255,124 @@ Deno.test("no prior run means no shrink baseline, so no alert", () => {
   );
   assertEquals(alerts.filter((a) => a.code === "golden_set_shrank").length, 0);
 });
+
+// ── US-2301: an EMPTY golden set is the gate being off, not "nothing to do" ──
+//
+// runScheduledEval skipped cleanly on zero active cases, reasoning that a fresh
+// deployment legitimately has none. That is true, and it is exactly why the
+// state was invisible: with no cases, the eval never runs, `eval_passed` is
+// null rather than false, and NO other rule in evaluateAlerts fires. So the
+// configuration where no prompt has ever been evaluated — and none can be —
+// produced complete silence from the only component whose job is to notice.
+//
+// The repo confirms that is not hypothetical: there are zero INSERTs into
+// grading_eval_cases anywhere in the migrations, so a fresh database starts in
+// exactly this state.
+//
+// Alert rather than throw: throwing would break the monitor cron on a fresh
+// deploy, which trades a silent gap for a noisy one and teaches operators to
+// ignore the job.
+
+Deno.test("US-2301: an empty golden set raises a CRITICAL alert", () => {
+  const alerts = evaluateAlerts(
+    {
+      eval_passed: null, // the eval could not run — this is the whole problem
+      eval_regression: false,
+      production: HEALTHY,
+      golden_set: { active: 0, baseline: null },
+    },
+    THRESHOLDS,
+  );
+  const empty = alerts.find((a) => a.code === "golden_set_empty");
+  assert(empty, "an empty golden set must not pass silently");
+  assertEquals(empty?.severity, "critical");
+  assertEquals(worstSeverity(alerts), "critical");
+});
+
+Deno.test("US-2301: the message says what to do, and what NOT to do", () => {
+  // The golden set grows from REAL human-corrected grades. An operator reading
+  // "the set is empty" under time pressure will reach for fabricated cases,
+  // which would make every future eval meaningless while reading green.
+  const alerts = evaluateAlerts(
+    { eval_passed: null, eval_regression: false, production: HEALTHY, golden_set: { active: 0, baseline: null } },
+    THRESHOLDS,
+  );
+  const empty = alerts.find((a) => a.code === "golden_set_empty");
+  assert(empty?.message.includes("never synthetic"));
+});
+
+Deno.test("US-2301: a non-empty golden set raises nothing on its own", () => {
+  const alerts = evaluateAlerts(
+    {
+      eval_passed: true,
+      eval_regression: false,
+      production: HEALTHY,
+      golden_set: { active: 12, baseline: 12 },
+    },
+    THRESHOLDS,
+  );
+  assertEquals(alerts, []);
+});
+
+Deno.test("US-2301: empty and shrank are distinct alerts, not one collapsed rule", () => {
+  // A set that went 40 → 0 is BOTH: the gate is off AND cases were removed.
+  // Collapsing them would lose the second signal, which is the deliberate-abuse
+  // one (US-2037: never delete cases to make an eval pass).
+  const alerts = evaluateAlerts(
+    {
+      eval_passed: null,
+      eval_regression: false,
+      production: HEALTHY,
+      golden_set: { active: 0, baseline: 40 },
+    },
+    THRESHOLDS,
+  );
+  const codes = alerts.map((a) => a.code).sort();
+  assert(codes.includes("golden_set_empty"));
+  assert(codes.includes("golden_set_shrank"));
+});
+
+// ── US-2301: a prompt version the code can use must be seedable ─────────────
+//
+// The code defaults are per_image_v5 / composite_v4. The only grading seed
+// migration inserts per_image_v2 / composite_v2 and sets is_active false. So
+// the versions actually serving traffic have NO ai_prompt_versions row — which
+// means no eval result, no qualified_model, and nothing for the accuracy join
+// to attribute grades to.
+//
+// That gap cannot be closed from here: seeding rows is a migration, and this
+// host cannot push one. So it is PINNED instead — the current mismatch is
+// declared, and any FURTHER version bump fails until its author either seeds a
+// row or adds it to the declaration. That turns "nobody noticed for four
+// versions" into "you cannot bump a version without deciding".
+
+const KNOWN_UNSEEDED_PROMPT_VERSIONS = ["composite_v4", "per_image_v5"] as const;
+
+Deno.test("US-2301: every code-default prompt version is seeded, or declared unseeded", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../lib/ai-grading.ts", import.meta.url),
+  );
+  const codeVersions = [
+    /PER_IMAGE_PROMPT_VERSION = "([^"]+)"/.exec(src)?.[1],
+    /COMPOSITE_PROMPT_VERSION = "([^"]+)"/.exec(src)?.[1],
+  ].filter((v): v is string => !!v).sort();
+  assertEquals(codeVersions.length, 2, "both prompt-version constants must exist");
+
+  // Which versions any migration actually seeds.
+  const migrations = new URL("../../../../supabase/migrations/", import.meta.url);
+  let seeded = "";
+  for await (const entry of Deno.readDir(migrations)) {
+    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    const text = await Deno.readTextFile(new URL(entry.name, migrations));
+    if (text.includes("ai_prompt_versions")) seeded += text;
+  }
+
+  const unseeded = codeVersions.filter((v) => !seeded.includes(`'${v}'`)).sort();
+  assertEquals(
+    unseeded,
+    [...KNOWN_UNSEEDED_PROMPT_VERSIONS].sort(),
+    "A prompt version the code can serve has no ai_prompt_versions row, so it " +
+      "has no eval result and no qualified_model. Seed it in a migration — or, " +
+      "if you just seeded one, remove it from KNOWN_UNSEEDED_PROMPT_VERSIONS.",
+  );
+});

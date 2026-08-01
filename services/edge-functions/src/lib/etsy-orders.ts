@@ -20,6 +20,7 @@
 // resolved owner — never by an id taken from the receipt payload.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { normalizeSaleCurrency } from "./consignor-payout-math.ts";
 import { reverseConsignorPayoutsForSales } from "./consignor-payout.ts";
 import {
   type EtsyReceipt,
@@ -180,6 +181,10 @@ export async function ingestEtsyReceipt(
         sold_at: soldAt,
         sale_date: soldAt.slice(0, 10),
         buyer_username: receipt.buyerName || null,
+        // US-2292: the connector already parsed this and then dropped it on the
+        // floor. A null currency reads as payable, so a non-USD sale paid the
+        // consignor their share as if it were dollars.
+        currency: normalizeSaleCurrency(receipt.currency),
         status: "completed",
         platform_order_ref: {
           platform: "etsy",

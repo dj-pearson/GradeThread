@@ -17,6 +17,33 @@ paths = [
   # material here — only the boundary literals.
   '''services/edge-functions/src/lib/gsc-client\.ts$''',
 ]
+# US-2284 — the extension signing key.
+#
+# extension.pem (the Chrome Web Store signing identity) was committed on
+# 2026-07-13 and untracked on 2026-08-01. It is STILL IN HISTORY, so the
+# scheduled full-history scan (.github/workflows/secret-scan-history.yml) will
+# report it — correctly — on every run until one of two things happens:
+#
+#   A. the history is rewritten (BFG / git-filter-repo), which rewrites every
+#      open PR and every existing clone; or
+#   B. the key is treated as BURNED: rotated in the Chrome Web Store, the old
+#      one revoked, and the historical copy left in place as worthless.
+#
+# Option B is usually right for a signing key, because rotation makes the leaked
+# copy inert and a rewrite is disruptive. It is the OWNER'S CALL and it is not
+# made here. Once the key is rotated, uncomment the stanza below so the
+# scheduled scan goes green on a finding that no longer matters — and leave this
+# comment, because an unexplained allowlist entry for a private key is exactly
+# the kind of thing that gets copied.
+#
+# DO NOT uncomment before rotation. Silencing a live key is worse than the leak,
+# because it also removes the reminder.
+#
+# [[rules]]
+#   id = "gitleaks-private-key"
+#   [rules.allowlist]
+#     description = "extension.pem — leaked 2026-07-13, ROTATED <date>, old key revoked"
+#     paths = ['''^extension\.pem$''']
 regexes = [
   # Generic placeholder tokens used throughout the *.example files.
   '''your-[a-z-]+''',

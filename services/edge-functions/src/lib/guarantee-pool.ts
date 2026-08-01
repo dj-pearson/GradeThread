@@ -218,6 +218,26 @@ export interface PoolReserveResult {
  * downgrades the claim to manual review rather than auto-paying against an
  * unknown budget.
  */
+/**
+ * The ledger reference id for a claim's pool drawdown.
+ *
+ * US-2291: ONE derivation, because there used to be two. `reservePoolDrawdown`
+ * was called with `purchase:<purchaseId>` and `recordPoolDrawdown` with the
+ * claim id, and the ledger's idempotency is `ON CONFLICT (entry_type,
+ * reference_id)` — so two different keys meant two rows, and every
+ * auto-approved claim drew the guarantee pool down TWICE. A $5,000 period
+ * budget was exhausted after $2,500 of real payouts, and the shortfall showed
+ * up as buyers being told the pool was spent.
+ *
+ * Keyed on the PURCHASE, not the claim, for the reason the reserve already
+ * needed: the reserve happens at decision time, before the claim row exists,
+ * and the claim is itself idempotent on purchase_id. So the purchase is the
+ * only identifier both sides can agree on.
+ */
+export function poolDrawdownRef(purchaseId: string): string {
+  return `purchase:${purchaseId}`;
+}
+
 export async function reservePoolDrawdown(
   claimId: string,
   accountUserId: string,
@@ -243,6 +263,15 @@ export async function reservePoolDrawdown(
   return { allowed: r?.allowed === true, reason: r?.reason ?? "unknown" };
 }
 
+/**
+ * Record a drawdown that was NOT reserved at decision time — i.e. a claim a
+ * human approved after it was routed to manual review.
+ *
+ * The auto-approved path must NOT call this: `reservePoolDrawdown` already
+ * writes the ledger row atomically, and calling both is what US-2291 fixed.
+ * Pass the same {@link poolDrawdownRef} a reserve would have used, so if the
+ * claim WAS reserved this is an exact no-op instead of a second drawdown.
+ */
 export async function recordPoolDrawdown(
   claimId: string,
   accountUserId: string,

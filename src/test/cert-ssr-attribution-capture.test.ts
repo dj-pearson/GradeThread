@@ -28,6 +28,15 @@ import {
 import { renderLayout } from "../../functions/_shared/blog-render";
 import { flushPendingAffiliateClick, clearStoredAffiliateRef } from "@/lib/affiliate";
 
+// US-2375: the click-ping cases below need a RESOLVABLE edge API URL, and
+// postClickPing swallows an unresolvable one by design — so without this the
+// failure mode is a silent "fetch was never called", not an error. State the
+// dependency here instead of inheriting whatever VITE_* the runner exported;
+// that inheritance is what made these two cases pass in CI and fail locally.
+vi.mock("@/lib/edge-api", () => ({
+  edgeApiUrl: () => "https://functions.test.invalid",
+}));
+
 /** Run the snippet's JS the way a browser would, in the current jsdom page. */
 function runSnippet(nonce = "N0NCE"): void {
   const html = affiliateCaptureSnippet(nonce);

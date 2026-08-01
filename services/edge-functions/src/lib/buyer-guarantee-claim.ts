@@ -15,7 +15,7 @@ import { notifyBuyer } from "./buyer-notify.ts";
 import {
   getGuaranteePoolConfig,
   periodKey,
-  recordPoolDrawdown,
+  poolDrawdownRef,
   reservePoolDrawdown,
 } from "./guarantee-pool.ts";
 import {
@@ -419,7 +419,7 @@ export async function fileBuyerGuaranteeClaim(
       // this keeps one reservation per purchase through a retry.
       const poolConfig = await getGuaranteePoolConfig();
       const reserve = await reservePoolDrawdown(
-        `purchase:${purchase.id}`,
+        poolDrawdownRef(purchase.id),
         userId,
         decision.remedyCents,
         period,
@@ -462,10 +462,19 @@ export async function fileBuyerGuaranteeClaim(
   // Auto-approved → draw down the pool + grant the remedy credits now (both
   // idempotent on the claim id).
   if (isAuto) {
-    // The pool was already reserved above, at decision time — this is no longer
-    // where the money moves. Kept as a no-op-on-conflict so a claim reserved
-    // under the pre-US-2144 flow still reconciles.
-    await recordPoolDrawdown(claimId, userId, decision.remedyCents, period);
+    // US-2291: the pool was ALREADY drawn down by reservePoolDrawdown above, at
+    // decision time. This used to call recordPoolDrawdown(claimId, …) as a
+    // "no-op-on-conflict" — but the ledger dedupes on (entry_type,
+    // reference_id), and the reserve keyed on the PURCHASE while this keyed on
+    // the CLAIM. Two different keys, so nothing conflicted and both rows
+    // landed: every auto-approved claim drew the pool down twice, and a $5,000
+    // period budget was exhausted after $2,500 of real payouts.
+    //
+    // The fix is removal, not re-keying. The reserve is where the money moves
+    // and it is atomic; a second write here could only ever be a duplicate or a
+    // no-op, and one of those is expensive. recordPoolDrawdown still exists for
+    // the path that genuinely never reserved — a claim a human approves after
+    // manual review.
     if (decision.remedyCredits > 0) {
       const { error: grantErr } = await supabaseAdmin.rpc("grant_buyer_reward_credit", {
         p_user_id: userId,

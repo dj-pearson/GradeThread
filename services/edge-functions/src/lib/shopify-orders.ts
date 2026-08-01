@@ -15,6 +15,7 @@
 // equals the resolved owner — never by an id taken from the order payload.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { normalizeSaleCurrency } from "./consignor-payout-math.ts";
 import { reverseConsignorPayoutsForSales } from "./consignor-payout.ts";
 import {
   estimateShopifyNet,
@@ -195,6 +196,10 @@ export async function ingestShopifyOrder(
         sold_at: soldAt,
         sale_date: soldAt.slice(0, 10),
         buyer_username: order.name || null,
+        // US-2292: record what the money actually IS. Without this the column
+        // stayed null, isPayableCurrency read the blank as payable, and a
+        // 200 GBP sale paid the consignor their share as if it were dollars.
+        currency: order.currency,
         status: "completed",
       });
       if (saleErr) {
@@ -326,6 +331,8 @@ export function parseShopifyWebhookOrder(
     name?: string;
     financial_status?: string;
     total_price?: string | number;
+    // US-2292: Shopify sends this on every order; we simply never read it.
+    currency?: string;
     processed_at?: string;
     created_at?: string;
     cancelled_at?: string | null;
@@ -341,6 +348,7 @@ export function parseShopifyWebhookOrder(
     name: o.name ?? "",
     financialStatus: o.financial_status ?? null,
     totalPrice: o.total_price != null ? Number(o.total_price) : 0,
+    currency: normalizeSaleCurrency(o.currency),
     processedAt: o.processed_at ?? o.created_at ?? null,
     cancelledAt: o.cancelled_at ?? null,
     lineItems: (o.line_items ?? []).map((li) => ({

@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { encryptToken, decryptToken } from "../lib/crypto-aes.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { googleFetch } from "../lib/google-fetch.ts";
 
 // Google Photos import via the Photos PICKER API (the Library API's
 // list-everything access was retired 2025-03-31). The user consents once, picks
@@ -111,7 +112,7 @@ function randomState(): string {
 async function mintAccessToken(
   refreshToken: string,
 ): Promise<{ accessToken: string; expiresIn: number } | null> {
-  const res = await fetch(TOKEN_ENDPOINT, {
+  const res = await googleFetch(TOKEN_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -131,7 +132,7 @@ async function mintAccessToken(
 async function createPickerSession(
   accessToken: string,
 ): Promise<{ id: string; pickerUri: string } | null> {
-  const res = await fetch(`${PICKER_API}/sessions`, {
+  const res = await googleFetch(`${PICKER_API}/sessions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -255,7 +256,7 @@ flipdeskGooglePhotosRoutes.get("/oauth/callback", async (c) => {
 
   try {
     // 1. Exchange the code for a short-lived access token.
-    const tokenRes = await fetch(TOKEN_ENDPOINT, {
+    const tokenRes = await googleFetch(TOKEN_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -412,7 +413,7 @@ flipdeskGooglePhotosRoutes.get("/poll", async (c) => {
     return c.json({ ready: true });
   }
 
-  const res = await fetch(`${PICKER_API}/sessions/${session.picker_session_id}`, {
+  const res = await googleFetch(`${PICKER_API}/sessions/${session.picker_session_id}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
@@ -493,7 +494,7 @@ flipdeskGooglePhotosRoutes.post("/import", async (c) => {
     url.searchParams.set("sessionId", String(session.picker_session_id));
     url.searchParams.set("pageSize", "100");
     if (pageToken) url.searchParams.set("pageToken", pageToken);
-    const res = await fetch(url.toString(), {
+    const res = await googleFetch(url.toString(), {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
@@ -545,7 +546,7 @@ flipdeskGooglePhotosRoutes.post("/import", async (c) => {
       }
       // Sized download returns a JPEG (Google transcodes sized variants), so we
       // never have to decode HEIC server-side.
-      const res = await fetch(`${baseUrl}=w2400-h2400`, {
+      const res = await googleFetch(`${baseUrl}=w2400-h2400`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`download ${res.status}`);

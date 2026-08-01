@@ -170,3 +170,105 @@ Deno.test("resolveSlotFromRows: a 0% or promoted canary is not routed to", () =>
   assertEquals(promoted.canary, null);
   assertEquals(promoted.active.versionName, "c");
 });
+
+// ── US-2300 [P1]: a canary is a smaller audience, not a lower bar ───────────
+//
+// The canary route selected `id, stage, garment_scope, is_active, is_canary,
+// eval_passed` and tested only `eval_passed`. `qualified_model` was never even
+// SELECTED — so the US-2036 check could not have run there even if someone had
+// written it.
+//
+// activatePromptVersion carried the full check, so the hole was invisible from
+// the place people looked: the champion path was correct, and the canary path
+// serves real traffic to paying customers. A prompt qualified on model A could
+// take a live slice while DEFAULT_AI_MODEL was model B, producing sold grades
+// from a model that never cleared the MAE/agreement thresholds.
+//
+// The fix is one shared gate rather than a second copy of the check, because a
+// second copy is how this happened. These pin the gate itself and the fact that
+// both routes call it.
+
+const { checkPromptServingEligibility } = await import("../lib/grading-eval.ts");
+
+const LIVE = "claude-opus-5";
+
+Deno.test("US-2300: a version qualified on the live model may serve", () => {
+  assertEquals(
+    checkPromptServingEligibility({ eval_passed: true, qualified_model: LIVE }, LIVE),
+    { ok: true },
+  );
+});
+
+Deno.test("US-2300: a version qualified on a DIFFERENT model cannot be canaried", () => {
+  // The headline case, and the one the canary route could not see.
+  const r = checkPromptServingEligibility(
+    { eval_passed: true, qualified_model: "claude-sonnet-5" },
+    LIVE,
+  );
+  assertEquals(r.ok, false);
+  if (r.ok) return;
+  // Names BOTH models, so the operator knows which way to fix it rather than
+  // just that something is wrong.
+  assert(r.reason.includes("claude-sonnet-5"));
+  assert(r.reason.includes(LIVE));
+});
+
+Deno.test("US-2300: a missing model stamp fails CLOSED", () => {
+  // An eval pass we cannot attribute to a model is not a pass we can honour.
+  // Failing open here is worse than blocking a legitimate rollout: it ships
+  // unproven grading to paying customers, and eval_passed still reads true.
+  const r = checkPromptServingEligibility(
+    { eval_passed: true, qualified_model: null },
+    LIVE,
+  );
+  assertEquals(r.ok, false);
+});
+
+Deno.test("US-2300: the eval gate still comes first", () => {
+  for (const passed of [false, null]) {
+    const r = checkPromptServingEligibility(
+      { eval_passed: passed, qualified_model: LIVE },
+      LIVE,
+    );
+    assertEquals(r.ok, false);
+    if (!r.ok) assert(r.reason.includes("eval gate"));
+  }
+});
+
+Deno.test("US-2300: an unevaluated version reports the EVAL failure, not the model one", () => {
+  // Ordering is a usability decision, not an accident: the operator's next step
+  // is to run the eval, and leading with a model mismatch would send them to
+  // change an env var instead.
+  const r = checkPromptServingEligibility(
+    { eval_passed: false, qualified_model: null },
+    LIVE,
+  );
+  assertEquals(r.ok, false);
+  if (!r.ok) assert(r.reason.includes("eval gate"));
+});
+
+Deno.test("US-2300: BOTH serving paths call the one shared gate", () => {
+  // The AC that actually prevents recurrence. Two copies of this rule is how
+  // the canary path drifted; a third path (a scheduled auto-promoter, a bulk
+  // tool) must not be able to write a fourth.
+  const evalSrc = Deno.readTextFileSync(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
+  const adminSrc = Deno.readTextFileSync(
+    new URL("../routes/admin-grading.ts", import.meta.url),
+  );
+  assert(evalSrc.includes("export function checkPromptServingEligibility"));
+  assert(
+    evalSrc.includes("checkPromptServingEligibility(v, getGradingCompositeModel())"),
+    "activatePromptVersion must use the shared gate",
+  );
+  assert(
+    adminSrc.includes("checkPromptServingEligibility(v, getGradingCompositeModel())"),
+    "the canary route must use the shared gate",
+  );
+  // And the canary route must actually READ the column it now checks.
+  assert(
+    adminSrc.includes("is_canary, eval_passed, qualified_model"),
+    "the canary load must select qualified_model",
+  );
+});

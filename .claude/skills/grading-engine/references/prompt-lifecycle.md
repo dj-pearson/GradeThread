@@ -11,6 +11,31 @@
 - Resolution is cached cluster-coherently; activation paths call
   `invalidatePromptCache()`.
 
+## ⚠️ What the gate does NOT cover (US-2301, verified 2026-08-01)
+
+Read the section below as describing the ACTIVATION path only. Two things it
+can be misread as promising, and does not:
+
+- **There is no CI gate.** The golden-set eval appears in no GitHub workflow, no
+  `package.json` script, not `scripts/verify.mjs`, not the edge `deno.json`. No
+  build, PR or deploy is blocked by grading accuracy. `runScheduledEval` (the
+  monitor cron) raises alerts and blocks nothing. Editing prompt text in
+  `ai-grading.ts` reaches customers without ever touching an eval — the code
+  default is what serves when no active DB row overrides it.
+- **The code defaults have no DB row.** The only seed migration inserts
+  `per_image_v2` / `composite_v2`; the constants are `per_image_v5` /
+  `composite_v4`. So the versions actually serving traffic carry no eval result
+  and no `qualified_model`. `grading-monitor_test.ts` pins this: bumping a
+  version now fails until it is seeded or explicitly declared unseeded.
+
+The activation and canary endpoints DO refuse an un-evaled version
+(`checkPromptServingEligibility`, US-2300) — that part is real. It only applies
+to versions that go through a DB row.
+
+An empty golden set now raises a critical `golden_set_empty` alert instead of
+skipping silently (US-2301). There are zero `grading_eval_cases` INSERTs in the
+migration set, so a fresh database starts in exactly that state.
+
 ## The gate (never skip)
 
 1. **Draft**: insert the candidate row (inactive).

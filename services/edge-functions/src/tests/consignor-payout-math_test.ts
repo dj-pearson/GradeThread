@@ -162,3 +162,123 @@ Deno.test("planAutoPayout: pending row + still-not-onboarded → stays queued", 
     { action: "requeue", payoutId: "p1" },
   );
 });
+
+// ── US-2290 [P0]: a consignor paid by hand must not be paid again ───────────
+//
+// The two payout paths filed under different `source` values, and each looked
+// only for its own. An operator who settled a consignor outside Stripe — cash,
+// bank transfer — had it recorded as source='manual'; the sweep searched for
+// source='auto', found nothing, and transferred the money a second time.
+//
+// The engine's own idempotency was never broken: a partial unique index on
+// (sale_id) WHERE source='auto' guarantees at most one automatic payout. It
+// just could not see the human. That is why the fix is a wider READ and one
+// decision, not a second constraint.
+//
+// What this deliberately does NOT forbid is a second MANUAL payout for one
+// sale. 00301's own comment establishes that as an intentional override — a
+// partial payout, a top-up — and an operator adding one is a decision. What was
+// never a decision is the engine adding one behind them.
+
+Deno.test("US-2290: a settled manual payout blocks the engine", () => {
+  const base = { existing: null, share: 5000, onboarded: true };
+  for (const status of ["paid", "processing", "canceled"]) {
+    assertEquals(
+      planAutoPayout({ ...base, manual: [{ status }] }),
+      { action: "skip", reason: "paid_manually" },
+      `${status} must block`,
+    );
+  }
+});
+
+Deno.test("US-2290: a PENDING manual payout blocks too", () => {
+  // The case this bug hit hardest. A pending manual row is the cash payout an
+  // operator recorded so the consignor's balance would track — the money is
+  // already gone, it just never went through Stripe.
+  assertEquals(
+    planAutoPayout({ existing: null, manual: [{ status: "pending" }], share: 5000, onboarded: true }),
+    { action: "skip", reason: "paid_manually" },
+  );
+});
+
+Deno.test("US-2290: a FAILED manual payout does not block", () => {
+  // Nothing moved, so the engine picking the sale up is the recovery, not a
+  // duplicate. Blocking here would strand a consignor unpaid.
+  assertEquals(
+    planAutoPayout({ existing: null, manual: [{ status: "failed" }], share: 5000, onboarded: true }),
+    { action: "create", settle: "transfer" },
+  );
+});
+
+Deno.test("US-2290: one failed and one paid manual row still blocks", () => {
+  assertEquals(
+    planAutoPayout({
+      existing: null,
+      manual: [{ status: "failed" }, { status: "paid" }],
+      share: 5000,
+      onboarded: true,
+    }),
+    { action: "skip", reason: "paid_manually" },
+  );
+});
+
+Deno.test("US-2290: the manual check outranks the share and the auto row", () => {
+  // A human has settled the sale, so nothing the engine computes is relevant —
+  // including a $0 share or a half-finished auto row it would otherwise retry.
+  assertEquals(
+    planAutoPayout({ existing: null, manual: [{ status: "paid" }], share: 0, onboarded: true }),
+    { action: "skip", reason: "paid_manually" },
+  );
+  assertEquals(
+    planAutoPayout({
+      existing: { id: "a1", status: "pending" },
+      manual: [{ status: "paid" }],
+      share: 5000,
+      onboarded: true,
+    }),
+    { action: "skip", reason: "paid_manually" },
+  );
+});
+
+Deno.test("US-2290: with no manual rows every prior decision is unchanged", () => {
+  // The regression half. `manual` is optional, so an unmigrated caller behaves
+  // exactly as before.
+  const base = { existing: null, share: 5000, onboarded: true };
+  assertEquals(planAutoPayout(base), { action: "create", settle: "transfer" });
+  assertEquals(planAutoPayout({ ...base, manual: [] }), { action: "create", settle: "transfer" });
+  assertEquals(planAutoPayout({ ...base, share: 0 }), { action: "skip", reason: "zero_share" });
+  assertEquals(
+    planAutoPayout({ ...base, existing: { id: "a1", status: "paid" } }),
+    { action: "skip", reason: "already_settled" },
+  );
+  assertEquals(
+    planAutoPayout({ ...base, existing: { id: "a1", status: "pending" } }),
+    { action: "transfer", payoutId: "a1" },
+  );
+  assertEquals(
+    planAutoPayout({ ...base, existing: { id: "a1", status: "failed" }, onboarded: false }),
+    { action: "requeue", payoutId: "a1" },
+  );
+});
+
+Deno.test("US-2290: the DECISION read covers both sources", () => {
+  // A source assertion, because the defect was a query filter and has no
+  // runtime symptom the engine can observe: it did the right thing with the
+  // wrong rows.
+  //
+  // Narrow on purpose. Two other `.eq("source","auto")` filters in this file
+  // are CORRECT and must stay — re-resolving the row that won a 23505 race on
+  // the auto-only unique index, and the sweep's candidate discovery. Only the
+  // read that feeds planAutoPayout had to widen.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/consignor-payout.ts", import.meta.url),
+  );
+  assertEquals(src.includes("manual: manualPayouts"), true);
+  assertEquals(src.includes('.select("id, status, source")'), true);
+  // The specific regression: the decision read must not filter to auto. Anchored
+  // on the surrounding lines so the two legitimate filters do not match.
+  assertEquals(
+    /\.select\("id, status, source"\)[\s\S]{0,120}?\.eq\("source", "auto"\)/.test(src),
+    false,
+  );
+});

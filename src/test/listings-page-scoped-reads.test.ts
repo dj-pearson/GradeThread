@@ -16,10 +16,21 @@ import { resolve } from "node:path";
 // dropping the `.in("inventory_item_id", …)` scope, or dropping pageRowIds from
 // the query key so the read stops re-running per page.
 
-const FILE = "src/pages/flipdesk/listings.tsx";
+// US-2173 moved the five page-scoped reads into their own module. The scan
+// follows the code: the per-row reads are asserted against the query module,
+// the main items_full read against the page that still owns it. What is being
+// guarded is unchanged — only the address is.
+const QUERIES_FILE = "src/pages/flipdesk/listings-page-queries.ts";
+const PAGE_FILE = "src/pages/flipdesk/listings.tsx";
+/** Kept for the error messages below, which name the file a rename broke. */
+const FILE = QUERIES_FILE;
 
 function source(): string {
-  return readFileSync(resolve(process.cwd(), FILE), "utf8");
+  return readFileSync(resolve(process.cwd(), QUERIES_FILE), "utf8");
+}
+
+function pageSource(): string {
+  return readFileSync(resolve(process.cwd(), PAGE_FILE), "utf8");
 }
 
 /**
@@ -45,7 +56,7 @@ function queryBlock(src: string, keyLiteral: string): string {
 function queryBlockByKeyExpr(src: string, expr: string): string {
   const keyIdx = src.indexOf(`queryKey: ${expr}`);
   if (keyIdx === -1) {
-    throw new Error(`No useQuery with queryKey ${expr} in ${FILE}`);
+    throw new Error(`No useQuery with queryKey ${expr} in ${PAGE_FILE}`);
   }
   const rest = src.slice(keyIdx);
   const end = rest.indexOf("\n  });");
@@ -87,16 +98,19 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
     });
   }
 
-  it("declares the one read that is still tenant-wide", () => {
-    // The main items_full read still loads the whole inventory — that is
-    // US-2167, and it needs a column projection + server-side paging across all
-    // 11 consumers of useItemsFull, not a change confined to this file.
-    //
-    // Asserted rather than ignored so the remaining gap is visible and counted.
-    // When US-2167 lands, this expectation flips and the comment goes.
-    const block = queryBlockByKeyExpr(src, "listingsItemsKey");
+  it("the main items_full read is projected and bounded (US-2167)", () => {
+    // This expectation is the FLIPPED form of the one that stood here while the
+    // read was unbounded. It still loads the whole tenant — search, tab
+    // filtering and sort run client-side over the full set and can't move
+    // server-side until scoreListability has a SQL equivalent (US-2168 AC3) —
+    // but it no longer does so in ONE request, which is what PostgREST's
+    // db-max-rows silently truncated.
+    const block = queryBlockByKeyExpr(pageSource(), "listingsItemsKey");
     expect(block).toContain("LISTINGS_COLUMNS");
-    expect(block).not.toContain(".range(");
+    // Paged through the shared loop rather than a second copy of it, so the cap
+    // is handled in one place.
+    expect(block).toContain("fetchItemsPaged");
+    expect(block).not.toMatch(/\.order\("created_at"[^)]*\)\s*;/);
   });
 
   describe("the quality-score read (US-2170)", () => {
@@ -129,22 +143,34 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
     it("reuses the shared chip and mapping rather than re-deriving a score", () => {
       // The weights live server-side (lib/listing-quality-score.ts). A second
       // client-side derivation would drift from the number the server persists.
-      expect(src).toContain("QualityScoreChip");
+      expect(pageSource()).toContain("QualityScoreChip");
       expect(src).toContain("scoreMapFromRows");
       expect(src).not.toMatch(/function\s+\w*[sS]coreBand/);
+      expect(pageSource()).not.toMatch(/function\s+\w*[sS]coreBand/);
     });
   });
 
-  it("the five page-scoped reads sit below pageRowIds", () => {
-    // Hook order is load-bearing here: these queries close over pageRowIds, so
-    // they must be declared after it. Moving them back above would make the ids
-    // undefined at call time.
-    const anchor = src.indexOf("const pageRowIds = useMemo(");
+  it("the page calls the detail reads BELOW its pageRowIds", () => {
+    // Hook order is load-bearing: these queries close over pageRowIds, so the
+    // call has to come after it. US-2173 moved the queries into a hook, which
+    // moves the constraint from "where the queries sit" to "where the hook is
+    // called" — the failure is the same (undefined ids at call time), so the
+    // guard follows it rather than disappearing with the code.
+    const page = pageSource();
+    const anchor = page.indexOf("const pageRowIds = useMemo(");
+    const call = page.indexOf("usePageRowDetails({");
     expect(anchor).toBeGreaterThan(-1);
-    for (const [label, keyLiteral] of PAGE_SCOPED_READS) {
-      const at = src.indexOf(`queryKey: [${keyLiteral}`);
-      expect(at, `${label} must be declared after pageRowIds`).toBeGreaterThan(anchor);
-    }
+    expect(call, "usePageRowDetails must be called after pageRowIds").toBeGreaterThan(
+      anchor,
+    );
+  });
+
+  it("the query module still derives pageListingIds after its inputs", () => {
+    // The quality read keys on listing ids derived from pageRows, so the same
+    // ordering rule applies one level down.
+    const at = src.indexOf("const pageListingIds = useMemo(");
+    expect(at).toBeGreaterThan(-1);
+    expect(src.indexOf('queryKey: ["item_listing_quality"')).toBeGreaterThan(at);
   });
 });
 
@@ -166,7 +192,9 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
 // "work", and nothing at runtime complains. The failure is a wrong string.
 
 describe("optimistic writes target this page's own cache (US-2372)", () => {
-  const src = source();
+  // The optimistic writes stayed in the page — US-2173 moved the READS out, not
+  // the mutations, so this half still scans listings.tsx.
+  const src = pageSource();
 
   it("defines the page's items key exactly once", () => {
     // The whole fix is one definition. Nine hand-spelled copies is how it
@@ -218,5 +246,59 @@ describe("optimistic writes target this page's own cache (US-2372)", () => {
         `${fn} must invalidate on success`,
       ).toBe(true);
     }
+  });
+});
+
+// ── US-2173 AC5: the constraints that only exist as comments ────────────────
+//
+// Two rules on this page are enforced by nothing but a comment, and both were
+// learned the expensive way:
+//
+//   • US-419 — the page's items query uses a DISTINCT cache key from the shared
+//     readers, because it projects a narrower column set. Share the key and a
+//     partial-column entry wins, starving other surfaces of fields they read.
+//   • US-1489 — three effects are keyed on ONE dependency on purpose, because
+//     they WRITE searchParams; adding the obvious missing dep makes them loop.
+//
+// A refactor that moves code past them is exactly when a comment gets dropped,
+// and neither loss has a symptom a test would otherwise catch — one is a subtle
+// cache bug, the other is an infinite render loop nobody attributes to the
+// deleted line. So the comments are asserted.
+
+describe("the load-bearing comments survive a refactor (US-2173)", () => {
+  const page = pageSource();
+
+  it("keeps the US-419 distinct-cache-key rationale next to the query", () => {
+    expect(page).toContain("US-419");
+    const at = page.indexOf("US-419");
+    const near = page.slice(at, at + 1200);
+    // Not just the tag — the reason. A bare "US-419" left behind explains
+    // nothing to the next reader.
+    expect(near).toMatch(/DISTINCT|distinct/);
+    // And it has to still sit with the query it constrains.
+    expect(near).toContain("listingsItemsKey");
+  });
+
+  it("keeps every US-1489 effect-dependency note", () => {
+    // Three effects carry it; losing any one reintroduces a different loop.
+    const hits = page.match(/US-1489/g) ?? [];
+    expect(hits.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps the US-733 virtualization threshold and its rationale", () => {
+    // AC3's behaviour: below the threshold the table renders exactly as before,
+    // so the common case carries zero regression risk.
+    expect(page).toContain("VIRTUALIZE_ROW_THRESHOLD");
+    expect(page).toContain("US-733");
+  });
+
+  it("carries the US-2168 page-scoping rationale with the moved reads", () => {
+    // The reads moved; the reason they are page-scoped has to move with them,
+    // or the next person reads five unexplained .in() calls.
+    const mod = source();
+    expect(mod).toContain("US-2168");
+    expect(mod).toMatch(/VISIBLE PAGE/);
+    // And the caller-ordering constraint, which is now the module's to state.
+    expect(mod).toMatch(/hooks run in order/);
   });
 });

@@ -3398,11 +3398,22 @@ export interface RemoteOrder {
 // eBay caps the date range; we don't enforce a ceiling here — the caller
 // passes the connection's last_synced_at and falls back to "90 days ago"
 // on first sync.
+//
+// US-2320: returns `complete` alongside the orders. Hitting ORDERS_PAGE_CEILING
+// used to only push a warning string into `warnings`, which the caller counted
+// as a successful pass and stamped the cursor for — so the orders past the
+// ceiling were dropped and then never asked for again. A truncated read is an
+// incomplete read, and the caller has to be able to tell.
+export interface RecentOrdersResult {
+  orders: RemoteOrder[];
+  complete: boolean;
+}
+
 export async function listRecentOrders(
   userId: string,
   sinceISO?: string | null,
   warnings?: string[],
-): Promise<RemoteOrder[]> {
+): Promise<RecentOrdersResult> {
   const all: RemoteOrder[] = [];
   const limit = 200;
   let offset = 0;
@@ -3522,7 +3533,7 @@ export async function listRecentOrders(
       truncationWarning("eBay orders", all.length, total, ORDERS_PAGE_CEILING * limit),
     );
   }
-  return all;
+  return { orders: all, complete: completed };
 }
 
 // ── Sell Finances API: fees + payouts (Week 5) ─────────────────────

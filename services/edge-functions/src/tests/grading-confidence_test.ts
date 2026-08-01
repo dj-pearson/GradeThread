@@ -143,3 +143,117 @@ Deno.test("reconcileNeedsReview: below-threshold forces review; boosts never un-
   // the threshold must NOT un-gate an already-flagged grade.
   assertEquals(reconcileNeedsReview(true, 0.92, T), true);
 });
+
+// ── US-2299: the ceiling the caps established travels with the grade ────────
+//
+// The bug: the pipeline's running confidenceCeiling was seeded from
+// `partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1`, so it knew nothing about
+// the caps applied in here. A grade held to 0.5 for a hallucinated (defaulted)
+// factor could then be lifted by a provenance boost — verified capture, live
+// capture, verified 360 — and STORED at up to 1.0.
+//
+// The review gate itself held, which is why this survived: the grade still went
+// to a human. What did not hold is the stored number, and that number feeds the
+// public confidence label a buyer reads and the calibration miner that derives
+// future thresholds. A wrong-but-confident number there is exactly what the
+// contract's "never raise confidence post-composite" rule exists to prevent.
+//
+// The ceiling is reported SEPARATELY from finalConfidence on purpose. Clamping
+// later boosts to finalConfidence would freeze confidence and disable the
+// boosts entirely; clamping to the ceiling lets an uncapped grade earn its
+// boost while a capped one cannot be lifted past its cap.
+
+const CLEAN = {
+  confidenceScore: 0.9,
+  authenticityFlagged: false,
+  defaultedFactorCount: 0,
+  reviewThreshold: 0.75,
+};
+
+Deno.test("US-2299: no cap fired → ceiling 1, so a boost is still allowed", () => {
+  const r = applyGradingConfidencePolicy(CLEAN);
+  assertEquals(r.confidenceCeiling, 1);
+  assertEquals(r.finalConfidence, 0.9);
+});
+
+Deno.test("US-2299: a defaulted factor caps the ceiling, not just the value", () => {
+  // The headline case. Before, the value was capped and the ceiling was not, so
+  // the cap was erased by the next boost.
+  const r = applyGradingConfidencePolicy({ ...CLEAN, defaultedFactorCount: 1 });
+  assertEquals(r.confidenceCeiling, DEFAULTED_FACTOR_CONFIDENCE_CAP);
+  assertEquals(r.finalConfidence, DEFAULTED_FACTOR_CONFIDENCE_CAP);
+  assert(r.needsHumanReview);
+});
+
+Deno.test("US-2299: an authenticity flag caps the ceiling", () => {
+  const r = applyGradingConfidencePolicy({ ...CLEAN, authenticityFlagged: true });
+  assertEquals(r.confidenceCeiling, AUTHENTICITY_FLAG_CONFIDENCE_CAP);
+});
+
+Deno.test("US-2299: suspected injection caps the ceiling", () => {
+  const r = applyGradingConfidencePolicy({ ...CLEAN, injectionSuspected: true });
+  assert(r.confidenceCeiling <= 0.5);
+});
+
+Deno.test("US-2299: caps COMPOSE by min — the tightest one wins", () => {
+  // The contract's rule. An authenticity flag (0.6) plus a defaulted factor
+  // (0.5) must land on 0.5, not on whichever was checked last.
+  const r = applyGradingConfidencePolicy({
+    ...CLEAN,
+    authenticityFlagged: true,
+    defaultedFactorCount: 1,
+  });
+  assertEquals(
+    r.confidenceCeiling,
+    Math.min(AUTHENTICITY_FLAG_CONFIDENCE_CAP, DEFAULTED_FACTOR_CONFIDENCE_CAP),
+  );
+});
+
+Deno.test("US-2299: the ceiling never RAISES a low-confidence grade", () => {
+  // A grade the model itself scored at 0.2 stays at 0.2. The ceiling is a
+  // maximum, never a target — reading it as one would be the same contract
+  // violation pointing the other way.
+  const r = applyGradingConfidencePolicy({ ...CLEAN, confidenceScore: 0.2 });
+  assertEquals(r.finalConfidence, 0.2);
+  assertEquals(r.confidenceCeiling, 1);
+});
+
+Deno.test("US-2299: finalConfidence never exceeds the ceiling it reports", () => {
+  // The invariant the pipeline relies on, asserted across the whole grid rather
+  // than case by case.
+  for (const confidenceScore of [0, 0.3, 0.55, 0.75, 0.95, 1]) {
+    for (const authenticityFlagged of [false, true]) {
+      for (const defaultedFactorCount of [0, 1, 3]) {
+        for (const injectionSuspected of [false, true]) {
+          const r = applyGradingConfidencePolicy({
+            confidenceScore,
+            authenticityFlagged,
+            defaultedFactorCount,
+            injectionSuspected,
+            reviewThreshold: 0.75,
+          });
+          assert(
+            r.finalConfidence <= r.confidenceCeiling,
+            `confidence ${r.finalConfidence} exceeded ceiling ${r.confidenceCeiling}`,
+          );
+          assert(r.confidenceCeiling <= 1 && r.confidenceCeiling > 0);
+        }
+      }
+    }
+  }
+});
+
+Deno.test("US-2299: the pipeline seeds its running ceiling from the composite", () => {
+  // A source assertion because the defect was a SEEDING value, and a seeding
+  // value has no runtime symptom the pipeline can observe — every later clamp
+  // did exactly what it was told, against a ceiling that was simply too high.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-pipeline.ts", import.meta.url),
+  );
+  assert(
+    src.includes("compositeResult.confidence_ceiling"),
+    "confidenceCeiling must be seeded from the ceiling compositeGrade applied",
+  );
+  // And the three provenance boosts must still clamp to that running ceiling.
+  assertEquals(src.split("const ceiling = confidenceCeiling;").length - 1, 3);
+});

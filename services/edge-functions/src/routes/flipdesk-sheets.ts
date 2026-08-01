@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { googleFetch } from "../lib/google-fetch.ts";
 
 // Google Sheets "connection" without OAuth. The user pastes a share link to
 // a sheet that's viewable by "Anyone with the link"; we fetch its CSV export
@@ -84,7 +85,7 @@ flipdeskSheetsRoutes.post("/fetch-csv", async (c) => {
 
   let res: Response;
   try {
-    res = await fetch(exportUrl, {
+    res = await googleFetch(exportUrl, {
       redirect: "follow",
       headers: { Accept: "text/csv,text/plain,*/*" },
     });

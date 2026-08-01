@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { encryptToken, decryptToken } from "../lib/crypto-aes.ts";
 import { SheetsClient } from "../lib/google-sheets-api.ts";
+import { googleFetch } from "../lib/google-fetch.ts";
 import {
   MAPPABLE_FIELDS,
   type SheetMap,
@@ -181,7 +182,7 @@ flipdeskGoogleRoutes.get("/oauth/callback", async (c) => {
 
   try {
     // Exchange the code for tokens.
-    const tokenRes = await fetch(TOKEN_ENDPOINT, {
+    const tokenRes = await googleFetch(TOKEN_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -205,7 +206,7 @@ flipdeskGoogleRoutes.get("/oauth/callback", async (c) => {
     // Capture the Google account email (non-fatal).
     let email: string | null = null;
     try {
-      const infoRes = await fetch(USERINFO_ENDPOINT, {
+      const infoRes = await googleFetch(USERINFO_ENDPOINT, {
         headers: { Authorization: `Bearer ${token.access_token}` },
       });
       if (infoRes.ok) {
@@ -308,7 +309,7 @@ export async function getGoogleAccessToken(userId: string): Promise<string> {
   }
   const refreshToken = await decryptToken(conn.refresh_token_enc, { aad: userId });
 
-  const res = await fetch(TOKEN_ENDPOINT, {
+  const res = await googleFetch(TOKEN_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -399,7 +400,7 @@ flipdeskGoogleRoutes.post("/sheet/create", async (c) => {
     return c.json({ error: err instanceof Error ? err.message : "Google is not connected." }, 409);
   }
 
-  const res = await fetch(SHEETS_API, {
+  const res = await googleFetch(SHEETS_API, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -455,7 +456,7 @@ flipdeskGoogleRoutes.post("/sheet/use", async (c) => {
 
   // Confirm access under the drive.file grant. A 403/404 means the user hasn't
   // opened this file with the app (Picker) — the app can't reach it.
-  const checkRes = await fetch(
+  const checkRes = await googleFetch(
     `${SHEETS_API}/${encodeURIComponent(sheetId)}?fields=spreadsheetId,spreadsheetUrl,properties.title`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
@@ -612,7 +613,7 @@ flipdeskGoogleRoutes.post("/disconnect", async (c) => {
   if (encToken) {
     try {
       const tokenToRevoke = await decryptToken(encToken, { aad: userId });
-      await fetch(REVOKE_ENDPOINT, {
+      await googleFetch(REVOKE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ token: tokenToRevoke }),

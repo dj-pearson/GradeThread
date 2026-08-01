@@ -2368,6 +2368,18 @@ export interface BulkEditResult {
   status: "ok" | "blocked" | "error";
   error?: string;
   locked?: string[];
+  /**
+   * US-2172: the values the applied fields held BEFORE the edit, keyed by
+   * listings column. Present only on "ok". This is what an undo sends back —
+   * a null entry means the column WAS null, which is a real value to restore.
+   */
+  previous?: Record<string, unknown>;
+}
+
+/** One row of the per-listing body shape (US-2172), which undo needs. */
+export interface BulkEditItem {
+  listing_id: string;
+  edit: BulkEditFields;
 }
 
 export interface BulkEditResponse {
@@ -2385,15 +2397,21 @@ export function useBulkEditListings() {
   return useMutation<
     BulkEditResponse,
     Error,
-    { listingIds: string[]; edit: BulkEditFields }
+    // US-2172: either ONE edit across many listings, or a per-listing edit.
+    // Undo is always the second shape: each row goes back to its own former
+    // value, which no shared patch can express.
+    { listingIds: string[]; edit: BulkEditFields } | { items: BulkEditItem[] }
   >({
-    mutationFn: async ({ listingIds, edit }) => {
+    mutationFn: async (input) => {
+      const body = "items" in input
+        ? { items: input.items }
+        : { listing_ids: input.listingIds, edit: input.edit };
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/listings/bulk-edit`,
         {
           method: "POST",
           headers: await ebayHeaders(),
-          body: JSON.stringify({ listing_ids: listingIds, edit }),
+          body: JSON.stringify(body),
         },
       );
       const json = await res.json().catch(() => ({}));

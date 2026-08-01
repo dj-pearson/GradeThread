@@ -20,6 +20,10 @@ import {
 } from "./webhooks.ts";
 import { sendAdminMessageEmail } from "../lib/email.ts";
 import { resolveChargeMetadata } from "../lib/stripe-metadata.ts";
+import {
+  normalizeRefundAmount,
+  refundIdempotencyKey,
+} from "../lib/refund-amount.ts";
 
 const SITE_URL = Deno.env.get("SITE_URL") ?? "https://gradethread.com";
 
@@ -818,16 +822,35 @@ adminBillingRoutes.post("/charges/:id/refund", async (c) => {
     body = {};
   }
   const refundReason = typeof body.reason === "string" ? body.reason.slice(0, 200) : null;
-  const amount = typeof body.amount === "number" ? body.amount : undefined;
 
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  // US-2294: read the charge FIRST, so a partial refund can be bounded by what
+  // is actually still refundable. Without this there was no ceiling at all — a
+  // typo'd extra digit went straight to Stripe, and a charge already partly
+  // refunded would fail only AFTER the audit-log entry was written.
+  let remainingCents: number | null = null;
+  try {
+    const charge = await stripe.charges.retrieve(chargeId);
+    remainingCents = (charge.amount ?? 0) - (charge.amount_refunded ?? 0);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: `Could not read charge: ${msg}` }, 502);
+  }
+
+  // US-2294: `amount: 0` used to be FALSY, so the field was dropped and Stripe
+  // read the request as a full refund — an admin typing 0 refunded the whole
+  // charge. "Refund everything" is now an intent (omit the field), never
+  // something inferred from a value being falsy.
+  const parsed = normalizeRefundAmount(body.amount, remainingCents);
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
   try {
     const refund = await stripe.refunds.create(
       {
         charge: chargeId,
-        ...(amount ? { amount } : {}),
+        ...(parsed.kind === "partial" ? { amount: parsed.amount } : {}),
         reason: "requested_by_customer",
         metadata: {
           admin_id: adminId,
@@ -837,8 +860,11 @@ adminBillingRoutes.post("/charges/:id/refund", async (c) => {
       // US-1641: idempotency so a double-click / retry can't issue a second
       // refund. Keyed on (charge, amount) — a distinct partial amount still goes
       // through, but an identical resubmit within Stripe's 24h window is replayed,
-      // not re-charged.
-      { idempotencyKey: `admin-refund:${chargeId}:${amount ?? "full"}` },
+      // not re-charged. US-2294 moved the key next to the validator, because the
+      // old spelling produced `:0` for an amount Stripe executed as a FULL
+      // refund — a different key for the same effect, so the double-click guard
+      // was bypassed by the exact input that caused the bug.
+      { idempotencyKey: refundIdempotencyKey(chargeId, parsed) },
     );
 
     await auditLog(c, "admin.refund_charge", "charge", chargeId, {

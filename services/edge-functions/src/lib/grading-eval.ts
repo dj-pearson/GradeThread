@@ -562,6 +562,57 @@ export async function runPromptDryRun(
 }
 
 /**
+ * US-2300: THE gate that decides whether a prompt version may take live paid
+ * traffic. One implementation, called by every path that routes traffic.
+ *
+ * There are two such paths and they drifted. `activatePromptVersion` carried
+ * the full check; the CANARY route (admin-grading.ts) tested only
+ * `eval_passed` and never even selected `qualified_model` — so a prompt
+ * qualified on model A could serve a live slice of paying customers while
+ * DEFAULT_AI_MODEL was model B. A canary is a smaller audience, not a lower
+ * bar: the grades it produces are sold.
+ *
+ * Pure, so the rule can be tested without a database, and shared so a THIRD
+ * path (a scheduled auto-promoter, a bulk tool) cannot quietly reintroduce the
+ * gap. The lifecycle contract in the grading-engine skill is what this enforces.
+ *
+ * FAILS CLOSED on a missing stamp: an eval pass we cannot attribute to a model
+ * is not a pass we can honour.
+ */
+export function checkPromptServingEligibility(
+  v: { eval_passed: boolean | null; qualified_model: string | null },
+  liveModel: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (v.eval_passed !== true) {
+    return {
+      ok: false,
+      reason:
+        "Prompt version has not passed the eval gate. Run the eval and clear the MAE/agreement thresholds before serving traffic.",
+    };
+  }
+  // US-2036: the pass must belong to the model that will actually serve traffic.
+  // Without this, an operator could qualify a prompt on model A, change
+  // DEFAULT_AI_MODEL to model B via env (no deploy, no eval, no audit entry),
+  // and ship — every subsequent paid grade then comes from a model that never
+  // cleared the MAE/agreement thresholds, while eval_passed still reads true.
+  if (!v.qualified_model) {
+    return {
+      ok: false,
+      reason:
+        `This version's eval pass predates model attribution (US-2036), so we can't prove it was qualified on the live grading model (${liveModel}). Re-run the eval before serving traffic.`,
+    };
+  }
+  if (v.qualified_model !== liveModel) {
+    return {
+      ok: false,
+      reason:
+        `Model mismatch: this version passed the eval on "${v.qualified_model}" but live grading runs "${liveModel}". Re-run the eval against the live model before serving traffic.`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
  * Activation gate. A prompt version may go active only if its most recent eval
  * run passed. Returns { ok } or { ok:false, reason } for the admin route to
  * surface. Mutates is_active + deactivates the previous active prompt for the
@@ -585,36 +636,9 @@ export async function activatePromptVersion(
     qualified_model: string | null;
   };
 
-  if (v.eval_passed !== true) {
-    return {
-      ok: false,
-      reason:
-        "Prompt version has not passed the eval gate. Run the eval and clear the MAE/agreement thresholds before activating.",
-    };
-  }
-
-  // US-2036: the pass must belong to the model that will actually serve traffic.
-  // Without this, an operator could qualify a prompt on model A, change
-  // DEFAULT_AI_MODEL to model B via env (no deploy, no eval, no audit entry),
-  // and activate — every subsequent paid grade then comes from a model that
-  // never cleared the MAE/agreement thresholds, while eval_passed still reads
-  // true. Fails CLOSED on a missing stamp: a pass we cannot attribute to a
-  // model is not a pass we can honour.
-  const liveModel = getGradingCompositeModel();
-  if (!v.qualified_model) {
-    return {
-      ok: false,
-      reason:
-        `This version's eval pass predates model attribution (US-2036), so we can't prove it was qualified on the live grading model (${liveModel}). Re-run the eval before activating.`,
-    };
-  }
-  if (v.qualified_model !== liveModel) {
-    return {
-      ok: false,
-      reason:
-        `Model mismatch: this version passed the eval on "${v.qualified_model}" but live grading runs "${liveModel}". Re-run the eval against the live model before activating.`,
-    };
-  }
+  // US-2300: one shared gate, so the canary route and this one cannot drift.
+  const eligible = checkPromptServingEligibility(v, getGradingCompositeModel());
+  if (!eligible.ok) return eligible;
 
   // Deactivate the current active prompt for the same stage + scope slot.
   let deactivateQuery = supabaseAdmin

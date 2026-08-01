@@ -75,7 +75,7 @@ export interface ExistingAutoPayout {
 
 export type AutoPayoutPlan =
   // Nothing to do.
-  | { action: "skip"; reason: "zero_share" | "already_settled" }
+  | { action: "skip"; reason: "zero_share" | "already_settled" | "paid_manually" }
   // No row yet → create one, then transfer (onboarded) or queue (not onboarded).
   | { action: "create"; settle: "transfer" | "queue" }
   // Row already exists (pending/failed) → fire the transfer now (consignor has
@@ -84,14 +84,49 @@ export type AutoPayoutPlan =
   // Row already exists and stays queued (consignor still not onboarded).
   | { action: "requeue"; payoutId: string };
 
-// Decide what to do for one sale given any existing AUTO payout row, the
-// computed share, and whether the consignor can receive a Stripe transfer.
+/**
+ * US-2290: does an operator-created payout for this sale block the engine?
+ *
+ * The two paths filed under different `source` values and each only looked for
+ * its own, so neither could see the other. An operator who paid a consignor by
+ * hand — cash, bank transfer, anything outside Stripe — had that payout
+ * recorded as `source='manual'`, and the sweep, which searches only for
+ * `source='auto'`, found nothing and paid them a second time.
+ *
+ * A `failed` manual row does NOT block: nothing moved, so the engine picking
+ * the sale up is the recovery, not a duplicate. Every other status does,
+ * including `pending` — a pending manual row is exactly the cash payout an
+ * operator recorded so the balance would track, and it is the case this bug
+ * hit hardest.
+ *
+ * Note what this deliberately does NOT do: forbid a second MANUAL payout for
+ * one sale. 00301's own comment establishes that as an intentional override
+ * (a partial payout, a top-up), and an operator adding one is a decision, not
+ * an accident. What was never a decision is the engine adding one behind them.
+ */
+export function manualPayoutBlocksAuto(
+  manualRows: ReadonlyArray<{ status: string }>,
+): boolean {
+  return manualRows.some((r) => r.status !== "failed");
+}
+
+// Decide what to do for one sale given any existing AUTO payout row, any
+// operator-created rows, the computed share, and whether the consignor can
+// receive a Stripe transfer.
 export function planAutoPayout(args: {
   existing: ExistingAutoPayout | null;
+  /** Operator-created payouts already on this sale (US-2290). */
+  manual?: ReadonlyArray<{ status: string }>;
   share: number;
   onboarded: boolean;
 }): AutoPayoutPlan {
   const { existing, share, onboarded } = args;
+
+  // Checked BEFORE the auto row, and before the zero-share shortcut: a human
+  // has already settled this sale, so nothing the engine computes is relevant.
+  if (manualPayoutBlocksAuto(args.manual ?? [])) {
+    return { action: "skip", reason: "paid_manually" };
+  }
 
   if (existing) {
     if (SETTLED_STATUSES.has(existing.status)) {
@@ -139,4 +174,88 @@ export function isPayableCurrency(currency: string | null | undefined): boolean 
   const c = (currency ?? "").trim().toLowerCase();
   if (c === "") return true;
   return c === PAYOUT_CURRENCY;
+}
+
+/**
+ * US-2292: normalize a marketplace-reported currency for `sales.currency`.
+ *
+ * Every connector writes through this so the column holds ONE shape. It matters
+ * because the payout guard above compares strings: "GBP", "gbp" and " gbp "
+ * must not be three different currencies, and a junk value must not become a
+ * currency at all.
+ *
+ * Returns null — not "usd" — when the marketplace said nothing. Defaulting to
+ * USD is precisely the bug: a Shopify sale in GBP arrived with no currency
+ * recorded, isPayableCurrency read the blank as payable, and the consignor was
+ * paid their share of 200 as if it were dollars. A null says "we do not know",
+ * which is true and which a backfill can later resolve; "usd" would be a
+ * fabricated fact that no later pass could tell apart from a real one.
+ *
+ * ISO 4217 is three letters. Anything else is a parsing accident, not a
+ * currency.
+ */
+export function normalizeSaleCurrency(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const c = raw.trim().toLowerCase();
+  if (!/^[a-z]{3}$/.test(c)) return null;
+  return c;
+}
+
+/**
+ * US-2292: the date from which every connector writes `sales.currency`.
+ *
+ * A blank currency means two completely different things either side of this
+ * line, and the payout guard has to tell them apart:
+ *
+ *   • BEFORE — no ingest path recorded a currency at all, so every row is
+ *     blank. These have always been paid as USD and almost all of them really
+ *     are USD. Refusing them would stop consignor payouts outright for every
+ *     sale in the table's history, which is a worse failure than the one being
+ *     fixed.
+ *   • AFTER — the connector had a currency field to write and still wrote
+ *     nothing, so the marketplace genuinely did not say. That is the exact
+ *     shape of the bug: an unknown amount paid out as dollars.
+ *
+ * Override with SALE_CURRENCY_RECORDED_SINCE if the deploy lands later than
+ * this date, otherwise sales ingested by the OLD code in the gap get refused
+ * for a currency it was never able to record.
+ */
+export const CURRENCY_RECORDED_SINCE_DEFAULT = "2026-08-01T00:00:00Z";
+
+export type SaleCurrencyVerdict =
+  | { payable: true; reason: "usd" | "legacy_unrecorded" }
+  | { payable: false; reason: "not_usd" | "unrecorded" };
+
+/**
+ * Whether a sale may be paid out, given what we know about its currency AND
+ * whether we were in a position to know it.
+ *
+ * `isPayableCurrency` answers only "is this string USD", and reads a blank as
+ * yes. That is right for the legacy rows and wrong for everything ingested
+ * since — this is the whole decision, and it fails CLOSED on anything it cannot
+ * place, including an unparseable created_at.
+ */
+export function classifySaleCurrency(
+  currency: string | null | undefined,
+  saleCreatedAt: string | null | undefined,
+  recordedSinceIso: string = CURRENCY_RECORDED_SINCE_DEFAULT,
+): SaleCurrencyVerdict {
+  const c = (currency ?? "").trim().toLowerCase();
+  if (c !== "") {
+    return c === PAYOUT_CURRENCY
+      ? { payable: true, reason: "usd" }
+      : { payable: false, reason: "not_usd" };
+  }
+
+  // Blank. Which side of the line is it on?
+  const created = Date.parse(saleCreatedAt ?? "");
+  const since = Date.parse(recordedSinceIso);
+  if (!Number.isFinite(created) || !Number.isFinite(since)) {
+    // A sale we cannot date is a sale we cannot vouch for. Holding it costs a
+    // manual review; paying it out costs whatever the exchange rate is.
+    return { payable: false, reason: "unrecorded" };
+  }
+  return created < since
+    ? { payable: true, reason: "legacy_unrecorded" }
+    : { payable: false, reason: "unrecorded" };
 }

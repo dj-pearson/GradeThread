@@ -31,11 +31,11 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 10-ops — operations and runbooks
 
-23 notes — see [[moc-ops]].
+25 notes — see [[moc-ops]].
 
 ## 20-domain — grading, measurement, contracts
 
-18 notes — see [[moc-domain]].
+19 notes — see [[moc-domain]].
 
 ## 30-platform — marketplace integration
 

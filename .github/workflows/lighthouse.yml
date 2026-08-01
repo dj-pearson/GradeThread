@@ -30,6 +30,8 @@ permissions:
 # Non-secret placeholder config so `npm run build` can prerender (a prerendered
 # route imports the Supabase client, which throws at module load when unset).
 # Same rationale as ci.yml; nothing here reaches the backend.
+# US-2375: source of truth is scripts/lib/ci-env.ts; ci-env-parity.test.ts
+# fails if these lines drift from it.
 env:
   VITE_SUPABASE_URL: https://api.gradethread.com
   VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key

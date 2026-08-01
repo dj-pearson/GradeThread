@@ -199,6 +199,13 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "thumbnail-backfill", label: "Photo thumbnail backfill", schedule: "*/5 * * * *", category: "maintenance", endpoint: "/api/jobs/thumbnail-backfill", recorded: true },
   // Served under /api/flipdesk/* — not in the ledger (next-run still computed).
   { name: "ebay-token-refresh", label: "eBay token refresh", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/oauth/refresh", recorded: false },
+  // ⚠️ US-2310: this endpoint sits behind authMiddleware and its handler has NO
+  // requireJobSecret branch, so the documented curl-with-job-secret invocation
+  // 401s before the handler runs — and recorded:false means it leaves no
+  // cron_runs row, so cron-fleet-health cannot see that it never ran. Same for
+  // photo-archive and reconciliation-sweep below. Pinned in
+  // cron-registry-drift_test.ts's KNOWN_UNREACHABLE_CRONS until each gets a
+  // job-secret branch and a server-side tenant loop.
   { name: "ebay-orders-sync", label: "eBay listings/orders sync", schedule: "*/30 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/listings/pull", recorded: false },
   // US-1645: recorded via the eBay-cron recorder (cronNameForPath) so a missed
   // run signals in the cron_runs ledger.
@@ -208,8 +215,10 @@ export const CRON_REGISTRY: CronDef[] = [
   // so a missed/failed 5-min sheet sync signals in the cron_runs ledger + ops stream.
   { name: "google-sheet-sync", label: "Google Sheet sync", schedule: "*/5 * * * *", category: "sync", endpoint: "/api/flipdesk/google/sync/push", recorded: true },
   // Nightly photo archive sweep (cold-storage old originals).
+  // ⚠️ US-2310: unreachable with only the job secret — see ebay-orders-sync above.
   { name: "photo-archive", label: "Photo archive sweep", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/flipdesk/images/archive", recorded: false },
   // Payout reconciliation sweep (auto-link payout rows to sales).
+  // ⚠️ US-2310: unreachable with only the job secret — see ebay-orders-sync above.
   { name: "reconciliation-sweep", label: "Payout reconciliation sweep", schedule: "0 5 * * *", category: "flipdesk", endpoint: "/api/flipdesk/reconciliation/run", recorded: false },
   // US-1047: auto leave-feedback (no-op unless system setting feedback.auto_leave).
   { name: "ebay-leave-feedback", label: "eBay auto leave-feedback", schedule: "0 10 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/leave-feedback", recorded: true, healthy: "200; no-op unless system setting feedback.auto_leave=true" },

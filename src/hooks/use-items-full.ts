@@ -7,6 +7,7 @@ import {
   ITEM_LIST_SELECT,
   type ItemListRow,
 } from "@/lib/item-list-columns";
+import { fetchAllPages, READ_PAGE_SIZE } from "@/lib/paged-read";
 
 // `items_full` is the heaviest read in FlipDesk — the full denormalized
 // inventory view. Half a dozen routes (pipeline, prep, item, overview,
@@ -54,9 +55,26 @@ export function itemsListQueryKey(userId: string | undefined) {
 // Both reads page identically and share the canonical newest-first order, so
 // the consumers that group/filter/sort client-side see the same rows in the
 // same sequence either way. They differ only in the column list.
-const ITEMS_FULL_PAGE = 1000;
+const ITEMS_FULL_PAGE = READ_PAGE_SIZE;
 
-async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
+/**
+ * Read every `items_full` row for the current tenant in bounded pages, newest
+ * first, for an explicit column projection.
+ *
+ * US-2167: exported so the listings page reuses this loop instead of keeping
+ * its own single unbounded request. That page holds the ONE items_full read
+ * this hook does not own (it projects its own wider LISTINGS_COLUMNS under its
+ * own query key), and it was the last read that could be silently truncated by
+ * PostgREST's `db-max-rows` — a cap reported only in a header supabase-js does
+ * not surface. Sharing the loop means the cap is handled in one place rather
+ * than remembered in two.
+ *
+ * This bounds each REQUEST, not the result: the caller still receives the whole
+ * set. Serving a rendered page straight from the server is a different change,
+ * and on the listings page it is blocked on search/sort moving server-side
+ * (US-2168 AC3 — `scoreListability` has no SQL equivalent).
+ */
+export async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
   // `.bind(supabase)` is LOAD-BEARING. supabase-js implements `from()` as
   // `return this.rest.from(relation)`, so the method only works while it is
   // still attached to the client. Hoisting it into a bare local
@@ -89,21 +107,20 @@ async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
     }
   ).bind(supabase);
 
-  const all: T[] = [];
-  for (let start = 0; ; start += ITEMS_FULL_PAGE) {
+  // US-2169: the loop itself now lives in src/lib/paged-read.ts, so the
+  // stop-on-EMPTY / advance-by-received contract is written once instead of
+  // being re-derived (and re-broken) per surface. The previous loop here
+  // advanced by ITEMS_FULL_PAGE and stopped on a short page, which is correct
+  // only while the server's `db-max-rows` is at least ITEMS_FULL_PAGE — an
+  // assumption nothing in this repo sets or asserts.
+  return fetchAllPages<T>(async (start, end) => {
     const { data, error } = await from("items_full")
       .select(columns)
       .order("created_at", { ascending: false })
-      .range(start, start + ITEMS_FULL_PAGE - 1);
+      .range(start, end);
     if (error) throw error;
-    const batch = data ?? [];
-    all.push(...batch);
-    // A short page means the end. A full page might be the last one, so we
-    // pay one extra empty request rather than guess — stopping early here is
-    // the same silent truncation this exists to remove.
-    if (batch.length < ITEMS_FULL_PAGE) break;
-  }
-  return all;
+    return data ?? [];
+  }, ITEMS_FULL_PAGE);
 }
 
 /**

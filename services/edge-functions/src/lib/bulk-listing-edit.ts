@@ -78,6 +78,37 @@ export function normalizeBulkEdit(raw: RawBulkEdit | null | undefined): BulkEdit
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
+/**
+ * US-2172: the per-row body shape, `items: [{ listing_id, edit }]`.
+ *
+ * Undo needs it because a bulk edit's reverse is NOT another bulk edit: each
+ * listing must go back to its own former price, condition or policy, and no
+ * single shared patch can express that. The same shape also lets a caller send
+ * genuinely different edits in one batch, but undo is why it exists.
+ *
+ * Returns null when nothing usable survives normalization, so the route can 400
+ * rather than run an empty batch. Duplicate ids keep their LAST patch — sending
+ * one listing twice is a client bug, and quietly applying the first of two
+ * conflicting edits is the wrong half to keep.
+ */
+export function normalizeBulkEditItems(
+  raw: unknown,
+): { ids: string[]; patchById: Map<string, BulkEditPatch> } | null {
+  if (!Array.isArray(raw)) return null;
+  const patchById = new Map<string, BulkEditPatch>();
+  const ids: string[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as { listing_id?: unknown; edit?: unknown };
+    if (typeof e.listing_id !== "string" || e.listing_id === "") continue;
+    const patch = normalizeBulkEdit(e.edit as RawBulkEdit | null);
+    if (!patch) continue;
+    if (!patchById.has(e.listing_id)) ids.push(e.listing_id);
+    patchById.set(e.listing_id, patch);
+  }
+  return ids.length > 0 ? { ids, patchById } : null;
+}
+
 export interface ListingEditPlan {
   /** "apply" = at least one field is writable; "blocked" = all fields locked. */
   status: "apply" | "blocked";
@@ -118,6 +149,19 @@ export interface BulkEditItemResult {
   error?: string;
   /** Present on "blocked": the eBay-owned fields that were refused. */
   locked?: string[];
+  /**
+   * US-2172: the values these fields held BEFORE the edit, keyed by listings
+   * column — present only on "ok", and only for the fields actually written.
+   *
+   * This is what makes a bulk edit reversible. Undo cannot be expressed as a
+   * second bulk edit with one shared patch, because each row must go back to
+   * its OWN former value; so the response has to hand those values back, and
+   * the request has to accept them per row (the `items` body shape).
+   *
+   * A null entry means the column WAS null, which is a real value to restore —
+   * distinct from the field being absent, which means it was never written.
+   */
+  previous?: Record<string, unknown>;
 }
 
 export interface BulkEditSummary {
@@ -152,18 +196,36 @@ export interface LoadedListing {
  */
 export async function processBulkEdit(
   requestedIds: string[],
-  fieldNames: string[],
+  /**
+   * The requested field names. A FUNCTION when each row carries its own patch
+   * (US-2172's `items` body shape, which undo needs): every row goes back to a
+   * different former value, so they cannot share one field list.
+   */
+  fieldNames: string[] | ((id: string) => string[]),
   resolve: (id: string) => LoadedListing | null,
-  apply: (listing: LoadedListing, applyFields: string[]) => Promise<{ ok: boolean; error?: string }>,
+  apply: (
+    listing: LoadedListing,
+    applyFields: string[],
+  ) => Promise<{ ok: boolean; error?: string; previous?: Record<string, unknown> }>,
 ): Promise<BulkEditItemResult[]> {
   const results: BulkEditItemResult[] = [];
+  const fieldsFor = (id: string) =>
+    typeof fieldNames === "function" ? fieldNames(id) : fieldNames;
   for (const id of requestedIds) {
     const listing = resolve(id);
     if (!listing) {
       results.push({ listing_id: id, status: "error", error: "Listing not found" });
       continue;
     }
-    const plan = planListingEdit(listing.origin, fieldNames);
+    const requested = fieldsFor(id);
+    if (requested.length === 0) {
+      // A per-item entry that normalized to nothing. Reporting it as an error
+      // beats silently counting it as ok, which would tell the seller a row was
+      // updated when no column was touched.
+      results.push({ listing_id: id, status: "error", error: "No valid fields to edit" });
+      continue;
+    }
+    const plan = planListingEdit(listing.origin, requested);
     if (plan.status === "blocked") {
       results.push({ listing_id: id, status: "blocked", locked: plan.locked });
       continue;
@@ -172,7 +234,7 @@ export async function processBulkEdit(
       const r = await apply(listing, plan.apply);
       results.push(
         r.ok
-          ? { listing_id: id, status: "ok" }
+          ? { listing_id: id, status: "ok", ...(r.previous ? { previous: r.previous } : {}) }
           : { listing_id: id, status: "error", error: r.error ?? "Update failed" },
       );
     } catch (err) {

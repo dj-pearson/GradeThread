@@ -24,6 +24,8 @@ permissions:
 # route (/verify) transitively imports the Supabase client, which throws at
 # module load when these are unset. Same rationale as ci.yml. Nothing here
 # reaches the backend — the build only regenerates dist/seo-manifest.json.
+# US-2375: source of truth is scripts/lib/ci-env.ts; ci-env-parity.test.ts
+# fails if these lines drift from it.
 env:
   VITE_SUPABASE_URL: https://api.gradethread.com
   VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key

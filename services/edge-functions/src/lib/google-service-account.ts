@@ -1,3 +1,5 @@
+import { googleFetch } from "./google-fetch.ts";
+
 // Google service-account OAuth2 — mints a short-lived access token from a
 // service-account JSON key, for server-to-server Google APIs. Shared by FCM
 // (lib/fcm.ts, scope firebase.messaging) and the Google Play purchase verifier
@@ -141,7 +143,7 @@ export async function getAccessToken(
   if (cached && cached.expiresAt - 60 > nowSec) return cached.token;
 
   const assertion = await buildAssertionJwt(sa, scope, nowSec);
-  const res = await fetch(sa.token_uri ?? TOKEN_URI, {
+  const res = await googleFetch(sa.token_uri ?? TOKEN_URI, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({

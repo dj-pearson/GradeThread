@@ -23,7 +23,12 @@ import {
   useBulkEditListings,
   useEbayPolicies,
   type BulkEditFields,
+  type BulkEditItem,
 } from "@/hooks/use-ebay";
+import {
+  bulkEditUndoItems,
+  unrevertableEditCount,
+} from "@/lib/bulk-status-undo";
 import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 
 interface BulkEditDialogProps {
@@ -86,6 +91,37 @@ export function BulkEditDialog({
   const edit = buildEdit();
   const hasChanges = Object.keys(edit).length > 0;
 
+  // US-2172: push every edited listing back to its own former value.
+  //
+  // This is a real marketplace push, not a local rollback, so it reports its
+  // own per-row failures rather than implying a clean revert — a listing eBay
+  // refuses on the way back is still at the edited value, and the seller needs
+  // to know which one.
+  async function runUndo(items: BulkEditItem[]) {
+    try {
+      const back = await bulkEdit.mutateAsync({
+        items: items as { listing_id: string; edit: BulkEditFields }[],
+      });
+      if (back.summary.error === 0 && back.summary.blocked === 0) {
+        toast.success(
+          `Put ${back.summary.ok} listing${back.summary.ok === 1 ? "" : "s"} back.`,
+        );
+      } else {
+        const firstErr = back.results.find((r) => r.status === "error")?.error;
+        toast.warning(
+          `Put ${back.summary.ok} back, ${
+            back.summary.error + back.summary.blocked
+          } couldn't be reverted.${firstErr ? ` First: ${firstErr}` : ""}`,
+          { duration: 14_000 },
+        );
+      }
+    } catch (err) {
+      toast.error(
+        `Undo failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   async function runApply() {
     if (!hasChanges || listingIds.length === 0) return;
     try {
@@ -95,9 +131,30 @@ export function BulkEditDialog({
       if (blocked > 0) parts.push(`${blocked} locked (eBay-owned)`);
       if (error > 0) parts.push(`${error} failed`);
       const suffix = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+
+      // US-2172: undo. A bulk edit across a selection can rewrite price,
+      // condition and three policies at once, and before this the only way back
+      // was to remember every row's former value and retype it.
+      //
+      // The reverse of a bulk edit is NOT another bulk edit: each listing goes
+      // back to its own prior value, which is why the endpoint grew a
+      // per-listing `items` shape and returns `previous` per row.
+      const undoItems = bulkEditUndoItems(result.results);
+      const stuck = unrevertableEditCount(result.results);
+      const undoAction = undoItems.length > 0
+        ? { label: "Undo", onClick: () => void runUndo(undoItems) }
+        : undefined;
+      // Only worth saying when SOME of the batch is reversible — if none is,
+      // there is no Undo button for the number to qualify.
+      const stuckNote = undoItems.length > 0 && stuck > 0
+        ? ` ${stuck} can't be put back (no prior value recorded).`
+        : "";
+
       if (error === 0 && blocked === 0) {
         toast.success(
-          `Updated ${ok} listing${ok === 1 ? "" : "s"}.`,
+          `Updated ${ok} listing${ok === 1 ? "" : "s"}.${stuckNote}`,
+          // Longer than a default toast: undo is only useful while on screen.
+          { duration: 15_000, action: undoAction },
         );
       } else if (ok === 0) {
         const firstErr = result.results.find((r) => r.status === "error")?.error;
@@ -106,7 +163,10 @@ export function BulkEditDialog({
           { duration: 12_000 },
         );
       } else {
-        toast.warning(`Updated ${ok}${suffix}.`, { duration: 12_000 });
+        toast.warning(`Updated ${ok}${suffix}.${stuckNote}`, {
+          duration: 15_000,
+          action: undoAction,
+        });
       }
       reset();
       onApplied();

@@ -12,6 +12,7 @@
 // is injectable so the whole request/response shaping is unit-testable with no
 // live Google call.
 
+import { googleFetch } from "./google-fetch.ts";
 import { withBackoff } from "./ads-retry.ts";
 
 const OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
@@ -92,7 +93,7 @@ export function accessTokenRequestBody(config: GoogleAdsConfig): URLSearchParams
  */
 export async function mintGoogleAdsAccessToken(
   config: GoogleAdsConfig,
-  fetchFn: typeof fetch = fetch,
+  fetchFn: typeof fetch = googleFetch,
 ): Promise<string> {
   let res: Response;
   try {
@@ -155,7 +156,7 @@ export async function runGaql(
   config: GoogleAdsConfig,
   token: string,
   query: string,
-  fetchFn: typeof fetch = fetch,
+  fetchFn: typeof fetch = googleFetch,
 ): Promise<GaqlRow[]> {
   const rows: GaqlRow[] = [];
   let pageToken: string | undefined;
@@ -236,7 +237,7 @@ export async function uploadClickConversions(
   config: GoogleAdsConfig,
   token: string,
   conversions: ClickConversion[],
-  fetchFn: typeof fetch = fetch,
+  fetchFn: typeof fetch = googleFetch,
 ): Promise<{ results: unknown[]; partialFailureError?: unknown }> {
   let response: Response;
   try {
@@ -279,7 +280,7 @@ export type AdsConnectionStatus =
  * classified, actionable message on any auth/token error.
  */
 export async function checkAdsConnection(
-  fetchFn: typeof fetch = fetch,
+  fetchFn: typeof fetch = googleFetch,
 ): Promise<AdsConnectionStatus> {
   const config = googleAdsConfig();
   if (!config) {

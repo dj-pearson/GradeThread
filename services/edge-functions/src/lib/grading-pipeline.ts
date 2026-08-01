@@ -2106,7 +2106,25 @@ export async function processSubmission(submissionId: string) {
     // catches any grade whose EFFECTIVE confidence still ended below threshold.
     // Honors the grading contract: "never raise confidence post-composite" past
     // where a penalty put it.
-    let confidenceCeiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+    //
+    // US-2299: seeded from the ceiling compositeGrade ACTUALLY APPLIED, not
+    // from 1. The four caps inside compositeGrade (authenticity 0.6, defaulted
+    // factor 0.5, prompt injection 0.5, defect divergence 0.6) were baked into
+    // the composite confidence but never recorded here, so the ceiling started
+    // at 1 and a provenance boost could lift a grade capped at 0.5 for a
+    // hallucinated factor all the way back to 1.0 and store it. The review gate
+    // still held — but the STORED number feeds the public confidence label and
+    // the calibration miner that derives future thresholds, so a wrong-but-
+    // confident number there is exactly the failure the contract forbids.
+    //
+    // Seeded from the CEILING and not from the composite's confidence on
+    // purpose: seeding from the value would freeze confidence and disable the
+    // provenance boosts entirely, which are a deliberate feature. An uncapped
+    // grade still earns its boost; a capped one cannot be lifted past its cap.
+    let confidenceCeiling = Math.min(
+      partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1,
+      compositeResult.confidence_ceiling ?? 1,
+    );
 
     // --- Step 6: Create grade report record ---
     const certificateId = crypto.randomUUID();

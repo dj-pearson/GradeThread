@@ -29,6 +29,7 @@ import {
   promoteHighSignalEvalCandidates,
   runEval,
   runPromptDryRun,
+  checkPromptServingEligibility,
 } from "../lib/grading-eval.ts";
 import {
   activateExemplarSet,
@@ -76,7 +77,7 @@ import {
 } from "../lib/authenticity-accuracy.ts";
 import { recordMetric } from "../lib/observability.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
-import { isAllowedGradingModel } from "../lib/ai-config.ts";
+import { getGradingCompositeModel, isAllowedGradingModel } from "../lib/ai-config.ts";
 import { brandKeyForRaw } from "../lib/brand-normalize.ts";
 import {
   resealAfterAuthenticityChange,
@@ -1462,7 +1463,9 @@ adminGradingRoutes.patch("/prompts/:id/canary", async (c) => {
 
   const { data: row, error: loadErr } = await supabaseAdmin
     .from("ai_prompt_versions")
-    .select("id, stage, garment_scope, is_active, is_canary, eval_passed")
+    // US-2300: qualified_model comes along. It was never selected, which is why
+    // the check below could not have existed even if someone had written it.
+    .select("id, stage, garment_scope, is_active, is_canary, eval_passed, qualified_model")
     .eq("id", id)
     .maybeSingle();
   if (loadErr) return failSafe(c, 500, "Couldn't load the prompt.", loadErr, "admin.grading.canary.load");
@@ -1473,6 +1476,7 @@ adminGradingRoutes.patch("/prompts/:id/canary", async (c) => {
     is_active: boolean;
     is_canary: boolean;
     eval_passed: boolean | null;
+    qualified_model: string | null;
   };
 
   if (pct > 0) {
@@ -1482,12 +1486,12 @@ adminGradingRoutes.patch("/prompts/:id/canary", async (c) => {
         422,
       );
     }
-    if (v.eval_passed !== true) {
-      return c.json(
-        { error: "Run the eval gate (must pass) before routing live traffic to this version." },
-        422,
-      );
-    }
+    // US-2300: the SAME gate activatePromptVersion applies. This route tested
+    // only eval_passed, so a prompt qualified on model A could serve a live
+    // slice of paying customers while DEFAULT_AI_MODEL was model B. A canary is
+    // a smaller audience, not a lower bar — the grades it produces are sold.
+    const eligible = checkPromptServingEligibility(v, getGradingCompositeModel());
+    if (!eligible.ok) return c.json({ error: eligible.reason }, 422);
     // One canary per slot: clear any OTHER canary in the same (stage, scope).
     let clear = supabaseAdmin
       .from("ai_prompt_versions")

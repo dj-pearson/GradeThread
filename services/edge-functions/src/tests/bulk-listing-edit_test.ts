@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import {
   MAX_BULK_EDIT_ITEMS,
   normalizeBulkEdit,
+  normalizeBulkEditItems,
   planListingEdit,
   processBulkEdit,
   summarizeBulkEdit,
@@ -107,4 +108,103 @@ Deno.test("processBulkEdit catches a thrown apply and reports it as error", asyn
     },
   );
   assertEquals(results[0], { listing_id: "x", status: "error", error: "network down" });
+});
+
+// ── US-2172: the per-row shape that makes a bulk edit undoable ─────────────
+//
+// Undoing a bulk edit is not another bulk edit. Every listing must go back to
+// ITS OWN former price / condition / policy, and one shared patch cannot say
+// that — so the request grew an `items: [{ listing_id, edit }]` shape and the
+// response hands back each row's prior values.
+
+Deno.test("normalizeBulkEditItems parses a per-row batch", () => {
+  const out = normalizeBulkEditItems([
+    { listing_id: "a", edit: { price: 10 } },
+    { listing_id: "b", edit: { price: 20, quantity: 3 } },
+  ]);
+  assertEquals(out?.ids, ["a", "b"]);
+  assertEquals(out?.patchById.get("a"), { listing_price: 10 });
+  assertEquals(out?.patchById.get("b"), { listing_price: 20, quantity: 3 });
+});
+
+Deno.test("normalizeBulkEditItems rejects a non-array or an all-invalid batch", () => {
+  assertEquals(normalizeBulkEditItems({}), null);
+  assertEquals(normalizeBulkEditItems(null), null);
+  // price 0 is not a valid listing price, so this row normalizes to nothing.
+  assertEquals(normalizeBulkEditItems([{ listing_id: "a", edit: { price: 0 } }]), null);
+});
+
+Deno.test("normalizeBulkEditItems drops junk rows and keeps the usable ones", () => {
+  const out = normalizeBulkEditItems([
+    null,
+    "nope",
+    { listing_id: 42, edit: { price: 5 } },
+    { listing_id: "", edit: { price: 5 } },
+    { listing_id: "ok", edit: { price: 5 } },
+  ]);
+  assertEquals(out?.ids, ["ok"]);
+});
+
+Deno.test("normalizeBulkEditItems keeps the LAST patch for a duplicated id", () => {
+  // Sending one listing twice is a client bug; quietly applying the first of
+  // two conflicting edits is the wrong half to keep.
+  const out = normalizeBulkEditItems([
+    { listing_id: "a", edit: { price: 10 } },
+    { listing_id: "a", edit: { price: 99 } },
+  ]);
+  assertEquals(out?.ids, ["a"]);
+  assertEquals(out?.patchById.get("a"), { listing_price: 99 });
+});
+
+Deno.test("processBulkEdit accepts per-row field names", async () => {
+  const fields: Record<string, string[]> = {
+    a: ["listing_price"],
+    b: ["quantity"],
+  };
+  const seen: Record<string, string[]> = {};
+  const results = await processBulkEdit(
+    ["a", "b"],
+    (id) => fields[id] ?? [],
+    (id): LoadedListing => ({ id, origin: "gradethread" }),
+    (listing, applyFields) => {
+      seen[listing.id] = applyFields;
+      return Promise.resolve({ ok: true });
+    },
+  );
+  assertEquals(seen, { a: ["listing_price"], b: ["quantity"] });
+  assertEquals(summarizeBulkEdit(results), { ok: 2, blocked: 0, error: 0 });
+});
+
+Deno.test("processBulkEdit carries previous values onto an ok result only", async () => {
+  const ok = await processBulkEdit(
+    ["a"],
+    ["listing_price"],
+    (id): LoadedListing => ({ id, origin: "gradethread" }),
+    () => Promise.resolve({ ok: true, previous: { listing_price: 42 } }),
+  );
+  assertEquals(ok[0]?.previous, { listing_price: 42 });
+
+  // A row the marketplace refused never changed, so restoring it would push a
+  // value nobody asked for — the same rule the price-undo path applies.
+  const failed = await processBulkEdit(
+    ["a"],
+    ["listing_price"],
+    (id): LoadedListing => ({ id, origin: "gradethread" }),
+    () => Promise.resolve({ ok: false, error: "nope", previous: { listing_price: 42 } }),
+  );
+  assertEquals(failed[0]?.status, "error");
+  assertEquals(failed[0]?.previous, undefined);
+});
+
+Deno.test("processBulkEdit errors a per-row entry with no usable fields", async () => {
+  // Counting it ok would tell the seller a listing was updated when no column
+  // was touched.
+  const results = await processBulkEdit(
+    ["a"],
+    () => [],
+    (id): LoadedListing => ({ id, origin: "gradethread" }),
+    () => Promise.reject(new Error("apply must not run")),
+  );
+  assertEquals(results[0]?.status, "error");
+  assertEquals(results[0]?.error, "No valid fields to edit");
 });

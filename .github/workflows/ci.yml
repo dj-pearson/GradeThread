@@ -27,6 +27,11 @@ permissions:
 # non-secret config values (the anon key here is a throwaway placeholder); a
 # `api.`-prefixed URL also satisfies edge-api's derivation. Nothing in CI
 # actually reaches the backend.
+#
+# US-2375: these three lines are NOT the source of truth — scripts/lib/ci-env.ts
+# is, and vitest.config.ts injects the same object so a local `npm run verify`
+# runs under identical config. Change a value there and here together;
+# src/test/ci-env-parity.test.ts fails the run if they drift.
 env:
   VITE_SUPABASE_URL: https://api.gradethread.com
   VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
