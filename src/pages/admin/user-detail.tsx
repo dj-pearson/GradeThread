@@ -7,7 +7,6 @@ import type {
   UserRow,
   SubmissionRow,
   GradeReportRow,
-  AdminAuditLogInsert,
   UserPlan,
   UserRole,
 } from "@/types/database";
@@ -71,7 +70,6 @@ import {
 } from "lucide-react";
 import { startImpersonation } from "@/lib/impersonation";
 import { toast } from "sonner";
-import * as Sentry from "@sentry/react";
 import { BillingActionsCard } from "@/components/admin/billing-actions-card";
 import { CreditLedgerCard } from "@/components/admin/credit-ledger-card";
 import { UserRateLimitsCard } from "@/components/admin/user-rate-limits-card";
@@ -122,18 +120,10 @@ interface UserDetailData {
   gradeReports: GradeReportRow[];
 }
 
-async function createAuditLog(entry: AdminAuditLogInsert) {
-  const { error } = await supabase
-    .from("admin_audit_log")
-    .insert(entry as never);
-  if (error) {
-    // US-785: the admin action itself already completed — surface the audit-log
-    // failure (a compliance gap) to the admin + Sentry rather than swallowing it.
-    if (import.meta.env.DEV) console.error("Failed to create audit log:", error);
-    Sentry.captureException(error, { tags: { area: "admin.audit_log_write" } });
-    toast.warning("Action completed, but the audit-log entry failed to write.");
-  }
-}
+// US-2376: the client-side createAuditLog helper is gone. Every admin action on
+// this page now runs through an edge route, and writeAuditLog writes the row
+// server-side with the actor's role, IP and user-agent attached — which a
+// browser-side insert could never attest to, and which any admin could forge.
 
 export function AdminUserDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -143,6 +133,7 @@ export function AdminUserDetailPage() {
 
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [pendingPlan, setPendingPlan] = useState<UserPlan | null>(null);
+  const [planStepUpOpen, setPlanStepUpOpen] = useState(false);
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
   const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
@@ -242,37 +233,52 @@ export function AdminUserDetailPage() {
         ) / 10
       : 0;
 
+  // US-2376: the grading plan is an entitlement grant, so it runs server-side
+  // (POST /api/admin/users/:id/plan) where it carries the billing:write scope, a
+  // fresh MFA step-up and an audit row — the same posture as the Stripe-driven
+  // change-plan action. On STEP_UP_REQUIRED we open the authenticator dialog and
+  // retry.
+  //
+  // The browser-side update this replaces did not just skip those checks — it
+  // never changed anything. There is no admin UPDATE policy on public.users, so
+  // RLS matched zero rows, PostgREST returned no error, and this page reported
+  // success and logged an audit row for a change that did not happen.
+  // (Deliberately not quoting the old call here: admin-direct-write-guard.test
+  // scans this file textually, and prose that looks like the write reads as the
+  // write.)
   async function handlePlanChange() {
-    if (!targetUser || !pendingPlan || !adminProfile) return;
+    if (!targetUser || !pendingPlan) return;
     setActionLoading(true);
     try {
-      const { error } = await supabase
-        .from("users")
-        .update({ plan: pendingPlan } as never)
-        .eq("id", targetUser.id);
-      if (error) throw error;
+      const res = await edgeFetch(
+        `/api/admin/users/${targetUser.id}/plan`,
+        { method: "POST", json: { plan: pendingPlan }, silentGate: true },
+      );
+      if (res.status === 403) {
+        const body = await res.json().catch(() => ({}));
+        if (body?.code === "STEP_UP_REQUIRED") {
+          setPlanStepUpOpen(true); // dialog's onVerified retries
+          return;
+        }
+        throw new Error(body?.error ?? "Forbidden");
+      }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
 
-      await createAuditLog({
-        admin_user_id: adminProfile.id,
-        action: "change_plan",
-        target_type: "user",
-        target_id: targetUser.id,
-        details: {
-          previous_plan: targetUser.plan,
-          new_plan: pendingPlan,
-        },
-      });
-
-      toast.success(`Plan changed to ${PLANS[pendingPlan]?.name ?? pendingPlan}`);
+      toast.success(
+        body?.changed === false
+          ? "Plan unchanged — the user is already on that plan."
+          : `Plan changed to ${PLANS[pendingPlan]?.name ?? pendingPlan}`,
+      );
       queryClient.invalidateQueries({ queryKey: ["admin-user-detail", id] });
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      setPlanDialogOpen(false);
+      setPendingPlan(null);
     } catch (err) {
-      toast.error("Failed to change plan");
+      toast.error(err instanceof Error ? err.message : "Failed to change plan");
       if (import.meta.env.DEV) console.error(err);
     } finally {
       setActionLoading(false);
-      setPlanDialogOpen(false);
-      setPendingPlan(null);
     }
   }
 
@@ -937,6 +943,15 @@ export function AdminUserDetailPage() {
         onOpenChange={setStepUpOpen}
         onVerified={() => {
           void handleRoleChange();
+        }}
+      />
+
+      {/* US-2376: step-up re-auth for the plan grant, then retry. */}
+      <MfaStepUpDialog
+        open={planStepUpOpen}
+        onOpenChange={setPlanStepUpOpen}
+        onVerified={() => {
+          void handlePlanChange();
         }}
       />
 

@@ -128,6 +128,7 @@ import {
   RELIABILITY_QUEUE_SELECT,
 } from "../lib/reliability-privacy.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { failUngradedSubmission } from "../lib/stuck-submissions.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -3234,6 +3235,67 @@ adminGradingRoutes.post("/submissions/:id/regrade", async (c) => {
     title: result.title,
   });
   return c.json({ ok: true, superseded: result.supersededReportIds.length });
+});
+
+// POST /submissions/:id/mark-failed — give up on a submission wedged in
+// 'processing' (US-2376). The manual counterpart to the poison-orphan sweep:
+// same operation, run by a human who doesn't want to wait for the attempt
+// budget to burn down.
+//
+// It calls the SAME failUngradedSubmission the sweep does, so all three steps
+// happen: the status flips, the charge for the ungraded submission is reversed,
+// and the FlipDesk bridge link stops hanging at "processing". The browser-side
+// version this replaces did only the first of those — it left the customer
+// charged for a grade they never received — and in fact did none of them, since
+// there is no admin UPDATE policy on public.submissions, so RLS matched zero
+// rows while PostgREST reported success.
+//
+// The helper re-asserts status='processing' in the UPDATE, so a grade that
+// finished in the race window between the admin opening the dialog and
+// confirming it is left alone and reported back as a conflict — never
+// double-refunded. Same gate as regrade (admin + standing AAL2 + the router's
+// grading:review scope); no extra step-up, matching the sibling action that
+// also discards a grade run.
+adminGradingRoutes.post("/submissions/:id/mark-failed", async (c) => {
+  const id = c.req.param("id");
+
+  const { data: submission, error: lookupErr } = await supabaseAdmin
+    .from("submissions")
+    .select("id, status, title")
+    .eq("id", id)
+    .maybeSingle();
+  if (lookupErr) {
+    return failSafe(c, 500, "Couldn't look up the submission.", lookupErr, "admin.grading.mark_failed.lookup");
+  }
+  if (!submission) return c.json({ error: "Submission not found" }, 404);
+
+  const row = submission as { status: string; title: string | null };
+  if (row.status !== "processing") {
+    return c.json(
+      {
+        error: `Only a submission stuck in processing can be marked failed — this one is ${row.status}.`,
+        status: row.status,
+      },
+      409,
+    );
+  }
+
+  const owned = await failUngradedSubmission(
+    id,
+    "marked failed by an admin (stuck in processing)",
+    "An admin marked this grade failed; the charge was reversed.",
+  );
+  if (!owned) {
+    // It left 'processing' between the lookup and the claim — a grade landed.
+    return c.json({ error: "The submission finished grading just now — nothing was changed." }, 409);
+  }
+
+  await auditLog(c, "grading.mark_failed", "submission", id, {
+    previous_status: row.status,
+    title: row.title,
+    charge_reversed: true,
+  });
+  return c.json({ ok: true });
 });
 
 // ── US-1533: garment expectation baselines ──────────────────────────────────

@@ -46,6 +46,46 @@ function abandonedThresholdMs(): number {
 
 const BATCH_LIMIT = 100;
 
+/**
+ * Fail a submission that is stuck in 'processing' and never produced a grade,
+ * reverse the charge taken for it, and mirror the failure into the FlipDesk
+ * bridge link so its UI doesn't hang at "processing" forever.
+ *
+ * Re-asserts status='processing' in the UPDATE, so a grade that completed in
+ * the race window can't be double-refunded — returns false when it did NOT own
+ * the transition, and the caller should leave the row alone.
+ *
+ * US-2376: extracted from the poison-orphan sweep so the admin "mark as failed"
+ * button runs the SAME three steps. The old browser-side version set the status
+ * column and nothing else: the customer kept being charged for a grade they
+ * never got, and FlipDesk stayed stuck. (It also silently did nothing at all —
+ * there is no admin UPDATE policy on public.submissions, so RLS matched zero
+ * rows and PostgREST returned success.)
+ */
+export async function failUngradedSubmission(
+  submissionId: string,
+  /** Reason recorded against the charge reversal. */
+  reason: string,
+  /** Message written to the FlipDesk link's `error` column. */
+  flipdeskNote: string,
+): Promise<boolean> {
+  const { data: claimed } = await supabaseAdmin
+    .from("submissions")
+    .update({ status: "failed", grading_lease_until: null })
+    .eq("id", submissionId)
+    .eq("status", "processing")
+    .select("id")
+    .maybeSingle();
+  if (!claimed) return false;
+
+  await reverseChargeForUngradedSubmission(submissionId, reason);
+  await supabaseAdmin
+    .from("flipdesk_grading_submissions")
+    .update({ status: "failed", error: flipdeskNote.slice(0, 500) })
+    .eq("submission_id", submissionId);
+  return true;
+}
+
 export interface StuckSweepResult {
   scanned: number;
   /** Re-kicked (resumed) — grading will be picked back up. */
@@ -107,29 +147,12 @@ const defaultStuckStore: StuckSweepStore = {
       });
     });
   },
-  failAndRefund: async (id) => {
-    // Re-assert status='processing' so a concurrent grade that just completed
-    // (status flipped away) can't be double-refunded.
-    const { data: claimed } = await supabaseAdmin
-      .from("submissions")
-      .update({ status: "failed", grading_lease_until: null })
-      .eq("id", id)
-      .eq("status", "processing")
-      .select("id")
-      .maybeSingle();
-    if (!claimed) return false;
-
-    await reverseChargeForUngradedSubmission(
+  failAndRefund: (id) =>
+    failUngradedSubmission(
       id,
       "stuck in processing — attempt budget exhausted (orphan recovery)",
-    );
-    // Mirror into the FlipDesk bridge link so its UI doesn't hang forever.
-    await supabaseAdmin
-      .from("flipdesk_grading_submissions")
-      .update({ status: "failed", error: "Grading repeatedly stalled; auto-failed and charge reversed." })
-      .eq("submission_id", id);
-    return true;
-  },
+      "Grading repeatedly stalled; auto-failed and charge reversed.",
+    ),
 };
 
 export async function recoverStuckSubmissions(

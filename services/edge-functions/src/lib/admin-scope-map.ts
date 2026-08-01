@@ -156,7 +156,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     file: "admin-users.ts",
     scope: null,
     mode: "mutations",
-    rationale: "Mixed: POST /:id/role → users:role (original US-908 guard); POST /:id/suspend → moderation:write (account action). Reads (user lookup/detail) stay role-gated for support workflows.",
+    rationale: "Mixed: POST /:id/role → users:role (original US-908 guard); POST /:id/suspend → moderation:write (account action); POST /:id/plan → billing:write (US-2376 — granting users.plan is granting entitlement). Reads (user lookup/detail) stay role-gated for support workflows.",
   },
   {
     file: "admin-scopes.ts",

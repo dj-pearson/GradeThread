@@ -23,6 +23,11 @@ export const adminUsersRoutes = new Hono<AdminEnv>();
 
 const ASSIGNABLE_ROLES = new Set(["user", "admin", "super_admin"]);
 
+// The public.user_plan enum (00001). This is the GRADING plan on users.plan —
+// NOT flipdesk_plan, which POST /api/admin/users/:id/change-plan drives through
+// Stripe.
+const ASSIGNABLE_PLANS = new Set(["free", "starter", "professional", "enterprise"]);
+
 // A v4 UUID — used to recognise an id paste (user / submission / cert id are all
 // UUIDs) so we know which tables are worth probing.
 const UUID_RE =
@@ -571,4 +576,77 @@ adminUsersRoutes.post("/:id/suspend", requireScope("moderation:write"), async (c
   });
 
   return c.json({ ok: true, suspended });
+});
+
+// POST /:id/plan — set a user's GRADING plan (users.plan) by hand: a comp, a
+// support goodwill grant, a manual downgrade (US-2376).
+//
+// This is the entitlement column the monthly grade allowance and every plan gate
+// read, so granting it is granting revenue. It therefore carries the same
+// posture as the Stripe-driven change-plan route: the billing:write scope, a
+// fresh MFA step-up, and an audit row.
+//
+// It is NOT the same route. POST /api/admin/users/:id/change-plan (admin-billing)
+// drives `flipdesk_plan` through a Stripe subscription and lets the webhook write
+// the row; nothing there touches `users.plan`. This one writes `users.plan`
+// directly and deliberately does NOT touch Stripe — so if the account has a live
+// subscription, its billing is unchanged and this grant sits on top of it until
+// the next webhook. The audit row records whether that was the case.
+//
+// Replaces a browser-side `supabase.from("users").update({ plan })`, which had
+// no scope check and no step-up — and which also never worked: there is no admin
+// UPDATE policy on public.users, so RLS matched zero rows, PostgREST returned
+// success, and the page toasted "Plan changed" over a change that never
+// happened (writing a false audit row on the way out).
+adminUsersRoutes.post("/:id/plan", requireScope("billing:write"), async (c: Context<AdminEnv>) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const targetId = c.req.param("id");
+
+  const body = await c.req.json().catch(() => ({}));
+  const plan = typeof body.plan === "string" ? body.plan : "";
+  if (!ASSIGNABLE_PLANS.has(plan)) {
+    return c.json({ error: "Invalid plan" }, 400);
+  }
+  const reason = typeof body.reason === "string" ? body.reason.slice(0, 500) : null;
+
+  const { data: target, error: lookupErr } = await supabaseAdmin
+    .from("users")
+    .select("id, plan, stripe_customer_id, subscription_status")
+    .eq("id", targetId)
+    .maybeSingle();
+  if (lookupErr) return failSafe(c, 500, "Couldn't look up the user.", lookupErr, "admin.users.plan.lookup");
+  if (!target) return c.json({ error: "User not found" }, 404);
+
+  const previous = (target as { plan: string }).plan;
+  if (previous === plan) {
+    // Nothing to do — but say so rather than reporting a change that wasn't one.
+    return c.json({ ok: true, plan, changed: false });
+  }
+
+  const { error: updateErr } = await supabaseAdmin
+    .from("users")
+    .update({ plan })
+    .eq("id", targetId);
+  if (updateErr) return failSafe(c, 500, "Couldn't change the plan.", updateErr, "admin.users.plan.update");
+
+  const billing = target as { stripe_customer_id: string | null; subscription_status: string | null };
+  await writeAuditLog(c, {
+    action: "admin.change_plan",
+    targetType: "user",
+    targetId,
+    before: { plan: previous },
+    after: { plan },
+    details: {
+      reason,
+      // A manual grant on top of a live subscription is the case that later
+      // looks like a billing discrepancy — record it at the moment it happens.
+      had_stripe_customer: Boolean(billing.stripe_customer_id),
+      subscription_status: billing.subscription_status,
+      stripe_synced: false,
+    },
+  });
+
+  return c.json({ ok: true, plan, changed: true });
 });

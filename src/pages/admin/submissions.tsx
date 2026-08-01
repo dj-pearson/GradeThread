@@ -3,12 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { useAuth } from "@/hooks/use-auth";
 import type {
   SubmissionRow,
   GradeReportRow,
   UserRow,
-  AdminAuditLogInsert,
 } from "@/types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -146,7 +144,6 @@ const PAGE_SIZE = 25;
 export function AdminSubmissionsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { profile } = useAuth();
 
   // Filters
   const [statusFilter, setStatusFilter] = useState("all");
@@ -312,17 +309,10 @@ export function AdminSubmissionsPage() {
     setPage(1);
   }
 
-  async function logAuditAction(action: string, targetId: string, details: Record<string, unknown>) {
-    if (!profile) return;
-    const entry: AdminAuditLogInsert = {
-      admin_user_id: profile.id,
-      action,
-      target_type: "submission",
-      target_id: targetId,
-      details,
-    };
-    await supabase.from("admin_audit_log").insert(entry as never);
-  }
+  // US-2376: the client-side logAuditAction helper is gone. Both admin actions
+  // on this page now run through edge routes, which write the audit row
+  // server-side with the actor's role, IP and user-agent — attestable, and not
+  // forgeable from a devtools console.
 
   async function handleRetriggerGrading() {
     if (!retriggerTarget) return;
@@ -355,24 +345,26 @@ export function AdminSubmissionsPage() {
     }
   }
 
+  // US-2376: marking a stuck grade failed runs through the server endpoint,
+  // which does the whole operation — flips the status, REVERSES THE CHARGE for
+  // the grade the customer never got, and clears the FlipDesk bridge link so it
+  // stops showing "processing" — and writes the audit row. The old browser write
+  // set the status column and nothing else, so the customer stayed charged; and
+  // because there is no admin UPDATE policy on submissions, RLS matched zero
+  // rows and it never even did that, while this page reported success.
   async function handleMarkAsFailed() {
     if (!markFailedTarget) return;
     setActionLoading(true);
     try {
-      const { error } = await supabase
-        .from("submissions")
-        .update({ status: "failed" } as never)
-        .eq("id", markFailedTarget.id);
-
-      if (error) throw error;
-
-      await logAuditAction("mark_failed", markFailedTarget.id, {
-        previous_status: markFailedTarget.status,
-        title: markFailedTarget.title,
-      });
+      const res = await edgeFetch(
+        `/api/admin/grading/submissions/${markFailedTarget.id}/mark-failed`,
+        { method: "POST", json: {} },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to mark the submission failed.");
 
       toast.success("Submission marked as failed", {
-        description: `"${markFailedTarget.title}" has been marked as failed.`,
+        description: `"${markFailedTarget.title}" was marked failed and the charge reversed.`,
       });
 
       queryClient.invalidateQueries({ queryKey: ["admin-submissions"] });

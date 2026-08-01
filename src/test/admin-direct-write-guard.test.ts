@@ -41,40 +41,12 @@ const DECLARED: Array<DirectWrite & { why: string }> = [
       "every logAuditAction call to the edge and revoking the client grant, " +
       "which is that story's whole subject, not a side effect of this one.",
   },
-  {
-    file: "src/pages/admin/submissions.tsx",
-    table: "admin_audit_log",
-    op: "insert",
-    why: "Same as above — US-2349.",
-  },
-  {
-    file: "src/pages/admin/submissions.tsx",
-    table: "submissions",
-    op: "update",
-    why:
-      "Marks a stuck submission failed. There is no edge equivalent today " +
-      "(admin-grading has /submissions/:id/regrade and nothing for this), so " +
-      "closing it means designing a route, not repointing a call.",
-  },
-  {
-    file: "src/pages/admin/user-detail.tsx",
-    table: "admin_audit_log",
-    op: "insert",
-    why: "Same as above — US-2349.",
-  },
-  {
-    file: "src/pages/admin/user-detail.tsx",
-    table: "users",
-    op: "update",
-    why:
-      "Writes users.plan directly — an admin granting entitlement with no " +
-      "billing:write scope check and no step-up. The nearest edge route, " +
-      "POST /admin/billing/users/:id/change-plan, drives flipdesk_plan through " +
-      "Stripe and lets the webhook write the row; it does not touch users.plan " +
-      "at all. This one needs a new route and is filed separately. It is the " +
-      "most serious entry on this list.",
-  },
 ];
+// US-2376 closed four of the original six entries. submissions.tsx and
+// user-detail.tsx now route every mutation through the edge, so their
+// admin_audit_log inserts went with them — the audit row is written server-side
+// by writeAuditLog, with the actor's role, IP and user-agent attached. Only
+// ai-models.tsx still writes the audit log from the browser; that is US-2349.
 
 // Tables the edge guards with a scope, a step-up, an audit row, or all three.
 // A direct write to one of these from the browser is a bypass by construction.
@@ -165,6 +137,63 @@ describe("US-2348: admin SPA writes to edge-guarded tables", () => {
     // create, deactivate, delete, edit — the four that used to be raw writes.
     expect(src).toContain("/api/admin/grading/prompts");
     expect(src.match(/promptsApi\(/g)?.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe("US-2376: the plan grant and the mark-failed action", () => {
+  it("user-detail.tsx changes the plan through the scoped edge route", () => {
+    const src = readFileSync("src/pages/admin/user-detail.tsx", "utf8");
+    expect(src).toContain("/plan`");
+    expect(src).toContain("/api/admin/users/");
+    // The step-up retry is the point of the route — without the dialog the
+    // admin just gets a 403 they cannot clear.
+    expect(src).toContain("setPlanStepUpOpen");
+    expect(src).toContain("STEP_UP_REQUIRED");
+  });
+
+  it("submissions.tsx marks failed through the edge route", () => {
+    const src = readFileSync("src/pages/admin/submissions.tsx", "utf8");
+    expect(src).toContain("/mark-failed");
+  });
+
+  it("neither page writes the audit log from the browser any more", () => {
+    for (const f of ["src/pages/admin/user-detail.tsx", "src/pages/admin/submissions.tsx"]) {
+      expect(readFileSync(f, "utf8"), f).not.toContain('from("admin_audit_log")');
+    }
+  });
+
+  it("the submissions lifecycle columns are frozen against the owner", () => {
+    // AC4. The SPA fix alone is cosmetic while a seller can PATCH their own
+    // submission row: "Users can update own submissions" (00451) is USING-only,
+    // with no WITH CHECK and no column list, so status='completed' was one
+    // devtools request away.
+    const mig = readFileSync(
+      "supabase/migrations/00511_submissions_protected_columns_guard.sql",
+      "utf8",
+    );
+    expect(mig).toContain("CREATE TRIGGER guard_submissions_protected_columns");
+    for (const col of ["status", "payment_status", "refunded_at", "moderation_status", "grading_attempts"]) {
+      expect(mig, col).toContain(`NEW.${col} IS DISTINCT FROM OLD.${col}`);
+    }
+    // Service-role (the edge) must still own these columns, or the grading
+    // pipeline itself would be blocked.
+    expect(mig).toContain("auth.role() IS DISTINCT FROM 'authenticated'");
+  });
+
+  it("users.plan needs no new grant narrowing — there was never one", () => {
+    // Recording the finding rather than writing a no-op migration: public.users
+    // has no admin UPDATE policy at all (00006 is SELECT-only), and 00331's
+    // trigger freezes `plan` against the owner. The browser write this story
+    // removed did not bypass RLS — it silently matched zero rows and the page
+    // reported success anyway.
+    const adminRead = readFileSync("supabase/migrations/00006_admin_read_policies.sql", "utf8");
+    expect(adminRead).toContain("Admins can view all users");
+    expect(adminRead).not.toContain("ON public.users FOR UPDATE");
+    const guard = readFileSync(
+      "supabase/migrations/00331_fix_users_guard_bogus_moderation_cols.sql",
+      "utf8",
+    );
+    expect(guard).toContain("NEW.plan IS DISTINCT FROM OLD.plan");
   });
 });
 

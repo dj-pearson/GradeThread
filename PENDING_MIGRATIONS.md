@@ -1,10 +1,10 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**One pending: 00510.** Prod is at **00509** — the operator confirmed on
-2026-08-01 that 00507, 00508 and 00509 are all applied.
-`EXPECTED_SCHEMA_VERSION` is **00510** and the highest migration in the tree is
-`00510_prompt_versions_service_role_writes.sql`, so the edge boot guard expects
-00510 and prod is one behind.
+**Two pending: 00510 and 00511.** Prod is at **00509** — the operator confirmed
+on 2026-08-01 that 00507, 00508 and 00509 are all applied.
+`EXPECTED_SCHEMA_VERSION` is **00511** and the highest migration in the tree is
+`00511_submissions_protected_columns_guard.sql`, so the edge boot guard expects
+00511 and prod is two behind.
 
 Why the entries stayed marked HELD after they were applied: this file is edited
 by hand and nothing flips the marker when the SQL runs. The session-start hook
@@ -12,6 +12,54 @@ reads these ⏳ markers, so a stale one tells every future session the branch is
 frozen when it is not — which is exactly what happened here, and what happened
 once before (see the US-2017 note in prd.json). **When you apply a migration,
 flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00511_submissions_protected_columns_guard.sql (US-2376 submissions guard, 2026-08-01)
+
+- **Apply order.** After 00510. Idempotent: `CREATE OR REPLACE FUNCTION`,
+  `COMMENT ON FUNCTION`, `DROP TRIGGER IF EXISTS` then `CREATE TRIGGER`. Safe to
+  re-run.
+- **What it does.** Adds a BEFORE UPDATE trigger on `public.submissions` that
+  raises if an `authenticated`-role caller changes any grading-lifecycle column:
+  `status`, `payment_status`, `service_tier`, `authenticity_addon`,
+  `refunded_at`, `flagged`, `flag_reason`, `moderation_status`,
+  `grading_started_at`, `grading_lease_until`, `grading_attempts`,
+  `superseded_at`, `superseded_by_submission_id`. Exact counterpart to
+  `guard_users_protected_columns` (00331), including the
+  `auth.role() <> 'authenticated'` short-circuit that lets the service-role edge
+  client and SECURITY DEFINER paths through untouched.
+- **Why.** "Users can update own submissions" (00451) is USING-only — no
+  `WITH CHECK`, no column list — and the only other trigger on the table just
+  stamps `updated_at`. So a seller holding their own JWT could PATCH their own
+  row and set `status='completed'`, clear `refunded_at`, unset `flagged`, or
+  reset `superseded_at` to pull a retaken submission back into the active count
+  the monthly quota is measured against. This is US-2376's AC4 for the
+  submissions half.
+- **Risk: LOW-MEDIUM.** It removes a capability, so the risk is a legitimate
+  writer being blocked. Verified there is none: no web, iOS or Android client
+  writes `public.submissions` at all (the SPA's only two writes were the admin
+  ones this same commit moved to the edge), and every server path — the grading
+  pipeline, the stuck/abandoned sweeps, the admin routes — uses the service-role
+  client, which the short-circuit exempts. Seller-editable fields (title,
+  description, brand, garment_type/category, style_attributes,
+  verified_capture_opt_in) are deliberately NOT in the list and stay writable.
+- **CLIENT reads/writes.** None new. Nothing in the frontend reads or writes any
+  column this touches, so the frontend deploying first changes nothing.
+- **⚠ The 00076 failure mode, and how it was ruled out.** PL/pgSQL resolves
+  `NEW.<field>` at RUNTIME, so a trigger naming a column that doesn't exist
+  throws `42703` on EVERY update of the table — that is exactly what 00076 did to
+  `public.users` for 255 migrations. This one was exercised against a live DB, not
+  reasoned about: `supabase db reset` from zero on the local stack (2026-08-01),
+  then, per column, an UPDATE under `request.jwt.claims = {"role":"authenticated"}`.
+  All thirteen raised; a title-only UPDATE **succeeded**, which is the load-bearing
+  case — it forces the whole OR-chain to evaluate to false, so every one of the
+  thirteen field references provably resolves. A service-role UPDATE setting
+  `status='failed'` also succeeded.
+- **After applying:** `NOTIFY pgrst, 'reload schema';` is not strictly required
+  (no table/column/RPC shape change), but run it anyway with 00510's.
+- **Deploy order.** No ordering constraint of its own — safe before or after the
+  frontend. Follow 00510's sequence and apply this straight after it.
 
 ---
 
