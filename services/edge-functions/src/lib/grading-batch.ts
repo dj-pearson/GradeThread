@@ -13,19 +13,45 @@
 // client bypasses RLS, so tenancy is the explicit filter, not the policy.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { getAiMaxRetries, getAiTimeoutMs } from "./ai-config.ts";
 
 // Vision calls are heavy; keep the pool small (mirror flipdesk bulk-extract).
 export const GRADING_BATCH_CONCURRENCY = 3;
 // A hung single grade is capped here; must stay under JOB_STALE so a live job
 // never looks stale.
-export const GRADE_ITEM_TIMEOUT_MS = 240_000;
+// US-2289: the item lease must EXCEED the true worst-case runtime, and it did
+// not. It was a flat 240s while one garment's worst case is already
+// (AI_MAX_RETRIES + 1) attempts x AI_TIMEOUT_MS = 3 x 120s = 360s before the
+// composite step. Two things went wrong at once because of that:
+//
+//   • the worker gave up waiting at 240s while the pipeline kept running and
+//     could still write a valid grade; and
+//   • GRADE_JOB_STALE_MS was 360s — EQUAL to the worst case — so the reclaim
+//     cron could pick up a job that was still legitimately running and start a
+//     second, separately-charged attempt.
+//
+// Both are now DERIVED from the AI budget rather than written down next to it,
+// because two hardcoded numbers that have to track a third are two numbers that
+// will drift. Changing AI_TIMEOUT_MS or AI_MAX_RETRIES moves these with it.
+/** Headroom for composite scoring, image ingest and DB writes around the AI calls. */
+const GRADE_COMPOSITE_HEADROOM_MS = 90_000;
+/** One garment's worst case: every AI attempt timing out, plus the rest. */
+export const GRADE_ITEM_TIMEOUT_MS = (getAiMaxRetries() + 1) * getAiTimeoutMs() +
+  GRADE_COMPOSITE_HEADROOM_MS;
 // A job started this many times (incl. reclaim resumes) fails TERMINALLY — the
 // backstop that stops an unattended reclaim loop from burning AI quota forever.
 export const MAX_GRADE_JOB_ATTEMPTS = 5;
 // A 'running' job older than this was left by a dead worker → reclaimable.
-export const GRADE_JOB_STALE_MS = 6 * 60_000;
-// A batch untouched this long is abandoned → swept.
-export const GRADE_BATCH_STALE_MS = 15 * 60_000;
+//
+// US-2289: a MULTIPLE of the item lease, never a bare number. The reclaim cron
+// exists to resume work a dead worker abandoned; if it fires while a live
+// worker is still inside its own lease, it is not reclaiming, it is racing —
+// and before the resume fix that race cost the customer a second credit.
+export const GRADE_JOB_STALE_MS = Math.round(GRADE_ITEM_TIMEOUT_MS * 1.5);
+// A batch untouched this long is abandoned → swept. Must sit ABOVE the job
+// stale window, or the batch sweeper reclaims a batch whose jobs are not yet
+// reclaimable and finds nothing to do.
+export const GRADE_BATCH_STALE_MS = Math.max(15 * 60_000, GRADE_JOB_STALE_MS + 60_000);
 // Max garments in one batch request.
 export const MAX_BATCH_ITEMS = 50;
 
