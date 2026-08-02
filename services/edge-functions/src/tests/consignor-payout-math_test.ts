@@ -282,3 +282,59 @@ Deno.test("US-2290: the DECISION read covers both sources", () => {
     false,
   );
 });
+
+// US-2296: roundCents must be half-up at CURRENCY magnitudes, not just near 1.
+// The previous implementation added Number.EPSILON, whose size is the gap at 1 —
+// so it corrected the float error for small amounts and silently stopped
+// correcting it for larger ones. These are the exact values that exposed it.
+Deno.test("US-2296: roundCents is half-up at magnitudes where EPSILON was not", () => {
+  // Small — the old implementation got these right too.
+  assertEquals(roundCents(1.005), 1.01);
+  assertEquals(roundCents(1.015), 1.02);
+  assertEquals(roundCents(1.255), 1.26);
+  // Larger — the old implementation returned 8.16 and 10.07.
+  assertEquals(roundCents(8.165), 8.17);
+  assertEquals(roundCents(10.075), 10.08);
+  assertEquals(roundCents(1234.565), 1234.57);
+});
+
+Deno.test("US-2296: roundCents rounds the decimal a human reads, not the float", () => {
+  // A value genuinely below the half stays down — this is not "always round up".
+  assertEquals(roundCents(39.014999999999965), 39.01);
+  assertEquals(roundCents(8.1649), 8.16);
+  // Exact halves go up.
+  assertEquals(roundCents(0.005), 0.01);
+  assertEquals(roundCents(2.675), 2.68);
+});
+
+Deno.test("US-2296: roundCents survives the inputs that are not currency", () => {
+  assertEquals(roundCents(Number.NaN), 0);
+  assertEquals(roundCents(Number.POSITIVE_INFINITY), 0);
+  assertEquals(roundCents(Number.NEGATIVE_INFINITY), 0);
+  assertEquals(roundCents(0), 0);
+  // Exponential-notation inputs would make the string trick parse as NaN, so
+  // they take the fallback path rather than returning garbage.
+  assertEquals(roundCents(1e-7), 0);
+  assertEquals(roundCents(-1e-7), -0);
+});
+
+Deno.test("US-2296: property — result is always within half a cent of the input", () => {
+  // The rounding may never move a payout by more than it is allowed to. A
+  // deterministic sweep rather than random, so a failure reproduces exactly.
+  let checked = 0;
+  for (let cents = 0; cents <= 2_000_00; cents += 37) {
+    for (const nudge of [0, 0.004, 0.005, 0.006, -0.004]) {
+      const v = cents / 100 + nudge;
+      const r = roundCents(v);
+      if (Math.abs(r - v) > 0.005 + 1e-9) {
+        throw new Error(`roundCents(${v}) = ${r} moved it more than half a cent`);
+      }
+      // And the result is always a whole number of cents.
+      if (Math.abs(Math.round(r * 100) - r * 100) > 1e-6) {
+        throw new Error(`roundCents(${v}) = ${r} is not a whole number of cents`);
+      }
+      checked++;
+    }
+  }
+  assertEquals(checked > 25_000, true);
+});

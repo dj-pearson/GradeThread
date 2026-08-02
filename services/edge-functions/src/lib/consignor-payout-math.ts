@@ -15,11 +15,37 @@ export function parseAutoPayoutMode(raw: unknown): AutoPayoutMode {
   return raw === "off" || raw === "immediate" ? raw : "batched";
 }
 
-// Round to cents the same way the rest of the money layer does (half-up at 2dp),
-// avoiding binary-float drift (e.g. 0.1 + 0.2) before it reaches Stripe.
+// Round to cents, half-up at 2dp, before the number reaches Stripe.
+//
+// US-2296. This used to be `Math.round((n + Number.EPSILON) * 100) / 100`, and
+// the reason that was wrong is worth keeping: `Number.EPSILON` is the gap
+// between 1 and the next double — 2.22e-16. The representation error it is
+// meant to cancel scales WITH THE VALUE, so the correction works around 1 and
+// quietly stops working as the amount grows. Measured:
+//
+//   1.005 → 1.01 ✓   1.255 → 1.26 ✓        (small: the nudge is enough)
+//   8.165 → 8.16 ✗   10.075 → 10.07 ✗      (larger: it is not)
+//
+// A magnitude-dependent rounding bug is the worst kind to test for, because
+// small fixtures pass.
+//
+// Instead, shift the DECIMAL exponent through the string form. `Number("8.165"
+// + "e+2")` re-parses JavaScript's shortest round-trip decimal and yields
+// exactly 816.5, where `8.165 * 100` yields 816.4999999999999. So this rounds
+// the number a human would read, which is the one the consignor is owed.
+//
+// Sign convention is unchanged: `Math.round` is half-up toward +∞, so -8.165
+// stays -8.16. Payout paths clamp at zero (`Math.max(0, netRaw)`) so this is
+// not reachable for a real payout, and changing it silently would be a
+// different decision than the one this fix is making.
 export function roundCents(n: number): number {
   if (!Number.isFinite(n)) return 0;
-  return Math.round((n + Number.EPSILON) * 100) / 100;
+  const s = String(n);
+  // Already in exponential form (|n| < 1e-6 or >= 1e21) — appending "e+2" would
+  // produce "1e-7e+2" and parse as NaN. Neither end of that range is a currency
+  // amount; fall back rather than pretend to be exact.
+  if (s.includes("e") || s.includes("E")) return Math.round(n * 100) / 100;
+  return Number(`${Math.round(Number(`${s}e+2`))}e-2`);
 }
 
 export interface ShareInput {
