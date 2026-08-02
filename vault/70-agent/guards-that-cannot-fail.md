@@ -24,6 +24,22 @@ had been green for months while the property they existed to defend was broken.
 
 This note exists so the eighth instance gets recognised instead of rediscovered.
 
+> [!note] A ninth instance, 2026-08-01 (US-2381)
+> Two helpers kept full unit-test coverage after their only caller
+> (`item-canvas.tsx`) was deleted. The tests passed for months while the
+> behaviour they implement — a blanked column clearing its eBay specific — had
+> stopped happening. A second orphan from the same deletion, an optional
+> `dirtyRef` prop nobody passed, was invisible to every check we had, because an
+> unpassed optional prop is not a broken anything.
+>
+> The guard added for it (`src/test/aspect-projection-callers.test.ts`) is
+> deliberately **narrow** — one module's projection helpers — because a
+> repo-wide "exported but uncalled" gate collects an allowlist entry per false
+> positive until it means nothing. Its allowlist requires a **reason string**,
+> fails if an allow-listed helper regains a caller, and fails if an entry names
+> something the guard no longer checks. It was verified by making it fail on
+> purpose before it was committed, which is the habit below.
+
 ## The eight shapes it took
 
 1. **The gate that hid the other gates.** CI ran `lint` first with default step
