@@ -42,7 +42,6 @@ export interface CrossPushDraft {
   listing_title: string | null;
   listing_description: string | null;
   primary_photo_id: string | null;
-  badge_enabled: boolean | null;
 }
 
 export interface CrossPushInput {
@@ -176,7 +175,6 @@ export async function crossPushPlatform(
         listing_description: mapped.listing_description,
         platform_fields: mapped.platform_fields ?? undefined,
         primary_photo_id: draft.primary_photo_id,
-        badge_enabled: draft.badge_enabled,
         draft_id: groupId,
       })
       .select("id")

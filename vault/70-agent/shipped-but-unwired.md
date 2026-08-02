@@ -6,10 +6,10 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/authenticity-eval.ts
   - services/edge-functions/src/lib/title-sync.ts
-  - services/edge-functions/src/lib/grade-badge.ts
-reviewed: 2026-07-19
+  - src/test/no-dead-column-writes.test.ts
+reviewed: 2026-08-02
 tags: [quality, testing, dead-code, gotcha]
-summary: Three modules pass their tests while nothing calls them; one is a real unenforced guarantee, one is uncalled by design, one is a deliberate policy retirement — and telling them apart is the point.
+summary: Modules that pass their tests while nothing calls them; one is a real unenforced guarantee, one is uncalled by design, one was a policy retirement that got deleted once a live switch started promising it — and telling the shapes apart is the point.
 ---
 
 # Shipped but unwired
@@ -86,9 +86,9 @@ A user changing a brand on **iOS** still gets a corrected item and a stale
 listing title. That is the whole of what remains of US-1995, and it needs a
 macOS session.
 
-## Deliberately dead — do not "fix" this one
+## Deliberately dead — and why that was not enough
 
-### `grade-badge.ts` — retired by marketplace policy
+### `grade-badge.ts` — retired by policy, then DELETED (US-2382, 2026-08-02)
 
 Removed from the publish path in `8e1802a6` as an **eBay policy decision, not
 neglect**:
@@ -98,9 +98,21 @@ neglect**:
 > `applyGradeListingPromotion` (`routes/flipdesk-ebay.ts`), which writes it into
 > the DESCRIPTION and never touches the imagery."
 
-The compositor still exists and still passes its tests. Re-wiring it would
-recreate the policy violation. If you notice this module and think it regressed,
-it did not — this note is the answer.
+For a year the compositor sat there passing its tests, and this section said
+"do not fix this one". That held until a live UI started promising it: US-2247
+shipped a composer switch writing `badge_enabled` / `slab_image_mode`, having
+inferred from publish's SELECT list that publish read them. It did not.
+
+**The lesson for this note is that "deliberately dead" is not a stable state.**
+A retired module with an intact API is a standing invitation, and a comment
+saying "do not re-wire" only reaches someone who opens the file — not someone
+who reads a SELECT list two modules away. US-2382 resolved it the durable way:
+`grade-badge.ts` (both halves), `src/lib/slab-image.ts` and their tests are
+**deleted**, the columns are out of publish's SELECT, and
+`src/test/no-dead-column-writes.test.ts` fails if anything writes either column
+again. Prefer deletion plus a guard over an annotation whenever the dead thing
+has a name a feature could plausibly want. See
+[[grade-authority-on-listings]] for the policy itself.
 
 
 ## The 2026-07-19 triage — the remaining three

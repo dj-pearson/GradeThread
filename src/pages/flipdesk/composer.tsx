@@ -126,7 +126,6 @@ import type {
   ItemPhotoRow,
   ItemStatus,
   ListingRow,
-  SlabImageMode,
 } from "@/types/database";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
@@ -347,12 +346,12 @@ export function FlipdeskComposerPage({
   // composer had no field — so a seller with five identical tees had to create
   // five items. Auctions and variation matrices override it (resolveQuantity).
   const [quantity, setQuantity] = useState("1");
-  // US-2247: the grade badge on the hero photo + how the slab image is attached.
-  // publish reads listings.badge_enabled / slab_image_mode, but nothing in the
-  // app wrote either — so the grade banner told sellers to "enable the grade
-  // badge below" and there was no such control anywhere.
-  const [badgeEnabled, setBadgeEnabled] = useState(false);
-  const [slabImageMode, setSlabImageMode] = useState<SlabImageMode>("off");
+  // US-2382: no badgeEnabled / slabImageMode state here on purpose. US-2247
+  // added both on the premise that "publish reads listings.badge_enabled /
+  // slab_image_mode" — publish SELECTS them, which is not the same thing, and
+  // nothing ever branched on either. The switch was removed rather than wired,
+  // because a grade card in the gallery is still a listing photo bearing a
+  // third-party grading mark (grade-authority-on-listings.md).
   // US-2251: per-listing eBay business policies. null = fall back to the
   // account default, which is exactly what publish does when these are NULL.
   const [shippingPolicyId, setShippingPolicyId] = useState<string | null>(null);
@@ -669,9 +668,6 @@ export function FlipdeskComposerPage({
         ? String(listing.quantity)
         : "1",
     );
-    // US-2247: grade badge + slab image mode.
-    setBadgeEnabled(listing?.badge_enabled ?? false);
-    setSlabImageMode(listing?.slab_image_mode ?? "off");
     // US-2251: business policies; null means "use my account default".
     setShippingPolicyId(listing?.shipping_policy_id ?? null);
     setPaymentPolicyId(listing?.payment_policy_id ?? null);
@@ -734,8 +730,6 @@ export function FlipdeskComposerPage({
         bestOfferEnabled,
         bestOfferAccept,
         bestOfferDecline,
-        badgeEnabled,
-        slabImageMode,
         shippingPolicyId,
         paymentPolicyId,
         returnPolicyId,
@@ -752,7 +746,7 @@ export function FlipdeskComposerPage({
       title, description, ebayCondition, conditionDesc, price, cost, quantity,
       scheduledAt, primaryPhotoId, promoteEnabled, promoMode, promoRate,
       listingFormat, bestOfferEnabled, bestOfferAccept, bestOfferDecline,
-      badgeEnabled, slabImageMode, shippingPolicyId, paymentPolicyId,
+      shippingPolicyId, paymentPolicyId,
       returnPolicyId, measurements, storageSku, storageLocation,
       storageContainer, itemStatus, itemCategory, sourcedBy, acquiredDate,
     ],
@@ -1194,8 +1188,6 @@ export function FlipdeskComposerPage({
       bestOfferAcceptCents: bestOffer.autoAcceptCents,
       bestOfferDeclineCents: bestOffer.autoDeclineCents,
       quantity,
-      badgeEnabled,
-      slabImageMode,
       shippingPolicyId,
       paymentPolicyId,
       returnPolicyId,
@@ -2239,10 +2231,6 @@ export function FlipdeskComposerPage({
             liveListingId={isLiveListing ? (listing?.id ?? null) : null}
             primaryPhoto={primaryPhoto}
             setPrimaryPhotoId={setPrimaryPhotoId}
-            badgeEnabled={badgeEnabled}
-            setBadgeEnabled={setBadgeEnabled}
-            slabImageMode={slabImageMode}
-            setSlabImageMode={setSlabImageMode}
             photosDirtyRef={photosDirtyRef}
           />
 

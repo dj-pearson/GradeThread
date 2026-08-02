@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/etsy-client.ts
   - services/edge-functions/src/lib/whatnot-client.ts
   - services/edge-functions/src/lib/crypto-aes.ts
-reviewed: 2026-07-19
+reviewed: 2026-08-02
 tags: [marketplaces, oauth, contract, security]
 summary: Every marketplace connector shares one kill-switch, PKCE, token-encryption and refresh shape; new connectors copy it rather than inventing one.
 ---
@@ -39,6 +39,17 @@ procedure and the `v2:<keyId>:` format.
 **4. Refresh happens inline AND on a shared cron.** Inline covers the active
 seller; the cron covers the fleet so tokens do not expire while an account sits
 idle.
+
+The fleet sweep is **bounded and ordered** (`TOKEN_REFRESH_SCAN_CAP = 5_000`,
+`.order("token_expires_at", { ascending: true })`) in all three clients. The
+ordering is the load-bearing half, not the cap: PostgREST silently truncates a
+read at `db-max-rows` and reports it only in a `Content-Range` header that
+supabase-js does not surface, so an *unordered* sweep would drop an arbitrary
+subset every tick — and the same soon-to-expire token could fall outside the
+window run after run. Ordered by expiry ascending, the cap can only ever drop
+connections expiring **latest**, which the next tick picks up anyway. Any new
+connector's sweep must copy both, or its failure mode is a seller's listings
+going stale with nothing logged.
 
 **5. Connection lifecycle only — the publish path still 503s.** Being able to
 *connect* an account is not being able to *list* to it. These two ship

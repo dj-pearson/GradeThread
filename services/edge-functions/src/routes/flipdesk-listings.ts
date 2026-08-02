@@ -80,7 +80,6 @@ interface SourceDraftRow {
   listing_title: string | null;
   listing_description: string | null;
   primary_photo_id: string | null;
-  badge_enabled: boolean;
   inventory_items: {
     user_id: string;
     target_price: number | null;
@@ -221,7 +220,7 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
     .from("listings")
     .select(
       "id, inventory_item_id, platform, draft_id, listing_price, listing_title, " +
-        "listing_description, primary_photo_id, badge_enabled, " +
+        "listing_description, primary_photo_id, " +
         "inventory_items!inner(user_id, target_price, status)",
     )
     .eq("id", listingId)

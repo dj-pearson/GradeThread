@@ -889,7 +889,7 @@ async function applyMatch(
     const { data: draftRow } = await supabaseAdmin
       .from("listings")
       .select(
-        "id, inventory_item_id, platform, listing_title, listing_description, primary_photo_id, badge_enabled, platform_fields",
+        "id, inventory_item_id, platform, listing_title, listing_description, primary_photo_id, platform_fields",
       )
       .eq("id", listing.id)
       .eq("user_id", ownerId)

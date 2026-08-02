@@ -248,9 +248,9 @@ import { chunkForMigrate, parseMigrateResponse } from "../lib/ebay-migrate.ts";
 // making 40 sequential eBay calls and time out. The UI migrates in pages.
 const MIGRATE_MAX_PER_REQUEST = 50;
 
-// US-2387: ceiling on the fleet-wide connection scans (token refresh, promoted
-// sync, performance sync). A growth bound, not a budget — each scan fans out
-// per connection and its cron re-runs on a schedule.
+// US-2387: ceiling on the fleet-wide connection scans (token refresh,
+// performance sync, leave-feedback). A growth bound, not a budget — each scan
+// fans out per connection and its cron re-runs on a schedule.
 const EBAY_CONNECTION_SCAN_CAP = 5_000;
 import {
   approveCancellation,
@@ -8942,7 +8942,8 @@ interface PublishItem {
   grade_value: number | null;
   grade_label: string | null;
   // Public certificate URL, populated when a FlipDesk item is graded
-  // (grading-pipeline.ts). Drives the grade-badge + cert-link promotion.
+  // (grading-pipeline.ts). Read by the cert-number promotion (text only —
+  // US-2382 removed the last image treatment).
   certificate_url: string | null;
   ebay_category_id: string | null;
   ebay_aspects: Record<string, string[]> | null;
@@ -9066,12 +9067,13 @@ interface PublishListing {
   // US-825: per-aspect provenance parallel to item_specifics_override.
   item_specifics_sources: AspectSourceMap | null;
   scheduled_publish_at: string | null;
-  // Per-listing opt-in for the grade-badge + cert-link promotion (00027).
-  badge_enabled: boolean | null;
-  // US-766: per-listing Digital-Slab image mode (00180). 'off' | 'hero' |
-  // 'extra' — include the QR-bearing slab as the lead or a supplementary
-  // listing image. null/'off' falls back to the user's global default.
-  slab_image_mode: string | null;
+  // US-2382: badge_enabled (00027) and slab_image_mode (00180) are NOT read
+  // here on purpose, and are no longer selected either. They were still in the
+  // SELECT list after the 2026-06-25 policy retired the image treatment, and
+  // that is precisely how US-2247 concluded "publish reads these columns" and
+  // shipped a seller-facing switch that did nothing. Being fetched is not
+  // being used; the cheapest way to stop that inference recurring is to stop
+  // fetching them.
   // US-555: per-listing eBay business-policy overrides (bulk-assigned in the
   // AutoLister grid). When set they win over the account-level defaults at
   // publish; null falls back to the seller's default policy set. Column names
@@ -9698,7 +9700,7 @@ export async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, price_is_estimated, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promote_override, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations, listing_origin, listing_status, is_active, platform_listing_id, batch_id, synced_to_ebay_at, inventory_sku",
+      "id, listing_title, listing_description, listing_price, price_is_estimated, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promote_override, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations, listing_origin, listing_status, is_active, platform_listing_id, batch_id, synced_to_ebay_at, inventory_sku",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")

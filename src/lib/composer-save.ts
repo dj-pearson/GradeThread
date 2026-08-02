@@ -17,7 +17,6 @@ import type {
   ListingStatus,
   ItemCategory,
   ItemStatus,
-  SlabImageMode,
 } from "@/types/database";
 import type { ListingFormatValue } from "@/components/flipdesk/listing-format-controls";
 
@@ -45,9 +44,6 @@ export type ComposerListingState = {
   bestOfferDeclineCents: number | null;
   /** US-2250: multi-quantity listings. Raw input string. */
   quantity: string;
-  /** US-2247: grade badge on the hero photo + how the slab image is attached. */
-  badgeEnabled: boolean;
-  slabImageMode: SlabImageMode;
   /** US-2251: per-listing eBay business policies; null = account default. */
   shippingPolicyId: string | null;
   paymentPolicyId: string | null;
@@ -177,10 +173,11 @@ export function buildListingFields(
       : null,
     // US-2250: multi-quantity listings.
     quantity: resolveQuantity(state),
-    // US-2247: publish reads both of these (flipdesk-ebay.ts); before this
-    // story nothing in the app wrote either one.
-    badge_enabled: state.badgeEnabled,
-    slab_image_mode: state.slabImageMode,
+    // US-2382: badge_enabled and slab_image_mode are deliberately NOT written.
+    // US-2247 wrote them believing publish read them; publish only SELECTs
+    // them, and nothing branches on either. The columns stay on the table
+    // (their migrations are immutable) but no surface may write one — see
+    // no-dead-column-writes.test.ts, which fails if this comes back.
     // US-2251: per-listing business policies. NULL = fall back to the account
     // default, which is what publish does.
     shipping_policy_id: state.shippingPolicyId,

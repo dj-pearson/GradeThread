@@ -46,8 +46,6 @@ const listingState = (
   bestOfferAcceptCents: 4400,
   bestOfferDeclineCents: 3000,
   quantity: "3",
-  badgeEnabled: true,
-  slabImageMode: "hero",
   shippingPolicyId: "fp-1",
   paymentPolicyId: "pp-1",
   returnPolicyId: "rp-1",
@@ -121,18 +119,12 @@ describe("buildListingFields", () => {
     expect(off.best_offer_auto_decline_cents).toBeNull();
   });
 
-  // US-2247: publish reads these two columns; before this story nothing in the
-  // app wrote either, so the composer's "enable the grade badge" copy pointed at
-  // a control that did not exist.
-  it("persists the grade badge choice and slab image mode", () => {
-    const f = buildListingFields(listingState());
-    expect(f.badge_enabled).toBe(true);
-    expect(f.slab_image_mode).toBe("hero");
-    const off = buildListingFields(
-      listingState({ badgeEnabled: false, slabImageMode: "off" }),
-    );
-    expect(off.badge_enabled).toBe(false);
-    expect(off.slab_image_mode).toBe("off");
+  // US-2382: the grade-card switch was REMOVED, not wired, so neither column
+  // may be written by any save path. The teeth are in no-dead-column-writes.
+  it("writes neither badge_enabled nor slab_image_mode", () => {
+    const f = buildListingFields(listingState()) as Record<string, unknown>;
+    expect("badge_enabled" in f).toBe(false);
+    expect("slab_image_mode" in f).toBe(false);
   });
 
   // US-2251: publish falls back to the account default when these are NULL, so
@@ -275,7 +267,7 @@ describe("buildLiveListingPatch (US-2248)", () => {
     expect(p.listing_format).toBe("fixed_price");
     expect(p.primary_photo_id).toBe("photo-1");
     expect(p.quantity).toBe(3);
-    expect(p.badge_enabled).toBe(true);
+    expect("badge_enabled" in p).toBe(false);
     expect(p.shipping_policy_id).toBe("fp-1");
   });
 

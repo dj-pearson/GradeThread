@@ -14,7 +14,7 @@
 // disclosure panel renders — so the callouts reflect the verified grade.
 //
 // Text is rasterized with the bundled Roboto-Bold (Apache-2.0, see
-// assets/Roboto-LICENSE.txt), same as lib/grade-badge.ts.
+// assets/Roboto-LICENSE.txt).
 
 import { Image } from "imagescript";
 import { supabaseAdmin } from "./supabase.ts";

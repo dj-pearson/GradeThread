@@ -97,7 +97,10 @@ describe("composer unsaved-changes guard (US-2256)", () => {
       "bestOfferAccept",
       "storageSku",
       "shippingPolicyId",
-      "badgeEnabled",
+      // US-2382 removed "badgeEnabled" from this list along with the state
+      // itself. It was never a field a seller could be angry to lose: the
+      // switch wrote two columns nothing read, so losing the value cost
+      // nothing. The switch is gone, not merely unhooked from the guard.
       "listingFormat",
       "scheduledAt",
     ]) {

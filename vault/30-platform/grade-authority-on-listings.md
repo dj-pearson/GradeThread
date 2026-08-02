@@ -8,7 +8,9 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/cert-number.ts
   - src/lib/listing-templates.ts
-reviewed: 2026-08-01
+  - src/test/no-dead-column-writes.test.ts
+  - src/components/flipdesk/composer/photos-card.tsx
+reviewed: 2026-08-02
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
@@ -65,33 +67,52 @@ because the legacy linked seller-credential block could be anywhere.
 > batch before it was caught. Any new listing-description feature must ship
 > text-only: **no `<a>`, no URL, no bare domain.**
 
-## What still exists but is no longer wired
+## The card decision, and why the code is gone (US-2382, 2026-08-02)
 
-The slab page (`functions/slab/cert/[id].ts`) is still there for social sharing
-and standalone use — it is simply never attached to a listing. `grade-badge.ts`,
-`src/lib/slab-image.ts` and the `listings.slab_image_mode` /
-`flipdesk_settings.auto_grade_badge` columns are inert leftovers that publish no
-longer reads.
+**A generated grade CARD in the gallery is banned too, on the same grounds.**
+The card was the one open question this note used to leave to a story: an
+overlay burned onto the seller's own photo is obviously out, but is a separate
+generated image different? It is not. eBay's exposure is a third-party grading
+mark **among the listing photos**; a card is a listing photo. The asymmetry that
+decided the overlay decides the card — the three text channels above carry the
+same information at zero risk, so the upside is small and the downside is every
+listing on the account.
 
-Their inertness is worth knowing before someone "reconnects" one: this is a
-deliberate policy retirement, which is exactly the distinction
-[[shipped-but-unwired]] exists to draw.
+The decision was executed as **deletion, not deprecation**:
 
-> [!warning] A live switch already promises one of them (US-2382, found 2026-08-01)
-> The composer shows **"Add a grade card image to the gallery"**, and saving
-> writes `listings.badge_enabled` and `slab_image_mode`. **Nothing reads either
-> value.** Verified exhaustively: across the edge they appear only as type
-> fields, inside SELECT column lists, and in one copy onto a cross-listed draft
-> row — no branch, no image generation, no attachment.
+- The composer switch ("Add a grade card image to the gallery") is gone from
+  `src/components/flipdesk/composer/photos-card.tsx`, with the state and the
+  save-payload keys in `composer.tsx` / `composer-save.ts`.
+- `src/lib/grade-badge.ts`, `services/edge-functions/src/lib/grade-badge.ts` and
+  `src/lib/slab-image.ts` are deleted with their tests.
+- Publish **no longer SELECTs** `badge_enabled` or `slab_image_mode`, and
+  `cross-push.ts` no longer copies `badge_enabled` onto the sibling row.
+
+The columns themselves stay: their migrations (00027, 00180) are immutable, and
+so are `flipdesk_settings.auto_grade_badge` / `auto_slab_image`. What is held
+instead is that nobody WRITES one —
+`src/test/no-dead-column-writes.test.ts` scans every object-literal write
+position across `src/`, the edge and `functions/`, and fails on a single one.
+
+> [!important] Being fetched is not being used
+> This is the lesson worth carrying out of US-2382, and it cost a shipped
+> feature. After the 2026-06-25 retirement the two columns stayed in publish's
+> SELECT list. US-2247 read that list, concluded "publish has always read
+> `badge_enabled` and `slab_image_mode`", and shipped a seller-facing switch on
+> that premise. Nothing branched on either value. A seller could flip the
+> switch, save, publish, and get no card and no error — worse than an absent
+> feature, because it also spends their trust. Review passed it because the
+> premise *sounded* verified.
 >
-> The premise that shipped it was "publish has always read these columns", which
-> came from seeing them in a SELECT list. **Being fetched is not being used**,
-> and that inference is the reusable lesson here.
->
-> Do not resolve it by wiring the switch up on sight. The attachment above was
-> removed *on policy grounds*; whether a separate generated **card** — as
-> opposed to an overlay on the seller's own photos — is permitted is a judgement
-> this note cannot make for you. US-2382 carries the decision.
+> Dropping the columns from the SELECT is the cheap structural fix: the
+> inference cannot be made from a list they are not in. Prefer that to a comment
+> saying "unused" whenever a retirement leaves a column behind. See
+> [[shipped-but-unwired]] for telling a retirement apart from an oversight.
+
+The slab page (`functions/slab/cert/[id].ts`) is still there and still served —
+for social sharing and standalone use, never attached to a listing. It is
+reached by `cert-share-actions.tsx` and `graded-photo-panel.tsx`, which build
+its URL directly.
 
 A historical 422 "1 photo unreachable" on graded publishes was the slab URL
 failing a HEAD probe. It cannot recur, since nothing attaches a slab.
