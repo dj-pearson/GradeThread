@@ -44,6 +44,22 @@ Our revised color palette moves away from flat default colors to a **highly poli
 | **Pearl White** | `#FAFAFC` | `hsl(240, 10%, 98%)` | Primary background for light mode |
 | **Ice Accent** | `#F0F4F8` | `hsl(210, 33%, 96%)` | Light-mode component backgrounds & subtle borders |
 
+> [!warning] Obsidian Navy is near-black, so `bg-brand-navy` on a Button hides it
+> A default shadcn `<Button>` is `bg-primary text-primary-foreground`. In **dark**
+> mode `--primary` inverts to light and `--primary-foreground` becomes the navy —
+> so adding `className="bg-brand-navy"` and nothing else lets tailwind-merge strip
+> `bg-primary`, leaving near-black text on a near-black button. It is still in the
+> DOM and still clickable; it simply cannot be seen. Light mode looks fine, which
+> is why it ships.
+>
+> This was the whole of the "the Submit button disappears once the item is ready"
+> report: the ready state added `bg-brand-navy` to the button.
+>
+> **Rule:** never put solid `bg-brand-navy` on a Button or Badge without
+> `text-white`. Translucent tints (`bg-brand-navy/10`, `/5`, `/30`) are fine. And
+> usually the right fix is to delete the override — the default primary button
+> already *is* the primary-action style, with correct contrast in both themes.
+
 ### B. Semantic Grading Tiers (Visual Language)
 
 Rather than binary green/orange/red styling, GradeThread assigns specialized visual weight and glowing accents to each grading tier:

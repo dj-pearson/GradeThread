@@ -61,6 +61,26 @@ copy you did not know existed.
 > genuinely does not, say so in the note's provenance callout rather than
 > silently re-dating.
 
+## The gate that does not cover `functions/`
+
+The reverse hazard: a green run that proved less than it looks.
+
+`tsconfig.json` references only `tsconfig.app.json` and `tsconfig.node.json`, so
+the Cloudflare Pages Functions under `functions/` are **not in the build graph**.
+A type error there passes `npm run build`, `npm run build:locked`, `tsc -b` and
+the whole vitest suite — and then fails when Cloudflare builds the Functions at
+deploy, which is the worst place to find it.
+
+This is not theoretical: a real `TS7053`/`TS2322` in `functions/og/social/card.ts`
+went green through every standard gate.
+
+```bash
+npx tsc -p tsconfig.functions.json --noEmit   # after touching anything in functions/
+```
+
+The edge service is a third graph again (Deno, its own lane), so "the build
+passed" always means *one* of three graphs.
+
 ## The mirror image: a local-only failure that is not real
 
 The same class runs the other way on a Windows checkout. A lone `deno test`
