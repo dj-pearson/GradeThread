@@ -81,9 +81,17 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
 **one entry feeds both** — the seller never types the same value in two places:
 
 - **Columns are the write-authority.** At publish/revise the edge force-projects the current
-  column values onto their aspects (`forceColumnAspects` → `applyColumnAspects`), and the item
-  page projects them on every save (web `projectColumnAspects`). A blanked column clears its
-  aspect only on the item-page save (an explicit clear); the publish path is overwrite-only.
+  column values onto their aspects (`forceColumnAspects` → `applyColumnAspects`). A blanked
+  column clears its aspect only on an item-page save (an explicit clear); the publish path is
+  overwrite-only, because it cannot tell a blanked field from a never-populated one.
+  - ⚠ **The web half of that clause is currently unwired (found 2026-08-01, US-2381).**
+    `projectColumnAspects` / `projectAttributeAspects` in `src/lib/ebay-prefill.ts` had exactly
+    one caller — `item-canvas.tsx`, deleted in `a3f4d77d` when the composer became the single
+    item editor. Their tests still pass, so nothing flagged it. **On web today a blanked column
+    does not clear its aspect**, and a column edited on the item form only reaches the specifics
+    at publish. iOS (`InventoryAspectSync.swift`) and Android (`AspectSync.kt`) still project on
+    save, so the platforms disagree. Do not read this bullet as describing shipped web behaviour
+    until US-2381 closes.
 - **Specifics edits flow back by provenance** (`reverseColumnAspects` on the edge — run in
   `assemblePublishContext` and the revise path *before* the column re-assert — and
   `reverseProjectAspectColumns` on web, run in the composer + bulk-edit saves):
@@ -100,6 +108,13 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
 - The field↔aspect-name mapping lives ONLY in the shared registry
   (`services/edge-functions/src/lib/aspect-registry.ts`, vendored to web as
   `src/lib/ebay-aspect-registry.json`, CI drift-guarded).
+- **A client projection is category-spec-less, and that is safe by construction.** The
+  client has no eBay category spec at save time, so it treats every value as FREE_TEXT and
+  writes to each registry entry's *first* aspect name (Brand/Size/Color/Material/Style) —
+  matching the edge's `COLUMN_ASPECT_FALLBACK`. Publish then re-normalizes against the real
+  spec (SELECTION_ONLY matching, e.g. "M" → "Medium"), so a raw column value that eBay would
+  not accept is corrected before it is sent. Do not add spec-fetching to a save path to
+  "fix" this; the correction already happens where the spec actually exists.
 
 This composes with the ownership table above: on inbound pull `brand/size/color/style/material`
 remain fill-if-blank (`EBAY_OWNED_ITEM_SPECIFIC_FIELDS`); the reverse write-back only runs on

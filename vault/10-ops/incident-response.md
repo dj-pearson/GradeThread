@@ -73,10 +73,16 @@ issue notifications enabled.
    PITR when WAL archiving covers the loss window.
 4. After recovery: run `integrity-scan` cron; verify a test grade + certificate.
 
-### 2. Edge crash-loop
-1. `GET /health` failing; Coolify shows restarts.
+### 2. Edge crash-loop — or a hang, which looks the same and behaves the opposite
+**First decide which one you have** — see [[edge-hang-vs-crash-loop]]. A hang
+leaves the container `Up (unhealthy)` with Coolify still showing "running", so
+the restart policy never fires and the outage does not end on its own.
+1. `GET /health` failing; Coolify shows restarts → crash-loop. 503 "no available
+   server" with the container still up → hang; `docker restart` it.
 2. Check container stdout (structured logs, correlation IDs) for the boot error —
    common cause: a missing migration (`vault/10-ops/migrations-process.md`) or a bad env var.
+   A hang logs **nothing**; find the culprit route by the unmatched
+   `http.request.start`.
 3. Roll back to the last-good commit (`vault/10-ops/rollback.md`) while you fix forward.
 
 ### 3. Webhook backlog / dropped events
