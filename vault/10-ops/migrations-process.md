@@ -137,6 +137,58 @@ bridge to `supabase_migrations.schema_migrations`, migration 00126):
 > CLI does this automatically; a raw `psql -f` loop does NOT — add the version
 > rows, or prefer the CLI). If it isn't recorded the check simply fail-opens.
 
+### The trap: creating the tracker arms the guard
+
+Fail-open and fatal are not two settings — they are the **same guard with and
+without a tracker table**. Prod ran for a long time with no
+`supabase_migrations.schema_migrations` at all (`42P01`), so a hand `psql -f`
+apply silently skipped files and the guard warned rather than blocked. Real drift
+hid behind that: functions from `00126` and `00148` absent while tables from
+`00212`/`00220`/`00228` existed, surfacing as a 404 on an RPC, a 400 on a
+`listings` select, and 500s on two FlipDesk routes.
+
+Creating the tracker to fix that **arms the guard**, and the next deploy
+crash-looped on `applied=00231, this build expects 00249`. Nothing regressed —
+the DDL was current and the *tracker* lagged, because hand-applying runs the DDL
+without inserting version rows.
+
+So when the guard says STALE, establish which of two states you are in before
+acting:
+
+| | DDL missing | DDL present, tracker lagging |
+|---|---|---|
+| Fix | apply the migrations (`npm run catchup`) | backfill the version range only |
+| Do **not** | backfill — it masks the real gap | re-apply DDL or reload the schema |
+
+**Verify the top migration's objects actually exist before backfilling.** That
+check is the entire difference between the two columns, and skipping it converts
+a visible outage into a silent one.
+
+Backfill form:
+
+```sql
+INSERT INTO supabase_migrations.schema_migrations(version)
+SELECT lpad(g::text, 5, '0') FROM generate_series(<first>, <last>) g
+ON CONFLICT DO NOTHING;
+```
+
+After any hand-apply, also run `NOTIFY pgrst, 'reload schema';` — PostgREST
+caches the schema and will keep 404ing a new RPC until it does.
+
+### The grace window, and the gate that would make it unnecessary
+
+A migration and an edge roll are separate steps ([[deploy]]), so the container
+can boot moments before the SQL lands. The guard therefore re-polls across a
+grace window before declaring fatal — `SCHEMA_GUARD_GRACE_ATTEMPTS` (8) ×
+`SCHEMA_GUARD_GRACE_DELAY_MS` (5000), about 40s, tunable without a redeploy. A
+race becomes a delayed boot; a genuinely forgotten migration still ends in the
+same loud fatal.
+
+That is the safety net. The root fix — wiring `npm run migrate:prod` as the
+edge's Coolify **Pre-deployment Command**, so a failed migration aborts the
+rollout and the old container keeps serving — is a one-time ops setup that is
+**still pending**; see [[deploy]] step 3 and [[blocked-work-gates]].
+
 ## One-time backfill: confirm 00057–00074 (and 00094–00097) are applied
 
 The audit found 00057–00074 may be unapplied in prod. Verify and apply:
