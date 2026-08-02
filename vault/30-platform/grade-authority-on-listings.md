@@ -77,6 +77,22 @@ Their inertness is worth knowing before someone "reconnects" one: this is a
 deliberate policy retirement, which is exactly the distinction
 [[shipped-but-unwired]] exists to draw.
 
+> [!warning] A live switch already promises one of them (US-2382, found 2026-08-01)
+> The composer shows **"Add a grade card image to the gallery"**, and saving
+> writes `listings.badge_enabled` and `slab_image_mode`. **Nothing reads either
+> value.** Verified exhaustively: across the edge they appear only as type
+> fields, inside SELECT column lists, and in one copy onto a cross-listed draft
+> row — no branch, no image generation, no attachment.
+>
+> The premise that shipped it was "publish has always read these columns", which
+> came from seeing them in a SELECT list. **Being fetched is not being used**,
+> and that inference is the reusable lesson here.
+>
+> Do not resolve it by wiring the switch up on sight. The attachment above was
+> removed *on policy grounds*; whether a separate generated **card** — as
+> opposed to an overlay on the seller's own photos — is permitted is a judgement
+> this note cannot make for you. US-2382 carries the decision.
+
 A historical 422 "1 photo unreachable" on graded publishes was the slab URL
 failing a HEAD probe. It cannot recur, since nothing attaches a slab.
 
