@@ -14,7 +14,9 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { ADMIN_ROUTER_SCOPES } = await import("../lib/admin-scope-map.ts");
+const { ADMIN_ROUTER_SCOPES, ADMIN_ROUTE_SCOPE_EXEMPTIONS } = await import(
+  "../lib/admin-scope-map.ts"
+);
 const { DEFAULT_ROLE_SCOPES, isScopeKey, SCOPE_KEYS } = await import(
   "../lib/rbac-scopes.ts"
 );
@@ -30,6 +32,35 @@ async function adminRouterFiles(): Promise<string[]> {
 }
 
 const MUTATION_RE = /\.(post|put|patch|delete)\(/;
+
+// US-2354: one mutating route registration, with a window wide enough to hold
+// middleware that sits on a following line.
+//
+// This exists because "mutations" mode used to be checked with
+// src.includes("requireScope(") — a WHOLE-FILE substring, so a router with
+// three guarded writes and one unguarded one passed. admin-bulk.ts was exactly
+// that shape. A per-route parse is the only way the mode means what its name
+// says.
+const ROUTE_REG =
+  /^\s*(\w+Routes)\.(post|put|patch|delete)\(\s*"([^"]*)"([\s\S]{0,300}?)(?:=>|\basync\b)/gm;
+
+interface MutatingRoute {
+  method: string;
+  path: string;
+  guarded: boolean;
+}
+
+function mutatingRoutes(src: string): MutatingRoute[] {
+  const out: MutatingRoute[] = [];
+  for (const m of src.matchAll(ROUTE_REG)) {
+    out.push({
+      method: m[2]!,
+      path: m[3]!,
+      guarded: (m[4] ?? "").includes("requireScope("),
+    });
+  }
+  return out;
+}
 
 // True when every route registration in the file passes requireScope(scope) as
 // an argument — the mount-safe equivalent of a whole-router use("*") guard.
@@ -77,6 +108,25 @@ Deno.test("US-1560: each router's source matches its declared guard mode", async
         hasGuard,
         `${entry.file}: declared ${entry.mode}-guarded but never calls requireScope`,
       );
+      if (entry.mode === "mutations") {
+        // US-2354: EVERY mutating route, not just one somewhere in the file.
+        const exempt = new Set(
+          ADMIN_ROUTE_SCOPE_EXEMPTIONS
+            .filter((e) => e.file === entry.file)
+            .map((e) => `${e.method} ${e.path}`),
+        );
+        const unguarded = mutatingRoutes(src)
+          .filter((r) => !r.guarded)
+          .filter((r) => !exempt.has(`${r.method} ${r.path}`))
+          .map((r) => `${r.method.toUpperCase()} ${r.path}`);
+        assertEquals(
+          unguarded,
+          [],
+          `${entry.file}: mutating route(s) with no requireScope. Give each one ` +
+            "the scope that owns it, or — if it genuinely should carry none — " +
+            "add it to ADMIN_ROUTE_SCOPE_EXEMPTIONS with the argument written out.",
+        );
+      }
       if (entry.mode === "router") {
         assert(
           isScopeKey(entry.scope),
@@ -126,4 +176,70 @@ Deno.test("US-1560: every scope referenced by the registry exists", () => {
       assert(isScopeKey(entry.scope), `${entry.file}: unknown scope ${entry.scope}`);
     }
   }
+});
+
+// ── US-2354: the exemption list must stay honest ────────────────────
+//
+// An allowlist that can hold entries for routes that no longer exist, or that
+// have since been guarded, decays into a place where things go to be forgotten.
+// Both directions are checked so the list can only shrink on its own.
+
+Deno.test("US-2354: every scope exemption points at a real, still-unguarded route", async () => {
+  for (const ex of ADMIN_ROUTE_SCOPE_EXEMPTIONS) {
+    const src = await Deno.readTextFile(new URL(ex.file, ROUTES_DIR));
+    const routes = mutatingRoutes(src);
+    const hit = routes.find((r) => r.method === ex.method && r.path === ex.path);
+    assert(
+      hit,
+      `${ex.file}: exemption for ${ex.method.toUpperCase()} ${ex.path} matches no ` +
+        "route registration — the route was renamed or removed; delete the entry",
+    );
+    assert(
+      !hit.guarded,
+      `${ex.file}: ${ex.method.toUpperCase()} ${ex.path} now carries requireScope — ` +
+        "delete its exemption so the guard, not the allowlist, is what permits it",
+    );
+  }
+});
+
+Deno.test("US-2354: an exemption states its argument, and names a mutations router", () => {
+  const byFile = new Map(ADMIN_ROUTER_SCOPES.map((e) => [e.file, e]));
+  for (const ex of ADMIN_ROUTE_SCOPE_EXEMPTIONS) {
+    // Long enough that "n/a" or "legacy" cannot be the whole justification —
+    // the point of the list is that someone had to write down why.
+    assert(
+      ex.reason.trim().length >= 80,
+      `${ex.file} ${ex.path}: an exemption needs a real written argument`,
+    );
+    const entry = byFile.get(ex.file);
+    assert(entry, `${ex.file}: exemption names a router that is not in the registry`);
+    assertEquals(
+      entry.mode,
+      "mutations",
+      `${ex.file}: only "mutations" routers have per-route exemptions — a ` +
+        `"router"-mode file guards every route by definition, and "role-only" ` +
+        "has no mutations at all",
+    );
+  }
+});
+
+Deno.test("US-2354: the per-route parser actually sees the routes it is checking", () => {
+  // Without this the whole guard passes vacuously if the registration shape
+  // changes and the regex silently matches nothing — the same failure mode as a
+  // whole-file substring, one level down.
+  const sample = [
+    'adminBulkRoutes.post("/credits", requireScope("billing:write"), async (c) => {',
+    'adminBulkRoutes.post("/resolve", async (c) => {',
+    'adminBulkRoutes.patch(',
+    '  "/wrapped",',
+    '  requireScope("ops:write"),',
+    "  async (c) => {",
+  ].join("\n");
+  const routes = mutatingRoutes(sample);
+  assertEquals(routes.map((r) => `${r.method} ${r.path}`), [
+    "post /credits",
+    "post /resolve",
+    "patch /wrapped",
+  ]);
+  assertEquals(routes.map((r) => r.guarded), [true, false, true]);
 });

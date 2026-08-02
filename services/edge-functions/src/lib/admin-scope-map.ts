@@ -40,6 +40,50 @@ export interface AdminRouterScope {
   rationale: string;
 }
 
+/**
+ * US-2354: a mutating route in a "mutations" router that deliberately carries
+ * NO scope.
+ *
+ * Why this list has to exist as data rather than prose: the coverage guard used
+ * to decide a whole FILE was guarded if the string `requireScope(` appeared
+ * anywhere in it, so a router with three guarded writes and one unguarded one
+ * passed. It now checks every mutating route individually, which means a
+ * deliberate exemption needs somewhere to be declared — otherwise the only way
+ * to keep one is to weaken the guard back to a substring match.
+ *
+ * An entry is a decision a reviewer made and can be argued with, not a
+ * suppression. `method` + `path` must match the route registration exactly.
+ */
+export interface AdminRouteScopeExemption {
+  /** Basename under src/routes/. */
+  file: string;
+  method: "post" | "put" | "patch" | "delete";
+  /** The literal path string in the registration, e.g. "/resolve". */
+  path: string;
+  reason: string;
+}
+
+export const ADMIN_ROUTE_SCOPE_EXEMPTIONS: AdminRouteScopeExemption[] = [
+  {
+    file: "admin-bulk.ts",
+    method: "post",
+    path: "/resolve",
+    reason:
+      "US-1562 chose this deliberately: /resolve mutates nothing — it is a " +
+      "target lookup that maps up to 200 emails/ids to {id, email, full_name, " +
+      "suspended} so the operator can review a batch BEFORE running a bulk op, " +
+      "and each of those ops (/credits, /suspend, /regrade) carries its own " +
+      "scope. It is a POST only because the batch does not fit in a query " +
+      "string. US-2354 flags the counter-argument and it is worth re-reading: " +
+      "the response confirms whether an address has an account, so an admin " +
+      "whose scopes were narrowed to nothing can still enumerate users. " +
+      "Reversing this is a product decision (which scope? every bulk op needs " +
+      "it, so the natural answer is a new read scope rather than one of the " +
+      "three), not a defect fix — hence an exemption with the argument written " +
+      "down rather than a silent pass.",
+  },
+];
+
 export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
   // ── billing ────────────────────────────────────────────────────────────────
   {
