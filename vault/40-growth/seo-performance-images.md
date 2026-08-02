@@ -67,6 +67,30 @@ flat as certificate volume grows.
 rel=preload` header on `/*`, which Cloudflare converts into a 103 Early Hints
 response once the toggle below is on.
 
+**The one inline `<head>` script, and the hash that keeps it alive.**
+`index.html` carries a single inline script — Consent Mode v2 defaults, the Inter
+font injection, and an idle-deferred `gtag.js`. It was inlined from a former
+`/head-init.js` to remove a render-blocking round trip, which was the largest
+mobile PageSpeed blocker at roughly 490ms.
+
+The enforcing CSP allows it by **sha256 hash** in `public/_headers` `script-src`
+— deliberately not `'unsafe-inline'`.
+
+> [!warning] Edit that script and the hash stops matching, so the browser
+> silently refuses to run it. Consent Mode, the font, and analytics all stop
+> working with no error anyone will notice. **Recompute the hash in the same
+> change.**
+
+```bash
+node -e "const fs=require('fs'),c=require('crypto');const m=fs.readFileSync('dist/index.html','utf8').match(/<script>([\s\S]*?)<\/script>/);console.log('sha256-'+c.createHash('sha256').update(m[1],'utf8').digest('base64'))"
+```
+
+Run it against `dist/index.html` after a build, since the CSP applies to the
+served file. Vite does not currently alter the inline bytes, so the source hash
+happens to equal the dist hash — do not rely on that, hash the built file. The
+script sits **outside** the `prerender:head` markers, so it survives into every
+prerendered page.
+
 **Field CWV.** Real-user vitals are collected via `web-vitals` (US-305,
 `src/lib/web-vitals.ts`), consent-gated.
 
