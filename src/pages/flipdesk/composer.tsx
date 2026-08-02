@@ -69,8 +69,10 @@ import { estimateListingProfit } from "@/lib/listing-profit";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import {
   mapEbayCondition,
+  projectColumnAspectsForSpec,
   reverseProjectAspectColumns,
   syncedItemFieldFor,
+  type AspectWriteBack,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
 import { deriveListingOrigin } from "@/lib/listing-origin";
@@ -111,6 +113,7 @@ import {
   type ListingFormatValue,
 } from "@/components/flipdesk/listing-format-controls";
 import {
+  useEbayCategoryAspects,
   useEbayCategoryConditions,
   useEbayConnection,
   useEbayPolicies,
@@ -813,6 +816,15 @@ export function FlipdeskComposerPage({
       null,
     [livePickedCategoryId, listing?.platform_category_id, ebayMapping?.ebay_category_id],
   );
+  // US-2381: the chosen category's real aspect spec, so the save-time column
+  // projection writes the name THIS category uses ("Colour", "US Shoe Size")
+  // rather than the registry's first guess. Same queryKey the picker uses, so
+  // React Query serves it from cache — this is not a second fetch.
+  const specAspectsQuery = useEbayCategoryAspects(resolvedCategoryId);
+  const specAspects = useMemo(
+    () => specAspectsQuery.data?.aspects.aspects ?? [],
+    [specAspectsQuery.data],
+  );
   // The category/aspect values the picker seeds FROM — deliberately the saved
   // pair only (no live pick), so the picker owns its own edit state.
   const savedCategoryId =
@@ -1123,14 +1135,28 @@ export function FlipdeskComposerPage({
         item?.list_price,
       ].find((p): p is number => p != null && p > 0) ?? 0;
     const liveAspects = livePickedAspects ?? savedAspects;
-    const resolvedAspects =
+    const baseAspects =
       liveAspects && Object.keys(liveAspects).length > 0 ? liveAspects : null;
     const liveSources =
       livePickedSources ??
       listing?.item_specifics_sources ??
       ebayMapping?.ebay_aspect_sources ??
       null;
-    const resolvedSources = resolvedAspects ? (liveSources ?? {}) : {};
+    const baseSources = baseAspects ? (liveSources ?? {}) : {};
+    // US-2381: the columns own their specifics, so project them forward — but
+    // only after the reverse pass, and only through the loaded category spec.
+    // `columnWriteBack()` reads the PRE-projection aspects on purpose: it is
+    // what turns a manually typed Brand into the column value this projection
+    // then re-asserts. Reversing the order would clobber that edit.
+    const { aspects: resolvedAspects, sources: resolvedSources } =
+      baseAspects && specAspects.length > 0 && itemAspectSource
+        ? projectColumnAspectsForSpec(
+            { ...itemAspectSource, ...columnWriteBack().columns },
+            specAspects,
+            baseAspects,
+            baseSources,
+          )
+        : { aspects: baseAspects, sources: baseSources };
     return { resolvedPrice, resolvedCategoryId, resolvedAspects, resolvedSources };
   }
 
@@ -1210,7 +1236,7 @@ export function FlipdeskComposerPage({
         }),
       },
       {
-        ...aspectWriteBackPatch(resolvedAspects, resolvedSources),
+        ...aspectWriteBackPatch(),
         ...categoryCascadePatch(),
       },
     );
@@ -1249,16 +1275,25 @@ export function FlipdeskComposerPage({
   // publish/revise — without this write-back a Brand typed here would be
   // clobbered by the stale column and the seller would have to enter it twice.
   // Returns extra inventory_items patch fields for the mirror update.
-  function aspectWriteBackPatch(
-    resolvedAspects: Record<string, string[]> | null,
-    resolvedSources: Record<string, string | undefined>,
-  ): Record<string, unknown> {
-    if (!resolvedAspects || !itemAspectSource) return {};
-    const wb = reverseProjectAspectColumns(
-      itemAspectSource,
-      resolvedAspects,
-      resolvedSources,
-    );
+  // US-2381: reads the PRE-projection aspect map deliberately. The forward
+  // projection stamps what it writes `inventory_derived`, and the reverse pass
+  // only writes back `manual`/`ai_extracted` — so running this on projected
+  // aspects would silently drop the seller's own specifics edit.
+  function columnWriteBack(): AspectWriteBack {
+    const liveAspects = livePickedAspects ?? savedAspects;
+    if (!liveAspects || !itemAspectSource) {
+      return { columns: {}, attributes: {} };
+    }
+    const liveSources =
+      livePickedSources ??
+      listing?.item_specifics_sources ??
+      ebayMapping?.ebay_aspect_sources ??
+      {};
+    return reverseProjectAspectColumns(itemAspectSource, liveAspects, liveSources);
+  }
+
+  function aspectWriteBackPatch(): Record<string, unknown> {
+    const wb = columnWriteBack();
     const patch: Record<string, unknown> = { ...wb.columns };
     if (Object.keys(wb.attributes).length > 0) {
       patch.attributes = { ...(ebayMapping?.attributes ?? {}), ...wb.attributes };

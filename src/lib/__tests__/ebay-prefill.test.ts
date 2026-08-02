@@ -8,6 +8,7 @@ import {
   mapEbayCondition,
   projectAttributeAspects,
   projectColumnAspects,
+  projectColumnAspectsForSpec,
   reverseProjectAspectColumns,
   syncedItemFieldFor,
   type ItemAspectSource,
@@ -195,6 +196,134 @@ describe("projectColumnAspects (main-page columns own their aspects)", () => {
     projectColumnAspects(cols({ brand: "Nike" }), existing, existingSources);
     expect(existing).toEqual({ Brand: ["Adidas"] });
     expect(existingSources).toEqual({ Brand: "manual" });
+  });
+});
+
+// US-2381: the composer's spec-aware forward projection. The whole reason it
+// exists rather than reusing projectColumnAspects is that the spec's names are
+// not the registry's first guess.
+describe("projectColumnAspectsForSpec (composer, spec-aware)", () => {
+  const cols = (o: Partial<ItemAspectSource>) => ({
+    brand: null,
+    size: null,
+    color: null,
+    material: null,
+    style: null,
+    item_category: "clothing" as string | null,
+    ...o,
+  });
+
+  it("writes the name THIS category uses, not the registry's first", () => {
+    // "Colour" and "Fabric Type" are the same fields under different names.
+    // The spec-less projection would have written "Color" and "Material",
+    // leaving the picker's real rows empty and adding two duplicates.
+    const { aspects } = projectColumnAspectsForSpec(
+      cols({ color: "Blue", material: "Cotton" }),
+      [free("Colour"), free("Fabric Type")],
+      {},
+      {},
+    );
+    expect(aspects).toEqual({ Colour: ["Blue"], "Fabric Type": ["Cotton"] });
+  });
+
+  it("skips a field the category does not expose at all", () => {
+    const { aspects, sources } = projectColumnAspectsForSpec(
+      cols({ brand: "Nike", material: "Cotton" }),
+      [free("Brand")], // no Material/Fabric Type in this category
+      {},
+      {},
+    );
+    expect(aspects).toEqual({ Brand: ["Nike"] });
+    expect(sources).toEqual({ Brand: "inventory_derived" });
+  });
+
+  it("normalizes a SELECTION_ONLY value the way publish would", () => {
+    const { aspects } = projectColumnAspectsForSpec(
+      cols({ size: "M" }),
+      [sel("Size", ["Small", "Medium", "Large"])],
+      {},
+      {},
+    );
+    expect(aspects).toEqual({ Size: ["Medium"] });
+  });
+
+  it("keeps the existing value when the column is not expressible here", () => {
+    // "Chartreuse" matches nothing in the allowed list. Clearing a good value
+    // on the strength of an unusable one would be the worse outcome.
+    const { aspects, sources } = projectColumnAspectsForSpec(
+      cols({ color: "Chartreuse" }),
+      [sel("Color", ["Black", "Blue", "Green"])],
+      { Color: ["Green"] },
+      { Color: "manual" },
+    );
+    expect(aspects).toEqual({ Color: ["Green"] });
+    expect(sources.Color).toBe("manual");
+  });
+
+  it("clears the aspect when its backing column is blanked", () => {
+    const { aspects, sources } = projectColumnAspectsForSpec(
+      cols({ brand: "   ", size: "M" }),
+      [free("Brand"), free("Size")],
+      { Brand: ["Nike"], Size: ["L"] },
+      { Brand: "inventory_derived", Size: "manual" },
+    );
+    expect(aspects).toEqual({ Size: ["M"] });
+    expect(sources.Brand).toBeUndefined();
+  });
+
+  it("leaves attribute-, AI- and manually-set non-column aspects alone", () => {
+    const { aspects, sources } = projectColumnAspectsForSpec(
+      cols({ brand: "Nike" }),
+      [free("Brand"), free("Sleeve Length"), free("Department")],
+      { "Sleeve Length": ["Long Sleeve"], Department: ["Men"] },
+      { "Sleeve Length": "ai_extracted", Department: "manual" },
+    );
+    expect(aspects["Sleeve Length"]).toEqual(["Long Sleeve"]);
+    expect(sources.Department).toBe("manual");
+  });
+
+  it("does not mutate its inputs", () => {
+    const existing = { Brand: ["Adidas"] };
+    const existingSources = { Brand: "manual" as const };
+    projectColumnAspectsForSpec(
+      cols({ brand: "Nike" }),
+      [free("Brand")],
+      existing,
+      existingSources,
+    );
+    expect(existing).toEqual({ Brand: ["Adidas"] });
+    expect(existingSources).toEqual({ Brand: "manual" });
+  });
+
+  // The caller contract, asserted as behaviour: the composer runs the reverse
+  // pass FIRST and feeds this the post-write-back columns. Run in that order a
+  // manual edit survives; run the other way it is destroyed. This test pins the
+  // order, because nothing in the type system can.
+  it("preserves a manual specifics edit when fed the post-write-back columns", () => {
+    const item = { ...base, brand: "Adidas" }; // stale column
+    const aspects = { Brand: ["Nike"] }; // seller just typed this
+    const sources = { Brand: "manual" as const };
+
+    const wb = reverseProjectAspectColumns(item, aspects, sources);
+    expect(wb.columns.brand).toBe("Nike"); // reverse rescues it into the column
+
+    const projected = projectColumnAspectsForSpec(
+      { ...item, ...wb.columns },
+      [free("Brand")],
+      aspects,
+      sources,
+    );
+    expect(projected.aspects.Brand).toEqual(["Nike"]);
+
+    // And the failure mode the ordering exists to prevent: projecting from the
+    // PRE-write-back column silently reinstates the stale value.
+    const wrongOrder = projectColumnAspectsForSpec(
+      item,
+      [free("Brand")],
+      aspects,
+      sources,
+    );
+    expect(wrongOrder.aspects.Brand).toEqual(["Adidas"]);
   });
 });
 

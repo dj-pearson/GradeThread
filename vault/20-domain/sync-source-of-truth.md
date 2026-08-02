@@ -84,14 +84,21 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
   column values onto their aspects (`forceColumnAspects` → `applyColumnAspects`). A blanked
   column clears its aspect only on an item-page save (an explicit clear); the publish path is
   overwrite-only, because it cannot tell a blanked field from a never-populated one.
-  - ⚠ **The web half of that clause is currently unwired (found 2026-08-01, US-2381).**
-    `projectColumnAspects` / `projectAttributeAspects` in `src/lib/ebay-prefill.ts` had exactly
-    one caller — `item-canvas.tsx`, deleted in `a3f4d77d` when the composer became the single
-    item editor. Their tests still pass, so nothing flagged it. **On web today a blanked column
-    does not clear its aspect**, and a column edited on the item form only reaches the specifics
-    at publish. iOS (`InventoryAspectSync.swift`) and Android (`AspectSync.kt`) still project on
-    save, so the platforms disagree. Do not read this bullet as describing shipped web behaviour
-    until US-2381 closes.
+  - **On web the forward projection is SPEC-AWARE** (`projectColumnAspectsForSpec`, US-2381).
+    It resolves each column's aspect name from the **loaded category spec** rather than from
+    the registry's first candidate, because the two differ per category — `Colour`,
+    `US Shoe Size`, `Fabric Type`. The spec-less `projectColumnAspects` remains the right shape
+    for a surface with no spec loaded (and is what iOS `InventoryAspectSync.swift` and Android
+    `AspectSync.kt` mirror); using it where a spec IS loaded would write a second key beside the
+    picker's for the same field — a duplicate specific, not a sync.
+    A column the category does not expose is **skipped**, and a value a SELECTION_ONLY aspect
+    cannot express **leaves the existing value alone** rather than clearing it.
+  - **Order is load-bearing, and no type can enforce it.** The reverse pass runs FIRST on the
+    PRE-projection aspect map, and the projection is fed the columns as they will be saved
+    (item columns overlaid with the write-back). Reversed, a Brand the seller just typed is
+    overwritten by the stale column and stamped `inventory_derived`, so the reverse pass then
+    declines to rescue it and the edit is silently lost. Pinned by a behavioural test in
+    `src/lib/__tests__/ebay-prefill.test.ts` that asserts both orders.
 - **Specifics edits flow back by provenance** (`reverseColumnAspects` on the edge — run in
   `assemblePublishContext` and the revise path *before* the column re-assert — and
   `reverseProjectAspectColumns` on web, run in the composer + bulk-edit saves):

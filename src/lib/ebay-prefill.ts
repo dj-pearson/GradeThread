@@ -416,6 +416,73 @@ export function projectColumnAspects(
   return { aspects, sources };
 }
 
+// US-2381: the SPEC-AWARE forward projection — the composer's counterpart to
+// projectColumnAspects. The spec-less version writes each column entry's FIRST
+// aspect name (Brand/Size/Color/Material/Style) because the surface it was built
+// for had no category spec loaded. The composer HAS one, and the spec's real
+// names differ per category ("Colour", "US Shoe Size", "Fabric Type") — so using
+// the spec-less version here would write a SECOND key alongside the picker's for
+// the same field, which is a duplicate specific rather than a sync.
+//
+// Rules, in the order they matter:
+//   • The aspect name comes from the LOADED SPEC via the registry's candidates.
+//     No match in this category ⇒ skip entirely. The category does not expose
+//     the field, and inventing the name would create a specific the picker
+//     cannot show and eBay will not use.
+//   • A non-empty column OVERWRITES its aspect (provenance → inventory_derived),
+//     validated through fillAspect so a SELECTION_ONLY value is normalized the
+//     same way publish would ("M" → "Medium").
+//   • A SELECTION_ONLY value that cannot be matched at all LEAVES the existing
+//     aspect alone. The column simply is not expressible here; clearing would
+//     destroy a good value on the strength of a bad one.
+//   • A blank column CLEARS its aspect (drop value + source).
+//
+// CALLER CONTRACT: run this AFTER reverseProjectAspectColumns and feed it the
+// columns as they will be SAVED (item columns overlaid with the write-back). A
+// manual "Nike" typed in the specifics editor writes back to the column first;
+// projecting from the pre-edit column would overwrite it with the stale value
+// and stamp it inventory_derived, so the reverse pass would then refuse to
+// rescue it — the seller's edit would vanish on save.
+export function projectColumnAspectsForSpec(
+  item: Pick<
+    ItemAspectSource,
+    "brand" | "size" | "color" | "material" | "style" | "item_category"
+  >,
+  aspectList: EbayAspect[],
+  existingAspects: Record<string, string[]>,
+  // Loosely typed for the same reason reverseProjectAspectColumns is: a
+  // DB-loaded provenance map arrives as Record<string, string>.
+  existingSources: Record<string, string | undefined>,
+): { aspects: Record<string, string[]>; sources: AspectSourceMap } {
+  const aspects: Record<string, string[]> = { ...existingAspects };
+  const sources: AspectSourceMap = {
+    ...(existingSources as AspectSourceMap),
+  };
+  const category = item.item_category ?? null;
+  for (const entry of ASPECT_REGISTRY.entries) {
+    if (entry.source !== "column" || !entry.column) continue;
+    const candidates = effectiveCandidates(entry, category);
+    const aspect = aspectList.find((a) =>
+      candidates.includes((a.localizedAspectName ?? "").trim().toLowerCase()),
+    );
+    if (!aspect) continue; // this category has no such specific
+    const name = (aspect.localizedAspectName ?? "").trim();
+    if (!name) continue;
+    const raw = (item as unknown as Record<string, unknown>)[entry.column];
+    const val = typeof raw === "string" ? raw.trim() : "";
+    if (val) {
+      const filled = fillAspect(aspect, [val], false);
+      if (filled.values.length === 0) continue; // not expressible — keep what's there
+      aspects[name] = filled.values;
+      sources[name] = "inventory_derived";
+    } else {
+      delete aspects[name];
+      delete sources[name];
+    }
+  }
+  return { aspects, sources };
+}
+
 // The item FIELD an aspect name is two-way synced with — a structured column
 // (brand/size/color/material/style) or a US-821 canonical attribute key
 // (department, pattern, …) — or null for AI-/free-typed aspects. Drives the
