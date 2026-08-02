@@ -376,53 +376,25 @@ export function remapAspectsForCategory(
   return { kept, remapped, remappedFrom, derived, dropped, rewrites };
 }
 
-// The structured COLUMNS (brand, size, color, material, style) OWN their eBay
-// item specifics. This projects the CURRENT column values authoritatively onto
-// an existing aspect map + provenance map — the client mirror of the edge
-// forceColumnAspects + the COLUMN_ASPECT_FALLBACK it uses when no category spec
-// is loaded (services/edge-functions/src/routes/flipdesk-ebay.ts):
-//   • a non-empty column OVERWRITES its aspect (provenance → inventory_derived)
-//   • a blanked column CLEARS its aspect (drop the stale value + source)
-// Only source:"column" entries participate; every AI-, attribute- and
-// manually-typed aspect is left untouched.
+// US-2381: the forward projection — the structured COLUMNS (brand, size, color,
+// material, style) own their eBay item specifics, and this asserts them onto an
+// existing aspect map + provenance map. It is the client mirror of the edge's
+// `forceColumnAspects` (services/edge-functions/src/routes/flipdesk-ebay.ts),
+// which does the same re-assert at publish/revise against the same spec — so a
+// draft saved here and the listing eBay eventually receives agree.
 //
-// Runs on an explicit main-listing save, where a blank field IS an intentional
-// clear (unlike the server's overwrite-only publish path, which can't tell a
-// blanked field from a never-populated one). This keeps the main listing page
-// the single source of truth for these fields, so editing Brand there also
-// updates the eBay specifics — no second, duplicate entry in the specifics
-// editor. Returns NEW maps (inputs untouched).
-export function projectColumnAspects(
-  item: Pick<ItemAspectSource, "brand" | "size" | "color" | "material" | "style">,
-  existingAspects: Record<string, string[]>,
-  existingSources: AspectSourceMap,
-): { aspects: Record<string, string[]>; sources: AspectSourceMap } {
-  const aspects: Record<string, string[]> = { ...existingAspects };
-  const sources: AspectSourceMap = { ...existingSources };
-  for (const entry of ASPECT_REGISTRY.entries) {
-    if (entry.source !== "column" || !entry.column) continue;
-    const name = entry.aspects[0];
-    if (!name) continue;
-    const raw = (item as unknown as Record<string, unknown>)[entry.column];
-    const val = typeof raw === "string" ? raw.trim() : "";
-    if (val) {
-      aspects[name] = [val];
-      sources[name] = "inventory_derived";
-    } else {
-      delete aspects[name];
-      delete sources[name];
-    }
-  }
-  return { aspects, sources };
-}
-
-// US-2381: the SPEC-AWARE forward projection — the composer's counterpart to
-// projectColumnAspects. The spec-less version writes each column entry's FIRST
-// aspect name (Brand/Size/Color/Material/Style) because the surface it was built
-// for had no category spec loaded. The composer HAS one, and the spec's real
-// names differ per category ("Colour", "US Shoe Size", "Fabric Type") — so using
-// the spec-less version here would write a SECOND key alongside the picker's for
-// the same field, which is a duplicate specific rather than a sync.
+// It is SPEC-AWARE, and that is the whole design. A spec-LESS version used to
+// live here (`projectColumnAspects`, deleted 2026-08-01 with its only caller
+// long gone): it wrote each registry entry's FIRST aspect name, which is correct
+// only on a surface with no category spec loaded. Every web surface that
+// projects now has the spec, and the spec's real names differ per category —
+// "Colour", "US Shoe Size", "Fabric Type". Writing the registry's first guess
+// there would add a SECOND key beside the picker's row for the same field: a
+// duplicate specific, not a sync.
+//
+// iOS (`InventoryAspectSync.swift`) and Android (`AspectSync.kt`) still carry
+// the spec-less shape, because their item forms have no spec loaded. That is a
+// UI difference, not drift — see vault/20-domain/sync-source-of-truth.md.
 //
 // Rules, in the order they matter:
 //   • The aspect name comes from the LOADED SPEC via the registry's candidates.
@@ -504,41 +476,6 @@ export function syncedItemFieldFor(
   return null;
 }
 
-// Item-page projection for the US-821 canonical attributes — the attribute
-// counterpart of projectColumnAspects. `changed` holds ONLY the attribute keys
-// the seller edited this session (new value, or null for an explicit clear);
-// untouched attributes never move their aspects, so an AI-/manually-set aspect
-// with no backing attribute isn't clobbered by a mere resave. A changed value
-// OVERWRITES its aspect (provenance → inventory_derived); a cleared one drops
-// it. Returns NEW maps (inputs untouched).
-export function projectAttributeAspects(
-  changed: Record<string, string | string[] | null>,
-  existingAspects: Record<string, string[]>,
-  existingSources: AspectSourceMap,
-): { aspects: Record<string, string[]>; sources: AspectSourceMap } {
-  const aspects: Record<string, string[]> = { ...existingAspects };
-  const sources: AspectSourceMap = { ...existingSources };
-  for (const [key, raw] of Object.entries(changed)) {
-    const entry = ASPECT_REGISTRY.entries.find(
-      (e) => e.source === "attribute" && e.attribute === key,
-    );
-    if (!entry) continue;
-    const name = entry.aspects[0];
-    if (!name) continue;
-    const values = (Array.isArray(raw) ? raw : raw != null ? [raw] : [])
-      .map((v) => v.trim())
-      .filter((v) => v.length > 0);
-    if (values.length > 0) {
-      aspects[name] = entry.multi ? values : [values[0]!];
-      sources[name] = "inventory_derived";
-    } else {
-      delete aspects[name];
-      delete sources[name];
-    }
-  }
-  return { aspects, sources };
-}
-
 // The write-back a specifics-editor save owes the item: column patches +
 // changed canonical-attribute keys (caller merges the latter over the item's
 // existing `attributes` jsonb before persisting).
@@ -549,8 +486,10 @@ export interface AspectWriteBack {
   attributes: Record<string, string | string[]>;
 }
 
-// REVERSE projection — the other half of projectColumnAspects, so shared
-// values are SINGLE-ENTRY in both directions. The item's structured fields own
+// REVERSE projection — the other half of projectColumnAspectsForSpec, so shared
+// values are SINGLE-ENTRY in both directions. Run this FIRST: the forward pass
+// stamps what it writes `inventory_derived`, and this one only writes back
+// `manual`/`ai_extracted`, so the other order silently drops a seller's edit. The item's structured fields own
 // their eBay specifics (the edge force-projects columns at publish/revise), so
 // an aspect edit that never reaches its backing field is clobbered by the stale
 // field on the next save/publish. This folds specifics-editor edits back:

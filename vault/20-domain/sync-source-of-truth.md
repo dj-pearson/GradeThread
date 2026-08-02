@@ -87,10 +87,17 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
   - **On web the forward projection is SPEC-AWARE** (`projectColumnAspectsForSpec`, US-2381).
     It resolves each column's aspect name from the **loaded category spec** rather than from
     the registry's first candidate, because the two differ per category — `Colour`,
-    `US Shoe Size`, `Fabric Type`. The spec-less `projectColumnAspects` remains the right shape
-    for a surface with no spec loaded (and is what iOS `InventoryAspectSync.swift` and Android
-    `AspectSync.kt` mirror); using it where a spec IS loaded would write a second key beside the
-    picker's for the same field — a duplicate specific, not a sync.
+    `US Shoe Size`, `Fabric Type`. Using a spec-less projection where a spec IS loaded would
+    write a second key beside the picker's for the same field — a duplicate specific, not a
+    sync.
+  - **The spec-less web projection is gone** (`projectColumnAspects` /
+    `projectAttributeAspects`, deleted 2026-08-01). iOS `InventoryAspectSync.swift` and Android
+    `AspectSync.kt` still carry that shape and are **correct to**, because their item forms have
+    no category spec loaded. That is a UI difference, not drift.
+    > **Future, if mobile ever gains a spec-aware item form:** port the rule above rather than
+    > the deleted code. It needs the category's aspect list at save time, which those clients do
+    > not currently fetch — so it is a rollout with a client release behind it, not a refactor.
+    > `src/test/aspect-projection-callers.test.ts` is the guard that makes the next orphan loud.
     A column the category does not expose is **skipped**, and a value a SELECTION_ONLY aspect
     cannot express **leaves the existing value alone** rather than clearing it.
   - **Order is load-bearing, and no type can enforce it.** The reverse pass runs FIRST on the

@@ -6,8 +6,6 @@ import {
   deriveAspectsFromItem,
   inferDepartment,
   mapEbayCondition,
-  projectAttributeAspects,
-  projectColumnAspects,
   projectColumnAspectsForSpec,
   reverseProjectAspectColumns,
   syncedItemFieldFor,
@@ -135,73 +133,10 @@ describe("deriveAspectsFromItem (US-822 web registry)", () => {
   });
 });
 
-describe("projectColumnAspects (main-page columns own their aspects)", () => {
-  const cols = (o: Partial<ItemAspectSource>) => ({
-    brand: null,
-    size: null,
-    color: null,
-    material: null,
-    style: null,
-    ...o,
-  });
-
-  it("overwrites the column-backed aspects and stamps inventory_derived", () => {
-    const { aspects, sources } = projectColumnAspects(
-      cols({ brand: "Nike", size: "M", color: "Blue", material: "Cotton", style: "Hoodie" }),
-      { Brand: ["Adidas"] },
-      { Brand: "manual" },
-    );
-    expect(aspects).toEqual({
-      Brand: ["Nike"],
-      Size: ["M"],
-      Color: ["Blue"],
-      Material: ["Cotton"],
-      Style: ["Hoodie"],
-    });
-    // A manually-typed Brand loses to the column — the main page is authoritative.
-    expect(sources.Brand).toBe("inventory_derived");
-  });
-
-  it("clears an aspect + its source when the backing column is blanked", () => {
-    // Brand column blanked → Brand aspect dropped; Size column still holds "M"
-    // → Size overwritten from the column (and its source becomes the derived
-    // provenance, since the column now owns it).
-    const { aspects, sources } = projectColumnAspects(
-      cols({ brand: "  ", size: "M" }),
-      { Brand: ["Nike"], Size: ["L"] },
-      { Brand: "inventory_derived", Size: "manual" },
-    );
-    expect(aspects).toEqual({ Size: ["M"] });
-    expect(sources).toEqual({ Size: "inventory_derived" });
-  });
-
-  it("leaves non-column aspects (AI / attribute / manual) untouched", () => {
-    const { aspects, sources } = projectColumnAspects(
-      cols({ brand: "Nike" }),
-      { "Sleeve Length": ["Long Sleeve"], Department: ["Men"] },
-      { "Sleeve Length": "ai_extracted", Department: "manual" },
-    );
-    expect(aspects).toEqual({
-      "Sleeve Length": ["Long Sleeve"],
-      Department: ["Men"],
-      Brand: ["Nike"],
-    });
-    expect(sources["Sleeve Length"]).toBe("ai_extracted");
-    expect(sources.Department).toBe("manual");
-  });
-
-  it("does not mutate the inputs", () => {
-    const existing = { Brand: ["Adidas"] };
-    const existingSources = { Brand: "manual" as const };
-    projectColumnAspects(cols({ brand: "Nike" }), existing, existingSources);
-    expect(existing).toEqual({ Brand: ["Adidas"] });
-    expect(existingSources).toEqual({ Brand: "manual" });
-  });
-});
-
-// US-2381: the composer's spec-aware forward projection. The whole reason it
-// exists rather than reusing projectColumnAspects is that the spec's names are
-// not the registry's first guess.
+// US-2381: the forward projection is spec-aware. A spec-less sibling used to
+// live beside it and was deleted with its caller; these cases pin the behaviour
+// that made the spec-aware one necessary — the spec's names are not the
+// registry's first guess.
 describe("projectColumnAspectsForSpec (composer, spec-aware)", () => {
   const cols = (o: Partial<ItemAspectSource>) => ({
     brand: null,
@@ -446,46 +381,5 @@ describe("syncedItemFieldFor", () => {
 
   it("returns null for unknown aspects", () => {
     expect(syncedItemFieldFor("Occasion", "clothing")).toBeNull();
-  });
-});
-
-describe("projectAttributeAspects (item Details fields own their aspects)", () => {
-  it("a changed attribute overwrites its aspect and stamps inventory_derived", () => {
-    const { aspects, sources } = projectAttributeAspects(
-      { department: "Men", features: ["Pockets", "Lined"] },
-      { Department: ["Women"], Brand: ["Nike"] },
-      { Department: "manual", Brand: "inventory_derived" },
-    );
-    expect(aspects).toEqual({
-      Department: ["Men"],
-      Features: ["Pockets", "Lined"],
-      Brand: ["Nike"],
-    });
-    expect(sources.Department).toBe("inventory_derived");
-    expect(sources.Brand).toBe("inventory_derived");
-  });
-
-  it("a cleared attribute drops its aspect + source", () => {
-    const { aspects, sources } = projectAttributeAspects(
-      { pattern: null },
-      { Pattern: ["Striped"], Department: ["Men"] },
-      { Pattern: "manual", Department: "ai_extracted" },
-    );
-    expect(aspects).toEqual({ Department: ["Men"] });
-    expect(sources).toEqual({ Department: "ai_extracted" });
-  });
-
-  it("untouched attributes never move their aspects; inputs not mutated", () => {
-    const existing = { Department: ["Men"] };
-    const existingSources = { Department: "manual" as const };
-    const { aspects } = projectAttributeAspects({}, existing, existingSources);
-    expect(aspects).toEqual({ Department: ["Men"] });
-    expect(existing).toEqual({ Department: ["Men"] });
-    expect(existingSources).toEqual({ Department: "manual" });
-  });
-
-  it("unknown keys are ignored", () => {
-    const { aspects } = projectAttributeAspects({ nonsense: "x" }, {}, {});
-    expect(aspects).toEqual({});
   });
 });

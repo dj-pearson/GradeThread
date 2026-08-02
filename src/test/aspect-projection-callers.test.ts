@@ -1,12 +1,14 @@
 // US-2381 AC5 — a projection helper must never lose its last caller quietly.
 //
-// THE DEFECT THIS EXISTS FOR. `projectColumnAspects` and
-// `projectAttributeAspects` had exactly one caller, `item-canvas.tsx`. When that
-// component was deleted the helpers kept their full unit-test coverage and went
-// on passing, so nothing anywhere reported that the behaviour they implement —
-// a blanked column clearing its eBay specific — had stopped happening on web.
+// THE DEFECT THIS EXISTS FOR. Two projection helpers had exactly one caller,
+// `item-canvas.tsx`. When that component was deleted they kept their full unit
+// test coverage and went on passing, so nothing anywhere reported that the
+// behaviour they implement — a blanked column clearing its eBay specific — had
+// stopped happening on web. They were replaced by the spec-aware projection and
+// deleted on 2026-08-01; this guard is what makes the NEXT one loud instead.
 // A second orphan from the same deletion (PhotoManager's `dirtyRef`) went
-// unnoticed the same way.
+// unnoticed the same way, and no check here could have caught it: an optional
+// prop nobody passes is not a broken anything.
 //
 // WHY THIS GUARD IS NARROW. A repo-wide "exported but uncalled" check produces
 // mostly legitimate hits — public API, test seams, deliberate re-exports — and
@@ -41,9 +43,7 @@ function productionFiles(): string[] {
  * an uncalled one is a behaviour the product silently stopped having.
  */
 const PROJECTION_EXPORTS = [
-  "projectColumnAspects",
   "projectColumnAspectsForSpec",
-  "projectAttributeAspects",
   "reverseProjectAspectColumns",
 ] as const;
 
@@ -55,20 +55,13 @@ const PROJECTION_EXPORTS = [
 const ALLOWED_WITHOUT_CALLER: Partial<
   Record<(typeof PROJECTION_EXPORTS)[number], string>
 > = {
-  projectColumnAspects:
-    "US-2381: the spec-LESS projection. Its web caller (item-canvas.tsx) is " +
-    "gone and the composer uses projectColumnAspectsForSpec instead, because " +
-    "the composer has a category spec loaded and this one would write the " +
-    "registry's first aspect name rather than the spec's. Kept because iOS " +
-    "(InventoryAspectSync.swift) and Android (AspectSync.kt) mirror this exact " +
-    "shape and this file is the reference the parity work reads. Whether to " +
-    "delete the web copy is an open decision recorded on US-2381 — until it is " +
-    "made, this entry is the honest state, not an exemption.",
-  projectAttributeAspects:
-    "US-2381: the attribute counterpart, orphaned by the same deletion. AC2's " +
-    "attribute half is still open — it needs the set of attribute keys changed " +
-    "THIS SESSION, and the composer has no such signal because the specifics " +
-    "picker IS the attribute editor. Remove this entry when that lands.",
+  // Empty on purpose. The two helpers that were allow-listed here —
+  // projectColumnAspects and projectAttributeAspects — were DELETED on
+  // 2026-08-01 rather than left dormant, once the owner's rule was clear:
+  // superseded code goes, unless another platform depends on it at runtime.
+  // Neither did; iOS and Android carry their own copies of the spec-less shape.
+  // An empty allowlist is the healthy state, and adding an entry should feel
+  // like a decision rather than a formality.
 };
 
 describe("aspect-projection helpers keep a production caller (US-2381 AC5)", () => {
