@@ -2226,7 +2226,9 @@ export async function handleAutolisterReclaimCron(c: Context): Promise<Response>
   // US-503: overlap guard. Per-batch claim (the UPDATE below bumps updated_at)
   // is the resource-level idempotency; this coarse lock avoids two sweepers
   // contending. 5-min lease.
-  const lock = await acquireJobLock("autolister-reclaim", 300);
+  // US-2311: lease is 2x the */5 schedule interval. At <= 1x, a run
+  // that overruns by a second is displaced by the very next tick.
+  const lock = await acquireJobLock("autolister-reclaim", 600);
   if (!lock.acquired) {
     return c.json({ scanned: 0, resumed: 0, finalized: 0, skipped: true, reason: lock.reason });
   }
@@ -2821,7 +2823,9 @@ export async function handlePublishBatchReclaimCron(c: Context): Promise<Respons
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  const lock = await acquireJobLock("publish-batch-reclaim", 300);
+  // US-2311: lease is 2x the */5 schedule interval. At <= 1x, a run
+  // that overruns by a second is displaced by the very next tick.
+  const lock = await acquireJobLock("publish-batch-reclaim", 600);
   if (!lock.acquired) {
     return c.json({ scanned: 0, resumed: 0, finalized: 0, skipped: true, reason: lock.reason });
   }

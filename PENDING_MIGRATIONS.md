@@ -1,10 +1,10 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Two pending: 00510 and 00511.** Prod is at **00509** — the operator confirmed
-on 2026-08-01 that 00507, 00508 and 00509 are all applied.
-`EXPECTED_SCHEMA_VERSION` is **00511** and the highest migration in the tree is
-`00511_submissions_protected_columns_guard.sql`, so the edge boot guard expects
-00511 and prod is two behind.
+**Three pending: 00510, 00511 and 00512.** Prod is at **00509** — the operator
+confirmed on 2026-08-01 that 00507, 00508 and 00509 are all applied.
+`EXPECTED_SCHEMA_VERSION` is **00512** and the highest migration in the tree is
+`00512_job_lock_holder_release.sql`, so the edge boot guard expects 00512 and
+prod is three behind.
 
 Why the entries stayed marked HELD after they were applied: this file is edited
 by hand and nothing flips the marker when the SQL runs. The session-start hook
@@ -12,6 +12,67 @@ reads these ⏳ markers, so a stale one tells every future session the branch is
 frozen when it is not — which is exactly what happened here, and what happened
 once before (see the US-2017 note in prd.json). **When you apply a migration,
 flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00512_job_lock_holder_release.sql (US-2311 job-lock holder check, 2026-08-02)
+
+- **Apply order.** After 00511. Idempotent: `DROP FUNCTION IF EXISTS` then
+  `CREATE OR REPLACE FUNCTION`, the whole file in one transaction. Verified safe
+  to re-run — `DROP FUNCTION` matches the declared signature exactly and ignores
+  defaults, so a second run does **not** drop the new two-arg function.
+- **What it does.** Replaces `release_job_lock(p_job text)` with
+  `release_job_lock(p_job text, p_holder text default null)`, whose DELETE adds
+  `AND (p_holder is null or holder = p_holder)`. The `holder` column and the
+  `try_acquire_job_lock` parameter that fills it have both existed since 00094;
+  nothing ever passed a value.
+- **Why.** The old release was an unconditional DELETE, so a run whose lease
+  expired — and whose lock was then legitimately stolen by the next tick — went
+  on to delete the NEW holder's live lock when it finished. The tick after that
+  acquired freely and ran concurrently. Worked example on `autolister-reclaim`
+  **as it was before this commit** (300s lease, `*/5` schedule, so lease ==
+  interval exactly): tick 1 acquires at 0:00, tick 2 steals at 5:00, tick 1
+  releases at 5:30 and destroys tick 2's lock, tick 3 acquires at 10:00 alongside
+  the still-running tick 2. Mutual exclusion does not degrade there, it
+  disappears. The same commit raises that lease to 600s (and six others like it),
+  so the example describes a configuration this change removes — the holder check
+  is the fix, the lease bump is defence in depth.
+- **Risk: LOW.** Strictly narrows a DELETE, and the SQL is wrapped in
+  `begin`/`commit` so there is no window in which the function is missing.
+  **Apply-order, both directions:**
+  - *SQL first, old edge still live* — safe. The deployed build sends only
+    `p_job`, which binds to the new two-arg function through its default and
+    behaves exactly as today.
+  - *New edge first, SQL not yet applied* — degraded, not corrupting, and it
+    should not be reachable. The new build sends `{p_job, p_holder}`, which
+    PostgREST cannot bind to the old one-arg function (PGRST202); `job-lock.ts`
+    catches it and logs `job.release_failed`, so locks expire on lease instead of
+    releasing early. The boot guard makes a confirmed-behind DB fatal, so the
+    only way to reach this is the fail-OPEN branch where the guard cannot read
+    the tracker at all.
+- **Why the one-arg function is dropped rather than kept alongside.** Two
+  overloads where one has a defaulted second argument makes a *one-arg*
+  named-argument call from PostgREST ambiguous (`function is not unique`;
+  reproduced). Dropping it is what keeps the old edge working, not what breaks
+  it.
+- **⚠ The grant trap — the one thing to actually watch.** `DROP FUNCTION`
+  discards the ACL, and a re-created function is a brand-new object that inherits
+  nothing. `CREATE OR REPLACE` (what every other migration here does) preserves
+  the ACL, so this hazard is unique to this file. Privileges would otherwise come
+  only from the **applying role's** `alter default privileges`: apply as
+  `postgres` and `service_role` gets EXECUTE back, apply as any other superuser
+  and it does not — every `release_job_lock` call from the edge then returns
+  42501 and locks only ever expire on lease. The migration therefore names the
+  grant explicitly (`grant execute ... to service_role`) instead of relying on
+  that, alongside the restated `REVOKE ALL ... FROM public, anon, authenticated`.
+  If you apply by hand, do not stop after the `CREATE`. Verify after:
+  `select proowner::regrole, proacl from pg_proc where proname = 'release_job_lock';`
+- **CLIENT reads/writes.** None. `job_locks` is service-role only; grepped `src/`,
+  `ios/`, `android/` and `functions/` for `job_locks` / `release_job_lock` — no
+  matches anywhere, so a frontend auto-deploy changes nothing.
+- **After applying:** `NOTIFY pgrst, 'reload schema';` **is** required and is
+  load-bearing here — PostgREST caches function signatures, so without it the new
+  edge's two-arg call is rejected even against a correctly migrated DB.
 
 ---
 

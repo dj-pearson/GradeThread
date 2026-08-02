@@ -1123,7 +1123,9 @@ export async function handleEbayPendingWebhooksCron(c: {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  const lock = await acquireJobLock("ebay-pending-webhooks", 240);
+  // US-2311: lease is 2x the */15 schedule interval. At <= 1x, a run
+  // that overruns by a second is displaced by the very next tick.
+  const lock = await acquireJobLock("ebay-pending-webhooks", 1800);
   if (!lock.acquired) {
     return c.json({ ok: true, skipped: true, reason: lock.reason });
   }

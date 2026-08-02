@@ -88,5 +88,9 @@ export async function handleGuaranteePoolCron(c: Context): Promise<Response> {
   } catch (err) {
     console.error("[guarantee-pool] cron failed:", err instanceof Error ? err.message : String(err));
     return c.json({ error: "Guarantee-pool job failed." }, 500);
+  } finally {
+    // US-2311: acquired but never released — the 300s lease was doing all the
+    // work, so a manual Run Now inside it silently no-opped.
+    await lock.release();
   }
 }

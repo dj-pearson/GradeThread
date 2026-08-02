@@ -33,5 +33,10 @@ export async function handleDurabilityAggregateCron(c: Context): Promise<Respons
       err instanceof Error ? err.message : String(err),
     );
     return c.json({ error: "Durability aggregation failed" }, 500);
+  } finally {
+    // US-2311: this ran daily with no release, so the lease (600s) was the only
+    // thing that ever freed the lock — and an operator hitting Run Now inside
+    // that window got a silent no-op that looked like a completed run.
+    await lock.release();
   }
 }

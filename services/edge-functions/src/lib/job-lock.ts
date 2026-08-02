@@ -63,12 +63,19 @@ export async function acquireJobLock(
     return { acquired: false, reason: "shutting_down", release: noop };
   }
 
+  // US-2311: a per-acquisition token, so release can prove it still owns the
+  // lock. Without it a slow run whose lease expired — and whose lock was then
+  // legitimately stolen by the next tick — deleted the NEW holder's lock on its
+  // way out, and the tick after that acquired freely. Mutual exclusion did not
+  // degrade, it disappeared.
+  const holder = crypto.randomUUID();
+
   let acquired = false;
   try {
     const { data, error } = await rpc("try_acquire_job_lock", {
       p_job: jobName,
       p_lease_seconds: leaseSeconds,
-      p_holder: null,
+      p_holder: holder,
     });
     if (error) {
       captureException(error, { level: "warn", route: "job-lock.acquire", tags: { job: jobName } });
@@ -89,7 +96,10 @@ export async function acquireJobLock(
     acquired: true,
     release: async () => {
       try {
-        const { error } = await rpc("release_job_lock", { p_job: jobName });
+        const { error } = await rpc("release_job_lock", {
+          p_job: jobName,
+          p_holder: holder,
+        });
         if (error) logEvent("warn", "job.release_failed", { job: jobName });
       } catch {
         logEvent("warn", "job.release_failed", { job: jobName });

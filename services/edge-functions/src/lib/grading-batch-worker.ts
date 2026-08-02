@@ -309,7 +309,9 @@ export async function handleGradingBatchReclaimCron(c: Context): Promise<Respons
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  const lock = await acquireJobLock("grading-batch-reclaim", 300);
+  // US-2311: lease is 2x the */5 schedule interval. At <= 1x, a run
+  // that overruns by a second is displaced by the very next tick.
+  const lock = await acquireJobLock("grading-batch-reclaim", 600);
   if (!lock.acquired) {
     return c.json({ scanned: 0, resumed: 0, finalized: 0, skipped: true, reason: lock.reason });
   }

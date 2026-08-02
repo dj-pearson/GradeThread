@@ -16,7 +16,9 @@ import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import { getSetting } from "../lib/system-settings.ts";
 import { scanAndFinalizeDueAbTests } from "../lib/newsletter-ab-job.ts";
 
-const LOCK_LEASE_SECONDS = 300;
+// US-2311: lease is 2x the */15 schedule interval. At <= 1x, a run that
+// overruns by a second is displaced by the very next tick.
+const LOCK_LEASE_SECONDS = 1800;
 
 export async function handleNewsletterAbFinalizeCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) {

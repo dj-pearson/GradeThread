@@ -133,7 +133,9 @@ export async function handleEmailRetryCron(c: {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  const lock = await acquireJobLock("email-retry", 240);
+  // US-2311: lease is 2x the */5 schedule interval. At <= 1x, a run
+  // that overruns by a second is displaced by the very next tick.
+  const lock = await acquireJobLock("email-retry", 600);
   if (!lock.acquired) {
     return c.json({ ok: true, skipped: true, reason: lock.reason });
   }
