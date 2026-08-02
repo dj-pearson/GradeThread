@@ -88,7 +88,6 @@ import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
 import { useSavedViews } from "@/hooks/use-saved-views";
 import {
   EMPTY_QUERY,
-  evalQuery,
   encodeQuery,
   decodeQuery,
   describeRule,
@@ -109,9 +108,8 @@ import {
   DRAFT_LIKE_STATUSES,
 } from "@/pages/flipdesk/inventory-tabs";
 import {
-  matchesSearch,
-  matchesSoldFilter,
   planListingDemote,
+  selectListingRows,
   type SoldFilter,
 } from "@/pages/flipdesk/listings-filter";
 import { usePageRowDetails } from "@/pages/flipdesk/listings-page-queries";
@@ -144,7 +142,7 @@ import {
   describeSkipped,
   type StatusUndoEntry,
 } from "@/lib/bulk-status-undo";
-import { scoreListability, maxCompPrice } from "@/lib/listability";
+import { scoreListability } from "@/lib/listability";
 import {
   ITEM_STATUSES,
   ITEM_STATUS_LABELS,
@@ -508,93 +506,31 @@ export function FlipdeskListingsPage() {
     return m;
   }, [items]);
 
-  const filtered = useMemo(() => {
-    // US-2178: the search and sold-window predicates moved to
-    // listings-filter.ts so they can be unit-tested. `now` is passed in rather
-    // than read inside, which is what makes the date windows assertable.
-    const now = Date.now();
-    const rows = items.filter((it) => {
-      if (!activeTab.matches(it)) return false;
-      if (!matchesSearch(it, search)) return false;
-      if (isSold && !matchesSoldFilter(it, soldFilter, now)) return false;
-      // Advanced filter — composes on top of stage tab + search + sold-tab filter.
-      if (filterQuery.rules.length > 0 && !evalQuery(it, filterQuery)) {
-        return false;
-      }
-      return true;
-    });
-
-    // Column override wins over every default sort — including the To
-    // List preset — so the user always gets the column they clicked.
-    if (columnSort) {
-      const { field, dir: cdir } = columnSort;
-      const sign = cdir === "asc" ? 1 : -1;
-      rows.sort((a, b) => {
-        const av = a[field];
-        const bv = b[field];
-        if (av == null && bv == null) return 0;
-        if (av == null) return 1;
-        if (bv == null) return -1;
-        if (typeof av === "number" && typeof bv === "number") {
-          return (av - bv) * sign;
-        }
-        return (
-          String(av).localeCompare(String(bv), undefined, {
-            numeric: true,
-            sensitivity: "base",
-          }) * sign
-        );
-      });
-      return rows;
-    }
-
-    if (isToList) {
-      rows.sort((a, b) => {
-        switch (sortPreset) {
-          case "listability":
-            return (scoreById.get(b.id) ?? 0) - (scoreById.get(a.id) ?? 0);
-          case "oldest": {
-            const at = a.created_at ? new Date(a.created_at).getTime() : 0;
-            const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
-            return at - bt;
-          }
-          case "best_roi": {
-            const roi = (it: ItemFullRow) => {
-              const price = it.target_price ?? it.list_price;
-              const cost = it.purchase_price ?? 0;
-              if (price == null || price <= 0) return -1;
-              return (price - cost) / price;
-            };
-            return roi(b) - roi(a);
-          }
-          case "highest_comp":
-            return maxCompPrice(b) - maxCompPrice(a);
-        }
-      });
-      return rows;
-    }
-
-    const dir = activeTab.sortDir === "asc" ? 1 : -1;
-    const key = activeTab.sortKey;
-    rows.sort((a, b) => {
-      const av = a[key];
-      const bv = b[key];
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      if (typeof av === "number" && typeof bv === "number") {
-        return (av - bv) * dir;
-      }
-      // Natural sort so "10" follows "9", not "1".
-      return (
-        String(av).localeCompare(String(bv), undefined, {
-          numeric: true,
-          sensitivity: "base",
-        }) * dir
-      );
-    });
-    return rows;
-  }, [items, activeTab, search, isToList, isSold, soldFilter, sortPreset, scoreById, filterQuery, columnSort]);
+  // US-2168 AC5: the whole selection pipeline now lives in listings-filter.ts
+  // as selectListingRows(), a pure function of (items, criteria). It used to be
+  // this useMemo, closed over a dozen pieces of component state.
+  //
+  // The move is what makes AC5 possible at all. AC3 puts search, tab filtering
+  // and sort on the server, and AC5 asks for row-count parity "against the
+  // current client-side behaviour" — you cannot assert parity against a closure
+  // there is no way to call. So the harness has to exist BEFORE the port, and
+  // this is it: today's behaviour, callable, pinned by a fixture corpus.
+  //
+  // Written the other way round, a parity test would assert that the new
+  // implementation matches itself.
+  const filtered = useMemo(
+    () =>
+      selectListingRows(items, {
+        tab: activeTab,
+        search,
+        soldFilter,
+        filterQuery,
+        columnSort,
+        sortPreset,
+        now: Date.now(),
+      }),
+    [items, activeTab, search, soldFilter, sortPreset, filterQuery, columnSort],
+  );
 
   // Aggregate strip for the Sold tab — over the current filter.
   const soldAgg = useMemo(() => {

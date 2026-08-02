@@ -8,6 +8,9 @@
 // under them. Behaviour is unchanged; only the address is.
 
 import type { ItemFullRow } from "@/types/database";
+import { evalQuery, type FilterQuery } from "@/lib/item-filter";
+import { scoreListability, maxCompPrice } from "@/lib/listability";
+import type { TabDef } from "@/pages/flipdesk/inventory-tabs";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -131,4 +134,140 @@ export function planListingDemote(it: ItemFullRow): DemotePlan {
       ? { is_active: false }
       : { listing_status: "draft", is_active: false },
   };
+}
+
+// ─── The whole row-selection pipeline (US-2168 AC5) ────────────────────────
+
+/** The four preset sorts the "To list" tab offers. */
+export type SortPreset = "listability" | "oldest" | "best_roi" | "highest_comp";
+
+/** Everything the table's row selection depends on, as data. */
+export interface RowSelectionCriteria {
+  tab: TabDef;
+  search: string;
+  /** The Sold tab's date window. Only consulted when `tab.id === "sold"`. */
+  soldFilter: SoldFilter;
+  /** Advanced FilterBuilder query. `rules: []` means "no advanced filter". */
+  filterQuery: FilterQuery;
+  /** A clicked column header. Wins over every preset when present. */
+  columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
+  /** Only consulted on the "To list" tab. */
+  sortPreset: SortPreset;
+  /** Injected so the Sold date windows are assertable. */
+  now: number;
+}
+
+/**
+ * US-2168 AC5 — the executable specification of what a listings tab shows.
+ *
+ * WHY THIS IS A FUNCTION AND NOT A useMemo. AC3 moves search, tab filtering and
+ * sort to the server, and AC5 requires row-count parity against "the current
+ * client-side behaviour so the migration can't silently change what a tab
+ * shows". You cannot assert parity against a `useMemo` closed over a dozen
+ * pieces of component state — there is nothing to call. So the harness has to
+ * exist BEFORE the port, not after it, and this is that harness: the current
+ * behaviour, callable, with a fixture corpus pinning it.
+ *
+ * That ordering is the whole point. Written afterwards, a parity test asserts
+ * that the new implementation matches itself.
+ *
+ * Behaviour is unchanged from the inline version — this is a move, and the
+ * tests that came with it are the first coverage this pipeline has ever had.
+ *
+ * NOTE FOR WHOEVER WRITES THE SQL. Four things here are easy to get subtly
+ * wrong in a port, and each changes which rows a seller sees:
+ *   • NULLS LAST in both directions. `null` sorts after everything regardless
+ *     of direction, which is NOT what `ORDER BY x DESC` does in Postgres
+ *     (it puts NULLs first). You want `NULLS LAST` explicitly on both.
+ *   • Strings compare with `numeric: true`, so "10" follows "9". Plain
+ *     `ORDER BY text` gives "10" before "9".
+ *   • `sensitivity: "base"` means case- AND accent-insensitive. That is closer
+ *     to a collation with a non-default strength than to `lower()`.
+ *   • The predicates compose as AND in a fixed order, and the advanced filter
+ *     applies LAST, on top of the tab and the search.
+ */
+export function selectListingRows(
+  items: readonly ItemFullRow[],
+  c: RowSelectionCriteria,
+): ItemFullRow[] {
+  const rows = items.filter((it) => {
+    if (!c.tab.matches(it)) return false;
+    if (!matchesSearch(it, c.search)) return false;
+    if (c.tab.id === "sold" && !matchesSoldFilter(it, c.soldFilter, c.now)) {
+      return false;
+    }
+    // Composes on top of the stage tab + search + sold-window filter.
+    if (c.filterQuery.rules.length > 0 && !evalQuery(it, c.filterQuery)) {
+      return false;
+    }
+    return true;
+  });
+
+  // A clicked column beats every default sort — including the To-list preset —
+  // so the seller always gets the column they asked for.
+  if (c.columnSort) {
+    return sortByField(rows, c.columnSort.field, c.columnSort.dir);
+  }
+
+  if (c.tab.id === "to_list") {
+    const scoreById = new Map<string, number>();
+    for (const it of rows) scoreById.set(it.id, scoreListability(it).score);
+    rows.sort((a, b) => {
+      switch (c.sortPreset) {
+        case "listability":
+          return (scoreById.get(b.id) ?? 0) - (scoreById.get(a.id) ?? 0);
+        case "oldest": {
+          const at = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return at - bt;
+        }
+        case "best_roi":
+          return roiOf(b) - roiOf(a);
+        case "highest_comp":
+          return maxCompPrice(b) - maxCompPrice(a);
+      }
+    });
+    return rows;
+  }
+
+  return sortByField(rows, c.tab.sortKey, c.tab.sortDir);
+}
+
+/** Return on cost, or -1 when there is no usable price to reason about. */
+function roiOf(it: ItemFullRow): number {
+  const price = it.target_price ?? it.list_price;
+  const cost = it.purchase_price ?? 0;
+  if (price == null || price <= 0) return -1;
+  return (price - cost) / price;
+}
+
+/**
+ * The shared comparator. Nulls sort LAST in both directions — a row missing the
+ * value being sorted on is not "smallest", it is "unknown", and burying it is
+ * what a seller expects either way.
+ */
+function sortByField(
+  rows: ItemFullRow[],
+  field: keyof ItemFullRow,
+  dir: "asc" | "desc",
+): ItemFullRow[] {
+  const sign = dir === "asc" ? 1 : -1;
+  rows.sort((a, b) => {
+    const av = a[field];
+    const bv = b[field];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === "number" && typeof bv === "number") {
+      return (av - bv) * sign;
+    }
+    // Natural sort, so "10" follows "9" rather than "1".
+    return (
+      String(av).localeCompare(String(bv), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }) * sign
+    );
+  });
+  return rows;
 }
