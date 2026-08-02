@@ -8,14 +8,24 @@
 // caller to tell "the server truncated you" from "that is all the rows".
 //
 // This is the smaller, landable half of that contract: a BASELINE that can only
-// shrink. Enumerating and justifying all 31 existing sites in one pass would
-// have meant 31 rushed judgements, and a rushed justification is worse than an
-// honest "not yet looked at" — so the list below is explicitly a debt register,
-// not an approval list. Same shape as KNOWN_UNREACHABLE_CRONS in
-// cron-registry-drift_test.ts.
+// shrink. The list below is a debt register, not an approval list — the nine
+// entries are untriaged, and removing one by bounding its read is the win. Same
+// shape as KNOWN_UNREACHABLE_CRONS in cron-registry-drift_test.ts.
 //
 // What it buys today: a new unbounded read fails the build. What it does not
-// buy: any claim that the 31 below are fine.
+// buy: any claim that the nine below are fine.
+//
+// ON THAT NUMBER — it took four passes to get right, and the wrong ones were
+// wrong in instructive ways. 169 when only a row cap or a date window counted
+// as a bound, which ignored that a read scoped to ONE owner is bounded by that
+// seller's data. 31 once owner keys counted. 25 once a JOIN-qualified owner key
+// (`inventory_items.user_id`) counted. 9 once the scan stopped using a fixed
+// character window and cut each query chain at the next `.from(` — a 400-char
+// window missed filters that sit after a long commented `.select(`, and
+// widening it to 1200 made chains in a `Promise.all` array borrow the next
+// query's `.lt()`, which silently APPROVES an unbounded read. Both directions
+// matter, but they are not symmetric: a false positive gets the guard deleted,
+// a false negative means nobody ever finds out.
 
 import { assert, assertEquals } from "@std/assert";
 
@@ -66,7 +76,26 @@ const GROWTH_TABLES = [
  * across every tenant — that grow without limit.
  */
 const BOUND =
-  /\.limit\(|\.single\(\)|\.maybeSingle\(\)|\.gte\(|\.lte\(|\.range\(|count:\s*["']exact["']|\.eq\(\s*["'](user_id|owner_user_id|submission_id|inventory_item_id|sale_id|item_id|garment_id|listing_id|id)["']|\.in\(/;
+  /\.limit\(|\.single\(\)|\.maybeSingle\(\)|\.gte\(|\.lte\(|\.range\(|count:\s*["']exact["']|head:\s*true|\bhead\b\s*\)|\.eq\(\s*["'][\w.]*(user_id|owner_user_id|submission_id|inventory_item_id|sale_id|item_id|garment_id|listing_id|id)["']|\.in\(/;
+
+/**
+ * The text of ONE query chain, starting at `.from(`.
+ *
+ * Cut at the NEXT `.from(` rather than at a fixed character count. A fixed
+ * window is wrong in both directions and I hit both while building this: at 400
+ * chars it missed the `.eq("inventory_items.user_id", …)` that sits after a long
+ * commented `.select(`, flagging six healthy tenant-scoped reads; widened to
+ * 1200 it started reaching into the NEXT query in a Promise.all array and
+ * borrowing its `.lt()`, which would silently approve an unbounded read. A
+ * false negative in a guard is worse than a false positive, because nobody ever
+ * finds out.
+ */
+function queryChain(src: string, at: number): string {
+  const next = src.indexOf('.from("', at + 1);
+  const end = next === -1 ? src.length : next;
+  // Still bounded, so a file-final chain cannot swallow the rest of the file.
+  return src.slice(at, Math.min(end, at + 1500));
+}
 
 /**
  * Reads that predate this guard, as `file:table`. NOT approved — untriaged.
@@ -74,30 +103,15 @@ const BOUND =
  * this test exists to stop.
  */
 const KNOWN_UNBOUNDED: readonly string[] = [
-  "lib/affiliate-payout.ts:affiliate_commissions",
   "lib/agent-tools.ts:marketplace_connections",
-  "lib/cert-integrity-backfill.ts:grade_reports",
   "lib/depop-client.ts:marketplace_connections",
   "lib/etsy-client.ts:marketplace_connections",
-  "lib/peer-norm.ts:grade_reports",
-  "lib/pending-delists.ts:listings",
-  "lib/support-tools.ts:sales",
   "lib/whatnot-client.ts:marketplace_connections",
   "routes/admin-agents.ts:agent_proposals",
-  "routes/admin-grading.ts:grade_reports",
-  "routes/admin-growth.ts:campaign_recipients",
-  "routes/admin-marketplace-connections.ts:marketplace_connections",
-  "routes/admin-marketplace-pipeline.ts:listings",
-  "routes/admin-ops.ts:listings",
-  "routes/content-public.ts:grade_reports",
-  "routes/content-public.ts:listings",
-  "routes/flipdesk-automations.ts:listings",
-  "routes/flipdesk-ebay.ts:listings",
+  "routes/admin-dashboard.ts:grade_reports",
+  "routes/admin-dashboard.ts:sales",
+  "routes/admin-dashboard.ts:submissions",
   "routes/flipdesk-ebay.ts:marketplace_connections",
-  "routes/flipdesk-listings.ts:listings",
-  "routes/flipdesk-webhooks.ts:listings",
-  "routes/grade.ts:grade_reports",
-  "routes/jobs-thumbnail-backfill.ts:item_photos",
 ];
 
 async function walk(dir: URL, out: string[] = []): Promise<string[]> {
@@ -113,6 +127,14 @@ async function walk(dir: URL, out: string[] = []): Promise<string[]> {
 
 /** Every unbounded growth-table READ, as `file:table` (deduped). */
 async function unboundedReads(): Promise<string[]> {
+  return (await scanGrowthReads()).unbounded;
+}
+
+/** Every growth-table read, and which of them carry no bound. */
+async function scanGrowthReads(): Promise<
+  { total: number; unbounded: string[] }
+> {
+  let total = 0;
   const found = new Set<string>();
   for (const href of await walk(SRC)) {
     // Skip this guard's own directory — it quotes the shapes it scans for.
@@ -123,18 +145,19 @@ async function unboundedReads(): Promise<string[]> {
       const needle = `.from("${table}")`;
       let i = src.indexOf(needle);
       while (i !== -1) {
-        const window = src.slice(i, i + 500);
+        const chain = queryChain(src, i);
         const isWrite = /\.(insert|update|upsert|delete)\(/.test(
-          window.slice(0, 120),
+          chain.slice(0, 120),
         );
-        if (!isWrite && window.includes(".select(")) {
-          if (!BOUND.test(window.slice(0, 400))) found.add(`${rel}:${table}`);
+        if (!isWrite && chain.includes(".select(")) {
+          total++;
+          if (!BOUND.test(chain)) found.add(`${rel}:${table}`);
         }
         i = src.indexOf(needle, i + 1);
       }
     }
   }
-  return [...found].sort();
+  return { total, unbounded: [...found].sort() };
 }
 
 Deno.test("US-2317: no NEW unbounded read on a growth table", async () => {
@@ -165,12 +188,19 @@ Deno.test("US-2317: the known-unbounded list only shrinks", async () => {
   );
 });
 
-Deno.test("US-2317: the scan actually finds reads (not passing vacuously)", async () => {
-  // Without this, a change to the call shape would make both tests above pass
-  // by matching nothing — the failure mode US-2383 found in the web guards.
-  const all = await unboundedReads();
+Deno.test("US-2317: the scan actually sees the codebase (not passing vacuously)", async () => {
+  // Counts EVERY growth-table read, not just the unbounded ones.
+  //
+  // The first version of this asserted on the unbounded count, which is exactly
+  // backwards: that number is SUPPOSED to fall to zero as the register is
+  // worked, so the check would have started failing the moment the story
+  // succeeded. Total reads is the invariant — it only changes when the scan
+  // stops matching the call shape, which is the failure being guarded against
+  // (the vacuous pass US-2383 found in the web guards).
+  const { total } = await scanGrowthReads();
   assert(
-    all.length > 10,
-    `the scan found only ${all.length} reads — it has probably stopped matching`,
+    total > 300,
+    `the scan saw only ${total} growth-table reads — it has probably stopped ` +
+      "matching the .from(...).select(...) shape",
   );
 });

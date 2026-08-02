@@ -76,6 +76,16 @@ const PINNED: Record<string, string> = {
     "since the data cannot be hand-edited out of sync at all. Logic covered by " +
     "src/lib/__tests__/ebay-prefill.test.ts.",
 
+  // ── US-2387: the paged-read contract, both halves ────────────────────────
+  "services/edge-functions/src/lib/paged-read.ts":
+    "services/edge-functions/src/tests/paged-read-parity_test.ts asserts the " +
+    "three constants against the WEB file's source, and asserts that the web " +
+    "half still stops on an EMPTY page and advances by rows RECEIVED — the two " +
+    "lines that carry the contract. Behaviour cannot be imported across " +
+    "projects, so the guard reads the other side's text.",
+  "services/edge-functions/src/tests/paged-read-parity_test.ts":
+    "the guard itself (edge half of the paged-read mirror)",
+
   // ── US-2306: surfaced by the widened marker ──────────────────────────────
   "src/lib/title-sync.ts":
     "src/lib/__tests__/title-sync.test.ts asserts against the edge copy " +
