@@ -41,16 +41,22 @@ correction keeps the seller's own garment pick.
 That restraint is the point: the cascade exists to stop axes drifting apart, not
 to overwrite deliberate choices.
 
-> [!warning] The manual route does not cascade (US-2384, found 2026-08-01)
-> Changing the coarse category **by hand** in Item details writes
-> `item_category` alone. The garment axis keeps pointing at the old family, so a
-> clothing → shoes correction still grades as clothing. Grading readiness does
-> not catch it, because both garment fields are non-empty — they are simply
-> wrong. The manual half lived on `item-canvas.tsx` and went with the file.
+**Both routes derive the garment axis the same way**, through
+`garmentPatchForCategoryChange(current, next)` in `src/lib/garment-mapping.ts`.
+It returns `null` on a same-family change and a full patch otherwise —
+**including one made of nulls** when the new category is not garment-graded, so
+callers must spread the result rather than filter nulls out.
+
+> [!note] The manual route was missing this until 2026-08-01 (US-2384)
+> Changing the coarse category by hand wrote `item_category` alone, so a
+> clothing → shoes correction still graded as clothing. Readiness could not catch
+> it: both garment fields were populated, just wrong. The manual half had lived
+> on `item-canvas.tsx` and went with the file.
 >
-> One flag is doing two jobs here: `categoryTouched` correctly stops the
-> eBay-path derivation overwriting a manual pick, and incidentally suppresses the
-> garment derivation too.
+> `categoryTouched` was doing two jobs — correctly stopping the eBay-path
+> derivation from overwriting a manual pick, and incidentally suppressing the
+> garment derivation as well. The shared helper is what stops the two routes
+> drifting again; a test asserts they agree.
 
 **What does not cascade, deliberately:** a coarse-category change does not pick
 an eBay leaf. Mapping a vertical to a specific leaf is not safe to automate, so

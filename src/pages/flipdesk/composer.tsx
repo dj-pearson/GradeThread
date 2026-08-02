@@ -78,10 +78,7 @@ import {
 import { deriveListingOrigin } from "@/lib/listing-origin";
 import { ebayPathToItemCategory } from "@/lib/ebay-category-map";
 import { previewGradingReadiness } from "@/lib/grading-readiness";
-import {
-  deriveGarmentDefaults,
-  deriveGarmentType,
-} from "@/lib/garment-mapping";
+import { garmentPatchForCategoryChange } from "@/lib/garment-mapping";
 import { planEbayPrepRefresh } from "@/lib/ai-ebay-prep";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
@@ -1238,6 +1235,7 @@ export function FlipdeskComposerPage({
       {
         ...aspectWriteBackPatch(),
         ...categoryCascadePatch(),
+        ...manualCategoryGarmentPatch(),
       },
     );
   }
@@ -1259,12 +1257,20 @@ export function FlipdeskComposerPage({
     const patch: Record<string, unknown> = { item_category: derived };
     // Only re-derive the garment axis when the coarse FAMILY actually changes,
     // so a same-family correction keeps the seller's garment pick.
-    if (deriveGarmentType(derived) !== deriveGarmentType(current)) {
-      const g = deriveGarmentDefaults(derived);
-      patch.garment_type = g.garment_type;
-      patch.garment_category = g.garment_category;
-    }
-    return patch;
+    return { ...patch, ...(garmentPatchForCategoryChange(current, derived) ?? {}) };
+  }
+
+  // US-2384: the OTHER route into a coarse-category change — the seller picking
+  // it by hand in Item details. `categoryCascadePatch` deliberately stands down
+  // when `categoryTouched`, so before this existed the manual route wrote
+  // `item_category` alone and left the garment axis on the old family: a
+  // clothing → shoes correction still graded as clothing, with both garment
+  // fields populated so nothing looked wrong. Same helper as the eBay-leaf
+  // route, so the two cannot drift apart again.
+  function manualCategoryGarmentPatch(): Record<string, unknown> {
+    if (!categoryTouched) return {};
+    const next = itemCategory === "" ? null : itemCategory;
+    return garmentPatchForCategoryChange(ebayMapping?.item_category ?? null, next) ?? {};
   }
 
   // Reverse-sync shared fields: fold manual/AI edits made in the eBay specifics

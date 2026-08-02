@@ -72,3 +72,32 @@ export function deriveGarmentDefaults(
     (garment_type ? GARMENT_TYPE_TO_DEFAULT_CATEGORY[garment_type] : null);
   return { garment_type, garment_category };
 }
+
+/**
+ * US-2384: the garment-axis patch a coarse `item_category` change owes, or
+ * `null` when the change does not warrant one.
+ *
+ * WHY THIS IS A SHARED HELPER. `garment_type`/`garment_category` gate grading
+ * readiness AND select the grading criteria, so an item whose coarse category
+ * moved to another family while its garment axis stayed put grades against the
+ * wrong rubric — with both fields populated, so nothing looks wrong. Two
+ * separate routes change the coarse category (the eBay-leaf cascade and the
+ * seller's own Item-details picker) and only one of them used to re-derive.
+ * They call this so they cannot disagree again.
+ *
+ * The test is the FAMILY, not the category: a same-family correction
+ * (`jacket` → `coat`) keeps whatever garment the seller picked, because that
+ * pick is still meaningful. A family change (`clothing` → `shoes`, or a move to
+ * a category that is not garment-graded at all) invalidates it, so it is
+ * re-derived — including to `null`, which is why callers must spread the result
+ * rather than filtering out nulls.
+ */
+export function garmentPatchForCategoryChange(
+  currentCategory: string | null | undefined,
+  nextCategory: string | null | undefined,
+): { garment_type: GarmentType | null; garment_category: GarmentCategory | null } | null {
+  if (deriveGarmentType(nextCategory) === deriveGarmentType(currentCategory)) {
+    return null;
+  }
+  return deriveGarmentDefaults(nextCategory);
+}
