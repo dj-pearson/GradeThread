@@ -29,7 +29,9 @@ export const DURABILITY_MIN_SALES = 5;
 export type ConditionBand = "excellent" | "good" | "fair";
 
 /** Coarse condition band from an overall grade (used to bucket resale value). */
-export function conditionBand(overall: number | null | undefined): ConditionBand | null {
+export function conditionBand(
+  overall: number | null | undefined,
+): ConditionBand | null {
   if (typeof overall !== "number" || !Number.isFinite(overall)) return null;
   if (overall >= 7.5) return "excellent";
   if (overall >= 5.5) return "good";
@@ -103,7 +105,10 @@ export function aggregateDurabilityForClass(
   const per_factor_decay: Record<string, number> = {};
 
   if (regraded_count > 0) {
-    avg_overall_decay = round(mean(regraded.map((c) => firstOverall(c)! - lastOverall(c)!)), 2);
+    avg_overall_decay = round(
+      mean(regraded.map((c) => firstOverall(c)! - lastOverall(c)!)),
+      2,
+    );
 
     const retentions = regraded
       .map((c) => lastOverall(c)! / firstOverall(c)!)
@@ -127,20 +132,24 @@ export function aggregateDurabilityForClass(
   }
 
   // Resale value from sold prices (aggregate-only).
-  const priced = sales.filter((s) => Number.isFinite(s.priceCents) && s.priceCents > 0);
+  const priced = sales.filter((s) =>
+    Number.isFinite(s.priceCents) && s.priceCents > 0
+  );
   const resale_sample = priced.length;
   let resale_median_cents: number | null = null;
   const resale_by_band: Record<string, number> = {};
   if (resale_sample >= DURABILITY_MIN_SALES) {
     resale_median_cents = Math.round(median(priced.map((s) => s.priceCents)));
     for (const band of ["excellent", "good", "fair"] as const) {
-      const inBand = priced.filter((s) => s.band === band).map((s) => s.priceCents);
+      const inBand = priced.filter((s) => s.band === band).map((s) =>
+        s.priceCents
+      );
       if (inBand.length >= 2) resale_by_band[band] = Math.round(median(inBand));
     }
   }
 
-  const sufficient =
-    garment_count >= DURABILITY_MIN_GARMENTS && regraded_count >= DURABILITY_MIN_REGRADED;
+  const sufficient = garment_count >= DURABILITY_MIN_GARMENTS &&
+    regraded_count >= DURABILITY_MIN_REGRADED;
 
   return {
     garment_count,
@@ -185,16 +194,29 @@ export function skuClassLabel(sku: SkuClass): string {
 function salePriceCents(payload: unknown): number | null {
   if (!payload || typeof payload !== "object") return null;
   const p = payload as Record<string, unknown>;
-  for (const key of ["price_cents", "priceCents", "sale_price_cents", "sold_price_cents", "amount_cents"]) {
+  for (
+    const key of [
+      "price_cents",
+      "priceCents",
+      "sale_price_cents",
+      "sold_price_cents",
+      "amount_cents",
+    ]
+  ) {
     const v = p[key];
-    if (typeof v === "number" && Number.isFinite(v) && v > 0) return Math.round(v);
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+      return Math.round(v);
+    }
   }
   return null;
 }
 
 // The garment's condition band at a sale: the band of its latest grade at or
 // before the sale date (null when no prior grade).
-function bandAtSale(curve: ConditionCurvePoint[], soldAt: string): ConditionBand | null {
+function bandAtSale(
+  curve: ConditionCurvePoint[],
+  soldAt: string,
+): ConditionBand | null {
   const t = Date.parse(soldAt);
   if (!Number.isFinite(t)) return conditionBand(lastOverall(curve));
   let band: ConditionBand | null = null;
@@ -210,16 +232,54 @@ function bandAtSale(curve: ConditionCurvePoint[], soldAt: string): ConditionBand
  * upsert the durability_aggregates rows. Returns a small summary. Best-effort
  * per class — one bad cohort never aborts the whole run.
  */
-export async function computeDurabilityAggregates(): Promise<{
+/**
+ * US-2317: per-table read caps.
+ *
+ * These three reads had no .limit(), no time window and no cap constant, and
+ * all three are materialized into JS Maps SIMULTANEOUSLY before the cohort pass
+ * — so peak memory is the sum of all three, growing forever on append-only
+ * tables. Every sibling job in this codebase already declares a cap
+ * (relist-detect's MAX_CANDIDATES 500, newsletter-personalization's ROW_CAP
+ * 20_000, agent-memory's MEMORY_ROW_CAP 40); this one was the outlier.
+ *
+ * The numbers are deliberately generous — this is a bound against unbounded
+ * growth, not a tuning knob. What matters more than the value is that
+ * truncation is REPORTED: a silently short read would compute durability
+ * rankings over a subset and publish them as if they covered everything, which
+ * is the failure mode vault/10-ops/postgrest-row-cap.md exists for.
+ */
+export const GARMENT_SCAN_CAP = 50_000;
+export const GRADE_SCAN_CAP = 100_000;
+export const SOLD_EVENT_SCAN_CAP = 100_000;
+
+export interface DurabilityAggregateResult {
   classes: number;
   sufficient: number;
   upserted: number;
-}> {
+  /**
+   * Which reads came back AT their cap, i.e. were probably clipped. Empty is
+   * the healthy state. Named `truncated` rather than folded into a boolean so
+   * an operator can see WHICH table outgrew its bound first.
+   */
+  truncated: string[];
+}
+
+export async function computeDurabilityAggregates(): Promise<
+  DurabilityAggregateResult
+> {
+  const truncated: string[] = [];
   const { data: garments, error: gErr } = await supabaseAdmin
     .from("garments")
-    .select("id, sku_class");
-  if (gErr) throw new Error(`durability: load garments failed: ${gErr.message}`);
-  if (!garments || garments.length === 0) return { classes: 0, sufficient: 0, upserted: 0 };
+    .select("id, sku_class")
+    .order("id", { ascending: true })
+    .limit(GARMENT_SCAN_CAP);
+  if (gErr) {
+    throw new Error(`durability: load garments failed: ${gErr.message}`);
+  }
+  if (!garments || garments.length === 0) {
+    return { classes: 0, sufficient: 0, upserted: 0, truncated };
+  }
+  if (garments.length >= GARMENT_SCAN_CAP) truncated.push("garments");
 
   // Grades per garment (public, PII-safe projection).
   const { data: grades } = await supabaseAdmin
@@ -227,9 +287,18 @@ export async function computeDurabilityAggregates(): Promise<{
     .select(
       "garment_id, certificate_id, created_at, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score",
     )
-    .not("garment_id", "is", null);
+    .not("garment_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(GRADE_SCAN_CAP);
+  if ((grades ?? []).length >= GRADE_SCAN_CAP) {
+    truncated.push("public_grade_reports");
+  }
   const gradesByGarment = new Map<string, PublicGradePoint[]>();
-  for (const r of (grades ?? []) as Array<PublicGradePoint & { garment_id: string }>) {
+  for (
+    const r of (grades ?? []) as Array<
+      PublicGradePoint & { garment_id: string }
+    >
+  ) {
     const list = gradesByGarment.get(r.garment_id) ?? [];
     list.push(r);
     gradesByGarment.set(r.garment_id, list);
@@ -239,9 +308,21 @@ export async function computeDurabilityAggregates(): Promise<{
   const { data: soldEvents } = await supabaseAdmin
     .from("garment_events")
     .select("garment_id, created_at, payload")
-    .eq("event_type", "sold");
-  const salesByGarment = new Map<string, Array<{ priceCents: number; soldAt: string }>>();
-  for (const ev of (soldEvents ?? []) as Array<{ garment_id: string; created_at: string; payload: unknown }>) {
+    .eq("event_type", "sold")
+    .order("created_at", { ascending: false })
+    .limit(SOLD_EVENT_SCAN_CAP);
+  if ((soldEvents ?? []).length >= SOLD_EVENT_SCAN_CAP) {
+    truncated.push("garment_events");
+  }
+  const salesByGarment = new Map<
+    string,
+    Array<{ priceCents: number; soldAt: string }>
+  >();
+  for (
+    const ev of (soldEvents ?? []) as Array<
+      { garment_id: string; created_at: string; payload: unknown }
+    >
+  ) {
     const price = salePriceCents(ev.payload);
     if (price == null) continue;
     const list = salesByGarment.get(ev.garment_id) ?? [];
@@ -259,11 +340,15 @@ export async function computeDurabilityAggregates(): Promise<{
   for (const gm of garments as Array<{ id: string; sku_class: SkuClass }>) {
     const key = skuClassKey(gm.sku_class ?? {});
     if (!key) continue; // no brand → not a rankable cohort
-    const cohort = cohorts.get(key) ?? { sku: gm.sku_class, curves: [], sales: [] };
+    const cohort = cohorts.get(key) ??
+      { sku: gm.sku_class, curves: [], sales: [] };
     const curve = buildConditionCurve(gradesByGarment.get(gm.id) ?? []);
     cohort.curves.push(curve);
     for (const sale of salesByGarment.get(gm.id) ?? []) {
-      cohort.sales.push({ priceCents: sale.priceCents, band: bandAtSale(curve, sale.soldAt) });
+      cohort.sales.push({
+        priceCents: sale.priceCents,
+        band: bandAtSale(curve, sale.soldAt),
+      });
     }
     cohorts.set(key, cohort);
   }
@@ -302,5 +387,15 @@ export async function computeDurabilityAggregates(): Promise<{
     }
   }
 
-  return { classes: cohorts.size, sufficient, upserted };
+  if (truncated.length > 0) {
+    // Loud on purpose. A truncated run still upserts, so the rankings it
+    // publishes are computed over a SUBSET while looking complete — the exact
+    // shape vault/10-ops/postgrest-row-cap.md was written about. Raise the cap
+    // or window the read; do not just watch this go by.
+    console.warn(
+      `[durability] scan hit its cap on: ${truncated.join(", ")} — ` +
+        "aggregates were computed over a partial dataset",
+    );
+  }
+  return { classes: cohorts.size, sufficient, upserted, truncated };
 }
