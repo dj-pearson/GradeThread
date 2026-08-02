@@ -40,9 +40,29 @@ const SRC = resolve(process.cwd(), "src");
  * before upload. Flagging them would have been a false positive that either got
  * five bogus DECLARED entries or got the guard deleted.
  *
- * That does leave a real open question — a client-direct upload to a public
- * bucket still has no server-side magic-byte sniff — but that is a wider change
- * than this story, and quietly widening the guard would have smuggled it in.
+ * That left a real open question — a client-direct upload to a public bucket
+ * still has no server-side magic-byte sniff — which US-2385 then ANSWERED: a
+ * sniff is not the control, and adding one here would have been security
+ * theatre. Two reasons, in order of importance:
+ *
+ *   1. A client-side check was never a control at all. Any signed-in user can
+ *      call the Storage API directly with their own token, so the page code an
+ *      attacker would have to defeat is code they never execute. This guard is
+ *      worth keeping for the PRIVATE bucket because that upload path also
+ *      strips EXIF and RLS alone cannot do that — not because the browser is
+ *      trusted to validate anything.
+ *   2. The server-side control already exists and is per-bucket:
+ *      `storage.buckets.allowed_mime_types`, which storage-api enforces on
+ *      every upload including direct API calls. What was NOT protected was the
+ *      allow-lists themselves, so the guard added is
+ *      `src/test/public-bucket-mime-allowlist.test.ts` — every bucket must
+ *      declare a list, and no list may admit `image/svg+xml` or any other type
+ *      a browser executes.
+ *
+ * The residual — bytes that lie under an honest image content-type — is a
+ * data-quality problem (the seller's own listing renders a broken image), not a
+ * security one: it is served as `image/jpeg` with `nosniff`, from an origin
+ * that is not the app's.
  */
 const UPLOAD_CALL =
   /\.storage\s*\r?\n?\s*\.from\(\s*["'`]submission-images["'`]\s*\)[\s\S]{0,120}?\.(upload|remove)\(/;

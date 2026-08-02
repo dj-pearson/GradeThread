@@ -5,10 +5,11 @@ type: contract
 status: current
 source_of_truth: code
 code_refs:
+  - src/test/public-bucket-mime-allowlist.test.ts
   - services/edge-functions/src/lib/grading-pipeline.ts
   - services/edge-functions/src/lib/upload-validation.ts
   - src/lib/media-intake.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-02
 tags: [grading, uploads, images, gotcha]
 summary: A file's extension and its bytes disagree often enough to break grading — sniff the bytes on the way in and on the way out.
 ---
@@ -76,6 +77,43 @@ mobile.
   chunk is ~3 MB and exceeds Workbox's precache cap, which **errors the build**.
   It is dynamic-imported on demand, so excluding it is correct rather than a
   workaround.
+
+## What actually stops a hostile upload (US-2385)
+
+Not the browser. **A client-side check is not a control at any point in this
+system**, and the reason is worth stating plainly because it keeps getting
+re-proposed: any signed-in user can call the Storage API directly with their own
+token. Page code an attacker never executes cannot validate anything on the
+server's behalf. Client-side work here — the EXIF strip, the HEIC decode, the
+canvas re-encode — exists for *correctness and privacy on the honest path*, not
+as a security boundary.
+
+The two server-side controls, in the order they fire:
+
+1. **`storage.buckets.allowed_mime_types`.** storage-api validates the declared
+   content-type of every upload against the bucket's list, including direct API
+   calls, and rejects a mismatch with 415. Every bucket carries one except
+   `compliance-exports`, which has no storage policies at all and is therefore
+   deny-all to users.
+2. **The edge upload path**, for `submission-images` only:
+   `validateImageUpload()` sniffs magic bytes and `stripImageMetadata()` drops
+   EXIF/GPS before `storage.upload()` (US-276).
+
+The public buckets deliberately have **no magic-byte sniff**, and that is a
+decision rather than a gap. A file whose bytes lie under an honest
+`image/jpeg` label is served as `image/jpeg`, with `X-Content-Type-Options:
+nosniff`, from an origin that is not the app's — so no browser executes it. The
+seller sees a broken image on their own listing. That is a data-quality problem.
+
+**`image/svg+xml` is the type that would turn it into a security problem**, and
+it is the trap worth naming: it reads as an image type, it sits naturally in an
+image allow-list, and it carries `<script>`. No bucket admits it.
+
+Since the allow-lists are the whole control, they are pinned:
+`src/test/public-bucket-mime-allowlist.test.ts` enumerates every bucket, fails
+on an undeclared or newly-public one, fails on a bucket with no list, and fails
+on any list admitting an executable type. Negative-verified by adding
+`image/svg+xml` to `item-photos`.
 
 ## Related
 
