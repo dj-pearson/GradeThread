@@ -117,9 +117,17 @@ above.
   canonical keys (`inseam`, `chest`, …) → ordered eBay aspect-name candidates.
 - **Free-text only:** never write a numeric measurement into a `SELECTION_ONLY` aspect
   (e.g. a “Sleeve Length” style dropdown). Skip reverse parse for those too.
+- **Value-shape ownership (the free-text-only rule is not enough):** an aspect NAME can be a
+  measurement in one category and a categorical field in the next — a men's hoodie exposes
+  “Sleeve Length” as **FREE_TEXT holding “Long Sleeve”**, while a shirt's holds “34 in”.
+  Measurements therefore own an aspect only while it is **empty or already holds a value that
+  parses as a measurement** (`parseMeasurementAspectValue`). A value that does not parse is
+  real listing data — from an item field, AI, or typed by hand — and is neither overwritten
+  nor cleared. Without this, a seller with no sleeve measurement lost their “Long Sleeve”
+  specific on every composer load.
 - **Forward (Measurements → aspects):** `forceMeasurementAspects` overwrites matching
-  free-text aspects; provenance → `inventory_derived`. Blanking a measurement clears the
-  aspect only when it was `inventory_derived` (manual/AI specifics are left alone).
+  free-text aspects it owns; provenance → `inventory_derived`. Blanking a measurement clears
+  the aspect only when it was `inventory_derived` (manual/AI specifics are left alone).
 - **Reverse (aspects → Measurements):** a manual edit in the specifics editor parses
   `"32"`, `"32 in"`, `"81 cm"`, etc. back into the stored number (lengths → inches) and
   updates the Measurements section. Loop-guarded so a forward projection does not echo.

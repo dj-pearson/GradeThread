@@ -6,10 +6,16 @@ source_of_truth: code
 code_refs:
   - src/lib/measurements.ts
   - services/edge-functions/src/lib/measurements.ts
-reviewed: 2026-07-19
+reviewed: 2026-08-01
 tags: [measurement, contract]
 summary: Tolerances the measurement pipeline must hold and how accuracy is validated.
 ---
+
+> **Re-reviewed 2026-08-01.** Drift flagged both `measurements.ts` copies. The
+> change tightened which aspects the Measurements → item-specifics projection
+> owns (value-shape, not just free-text — see [[sync-source-of-truth]]). It is a
+> sync-ownership rule and touches neither the tolerances, the delta methodology,
+> nor the percentile validation specified here. Contract unaffected.
 
 > **Re-reviewed 2026-07-19 (US-2052).** The drift guard flagged this note on
 > its first run: `measurements.ts` changed 2026-07-15, after the doc was last

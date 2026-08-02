@@ -41,13 +41,23 @@ confirms the endpoint choice rather than assuming it.
 
 ## Apparel rejects `LIKE_NEW`
 
-Condition enums are **per-category**, and clothing does not accept `LIKE_NEW`.
-The additions that cover the real cases:
+Condition enums are **per-category**, and clothing does not accept `LIKE_NEW`
+(id 2750). The additions that cover the real cases:
 
 | Enum | eBay id | Means |
 |---|---|---|
 | `NEW_OTHER` | 1500 | New without tags |
-| `NEW_WITH_DEFECTS` | — | New with defects |
+| `NEW_WITH_DEFECTS` | 1750 | New with defects |
+
+The ids live in `CONDITION_ENUM_TO_ID` (`publish-preflight.ts`); the enum itself
+is mirrored in four places that must move together — edge
+`EBAY_CONDITION_VALUES`, web `EBAY_CONDITION_OPTIONS`, iOS `EbayCondition.swift`,
+and that id map.
+
+**The grade mapping was the actual bug.** `mapEbayCondition` sent the grade-9
+new-without-tags tier to `LIKE_NEW`, and iOS even labelled `LIKE_NEW` as "New
+without tags" in its picker — so the wrong enum was both produced and displayed
+as if it were right. Grade ≥ 9 NWOT now maps to `NEW_OTHER`.
 
 `remapConditionForCategory` picks a condition the target category actually
 accepts. Its rule is **never overstate**: when the mapped-to condition would
@@ -56,12 +66,27 @@ That constraint is deliberate — overstating condition on a graded garment
 contradicts the certificate and is a refund and trust problem, not a listing
 inconvenience.
 
+When no allowed condition is honest, the remap returns **null** and the caller
+blocks the publish. Blocking is the correct outcome: there is no such thing as a
+close-enough overstatement here.
+
 The remap runs at **both publish and revise**. A revise path that skipped it
-would silently re-introduce a rejected condition on an existing listing.
+would silently re-introduce a rejected condition on an existing listing — the
+same parity rule [[ebay-required-aspect-completeness]] enforces for aspects.
+
+## The seller can always override
+
+Auto-picking is a floor, not a verdict. A condition picker exists on the web
+composer, the web quick-publish dialog and the iOS publish dialog; the chosen
+value persists to `listings.ebay_condition` and is what the resolver starts
+from. Adding a new publish entry point without a picker leaves sellers with no
+way to correct a mapping they disagree with.
 
 ## Related
 
 - [[ebay-aspect-value-limit]] — the other publish-time rejection, also deferred
+- [[ebay-required-aspect-completeness]] — the same publish/revise parity rule for item specifics
+- [[ebay-listing-lifecycle-reconciliation]] — what happens after eBay rejects or removes a listing
 - [[grading-scale-and-weights]] — the grade a condition must not overstate
 - [[cross-listing]] — which marketplaces are reached by API at all
 - [[INDEX]]
