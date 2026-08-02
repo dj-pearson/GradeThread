@@ -13,6 +13,13 @@
 
 set -euo pipefail
 
+# US-2346 AC4: refuse to push a migration PENDING_MIGRATIONS.md still marks HELD.
+# Runs FIRST and cheaply — a held migration reaching origin is not something the
+# test lanes can catch, and it is the failure this hook exists to prevent. The
+# hand-edited marker was the only control and it failed twice six days apart.
+echo "[pre-push] Checking for held migrations already on origin…"
+node scripts/held-migration-gate.mjs
+
 echo "[pre-push] Running local CI mirror (npm run verify)…"
 echo "[pre-push] Bypass with: git push --no-verify"
 npm run verify
