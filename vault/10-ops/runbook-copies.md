@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/admin/runbooks.ts
-reviewed: 2026-07-31
+reviewed: 2026-08-01
 tags: [ops, runbooks, duplication, migration]
 summary: Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 ---
@@ -91,6 +91,13 @@ in US-2049 had been transcribed into either shipped copy.
 
 **Do not "fix" this by deleting the in-app copy.** It is a deliberate feature
 with a good rationale.
+
+> **Re-reviewed 2026-08-01.** Drift flagged `src/lib/admin/runbooks.ts`, which
+> changed because `runbook-sync` failed CI after edits to `deploy.md` and
+> `incident-response.md`: both shipped distillations were re-read, given the new
+> operator-facing content, and re-dated. That is this note's thesis working
+> exactly as described — the guard fired, and the copy on-call reads was updated
+> rather than left behind. Nothing about the four-copies finding changed.
 
 ## Related
 
