@@ -54,6 +54,22 @@ eBay is moving fast on AI listing features.
 9. **Promoted Listings 2025–26**: Standard→General (CPS), Advanced→Priority (CPC); Priority now
    owns the top ad slot (US/CA); **Jan 13 2026** General moved to 30-day halo attribution
    (material cost change). No evidence promotion changes organic rank except via sales velocity.
+
+   > **We promote nothing unless the seller opts in.** Promotion resolves at
+   > publish as `listing.promote_override ?? users.promote_listings_by_default`,
+   > with a legacy `promo_opt_out = true` still force-disabling. The tri-state
+   > matters: `promote_override` is nullable precisely so NULL can mean *inherit*
+   > — the old boolean could not express it. Rate precedence is listing rate →
+   > seller default → eBay's category suggestion (`resolvePublishAdRate` in
+   > `lib/ebay-marketing.ts`; omitting the new arguments preserves the legacy
+   > promote-unless-opted-out behaviour, which is what makes the change
+   > backward-compatible).
+   >
+   > The backfill preserved explicit opt-outs (`promote_override = false WHERE
+   > promo_opt_out`) and left everything else NULL to inherit the new off
+   > default. **Live eBay ads were not touched** — the change takes effect on the
+   > next publish or revise. Grandfathering existing promoted listings ON was
+   > considered and declined by the owner.
 10. **Not ranking factors** (folklore — don't build for): Best Offer as a direct signal,
     "first 35 chars", exact-token stemming tricks, listing templates/HTML, new-listing boost
     farming. Best Offer is still a good conversion lever.

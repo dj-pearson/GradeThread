@@ -59,8 +59,34 @@ is a documented human review, not an automated job:
   scope (US-1421) then migrate; messaging/feedback → escalate to eBay (no REST
   path exists yet).
 
+## The Feed API bulk path drags the Trading schema back in
+
+There is a bulk **order** sync behind the Sell Feed API (`lib/ebay-feed.ts`:
+create an `LMS_ORDER_REPORT` task → poll → download → `parseOrderReport`). It is
+gated **off**: `EBAY_FEED_SYNC` must be on **and** the catalog must reach
+`EBAY_FEED_SYNC_MIN_CATALOG` (1000). A Feed failure falls back to the paged
+`listRecentOrders`.
+
+Two things to know before touching it, both of which outlive the flag:
+
+> [!warning] Switching a seller between paths mid-history can DUPLICATE sales
+> The order report keys line items by the Trading **`TransactionID`**, while the
+> paged path uses the Sell **`lineItemId`** — and the `sales` upsert dedupes on
+> `line_item_id`. So the two paths do not agree on identity, and moving a seller
+> from one to the other re-keys their recent rows. Validate against a real
+> high-volume account before enabling. Order status fields are likewise
+> best-effort mapped from the Trading schema (payment from `CheckoutStatus`,
+> fulfilment from `ShippedTime`), not the Sell enums.
+
+**Do not reach for the LMS active-inventory report to replace the offer sync.**
+It is price and quantity only — ItemID, SKU, Price, Qty — with no `offerId`,
+listing status, category, description or aspects, so it cannot reconstruct a
+`RemoteOffer` and would blank those columns on the listings upsert. Confirmed
+against eBay's docs and deliberately not implemented.
+
 ## Related
 
 - [[cross-listing]] — what a forced migration would affect
 - [[ebay-condition-and-policies]] — the modern Sell/Metadata APIs already in use
+- [[ebay-listing-lifecycle-reconciliation]] — what the offer sync is for
 - [[INDEX]]
