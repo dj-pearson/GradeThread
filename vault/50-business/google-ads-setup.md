@@ -430,8 +430,35 @@ AG3 (reseller tools) carries volume. Keep copy honest about what's actually live
 - Bank & Vogue — used clothing grading: https://www.bankvogue.com/graded-goods-explained/
 - ResaleOS — reseller authentication guide: https://www.resaleos.co/blog/mastering-luxury-item-authentication-a-resellers-guide
 
+## Automating this: the decisions already made
+
+The Ads Command Center (backlog `US-1696`–`US-1709`) builds on the existing AI ad
+copy studio. Two owner decisions bound it, and both are easy to erode:
+
+> **Approval-gated, never auto-apply.** Claude recommends with a diff and a
+> projected impact; a human approves in admin; the change is pushed with an audit
+> entry and a rollback value. An agent that spends money without a person in the
+> loop is a different product with different risk.
+
+> **Scope is the Google Ads API, with Apple Search Ads as a bonus.** Search Ads
+> 360 and Ads Data Hub are enabled on the Google project but deliberately **out of
+> scope** — being enabled is not a reason to build against them.
+
+Two access constraints worth knowing before estimating any of it:
+
+- The Google Ads API needs a **developer token approved for Basic Access**. It
+  starts test-only, which is enough to build against and not enough to run.
+- A **service-account JWT alone cannot call the Ads API** without Workspace
+  domain-wide delegation, so this path needs an OAuth2 refresh token plus a
+  login-customer-id (MCC) — not the service-account pattern used elsewhere in
+  this repo.
+
+Every table it adds is operator-only: deny-all RLS, `owner_user_id`, and
+registration in the rls-guard set — see [[service-role-tables]].
+
 ## Related
 
 - [[seo-distribution-and-measurement]] — the organic counterpart
 - [[pricing]] — the LTV these bids are justified against
+- [[service-role-tables]] — the operator-table rule its migrations must follow
 - [[INDEX]]

@@ -43,17 +43,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 40-growth — SEO, content, distribution
 
-- [[ai-crawler-policy]] — decision — Which AI crawlers may cite, which may train, and which are blocked — an approved decision with an env override.
-- [[content-publishing]] — contract — The webhook fan-out contract for publishing a post to every downstream channel.
-- [[content-scheduler]] — runbook — How scheduled posts are queued, fired and recovered when a run is missed.
-- [[copy-style-guide]] — reference — Voice, tone and the claims copy is not allowed to make.
-- [[experimentation]] — contract — Three flag/experiment systems exist for three different jobs; pointing two at the same decision is the failure mode this contract prevents.
-- [[seo-distribution-and-measurement]] — runbook — How attention is earned off-page and on Reddit, and how to tell whether any of it worked.
-- [[seo-geo-strategy]] — reference — Keyword universes, site architecture and the phased roadmap for making GradeThread the citable condition standard.
-- [[seo-indexability]] — reference — Why registered pages are not getting indexed, and the open work to fix it — including the argument against more pSEO.
-- [[seo-performance-images]] — reference — The shipped performance levers, the Cloudflare toggles still to enable, and how responsive images are actually gated.
-- [[seo-public-route-registry]] — contract — A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
-- [[seo-technical-guards]] — contract — What CI enforces about the HTML crawlers actually receive, and how to read each failure.
+12 notes — see [[moc-growth]].
 
 ## 50-business — pricing and economics
 
