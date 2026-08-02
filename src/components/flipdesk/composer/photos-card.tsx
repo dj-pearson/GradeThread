@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import type { MutableRefObject } from "react";
 import type { ItemCategory, ItemFullRow, ItemPhotoRow, SlabImageMode } from "@/types/database";
 export interface PhotosCardProps {
   /** Needed for the grade copy, category and certificate link. */
@@ -20,6 +21,11 @@ export interface PhotosCardProps {
   setBadgeEnabled: (on: boolean) => void;
   slabImageMode: SlabImageMode;
   setSlabImageMode: (mode: SlabImageMode) => void;
+  /** US-2381: the page owns the "photos changed this session" flag so its
+   *  resubmit — which always sends `photos: true` — can clear it and stop
+   *  PhotoManager's unmount auto-sync pushing the same gallery a second time.
+   *  This coordination used to live on ItemCanvas, which no longer exists. */
+  photosDirtyRef: MutableRefObject<boolean>;
 }
 // The full shared photo toolkit — upload, reorder, rotate/crop/straighten,
 // retag, delete, background removal and click-to-view — identical to the item
@@ -34,6 +40,7 @@ export function PhotosCard({
   setBadgeEnabled,
   slabImageMode,
   setSlabImageMode,
+  photosDirtyRef,
 }: PhotosCardProps) {
   return (
     <Card id="composer-photos">
@@ -59,6 +66,7 @@ export function PhotosCard({
         <PhotoManager
           itemId={item.id}
           liveListingId={liveListingId}
+          dirtyRef={photosDirtyRef}
           primaryPhotoId={primaryPhoto?.id ?? null}
           onPickPrimary={setPrimaryPhotoId}
         />

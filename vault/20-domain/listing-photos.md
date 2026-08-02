@@ -66,17 +66,18 @@ A rotate-only edit once failed to signal the item as changed at all, so it was
 the one edit type Save-and-sync ignored. The fix was to make rotate set the same
 dirty signal the other three already did — on both platforms.
 
-> [!warning] The web coordination is currently orphaned (2026-08-01)
-> `PhotoManager` accepts an optional `dirtyRef` so a parent can share the signal
-> — push photos as part of its own save, then clear the ref so the unmount does
-> not push again. The parent that passed it was `item-canvas.tsx`, deleted in
-> `a3f4d77d`. The composer renders `PhotoManager` **without** `dirtyRef`, so the
-> component falls back to its internal ref, while the composer's resubmit sends
-> `photos: true` unconditionally. Net effect: after a resubmit, leaving the page
-> pushes the same photo set to eBay a second time. Not data loss — a photo revise
-> is idempotent — but it is an avoidable call against eBay's rate limits, and the
-> mechanism that prevented it now has no owner. Tracked with the other orphan
-> from that deletion in US-2381.
+**Who owns the dirty flag matters.** `PhotoManager` takes an optional `dirtyRef`
+so the page can share the signal: the page pushes photos as part of its own
+save, then clears the ref so the unmount does not push the same gallery again.
+The composer owns it and clears it after a successful resubmit — which always
+sends `photos: true`.
+
+> [!note] This was orphaned for a while (fixed 2026-08-01, US-2381)
+> The ref used to live on `item-canvas.tsx`, deleted in `a3f4d77d`. Nothing took
+> it over, so `PhotoManager` silently fell back to its internal ref and every
+> resubmit was followed by a second, redundant push on unmount. A new surface
+> that renders `PhotoManager` **and** sends `photos: true` must pass the ref, or
+> it reintroduces exactly this.
 
 ## Rotation is baked into pixels, which is why thumbnails went stale
 

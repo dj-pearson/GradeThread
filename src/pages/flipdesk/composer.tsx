@@ -777,6 +777,12 @@ export function FlipdeskComposerPage({
 
   // The aspect map as the picker FIRST reported it (post-mount, post-prefill).
   const aspectBaseline = useRef<string | null>(null);
+  // US-2381: photo edits persist immediately and PhotoManager pushes the net
+  // change to eBay on unmount. This page's resubmit already sends
+  // `photos: true`, so it owns the flag and clears it after a successful push —
+  // otherwise leaving the page re-sends the same gallery. The ref lived on
+  // ItemCanvas until that component was deleted, and nothing took it over.
+  const photosDirtyRef = useRef(false);
   const [aspectsDirty, setAspectsDirty] = useState(false);
   const isDirty =
     (savedSnapshot !== null && formSnapshot !== savedSnapshot) || aspectsDirty;
@@ -1666,6 +1672,9 @@ export function FlipdeskComposerPage({
           resync_ebay_fields: true,
         },
       });
+      // The gallery just went up with this revise, so PhotoManager's unmount
+      // auto-sync must not push it again when the seller leaves (US-2381).
+      photosDirtyRef.current = false;
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success("Changes saved and pushed to eBay.");
     } catch (err) {
@@ -2193,6 +2202,7 @@ export function FlipdeskComposerPage({
             setBadgeEnabled={setBadgeEnabled}
             slabImageMode={slabImageMode}
             setSlabImageMode={setSlabImageMode}
+            photosDirtyRef={photosDirtyRef}
           />
 
           <MeasurementsCard
