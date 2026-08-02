@@ -12,7 +12,7 @@
 //     non-prep pick win outright, so choosing it wrote status='sold' with no
 //     sales row behind it, and Sold totals / P&L / reconciliation drifted from
 //     inventory with nothing to surface the gap.
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 // US-2263: the composer is a directory now — these assertions are about what the
@@ -170,13 +170,25 @@ describe("stranded cards are mounted again (US-2259)", () => {
       .toBe(false);
   });
 
-  it("has no importer of ItemCanvas anywhere under src/", () => {
+  // US-2383: the scan reads ~1,024 files (~10 MB). That is ~120ms warm, but on a
+  // cold page cache inside a wide parallel run it blew the default 5s per-test
+  // budget about one full run in three — and vitest's timeout message names the
+  // test, so "has no importer of ItemCanvas" failing read as a real regression
+  // and cost a targeted re-run every time. Doing the walk in beforeAll with its
+  // own generous budget means a slow filesystem fails as SETUP (honestly, and
+  // where nobody mistakes it for a finding) while the assertion below stays
+  // instant and can only ever fail for the reason it is named after.
+  let canvasImporters: string[] = [];
+  beforeAll(() => {
     const IMPORTS_CANVAS =
       /(?:^|\n)\s*import[\s\S]{0,200}?from\s+["'][^"']*item-canvas["']/;
-    const offenders = walk(join(process.cwd(), "src"))
+    canvasImporters = walk(join(process.cwd(), "src"))
       .filter((f) => !f.endsWith("composer-locks.test.ts"))
       .filter((f) => IMPORTS_CANVAS.test(readFileSync(f, "utf8")))
       .map((f) => f.replace(process.cwd() + "/", ""));
-    expect(offenders).toEqual([]);
+  }, 60_000);
+
+  it("has no importer of ItemCanvas anywhere under src/", () => {
+    expect(canvasImporters).toEqual([]);
   });
 });
