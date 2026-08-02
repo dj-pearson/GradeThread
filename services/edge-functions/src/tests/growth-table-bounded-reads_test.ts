@@ -103,15 +103,13 @@ function queryChain(src: string, at: number): string {
  * this test exists to stop.
  */
 const KNOWN_UNBOUNDED: readonly string[] = [
+  // US-2387 worked this down from 9. What is left is the admin dashboard's
+  // three counting reads and one agent-tools connection scan — untriaged, not
+  // approved.
   "lib/agent-tools.ts:marketplace_connections",
-  "lib/depop-client.ts:marketplace_connections",
-  "lib/etsy-client.ts:marketplace_connections",
-  "lib/whatnot-client.ts:marketplace_connections",
-  "routes/admin-agents.ts:agent_proposals",
   "routes/admin-dashboard.ts:grade_reports",
   "routes/admin-dashboard.ts:sales",
   "routes/admin-dashboard.ts:submissions",
-  "routes/flipdesk-ebay.ts:marketplace_connections",
 ];
 
 async function walk(dir: URL, out: string[] = []): Promise<string[]> {

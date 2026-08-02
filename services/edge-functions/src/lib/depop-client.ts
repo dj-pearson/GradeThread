@@ -445,6 +445,10 @@ export async function getDepopConnection(
 // and refreshes it inline (getDepopAccessToken renews near-expiry). Called by
 // the shared token-refresh cron alongside eBay (US-713 AC#2). No-op (and never
 // scans) while the connector is disabled. Returns a batch summary.
+// US-2387: ceiling on the token-refresh scan. A growth bound, not a budget —
+// the refresh is per-connection and the cron re-runs on a schedule.
+const TOKEN_REFRESH_SCAN_CAP = 5_000;
+
 export async function refreshExpiringDepopConnections(
   horizonMs = 24 * 60 * 60_000,
 ): Promise<{ scanned: number; refreshed: number; failed: number }> {
@@ -456,7 +460,13 @@ export async function refreshExpiringDepopConnections(
     .select("user_id")
     .eq("marketplace", "depop")
     .eq("is_active", true)
-    .lt("token_expires_at", horizon);
+    .lt("token_expires_at", horizon)
+    // US-2387: bounded, and ordered by URGENCY. This scan grows with the seller
+    // base, and the cap only ever drops connections whose tokens expire LATEST
+    // — the ones a later tick picks up anyway. An unordered cap would refresh an
+    // arbitrary subset and let a soon-expiring token fall through it repeatedly.
+    .order("token_expires_at", { ascending: true })
+    .limit(TOKEN_REFRESH_SCAN_CAP);
   if (error) {
     console.error("[depop-client] refresh scan failed:", error);
     return { scanned: 0, refreshed: 0, failed: 0 };

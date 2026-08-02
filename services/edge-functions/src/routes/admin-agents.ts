@@ -28,6 +28,9 @@ type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
 };
 
+// US-2387: ceiling on the pending-proposal scan. A growth bound, not a budget.
+const PENDING_PROPOSAL_SCAN_CAP = 5_000;
+
 export const adminAgentsRoutes = new Hono<AdminEnv>();
 
 // Agent proposal execution is operational tooling → ops:write.
@@ -54,7 +57,12 @@ adminAgentsRoutes.get("/agents", async (c) => {
     supabaseAdmin
       .from("agent_proposals")
       .select("agent_id")
-      .eq("status", "pending"),
+      .eq("status", "pending")
+      // US-2387: bounded. Pending proposals are never time-windowed, so they
+      // accumulate until an operator acts. Oldest first, so the per-agent count
+      // this feeds reflects the backlog that has waited longest.
+      .order("created_at", { ascending: true })
+      .limit(PENDING_PROPOSAL_SCAN_CAP),
   ]);
 
   const spend = new Map<string, number>();

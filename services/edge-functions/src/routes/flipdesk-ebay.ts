@@ -247,6 +247,11 @@ import { chunkForMigrate, parseMigrateResponse } from "../lib/ebay-migrate.ts";
 // calls one HTTP request will fan out to, so a single request can't sit there
 // making 40 sequential eBay calls and time out. The UI migrates in pages.
 const MIGRATE_MAX_PER_REQUEST = 50;
+
+// US-2387: ceiling on the fleet-wide connection scans (token refresh, promoted
+// sync, performance sync). A growth bound, not a budget — each scan fans out
+// per connection and its cron re-runs on a schedule.
+const EBAY_CONNECTION_SCAN_CAP = 5_000;
 import {
   approveCancellation,
   decideReturn,
@@ -626,7 +631,14 @@ flipdeskEbayRoutes.post("/oauth/refresh", async (c) => {
     .select("user_id")
     .eq("marketplace", "ebay")
     .eq("is_active", true)
-    .lt("token_expires_at", horizon);
+    .lt("token_expires_at", horizon)
+    // US-2387: bounded, and ordered by URGENCY — same shape as the depop, etsy
+    // and whatnot refresh scans. The cap only drops connections expiring LATEST,
+    // which the next tick picks up; an unordered cap would let a soon-expiring
+    // token fall through an arbitrary subset repeatedly, and an expired eBay
+    // token is a seller's listings going stale.
+    .order("token_expires_at", { ascending: true })
+    .limit(EBAY_CONNECTION_SCAN_CAP);
 
   if (error) {
     console.error("[flipdesk-ebay] refresh scan failed:", error);
@@ -814,7 +826,12 @@ flipdeskEbayRoutes.post("/sync/performance", async (c) => {
     .from("marketplace_connections")
     .select("user_id")
     .eq("marketplace", "ebay")
-    .eq("is_active", true);
+    .eq("is_active", true)
+    // US-2387: bounded, and ordered so the scanned set is STABLE run to run. An
+    // unordered cap would sync a different arbitrary subset each tick, which is
+    // worse than syncing fewer — a seller could go unscanned indefinitely.
+    .order("user_id", { ascending: true })
+    .limit(EBAY_CONNECTION_SCAN_CAP);
   if (error) {
     console.error("[flipdesk-ebay] performance scan failed:", error);
     return c.json({ error: "Performance scan failed" }, 500);
@@ -4581,7 +4598,12 @@ flipdeskEbayRoutes.post("/jobs/leave-feedback", async (c) => {
       .from("marketplace_connections")
       .select("user_id")
       .eq("marketplace", "ebay")
-      .eq("is_active", true);
+      .eq("is_active", true)
+      // US-2387: bounded, ordered so the swept set is stable run to run. This
+      // job fans out per owner, so an unordered cap would sweep a different
+      // arbitrary subset each tick and a seller could go unswept indefinitely.
+      .order("user_id", { ascending: true })
+      .limit(EBAY_CONNECTION_SCAN_CAP);
     const ownerIds = Array.from(
       new Set(((conns ?? []) as { user_id: string }[]).map((r) => r.user_id)),
     );
