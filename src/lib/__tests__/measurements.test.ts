@@ -136,6 +136,34 @@ describe("forceMeasurementAspects (live overwrite)", () => {
       forceMeasurementAspects({ inseam: 30 }, { Inseam: [] }, {}, "cm"),
     ).toEqual({ aspects: { Inseam: ["76.2 cm"] }, cleared: [] });
   });
+  // A men's hoodie exposes "Sleeve Length" as FREE_TEXT holding "Long Sleeve".
+  // With no sleeve measurement captured, the old rule cleared it as a stale
+  // measurement mirror and the seller's specific silently vanished.
+  it("never clears a categorical value in a measurement-named aspect", () => {
+    expect(
+      forceMeasurementAspects(
+        {},
+        { "Sleeve Length": [] },
+        { "Sleeve Length": ["Long Sleeve"] },
+        "in",
+        { "Sleeve Length": "inventory_derived" },
+      ),
+    ).toEqual({ aspects: {}, cleared: [] });
+  });
+  it("never overwrites a categorical value with a measurement", () => {
+    expect(
+      forceMeasurementAspects(
+        { sleeve: 25 },
+        { "Sleeve Length": [] },
+        { "Sleeve Length": ["Long Sleeve"] },
+      ),
+    ).toEqual({ aspects: {}, cleared: [] });
+  });
+  it("still fills the same aspect when it is empty", () => {
+    expect(
+      forceMeasurementAspects({ sleeve: 25 }, { "Sleeve Length": [] }, {}),
+    ).toEqual({ aspects: { "Sleeve Length": ["25 in"] }, cleared: [] });
+  });
 });
 
 describe("applyMeasurementsBlock (idempotency)", () => {

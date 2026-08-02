@@ -12,6 +12,7 @@ import {
   formatMeasurementValue,
   MEASUREMENTS_BLOCK_END,
   MEASUREMENTS_BLOCK_START,
+  forceMeasurementAspects,
   resolveMeasurementAspects,
 } from "../lib/measurements.ts";
 
@@ -82,6 +83,47 @@ Deno.test("aspects: matches candidate names case-insensitively + respects cm uni
     "cm",
   );
   assertEquals(out, { "chest size": ["50.8 cm"] });
+});
+
+// A men's hoodie exposes "Sleeve Length" as FREE_TEXT holding "Long Sleeve".
+// The measurements projection must not treat that as its own stale mirror —
+// clearing or overwriting it silently loses a real item specific. Kept in
+// lockstep with src/lib/__tests__/measurements.test.ts (web mirror).
+Deno.test("force: never clears a categorical value in a measurement-named aspect", () => {
+  const out = forceMeasurementAspects(
+    {},
+    { "Sleeve Length": [] },
+    { "Sleeve Length": ["Long Sleeve"] },
+    "in",
+    { "Sleeve Length": "inventory_derived" },
+  );
+  assertEquals(out, { aspects: {}, cleared: [] });
+});
+
+Deno.test("force: never overwrites a categorical value with a measurement", () => {
+  const out = forceMeasurementAspects(
+    { sleeve: 25 },
+    { "Sleeve Length": [] },
+    { "Sleeve Length": ["Long Sleeve"] },
+  );
+  assertEquals(out, { aspects: {}, cleared: [] });
+});
+
+Deno.test("force: still fills / clears a genuinely measurement-shaped aspect", () => {
+  assertEquals(
+    forceMeasurementAspects({ sleeve: 25 }, { "Sleeve Length": [] }, {}),
+    { aspects: { "Sleeve Length": ["25 in"] }, cleared: [] },
+  );
+  assertEquals(
+    forceMeasurementAspects(
+      {},
+      { Inseam: [] },
+      { Inseam: ["32 in"] },
+      "in",
+      { Inseam: "inventory_derived" },
+    ),
+    { aspects: {}, cleared: ["Inseam"] },
+  );
 });
 
 // ── Description block ────────────────────────────────────────────────────────

@@ -243,10 +243,18 @@ export function forceMeasurementAspects(
   }
 
   for (const [key, canonical] of keyToAspect) {
+    const current = existing[canonical]?.[0]?.trim() ?? "";
+    // An aspect NAME can be a measurement here and a categorical field in the
+    // next category — a hoodie's free-text "Sleeve Length" holds "Long Sleeve",
+    // a shirt's holds "34 in". Measurements only OWN the aspect while it is
+    // empty or already holds a measurement-shaped value; a value that doesn't
+    // parse as one is real listing data (item field, AI, or hand-typed), so it
+    // is neither overwritten nor cleared.
+    if (current && parseMeasurementAspectValue(key, current) == null) continue;
+
     const hasKey = key in meas;
     const formatted = hasKey ? formatMeasurementValue(key, meas[key], unit) : null;
     if (formatted) {
-      const current = existing[canonical]?.[0]?.trim() ?? "";
       if (current !== formatted) {
         aspects[canonical] = [formatted];
       }
@@ -254,7 +262,6 @@ export function forceMeasurementAspects(
     }
 
     // Blanked / missing measurement → clear aspect when it looks measurement-owned.
-    const current = existing[canonical]?.[0]?.trim() ?? "";
     if (!current) continue;
     // Only clear aspects we previously projected from measurements. A manual
     // (or AI) Inseam stays put when Measurements simply never had that key.
