@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/buyer-metering.ts
   - services/edge-functions/src/lib/buyer-guarantee-claim.ts
   - services/edge-functions/src/lib/condition-alerts.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-02
 tags: [buyer, money, privacy, contract]
 summary: Reward credits are an append-only ledger spent in a fixed order, guarantee claims pass fraud then pool before paying, and buyer-facing search sees public certificates only.
 ---

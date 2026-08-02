@@ -11,11 +11,26 @@
 // One table, both suites. That is the mechanism.
 
 import { assertAlmostEquals, assertEquals } from "@std/assert";
+
+// US-2306: ai-grading.ts pulls in supabase.ts, which throws at module load
+// without env. Set dummies BEFORE that import (dynamic, below) — same pattern
+// as job-lock_test.ts and email-retry_test.ts.
+Deno.env.set(
+  "SUPABASE_URL",
+  Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321",
+);
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
 import { computeWeightedOverall } from "../lib/human-review.ts";
 
 const fixture = JSON.parse(
   await Deno.readTextFile(
-    new URL("../../../../src/test/fixtures/weighted-grade-cases.json", import.meta.url),
+    new URL(
+      "../../../../src/test/fixtures/weighted-grade-cases.json",
+      import.meta.url,
+    ),
   ),
 ) as {
   cases: Array<{
@@ -75,4 +90,63 @@ Deno.test("edge weights sum to exactly 1.0", () => {
       1e-9,
     );
   }
+});
+
+// ── US-2306: the THIRD copy of the weight table ──────────────────────
+//
+// ai-grading.ts carries its own FACTOR_WEIGHTS. It was module-private, so
+// nothing could pin it, and its lockstep comment said "keep THIS in lockstep"
+// — a phrasing the drift-guard's marker regex did not match, so the file was
+// absent from the registry too. Correct by inspection, guarded by nothing.
+//
+// It is NOT a redundant copy that could simply be imported away. human-review's
+// table is keyed by the DB COLUMN names (…_score) because that is the shape of
+// a stored grade; ai-grading's is keyed by the AI RESPONSE field names. Same
+// five numbers, two key spaces. So the fix is to pin them to each other through
+// the key map, which is what this does.
+
+const { FACTOR_WEIGHTS: AI_WEIGHTS } = await import("../lib/ai-grading.ts");
+const { FACTOR_WEIGHTS: REVIEW_WEIGHTS } = await import(
+  "../lib/human-review.ts"
+);
+
+/** AI response field → DB column. The only thing that differs between them. */
+const KEY_MAP = {
+  fabric_condition: "fabric_condition_score",
+  structural_integrity: "structural_integrity_score",
+  cosmetic_appearance: "cosmetic_appearance_score",
+  functional_elements: "functional_elements_score",
+  odor_cleanliness: "odor_cleanliness_score",
+} as const;
+
+Deno.test("US-2306: ai-grading's weights match human-review's, factor for factor", () => {
+  for (const [aiKey, dbKey] of Object.entries(KEY_MAP)) {
+    assertEquals(
+      AI_WEIGHTS[aiKey as keyof typeof AI_WEIGHTS],
+      REVIEW_WEIGHTS[dbKey as keyof typeof REVIEW_WEIGHTS],
+      `weight drift on ${aiKey}: the AI composite and the human-review recompute ` +
+        "would disagree, so a reviewer's correction would move the overall by a " +
+        "different amount than the original grade was built from",
+    );
+  }
+});
+
+Deno.test("US-2306: the key map covers both tables exactly", () => {
+  // Without this the test above passes vacuously if a sixth factor is added to
+  // one side — the same class of hole as the marker regex that hid this file.
+  assertEquals(
+    Object.keys(AI_WEIGHTS).sort(),
+    Object.keys(KEY_MAP).sort(),
+    "ai-grading gained or lost a factor — update the key map",
+  );
+  assertEquals(
+    Object.keys(REVIEW_WEIGHTS).sort(),
+    Object.values(KEY_MAP).slice().sort(),
+    "human-review gained or lost a factor — update the key map",
+  );
+});
+
+Deno.test("US-2306: ai-grading's weights sum to exactly 1.0", () => {
+  const sum = Object.values(AI_WEIGHTS).reduce((a, b) => a + b, 0);
+  assertAlmostEquals(sum, 1, 1e-9);
 });

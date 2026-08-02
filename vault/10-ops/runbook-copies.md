@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/admin/runbooks.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-02
 tags: [ops, runbooks, duplication, migration]
 summary: Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 ---

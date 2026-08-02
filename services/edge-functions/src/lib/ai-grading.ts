@@ -1432,7 +1432,22 @@ export function mergeAuthenticityReread(
 
 // --- Composite Grading ---
 
-const FACTOR_WEIGHTS: Record<keyof FactorScores, number> = {
+/**
+ * The PRD grading weights, keyed by the AI RESPONSE field names.
+ *
+ * US-2306: exported so a guard can pin it. It is NOT importable from
+ * human-review.ts despite living in the same project, and that is the thing to
+ * understand before "de-duplicating" it: human-review's FACTOR_WEIGHTS is keyed
+ * by the DB COLUMN names (fabric_condition_score, …) because that is the shape
+ * a stored grade has, while the model returns fabric_condition, … . Same five
+ * numbers, two key spaces — so this is a translation, not a copy-paste, and
+ * collapsing them would mean giving one side the other's key names.
+ *
+ * What CAN be removed is the risk: weighted-grade-parity_test.ts now asserts
+ * these values against human-review's, factor for factor, through the key map.
+ * See vault/20-domain/grading-scale-and-weights.md for the numbers themselves.
+ */
+export const FACTOR_WEIGHTS: Record<keyof FactorScores, number> = {
   fabric_condition: 0.30,
   structural_integrity: 0.25,
   cosmetic_appearance: 0.20,

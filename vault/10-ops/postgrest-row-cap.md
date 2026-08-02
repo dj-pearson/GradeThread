@@ -7,7 +7,7 @@ code_refs:
   - src/lib/paged-read.ts
   - src/test/row-cap-contract.test.ts
   - src/hooks/use-items-full.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-02
 tags: [postgrest, supabase, perf, correctness, flipdesk]
 summary: Every client read must page until empty or declare its cap out loud, because PostgREST truncates silently and supabase-js does not surface it.
 ---

@@ -8,7 +8,7 @@ code_refs:
   - src/lib/weighted-grade.ts
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/ai-grading.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-02
 tags: [grading, rounding, lockstep, contract]
 summary: One client helper and one edge helper compute the weighted overall; they must agree exactly, and the formula has shipped wrong twice when copies drifted.
 ---
@@ -40,6 +40,30 @@ Plus `ai-grading.ts`, which does the original composite parse with its own
 `roundToTenth` — the score the AI report ships with before any human touches it.
 
 **Adding a new surface? Import one of the two. Do not write a third.**
+
+### The weight table in `ai-grading.ts` (US-2306)
+
+`ai-grading.ts` also carries its own `FACTOR_WEIGHTS`, and until 2026-08-02
+nothing could pin it: the table was module-private, and the file's own
+"keep **this** in lockstep" comment did not match the drift-guard's marker
+pattern, so it was absent from the registry as well. Correct by inspection,
+guarded by nothing.
+
+It is **not** a redundant copy that could be imported away, and that is the part
+worth knowing before anyone tries:
+
+- `human-review.ts` keys its weights by the **DB column** names
+  (`fabric_condition_score`, …) — the shape a *stored* grade has.
+- `ai-grading.ts` keys its weights by the **AI response field** names
+  (`fabric_condition`, …) — the shape the *model returns*.
+
+Same five numbers, two key spaces. So it is a translation, not duplication, and
+collapsing them means giving one side the other's key names.
+
+The table is now exported and pinned instead: `weighted-grade-parity_test.ts`
+asserts the two tables agree factor for factor through that key map, and a
+companion case fails if a sixth factor appears on either side — otherwise the
+comparison would pass by iterating a map that no longer covers both.
 
 ## Why this note exists: it has shipped wrong twice
 

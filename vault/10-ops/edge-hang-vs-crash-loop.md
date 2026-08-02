@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - services/edge-functions/src/middleware/access-log.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-02
 tags: [edge, incident, outage, ops]
 summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job.
 ---

@@ -88,6 +88,15 @@ const PINNED: Record<string, string> = {
   "services/edge-functions/src/lib/buyer-reputation-perks.ts":
     "src/lib/__tests__/reputation-perks.test.ts asserts this perk matrix against " +
     "the web copy (src/lib/reputation-perks.ts).",
+  "services/edge-functions/src/lib/ai-grading.ts":
+    "US-2306: FACTOR_WEIGHTS is now exported and asserted against " +
+    "human-review's table, factor for factor, by " +
+    "services/edge-functions/src/tests/weighted-grade-parity_test.ts. NOT " +
+    "de-duplicated, and deliberately so — human-review keys by DB COLUMN names " +
+    "(…_score) and ai-grading by the AI RESPONSE field names, so the two are a " +
+    "translation rather than a copy. The guard pins them through that key map, " +
+    "and a sixth factor on either side fails a companion test rather than " +
+    "passing vacuously.",
   "services/edge-functions/src/routes/flipdesk-ai.ts":
     "AI_ACTION_LIMITS is asserted against PLAN_MATRIX.aiActionsPerMonth by " +
     "services/edge-functions/src/tests/ai-quota_test.ts. NOTE the source " +
@@ -169,14 +178,6 @@ const EXEMPT: Record<string, string> = {
     "unguarded. A drift sells a feature whose route still renders a placeholder; " +
     "the pricing render test catches the visible half. Worth pinning; tracked on " +
     "US-2306.",
-  "services/edge-functions/src/lib/ai-grading.ts":
-    "The story's own subject. Its private FACTOR_WEIGHTS duplicates the EXPORTED " +
-    "table in the same project (lib/human-review.ts) — same directory, no " +
-    "cross-project barrier, so the right fix is to import it and delete the " +
-    "copy, not to pin two copies against a fixture. Exempt is the honest state " +
-    "until that lands: the values are identical today (verified) and the maths " +
-    "was brute-forced across all 2,476,099 factor combinations with zero " +
-    "divergence. US-2306 AC1 carries the de-duplication.",
 };
 
 // US-2129: shared + memoized scan. This guard reads the whole tree (2,235
