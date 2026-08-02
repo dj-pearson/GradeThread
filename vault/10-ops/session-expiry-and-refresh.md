@@ -25,6 +25,31 @@ symptom looks productive and finds nothing.
 **Daily, on iOS specifically** is a different bug with a different cause — the
 Apple-credential foreground check, not refresh. Do not merge the two.
 
+### The daily iOS logout: `.notFound` is not `.revoked`
+
+`AppleCredentialMonitor.isRevoked()` runs on **every foreground**, and it used to
+sign the user out when Apple's `getCredentialState` returned `.revoked` **or
+`.notFound`**.
+
+`.notFound` is returned **transiently** — offline, Apple ID servers unreachable,
+cold-foreground timing, the user momentarily signed out of their Apple ID. So one
+unlucky foreground a day force-logged-out a perfectly good session.
+
+Two things make it worse than it sounds:
+
+- It **cross-contaminates non-Apple sessions.** A stored Apple id can outlive the
+  Apple session, so the check runs against — and can log out — a later
+  email/password session on the same device.
+- A genuinely deleted credential **already fails the GoTrue refresh**, so the
+  refresh path was the real authority all along and this check was adding risk
+  without adding detection.
+
+Now only `.revoked` counts as revoked, and the stored Apple id is cleared
+whenever the auth stream reports no session.
+
+> If a **pure** email/password session with no Apple history still logs out
+> daily, this is not it — go to the GoTrue env table below.
+
 ## Why the refresh does not always run
 
 supabase-js auto-refresh is a **timer**, and the timer is suspended while the tab

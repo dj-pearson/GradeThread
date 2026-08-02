@@ -61,6 +61,7 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[deliverability]] — runbook — SES/SMTP configuration, warmup, DMARC alignment and what to check when mail stops landing.
 - [[flipdesk-plan-gating]] — contract — Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 - [[google-ads-setup]] — runbook — Account structure, conversion wiring and the gclid path for the Ads Command Center.
+- [[ios-in-app-purchases]] — reference — StoreKit purchases reconcile into the same user columns as Stripe, and the one App Review rejection was about discoverability rather than configuration.
 - [[newsletter-tuning]] — runbook — Cadence, segmentation and the levers that move open and click rates.
 - [[passport-forecast]] — reference — Volume and revenue projection for the passport surface.
 - [[pricing]] — contract — The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
