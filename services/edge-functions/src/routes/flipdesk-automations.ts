@@ -7,6 +7,8 @@ import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import {
   isEbayConfigured,
   isNegotiationScopeAvailable,
+  isNoEbayConnectionError,
+  isOfferAlreadyEndedError,
   sendOfferToInterestedBuyers,
   updateOfferPrice,
   withdrawOffer,
@@ -659,6 +661,36 @@ export interface AutomationRunResult {
   errors: number;
 }
 
+/**
+ * US-2388: what an automation's end/relist should do when `withdrawOffer`
+ * throws. Two outcomes, not three, because the automation has only two moves:
+ * reconcile the local row, or leave it alone so the next tick retries.
+ *
+ * `"already_ended"` — eBay refuses the withdraw because the listing is not in a
+ * live state. The end is effectively already done, so writing it locally is
+ * reconciliation. Not reconciling is what left rows stuck "active" forever.
+ *
+ * `"retry"` — a transient 429/5xx, or a disconnected account (US-1506), where
+ * the live state is UNKNOWN. Both must leave the row active: ending it locally
+ * while it is still live on eBay is an oversell, and unlike a stuck row that is
+ * not recoverable by a later tick.
+ *
+ * The disconnected case is preempted rather than left to
+ * `isOfferAlreadyEndedError`. It does not currently match that helper's message
+ * regex, so this is belt-and-braces — but the helper's own comment says callers
+ * must preempt it, and the two other end paths do. A classifier that agrees
+ * with its siblings only by accident is one regex edit away from an oversell.
+ *
+ * Exported so the decision is unit-testable without an HTTP round trip or a
+ * live eBay account, the same reason `endListingWritesApplied` is exported.
+ */
+export function classifyWithdrawFailure(
+  err: unknown,
+): "already_ended" | "retry" {
+  if (isNoEbayConnectionError(err)) return "retry";
+  return isOfferAlreadyEndedError(err) ? "already_ended" : "retry";
+}
+
 /** Apply one planned action. Returns false when the eBay push failed (skipped). */
 // US-1454: an end-listing automation only counts as "applied" when BOTH local
 // writes succeed — mark the listing ended and return the item to 'drafted'. The
@@ -949,12 +981,36 @@ async function applyMatch(
         await withdrawOffer(ownerId, offerId!);
         ebaySynced = true;
       } catch (err) {
-        console.error(
-          "[automations] withdrawOffer failed for",
-          listing.id,
-          err instanceof Error ? err.message : String(err),
-        );
-        return false;
+        // US-2388: classify the throw instead of treating every failure as
+        // fatal. This branch used to `return false` on ANY error, so a listing
+        // eBay had ALREADY ended — seller ended it there, eBay pulled it for a
+        // policy issue, or a prior tick already withdrew it — left the local row
+        // stuck "active" forever, on a schedule, with no way for the rule to
+        // ever recover. Every other end/relist path already classified it
+        // (flipdesk-listings.ts, lib/cross-listings.ts, the manual eBay end
+        // route); this route was the one that did not.
+        if (classifyWithdrawFailure(err) === "already_ended") {
+          // Not live upstream, so the END is effectively already done and the
+          // local writes below are reconciliation, not a lie. ebaySynced stays
+          // FALSE: the audit row must say we did not touch eBay this run, or a
+          // reader can't tell a real withdraw from a reconciliation.
+          console.warn(
+            "[automations] offer already ended upstream, reconciling locally for",
+            listing.id,
+            err instanceof Error ? err.message : String(err),
+          );
+        } else {
+          // Transient (429/5xx) or a disconnected account: the live state is
+          // UNKNOWN. Bailing leaves the row active so the rule retries, which
+          // is the safe direction — ending it locally while it is still live on
+          // eBay is an oversell (US-1506).
+          console.error(
+            "[automations] withdrawOffer failed for",
+            listing.id,
+            err instanceof Error ? err.message : String(err),
+          );
+          return false;
+        }
       }
     }
     const { error: endErr } = await supabaseAdmin
