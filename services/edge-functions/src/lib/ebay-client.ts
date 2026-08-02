@@ -12,7 +12,13 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { grantReward } from "./rewards-engine.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
-import { withRetry, isRetryableError, isRateLimitError, type RetryOptions } from "./retry.ts";
+import {
+  isRateLimitError,
+  isRetryableError,
+  parseRetryAfterHeader as parseRetryAfter,
+  type RetryOptions,
+  withRetry,
+} from "./retry.ts";
 import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
 import { createSharedTokenCache, type SharedTokenCache } from "./coherent-cache.ts";
 
@@ -52,7 +58,7 @@ function ebayFetch(
 // other response (2xx, 404, 204, other 4xx) is RETURNED unchanged, so each
 // family keeps its own status-specific handling (e.g. Finances' 404/204 → stop
 // paginating, Disputes' benign 404). Exported for unit tests (inject a fake
-// `doFetch` + a no-op `sleep`); `parseRetryAfter` is hoisted below.
+// `doFetch` + a no-op `sleep`).
 export async function fetchWithEbayRetry(
   doFetch: () => Promise<Response>,
   opts: { label?: string } & RetryOptions = {},
@@ -1597,23 +1603,9 @@ export function localeForMarketplace(): string {
 // US-325: 429/5xx from eBay during a batch shouldn't fail the job — wrap in
 // withRetry. A 429 or 5xx means eBay rejected the request before mutating
 // state, so retrying is safe even for non-idempotent POSTs.
-// US-406: parse an HTTP `Retry-After` value to milliseconds. eBay sends either
-// a delay in whole seconds ("120") or an HTTP-date; both are honored. Returns
-// null for a missing/garbage header so the caller falls back to jitter.
-function parseRetryAfter(header: string | null): number | null {
-  if (!header) return null;
-  const trimmed = header.trim();
-  if (/^\d+$/.test(trimmed)) {
-    const seconds = Number(trimmed);
-    return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null;
-  }
-  const dateMs = Date.parse(trimmed);
-  if (!Number.isNaN(dateMs)) {
-    const delta = dateMs - Date.now();
-    return delta > 0 ? delta : 0;
-  }
-  return null;
-}
+// US-406: eBay sends `Retry-After` as whole seconds ("120") or an HTTP-date;
+// both are honored. The parser itself lives in retry.ts (US-2305) so eBay,
+// Google Sheets and Anthropic all read the header the same way.
 
 async function fetchAuthed<T>(
   userId: string,

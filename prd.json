@@ -2809,7 +2809,7 @@
     },
     {
       "id": "US-2305",
-      "passes": false,
+      "passes": true,
       "title": "Anthropic Retry-After is never honored and 529 retries only by string match",
       "description": "lib/retry.ts:36 lists retryable statuses 408/429/500/502/503/504. 529 (Anthropic overloaded) is absent and retries only because the message text matches /overloaded/i at :37-38 — a fragile coupling to a vendor error string. retryAfterMs() (:75-81) reads a property the caller attaches, and only the eBay clients attach it, so the honor-the-header branch at :113-116 never fires on a Claude 429.",
       "acceptanceCriteria": [
@@ -2818,7 +2818,7 @@
         "Confirm whether the Anthropic SDK surfaces a numeric 529 status or only a message — the fix depends on it.",
         "Test for both a 529 and a 429-with-Retry-After."
       ],
-      "notes": "[P2][Grading/Reliability] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
+      "notes": "[P2][Grading/Reliability] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. | Done 2026-08-01. VERIFIED all three audit claims first: retry.ts RETRYABLE_STATUS omitted 529, RETRYABLE_MESSAGE's /overloaded/i was 529's only retry path (529 is absent from that regex's numeric alternation), and retryAfterMs() read only an err.retryAfterMs property that only ebay-client.ts, ebay-feed.ts and google-sheets-api.ts attach — no Anthropic call site did. AC3 answered from the pinned SDK's own types (esm.sh @anthropic-ai/sdk@0.104.1 core/error.d.mts): APIError carries a NUMERIC status and a real Headers object, and 529 lands as InternalServerError with status 529 — so the status-set fix is correct. AC1: added 529 to RETRYABLE_STATUS in lib/retry.ts; kept the message regex as a belt-and-braces fallback for status-less errors. AC2: rather than make every AI call site remember to attach a hint, retryAfterMs() now falls back to reading Retry-After off the error's own headers (new headerRetryAfter(), handling both a Headers instance and a plain record), so the honor branch at withRetry fires for Anthropic without touching ai-config.ts. Extracted ebay-client.ts's private parseRetryAfter into retry.ts as exported parseRetryAfterHeader and re-imported it there (one parser, no duplicate). AC4: six new cases in tests/retry_test.ts — a 529 whose message never says 'overloaded' is retryable by status and is NOT classified as a rate limit; parseRetryAfterHeader across seconds/HTTP-date/garbage; header-borne Retry-After via both Headers and record shapes with an explicit hint still winning; withRetry honoring an Anthropic 429's 'retry-after: 4' as a 4000ms wait; and a 529 retried twice with its 3600s header clamped to maxRetryAfterMs. Verified with deno check + deno lint clean and the full edge suite: 5017 passed, 0 failed."
     },
     {
       "id": "US-2306",
