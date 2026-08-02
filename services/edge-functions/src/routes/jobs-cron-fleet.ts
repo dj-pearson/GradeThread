@@ -35,6 +35,14 @@ import {
 } from "../lib/cron-fleet-governance.ts";
 
 const OPS_EVENT_TYPE = "cron.fleet_stalled";
+/**
+ * US-2312: a job that TICKS but errors is a different incident from one that
+ * stopped ticking, and it needs its own suppression memory — folding it into
+ * cron.fleet_stalled would let one stalled job silence every failing job for six
+ * hours. Warning, not critical: the schedule is intact and the remediation is
+ * usually a fix rather than a page.
+ */
+const FAILING_EVENT_TYPE = "cron.fleet_failing";
 /** Analysis window. 24h covers every schedule in the registry except the rarest. */
 const LOOKBACK_MS = 24 * 3600_000;
 /**
@@ -74,14 +82,15 @@ export function shouldAlert(params: {
   return params.stalledNames.some((n) => !known.has(n));
 }
 
-/** The most recent stall alert, for the suppression decision. */
+/** The most recent alert OF ONE TYPE, for that type's suppression decision. */
 async function loadLastAlert(
   sinceIso: string,
+  type: string = OPS_EVENT_TYPE,
 ): Promise<{ atMs: number; jobs: string[] } | null> {
   const { data, error } = await supabaseAdmin
     .from("ops_events")
     .select("created_at, payload")
-    .eq("type", OPS_EVENT_TYPE)
+    .eq("type", type)
     .gte("created_at", sinceIso)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -117,6 +126,9 @@ export async function handleCronFleetHealthCron(c: Context): Promise<Response> {
       (runsByJob[r.job_name] ??= []).push({
         created_at: r.created_at,
         duration_ms: r.duration_ms,
+        // US-2312: the outcome fields the failing/idle verdicts read.
+        status: r.status,
+        rows_processed: r.rows_processed,
       });
     }
 
@@ -130,6 +142,13 @@ export async function handleCronFleetHealthCron(c: Context): Promise<Response> {
 
     recordMetric("cron_fleet.stalled", report.stalled.length, {});
     recordMetric("cron_fleet.slow", report.slow.length, {});
+    // US-2312: ran-but-failed and ran-but-did-nothing, as first-class counts.
+    recordMetric("cron_fleet.failing", report.failing.length, {});
+    recordMetric(
+      "cron_fleet.idle",
+      report.scorecards.filter((s) => s.all_idle).length,
+      {},
+    );
 
     const stalledNames = report.stalled.map((s) => s.name);
     const lastAlert = await loadLastAlert(
@@ -165,14 +184,55 @@ export async function handleCronFleetHealthCron(c: Context): Promise<Response> {
       });
     }
 
+    // US-2312: the ran-but-failed signal, with its own suppression memory so a
+    // stalled job cannot mute it (and vice versa).
+    const failingNames = report.failing.map((s) => s.name);
+    const lastFailingAlert = await loadLastAlert(
+      new Date(nowMs - SUPPRESS_MS * 2).toISOString(),
+      FAILING_EVENT_TYPE,
+    );
+    const failingAlert = shouldAlert({
+      stalledNames: failingNames,
+      lastAlert: lastFailingAlert,
+      nowMs,
+    });
+    if (failingAlert) {
+      const worst = report.failing[0];
+      await emitOpsEvent(FAILING_EVENT_TYPE, "warning", {
+        title:
+          `${report.failing.length} cron job(s) ran but FAILED work: ` +
+          `${failingNames.slice(0, 5).join(", ")}` +
+          (failingNames.length > 5 ? `, +${failingNames.length - 5} more` : "") +
+          (worst ? ` (worst: ${worst.name}, ${worst.failed_runs} of ${worst.runs} runs)` : ""),
+        source: "cron-fleet-health",
+        data: {
+          // Same key + shape as the stalled event — loadLastAlert reads it back.
+          jobs: failingNames,
+          failing_count: report.failing.length,
+          jobs_total: report.jobs_total,
+          detail: report.failing.slice(0, 10).map((s) => ({
+            name: s.name,
+            runs: s.runs,
+            failed_runs: s.failed_runs,
+            idle_runs: s.idle_runs,
+          })),
+        },
+      });
+    }
+
     return c.json({
       ok: true,
       summary: report.summary,
       jobs_total: report.jobs_total,
       stalled: stalledNames,
+      failing: failingNames,
+      // Ticking, not erroring, and processing nothing every single run — usually
+      // a disabled feature flag or a drained backlog, occasionally a job whose
+      // query silently stopped matching.
+      idle: report.scorecards.filter((s) => s.all_idle).map((s) => s.name),
       slow: report.slow.map((s) => s.name),
       all_clear: report.all_clear,
-      alerted: alert,
+      alerted: alert || failingAlert,
     });
   } catch (err) {
     captureException(err, { route: "jobs.cron-fleet-health" });

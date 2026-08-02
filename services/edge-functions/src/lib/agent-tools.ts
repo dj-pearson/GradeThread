@@ -1635,7 +1635,15 @@ const TOOL_LIST: AgentToolDef[] = [
       ]);
       const runsByJob: Record<string, JobRun[]> = {};
       for (const r of runs) {
-        (runsByJob[r.job_name] ??= []).push({ created_at: r.created_at, duration_ms: r.duration_ms });
+        // US-2312: carry the outcome through, so the agent's read-tool and the
+        // cron-fleet alert keep sharing ONE data path and cannot disagree about
+        // whether a ticking-but-failing job is healthy.
+        (runsByJob[r.job_name] ??= []).push({
+          created_at: r.created_at,
+          duration_ms: r.duration_ms,
+          status: r.status,
+          rows_processed: r.rows_processed,
+        });
       }
       const report = assembleCronFleetReport({
         registry: CRON_REGISTRY,

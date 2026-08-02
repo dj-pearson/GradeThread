@@ -111,3 +111,92 @@ Deno.test("assembleCronFleetReport: a job with no runs is stalled; a fresh one i
   assertEquals(report.stalled.map((s) => s.name), ["hourly-stalled"]);
   assertEquals(report.scorecards.find((s) => s.name === "hourly-ok")?.verdict, "healthy");
 });
+
+// ── US-2312: ran-but-failed / ran-but-did-nothing ───────────────────────────
+//
+// Before this the report could only see WHETHER a job ticked. A payout sweep
+// that ran every 30 minutes and failed every transfer inside it was "healthy".
+
+/** Six on-schedule hourly runs, so nothing is ever counted as missed. */
+function onScheduleRuns(
+  overrides: Partial<{ status: string; rows_processed: number }> = {},
+) {
+  const runs = [];
+  for (let h = 1; h <= 6; h++) {
+    const b = new Date(NOW - h * HOUR);
+    b.setUTCMinutes(5, 0, 0);
+    runs.push({
+      created_at: new Date(b.getTime()).toISOString(),
+      duration_ms: 100,
+      ...overrides,
+    });
+  }
+  return runs;
+}
+
+const HOURLY_REGISTRY = [
+  { name: "payouts", label: "Payouts", schedule: "0 * * * *", category: "x", endpoint: "/p", recorded: true },
+];
+
+function reportFor(runs: ReturnType<typeof onScheduleRuns>) {
+  return assembleCronFleetReport({
+    registry: HOURLY_REGISTRY,
+    runsByJob: { payouts: runs },
+    maintenance: [],
+    nowMs: NOW,
+    lookbackMs: 5 * HOUR,
+  });
+}
+
+Deno.test("US-2312: a job that ticks on schedule but errors is 'failing', not healthy", () => {
+  const report = reportFor(onScheduleRuns({ status: "error", rows_processed: 40 }));
+  assertEquals(report.failing.map((s) => s.name), ["payouts"]);
+  assertEquals(report.stalled.length, 0); // it IS running — that is the point
+  assertEquals(report.all_clear, false);
+  const card = report.scorecards[0];
+  assertEquals(card.verdict, "failing");
+  assertEquals(card.runs, 6);
+  assertEquals(card.failed_runs, 6);
+});
+
+Deno.test("US-2312: stalled outranks failing so one incident is not reported twice", () => {
+  // No runs at all → stalled. Even with error rows present in the window, a job
+  // that is not running is the more urgent fact.
+  const report = assembleCronFleetReport({
+    registry: HOURLY_REGISTRY,
+    runsByJob: {},
+    maintenance: [],
+    nowMs: NOW,
+    lookbackMs: 5 * HOUR,
+  });
+  assertEquals(report.stalled.map((s) => s.name), ["payouts"]);
+  assertEquals(report.failing.length, 0);
+});
+
+Deno.test("US-2312: 'ran but did nothing' is visible without being an alert", () => {
+  const report = reportFor(onScheduleRuns({ status: "success", rows_processed: 0 }));
+  const card = report.scorecards[0];
+  assertEquals(card.verdict, "healthy"); // idling is usually correct, not broken
+  assertEquals(card.idle_runs, 6);
+  assertEquals(card.all_idle, true);
+  assertEquals(report.all_clear, true);
+});
+
+Deno.test("US-2312: a job doing real work is not flagged idle", () => {
+  const card = reportFor(onScheduleRuns({ status: "success", rows_processed: 12 }))
+    .scorecards[0];
+  assertEquals(card.idle_runs, 0);
+  assertEquals(card.all_idle, false);
+  assertEquals(card.failed_runs, 0);
+  assertEquals(card.verdict, "healthy");
+});
+
+Deno.test("US-2312 REGRESSION: runs with no outcome columns stay healthy", () => {
+  // Rows written before this shipped carry neither status nor rows_processed.
+  // They must not read as failures, or every fleet report backfills an incident.
+  const card = reportFor(onScheduleRuns()).scorecards[0];
+  assertEquals(card.verdict, "healthy");
+  assertEquals(card.failed_runs, 0);
+  assertEquals(card.idle_runs, 0);
+  assertEquals(card.all_idle, false);
+});

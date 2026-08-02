@@ -126,9 +126,9 @@ import { adminMarketplacePipelineRoutes } from "./routes/admin-marketplace-pipel
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { adminAuditRoutes } from "./routes/admin-audit.ts";
 import { handleAuditAnomalyCron } from "./routes/jobs-audit-anomaly.ts";
-import { cronNameForPath, recordCronRun } from "./lib/cron-runs.ts";
+import { cronNameForPath } from "./lib/cron-runs.ts";
+import { finishCronRun } from "./lib/cron-run-outcome.ts";
 import { createMiddleware } from "hono/factory";
-import { emitOpsEvent } from "./lib/ops-events.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
 import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
@@ -690,24 +690,21 @@ app.use("/api/jobs/*", async (c, next) => {
   // US-881: attribute the run. A manual Run-now from the Operations console
   // sets X-Triggered-By: admin:<uuid>; a scheduled Coolify cron does not.
   const triggeredBy = c.req.header("X-Triggered-By")?.trim() || "schedule";
-  void recordCronRun({
-    jobName,
-    status: httpStatus >= 400 ? "error" : "success",
-    httpStatus,
-    durationMs: Date.now() - startedMs,
-    triggeredBy,
-  });
   // US-906: a failed scheduled/manual job run is a significant ops event — feed
   // it through the activity stream (warning). This is the single chokepoint that
   // covers EVERY /api/jobs/* cron. Noisy persistently-failing jobs can be muted
   // per-type ("job.failed") from the alert config.
-  if (httpStatus >= 400) {
-    void emitOpsEvent("job.failed", "warning", {
-      title: `Background job "${jobName}" failed (HTTP ${httpStatus})`,
-      source: jobName,
-      data: { job: jobName, http_status: httpStatus, triggered_by: triggeredBy },
-    });
-  }
+  // US-2312: "failed" now includes a 2xx run that reported failed units in its
+  // OWN body (payout sweeps, guarantee-pool discrepancies), and the run's
+  // rows_processed is populated here so an idle job is queryable. See
+  // lib/cron-run-outcome.ts for why the HTTP status deliberately stays 2xx.
+  finishCronRun({
+    jobName,
+    response: c.res,
+    httpStatus,
+    durationMs: Date.now() - startedMs,
+    triggeredBy,
+  });
 });
 
 // US-1645: the eBay crons run under /api/flipdesk/ebay/* (not /api/jobs/*), so
@@ -726,20 +723,15 @@ const recordEbayCron = createMiddleware(async (c, next) => {
   if (!jobName) return; // not a registered cron path — don't record
   const httpStatus = c.res.status;
   const triggeredBy = c.req.header("X-Triggered-By")?.trim() || "schedule";
-  void recordCronRun({
+  // US-2312: same body-aware recorder as the /api/jobs/* chokepoint above, so
+  // the eBay/Google crons cannot drift into a weaker failure definition.
+  finishCronRun({
     jobName,
-    status: httpStatus >= 400 ? "error" : "success",
+    response: c.res,
     httpStatus,
     durationMs: Date.now() - startedMs,
     triggeredBy,
   });
-  if (httpStatus >= 400) {
-    void emitOpsEvent("job.failed", "warning", {
-      title: `Background job "${jobName}" failed (HTTP ${httpStatus})`,
-      source: jobName,
-      data: { job: jobName, http_status: httpStatus, triggered_by: triggeredBy },
-    });
-  }
 });
 app.use("/api/flipdesk/ebay/jobs/*", recordEbayCron);
 // The 5-min Google Sheet sync is a recorded cron too (cronNameForPath resolves

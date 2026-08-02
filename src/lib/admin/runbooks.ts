@@ -205,6 +205,8 @@ export const RUNBOOKS: Runbook[] = [
     body: [
       "Recurring work runs as **Coolify Scheduled Tasks** that POST to job endpoints on the edge. Every `/api/jobs/*` hit appends a row to the `cron_runs` ledger, so the Background Jobs page shows each job's last run, outcome, duration, and next-due. The table below is the curated map; the **live** registry (and Run-now) lives on Background Jobs.",
       "",
+      "**A run can be marked failed while its HTTP status is 200.** Sweeps that process many items — payouts, guarantee-pool reconciliation — report their own failure counts in the response body, so a run that transferred nothing still answered 200. The ledger reads that body: any non-zero `failed` / `errors` / `discrepancies` count records the run as an error and raises a `job.failed` warning. The HTTP status stays 2xx on purpose, because Coolify invokes these with `curl -fsS` and a 5xx would mark the scheduled task itself failed and re-run the whole sweep. Cron fleet health reports these separately as **failing** (ticking, but erroring) from **stalled** (not ticking at all).",
+      "",
       "## Maintenance & integrity",
       "",
       "- **Email outbox retry** (`*/5 * * * *`) — backoff + dead-letter for failed sends.",

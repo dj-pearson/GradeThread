@@ -153,6 +153,11 @@ export function detectDurationCreep(
 export interface JobRun {
   created_at: string;
   duration_ms: number | null;
+  // US-2312: the run's OUTCOME, not just its timing. Before this the fleet
+  // report could only see whether a job ticked — a job that ran on schedule and
+  // failed every unit of work inside it read as healthy.
+  status?: string | null;
+  rows_processed?: number | null;
 }
 
 export interface JobScorecard {
@@ -160,18 +165,28 @@ export interface JobScorecard {
   label: string;
   schedule: string;
   category: string;
-  verdict: "healthy" | "slow" | "stalled";
+  verdict: "healthy" | "slow" | "failing" | "stalled";
   missed: number;
   consecutive_missed: number;
   suppressed: number;
   last_run_ms: number | null;
   duration: DurationCreep;
+  // US-2312: runs in the window, and how many of them errored. `idle_runs`
+  // counts runs that recorded rows_processed === 0, so "ran every hour and did
+  // nothing all week" is a readable state rather than an absence of evidence.
+  runs: number;
+  failed_runs: number;
+  idle_runs: number;
+  /** True when every run in the window processed zero rows (and there was at least one). */
+  all_idle: boolean;
 }
 
 export interface CronFleetReport {
   summary: string;
   jobs_total: number;
   stalled: JobScorecard[];
+  /** US-2312: ticking on schedule, but erroring — including body-reported failures. */
+  failing: JobScorecard[];
   slow: JobScorecard[];
   scorecards: JobScorecard[];
   all_clear: boolean;
@@ -199,7 +214,20 @@ export function assembleCronFleetReport(params: {
       maintenance: params.maintenance,
     });
     const duration = detectDurationCreep(runs.map((r) => r.duration_ms ?? NaN).filter((x) => Number.isFinite(x)));
-    const verdict: JobScorecard["verdict"] = missed.missed > 0 ? "stalled" : duration.creeping ? "slow" : "healthy";
+    // US-2312. `status === "error"` now also covers a 2xx run that reported
+    // failed units in its own body (see lib/cron-run-outcome.ts), which is how a
+    // payout sweep that transferred nothing stops reading as a healthy tick.
+    const failedRuns = runs.filter((r) => r.status === "error").length;
+    const idleRuns = runs.filter((r) => r.rows_processed === 0).length;
+    // Stalled outranks failing: a job that is not running at all is the more
+    // urgent fact, and reporting it twice would split one incident in two.
+    const verdict: JobScorecard["verdict"] = missed.missed > 0
+      ? "stalled"
+      : failedRuns > 0
+      ? "failing"
+      : duration.creeping
+      ? "slow"
+      : "healthy";
     scorecards.push({
       name: def.name,
       label: def.label,
@@ -211,16 +239,21 @@ export function assembleCronFleetReport(params: {
       suppressed: missed.suppressed,
       last_run_ms: missed.last_run_ms,
       duration,
+      runs: runs.length,
+      failed_runs: failedRuns,
+      idle_runs: idleRuns,
+      all_idle: runs.length > 0 && idleRuns === runs.length,
     });
   }
 
   const stalled = scorecards.filter((s) => s.verdict === "stalled").sort((a, b) => b.consecutive_missed - a.consecutive_missed);
+  const failing = scorecards.filter((s) => s.verdict === "failing").sort((a, b) => b.failed_runs - a.failed_runs);
   const slow = scorecards.filter((s) => s.verdict === "slow").sort((a, b) => (b.duration.creep_pct ?? 0) - (a.duration.creep_pct ?? 0));
-  const allClear = stalled.length === 0 && slow.length === 0;
+  const allClear = stalled.length === 0 && failing.length === 0 && slow.length === 0;
 
   const summary = allClear
     ? `Cron fleet healthy: ${scorecards.length} recorded jobs, all ticking on schedule.`
-    : `${stalled.length} stalled, ${slow.length} slow of ${scorecards.length} recorded jobs.`;
+    : `${stalled.length} stalled, ${failing.length} failing, ${slow.length} slow of ${scorecards.length} recorded jobs.`;
 
-  return { summary, jobs_total: scorecards.length, stalled, slow, scorecards, all_clear: allClear };
+  return { summary, jobs_total: scorecards.length, stalled, failing, slow, scorecards, all_clear: allClear };
 }
