@@ -238,7 +238,7 @@ export function findCycles(graph) {
   return cycles;
 }
 
-export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, learningsLines = 0, pushedMigrationIds = null, opts = {} }) {
+export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, archivedStories = [], learningsLines = 0, pushedMigrationIds = null, opts = {} }) {
   const errors = [];
   const warnings = [];
   const threshold = opts.accumulationThreshold ?? ACCUMULATION_THRESHOLD;
@@ -344,12 +344,22 @@ export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, learnin
   // US-1996 (WARNING): passes:true with an unresolved blocker marker. See
   // findUnresolvedDeferrals — a later note can legitimately supersede an earlier
   // blocker, so this can never be an error.
-  const deferred = findUnresolvedDeferrals(stories);
+  // US-1996 AC4, corrected 2026-08-02: scan the ARCHIVE as well as the active
+  // backlog. The guard shipped reading only prd.json — and all THREE stories it
+  // was written for (US-1770, US-744, US-1399) had already been archived, so it
+  // could not see a single one of them. A check that structurally cannot reach
+  // its own founding cases reads as green for the wrong reason, which is the
+  // exact failure this warning exists to surface, one level up.
+  //
+  // Cheap enough to be worth it: over the whole archive this flags 2 stories,
+  // not a wall. A warning that named hundreds would be ignored, and then the
+  // active-backlog half would be ignored with it.
+  const deferred = findUnresolvedDeferrals([...stories, ...(archivedStories ?? [])]);
   if (deferred.length > 0) {
     warnings.push(
       `${deferred.length} story(ies) marked passes:true still carry an unresolved blocker note ` +
         `— verify the behaviour actually ships before trusting the flag ` +
-        `(US-1770 was closed this way and its authenticity safety gate has no callers): ` +
+        `(US-1770 was closed this way; its gate was later made fail-closed by US-2130): ` +
         deferred.map((d) => `${d.id} "${d.marker}"`).join(", "),
     );
   }
@@ -401,6 +411,20 @@ async function main() {
 
   const prd = JSON.parse(readFileSync(prdPath, "utf8"));
   const { maxId: archiveMaxId, ids: archiveIds } = await probeArchiveIds(archivePath);
+  // US-1996 AC4: the deferral guard needs the archived stories' NOTES, which the
+  // streaming id probe deliberately does not collect. Parsing 1.6 MB costs ~50ms
+  // on a lint that runs on demand, and it is the only way the guard can reach the
+  // stories it was written for — every one of them is archived. Best-effort: a
+  // missing or unparseable archive leaves the guard scanning the active backlog
+  // alone rather than failing the lint over a file it only reads for warnings.
+  let archivedStories = [];
+  try {
+    if (existsSync(archivePath)) {
+      archivedStories = JSON.parse(readFileSync(archivePath, "utf8")).userStories ?? [];
+    }
+  } catch {
+    archivedStories = [];
+  }
   const learningsLines = countLines(learningsPath);
 
   // Which migrations are already PUSHED? Held means unpushed, so anything on
@@ -428,6 +452,7 @@ async function main() {
     prd,
     archiveIds,
     archiveMaxId,
+    archivedStories,
     learningsLines,
     pushedMigrationIds,
   });

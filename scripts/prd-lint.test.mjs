@@ -377,3 +377,76 @@ describe("lintPrd — priority", () => {
     expect(r.errors.some((e) => e.includes("priority"))).toBe(false);
   });
 });
+
+describe("the deferral guard reaches the archive (US-1996 AC4, corrected)", () => {
+  const story = (id, passes, notes) => ({
+    id,
+    title: "t",
+    description: "d",
+    acceptanceCriteria: ["a"],
+    passes,
+    notes,
+  });
+
+  const basePrd = (stories) => ({
+    nextId: "US-9999",
+    userStories: stories,
+  });
+
+  it("warns about an ARCHIVED story with an unresolved blocker", () => {
+    // The correction this case exists for. The guard shipped reading only
+    // prd.json, and all THREE stories it was written for -- US-1770, US-744,
+    // US-1399 -- had already been archived. It could not see one of them.
+    //
+    // A check that structurally cannot reach its own founding cases reads as
+    // green for the wrong reason, which is the exact failure the warning
+    // exists to surface, one level up.
+    const { warnings } = lintPrd({
+      prd: basePrd([story("US-1", false, "ordinary open work")]),
+      archivedStories: [
+        story("US-744", true, "[DEFERRED 2026-06-08] needs real device QA"),
+      ],
+    });
+    const hit = warnings.find((w) => w.includes("unresolved blocker note"));
+    expect(hit, "the archived deferral was not reported").toBeTruthy();
+    expect(hit).toContain("US-744");
+  });
+
+  it("still warns about an ACTIVE one, and reports both together", () => {
+    // Widening the scan must not replace the original half. One warning naming
+    // both is also deliberate: two warnings for one class is how a reader
+    // starts skipping the second.
+    const { warnings } = lintPrd({
+      prd: basePrd([story("US-2", true, "[DEFERRED 2026-01-01] blocked")]),
+      archivedStories: [story("US-3", true, "[DEFERRED 2026-02-02] also blocked")],
+    });
+    const hit = warnings.find((w) => w.includes("unresolved blocker note"));
+    expect(hit).toContain("US-2");
+    expect(hit).toContain("US-3");
+    expect(hit).toContain("2 story(ies)");
+  });
+
+  it("resolves an archived blocker the same way as an active one", () => {
+    // The US-1399 shape: a later closing token in the notes genuinely clears
+    // it. The archive must not get a stricter rule than the active backlog, or
+    // the warning fills with stories somebody already dealt with.
+    const { warnings } = lintPrd({
+      prd: basePrd([]),
+      archivedStories: [
+        story(
+          "US-1399",
+          true,
+          "[DEFERRED 2026-06-27] fragile build-time fetch. | [COMPLETION 2026-07-03 - un-deferred] shipped.",
+        ),
+      ],
+    });
+    expect(warnings.find((w) => w.includes("unresolved blocker note"))).toBeUndefined();
+  });
+
+  it("treats a missing archive as no archived stories, not as an error", () => {
+    // main() reads the archive best-effort: it is consulted only for warnings,
+    // so an unreadable file must not fail a lint that is otherwise clean.
+    const { errors } = lintPrd({ prd: basePrd([]), archivedStories: undefined });
+    expect(errors.filter((e) => /archive/i.test(e))).toEqual([]);
+  });
+});
