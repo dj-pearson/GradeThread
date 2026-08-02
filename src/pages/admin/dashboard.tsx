@@ -43,6 +43,11 @@ interface AdminKPIs {
   submissionsToday: number;
   revenueThisMonth: number;
   averageGrade: number;
+  // US-2390: the average is the one KPI measured from ROWS rather than a
+  // server-side count, so it travels with its own provenance. Every other KPI
+  // here is an exact count and cannot be truncated.
+  averageGradeSampleSize: number;
+  averageGradeTruncated: boolean;
   disputeRatePercent: number;
   aiAccuracyPercent: number;
   pendingReviews: number;
@@ -213,7 +218,17 @@ export function AdminDashboardPage() {
               <div className="text-2xl font-bold">
                 {kpis?.averageGrade ? kpis.averageGrade.toFixed(1) : "—"}
               </div>
-              <CardDescription>Across all grades</CardDescription>
+              {/* US-2390: this used to read "Across all grades", which was
+                  not true even then — the read behind it was silently capped
+                  by PostgREST with nothing to say so. The number is now
+                  explicitly the most RECENT N, and N is shown, because a
+                  plausible number with no provenance is worse than a smaller
+                  one that states its own scope. */}
+              <CardDescription>
+                {kpis?.averageGradeTruncated
+                  ? `Most recent ${kpis.averageGradeSampleSize.toLocaleString()} grades`
+                  : "Across all grades"}
+              </CardDescription>
             </CardContent>
           </Card>
 
