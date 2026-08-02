@@ -37,9 +37,86 @@ export interface EmailRetryResult {
   retried: number;
   dead_lettered: number;
   skipped: number;
+  /**
+   * US-2315: rows whose processing THREW rather than returning a send result.
+   * Named `failed` on purpose — the cron recorder (lib/cron-run-outcome.ts,
+   * US-2312) reads that key out of the response body, so a sweep that throws on
+   * every row now records as an error run and raises job.failed instead of
+   * answering 200 with a tidy summary.
+   */
+  failed: number;
 }
 
-export async function retryPendingEmails(): Promise<EmailRetryResult> {
+/**
+ * US-2315: advance a row that THREW, so it cannot block the batch forever.
+ *
+ * The scan orders by next_attempt_at ASC. Before this, `attempts` and
+ * `next_attempt_at` were only ever written after deliverEmail RETURNED — so a
+ * row where getSuppression or deliverEmail threw kept its original
+ * next_attempt_at, sorted first on the very next run, threw again, and aborted
+ * the remaining 49 rows of the batch. Every five minutes. Indefinitely. The
+ * only visible symptom was a 500 from the cron.
+ *
+ * Never throws: it is the recovery path, and a failure here would re-create the
+ * exact stall it exists to prevent.
+ */
+async function advanceThrownRow(
+  row: DeliveryRow,
+  err: unknown,
+  patch: EmailRetryDeps["patch"],
+): Promise<"retried" | "dead_letter"> {
+  const attempts = row.attempts + 1;
+  const message = err instanceof Error ? err.message : String(err);
+  const terminal = attempts >= row.max_attempts;
+  try {
+    await patch(
+      row.id,
+      terminal
+        ? {
+          status: "dead_letter",
+          attempts,
+          last_error: `threw: ${message}`.slice(0, 500),
+        }
+        : {
+          attempts,
+          next_attempt_at: new Date(Date.now() + backoffMs(attempts))
+            .toISOString(),
+          last_error: `threw: ${message}`.slice(0, 500),
+        },
+    );
+  } catch {
+    // Even the bookkeeping write failed (DB blip). The row keeps its old
+    // next_attempt_at and will be retried — that is the pre-existing behaviour,
+    // and it is still better than aborting the rest of this batch.
+  }
+  return terminal ? "dead_letter" : "retried";
+}
+
+/**
+ * The three external calls the row loop makes, injectable so the
+ * one-poison-row-must-not-block-the-batch guarantee (US-2315) is a UNIT TEST
+ * rather than a claim. Mirrors the `rpc` seam in job-lock.ts.
+ *
+ * `patch` stands in for the four different UPDATEs the loop issues; a test only
+ * needs to know THAT a row was advanced, not which columns changed.
+ */
+export interface EmailRetryDeps {
+  getSuppression: typeof getSuppression;
+  deliverEmail: typeof deliverEmail;
+  patch: (id: string, values: Record<string, unknown>) => Promise<void>;
+}
+
+const realDeps: EmailRetryDeps = {
+  getSuppression,
+  deliverEmail,
+  patch: async (id, values) => {
+    await supabaseAdmin.from("email_deliveries").update(values).eq("id", id);
+  },
+};
+
+export async function retryPendingEmails(
+  deps: EmailRetryDeps = realDeps,
+): Promise<EmailRetryResult> {
   const nowIso = new Date().toISOString();
   const { data, error } = await supabaseAdmin
     .from("email_deliveries")
@@ -55,73 +132,123 @@ export async function retryPendingEmails(): Promise<EmailRetryResult> {
   }
 
   const due = (data ?? []) as DeliveryRow[];
+  return await sweepDueRows(due, deps);
+}
+
+/**
+ * The row loop, over rows already fetched. Exported so US-2315's guarantee can
+ * be asserted against a batch containing a row that always throws.
+ */
+export async function sweepDueRows(
+  due: DeliveryRow[],
+  deps: EmailRetryDeps = realDeps,
+): Promise<EmailRetryResult> {
   let sent = 0;
   let retried = 0;
   let deadLettered = 0;
   let skipped = 0;
+  let failed = 0;
 
   for (const row of due) {
-    // US-914: don't retry a queued send to a now-suppressed address — mark the
-    // outbox row terminal (status='skipped' with the reason) and move on.
-    const suppression = await getSuppression(row.recipient);
-    if (suppression) {
-      await supabaseAdmin
-        .from("email_deliveries")
-        .update({ status: "skipped", skip_reason: `suppressed:${suppression.reason}` })
-        .eq("id", row.id);
-      skipped += 1;
-      recordMetric("email.retry_skipped_suppressed", 1, { category: row.category });
-      continue;
-    }
+    try {
+      // US-914: don't retry a queued send to a now-suppressed address — mark the
+      // outbox row terminal (status='skipped' with the reason) and move on.
+      const suppression = await deps.getSuppression(row.recipient);
+      if (suppression) {
+        await deps.patch(row.id, {
+          status: "skipped",
+          skip_reason: `suppressed:${suppression.reason}`,
+        });
+        skipped += 1;
+        recordMetric("email.retry_skipped_suppressed", 1, {
+          category: row.category,
+        });
+        continue;
+      }
 
-    const ok = await deliverEmail({
-      to: row.recipient,
-      subject: row.subject,
-      html: row.html,
-      category: row.category,
-    });
-    const attempts = row.attempts + 1;
+      const ok = await deps.deliverEmail({
+        to: row.recipient,
+        subject: row.subject,
+        html: row.html,
+        category: row.category,
+      });
+      const attempts = row.attempts + 1;
 
-    if (ok) {
-      await supabaseAdmin
-        .from("email_deliveries")
-        .update({ status: "sent", attempts, sent_at: new Date().toISOString(), last_error: null })
-        .eq("id", row.id);
-      sent += 1;
-      recordMetric("email.retry_sent", 1, { category: row.category });
-      continue;
-    }
+      if (ok) {
+        await deps.patch(row.id, {
+          status: "sent",
+          attempts,
+          sent_at: new Date().toISOString(),
+          last_error: null,
+        });
+        sent += 1;
+        recordMetric("email.retry_sent", 1, { category: row.category });
+        continue;
+      }
 
-    if (attempts >= row.max_attempts) {
-      await supabaseAdmin
-        .from("email_deliveries")
-        .update({ status: "dead_letter", attempts, last_error: "exhausted retries" })
-        .eq("id", row.id);
-      deadLettered += 1;
-      recordMetric("email.dead_lettered", 1, { category: row.category });
-      // A dead-lettered CRITICAL email is an operational event — surface it.
-      captureException(
-        new Error(`Email dead-lettered after ${attempts} attempts (category=${row.category})`),
-        { level: "warn", route: "email-retry", tags: { category: row.category }, extra: { id: row.id } },
-      );
-      continue;
-    }
+      if (attempts >= row.max_attempts) {
+        await deps.patch(row.id, {
+          status: "dead_letter",
+          attempts,
+          last_error: "exhausted retries",
+        });
+        deadLettered += 1;
+        recordMetric("email.dead_lettered", 1, { category: row.category });
+        // A dead-lettered CRITICAL email is an operational event — surface it.
+        captureException(
+          new Error(
+            `Email dead-lettered after ${attempts} attempts (category=${row.category})`,
+          ),
+          {
+            level: "warn",
+            route: "email-retry",
+            tags: { category: row.category },
+            extra: { id: row.id },
+          },
+        );
+        continue;
+      }
 
-    await supabaseAdmin
-      .from("email_deliveries")
-      .update({
+      await deps.patch(row.id, {
         attempts,
-        next_attempt_at: new Date(Date.now() + backoffMs(attempts)).toISOString(),
+        next_attempt_at: new Date(Date.now() + backoffMs(attempts))
+          .toISOString(),
         last_error: "retry send failed",
-      })
-      .eq("id", row.id);
-    retried += 1;
+      });
+      retried += 1;
+    } catch (err) {
+      // US-2315: one poison row must not take the other 49 with it.
+      failed += 1;
+      const outcome = await advanceThrownRow(row, err, deps.patch);
+      if (outcome === "dead_letter") deadLettered += 1;
+      else retried += 1;
+      captureException(err, {
+        level: "warn",
+        route: "email-retry.row",
+        tags: { category: row.category },
+        extra: { id: row.id, outcome },
+      });
+    }
   }
 
   if (due.length > 0) {
-    logEvent("info", "email.retry_sweep", { scanned: due.length, sent, retried, deadLettered, skipped });
+    logEvent("info", "email.retry_sweep", {
+      scanned: due.length,
+      sent,
+      retried,
+      deadLettered,
+      skipped,
+      failed,
+    });
   }
-  return { scanned: due.length, sent, retried, dead_lettered: deadLettered, skipped };
+  return {
+    scanned: due.length,
+    sent,
+    retried,
+    dead_lettered: deadLettered,
+    skipped,
+    failed,
+  };
 }
 
 // Cron entry point. OUTSIDE /api/* JWT groups; guards with the shared job secret
