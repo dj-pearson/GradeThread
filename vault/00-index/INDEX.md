@@ -91,17 +91,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 70-agent — how agents work here
 
-- [[agent-knowledge-surfaces]] — reference — Four places currently hold agent-facing knowledge; this note defines the intended division and tracks the unification.
-- [[agent-levelup-roadmap]] — reference — What to install, build, and wire so agents working on GradeThread get materially
-- [[agentic-os-map]] — reference — GradeThread is already unusually automated.
-- [[backlog-priority-contract]] — contract — prd.json priority sorts ASCENDING — lowest number first — and a missing priority means unranked, so it sorts last.
-- [[guards-that-cannot-fail]] — learning — This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the eight shapes it took and the two habits that catch them.
-- [[memory-vault-division]] — learning — The premise that memory duplicates the vault and wins by default is only half right — memory is frequently the MORE detailed source, so pointing at a note can lose information.
-- [[ralph-brand-kb-log]] — learning — Per-story record of applying the brand-KB rules; the rules themselves live in 20-domain/brands.
-- [[ralph-email-marketing-log]] — learning — Email and deliverability gotchas accumulated by the loop; loaded on demand.
-- [[ralph-ios-log]] — learning — iOS-specific gotchas accumulated by the loop; loaded on demand, not every iteration.
-- [[ralph-learnings]] — learning — Recurring gotchas the Ralph loop reads on every iteration; kept short on purpose because its cost is per-iteration.
-- [[shipped-but-unwired]] — learning — Three modules pass their tests while nothing calls them; one is a real unenforced guarantee, one is uncalled by design, one is a deliberate policy retirement — and telling them apart is the point.
+12 notes — see [[moc-agent]].
 
 ## 90-archive — historical snapshots
 
