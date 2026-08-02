@@ -32,7 +32,12 @@ import { isCertificateWithheld } from "./certificate-visibility.ts";
 import { captureException, logEvent } from "./observability.ts";
 import { getSetting } from "./system-settings.ts";
 import { notifyBuyer } from "./buyer-notify.ts";
-import { getValueHub, nearestPointForGrade, slugify, type ValueHubItem } from "./value-index.ts";
+import {
+  getValueHub,
+  nearestPointForGrade,
+  slugify,
+  type ValueHubItem,
+} from "./value-index.ts";
 import { getIndexCurveBySlug } from "./condition-index.ts";
 
 // ── Config (system_settings key `buyer_condition_alerts`; getSetting falls back
@@ -90,7 +95,10 @@ const lc = (s: string) => s.trim().toLowerCase();
  * array is a wildcard (the buyer didn't constrain that dimension). Sizes are not
  * matched in the public-cert universe (a cert doesn't carry a declared size).
  */
-export function matchesSearch(cert: CandidateCert, search: AlertSearch): boolean {
+export function matchesSearch(
+  cert: CandidateCert,
+  search: AlertSearch,
+): boolean {
   if (search.brands.length > 0) {
     const b = cert.brand ? lc(cert.brand) : "";
     if (!b || !search.brands.some((x) => lc(x) === b)) return false;
@@ -102,7 +110,9 @@ export function matchesSearch(cert: CandidateCert, search: AlertSearch): boolean
   if (search.min_grade != null && cert.grade < search.min_grade) return false;
   if (search.keywords.length > 0) {
     const hay = `${lc(cert.title)} ${cert.brand ? lc(cert.brand) : ""}`;
-    if (!search.keywords.some((k) => k.trim() && hay.includes(lc(k)))) return false;
+    if (!search.keywords.some((k) => k.trim() && hay.includes(lc(k)))) {
+      return false;
+    }
   }
   return true;
 }
@@ -115,7 +125,10 @@ export function matchesSearch(cert: CandidateCert, search: AlertSearch): boolean
  *  2. Else, if the brand has exactly ONE curve → use it (brand-level fairness).
  *  3. Else ambiguous → null (skip the price gate rather than guess).
  */
-export function pickCurveSlugForCert(cert: CandidateCert, hub: ValueHubItem[]): string | null {
+export function pickCurveSlugForCert(
+  cert: CandidateCert,
+  hub: ValueHubItem[],
+): string | null {
   if (!cert.brand) return null;
   const brandSlug = slugify(cert.brand);
   if (!brandSlug) return null;
@@ -125,7 +138,9 @@ export function pickCurveSlugForCert(cert: CandidateCert, hub: ValueHubItem[]): 
   const catSlug = cert.category ? slugify(cert.category) : "";
   const titleSlug = slugify(cert.title);
   const exact = forBrand.filter(
-    (h) => (catSlug && h.itemSlug === catSlug) || (h.itemSlug && titleSlug.includes(h.itemSlug)),
+    (h) =>
+      (catSlug && h.itemSlug === catSlug) ||
+      (h.itemSlug && titleSlug.includes(h.itemSlug)),
   );
   if (exact.length === 1) return exact[0].slug;
   if (exact.length === 0 && forBrand.length === 1) return forBrand[0].slug;
@@ -156,7 +171,11 @@ export function selectDueSearches(
   });
   const cap = Math.max(0, Math.trunc(config.maxSearchesPerRun));
   const batch = sorted.slice(0, cap);
-  return { batch, dueCount: searches.length, budgetCapped: searches.length > batch.length };
+  return {
+    batch,
+    dueCount: searches.length,
+    budgetCapped: searches.length > batch.length,
+  };
 }
 
 // ── DB-touching orchestration ────────────────────────────────────────────────
@@ -166,16 +185,34 @@ interface CandidateRow {
   overall_score: number | string | null;
   created_at: string;
   submissions:
-    | { title: string | null; brand: string | null; garment_category: string | null; flagged: boolean | null; moderation_status: string | null }
-    | Array<{ title: string | null; brand: string | null; garment_category: string | null; flagged: boolean | null; moderation_status: string | null }>
+    | {
+      title: string | null;
+      brand: string | null;
+      garment_category: string | null;
+      flagged: boolean | null;
+      moderation_status: string | null;
+    }
+    | Array<
+      {
+        title: string | null;
+        brand: string | null;
+        garment_category: string | null;
+        flagged: boolean | null;
+        moderation_status: string | null;
+      }
+    >
     | null;
 }
 
 /** Load the recent PUBLIC-certificate pool once per run (bounded). Reuses the
  *  citable-cert predicate from condition-index (certificate_id set + finalized +
  *  not withheld). */
-async function loadCandidateCerts(config: AlertsConfig, nowMs: number): Promise<CandidateCert[]> {
-  const since = new Date(nowMs - config.lookbackDays * 86_400_000).toISOString();
+async function loadCandidateCerts(
+  config: AlertsConfig,
+  nowMs: number,
+): Promise<CandidateCert[]> {
+  const since = new Date(nowMs - config.lookbackDays * 86_400_000)
+    .toISOString();
   const { data, error } = await supabaseAdmin
     .from("grade_reports")
     .select(
@@ -186,7 +223,9 @@ async function loadCandidateCerts(config: AlertsConfig, nowMs: number): Promise<
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(Math.max(1, Math.trunc(config.maxCandidatePool)));
-  if (error) throw new Error(`condition-alerts candidate load failed: ${error.message}`);
+  if (error) {
+    throw new Error(`condition-alerts candidate load failed: ${error.message}`);
+  }
 
   const out: CandidateCert[] = [];
   for (const r of (data ?? []) as CandidateRow[]) {
@@ -206,7 +245,10 @@ async function loadCandidateCerts(config: AlertsConfig, nowMs: number): Promise<
 
 /** Resolve the fair (median) price in cents for a cert via the Value Index, or
  *  null when no confident curve resolves. */
-async function fairPriceCentsForCert(cert: CandidateCert, hub: ValueHubItem[]): Promise<number | null> {
+async function fairPriceCentsForCert(
+  cert: CandidateCert,
+  hub: ValueHubItem[],
+): Promise<number | null> {
   const slug = pickCurveSlugForCert(cert, hub);
   if (!slug) return null;
   const curve = await getIndexCurveBySlug(slug);
@@ -221,6 +263,35 @@ export interface AlertsRunResult {
   candidatePool: number;
   budgetCapped: boolean;
   disabled?: boolean;
+  /**
+   * US-2315: searches whose matching pass THREW. Named `failed` because
+   * cron-run-outcome.ts (US-2312) reads that key out of the response body, so a
+   * run where every search throws records as an error rather than answering 200
+   * with a plausible-looking zero-match summary.
+   */
+  failed?: number;
+}
+
+/**
+ * Rotate a search to the back of the staleness queue. US-2315: called on BOTH
+ * the success and the failure path — never throws, because a stamp that fails
+ * re-creates the starvation it exists to prevent.
+ */
+async function stampSearch(
+  search: { id: string; user_id: string },
+  nowMs: number,
+): Promise<void> {
+  try {
+    await supabaseAdmin
+      .from("saved_searches")
+      .update({ last_matched_at: new Date(nowMs).toISOString() } as never)
+      .eq("id", search.id)
+      .eq("user_id", search.user_id);
+  } catch {
+    // Best effort. A failed stamp leaves the search stale and it will be picked
+    // again — the pre-existing behaviour, and still better than aborting the
+    // rest of the batch.
+  }
 }
 
 /**
@@ -229,21 +300,41 @@ export interface AlertsRunResult {
  * memory, emits deduped condition_alert notifications, and stamps
  * last_matched_at so the budget rotates fairly.
  */
-export async function runConditionAlerts(nowMs = Date.now()): Promise<AlertsRunResult> {
-  const config = await getSetting<AlertsConfig>("buyer_condition_alerts", DEFAULT_ALERTS_CONFIG);
+export async function runConditionAlerts(
+  nowMs = Date.now(),
+): Promise<AlertsRunResult> {
+  const config = await getSetting<AlertsConfig>(
+    "buyer_condition_alerts",
+    DEFAULT_ALERTS_CONFIG,
+  );
   if (!config.enabled) {
     logEvent("info", "condition-alerts.disabled", {});
-    return { searchesEvaluated: 0, matchesEmitted: 0, candidatePool: 0, budgetCapped: false, disabled: true };
+    return {
+      searchesEvaluated: 0,
+      matchesEmitted: 0,
+      candidatePool: 0,
+      budgetCapped: false,
+      disabled: true,
+    };
   }
 
   const { data: searchData, error: sErr } = await supabaseAdmin
     .from("saved_searches")
-    .select("id, user_id, label, brands, categories, keywords, min_grade, max_price_cents, last_matched_at")
+    .select(
+      "id, user_id, label, brands, categories, keywords, min_grade, max_price_cents, last_matched_at",
+    )
     .eq("is_active", true);
-  if (sErr) throw new Error(`condition-alerts search load failed: ${sErr.message}`);
+  if (sErr) {
+    throw new Error(`condition-alerts search load failed: ${sErr.message}`);
+  }
   const searches = (searchData ?? []) as AlertSearch[];
   if (searches.length === 0) {
-    return { searchesEvaluated: 0, matchesEmitted: 0, candidatePool: 0, budgetCapped: false };
+    return {
+      searchesEvaluated: 0,
+      matchesEmitted: 0,
+      candidatePool: 0,
+      budgetCapped: false,
+    };
   }
 
   const sel = selectDueSearches(searches, config, nowMs);
@@ -251,42 +342,56 @@ export async function runConditionAlerts(nowMs = Date.now()): Promise<AlertsRunR
   const hub = candidates.length > 0 ? await getValueHub() : [];
 
   let matchesEmitted = 0;
+  let failed = 0;
   for (const search of sel.batch) {
-    let emittedForSearch = 0;
-    for (const cert of candidates) {
-      if (emittedForSearch >= config.maxMatchesPerSearch) break;
-      if (!matchesSearch(cert, search)) continue;
+    try {
+      let emittedForSearch = 0;
+      for (const cert of candidates) {
+        if (emittedForSearch >= config.maxMatchesPerSearch) break;
+        if (!matchesSearch(cert, search)) continue;
 
-      // Price fairness: only suppress when we can CONFIDENTLY price the item and
-      // its fair price exceeds the buyer's ceiling. Unknown fair price = include.
-      let fairCents: number | null = null;
-      if (search.max_price_cents != null) {
-        fairCents = await fairPriceCentsForCert(cert, hub);
-        if (fairCents != null && fairCents > search.max_price_cents) continue;
+        // Price fairness: only suppress when we can CONFIDENTLY price the item and
+        // its fair price exceeds the buyer's ceiling. Unknown fair price = include.
+        let fairCents: number | null = null;
+        if (search.max_price_cents != null) {
+          fairCents = await fairPriceCentsForCert(cert, hub);
+          if (fairCents != null && fairCents > search.max_price_cents) continue;
+        }
+
+        const delivered = await notifyBuyer(search.user_id, {
+          category: "condition_alert",
+          title: "A graded match just appeared",
+          body: buildAlertBody(cert, fairCents),
+          link: `/cert/${cert.certificateId}`,
+          // One alert per (search, cert) — idempotent across re-runs.
+          dedupeKey: `condition-alert:${search.id}:${cert.certificateId}`,
+          data: { certificateId: cert.certificateId, searchId: search.id },
+        });
+        if (delivered) {
+          matchesEmitted += 1;
+          emittedForSearch += 1;
+        }
       }
 
-      const delivered = await notifyBuyer(search.user_id, {
-        category: "condition_alert",
-        title: "A graded match just appeared",
-        body: buildAlertBody(cert, fairCents),
-        link: `/cert/${cert.certificateId}`,
-        // One alert per (search, cert) — idempotent across re-runs.
-        dedupeKey: `condition-alert:${search.id}:${cert.certificateId}`,
-        data: { certificateId: cert.certificateId, searchId: search.id },
+      // Stamp regardless of matches so the budget rotates to less-recently-checked
+      // searches next run. Scoped by BOTH id and user_id (US-268).
+      await stampSearch(search, nowMs);
+    } catch (err) {
+      // US-2315: head-of-line starvation. selectDueSearches orders MOST STALE
+      // FIRST (a null last_matched_at coerces to 0), and the stamp above only
+      // ran after the whole per-cert inner loop. So a search that threw in
+      // fairPriceCentsForCert or notifyBuyer kept its old stamp, stayed the
+      // stalest, and was picked first on every subsequent run — starving every
+      // other buyer's alerts behind it. Stamping on the failure path is what
+      // breaks that: the search rotates to the back and is retried next cycle.
+      failed += 1;
+      await stampSearch(search, nowMs);
+      captureException(err, {
+        level: "warn",
+        route: "condition-alerts.search",
+        extra: { searchId: search.id },
       });
-      if (delivered) {
-        matchesEmitted += 1;
-        emittedForSearch += 1;
-      }
     }
-
-    // Stamp regardless of matches so the budget rotates to less-recently-checked
-    // searches next run. Scoped by BOTH id and user_id (US-268).
-    await supabaseAdmin
-      .from("saved_searches")
-      .update({ last_matched_at: new Date(nowMs).toISOString() } as never)
-      .eq("id", search.id)
-      .eq("user_id", search.user_id);
   }
 
   logEvent("info", "condition-alerts.run", {
@@ -294,21 +399,28 @@ export async function runConditionAlerts(nowMs = Date.now()): Promise<AlertsRunR
     matchesEmitted,
     candidatePool: candidates.length,
     budgetCapped: sel.budgetCapped,
+    failed,
   });
   return {
     searchesEvaluated: sel.batch.length,
     matchesEmitted,
     candidatePool: candidates.length,
     budgetCapped: sel.budgetCapped,
+    failed,
   };
 }
 
 /** Human-readable alert body, with fair-price context when we have it. Pure. */
-export function buildAlertBody(cert: CandidateCert, fairCents: number | null): string {
+export function buildAlertBody(
+  cert: CandidateCert,
+  fairCents: number | null,
+): string {
   const who = cert.brand ? `${cert.brand} ${cert.title}` : cert.title;
   const grade = `graded ${cert.grade.toFixed(1)}/10`;
   if (fairCents != null) {
-    return `${who} — ${grade}. Fair value ≈ $${(fairCents / 100).toFixed(0)} for this grade.`;
+    return `${who} — ${grade}. Fair value ≈ $${
+      (fairCents / 100).toFixed(0)
+    } for this grade.`;
   }
   return `${who} — ${grade} — matches your watch.`;
 }
