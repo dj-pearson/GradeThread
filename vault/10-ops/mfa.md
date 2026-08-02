@@ -98,7 +98,13 @@ A workspace **owner** can require 2FA for members at or above a role threshold:
 | Workspace policy endpoints | `services/edge-functions/src/routes/workspace.ts` |
 | Member enforcement | `services/edge-functions/src/middleware/workspace.ts` |
 | Pure gate + threshold roles | `services/edge-functions/src/lib/workspace-roles.ts` |
+| Admin step-up gate | `services/edge-functions/src/middleware/admin-auth.ts` + `lib/step-up.ts` |
+| Step-up knobs | `ADMIN_MFA_ENFORCED` (default true, asserted at startup), `STEP_UP_MAX_AGE_SEC` |
 | Schema | `supabase/migrations/00141_self_serve_mfa.sql` |
+
+Only **write** routes call `requireStepUp`. That is why a broken step-up shows up
+as admin POSTs returning 403 while every admin GET still returns 200 — see
+[[mfa-ipv6-ip-mismatch]] for reading that asymmetry.
 
 ## Related
 
