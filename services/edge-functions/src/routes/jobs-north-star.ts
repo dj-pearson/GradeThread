@@ -18,6 +18,7 @@
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
+import { captureException } from "../lib/observability.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import {
   buildNorthStarMilestoneEmail,
@@ -135,133 +136,167 @@ export async function handleNorthStarDigestCron(c: Context): Promise<Response> {
       .select("user_id, milestone")
       .in("user_id", pendingIds);
     const sentMilestones = new Map<string, Set<number>>();
-    for (const row of (milestoneLogs ?? []) as Array<{
-      user_id: string;
-      milestone: number;
-    }>) {
+    for (
+      const row of (milestoneLogs ?? []) as Array<{
+        user_id: string;
+        milestone: number;
+      }>
+    ) {
       let s = sentMilestones.get(row.user_id);
-      if (!s) sentMilestones.set(row.user_id, (s = new Set()));
+      if (!s) sentMilestones.set(row.user_id, s = new Set());
       s.add(row.milestone);
     }
 
     let weeklySent = 0;
     let milestoneSent = 0;
+    // US-2314: users whose pass THREW. The name is deliberate — "failed" is one
+    // of cron-run-outcome.ts's FAILURE_KEYS (US-2312), so a run that loses part
+    // of the cohort records as an error instead of reporting a plausible-looking
+    // send count.
+    let failed = 0;
 
     for (const w of pending) {
-      const user = userById.get(w.user_id);
-      const itemsListed = Number(w.items_listed);
+      try {
+        const user = userById.get(w.user_id);
+        const itemsListed = Number(w.items_listed);
 
-      // ── Streak: 1 (this week) + consecutive prior weeks with ≥1 listing.
-      const { data: priorWeeks } = await supabaseAdmin
-        .from("north_star_weekly_log")
-        .select("week_start")
-        .eq("user_id", w.user_id)
-        .gte("items_listed", 1);
-      const weekSet = new Set(
-        ((priorWeeks ?? []) as Array<{ week_start: string }>).map(
-          (r) => r.week_start,
-        ),
-      );
-      let streak = 1;
-      let cursor = lastMonday.getTime() - WEEK_MS;
-      while (weekSet.has(dateKey(new Date(cursor)))) {
-        streak++;
-        cursor -= WEEK_MS;
-      }
-
-      // ── Record the week (idempotent via UNIQUE(user_id, week_start)).
-      const { error: logErr } = await supabaseAdmin
-        .from("north_star_weekly_log")
-        .insert({
-          user_id: w.user_id,
-          week_start: weekStartKey,
-          items_listed: itemsListed,
-          streak_weeks: streak,
-        });
-      // A concurrent run may have inserted first — treat unique violation as
-      // "already handled" and move on without emailing twice.
-      if (logErr) {
-        if (logErr.code === "23505") continue;
-        console.error(
-          `[north-star] weekly log insert failed for ${w.user_id}:`,
-          logErr.message,
+        // ── Streak: 1 (this week) + consecutive prior weeks with ≥1 listing.
+        const { data: priorWeeks } = await supabaseAdmin
+          .from("north_star_weekly_log")
+          .select("week_start")
+          .eq("user_id", w.user_id)
+          .gte("items_listed", 1);
+        const weekSet = new Set(
+          ((priorWeeks ?? []) as Array<{ week_start: string }>).map(
+            (r) => r.week_start,
+          ),
         );
-        continue;
-      }
+        let streak = 1;
+        let cursor = lastMonday.getTime() - WEEK_MS;
+        while (weekSet.has(dateKey(new Date(cursor)))) {
+          streak++;
+          cursor -= WEEK_MS;
+        }
 
-      const prefs =
-        (user?.notification_preferences as Record<string, unknown> | null) ?? null;
-      const lifetimeListed = lifetimeById.get(w.user_id) ?? itemsListed;
+        // US-2314: the weekly-log insert USED TO SIT HERE, before the send. That
+        // row is also the next run's skip set, so writing it first meant a send
+        // that threw left the user marked celebrated with no email — and because
+        // weekStartKey is derived from now() each run, the following week computes
+        // a DIFFERENT key and never revisits them. The mail was lost, not
+        // deferred. It is now written after the send; see below.
+        const prefs =
+          (user?.notification_preferences as Record<string, unknown> | null) ??
+            null;
+        const lifetimeListed = lifetimeById.get(w.user_id) ?? itemsListed;
 
-      // ── Weekly encouragement email — routed through the marketing coordinator
-      //    (US-934), the single cross-program chokepoint enforcing consent,
-      //    suppression, the per-recipient daily cap, quiet hours, and the
-      //    drip-precedence pause (the newsletter is held while a recipient is in
-      //    the trial drip). A capped/paused send is deferred, not dropped.
-      if (user?.email) {
-        const built = await buildNorthStarWeeklyEmail({
-          userId: w.user_id,
-          userName: user.full_name || "there",
-          itemsListed,
-          goal: WEEKLY_GOAL,
-          streakWeeks: streak,
-          lifetimeListed,
-        });
-        const res = await coordinateMarketingSend({
-          to: user.email,
-          userId: w.user_id,
-          prefs,
-          source: "weekly_newsletter",
-          category: "north_star_weekly",
-          subject: built.subject,
-          html: built.html,
-        });
-        if (res.sent) weeklySent++;
-      }
+        // ── Weekly encouragement email — routed through the marketing coordinator
+        //    (US-934), the single cross-program chokepoint enforcing consent,
+        //    suppression, the per-recipient daily cap, quiet hours, and the
+        //    drip-precedence pause (the newsletter is held while a recipient is in
+        //    the trial drip). A capped/paused send is deferred, not dropped.
+        if (user?.email) {
+          const built = await buildNorthStarWeeklyEmail({
+            userId: w.user_id,
+            userName: user.full_name || "there",
+            itemsListed,
+            goal: WEEKLY_GOAL,
+            streakWeeks: streak,
+            lifetimeListed,
+          });
+          const res = await coordinateMarketingSend({
+            to: user.email,
+            userId: w.user_id,
+            prefs,
+            source: "weekly_newsletter",
+            category: "north_star_weekly",
+            subject: built.subject,
+            html: built.html,
+          });
+          if (res.sent) weeklySent++;
+        }
 
-      // ── Milestone: celebrate the highest newly-crossed threshold once,
-      //    but mark ALL newly-crossed thresholds as sent.
-      const already = sentMilestones.get(w.user_id) ?? new Set<number>();
-      const crossed = MILESTONES.filter(
-        (m) => lifetimeListed >= m && !already.has(m),
-      );
-      if (crossed.length > 0) {
-        const rows = crossed.map((m) => ({ user_id: w.user_id, milestone: m }));
-        const { error: mErr } = await supabaseAdmin
-          .from("north_star_milestone_log")
-          .insert(rows);
-        if (!mErr) {
-          const top = crossed[crossed.length - 1];
-          if (user?.email && top != null) {
-            const built = await buildNorthStarMilestoneEmail({
-              userId: w.user_id,
-              userName: user.full_name || "there",
-              milestone: top,
-              lifetimeListed,
-            });
-            const res = await coordinateMarketingSend({
-              to: user.email,
-              userId: w.user_id,
-              prefs,
-              source: "weekly_newsletter",
-              category: "north_star_milestone",
-              subject: built.subject,
-              html: built.html,
-            });
-            if (res.sent) milestoneSent++;
-          }
-        } else if (mErr.code !== "23505") {
+        // ── Record the week, AFTER the send (US-2314). Idempotent via
+        //    UNIQUE(user_id, week_start), so a concurrent run losing the race is
+        //    a no-op rather than a second email.
+        //
+        //    THE TRADE, stated because it is a real one: writing after the send
+        //    means a crash BETWEEN the two could re-send on a manual same-week
+        //    re-run. Writing before meant a crash lost the email permanently.
+        //    A rare duplicate is recoverable; a silently missing email is not,
+        //    and AC2 sanctions this ordering explicitly.
+        const { error: logErr } = await supabaseAdmin
+          .from("north_star_weekly_log")
+          .insert({
+            user_id: w.user_id,
+            week_start: weekStartKey,
+            items_listed: itemsListed,
+            streak_weeks: streak,
+          });
+        if (logErr && logErr.code !== "23505") {
           console.error(
-            `[north-star] milestone log insert failed for ${w.user_id}:`,
-            mErr.message,
+            `[north-star] weekly log insert failed for ${w.user_id}:`,
+            logErr.message,
           );
         }
+
+        // ── Milestone: celebrate the highest newly-crossed threshold once,
+        //    but mark ALL newly-crossed thresholds as sent.
+        const already = sentMilestones.get(w.user_id) ?? new Set<number>();
+        const crossed = MILESTONES.filter(
+          (m) => lifetimeListed >= m && !already.has(m),
+        );
+        if (crossed.length > 0) {
+          const rows = crossed.map((m) => ({
+            user_id: w.user_id,
+            milestone: m,
+          }));
+          const { error: mErr } = await supabaseAdmin
+            .from("north_star_milestone_log")
+            .insert(rows);
+          if (!mErr) {
+            const top = crossed[crossed.length - 1];
+            if (user?.email && top != null) {
+              const built = await buildNorthStarMilestoneEmail({
+                userId: w.user_id,
+                userName: user.full_name || "there",
+                milestone: top,
+                lifetimeListed,
+              });
+              const res = await coordinateMarketingSend({
+                to: user.email,
+                userId: w.user_id,
+                prefs,
+                source: "weekly_newsletter",
+                category: "north_star_milestone",
+                subject: built.subject,
+                html: built.html,
+              });
+              if (res.sent) milestoneSent++;
+            }
+          } else if (mErr.code !== "23505") {
+            console.error(
+              `[north-star] milestone log insert failed for ${w.user_id}:`,
+              mErr.message,
+            );
+          }
+        }
+      } catch (err) {
+        // US-2314: one user must not take the rest of the week's cohort with it.
+        // The handler is try/finally with no catch, so before this a throw at
+        // user 50 of 1000 escaped to Hono and users 51-1000 got neither a log row
+        // nor an email — and the week key moved on, so they were never revisited.
+        failed++;
+        captureException(err, {
+          level: "warn",
+          route: "jobs.north-star.user",
+          extra: { userId: w.user_id, weekStart: weekStartKey },
+        });
       }
     }
 
     console.log(
       `[north-star] week ${weekStartKey}: ${pending.length} users, ` +
-        `${weeklySent} weekly + ${milestoneSent} milestone emails`,
+        `${weeklySent} weekly + ${milestoneSent} milestone emails, ${failed} failed`,
     );
     return c.json({
       ok: true,
@@ -269,6 +304,7 @@ export async function handleNorthStarDigestCron(c: Context): Promise<Response> {
       users: pending.length,
       weekly_sent: weeklySent,
       milestone_sent: milestoneSent,
+      failed,
     });
   } finally {
     await lock.release();
