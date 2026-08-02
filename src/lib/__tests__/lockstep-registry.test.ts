@@ -30,8 +30,21 @@ const ROOT = process.cwd();
 const SCAN_DIRS = ["src", "services/edge-functions/src"];
 
 /** Comment phrasings that ASSERT a cross-copy relationship. */
+// US-2306: the object between "keep" and "in lockstep" is now anything short,
+// not just "the two" or "them".
+//
+// The old alternation missed "keep THIS in lockstep", which is how
+// ai-grading.ts's FACTOR_WEIGHTS — a copy of the grading weight table — stayed
+// invisible to this guard while carrying a comment that says to keep it in
+// lockstep. It was not one unlucky phrasing: measured across all 2,374 .ts/.tsx
+// files under src, services/edge-functions/src and functions, the old regex
+// matched 18 declared mirrors and this one matches 29. The guard was blind to
+// 38% of the things it exists to police.
+//
+// Bounded to 40 characters and stopped at a period or newline so it matches a
+// phrase, not a paragraph.
 const MARKER =
-  /keep (?:the two |them )?in lockstep|must stay in lockstep|client mirror of|web mirror MUST stay in lockstep/i;
+  /keep [^.\n]{0,40}in lockstep|must stay in lockstep|client mirror of|web mirror MUST stay in lockstep/i;
 
 /**
  * PINNED — a shared fixture or paired test asserts BOTH copies.
@@ -62,6 +75,24 @@ const PINNED: Record<string, string> = {
     "`npm run sync:aspects`, with a CI drift guard — the strongest form here, " +
     "since the data cannot be hand-edited out of sync at all. Logic covered by " +
     "src/lib/__tests__/ebay-prefill.test.ts.",
+
+  // ── US-2306: surfaced by the widened marker ──────────────────────────────
+  "src/lib/title-sync.ts":
+    "src/lib/__tests__/title-sync.test.ts asserts against the edge copy " +
+    "(services/edge-functions/src/lib/title-sync.ts) — the web composer saves " +
+    "direct to supabase with no edge round-trip, so the logic necessarily " +
+    "exists twice.",
+  // Only the EDGE half carries the marker here — the web copy
+  // (src/lib/reputation-perks.ts) has no lockstep comment, so registering it
+  // would be a stale entry by this guard's own rule. Caught by that rule.
+  "services/edge-functions/src/lib/buyer-reputation-perks.ts":
+    "src/lib/__tests__/reputation-perks.test.ts asserts this perk matrix against " +
+    "the web copy (src/lib/reputation-perks.ts).",
+  "services/edge-functions/src/routes/flipdesk-ai.ts":
+    "AI_ACTION_LIMITS is asserted against PLAN_MATRIX.aiActionsPerMonth by " +
+    "services/edge-functions/src/tests/ai-quota_test.ts. NOTE the source " +
+    "comment says the test asserts it against FALLBACK_MATRIX; the test " +
+    "actually reads PLAN_MATRIX. Same table, different name — the guard is real.",
 };
 
 /**
@@ -92,6 +123,60 @@ const EXEMPT: Record<string, string> = {
   "services/edge-functions/src/lib/publish-preflight.ts":
     "Mirrors mapGradeToApparelCondition WITHIN the edge project, so a normal " +
     "import/unit test can cover it — no cross-project fixture needed.",
+
+  // ── US-2306: surfaced by the widened marker ──────────────────────────────
+  //
+  // Three of these are not mirrors at all — they use "in lockstep" to describe
+  // keeping two pieces of RUNTIME STATE in step, which is a different thing
+  // from two copies of a VALUE. They are listed rather than excluded by a
+  // cleverer regex, because a regex that tries to tell those apart is a regex
+  // that will one day exclude a real mirror.
+  "src/components/flipdesk/ebay-category-picker.tsx":
+    "Not a value mirror: keeps the parent's lifted aspect STATE in step with " +
+    "each edit, inside one component tree. Nothing is duplicated across projects.",
+  "src/components/marketing/scroll-experience/lenis-engine.ts":
+    "Not a value mirror: keeps ScrollTrigger's scroll cache in step with " +
+    "Lenis's virtual scroll position at runtime. Two libraries, one frame.",
+  "src/pages/flipdesk/listings.tsx":
+    "Not a value mirror: keeps a react-query listing row in step with an item " +
+    "row after a status write, so a re-drafted item stops showing its old " +
+    "listing. Intra-page cache coherence.",
+
+  "src/pages/admin/reviews.tsx":
+    "The rounding it describes is REAL and already pinned — but not here. " +
+    "US-2034 removed this file's local copy and made it delegate to the ONE " +
+    "shared implementation, which src/lib/__tests__/weighted-grade.test.ts and " +
+    "weighted-grade-parity_test.ts assert against a shared fixture. The comment " +
+    "survives as an explanation of why the delegation exists; there is no " +
+    "second copy left in this file to drift.",
+  "services/edge-functions/src/lib/shopify-graphql.ts":
+    "Mirrors the four subscribed webhook topics against the inbound receiver's " +
+    "switch — both WITHIN the edge project, so a normal import/unit test can " +
+    "cover it (same reasoning as publish-preflight above).",
+
+  "src/lib/title-quality.ts":
+    "A REAL cross-project mirror (edge title-lint.ts) that is NOT yet pinned: " +
+    "src/lib/__tests__/title-quality.test.ts does not reference the edge copy, " +
+    "so nothing asserts both. Exempt rather than pinned because saying it is " +
+    "pinned would be false. A drift shows the composer a warning that does not " +
+    "match what publish blocks on — misleading, not incorrect, since the edge " +
+    "preflight remains authoritative at publish time. Worth pinning with a " +
+    "shared fixture; tracked on US-2306.",
+  "src/lib/buyer-features.ts":
+    "Its comment claims lockstep with the /buyer/* route table, and " +
+    "src/lib/buyer-features.test.ts does NOT assert that — it pins the registry " +
+    "against BuyerGateFlags, a different relationship. So the claimed mirror is " +
+    "unguarded. A drift sells a feature whose route still renders a placeholder; " +
+    "the pricing render test catches the visible half. Worth pinning; tracked on " +
+    "US-2306.",
+  "services/edge-functions/src/lib/ai-grading.ts":
+    "The story's own subject. Its private FACTOR_WEIGHTS duplicates the EXPORTED " +
+    "table in the same project (lib/human-review.ts) — same directory, no " +
+    "cross-project barrier, so the right fix is to import it and delete the " +
+    "copy, not to pin two copies against a fixture. Exempt is the honest state " +
+    "until that lands: the values are identical today (verified) and the maths " +
+    "was brute-forced across all 2,476,099 factor combinations with zero " +
+    "divergence. US-2306 AC1 carries the de-duplication.",
 };
 
 // US-2129: shared + memoized scan. This guard reads the whole tree (2,235
