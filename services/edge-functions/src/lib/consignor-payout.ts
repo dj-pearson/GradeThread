@@ -37,6 +37,7 @@ import {
   planReversal,
 } from "./consignor-reversal-math.ts";
 import { emitOpsEvent } from "./ops-events.ts";
+import { captureException } from "./observability.ts";
 
 export const AUTO_PAYOUT_MODE_KEY = "consignor_auto_payout_mode";
 
@@ -48,7 +49,9 @@ const SWEEP_LOOKBACK_DAYS = 45;
 const SWEEP_LIMIT = 500;
 
 export async function getAutoPayoutMode(): Promise<AutoPayoutMode> {
-  return parseAutoPayoutMode(await getSetting<string>(AUTO_PAYOUT_MODE_KEY, "batched"));
+  return parseAutoPayoutMode(
+    await getSetting<string>(AUTO_PAYOUT_MODE_KEY, "batched"),
+  );
 }
 
 function getStripe(): Stripe | null {
@@ -115,7 +118,11 @@ export async function processSaleConsignorPayout(
   saleId: string,
   opts: { expectedOwnerId?: string; stripe?: Stripe | null } = {},
 ): Promise<ProcessResult> {
-  const skip = (reason: string): ProcessResult => ({ outcome: "skipped", saleId, reason });
+  const skip = (reason: string): ProcessResult => ({
+    outcome: "skipped",
+    saleId,
+    reason,
+  });
 
   const { data: saleRaw } = await supabaseAdmin
     .from("sales")
@@ -127,7 +134,6 @@ export async function processSaleConsignorPayout(
 
   // Only genuine completed sales pay out; cancelled/refunded/pending never do.
   if (sale.status !== "completed") return skip("sale_not_completed");
-
 
   const item = sale.inventory_items;
   if (!item.consignor_id) return skip("not_consigned");
@@ -165,10 +171,16 @@ export async function processSaleConsignorPayout(
         : `Consignor payout refused — sale is in ${shown}, not USD`,
       source: "consignor-payout.currency",
       actorUserId: ownerId,
-      data: { sale_id: saleId, currency: sale.currency, reason: verdict.reason },
-    }).catch(() => { /* never let the ops feed break the guard */ });
+      data: {
+        sale_id: saleId,
+        currency: sale.currency,
+        reason: verdict.reason,
+      },
+    }).catch(() => {/* never let the ops feed break the guard */});
     return skip(
-      verdict.reason === "unrecorded" ? "currency_unrecorded" : "currency_not_supported",
+      verdict.reason === "unrecorded"
+        ? "currency_unrecorded"
+        : "currency_not_supported",
     );
   }
 
@@ -197,12 +209,14 @@ export async function processSaleConsignorPayout(
     .eq("sale_id", saleId)
     .eq("user_id", ownerId)
     .eq("reconciled", true);
-  const reconciledRows = (reconciledRaw ?? []) as Array<{ amount: number | null }>;
+  const reconciledRows = (reconciledRaw ?? []) as Array<
+    { amount: number | null }
+  >;
   const reconciledNet = reconciledRows.length
     ? reconciledRows.reduce(
-        (acc, r) => acc + (typeof r.amount === "number" ? r.amount : 0),
-        0,
-      )
+      (acc, r) => acc + (typeof r.amount === "number" ? r.amount : 0),
+      0,
+    )
     : null;
 
   const splitPct = item.consignment_split_pct ?? consignor.default_split_pct;
@@ -229,8 +243,9 @@ export async function processSaleConsignorPayout(
   const allPayouts = (payoutRows ?? []) as Array<
     { id: string; status: string; source: string | null }
   >;
-  const existing =
-    (allPayouts.find((r) => r.source === "auto") as ExistingAutoPayout | undefined) ?? null;
+  const existing = (allPayouts.find((r) => r.source === "auto") as
+    | ExistingAutoPayout
+    | undefined) ?? null;
   const manualPayouts = allPayouts.filter((r) => r.source !== "auto");
 
   const stripe = opts.stripe !== undefined ? opts.stripe : getStripe();
@@ -238,7 +253,12 @@ export async function processSaleConsignorPayout(
     consignor.stripe_connect_account_id && consignor.payouts_enabled && stripe,
   );
 
-  const plan = planAutoPayout({ existing, manual: manualPayouts, share, onboarded });
+  const plan = planAutoPayout({
+    existing,
+    manual: manualPayouts,
+    share,
+    onboarded,
+  });
 
   // US-2022 AC3: the return-window hold. No transfer means nothing to claw
   // back, so holding until the return window closes removes most of this
@@ -266,7 +286,12 @@ export async function processSaleConsignorPayout(
         .eq("id", plan.payoutId)
         .eq("user_id", ownerId)
         .in("status", ["pending", "failed"]);
-      return { outcome: "queued", saleId, payoutId: plan.payoutId, amount: share };
+      return {
+        outcome: "queued",
+        saleId,
+        payoutId: plan.payoutId,
+        amount: share,
+      };
     }
     const { data: heldRow } = await supabaseAdmin
       .from("consignor_payouts")
@@ -304,7 +329,12 @@ export async function processSaleConsignorPayout(
         .eq("id", plan.payoutId)
         .eq("user_id", ownerId)
         .in("status", ["pending", "failed"]);
-      return { outcome: "queued", saleId, payoutId: plan.payoutId, amount: share };
+      return {
+        outcome: "queued",
+        saleId,
+        payoutId: plan.payoutId,
+        amount: share,
+      };
 
     case "transfer":
       return await fireTransfer({
@@ -318,8 +348,9 @@ export async function processSaleConsignorPayout(
       });
 
     case "create": {
-      const queuedNote =
-        plan.settle === "queue" ? "auto: awaiting consignor Stripe onboarding" : null;
+      const queuedNote = plan.settle === "queue"
+        ? "auto: awaiting consignor Stripe onboarding"
+        : null;
       const { data: inserted, error: insErr } = await supabaseAdmin
         .from("consignor_payouts")
         .insert({
@@ -358,13 +389,22 @@ export async function processSaleConsignorPayout(
               saleId,
             });
           }
-          return { outcome: "queued", saleId, payoutId: race?.id, amount: share };
+          return {
+            outcome: "queued",
+            saleId,
+            payoutId: race?.id,
+            amount: share,
+          };
         }
         console.error(
           `[consignor-payout] insert failed for sale ${saleId}:`,
           insErr?.message,
         );
-        return { outcome: "failed", saleId, reason: insErr?.message ?? "insert_failed" };
+        return {
+          outcome: "failed",
+          saleId,
+          reason: insErr?.message ?? "insert_failed",
+        };
       }
 
       const payoutId = (inserted as { id: string }).id;
@@ -396,7 +436,8 @@ async function fireTransfer(args: {
   stripe: Stripe;
   saleId: string;
 }): Promise<ProcessResult> {
-  const { payoutId, ownerId, consignorId, amount, accountId, stripe, saleId } = args;
+  const { payoutId, ownerId, consignorId, amount, accountId, stripe, saleId } =
+    args;
 
   // US-1916: Stripe idempotency keys only dedupe for ~24h, so a transfer that
   // settled on Stripe but whose DB write-back failed (crash/network blip) would
@@ -415,7 +456,12 @@ async function fireTransfer(args: {
     .maybeSingle();
   const createdAt = (rowRaw as { created_at?: string } | null)?.created_at;
   const createdAtMs = createdAt ? Date.parse(createdAt) : NaN;
-  const lookup = await findExistingTransfer(stripe, accountId, payoutId, createdAtMs);
+  const lookup = await findExistingTransfer(
+    stripe,
+    accountId,
+    payoutId,
+    createdAtMs,
+  );
   if (lookup.error) {
     return {
       outcome: "skipped",
@@ -580,11 +626,25 @@ export async function sweepConsignorPayouts(): Promise<SweepSummary> {
 
   for (const saleId of saleIds) {
     summary.scanned += 1;
-    const res = await processSaleConsignorPayout(saleId, { stripe });
-    if (res.outcome === "transferred") summary.transferred += 1;
-    else if (res.outcome === "queued") summary.queued += 1;
-    else if (res.outcome === "failed") summary.failed += 1;
-    else summary.skipped += 1;
+    // US-2315: per-sale isolation. processSaleConsignorPayout reaches Stripe,
+    // so a network blip or a malformed row on ONE sale used to abort the whole
+    // sweep and leave every sale after it unprocessed for that run. The set is
+    // built from two unordered queries, so the same sale tends to come first
+    // again — one bad row could hold up every consignor behind it.
+    try {
+      const res = await processSaleConsignorPayout(saleId, { stripe });
+      if (res.outcome === "transferred") summary.transferred += 1;
+      else if (res.outcome === "queued") summary.queued += 1;
+      else if (res.outcome === "failed") summary.failed += 1;
+      else summary.skipped += 1;
+    } catch (err) {
+      summary.failed += 1;
+      captureException(err, {
+        level: "warn",
+        route: "consignor-payout.sweep",
+        extra: { saleId },
+      });
+    }
   }
 
   return summary;
@@ -689,22 +749,35 @@ export async function reverseConsignorPayoutsForSales(
         .update({ status: "canceled", note })
         .eq("id", plan.payoutId)
         .eq("user_id", ownerId);
-      if (cancelErr) summary.errors.push(`cancel ${plan.payoutId}: ${cancelErr.message}`);
-      else summary.canceled += 1;
+      if (cancelErr) {
+        summary.errors.push(`cancel ${plan.payoutId}: ${cancelErr.message}`);
+      } else summary.canceled += 1;
       continue;
     }
 
     if (plan.action === "flag") {
-      await flagClawback(plan.payoutId, ownerId, row.consignor_id, Number(row.amount), note,
-        "paid with no stripe_transfer_id — cannot reverse automatically");
+      await flagClawback(
+        plan.payoutId,
+        ownerId,
+        row.consignor_id,
+        Number(row.amount),
+        note,
+        "paid with no stripe_transfer_id — cannot reverse automatically",
+      );
       summary.flagged += 1;
       continue;
     }
 
     // plan.action === "reverse"
     if (!stripe) {
-      await flagClawback(plan.payoutId, ownerId, row.consignor_id, plan.amount, note,
-        "Stripe is not configured on this deploy — reversal could not be attempted");
+      await flagClawback(
+        plan.payoutId,
+        ownerId,
+        row.consignor_id,
+        plan.amount,
+        note,
+        "Stripe is not configured on this deploy — reversal could not be attempted",
+      );
       summary.flagged += 1;
       continue;
     }
@@ -733,17 +806,27 @@ export async function reverseConsignorPayoutsForSales(
         // The money IS back but the ledger did not record it. That is worse
         // than a failed reversal, because a later sweep would try again — so
         // it is surfaced rather than swallowed.
-        summary.errors.push(`reversal recorded at Stripe but DB update failed for ${plan.payoutId}: ${updErr.message}`);
+        summary.errors.push(
+          `reversal recorded at Stripe but DB update failed for ${plan.payoutId}: ${updErr.message}`,
+        );
       } else {
         summary.reversed += 1;
-        summary.reversedAmount = Math.round((summary.reversedAmount + plan.amount) * 100) / 100;
+        summary.reversedAmount =
+          Math.round((summary.reversedAmount + plan.amount) * 100) / 100;
       }
     } catch (err) {
       // The common real failure: the connected account already paid the funds
       // out to its bank, so there is no balance to reverse. The money is gone
       // and only a human can recover it — say so instead of leaving 'paid'.
       const message = err instanceof Error ? err.message : String(err);
-      await flagClawback(plan.payoutId, ownerId, row.consignor_id, plan.amount, note, message);
+      await flagClawback(
+        plan.payoutId,
+        ownerId,
+        row.consignor_id,
+        plan.amount,
+        note,
+        message,
+      );
       summary.flagged += 1;
     }
   }
@@ -768,7 +851,7 @@ export async function reverseConsignorPayoutsForSales(
           reason: opts.reason ?? null,
         },
       },
-    ).catch(() => { /* the ops feed must never break the reversal */ });
+    ).catch(() => {/* the ops feed must never break the reversal */});
   }
 
   return summary;

@@ -24,6 +24,7 @@
 import Stripe from "stripe";
 import { supabaseAdmin } from "./supabase.ts";
 import { getSetting } from "./system-settings.ts";
+import { captureException } from "./observability.ts";
 import {
   AFFILIATE_PAYOUT_CONFIG_KEY,
   type AffiliatePayoutConfig,
@@ -44,12 +45,17 @@ const SWEEP_LIMIT = 500;
 function sumCents(rows: ReadonlyArray<{ amount: number | null }>): number {
   return rows.reduce(
     (acc, r) =>
-      acc + (typeof r.amount === "number" && Number.isFinite(r.amount) ? Math.round(r.amount) : 0),
+      acc +
+      (typeof r.amount === "number" && Number.isFinite(r.amount)
+        ? Math.round(r.amount)
+        : 0),
     0,
   );
 }
 
-export async function getAffiliatePayoutConfig(): Promise<AffiliatePayoutConfig> {
+export async function getAffiliatePayoutConfig(): Promise<
+  AffiliatePayoutConfig
+> {
   const raw = await getSetting<unknown>(
     AFFILIATE_PAYOUT_CONFIG_KEY,
     DEFAULT_AFFILIATE_PAYOUT_CONFIG,
@@ -82,7 +88,9 @@ export interface AccrueResult {
 // Accrue the affiliate commission for one converted referral. Idempotent + safe
 // to call best-effort from the qualification hook (referrals.ts) and from the
 // sweep backfill. Only affiliate-attributed conversions accrue.
-export async function accrueAffiliateCommission(eventId: string): Promise<AccrueResult> {
+export async function accrueAffiliateCommission(
+  eventId: string,
+): Promise<AccrueResult> {
   const config = await getAffiliatePayoutConfig();
 
   const { data: evRaw } = await supabaseAdmin
@@ -91,7 +99,11 @@ export async function accrueAffiliateCommission(eventId: string): Promise<Accrue
     .eq("id", eventId)
     .maybeSingle();
   const ev = evRaw as
-    | { id: string; referrer_user_id: string; attribution_source: string | null }
+    | {
+      id: string;
+      referrer_user_id: string;
+      attribution_source: string | null;
+    }
     | null;
   if (!ev) return { accrued: false, reason: "not_found" };
 
@@ -119,7 +131,10 @@ export async function accrueAffiliateCommission(eventId: string): Promise<Accrue
     if ((error as { code?: string }).code === "23505") {
       return { accrued: false, reason: "already_accrued" };
     }
-    console.error(`[affiliate-payout] accrual insert failed for event ${eventId}:`, error.message);
+    console.error(
+      `[affiliate-payout] accrual insert failed for event ${eventId}:`,
+      error.message,
+    );
     return { accrued: false, reason: error.message };
   }
   return { accrued: true, amount: plan.amount };
@@ -146,7 +161,9 @@ interface AffiliateAccount {
   payouts_enabled: boolean | null;
 }
 
-async function loadAccount(affiliateUserId: string): Promise<AffiliateAccount | null> {
+async function loadAccount(
+  affiliateUserId: string,
+): Promise<AffiliateAccount | null> {
   const { data } = await supabaseAdmin
     .from("affiliate_accounts")
     .select("stripe_connect_account_id, payouts_enabled")
@@ -182,7 +199,11 @@ export async function processAffiliatePayout(
     account?.stripe_connect_account_id && account?.payouts_enabled && stripe,
   );
 
-  const plan = planPayout({ eligibleBalanceCents: balance, minimum: config.minimum_payout, onboarded });
+  const plan = planPayout({
+    eligibleBalanceCents: balance,
+    minimum: config.minimum_payout,
+    onboarded,
+  });
   if (plan.action === "skip") {
     return {
       outcome: plan.reason === "not_onboarded" ? "queued" : "skipped",
@@ -195,12 +216,24 @@ export async function processAffiliatePayout(
   // commissions into it. The claim is what actually moves money off 'accrued'.
   const { data: inserted, error: insErr } = await supabaseAdmin
     .from("affiliate_payouts")
-    .insert({ affiliate_user_id: affiliateUserId, amount: balance, status: "pending", source: "auto" })
+    .insert({
+      affiliate_user_id: affiliateUserId,
+      amount: balance,
+      status: "pending",
+      source: "auto",
+    })
     .select("id")
     .single();
   if (insErr || !inserted) {
-    console.error(`[affiliate-payout] payout insert failed for ${affiliateUserId}:`, insErr?.message);
-    return { outcome: "failed", affiliateUserId, reason: insErr?.message ?? "insert_failed" };
+    console.error(
+      `[affiliate-payout] payout insert failed for ${affiliateUserId}:`,
+      insErr?.message,
+    );
+    return {
+      outcome: "failed",
+      affiliateUserId,
+      reason: insErr?.message ?? "insert_failed",
+    };
   }
   const payoutId = (inserted as { id: string }).id;
 
@@ -215,11 +248,18 @@ export async function processAffiliatePayout(
   const claimed = (claimedRaw ?? []) as Array<{ amount: number | null }>;
   if (claimed.length === 0) {
     // A concurrent run claimed everything first — discard the empty payout.
-    await supabaseAdmin.from("affiliate_payouts").update({ status: "canceled" }).eq("id", payoutId);
-    return { outcome: "skipped", affiliateUserId, payoutId, reason: "no_balance" };
+    await supabaseAdmin.from("affiliate_payouts").update({ status: "canceled" })
+      .eq("id", payoutId);
+    return {
+      outcome: "skipped",
+      affiliateUserId,
+      payoutId,
+      reason: "no_balance",
+    };
   }
   const claimedSum = sumCents(claimed); // integer cents (US-1655)
-  await supabaseAdmin.from("affiliate_payouts").update({ amount: claimedSum }).eq("id", payoutId);
+  await supabaseAdmin.from("affiliate_payouts").update({ amount: claimedSum })
+    .eq("id", payoutId);
 
   return await fireTransfer({
     payoutId,
@@ -245,12 +285,28 @@ async function retryAffiliatePayout(
     .eq("id", payoutId)
     .maybeSingle();
   const payout = payoutRaw as
-    | { id: string; affiliate_user_id: string; status: string; created_at: string | null }
+    | {
+      id: string;
+      affiliate_user_id: string;
+      status: string;
+      created_at: string | null;
+    }
     | null;
-  if (!payout) return { outcome: "skipped", affiliateUserId: "", reason: "payout_not_found" };
+  if (!payout) {
+    return {
+      outcome: "skipped",
+      affiliateUserId: "",
+      reason: "payout_not_found",
+    };
+  }
   const affiliateUserId = payout.affiliate_user_id;
   if (!["pending", "failed"].includes(payout.status)) {
-    return { outcome: "skipped", affiliateUserId, payoutId, reason: "already_settled" };
+    return {
+      outcome: "skipped",
+      affiliateUserId,
+      payoutId,
+      reason: "already_settled",
+    };
   }
 
   // Amount of record = the commissions still attached to this payout.
@@ -262,15 +318,28 @@ async function retryAffiliatePayout(
   const amount = sumCents(linked); // integer cents (US-1655)
   if (amount <= 0) {
     // Orphan/empty payout — cancel it; the accrued balance gets re-batched.
-    await supabaseAdmin.from("affiliate_payouts").update({ status: "canceled" }).eq("id", payoutId);
-    return { outcome: "skipped", affiliateUserId, payoutId, reason: "empty_payout" };
+    await supabaseAdmin.from("affiliate_payouts").update({ status: "canceled" })
+      .eq("id", payoutId);
+    return {
+      outcome: "skipped",
+      affiliateUserId,
+      payoutId,
+      reason: "empty_payout",
+    };
   }
 
   const account = await loadAccount(affiliateUserId);
   const onboarded = Boolean(
     account?.stripe_connect_account_id && account?.payouts_enabled && stripe,
   );
-  if (!onboarded) return { outcome: "queued", affiliateUserId, payoutId, reason: "not_onboarded" };
+  if (!onboarded) {
+    return {
+      outcome: "queued",
+      affiliateUserId,
+      payoutId,
+      reason: "not_onboarded",
+    };
+  }
 
   const accountId = account!.stripe_connect_account_id!;
 
@@ -282,9 +351,19 @@ async function retryAffiliatePayout(
   // so, reconcile the row as paid instead of transferring again. A lookup error
   // is treated as "unsafe to retry now" (skip) rather than blindly re-firing.
   const createdAtMs = payout.created_at ? Date.parse(payout.created_at) : NaN;
-  const lookup = await findExistingTransfer(stripe!, accountId, payoutId, createdAtMs);
+  const lookup = await findExistingTransfer(
+    stripe!,
+    accountId,
+    payoutId,
+    createdAtMs,
+  );
   if (lookup.error) {
-    return { outcome: "skipped", affiliateUserId, payoutId, reason: `transfer_lookup_failed: ${lookup.error}` };
+    return {
+      outcome: "skipped",
+      affiliateUserId,
+      payoutId,
+      reason: `transfer_lookup_failed: ${lookup.error}`,
+    };
   }
   if (lookup.transfer) {
     await supabaseAdmin
@@ -298,7 +377,13 @@ async function retryAffiliatePayout(
       })
       .eq("id", payoutId)
       .eq("affiliate_user_id", affiliateUserId);
-    return { outcome: "transferred", affiliateUserId, payoutId, amount, reason: "reconciled_existing" };
+    return {
+      outcome: "transferred",
+      affiliateUserId,
+      payoutId,
+      amount,
+      reason: "reconciled_existing",
+    };
   }
 
   return await fireTransfer({
@@ -352,7 +437,10 @@ async function findExistingTransfer(
     }
     return { transfer: null };
   } catch (err) {
-    return { transfer: null, error: err instanceof Error ? err.message : "list_failed" };
+    return {
+      transfer: null,
+      error: err instanceof Error ? err.message : "list_failed",
+    };
   }
 }
 
@@ -374,7 +462,11 @@ async function fireTransfer(args: {
         amount: Math.round(amount),
         currency: "usd",
         destination: accountId,
-        metadata: { affiliate_user_id: affiliateUserId, payout_id: payoutId, source: "auto" },
+        metadata: {
+          affiliate_user_id: affiliateUserId,
+          payout_id: payoutId,
+          source: "auto",
+        },
       },
       { idempotencyKey: `affiliate_payout_${payoutId}` },
     );
@@ -466,7 +558,11 @@ export async function sweepAffiliatePayouts(): Promise<SweepSummary> {
     .select("id, created_at")
     .in("status", ["pending", "failed"])
     .limit(SWEEP_LIMIT);
-  for (const p of (openRaw ?? []) as Array<{ id: string; created_at: string | null }>) {
+  for (
+    const p of (openRaw ?? []) as Array<
+      { id: string; created_at: string | null }
+    >
+  ) {
     const createdAtMs = p.created_at ? Date.parse(p.created_at) : NaN;
     if (!isPayoutRetryable(createdAtMs, nowMs)) {
       summary.stale += 1;
@@ -476,7 +572,23 @@ export async function sweepAffiliatePayouts(): Promise<SweepSummary> {
       );
       continue;
     }
-    tally(await retryAffiliatePayout(p.id, stripe));
+    // US-2315: per-payout isolation. retryAffiliatePayout reaches Stripe, so
+    // one network blip used to abort the sweep and leave every payout after it
+    // unprocessed. Unlike the other two sites in this story, the SELECTION here
+    // already has a terminal escape — isPayoutRetryable above drops a payout
+    // once it ages past the retry cap — so a throwing row cannot starve the
+    // queue forever. What it could do is waste every run until then.
+    try {
+      tally(await retryAffiliatePayout(p.id, stripe));
+    } catch (err) {
+      summary.scanned += 1;
+      summary.failed += 1;
+      captureException(err, {
+        level: "warn",
+        route: "affiliate-payout.retry",
+        extra: { payoutId: p.id },
+      });
+    }
   }
 
   // (c) New payouts: affiliates with eligible (accrued, past-hold) commissions.
@@ -493,7 +605,22 @@ export async function sweepAffiliatePayouts(): Promise<SweepSummary> {
     affiliateIds.add(r.affiliate_user_id);
   }
   for (const id of affiliateIds) {
-    tally(await processAffiliatePayout(id, { stripe }));
+    // US-2315: same isolation for the create phase. This one has NO age cap —
+    // an affiliate with eligible commissions stays eligible — so a permanently
+    // throwing affiliate would have blocked every affiliate after it on every
+    // run, indefinitely. Iteration order is Set insertion order over an
+    // unordered query, so "after it" is stable enough to matter.
+    try {
+      tally(await processAffiliatePayout(id, { stripe }));
+    } catch (err) {
+      summary.scanned += 1;
+      summary.failed += 1;
+      captureException(err, {
+        level: "warn",
+        route: "affiliate-payout.create",
+        extra: { affiliateUserId: id },
+      });
+    }
   }
 
   return summary;
