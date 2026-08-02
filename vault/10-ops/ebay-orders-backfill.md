@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/sync-watermark.ts
   - services/edge-functions/src/routes/jobs-ebay-order-backstop.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-02
 tags: [ebay, flipdesk, sync, recovery]
 summary: How to recover eBay orders that a pre-US-2320 sync skipped past, and how to tell whether a seller lost any.
 ---
