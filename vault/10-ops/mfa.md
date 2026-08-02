@@ -106,6 +106,29 @@ Only **write** routes call `requireStepUp`. That is why a broken step-up shows u
 as admin POSTs returning 403 while every admin GET still returns 200 — see
 [[mfa-ipv6-ip-mismatch]] for reading that asymmetry.
 
+## Never handle STEP_UP_REQUIRED at a call site
+
+A destructive admin endpoint answers `403 { code: "STEP_UP_REQUIRED" }`. That
+used to be handled per call site, and roughly **30 admin surfaces never added the
+handler** — so those actions simply failed on repeat with no way to re-verify.
+The report reads as *"admin keeps asking for 2FA and won't let me re-auth"*.
+
+It is now central: `edgeFetch` detects the code, calls `requestStepUp()` (a small
+broker that dedupes concurrent prompts), and retries once with the re-verified
+token. A single `MfaStepUpDialog` is mounted by `<StepUpHost />` inside
+`AdminMfaGate`. Outside admin no host is registered, so the 403 passes through
+untouched.
+
+> **Use `edgeFetch` and add no branch.** A surface calling bare `fetch()` bypasses
+> the whole mechanism and reproduces the original bug. Known bare-`fetch` admin
+> surfaces as of 2026-07-22: `disputes.tsx`, `grading-calibration-panel`,
+> `grading-eval-candidates-panel`, `grading-monitor-panel`,
+> `listing-prompt-performance-panel`.
+
+The window is `ADMIN_STEP_UP_MAX_AGE_SEC` (default raised from 8h to **24h**),
+measured off the session's `amr` timestamp — so signing out always ends it,
+regardless of the number.
+
 ## Related
 
 - [[mfa-ipv6-ip-mismatch]] — the failure this runbook hits under IPv6
