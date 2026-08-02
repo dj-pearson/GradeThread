@@ -26,6 +26,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentRow, AgentToolRegistry } from "./agent-kernel.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import { fetchAllPages } from "./paged-read.ts";
 import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "./ops-jobs.ts";
 import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
 import { correlateIncidents, type Signal } from "./sentinel.ts";
@@ -405,11 +406,33 @@ export function prodToolIO(): ToolIO {
         .eq("status", status);
       return count ?? 0;
     },
+    // US-2387: paged, not capped. get_marketplace_health reports AGGREGATE
+    // COUNTS to an operator (active / inactive / error / expiring-soon, and a
+    // per-marketplace breakdown), so a `.limit(N)` here would not bound the
+    // work — it would make every one of those numbers quietly wrong, and wrong
+    // in the direction that looks healthy. "3 connections erroring" computed
+    // over an arbitrary first slice reads exactly like "3 connections erroring"
+    // computed over the fleet.
+    //
+    // fetchAllPages is exact and still bounded per request, which is the whole
+    // reason it exists: it advances by rows RECEIVED and stops only on an EMPTY
+    // response, so it is correct whatever `db-max-rows` turns out to be.
+    // Ordered by id because an unordered page walk can repeat and skip rows
+    // across requests — PostgREST gives no stable order without one, and for a
+    // counting read that is silent double-counting.
     fetchMarketplaceConnections: async () => {
-      const { data } = await supabaseAdmin
-        .from("marketplace_connections")
-        .select("marketplace, is_active, token_expires_at, refresh_error");
-      return (data ?? []) as ConnRow[];
+      return await fetchAllPages<ConnRow>(async (from, to) => {
+        const { data, error } = await supabaseAdmin
+          .from("marketplace_connections")
+          .select("marketplace, is_active, token_expires_at, refresh_error")
+          .order("id", { ascending: true })
+          .range(from, to);
+        // THROW rather than return [] — a swallowed error is indistinguishable
+        // from the end of the data, and here that means reporting a healthy
+        // fleet because the read failed.
+        if (error) throw new Error(error.message);
+        return (data ?? []) as ConnRow[];
+      });
     },
     rpc: async (name, args) => {
       const { data } = await supabaseAdmin.rpc(name, (args ?? {}) as never);
