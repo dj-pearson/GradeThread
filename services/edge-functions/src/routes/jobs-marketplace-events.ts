@@ -14,12 +14,21 @@ import { sweepMarketplaceEvents } from "../lib/marketplace-event-poll.ts";
 
 // Distinct owner ids with an active eBay connection. The connection lives on the
 // workspace owner, so these are exactly the tenants to poll.
+// US-2317: ceiling on the active-connection scan. A bound against growth,
+// not a budget — the poll itself is already per-connection rate-limited.
+const ACTIVE_CONNECTION_SCAN_CAP = 10_000;
+
 async function loadActiveEbayOwnerIds(): Promise<string[]> {
   const { data, error } = await supabaseAdmin
     .from("marketplace_connections")
     .select("user_id")
     .eq("marketplace", "ebay")
-    .eq("is_active", true);
+    .eq("is_active", true)
+    // US-2317: bounded. One row per active eBay connection, so this grows with
+    // the seller base. Ordered so the cap keeps a STABLE set run to run — an
+    // unordered cap would poll a different arbitrary subset each tick.
+    .order("user_id", { ascending: true })
+    .limit(ACTIVE_CONNECTION_SCAN_CAP);
   if (error) {
     throw new Error(`load active eBay owners failed: ${error.message}`);
   }
@@ -30,7 +39,9 @@ async function loadActiveEbayOwnerIds(): Promise<string[]> {
   return [...ids];
 }
 
-export async function handleMarketplaceEventsCron(c: Context): Promise<Response> {
+export async function handleMarketplaceEventsCron(
+  c: Context,
+): Promise<Response> {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }

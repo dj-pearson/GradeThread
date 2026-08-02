@@ -55,6 +55,17 @@ export interface AlertsConfig {
   maxCandidatePool: number;
 }
 
+/**
+ * US-2317: ceiling on the saved-search read.
+ *
+ * Deliberately far above maxSearchesPerRun (50 by default) — this is a bound
+ * against unbounded growth, not a second budget. Because the read is ordered
+ * stalest-first, anything beyond this cap is by definition more recently
+ * checked than everything inside it, so the cap can only ever drop searches
+ * that were not due this run anyway.
+ */
+export const SAVED_SEARCH_SCAN_CAP = 20_000;
+
 export const DEFAULT_ALERTS_CONFIG: AlertsConfig = {
   enabled: true,
   maxSearchesPerRun: 50,
@@ -318,12 +329,27 @@ export async function runConditionAlerts(
     };
   }
 
+  // US-2317: bounded, and ordered STALEST-FIRST at the database rather than
+  // only in memory.
+  //
+  // This read had no limit: every active saved search across every buyer was
+  // materialized, then selectDueSearches sorted it and kept maxSearchesPerRun.
+  // So the per-run budget bounded the WORK but not the READ, and the read is
+  // what grows with the buyer base.
+  //
+  // The ordering is the part that makes the cap safe. Sorting by
+  // last_matched_at ascending (nulls first — never-matched is most stale) means
+  // the rows the cap keeps are exactly the rows selectDueSearches would have
+  // chosen anyway. A bare .limit() with no order would have silently changed
+  // WHICH buyers get evaluated, and changed it differently on every run.
   const { data: searchData, error: sErr } = await supabaseAdmin
     .from("saved_searches")
     .select(
       "id, user_id, label, brands, categories, keywords, min_grade, max_price_cents, last_matched_at",
     )
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .order("last_matched_at", { ascending: true, nullsFirst: true })
+    .limit(SAVED_SEARCH_SCAN_CAP);
   if (sErr) {
     throw new Error(`condition-alerts search load failed: ${sErr.message}`);
   }

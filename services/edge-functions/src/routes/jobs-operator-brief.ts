@@ -25,6 +25,11 @@ import {
 const LATEST_BRIEF_SETTING_KEY = "agents.latest_brief";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// US-2317: ceiling on the brief's gathering reads. agent_runs is time-windowed
+// but a busy fleet can still produce a lot in 24h; agent_proposals is NOT
+// windowed at all — pending proposals accumulate until someone acts on them.
+const BRIEF_ROW_CAP = 5_000;
+
 export async function handleOperatorBriefCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
@@ -36,14 +41,22 @@ export async function handleOperatorBriefCron(c: Context): Promise<Response> {
   try {
     const nowMs = Date.now();
     const sinceIso = new Date(nowMs - DAY_MS).toISOString();
-    const appUrl = Deno.env.get("APP_URL") ?? Deno.env.get("SITE_URL") ?? "https://gradethread.com";
+    const appUrl = Deno.env.get("APP_URL") ?? Deno.env.get("SITE_URL") ??
+      "https://gradethread.com";
     const missionControlUrl = `${appUrl}/admin/agents`;
 
     // Gather the day's rows.
     const [agentsRes, runsRes, propsRes, eventsRes] = await Promise.all([
       supabaseAdmin.from("agents").select("id, key, name"),
-      supabaseAdmin.from("agent_runs").select("agent_id, status, cost_usd").gte("started_at", sinceIso),
-      supabaseAdmin.from("agent_proposals").select("id, agent_id, title, expires_at").eq("status", "pending"),
+      supabaseAdmin.from("agent_runs").select("agent_id, status, cost_usd").gte(
+        "started_at",
+        sinceIso,
+      )
+        .order("started_at", { ascending: false }).limit(BRIEF_ROW_CAP),
+      supabaseAdmin.from("agent_proposals").select(
+        "id, agent_id, title, expires_at",
+      ).eq("status", "pending")
+        .order("expires_at", { ascending: true }).limit(BRIEF_ROW_CAP),
       supabaseAdmin
         .from("ops_events")
         .select("type, title")
@@ -52,24 +65,31 @@ export async function handleOperatorBriefCron(c: Context): Promise<Response> {
         .gte("created_at", sinceIso),
     ]);
 
-    const agents = (agentsRes.data ?? []) as Array<{ id: string; key: string; name: string }>;
+    const agents = (agentsRes.data ?? []) as Array<
+      { id: string; key: string; name: string }
+    >;
     const keyById = new Map(agents.map((a) => [a.id, a.key]));
 
-    const runs24h: BriefRun[] = ((runsRes.data ?? []) as Array<Record<string, unknown>>).map((r) => ({
-      agent_key: keyById.get(String(r.agent_id)) ?? null,
-      status: String(r.status),
-      cost_usd: typeof r.cost_usd === "number" ? r.cost_usd : Number(r.cost_usd) || 0,
-    }));
-    const pendingProposals: BriefProposal[] = ((propsRes.data ?? []) as Array<Record<string, unknown>>).map((p) => ({
-      id: String(p.id),
-      agent_key: keyById.get(String(p.agent_id)) ?? null,
-      title: String(p.title),
-      expires_at: (p.expires_at as string | null) ?? null,
-    }));
-    const warningEvents24h: BriefEvent[] = ((eventsRes.data ?? []) as Array<Record<string, unknown>>).map((e) => ({
-      type: String(e.type),
-      title: (e.title as string | null) ?? null,
-    }));
+    const runs24h: BriefRun[] =
+      ((runsRes.data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        agent_key: keyById.get(String(r.agent_id)) ?? null,
+        status: String(r.status),
+        cost_usd: typeof r.cost_usd === "number"
+          ? r.cost_usd
+          : Number(r.cost_usd) || 0,
+      }));
+    const pendingProposals: BriefProposal[] =
+      ((propsRes.data ?? []) as Array<Record<string, unknown>>).map((p) => ({
+        id: String(p.id),
+        agent_key: keyById.get(String(p.agent_id)) ?? null,
+        title: String(p.title),
+        expires_at: (p.expires_at as string | null) ?? null,
+      }));
+    const warningEvents24h: BriefEvent[] =
+      ((eventsRes.data ?? []) as Array<Record<string, unknown>>).map((e) => ({
+        type: String(e.type),
+        title: (e.title as string | null) ?? null,
+      }));
 
     const model = assembleBrief({
       now: nowMs,
@@ -88,7 +108,10 @@ export async function handleOperatorBriefCron(c: Context): Promise<Response> {
     await supabaseAdmin
       .from("system_settings")
       .upsert(
-        { key: LATEST_BRIEF_SETTING_KEY, value: { model, generated_at: dateLabel, generated_at_ms: nowMs } },
+        {
+          key: LATEST_BRIEF_SETTING_KEY,
+          value: { model, generated_at: dateLabel, generated_at_ms: nowMs },
+        },
         { onConflict: "key" },
       );
 
@@ -99,9 +122,15 @@ export async function handleOperatorBriefCron(c: Context): Promise<Response> {
       .select("email, notification_preferences")
       .in("role", ["admin", "super_admin"]);
     let sent = 0;
-    for (const a of (adminRows ?? []) as Array<{ email: string | null; notification_preferences: unknown }>) {
+    for (
+      const a of (adminRows ?? []) as Array<
+        { email: string | null; notification_preferences: unknown }
+      >
+    ) {
       if (!a.email) continue;
-      const prefs = a.notification_preferences as { operator_brief?: boolean } | null;
+      const prefs = a.notification_preferences as
+        | { operator_brief?: boolean }
+        | null;
       if (prefs?.operator_brief === false) continue;
       const ok = await deliverEmail({
         to: a.email,
@@ -121,7 +150,10 @@ export async function handleOperatorBriefCron(c: Context): Promise<Response> {
       emails_sent: sent,
     });
   } catch (err) {
-    console.error("[operator-brief] failed:", err instanceof Error ? err.message : String(err));
+    console.error(
+      "[operator-brief] failed:",
+      err instanceof Error ? err.message : String(err),
+    );
     return c.json({ error: "Operator brief failed" }, 500);
   } finally {
     await lock.release();

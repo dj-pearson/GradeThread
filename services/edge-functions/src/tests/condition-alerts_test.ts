@@ -17,6 +17,7 @@ const {
   selectDueSearches,
   buildAlertBody,
   DEFAULT_ALERTS_CONFIG,
+  SAVED_SEARCH_SCAN_CAP,
 } = await import("../lib/condition-alerts.ts");
 
 type Search = Parameters<typeof matchesSearch>[1];
@@ -290,5 +291,49 @@ Deno.test("US-2315: runConditionAlerts stamps on the FAILURE path too", async ()
   assert(
     src.includes("failed?: number") || src.includes("failed: number"),
     "the run must report a failed count for the US-2312 cron recorder to read",
+  );
+});
+
+// ── US-2317: the saved-search read is bounded, and ordered ───────────
+//
+// The read had no limit — every active saved search across every buyer was
+// materialized, then selectDueSearches sorted it and kept maxSearchesPerRun. So
+// the per-run budget bounded the WORK but not the READ, and the read is what
+// grows with the buyer base.
+//
+// The ordering is what makes the cap safe rather than merely small: because the
+// query now sorts stalest-first at the database, the rows the cap keeps are the
+// rows selectDueSearches would have picked anyway. A bare .limit() with no
+// order would have silently changed WHICH buyers get evaluated, differently on
+// every run — the defect recorded against buyer-digest in US-2319.
+
+Deno.test("US-2317: the saved-search read is capped AND ordered stalest-first", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../lib/condition-alerts.ts", import.meta.url),
+  );
+  const at = src.indexOf('.from("saved_searches")\n    .select(');
+  assert(at > 0, "the saved_searches read was not found");
+  const window = src.slice(at, at + 700);
+  assert(
+    window.includes(".limit(SAVED_SEARCH_SCAN_CAP)"),
+    "the read must declare a named cap",
+  );
+  assert(
+    window.includes('.order("last_matched_at"'),
+    "the cap must be paired with an order, or WHICH buyers are evaluated becomes arbitrary",
+  );
+  assert(
+    window.includes("nullsFirst: true"),
+    "a never-matched search is the MOST stale — it must sort first, not last",
+  );
+});
+
+Deno.test("US-2317: the cap sits far above the per-run budget", () => {
+  // If the cap were near maxSearchesPerRun it would act as a second, hidden
+  // budget. It is a growth bound: everything it drops is, by the ordering,
+  // more recently checked than everything it keeps.
+  assert(
+    SAVED_SEARCH_SCAN_CAP > DEFAULT_ALERTS_CONFIG.maxSearchesPerRun * 100,
+    "the read cap must not double as a per-run budget",
   );
 });
