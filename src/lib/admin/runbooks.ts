@@ -60,7 +60,7 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
-    reviewed: "2026-07-31",
+    reviewed: "2026-08-01",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -98,6 +98,8 @@ export const RUNBOOKS: Runbook[] = [
       "- `GET /health/ready` reports `status: \"ready\"` and edge logs show the schema-version OK line.",
       "- A Stripe webhook trigger, a certificate page render, and the SEO endpoints all succeed.",
       "- For a release that touches the money/grade path, also run the Playwright critical-path e2e.",
+      "",
+      "**Before calling a shipped frontend fix broken, rule out the service worker.** The PWA precaches the app into Cache Storage, and a hard reload clears the HTTP cache but not that — so a correct deploy can keep serving the old behaviour. Check in a private window first; if the fix works there, unregister the service worker and clear site data rather than re-deploying.",
       "",
       "If readiness is `not_ready` or a feature shows missing, fix the env/migration and redeploy that layer — don't leave a half-green deploy in rotation.",
     ].join("\n"),
@@ -273,7 +275,7 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "incident-response",
     sourceNote: "vault/10-ops/incident-response.md",
-    reviewed: "2026-07-19",
+    reviewed: "2026-08-01",
     title: "Incident response",
     category: "Resilience",
     summary:
@@ -303,6 +305,7 @@ export const RUNBOOKS: Runbook[] = [
       "",
       "- Open the **Activity Feed** and acknowledge the firing event(s). Check **System Health** for readiness, DB latency, and storage.",
       "- Establish scope: one feature, one tenant, or the whole platform?",
+      "- **Check health, not status, and test the public hostname.** An edge container can sit `Up (unhealthy)` while the dashboard still reads \"running\": the process is alive, so nothing restarts it, and the load balancer has already dropped it. That shows up as a steady 503 from the API host while the marketing site stays fine — so \"only the product is broken\" is a symptom, not a coincidence. A restart recovers it in seconds. This is the opposite of a crash-loop, which restarts itself and leaves a boot error in the logs; a hang logs nothing at all.",
       "",
       "## 2. Contain",
       "",
