@@ -47,3 +47,50 @@ describe("strongerSource (precedence manual > ai > derived)", () => {
     );
   });
 });
+
+// US-2389 — the web half of the shared required-aspect guard.
+//
+// This rule exists TWICE and cannot be imported across: the edge copy
+// (requiredMissingAspects) is the publish BLOCKER that returns the 422 and
+// names what is missing; this copy is the pre-publish CHECKLIST the seller
+// reads in the composer. The vault note used to say they were "the same
+// helper, so the UI warning and the server blocker cannot disagree". They are
+// two copies. They can.
+//
+// The failure that makes it worth a fixture rather than a comment: if the
+// checklist says a listing is ready and the blocker refuses it, the seller has
+// no way to find out what is wrong -- the one surface that would tell them is
+// the surface asserting nothing is missing. Both suites now assert this table,
+// the same remedy US-2034 used for the weighted-overall mirrors.
+describe("required-aspect completeness (shared fixture, US-2389)", () => {
+  it("matches every case in the cross-project fixture", async () => {
+    const fixture = (await import(
+      "../../test/fixtures/required-aspects-cases.json"
+    )).default;
+    expect(fixture.cases.length).toBeGreaterThan(8);
+    for (const c of fixture.cases) {
+      expect(
+        requiredMissingAspectNames(
+          c.aspects as unknown as EbayAspect[],
+          c.values as Record<string, string[]>,
+        ),
+        `case: ${c.why}`,
+      ).toEqual(c.expected_missing);
+    }
+  });
+
+  it("covers the shapes that actually differ between the two copies", async () => {
+    // A fixture of ten happy cases would pass on both copies while proving
+    // nothing about the ways they could drift. Assert the awkward inputs are
+    // present by name, so a future trim cannot quietly remove the coverage and
+    // leave a green suite behind.
+    const fixture = (await import(
+      "../../test/fixtures/required-aspects-cases.json"
+    )).default;
+    const whys = fixture.cases.map((c) => c.why).join(" | ");
+    expect(whys).toMatch(/missing-constraint-object/);
+    expect(whys).toMatch(/EMPTY ARRAY/);
+    expect(whys).toMatch(/BLANK NAME/);
+    expect(whys).toMatch(/ORDER/);
+  });
+});

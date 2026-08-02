@@ -1,0 +1,89 @@
+{
+  "_comment": "US-2389 SHARED FIXTURE. 'Which REQUIRED eBay aspects are still unfilled' is computed by TWO implementations that cannot import each other: services/edge-functions/src/lib/aspect-provenance.ts (requiredMissingAspects) and src/lib/aspect-provenance.ts (requiredMissingAspectNames). The edge copy is the PUBLISH BLOCKER -- it decides the 422 that stops a publish or revise and names the missing aspects. The web copy is the pre-publish CHECKLIST the seller sees in the composer. vault/30-platform/ebay-required-aspect-completeness.md used to claim they were 'the same helper ... so the UI warning and the server blocker cannot disagree'. They are two copies, so they can. If the checklist says a listing is ready and the blocker refuses it, the seller has no way to find out what is wrong -- the UI is telling them nothing is missing. Both suites assert THIS table, which is the same remedy US-2034 used for the weighted-overall mirrors and US-1995 for title-sync. NOTE ON SHAPES: the edge type makes aspectConstraint optional and the web type makes it required, so the web runner casts. That difference is itself a drift risk and is why case 'missing-constraint-object' exists -- it is the input on which the two types disagree, and both implementations must still return the same answer.",
+  "cases": [
+    {
+      "why": "the ordinary case: one required aspect filled, one required aspect empty",
+      "aspects": [
+        { "localizedAspectName": "Brand", "aspectConstraint": { "aspectRequired": true } },
+        { "localizedAspectName": "Size", "aspectConstraint": { "aspectRequired": true } }
+      ],
+      "values": { "Brand": ["Nike"] },
+      "expected_missing": ["Size"]
+    },
+    {
+      "why": "an OPTIONAL aspect with no value is not missing -- only required ones block a publish",
+      "aspects": [
+        { "localizedAspectName": "Brand", "aspectConstraint": { "aspectRequired": true } },
+        { "localizedAspectName": "Pattern", "aspectConstraint": { "aspectRequired": false } }
+      ],
+      "values": { "Brand": ["Nike"] },
+      "expected_missing": []
+    },
+    {
+      "why": "an EMPTY ARRAY counts as unfilled, not as filled. This is the shape a cleared field leaves behind, and treating it as filled would let a publish through that eBay then rejects",
+      "aspects": [
+        { "localizedAspectName": "Color", "aspectConstraint": { "aspectRequired": true } }
+      ],
+      "values": { "Color": [] },
+      "expected_missing": ["Color"]
+    },
+    {
+      "why": "a required aspect absent from the values map entirely",
+      "aspects": [
+        { "localizedAspectName": "Material", "aspectConstraint": { "aspectRequired": true } }
+      ],
+      "values": {},
+      "expected_missing": ["Material"]
+    },
+    {
+      "why": "missing-constraint-object: the aspect spec has no aspectConstraint at all. The two TYPES disagree about whether this is representable (edge optional, web required), so it is exactly the input where a drift would hide. Not required means not missing",
+      "aspects": [
+        { "localizedAspectName": "Style" }
+      ],
+      "values": {},
+      "expected_missing": []
+    },
+    {
+      "why": "a required aspect with a BLANK NAME is skipped rather than reported as an empty-string requirement, which would render as a nameless bullet in the seller's checklist and a nameless entry in the 422",
+      "aspects": [
+        { "localizedAspectName": "", "aspectConstraint": { "aspectRequired": true } },
+        { "localizedAspectName": "Brand", "aspectConstraint": { "aspectRequired": true } }
+      ],
+      "values": {},
+      "expected_missing": ["Brand"]
+    },
+    {
+      "why": "no localizedAspectName key at all -- same skip as a blank name",
+      "aspects": [
+        { "aspectConstraint": { "aspectRequired": true } }
+      ],
+      "values": {},
+      "expected_missing": []
+    },
+    {
+      "why": "ORDER follows the category spec, not the values map. The seller reads this list top to bottom against the form, so a reordering is a real regression even though the set is unchanged",
+      "aspects": [
+        { "localizedAspectName": "Department", "aspectConstraint": { "aspectRequired": true } },
+        { "localizedAspectName": "Brand", "aspectConstraint": { "aspectRequired": true } },
+        { "localizedAspectName": "Size", "aspectConstraint": { "aspectRequired": true } }
+      ],
+      "values": { "Brand": ["Nike"] },
+      "expected_missing": ["Department", "Size"]
+    },
+    {
+      "why": "an empty aspect list yields nothing missing -- an uncategorised item is not 'complete', but that is the category picker's problem, not this rule's",
+      "aspects": [],
+      "values": {},
+      "expected_missing": []
+    },
+    {
+      "why": "everything required and everything filled",
+      "aspects": [
+        { "localizedAspectName": "Brand", "aspectConstraint": { "aspectRequired": true } },
+        { "localizedAspectName": "Size", "aspectConstraint": { "aspectRequired": true } }
+      ],
+      "values": { "Brand": ["Nike"], "Size": ["M"], "Color": ["Blue"] },
+      "expected_missing": []
+    }
+  ]
+}

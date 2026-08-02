@@ -148,3 +148,54 @@ Deno.test("coverage aligns with the required rule (no overlap double-count)", ()
   assertEquals(cov.total, 1);
   assertEquals(cov.missing, ["Color"]);
 });
+
+// US-2389 — the EDGE half of the shared required-aspect guard.
+//
+// This copy is the publish BLOCKER: it decides the 422 that stops a publish or
+// revise and names the aspects the seller has to fill. The web copy is the
+// checklist that seller reads beforehand. The vault note claimed they were "the
+// same helper, so the UI warning and the server blocker cannot disagree" -- they
+// are two copies, and when this fixture was first run they DID disagree: the web
+// copy threw a TypeError on an aspect spec with no aspectConstraint object,
+// which this copy has always handled. That was a live crash in the composer's
+// checklist, sitting behind a type that promised the field was always present.
+const requiredAspectFixture = JSON.parse(
+  await Deno.readTextFile(
+    new URL(
+      "../../../../src/test/fixtures/required-aspects-cases.json",
+      import.meta.url,
+    ),
+  ),
+) as {
+  cases: Array<{
+    why: string;
+    aspects: RequiredAspectSpec[];
+    values: Record<string, string[]>;
+    expected_missing: string[];
+  }>;
+};
+
+Deno.test("edge required-aspect check matches the cross-project fixture", () => {
+  assertEquals(
+    requiredAspectFixture.cases.length > 8,
+    true,
+    "fixture looks truncated",
+  );
+  for (const c of requiredAspectFixture.cases) {
+    assertEquals(
+      requiredMissingAspects(c.aspects, c.values),
+      c.expected_missing,
+      `case: ${c.why}`,
+    );
+  }
+});
+
+Deno.test("the fixture still covers the shapes the two copies differ on", () => {
+  // Ten happy cases would pass on both copies and prove nothing about drift.
+  // Assert the awkward inputs by name so a future trim cannot silently remove
+  // the coverage and leave a green suite behind.
+  const whys = requiredAspectFixture.cases.map((c) => c.why).join(" | ");
+  for (const needle of ["missing-constraint-object", "EMPTY ARRAY", "BLANK NAME", "ORDER"]) {
+    assertEquals(whys.includes(needle), true, `fixture lost the ${needle} case`);
+  }
+});

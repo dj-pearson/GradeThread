@@ -8,7 +8,9 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/aspect-registry.ts
   - services/edge-functions/src/lib/aspect-provenance.ts
-reviewed: 2026-08-01
+  - src/lib/aspect-provenance.ts
+  - src/test/fixtures/required-aspects-cases.json
+reviewed: 2026-08-02
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
@@ -30,7 +32,8 @@ different aspects:
 2. **`deriveAspectsFromItem` → `resolveItemAspects`** fills everything the
    columns do *not* own: the attribute-backed and inferred required specifics
    such as `Department` and `Size Type`. `Department` in particular is inferred
-   by `inferDepartment` reading the item's own title, style and size text.
+   by `inferDepartment` reading the item's own title, style, description,
+   condition notes and size text (five fields, not three).
 
 Step 2 never overwrites a value that is already set, so running it is safe on any
 path.
@@ -48,14 +51,36 @@ resolver, records `inventory_derived` provenance for whatever it filled, and
 **pre-flights `requiredMissingAspects` to return a 422 naming the missing
 aspects** rather than paying an eBay round trip for a vague rejection.
 
-`requiredMissingAspects` lives in `aspect-provenance.ts` and is the same helper
-the composer's pre-publish checklist uses, so the UI warning and the server
-blocker cannot disagree.
+`requiredMissingAspects` lives in the edge `aspect-provenance.ts`. The
+composer's pre-publish checklist applies the SAME RULE — but not the same
+function. It is a separate copy, `requiredMissingAspectNames` in the web
+`src/lib/aspect-provenance.ts` (reached through `ebay-category-picker.tsx`),
+because the two projects cannot import across each other.
+
+> [!warning] "Cannot disagree" was wrong, and they already had (US-2389)
+> This section used to say the checklist and the blocker were the same helper
+> and so could not disagree. Two copies can always disagree, and when a shared
+> fixture was finally pointed at them the web copy **threw a TypeError** on an
+> aspect spec with no `aspectConstraint` object, where the edge copy returned
+> safely. `EbayAspect` declares that field required, so the compiler said the
+> case was impossible — but the value arrives from eBay's Taxonomy API at
+> runtime, where a type is a claim about a remote payload, not a guarantee.
+>
+> The failure mode is quiet, which is why it earns a fixture rather than a
+> comment: if the checklist says a listing is ready and the blocker refuses it,
+> the seller has no way to find out what is wrong — the one surface that would
+> tell them is the surface asserting nothing is missing.
+>
+> Both are now asserted against `src/test/fixtures/required-aspects-cases.json`
+> and both are registered in the lockstep registry. Same remedy as the
+> weighted-overall mirrors ([[weighted-overall-lockstep]]).
 
 ## Inference has a floor
 
-`inferDepartment` only fires when the item's own text carries a gender token —
-"Women's", "Boys", "Men's". A title like *"Maeve The Collette Black Wide Leg
+`inferDepartment` only fires when the item's own text carries a gender OR AGE
+token — the women/men variants, plus maternity, unisex, and the age words
+(baby, infant, newborn, toddler, onesie, boys, girls, kids, youth, juniors,
+children, child). A title like *"Maeve The Collette Black Wide Leg
 Cropped Pants"* carries none, so `Department` must come from
 `attributes.department` or be typed into the specifics editor. That is why the
 specifics editor and the item fields have to live in the same editor

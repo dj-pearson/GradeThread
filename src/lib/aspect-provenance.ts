@@ -32,14 +32,27 @@ export const PROVENANCE_BADGE: Record<
 };
 
 /// The names of REQUIRED aspects (per the category spec) that have no value.
-/// Identical rule to the edge requiredMissingAspects — the single source of
-/// truth for "what's still missing before publish".
+///
+/// US-2389: keep this and its edge twin in lockstep — two copies of one rule
+/// that cannot import across projects. This one is the seller's pre-publish
+/// CHECKLIST, the edge one (`requiredMissingAspects`) is the publish BLOCKER
+/// that returns the 422. Both are asserted against
+/// `src/test/fixtures/required-aspects-cases.json`.
+///
+/// The optional chain on `aspectConstraint` is load-bearing, not defensive
+/// style. `EbayAspect` declares the field required, so the compiler said this
+/// could not be undefined — but the value comes from eBay's Taxonomy API at
+/// runtime, where the type is a claim about a remote payload rather than a
+/// guarantee. Without the `?.` an aspect spec missing its constraint object
+/// threw a TypeError inside the composer's checklist render. The edge copy had
+/// always handled it; that asymmetry is exactly what the shared fixture was
+/// added to catch, and it caught it on the first run.
 export function requiredMissingAspectNames(
   aspectList: EbayAspect[],
   values: Record<string, string[]>,
 ): string[] {
   return aspectList
-    .filter((a) => a.aspectConstraint.aspectRequired)
+    .filter((a) => a.aspectConstraint?.aspectRequired)
     .map((a) => a.localizedAspectName ?? "")
     .filter((n) => n.length > 0 && (values[n]?.length ?? 0) === 0);
 }

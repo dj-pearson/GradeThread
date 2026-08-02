@@ -24,6 +24,17 @@ export interface RequiredAspectSpec {
   aspectConstraint?: { aspectRequired?: boolean };
 }
 
+/// US-2389: keep this and its web twin in lockstep.
+/// Two copies of one rule (separate projects, no shared import): this one is the
+/// publish BLOCKER that returns the 422, the web one is the seller-facing
+/// pre-publish CHECKLIST. Both are asserted against
+/// src/test/fixtures/required-aspects-cases.json, because they HAD already
+/// drifted -- the web copy threw on an aspect spec with no aspectConstraint
+/// while this one returned safely, and no test covered it.
+///
+/// The failure mode if they disagree is quiet: the checklist tells the seller
+/// the listing is ready, the blocker refuses it, and the one surface that would
+/// explain why is the surface saying nothing is missing.
 /// The names of REQUIRED aspects (per the category spec) that have no value in
 /// `aspectMap`. This is the canonical rule the publish blocker and the client
 /// checklist both use — keep it the only implementation on the edge.

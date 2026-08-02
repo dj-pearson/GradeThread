@@ -107,6 +107,17 @@ const PINNED: Record<string, string> = {
     "translation rather than a copy. The guard pins them through that key map, " +
     "and a sixth factor on either side fails a companion test rather than " +
     "passing vacuously.",
+  "src/lib/aspect-provenance.ts":
+    "US-2389: requiredMissingAspectNames mirrors the edge requiredMissingAspects. " +
+    "Both assert src/test/fixtures/required-aspects-cases.json — this side in " +
+    "src/lib/__tests__/aspect-provenance.test.ts, the edge in " +
+    "services/edge-functions/src/tests/aspect-provenance_test.ts. Registered " +
+    "because they had ALREADY drifted: this copy threw on an aspect spec with " +
+    "no aspectConstraint (the type said it was always present; eBay's Taxonomy " +
+    "payload is not bound by the type) while the edge copy returned safely.",
+  "services/edge-functions/src/lib/aspect-provenance.ts":
+    "US-2389: the edge half of the pair above — the publish BLOCKER to the web " +
+    "copy's pre-publish checklist. Same shared fixture, both suites.",
   "services/edge-functions/src/lib/human-review.ts":
     "US-2386: computeWeightedOverall AND its requireFactor guard mirror " +
     "src/lib/weighted-grade.ts. Both are asserted against the shared fixture " +
