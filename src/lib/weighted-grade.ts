@@ -61,7 +61,49 @@ export const WEIGHTED_FACTOR_KEYS = Object.keys(
 export function computeWeightedOverall(factors: WeightedFactorScores): number {
   let total = 0;
   for (const key of WEIGHTED_FACTOR_KEYS) {
-    total += (factors[key] ?? 0) * WEIGHTED_FACTOR_WEIGHTS[key];
+    total += requireFactor(factors, key) * WEIGHTED_FACTOR_WEIGHTS[key];
   }
   return Math.round(total * 10) / 10;
+}
+
+/**
+ * US-2386 — a missing or non-finite factor REFUSES rather than scoring itself.
+ *
+ * This used to be `factors[key] ?? 0`, and the edge mirror
+ * (`human-review.ts`) had no coalesce at all, so it returned NaN. Two mirrors
+ * that are supposed to agree byte-for-byte disagreed on the one input neither
+ * suite covered.
+ *
+ * Of the three possible behaviours, `?? 0` is the worst, and it is worth being
+ * precise about why rather than calling it a style issue. A missing fabric
+ * score is 30% of the blend; scoring it 0 drags a genuine 8.4 down to about
+ * 5.4, which is a plausible "Fair" grade. Nothing looks broken. The operator
+ * sees a real number, reseals the certificate against it, and the tamper-
+ * evident hash then certifies the wrong grade as authoritative. NaN at least
+ * announces itself. Refusing announces itself at the point of the bug.
+ *
+ * This is not defensive coding against a data condition — all five columns are
+ * `NOT NULL` on `grade_reports` (00001), and every caller builds the object
+ * from a complete row. A missing key can only mean a programming error, and
+ * the grading contract's standing rule is that a doubtful grade must become
+ * LESS confident, never quietly finite.
+ *
+ * The edge mirror throws on the same inputs with the same message shape, and
+ * `src/test/fixtures/weighted-grade-cases.json` carries the refusal cases both
+ * suites assert — the whole point being that the mirrors cannot drift apart on
+ * this input again.
+ */
+function requireFactor(
+  factors: WeightedFactorScores,
+  key: keyof WeightedFactorScores,
+): number {
+  const value = factors[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(
+      `computeWeightedOverall: factor "${key}" is missing or not finite ` +
+        `(got ${String(value)}). Refusing to compute a weighted overall from ` +
+        `an incomplete factor set.`,
+    );
+  }
+  return value;
 }

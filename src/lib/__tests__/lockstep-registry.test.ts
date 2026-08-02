@@ -107,6 +107,17 @@ const PINNED: Record<string, string> = {
     "translation rather than a copy. The guard pins them through that key map, " +
     "and a sixth factor on either side fails a companion test rather than " +
     "passing vacuously.",
+  "services/edge-functions/src/lib/human-review.ts":
+    "US-2386: computeWeightedOverall AND its requireFactor guard mirror " +
+    "src/lib/weighted-grade.ts. Both are asserted against the shared fixture " +
+    "src/test/fixtures/weighted-grade-cases.json — `cases` for the arithmetic, " +
+    "`refusal_cases` for an incomplete factor set — by " +
+    "src/lib/__tests__/weighted-grade.test.ts and " +
+    "services/edge-functions/src/tests/weighted-grade-parity_test.ts. The " +
+    "refusal half is the newer one and is the reason this entry exists: the " +
+    "two copies had ALREADY drifted on a missing factor (web coalesced to 0, " +
+    "edge fell out as NaN) and neither suite covered it, so the mirror looked " +
+    "pinned while its most dangerous input was not.",
   "services/edge-functions/src/routes/flipdesk-ai.ts":
     "AI_ACTION_LIMITS is asserted against PLAN_MATRIX.aiActionsPerMonth by " +
     "services/edge-functions/src/tests/ai-quota_test.ts. NOTE the source " +

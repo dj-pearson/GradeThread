@@ -56,13 +56,13 @@ import * as Sentry from "@sentry/react";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-interface FactorScores {
-  fabric_condition_score: number;
-  structural_integrity_score: number;
-  cosmetic_appearance_score: number;
-  functional_elements_score: number;
-  odor_cleanliness_score: number;
-}
+// US-2386: FactorScores IS WeightedFactorScores. It used to be a local
+// re-declaration of the same five keys, and every call into the shared
+// computeWeightedOverall cast across the two — a cast that was harmless only
+// while the shapes happened to match, and would have silently swallowed a
+// dropped or renamed key the moment they stopped. An alias makes the compiler
+// hold what the cast was asking a reader to hold.
+type FactorScores = WeightedFactorScores;
 
 interface QueueItem {
   report_id: string;
@@ -157,7 +157,7 @@ function ageTone(ms: number): string {
 // to 0.5 rounding while the server stored 0.1, so an operator saw a number
 // the certificate did not get. See src/lib/weighted-grade.ts.
 function computeWeightedScore(factors: FactorScores): number {
-  return sharedWeightedOverall(factors as WeightedFactorScores);
+  return sharedWeightedOverall(factors);
 }
 
 // The grading contract: factors are 1.0–10.0 in 0.5 steps. Applied when a score

@@ -150,3 +150,92 @@ Deno.test("US-2306: ai-grading's weights sum to exactly 1.0", () => {
   const sum = Object.values(AI_WEIGHTS).reduce((a, b) => a + b, 0);
   assertAlmostEquals(sum, 1, 1e-9);
 });
+
+// US-2386 — the refusal half of the shared fixture, edge side.
+//
+// Before this, the edge returned NaN where the web returned a coalesced 0 for
+// the same input: two implementations that must agree byte-for-byte, disagreeing
+// on the one case neither suite covered. Both now refuse, and both refuse on
+// THIS table, so they cannot drift apart on it again.
+//
+// The edge half matters more than the web half here. This is the implementation
+// the reseal path uses (buildResealFields below), so a wrong number produced
+// here is not merely shown to an operator -- it is sealed into the certificate's
+// tamper-evident hash and served to buyers as authoritative.
+const refusalFixture = JSON.parse(
+  await Deno.readTextFile(
+    new URL(
+      "../../../../src/test/fixtures/weighted-grade-cases.json",
+      import.meta.url,
+    ),
+  ),
+) as {
+  refusal_cases: Array<{ why: string; factors: Record<string, unknown> }>;
+};
+
+// JSON has no NaN literal, so the fixture carries the sentinel "__NaN__".
+function hydrateFactors(factors: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(factors)) {
+    out[k] = v === "__NaN__" ? Number.NaN : v;
+  }
+  return out;
+}
+
+Deno.test("edge refuses every refusal case in the cross-project fixture", () => {
+  assertEquals(
+    refusalFixture.refusal_cases.length > 4,
+    true,
+    "refusal fixture looks truncated",
+  );
+  for (const c of refusalFixture.refusal_cases) {
+    let threw = false;
+    try {
+      computeWeightedOverall(
+        hydrateFactors(c.factors) as unknown as Parameters<
+          typeof computeWeightedOverall
+        >[0],
+      );
+    } catch (err) {
+      threw = true;
+      assertEquals(
+        /missing or not finite/.test(
+          err instanceof Error ? err.message : String(err),
+        ),
+        true,
+        `refused for the wrong reason: ${c.why}`,
+      );
+    }
+    assertEquals(threw, true, `should refuse: ${c.why}`);
+  }
+});
+
+Deno.test("edge translates the NaN sentinel rather than asserting on a string", () => {
+  // A runner that skipped hydration would still see a throw -- a string factor
+  // is refused too -- so the NaN case would pass for the wrong reason.
+  const raw = refusalFixture.refusal_cases.find((c) =>
+    Object.values(c.factors).includes("__NaN__")
+  );
+  assertEquals(raw !== undefined, true, "fixture should carry a NaN sentinel");
+  const values = Object.values(hydrateFactors(raw!.factors));
+  assertEquals(
+    values.some((v) => typeof v === "number" && Number.isNaN(v)),
+    true,
+  );
+  assertEquals(values.includes("__NaN__"), false);
+});
+
+Deno.test("edge still computes normally when every factor is present", () => {
+  // 0 is not a valid factor but IS finite, so it must compute rather than being
+  // caught by accident -- the guard refuses INCOMPLETE sets, not low ones.
+  const all = (v: number) => ({
+    fabric_condition_score: v,
+    structural_integrity_score: v,
+    cosmetic_appearance_score: v,
+    functional_elements_score: v,
+    odor_cleanliness_score: v,
+  });
+  assertEquals(computeWeightedOverall(all(1)), 1);
+  assertEquals(computeWeightedOverall(all(10)), 10);
+  assertEquals(computeWeightedOverall(all(0)), 0);
+});

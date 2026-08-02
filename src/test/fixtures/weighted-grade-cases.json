@@ -151,5 +151,69 @@
       },
       "expected_overall": 6.8
     }
+  ],
+  "refusal_cases_comment": "US-2386. Inputs on which BOTH implementations must THROW rather than return a number. Before this, the web coalesced a missing factor to 0 and the edge let it fall out as NaN — two mirrors that must agree byte-for-byte, disagreeing on the one input neither suite covered. Coalescing is the worse half: fabric alone is 30% of the blend, so a missing fabric score drags a genuine 8.4 to a plausible ~5.4 that nothing flags, and the reseal then certifies it with a tamper-evident hash. All five columns are NOT NULL on grade_reports (00001), so a missing key is a programming error and refusing is correct. Each case lists the factors object as given; the runner passes it through the cast its call sites use, because a type that is bypassed at every real call site cannot be the guard. TWO ENCODING NOTES, because a fixture that lies about its own inputs is worse than no fixture: JSON cannot express undefined (the key is simply dropped on write, so an \"undefined\" case is indistinguishable from an omitted one), and it cannot express NaN (encoded as the sentinel string \"__NaN__\", which each runner MUST replace with a real NaN before calling — a runner that forgets asserts on a string instead, which still throws, so the test would pass for the wrong reason; assert the sentinel is translated).",
+  "refusal_cases": [
+    {
+      "why": "fabric omitted — the heaviest factor at 30%, and the one whose absence most looks like a real low grade",
+      "factors": {
+        "structural_integrity_score": 8,
+        "cosmetic_appearance_score": 8,
+        "functional_elements_score": 8,
+        "odor_cleanliness_score": 8
+      }
+    },
+    {
+      "why": "odor omitted — the lightest at 10%, so the coalesced result is closest to plausible and hardest to spot",
+      "factors": {
+        "fabric_condition_score": 8,
+        "structural_integrity_score": 8,
+        "cosmetic_appearance_score": 8,
+        "functional_elements_score": 8
+      }
+    },
+    {
+      "why": "explicit null, which is what a partially-selected row yields",
+      "factors": {
+        "fabric_condition_score": 8,
+        "structural_integrity_score": null,
+        "cosmetic_appearance_score": 8,
+        "functional_elements_score": 8,
+        "odor_cleanliness_score": 8
+      }
+    },
+    {
+      "why": "cosmetic omitted — this case was WRITTEN as an explicit undefined, and JSON dropped the key, which is the honest record of what a JSON fixture can and cannot express. A real undefined reaches the function the same way (a wrong key name yields undefined at the right one), so the behaviour is covered; the shape simply cannot be stored here.",
+      "factors": {
+        "fabric_condition_score": 8,
+        "structural_integrity_score": 8,
+        "functional_elements_score": 8,
+        "odor_cleanliness_score": 8
+      }
+    },
+    {
+      "why": "NaN, encoded as the sentinel string \"__NaN__\" because JSON has no NaN literal — each runner replaces it with a real NaN before calling. Arithmetic already went wrong upstream; do not launder it into a grade.",
+      "factors": {
+        "fabric_condition_score": 8,
+        "structural_integrity_score": 8,
+        "cosmetic_appearance_score": 8,
+        "functional_elements_score": "__NaN__",
+        "odor_cleanliness_score": 8
+      }
+    },
+    {
+      "why": "a string that looks numeric — JS would coerce it in the multiply and return a real-looking overall",
+      "factors": {
+        "fabric_condition_score": "8",
+        "structural_integrity_score": 8,
+        "cosmetic_appearance_score": 8,
+        "functional_elements_score": 8,
+        "odor_cleanliness_score": 8
+      }
+    },
+    {
+      "why": "empty object — every factor missing",
+      "factors": {}
+    }
   ]
 }

@@ -8,6 +8,7 @@ code_refs:
   - src/lib/weighted-grade.ts
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/ai-grading.ts
+  - src/test/fixtures/weighted-grade-cases.json
 reviewed: 2026-08-02
 tags: [grading, rounding, lockstep, contract]
 summary: One client helper and one edge helper compute the weighted overall; they must agree exactly, and the formula has shipped wrong twice when copies drifted.
@@ -64,6 +65,42 @@ The table is now exported and pinned instead: `weighted-grade-parity_test.ts`
 asserts the two tables agree factor for factor through that key map, and a
 companion case fails if a sixth factor appears on either side — otherwise the
 comparison would pass by iterating a map that no longer covers both.
+
+### What an INCOMPLETE factor set does (US-2386)
+
+Both implementations **refuse**: `requireFactor` throws when a factor is
+missing, `null`, `undefined`, `NaN` or not a number. Neither returns a value.
+
+They did not always agree, and the disagreement was invisible because the
+shared fixture had no case for it. The client coalesced with `?? 0`; the edge
+had no coalesce, so the arithmetic fell out as `NaN`. Of the three possible
+behaviours, **coalescing is the dangerous one**, and the reason is the weights:
+
+> Fabric alone is 30% of the blend. Score a missing fabric factor 0 and a
+> genuine 8.4 becomes about 5.4 — a plausible "Fair" grade, not an obvious
+> error. Nothing looks broken, so nothing gets checked. The operator accepts
+> it, the reseal recomputes the certificate's tamper-evident hash against it,
+> and the wrong number is then served to buyers as *verified*.
+
+`NaN` is bad but loud. Refusing is loud at the point of the bug.
+
+This is **not** defensive coding against a data condition. All five factor
+columns are `NOT NULL` on `grade_reports` (00001) and every caller builds the
+object from a complete row, so a missing key can only be a programming error —
+which is exactly why refusing costs nothing and silence costs a certificate.
+
+The fixture now carries `refusal_cases` alongside `cases`, asserted by both
+suites. Two encoding caveats live with it, because a fixture that misrepresents
+its own inputs is worse than none: JSON cannot express `undefined` (the key is
+dropped on write, so that case is indistinguishable from an omitted one) and
+cannot express `NaN` (carried as the sentinel `"__NaN__"`, which each runner
+must translate — and both suites assert that they did, since a runner that
+forgot would still see a throw and pass for the wrong reason).
+
+Related: the three admin pages no longer re-declare `FactorScores` locally and
+no longer cast into `WeightedFactorScores`. The cast was harmless only while the
+shapes happened to match; it would have swallowed a dropped or renamed key
+silently, which is the compile-time half of this same defect.
 
 ## Why this note exists: it has shipped wrong twice
 

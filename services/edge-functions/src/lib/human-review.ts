@@ -29,6 +29,21 @@ export const FACTOR_WEIGHTS: Record<keyof FactorScores, number> = {
 
 export const FACTOR_KEYS = Object.keys(FACTOR_WEIGHTS) as (keyof FactorScores)[];
 
+// US-2386: the refusal guard. Mirrors requireFactor in src/lib/weighted-grade.ts
+// — keep the two in lockstep, including the message shape, so a reader hitting
+// one in a log can find the other.
+function requireFactor(f: FactorScores, key: keyof FactorScores): number {
+  const value = f[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(
+      `computeWeightedOverall: factor "${key}" is missing or not finite ` +
+        `(got ${String(value)}). Refusing to compute a weighted overall from ` +
+        `an incomplete factor set.`,
+    );
+  }
+  return value;
+}
+
 // Clamp a single factor to the 1.0–10.0 scale in 0.5 increments.
 export function clampScore(n: number): number {
   if (!Number.isFinite(n)) return 1;
@@ -40,9 +55,19 @@ export function clampScore(n: number): number {
 // moves the overall — e.g. 8.6 — instead of being swallowed by 0.5 rounding).
 // Matches ai-grading.roundToTenth(weightedSum) and the admin reviews UI's
 // computeWeightedScore.
+//
+// US-2386: a missing or non-finite factor REFUSES. This used to fall out as
+// NaN while the web mirror (src/lib/weighted-grade.ts) coalesced the same input
+// to 0 — two implementations that are supposed to agree byte-for-byte,
+// disagreeing on the one input neither suite covered. Coalescing is the worse
+// of the two: fabric alone is 30% of the blend, so scoring a missing factor 0
+// turns a genuine 8.4 into a plausible ~5.4 that nothing flags, and the reseal
+// below then certifies it with a tamper-evident hash. All five columns are NOT
+// NULL on grade_reports (00001), so a missing key is a bug, not a data state.
+// The refusal cases live in the shared fixture both suites assert.
 export function computeWeightedOverall(f: FactorScores): number {
   let total = 0;
-  for (const k of FACTOR_KEYS) total += f[k] * FACTOR_WEIGHTS[k];
+  for (const k of FACTOR_KEYS) total += requireFactor(f, k) * FACTOR_WEIGHTS[k];
   return Math.round(total * 10) / 10;
 }
 
