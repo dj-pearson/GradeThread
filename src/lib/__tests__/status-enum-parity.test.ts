@@ -15,8 +15,26 @@ import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ITEM_STATUSES, LISTING_STATUSES } from "@/lib/constants";
+import { SCAN_TIMEOUT_MS } from "./_source-scan";
 
 const MIGRATIONS_DIR = resolve(process.cwd(), "supabase/migrations");
+
+// US-2383: read the migration corpus ONCE per worker. dbEnumValues() is called
+// from one test per enum, and each call re-read all ~512 .sql files — so the
+// whole corpus was read twice per worker. Cheap idle, but this is the same
+// shape that made two other whole-tree scans time out at vitest's 5000ms
+// default under a full parallel run, so the tests below also carry
+// SCAN_TIMEOUT_MS. Which files are read is unchanged.
+let cachedSql: Array<{ file: string; sql: string }> | null = null;
+function migrationSql(): Array<{ file: string; sql: string }> {
+  if (cachedSql) return cachedSql;
+  const out: Array<{ file: string; sql: string }> = [];
+  for (const file of readdirSync(MIGRATIONS_DIR)) {
+    if (!file.endsWith(".sql")) continue;
+    out.push({ file, sql: readFileSync(resolve(MIGRATIONS_DIR, file), "utf8") });
+  }
+  return (cachedSql = out);
+}
 
 /** Every value of a Postgres enum, across its CREATE TYPE and any ADD VALUEs. */
 function dbEnumValues(enumName: string): Set<string> {
@@ -28,9 +46,7 @@ function dbEnumValues(enumName: string): Set<string> {
     `TYPE public\\.${enumName} ADD VALUE(?: IF NOT EXISTS)? '([a-z_]+)'`,
     "g",
   );
-  for (const file of readdirSync(MIGRATIONS_DIR)) {
-    if (!file.endsWith(".sql")) continue;
-    const sql = readFileSync(resolve(MIGRATIONS_DIR, file), "utf8");
+  for (const { sql } of migrationSql()) {
     const create = sql.match(createRe);
     if (create) {
       for (const m of (create[1] ?? "").matchAll(/'([a-z_]+)'/g)) {
@@ -69,6 +85,6 @@ describe("DB status enums ↔ frontend status constants parity", () => {
         `frontend ${enumName} value(s) are not in the DB enum — writing one ` +
           `would fail with an invalid-enum error`,
       ).toEqual([]);
-    });
+    }, SCAN_TIMEOUT_MS);
   }
 });

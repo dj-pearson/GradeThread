@@ -19,6 +19,7 @@
 // reviewer chose.
 
 import { describe, expect, it } from "vitest";
+import { SCAN_TIMEOUT_MS } from "@/lib/__tests__/_source-scan";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -73,7 +74,17 @@ function walk(dir: string): string[] {
   return out;
 }
 
+// US-2383: memoized per worker. This is called from THREE separate tests and
+// re-walked both admin trees each time. Cheap idle, but the flake this guards
+// against is a parallel-load effect, not an idle-cost one — see the scanning
+// tests' SCAN_TIMEOUT_MS.
+let cachedWrites: DirectWrite[] | null = null;
 function findDirectWrites(): DirectWrite[] {
+  if (cachedWrites) return cachedWrites;
+  return (cachedWrites = scanDirectWrites());
+}
+
+function scanDirectWrites(): DirectWrite[] {
   const found: DirectWrite[] = [];
   for (const dir of ADMIN_DIRS) {
     for (const file of walk(dir)) {
@@ -112,7 +123,7 @@ describe("US-2348: admin SPA writes to edge-guarded tables", () => {
         "the audit row. If there genuinely is no route, add it to DECLARED " +
         "with the reason.",
     ).toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it("has no stale declaration", () => {
     // The other direction. Without it, a fixed write stays on a list saying it
@@ -120,7 +131,7 @@ describe("US-2348: admin SPA writes to edge-guarded tables", () => {
     const found = new Set(findDirectWrites().map(key));
     const stale = DECLARED.map(key).filter((k) => !found.has(k)).sort();
     expect(stale, "these writes are gone — delete their entries").toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it("ai_prompt_versions is not written from the browser at all", () => {
     // The story's own subject, pinned by name. The enumeration above would catch
@@ -130,7 +141,7 @@ describe("US-2348: admin SPA writes to edge-guarded tables", () => {
       .filter((w) => w.table === "ai_prompt_versions")
       .map(key);
     expect(offenders).toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it("every prompt mutation in ai-models.tsx goes through the edge", () => {
     const src = readFileSync("src/pages/admin/ai-models.tsx", "utf8");

@@ -19,6 +19,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { SCAN_TIMEOUT_MS } from "@/lib/__tests__/_source-scan";
 
 const ROOTS = ["src", "services/edge-functions/src", "functions"];
 
@@ -70,8 +71,19 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Files that read `listings` with an unprojected select. */
+/**
+ * Files that read `listings` with an unprojected select.
+ *
+ * US-2383: memoized per worker. This walks THREE roots — src, the whole edge
+ * service and functions — and reads every file in them, which is the single
+ * most expensive scan in the suite. Idle cost is milliseconds and that is
+ * exactly the misleading signal: composer-locks measured 116ms warm and still
+ * blew vitest's 5000ms default by 40x under a full parallel run. The scanning
+ * test therefore also carries SCAN_TIMEOUT_MS. What is scanned is unchanged.
+ */
+let cachedStarReaders: string[] | null = null;
 function starReaders(): string[] {
+  if (cachedStarReaders) return cachedStarReaders;
   const hits: string[] = [];
   for (const root of ROOTS) {
     for (const file of walk(resolve(process.cwd(), root))) {
@@ -82,7 +94,8 @@ function starReaders(): string[] {
       if (chained) hits.push(file.slice(process.cwd().length + 1).replace(/\\/g, "/"));
     }
   }
-  return [...new Set(hits)].sort();
+  cachedStarReaders = [...new Set(hits)].sort();
+  return cachedStarReaders;
 }
 
 describe("every unprojected listings read is declared (US-2177)", () => {
@@ -90,7 +103,7 @@ describe("every unprojected listings read is declared (US-2177)", () => {
     // The assertion the whole guard rests on. A new one fails here, and the fix
     // is to add it to DECLARED with the bound it carries.
     expect(starReaders()).toEqual(DECLARED.map((d) => d.file).sort());
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it.each(DECLARED)("$file is bounded: $why", ({ file, bound }) => {
     const src = readFileSync(resolve(process.cwd(), file), "utf8");
