@@ -1251,7 +1251,7 @@ export function FlipdeskMarketplacesPage() {
             <ArrowRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
           </Link>
           <Link
-            to="/dashboard/flipdesk/reconcile?tab=ebay"
+            to="/dashboard/flipdesk/money?view=reconcile&tab=ebay"
             className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50"
           >
             <span className="flex items-center gap-2">

@@ -48,7 +48,6 @@ const NewSubmissionPage = lazy(() => import("@/pages/new-submission").then(m => 
 const SnapToValuePage = lazy(() => import("@/pages/snap").then(m => ({ default: m.SnapToValuePage })));
 const BulkSubmissionPage = lazy(() => import("@/pages/bulk-submission").then(m => ({ default: m.BulkSubmissionPage })));
 const SubmissionDetailPage = lazy(() => import("@/pages/submission-detail").then(m => ({ default: m.SubmissionDetailPage })));
-const FinancesPage = lazy(() => import("@/pages/finances").then(m => ({ default: m.FinancesPage })));
 const SettingsPage = lazy(() => import("@/pages/settings").then(m => ({ default: m.SettingsPage })));
 const AccountPage = lazy(() => import("@/pages/account").then(m => ({ default: m.AccountPage })));
 const BillingPage = lazy(() => import("@/pages/billing").then(m => ({ default: m.BillingPage })));
@@ -150,7 +149,6 @@ const FlipdeskSearchPage = lazy(() => import("@/pages/flipdesk/search").then(m =
 // are no longer mounted directly by the router — so their chunks stay split.
 const FlipdeskInventoryPage = lazy(() => import("@/pages/flipdesk/inventory").then(m => ({ default: m.FlipdeskInventoryPage })));
 const FlipdeskItemPage = lazy(() => import("@/pages/flipdesk/item").then(m => ({ default: m.FlipdeskItemPage })));
-const FlipdeskExpensesPage = lazy(() => import("@/pages/flipdesk/expenses").then(m => ({ default: m.FlipdeskExpensesPage })));
 const FlipdeskAnalyticsPage = lazy(() => import("@/pages/flipdesk/analytics").then(m => ({ default: m.FlipdeskAnalyticsPage })));
 const FlipdeskIntakePage = lazy(() => import("@/pages/flipdesk/intake").then(m => ({ default: m.FlipdeskIntakePage })));
 const FlipdeskImportPage = lazy(() => import("@/pages/flipdesk/import").then(m => ({ default: m.FlipdeskImportPage })));
@@ -159,17 +157,16 @@ const FlipdeskMeasureCardPage = lazy(() => import("@/pages/flipdesk/measure-card
 const FlipdeskMarketplacesGooglePage = lazy(() => import("@/pages/flipdesk/marketplaces-google").then(m => ({ default: m.FlipdeskMarketplacesGooglePage })));
 const FlipdeskOffersPage = lazy(() => import("@/pages/flipdesk/offers").then(m => ({ default: m.FlipdeskOffersPage })));
 const FlipdeskPostSalePage = lazy(() => import("@/pages/flipdesk/post-sale").then(m => ({ default: m.FlipdeskPostSalePage })));
-const FlipdeskReconcilePage = lazy(() => import("@/pages/flipdesk/reconcile").then(m => ({ default: m.FlipdeskReconcilePage })));
 // US-2161: the two consolidated hosts. Each renders the existing pages as
 // ?tab= tabs; the old paths below redirect into them.
 const FlipdeskPricingPage = lazy(() => import("@/pages/flipdesk/pricing").then(m => ({ default: m.FlipdeskPricingPage })));
+const FlipdeskMoneyPage = lazy(() => import("@/pages/flipdesk/money").then(m => ({ default: m.FlipdeskMoneyPage })));
+const FlipdeskAutolisterHostPage = lazy(() => import("@/pages/flipdesk/autolister-host").then(m => ({ default: m.FlipdeskAutolisterHostPage })));
 const FlipdeskSourcingPage = lazy(() => import("@/pages/flipdesk/sourcing").then(m => ({ default: m.FlipdeskSourcingPage })));
 const BuyerDemandPage = lazy(() => import("@/pages/buyer/demand").then(m => ({ default: m.BuyerDemandPage })));
 const FlipdeskConsignmentPage = lazy(() => import("@/pages/flipdesk/consignment").then(m => ({ default: m.FlipdeskConsignmentPage })));
-const FlipdeskAutolisterPage = lazy(() => import("@/pages/flipdesk/autolister").then(m => ({ default: m.FlipdeskAutolisterPage })));
 const FlipdeskAutolisterQueuePage = lazy(() => import("@/pages/flipdesk/autolister-queue").then(m => ({ default: m.FlipdeskAutolisterQueuePage })));
 const FlipdeskAutolisterBulkEditPage = lazy(() => import("@/pages/flipdesk/autolister-bulk-edit").then(m => ({ default: m.FlipdeskAutolisterBulkEditPage })));
-const FlipdeskAutolisterDraftsPage = lazy(() => import("@/pages/flipdesk/autolister-drafts").then(m => ({ default: m.FlipdeskAutolisterDraftsPage })));
 const FlipdeskScheduledDropsPage = lazy(() => import("@/pages/flipdesk/scheduled-drops").then(m => ({ default: m.FlipdeskScheduledDropsPage })));
 const NotFoundPage = lazy(() => import("@/pages/not-found").then(m => ({ default: m.NotFoundPage })));
 // US-443: in-shell 404 that keeps the dashboard/admin chrome (sidebar + header).
@@ -214,6 +211,20 @@ function InventoryModeRedirect({ mode }: { mode?: string }) {
 // real in-app link (community-recommendations.ts), and losing the brand turns a
 // one-click lookup into an empty search. So merge instead: keep every incoming
 // param and add the tab.
+// US-2161 (second pass): the ?view= counterpart of TabRedirect. It sets the
+// OUTER view and deliberately leaves any incoming ?tab= alone, which is the
+// whole reason the two parameters are separate: /reconcile?tab=payouts has to
+// land on /money?view=reconcile&tab=payouts with the inner tab intact. Merging
+// rather than replacing the query is not optional here — a bare <Navigate> with
+// a literal query string drops every parameter already on the URL, which is the
+// bug the first pass of this story found on /scout?brand=Nike.
+function ViewRedirect({ to, view }: { to: string; view: string }) {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  params.set("view", view);
+  return <Navigate to={`${to}?${params.toString()}`} replace />;
+}
+
 function TabRedirect({ to, tab }: { to: string; tab: string }) {
   const { search } = useLocation();
   const params = new URLSearchParams(search);
@@ -432,7 +443,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/inventory", element: <Navigate to="/dashboard/flipdesk/inventory" replace /> },
               { path: "/dashboard/inventory/new", element: <Navigate to="/dashboard/flipdesk/intake" replace /> },
               { path: "/dashboard/inventory/:id", element: <InventoryItemRedirect /> },
-              { path: "/dashboard/finances", element: <SuspenseWrapper><FinancesPage /></SuspenseWrapper> },
+              { path: "/dashboard/finances", element: <ViewRedirect to="/dashboard/flipdesk/money" view="finances" /> },
               // US-1777: buyer body-profile store (measurements for fit checks).
               { path: "/dashboard/measurements", element: <SuspenseWrapper><BodyProfilesPage /></SuspenseWrapper> },
               { path: "/dashboard/analytics/suggestions", element: <TabRedirect to="/dashboard/flipdesk/pricing" tab="suggestions" /> },
@@ -465,10 +476,10 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/intake", element: <SuspenseWrapper><FlipdeskIntakePage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/prep", element: <InventoryModeRedirect mode="prep" /> },
               { path: "/dashboard/flipdesk/import", element: <SuspenseWrapper><FlipdeskImportPage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/autolister", element: <SuspenseWrapper><FlipdeskAutolisterPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/autolister", element: <SuspenseWrapper><FlipdeskAutolisterHostPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/autolister/queue", element: <SuspenseWrapper><FlipdeskAutolisterQueuePage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/autolister/bulk-edit", element: <SuspenseWrapper><FlipdeskAutolisterBulkEditPage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/autolister/drafts", element: <SuspenseWrapper><FlipdeskAutolisterDraftsPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/autolister/drafts", element: <ViewRedirect to="/dashboard/flipdesk/autolister" view="drafts" /> },
           { path: "/dashboard/flipdesk/scheduled-drops", element: <SuspenseWrapper><FlipdeskScheduledDropsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/pipeline", element: <InventoryModeRedirect mode="kanban" /> },
               { path: "/dashboard/flipdesk/listings", element: <InventoryModeRedirect /> },
@@ -484,8 +495,9 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/marketplaces/google", element: <SuspenseWrapper><FlipdeskMarketplacesGooglePage /></SuspenseWrapper> },
               // US-963: the standalone Reconciliation page is now the "eBay SKU
               // match" / "Payouts & fees" tabs of the unified Reconcile area.
-              { path: "/dashboard/flipdesk/reconciliation", element: <Navigate to="/dashboard/flipdesk/reconcile?tab=ebay" replace /> },
-              { path: "/dashboard/flipdesk/reconcile", element: <SuspenseWrapper><FlipdeskReconcilePage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/reconciliation", element: <Navigate to="/dashboard/flipdesk/money?view=reconcile&tab=ebay" replace /> },
+              { path: "/dashboard/flipdesk/money", element: <SuspenseWrapper><FlipdeskMoneyPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/reconcile", element: <ViewRedirect to="/dashboard/flipdesk/money" view="reconcile" /> },
               { path: "/dashboard/flipdesk/repricing", element: <TabRedirect to="/dashboard/flipdesk/pricing" tab="repricing" /> },
               // US-2161: the four pricing surfaces are one destination now. These four
               // paths redirect rather than 404 so deep links, the command palette and
@@ -495,7 +507,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/sourcing", element: <SuspenseWrapper><FlipdeskSourcingPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/scout", element: <TabRedirect to="/dashboard/flipdesk/sourcing" tab="scout" /> },
               { path: "/dashboard/flipdesk/scout/buy", element: <TabRedirect to="/dashboard/flipdesk/sourcing" tab="buy" /> },
-              { path: "/dashboard/flipdesk/expenses", element: <SuspenseWrapper><FlipdeskExpensesPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/expenses", element: <ViewRedirect to="/dashboard/flipdesk/money" view="expenses" /> },
               { path: "/dashboard/flipdesk/analytics", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/grading-roi", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/returns", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },

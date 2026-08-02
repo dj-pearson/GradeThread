@@ -135,14 +135,14 @@ function quickActionsFor(useCase: UserUseCase | null): QuickAction[] {
       return [
         { key: "new", icon: Plus, label: "New Submission", sublabel: "Grade a garment", to: "/dashboard/submissions/new" },
         { key: "consign", icon: Handshake, label: "Consignment", sublabel: "Consignors & payouts", to: "/dashboard/flipdesk/consignment" },
-        { key: "finances", icon: DollarSign, label: "View Finances", sublabel: "Profit & payouts", to: "/dashboard/finances" },
+        { key: "finances", icon: DollarSign, label: "View Finances", sublabel: "Profit & payouts", to: "/dashboard/flipdesk/money?view=finances" },
       ];
     case "seller":
     default:
       return [
         { key: "new", icon: Plus, label: "New Submission", sublabel: "Grade a garment", to: "/dashboard/submissions/new" },
         { key: "inventory", icon: Package, label: "Add Inventory Item", sublabel: "Track a new item", to: "/dashboard/inventory/new" },
-        { key: "finances", icon: DollarSign, label: "View Finances", sublabel: "Profit & analytics", to: "/dashboard/finances" },
+        { key: "finances", icon: DollarSign, label: "View Finances", sublabel: "Profit & analytics", to: "/dashboard/flipdesk/money?view=finances" },
       ];
   }
 }

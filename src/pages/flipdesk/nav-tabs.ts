@@ -54,3 +54,56 @@ export const RETIRED_NAV_REDIRECTS: Readonly<Record<string, string>> = {
   // Analytics keeps PATH-based tabs, because it already had them.
   "/dashboard/flipdesk/community": "/dashboard/flipdesk/analytics/community",
 };
+
+// US-2161 (second pass, 2026-08-02): the owner approved two further merges on
+// the same rule the first three used — surfaces answering ONE question become
+// one destination. That takes the FlipDesk group from 19 entries to 16.
+//
+//   Money      = Finances + Expenses + Reconcile. One question: where did my
+//                money go.
+//   AutoLister = the generator + its Drafts output. Drafts is not a separate
+//                destination, it is what AutoLister produces.
+//
+// BOTH USE `?view=`, NOT `?tab=`, and that is not a style choice. Reconcile
+// already owns `?tab=` for its own four inner tabs (photos / ebay / payouts /
+// cross-source, US-963), and nesting a host on the same parameter would have
+// meant either renaming those values — breaking every bookmark and every
+// in-app link that carries one — or silently fighting over the same key. A
+// distinct outer parameter lets `/money?view=reconcile&tab=payouts` resolve
+// both levels independently, and it follows the precedent Inventory already
+// set with `?mode=` (US-958).
+
+export const MONEY_VIEWS = ["finances", "expenses", "reconcile"] as const;
+export type MoneyView = (typeof MONEY_VIEWS)[number];
+
+export function resolveMoneyView(raw: string | null | undefined): MoneyView {
+  return MONEY_VIEWS.includes(raw as MoneyView) ? (raw as MoneyView) : "finances";
+}
+
+export const AUTOLISTER_VIEWS = ["generate", "drafts"] as const;
+export type AutolisterView = (typeof AUTOLISTER_VIEWS)[number];
+
+export function resolveAutolisterView(
+  raw: string | null | undefined,
+): AutolisterView {
+  return AUTOLISTER_VIEWS.includes(raw as AutolisterView)
+    ? (raw as AutolisterView)
+    : "generate";
+}
+
+/**
+ * The `?view=` half of the retired-path contract.
+ *
+ * Kept separate from {@link RETIRED_NAV_REDIRECTS} because the router
+ * implements it with a different helper — these carry a `view` parameter and
+ * must preserve any `tab` already on the incoming URL, which is the whole
+ * reason `?view=` exists. `/reconcile?tab=payouts` has to land on
+ * `/money?view=reconcile&tab=payouts` with the inner tab intact.
+ */
+export const RETIRED_VIEW_REDIRECTS: Readonly<Record<string, string>> = {
+  "/dashboard/finances": "/dashboard/flipdesk/money?view=finances",
+  "/dashboard/flipdesk/expenses": "/dashboard/flipdesk/money?view=expenses",
+  "/dashboard/flipdesk/reconcile": "/dashboard/flipdesk/money?view=reconcile",
+  "/dashboard/flipdesk/autolister/drafts":
+    "/dashboard/flipdesk/autolister?view=drafts",
+};

@@ -7,15 +7,12 @@ import {
   Menu,
   Plug,
   Ruler,
-  Scale,
   Upload,
   Gauge,
-  Wallet,
   BarChart3,
   Boxes,
   Sparkles,
   ShieldCheck,
-  ClipboardList,
   Radar,
   Camera,
   ChevronDown,
@@ -137,8 +134,11 @@ const navGroups: NavGroup[] = [
       {
         title: "List & sell",
         items: [
+          // US-2161 (second pass): AutoLister hosts Generate + Drafts as ?view=
+          // tabs. Drafts was never a separate destination — it is what AutoLister
+          // produces — and a seller who has just generated drafts should not have
+          // to find a second nav entry to see them.
           { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false, requiresFlipdeskFlag: "autolister" },
-          { to: "/dashboard/flipdesk/autolister/drafts", icon: ClipboardList, label: "Drafts", end: false, requiresFlipdeskFlag: "autolister" },
           { to: "/dashboard/flipdesk/scheduled-drops", icon: CalendarClock, label: "Scheduled drops", end: false },
           { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
         ],
@@ -165,12 +165,13 @@ const navGroups: NavGroup[] = [
           { to: "/dashboard/flipdesk/post-sale", icon: ShieldAlert, label: "Returns & Disputes", end: false },
           // US-2161: Repricing + Bulk pricing + Price Suggestions + Automations.
           { to: "/dashboard/flipdesk/pricing", icon: Tags, label: "Pricing", end: false },
-          { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
-          { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
-          // US-963: one Reconcile entry hosts Photos→Items, eBay SKU match,
-          // Payouts & fees, and Cross-source as tabs. Always visible — it now
-          // carries the reconciliation/payout flows, not just the photo tool.
-          { to: "/dashboard/flipdesk/reconcile", icon: Scale, label: "Reconcile", end: false },
+          // US-2161 (second pass): Finances + Expenses + Reconcile answered one
+          // question — where did my money go — from three nav entries. One
+          // destination now, ?view= carrying the choice. Reconcile keeps its own
+          // four inner ?tab= tabs (US-963: Photos→Items, eBay SKU match, Payouts &
+          // fees, Cross-source), which is exactly why the outer parameter is
+          // ?view= and not ?tab=.
+          { to: "/dashboard/flipdesk/money", icon: DollarSign, label: "Money", end: false },
           // US-1579: MeasureCard info + PDF download + mailed-card request.
           { to: "/dashboard/flipdesk/measure-card", icon: Ruler, label: "MeasureCard", end: false },
         ],

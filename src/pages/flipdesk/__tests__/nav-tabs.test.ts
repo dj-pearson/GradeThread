@@ -8,13 +8,18 @@
 //   2. An unknown ?tab= lands on a real tab. A truncated share link or a typo
 //      should look like the page, not like a bug.
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import {
   PRICING_TABS,
   resolvePricingTab,
   resolveSourcingTab,
   RETIRED_NAV_REDIRECTS,
   SOURCING_TABS,
+  MONEY_VIEWS,
+  AUTOLISTER_VIEWS,
+  resolveMoneyView,
+  resolveAutolisterView,
+  RETIRED_VIEW_REDIRECTS,
 } from "@/pages/flipdesk/nav-tabs";
 
 describe("tab resolution", () => {
@@ -140,5 +145,142 @@ describe("sidebar", () => {
       .find((l) => l.includes('to: "/dashboard/flipdesk/analytics"'));
     expect(line).toBeDefined();
     expect(line).toContain("end: false");
+  });
+});
+
+// US-2161 (second pass, 2026-08-02) — the two further merges the owner
+// approved: Money (Finances + Expenses + Reconcile) and AutoLister (generator +
+// its Drafts output). FlipDesk goes 19 entries down to 16.
+//
+// These carry one risk the first three did not, and it is the whole reason the
+// parameter is `?view=`: Reconcile ALREADY owns `?tab=` for its four inner tabs
+// (US-963). If the outer host had reused `tab`, every existing Reconcile deep
+// link would have had to be renamed, or would have been quietly overwritten.
+describe("the ?view= hosts (US-2161 second pass)", () => {
+  it("accepts every declared view and falls back for anything else", () => {
+    for (const v of MONEY_VIEWS) expect(resolveMoneyView(v)).toBe(v);
+    for (const v of AUTOLISTER_VIEWS) expect(resolveAutolisterView(v)).toBe(v);
+    // Absent, empty, junk, a value from the other host, and — the one that
+    // matters — a value from Reconcile's INNER tab set, which must not be
+    // mistaken for an outer view.
+    for (const bad of [null, undefined, "", "  ", "nope", "generate", "payouts"]) {
+      expect(resolveMoneyView(bad)).toBe("finances");
+    }
+    for (const bad of [null, undefined, "", "reconcile", "photos"]) {
+      expect(resolveAutolisterView(bad)).toBe("generate");
+    }
+  });
+
+  it("keeps ?view= and Reconcile's ?tab= in separate namespaces", () => {
+    // The collision this design exists to avoid. No outer view name may also be
+    // an inner Reconcile tab name, or a single `?tab=` would have been
+    // ambiguous and the split would be pointless.
+    const reconcileInnerTabs = ["photos", "ebay", "payouts", "cross-source"];
+    for (const v of MONEY_VIEWS) {
+      expect(reconcileInnerTabs, `view "${v}" collides with a Reconcile tab`)
+        .not.toContain(v);
+    }
+  });
+
+  it("every retired path redirects to its host, preserving the inner tab", () => {
+    const routes = readFileSync("src/routes/index.tsx", "utf8");
+    for (const [from, to] of Object.entries(RETIRED_VIEW_REDIRECTS)) {
+      const view = new URL(to, "https://x").searchParams.get("view");
+      const base = to.split("?")[0];
+      // A ViewRedirect, not a bare <Navigate to="...?view=x">. The difference
+      // is load-bearing: a literal query string REPLACES whatever was on the
+      // incoming URL, which would drop Reconcile's ?tab= on the floor. The
+      // first pass of this story found exactly that bug on /scout?brand=Nike.
+      const line = routes.split("\n").find((l) => l.includes(`path: "${from}"`));
+      expect(line, `no route for retired path ${from}`).toBeTruthy();
+      expect(line, `${from} must redirect via ViewRedirect`).toContain(
+        "<ViewRedirect",
+      );
+      expect(line).toContain(`view="${view}"`);
+      expect(line).toContain(`to="${base}"`);
+    }
+  });
+
+  it("ViewRedirect merges the incoming query rather than replacing it", () => {
+    // Asserted on the implementation because the failure is invisible in a
+    // route table: both shapes route, only one keeps ?tab=payouts.
+    const routes = readFileSync("src/routes/index.tsx", "utf8");
+    const start = routes.indexOf("function ViewRedirect(");
+    expect(start, "ViewRedirect is gone").toBeGreaterThan(0);
+    // A fixed window, NOT indexOf("}") — the first brace belongs to the
+    // destructured parameter list, so cutting there yields the signature and
+    // every assertion below fails on an empty body.
+    const body = routes.slice(start, start + 600);
+    expect(body).toContain("new URLSearchParams(search)");
+    expect(body).toContain('params.set("view"');
+    // It must NOT clear the inner tab — that is Money's job on a view CHANGE,
+    // not the redirect's job on arrival.
+    expect(body).not.toContain('delete("tab")');
+  });
+
+  it("no retired path still renders its old standalone page", () => {
+    const routes = readFileSync("src/routes/index.tsx", "utf8");
+    for (const from of Object.keys(RETIRED_VIEW_REDIRECTS)) {
+      const line = routes.split("\n").find((l) => l.includes(`path: "${from}"`));
+      expect(line, `${from} still renders a page beside its redirect`)
+        .not.toContain("SuspenseWrapper");
+    }
+  });
+
+  it("the sidebar links the hosts and drops the merged entries", () => {
+    const sidebar = readFileSync("src/components/dashboard/sidebar.tsx", "utf8");
+    expect(sidebar).toContain('to: "/dashboard/flipdesk/money"');
+    for (const gone of Object.keys(RETIRED_VIEW_REDIRECTS)) {
+      // AutoLister keeps its own entry — only the Drafts child was merged away.
+      if (gone === "/dashboard/flipdesk/autolister/drafts") {
+        expect(sidebar).not.toContain(`to: "${gone}"`);
+        expect(sidebar).toContain('to: "/dashboard/flipdesk/autolister"');
+        continue;
+      }
+      expect(sidebar, `${gone} is still a sidebar entry`).not.toContain(
+        `to: "${gone}"`,
+      );
+    }
+  });
+
+  it("no in-app link points at a retired path", () => {
+    // The first pass established this rule: repoint every caller at the
+    // canonical route so nothing depends on the redirect hop. A redirect is a
+    // safety net for bookmarks, not a routing layer for our own links.
+    const files = readdirSync("src", { recursive: true, encoding: "utf8" })
+      .filter((p) => /\.tsx?$/.test(p))
+      .map((p) => `src/${p.split("\\").join("/")}`)
+      .filter((p) => !p.includes("__tests__") && !p.startsWith("src/test/"))
+      .filter((p) => p !== "src/pages/flipdesk/nav-tabs.ts")
+      .filter((p) => p !== "src/routes/index.tsx");
+    const offenders: string[] = [];
+    for (const file of files) {
+      const src = readFileSync(file, "utf8");
+      for (const gone of Object.keys(RETIRED_VIEW_REDIRECTS)) {
+        // Quoted and terminated, so a lazy import of the hosted page MODULE
+        // does not read as a link to the retired ROUTE.
+        if (new RegExp(`["'\`]${gone}["'?\`]`).test(src)) {
+          offenders.push(`${file} -> ${gone}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("FlipDesk is down to 16 sidebar entries", () => {
+    // AC6's number, asserted rather than described. The story predicted ~14;
+    // reaching that needed merges no criterion specified, so the owner approved
+    // these two and amended the target to 16. Pinning it means the next entry
+    // someone adds is a decision, not a drift.
+    const sidebar = readFileSync("src/components/dashboard/sidebar.tsx", "utf8");
+    const flipdeskStart = sidebar.indexOf('title: "Catalog"');
+    const flipdeskEnd = sidebar.indexOf('title: "Automate & insights"');
+    expect(flipdeskStart).toBeGreaterThan(0);
+    expect(flipdeskEnd).toBeGreaterThan(flipdeskStart);
+    const block = sidebar.slice(flipdeskStart, flipdeskEnd);
+    const entries = [...block.matchAll(/\{ to: "\/dashboard\//g)].length;
+    // Catalog 3 + List & sell 3 + Sourcing 3 + Channels & money 6 = 15, plus
+    // the single "Automate & insights" entry below the slice = 16.
+    expect(entries).toBe(15);
   });
 });

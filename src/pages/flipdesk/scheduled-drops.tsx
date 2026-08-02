@@ -214,7 +214,7 @@ export function FlipdeskScheduledDropsPage() {
         subtitle="Listings queued to go live at peak times. They publish automatically within ~5 minutes of their scheduled time."
         actions={
           <Button asChild variant="outline">
-            <Link to="/dashboard/flipdesk/autolister/drafts">
+            <Link to="/dashboard/flipdesk/autolister?view=drafts">
               <Sparkles className="mr-2 h-4 w-4" />
               Drafts
             </Link>
