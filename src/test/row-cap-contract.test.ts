@@ -16,6 +16,7 @@
 // perfectly, and above it they are wrong quietly. Hence a source-scan.
 
 import { describe, it, expect } from "vitest";
+import { SCAN_TIMEOUT_MS } from "@/lib/__tests__/_source-scan";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -27,13 +28,33 @@ import {
 } from "@/lib/paged-read";
 
 const SRC = resolve(process.cwd(), "src");
-const read = (p: string) => readFileSync(resolve(process.cwd(), p), "utf8");
 
+// US-2383: both the listing and the file CONTENTS are memoized per worker.
+// Before this, sourceFiles() re-walked src/ and read() re-read every matched
+// file on each of the two scanning tests — the same duplicate-read waste
+// US-2129 removed from the other guards — and under a full parallel run that
+// pushed each scan past vitest's 5000ms default. The pair of scanning tests
+// below therefore also carry SCAN_TIMEOUT_MS. Neither change alters WHAT is
+// scanned; a guard that quietly stopped covering files would be worse than the
+// flake.
+const textCache = new Map<string, string>();
+const read = (p: string) => {
+  const hit = textCache.get(p);
+  if (hit !== undefined) return hit;
+  const text = readFileSync(resolve(process.cwd(), p), "utf8");
+  textCache.set(p, text);
+  return text;
+};
+
+let cachedFiles: string[] | null = null;
 function sourceFiles(): string[] {
-  return readdirSync(SRC, { recursive: true, encoding: "utf8" })
-    .filter((p) => /\.tsx?$/.test(p))
-    .filter((p) => !p.startsWith("test") && !p.includes("__tests__"))
-    .map((p) => `src/${p.split("\\").join("/")}`);
+  if (!cachedFiles) {
+    cachedFiles = readdirSync(SRC, { recursive: true, encoding: "utf8" })
+      .filter((p) => /\.tsx?$/.test(p))
+      .filter((p) => !p.startsWith("test") && !p.includes("__tests__"))
+      .map((p) => `src/${p.split("\\").join("/")}`);
+  }
+  return cachedFiles;
 }
 
 describe("the configured caps stay consistent (AC4)", () => {
@@ -129,7 +150,7 @@ describe("no surface reintroduces the stop-on-short-page loop", () => {
       /\.length\s*<\s*[A-Z_a-z]+\s*\)\s*break/.test(read(f)),
     );
     expect(offenders).toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it("routes every .range() paging caller through the shared reader", () => {
     // A `.range(` on its own is fine — grid.tsx renders ONE server-side page
@@ -140,7 +161,7 @@ describe("no surface reintroduces the stop-on-short-page loop", () => {
       return /for\s*\([^)]*\)[^]{0,400}\.range\(/.test(src) && !src.includes("fetchAllPages");
     });
     expect(looping).toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 });
 
 describe("the capped surfaces tell the seller", () => {

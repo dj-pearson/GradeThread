@@ -21,6 +21,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { SCAN_TIMEOUT_MS } from "@/lib/__tests__/_source-scan";
 
 const SRC = join(process.cwd(), "src");
 
@@ -37,6 +38,17 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+// US-2383: memoized per worker. The walk is cheap idle and expensive under a
+// full parallel run — the same shape that made composer-locks.test.ts flake at
+// vitest's 5000ms default. Reading the list once and giving the scan
+// SCAN_TIMEOUT_MS (US-2129's measured 30s) removes the timing dependency
+// without changing what is scanned.
+let cachedFiles: string[] | null = null;
+function sourceFiles(): string[] {
+  if (!cachedFiles) cachedFiles = walk(SRC);
+  return cachedFiles;
+}
+
 // Only CLAMPS are the problem. `min-h-[60vh]` is a floor and `h-[70vh]` on a
 // non-dialog element (an admin preview iframe) is a fixed box — neither can
 // hide a CTA behind browser chrome the way a max-height clamp can. Matching
@@ -47,7 +59,7 @@ const MAX_H_VH = /max-h-\[[^\]]*\d+vh[^\]]*\]/g;
 describe("US-2028: dialog height clamps use dvh, not vh", () => {
   it("no file clamps max-height in vh", () => {
     const offenders: string[] = [];
-    for (const file of walk(SRC)) {
+    for (const file of sourceFiles()) {
       // Don't flag this guard's own documentation of the pattern.
       if (file.endsWith("dialog-dynamic-viewport.test.ts")) continue;
       const src = readFileSync(file, "utf8");
@@ -63,7 +75,7 @@ describe("US-2028: dialog height clamps use dvh, not vh", () => {
         "(the base DialogContent already does: max-h-[calc(100dvh-2rem)]).\n" +
         offenders.join("\n"),
     ).toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it("the base DialogContent still clamps in dvh", () => {
     // If this ever regresses, every dialog that DOESN'T override inherits the
