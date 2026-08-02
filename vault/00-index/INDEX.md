@@ -35,21 +35,11 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 20-domain — grading, measurement, contracts
 
-19 notes — see [[moc-domain]].
+20 notes — see [[moc-domain]].
 
 ## 30-platform — marketplace integration
 
-- [[cross-listing]] — reference — Direct marketplace APIs versus aggregators, and which channels are reachable how.
-- [[ebay-aspect-value-limit]] — contract — eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
-- [[ebay-condition-and-policies]] — contract — Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
-- [[ebay-description-freshness]] — contract — An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
-- [[ebay-listing-lifecycle-reconciliation]] — contract — A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error.
-- [[ebay-ranking-playbook]] — reference — What actually moves Best Match placement, and what is folklore.
-- [[ebay-required-aspect-completeness]] — contract — Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
-- [[ebay-trading-api-watch]] — reference — Deprecation exposure on the legacy Trading API and what would force a migration.
-- [[flipdesk-dogfood]] — reference — What broke when the pipeline was run end to end on real inventory.
-- [[flipdesk-reseller-gaps]] — reference — Where the reseller workflow still falls short of what a working seller needs.
-- [[marketplace-connector-contract]] — contract — Every marketplace connector shares one kill-switch, PKCE, token-encryption and refresh shape; new connectors copy it rather than inventing one.
+12 notes — see [[moc-platform]].
 
 ## 40-growth — SEO, content, distribution
 
