@@ -7,9 +7,11 @@ code_refs:
   - src/lib/paged-read.ts
   - src/test/row-cap-contract.test.ts
   - src/hooks/use-items-full.ts
+  - services/edge-functions/src/routes/admin-dashboard.ts
+  - services/edge-functions/src/tests/admin-dashboard-kpi-provenance_test.ts
 reviewed: 2026-08-02
-tags: [postgrest, supabase, perf, correctness, flipdesk]
-summary: Every client read must page until empty or declare its cap out loud, because PostgREST truncates silently and supabase-js does not surface it.
+tags: [postgrest, supabase, perf, correctness, flipdesk, admin]
+summary: Every read must page until empty, count without rows, aggregate in SQL, or declare its cap out loud, because PostgREST truncates silently and supabase-js does not surface it.
 ---
 
 # PostgREST row cap (db-max-rows)
@@ -75,6 +77,34 @@ of three shapes. The first two are fine; the third is the bug.
 A single server-side page with `count: "exact"` (as `grid.tsx` does) is a
 legitimate variant of shape 2: the count tells the seller what they are not
 seeing.
+
+### The fourth shape: don't read the rows at all
+
+The three shapes above are about **client reads that must render rows**. When
+the rows are only being read in order to be *counted, summed, averaged or
+bucketed*, none of the three is the right answer — the right answer is to not
+transfer them.
+
+- `count: "exact", head: true` for anything count-shaped. The server answers it
+  and returns **zero rows**, so a row ceiling cannot apply.
+- A SQL aggregate (an RPC) for anything needing values: a mean, a sum, a set of
+  time buckets, a funnel, a cohort table.
+
+This matters most where the reader is an **operator, not a seller**, because the
+tell is weaker. A seller eventually notices an item missing from their kanban.
+Nobody can look at "average grade 7.8" and see that it was measured on a slice —
+US-2390 found the admin dashboard deriving every headline KPI, plus a
+signup→submit→pay funnel and a cohort-retention table, from three unbounded
+reads that PostgREST was free to clip.
+
+**Capping such a read is the wrong fix and it is worth being explicit about
+why.** A bound does not make an all-time aggregate fail; it makes it *plausible*.
+The number still renders, still looks ordinary, and is now wrong with our name on
+it rather than the server's. Prefer, in order: aggregate it away → count it
+exactly → page until empty → cap and label loudly. Reach for a cap only when the
+number is a sample by nature (a tuning signal, a recent-activity feed), and then
+the response must carry a `truncated` flag the UI actually shows —
+`/admin-dashboard/enrichment-log` is the worked example.
 
 ### Why "stop on empty" and not "stop on short"
 

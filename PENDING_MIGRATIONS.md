@@ -1,17 +1,62 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Three pending: 00510, 00511 and 00512.** Prod is at **00509** — the operator
-confirmed on 2026-08-01 that 00507, 00508 and 00509 are all applied.
-`EXPECTED_SCHEMA_VERSION` is **00512** and the highest migration in the tree is
-`00512_job_lock_holder_release.sql`, so the edge boot guard expects 00512 and
-prod is three behind.
+**One pending: 00513.** Prod measured at **00512** on 2026-08-02 (the
+`/health/ready` schema block reported `applied: "00512"`), so 00510–00512 are
+in and this branch is exactly one ahead. `EXPECTED_SCHEMA_VERSION` is now
+**00513** and the highest migration in the tree is
+`00513_admin_dashboard_aggregates.sql`.
 
-Why the entries stayed marked HELD after they were applied: this file is edited
-by hand and nothing flips the marker when the SQL runs. The session-start hook
-reads these ⏳ markers, so a stale one tells every future session the branch is
-frozen when it is not — which is exactly what happened here, and what happened
-once before (see the US-2017 note in prd.json). **When you apply a migration,
-flip its marker in the same sitting.**
+Why entries have gone stale here before: this file is edited by hand and nothing
+flips the marker when the SQL runs. The session-start hook reads these ⏳
+markers, so a stale one tells every future session the branch is frozen when it
+is not — which has happened twice (see the US-2017 note in prd.json). **When you
+apply a migration, flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00513_admin_dashboard_aggregates.sql (US-2390 exact admin KPIs, 2026-08-02)
+
+**What it does.** Adds three read-only aggregate functions and nothing else — no
+table, column, index or enum is touched, so there is no data migration and
+nothing to back out of:
+
+- `admin_dashboard_aggregates(timestamptz)` — all-time average grade, the graded
+  report count, and month-to-date revenue.
+- `admin_dashboard_daily_series(timestamptz[])` — per-bucket submission /
+  new-user / revenue counts for the dashboard's 30-day charts.
+- `admin_platform_analytics(timestamptz[], int)` — funnel, plan mix, top users,
+  cohort retention and the 90-day grade-volume trend.
+
+All three are `SECURITY DEFINER` with the 00207/00227 guard
+(`auth.role() = 'service_role' or is_admin()`), and both `authenticated` and
+`service_role` get EXECUTE.
+
+**Risk: LOW.** `CREATE OR REPLACE FUNCTION` only. Re-running is a no-op. Nothing
+existing is altered, so applying it cannot affect any surface other than the
+admin dashboard.
+
+**⚠️ ORDER MATTERS, and the frontend is the reason.** The client half of this
+commit stops reading `raw` from `GET /api/admin/dashboard/summary` and reads a
+new `analytics` object instead. Cloudflare Pages auto-deploys the frontend the
+moment this is pushed, but the edge redeploys separately — so between the push
+and the Coolify deploy, the new admin dashboard talks to the OLD edge and the
+Analytics tab renders zeros (an empty funnel, no cohorts, no top users). The
+KPI cards and charts keep working. It is cosmetic and self-healing, but it is
+visible, so apply and redeploy the edge promptly after pushing.
+
+**Apply:**
+
+1. Run `supabase/migrations/00513_admin_dashboard_aggregates.sql` against prod.
+2. `NOTIFY pgrst, 'reload schema';` — **required**, these are new RPCs and
+   PostgREST will 404 `/rpc/admin_dashboard_aggregates` until it reloads.
+3. Redeploy the edge on Coolify (its boot guard now expects 00513).
+4. Then OK the push.
+
+**Verify after applying** — as the operator, on the admin dashboard: Average
+Grade shows a number and reads "Across all grades"; the Analytics tab's funnel,
+plan mix, top users and cohort table are populated. If the RPCs are missing the
+summary endpoint returns 500 rather than rendering wrong numbers, which is the
+intended failure direction.
 
 ---
 
