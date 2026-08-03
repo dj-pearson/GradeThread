@@ -82,6 +82,23 @@ export function isLabelled(attrs, htmlForIds) {
   return htmlForIds.has(id[1]);
 }
 
+// KNOWN OVER-COUNT, measured 2026-08-03 and left alone deliberately.
+//
+// A control mentioned in a COMMENT is counted as a real one.
+// billing-actions-card.tsx has a doc comment reading
+// "ISO timestamp -> value for <input type=\"datetime-local\">" and this reports
+// it as an unlabelled input. Exactly one site today.
+//
+// Blanking comments before the scan was tried and REVERTED. `tagAttrs` finds a
+// tag's closing `>` by counting braces, and blanking changes that balance — the
+// blanked run started reporting photo-uploader's two hidden file inputs, which
+// are driven by a labelled button and are precisely the false positive this
+// script exists to avoid (it is one of the reasons jsx-a11y was rejected). A fix
+// that trades one wrong hit for two is not a fix.
+//
+// One phantom in ~150 is under the noise floor, and this number's job is to be
+// acted on: it is better slightly high and stable than adjusted by a change
+// whose side effects are not fully understood.
 export function auditFile(src) {
   const htmlForIds = new Set(
     [...src.matchAll(/htmlFor\s*=\s*["']([^"']+)["']/g)].map((m) => m[1]),
