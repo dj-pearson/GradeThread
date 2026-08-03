@@ -1,0 +1,76 @@
+name: Cron fleet watchdog
+
+# US-2313: the watcher must not share a failure mode with the watched.
+#
+# Every production schedule is a hand-typed Coolify UI task — nothing in this
+# repo creates, applies or verifies them. The fleet DOES have a stall detector
+# (lib/cron-fleet-governance.ts diffs CRON_REGISTRY against the cron_runs
+# ledger, and /api/jobs/cron-fleet-health raises a CRITICAL ops event when a
+# recorded job misses its schedule) — but that detector is itself entry number N
+# of the same hand-entered list. If the operator never created that one Coolify
+# task, or it was deleted, or its secret was typo'd, then nothing in the system
+# alerts about anything, and the silence is indistinguishable from health.
+#
+# THE DECISION (US-2313 AC1): the schedules stay in Coolify. Moving 74 tasks into
+# compose or pg_cron is a migration with its own failure modes, and the diff-
+# against-reality job already covers a missing task once someone is watching.
+# What moves to schedules-as-code is exactly ONE job — this one — because it is
+# the only one whose absence is silent by construction.
+#
+# GitHub-hosted runners are external to Coolify, so this cannot fail the same way
+# the fleet does. The cadence is deliberately loose: this is a floor under the
+# watcher, not a replacement for the hourly Coolify tick. If the Coolify task
+# exists, these extra invocations are near-no-ops (the job takes a lock and
+# reports). If it does not, this keeps the alarm connected.
+#
+# ⚠️ Needs the EDGE_JOB_SECRET repo secret (the same value as the edge service's
+# FLIPDESK_INTERNAL_JOB_SECRET). Without it the job SKIPS rather than fails —
+# a watchdog that cries wolf every six hours because it is unconfigured gets
+# muted, and a muted watchdog is worse than none.
+
+on:
+  schedule:
+    # Every 6 hours, offset off the hour so it does not land on the Coolify tick.
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cron-fleet-watchdog
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  watchdog:
+    name: Invoke the fleet stall detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Invoke /api/jobs/cron-fleet-health
+        env:
+          EDGE_JOB_SECRET: ${{ secrets.EDGE_JOB_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EDGE_JOB_SECRET:-}" ]; then
+            echo "::notice::EDGE_JOB_SECRET is not set — skipping."
+            echo "Set it to the edge service's FLIPDESK_INTERNAL_JOB_SECRET to arm this watchdog."
+            exit 0
+          fi
+          # Body and status are both checked. A 200 carrying an error payload is
+          # the failure mode a bare status check would wave through, and this
+          # endpoint is the one place that must not be waved through.
+          code=$(curl -sS -o /tmp/fleet.json -w '%{http_code}' \
+            -X POST 'https://functions.gradethread.com/api/jobs/cron-fleet-health' \
+            -H "X-Internal-Job-Secret: ${EDGE_JOB_SECRET}" \
+            --max-time 60)
+          echo "HTTP $code"
+          cat /tmp/fleet.json
+          if [ "$code" != "200" ]; then
+            echo "::error::cron-fleet-health returned HTTP $code — the fleet watcher is not reachable."
+            exit 1
+          fi
+          if grep -q '"error"' /tmp/fleet.json; then
+            echo "::error::cron-fleet-health returned an error payload."
+            exit 1
+          fi
