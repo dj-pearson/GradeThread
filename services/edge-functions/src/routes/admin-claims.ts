@@ -22,7 +22,8 @@ import {
 } from "../lib/guarantee-remedy.ts";
 import { getStripe } from "../lib/stripe-client.ts";
 import { sendGuaranteeRemedyEmail } from "../lib/email.ts";
-import { requireScope } from "../lib/scope-guard.ts";
+import { callerHasScope, requireScope } from "../lib/scope-guard.ts";
+import { requireFreshStepUp } from "../lib/step-up.ts";
 
 // US-867: admin review of buyer trust-guarantee claims. Mounted at
 // /api/admin/claims — inherits authMiddleware + adminAuthMiddleware from main.ts
@@ -407,6 +408,36 @@ adminClaimsRoutes.post("/:id/under-review", async (c) => {
 // Both record a manual decision + resolution note. No payout in v1.
 function decisionHandler(decision: "approved" | "rejected", action: string) {
   return async (c: Context<AdminEnv>) => {
+    // US-2353 AC2 + AC4: approving a claim REFUNDS the grading fee and grants a
+    // free re-grade. Two things were wrong at once and only together do they
+    // explain the hole.
+    //
+    // AC2: no step-up at all, on a route that moves money.
+    //
+    // AC4, the worse half: the router-wide scope here is grading:review, so
+    // revoking an admin's billing:write did NOT stop them paying claims. A scope
+    // that can be routed around by choosing a different router is not a scope —
+    // it is a label. The billing scope is now required at the route, on top of
+    // the router's, because the action belongs to both.
+    // Asked through callerHasScope rather than by invoking requireScope as
+    // middleware inside a handler — the middleware wants a `next`, and faking
+    // one to borrow its check is the kind of cleverness that breaks quietly
+    // when the middleware grows a second responsibility.
+    const hasBilling = await callerHasScope(
+      c.get("adminRole"),
+      c.get("userId") ?? null,
+      "billing:write",
+    );
+    if (!hasBilling) {
+      return c.json({
+        error:
+          "Deciding a guarantee claim moves money and requires the billing:write permission.",
+        code: "SCOPE_REQUIRED",
+        scope: "billing:write",
+      }, 403);
+    }
+    const stepUp = requireFreshStepUp(c);
+    if (stepUp) return stepUp;
     const claimId = c.req.param("id");
 
     let body: { resolution?: unknown };

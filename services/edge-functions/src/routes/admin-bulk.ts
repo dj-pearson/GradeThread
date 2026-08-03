@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
-import { requireStepUp } from "../lib/step-up.ts";
+import { requireFreshStepUp, requireStepUp } from "../lib/step-up.ts";
 import { defaultRegradeStore, regradeSubmission } from "../lib/grading-pipeline.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 
@@ -378,6 +378,12 @@ adminBulkRoutes.post("/suspend", requireScope("moderation:write"), async (c) => 
 // reset, re-kick) via regradeSubmission. Same gate as the single regrade
 // endpoint — admin JWT + AAL2, no extra step-up.
 adminBulkRoutes.post("/regrade", requireScope("grading:review"), async (c) => {
+  // US-2353 AC2: supersedes up to 200 ISSUED grade reports. Its siblings
+  // /credits and /suspend both have a step-up; this one voids the product.
+  {
+    const stepUp = requireFreshStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const body = await c.req.json().catch(() => ({}));
   const key = typeof body.idempotency_key === "string" ? body.idempotency_key.trim() : "";
   if (key.length < 8 || key.length > 200) {

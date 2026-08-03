@@ -8,7 +8,7 @@
 // a new TOTP timestamp, then retries the action with that token.
 import type { Context } from "hono";
 import { type AuthAssuranceClaims, hasFreshStepUp } from "./jwt-claims.ts";
-import { isAdminMfaEnforced, STEP_UP_MAX_AGE_SEC } from "./env.ts";
+import { isAdminMfaEnforced, STEP_UP_FRESH_SEC, STEP_UP_MAX_AGE_SEC } from "./env.ts";
 
 // Returns a 403 Response when the caller has NOT completed a fresh step-up,
 // otherwise null. Usage:
@@ -32,4 +32,20 @@ export function requireStepUp(
     code: "STEP_UP_REQUIRED",
     max_age_seconds: maxAgeSec,
   }, 403);
+}
+
+/**
+ * US-2353 AC5: step-up with the SHORT window, for the irreversible tier.
+ *
+ * `requireStepUp` uses a working-day window, which is right for ordinary
+ * sensitive actions and wrong for these: moving money, voiding issued grades,
+ * flipping a kill switch, executing an agent-authored write. For those,
+ * "you verified this morning" is not evidence that you are at the keyboard now.
+ *
+ * Same failure shape as requireStepUp — returns a 403 Response to RETURN, and
+ * null when the caller may proceed. The client handles STEP_UP_REQUIRED
+ * centrally, so a shorter window costs a prompt, not a broken surface.
+ */
+export function requireFreshStepUp(c: Context): Response | null {
+  return requireStepUp(c, STEP_UP_FRESH_SEC);
 }

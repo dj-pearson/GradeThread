@@ -20,7 +20,8 @@ import {
   adminRetryPublishBatch,
 } from "./flipdesk-autolister.ts";
 import { CRON_REGISTRY, nextCronRun } from "../lib/cron-runs.ts";
-import { requireScope } from "../lib/scope-guard.ts";
+import { callerHasScope, requireScope } from "../lib/scope-guard.ts";
+import { requireFreshStepUp } from "../lib/step-up.ts";
 
 // Admin job/queue monitoring + control (US-584).
 //
@@ -381,9 +382,33 @@ async function readAction(c: Context): Promise<{ kind: Kind; id: string; reason:
 
 // POST /retry — re-run a stuck/failed job. Audited.
 adminJobsRoutes.post("/retry", async (c) => {
+  // US-2353 AC2 + AC4: retrying a GRADING job voids the issued grade and
+  // re-runs it. Two problems, and the second is the one a scope map cannot
+  // survive: there was no step-up, and this router's scope is ops:write — so an
+  // admin who has never held grading:review could void grades through it. The
+  // grading check is applied only to the grading kind, because the other kinds
+  // are ordinary ops work and requiring a grading scope for them would be the
+  // same category error in reverse.
   const action = await readAction(c);
   if (!action) return c.json({ error: "kind and id are required" }, 400);
   const { kind, id } = action;
+  if (kind === "grading") {
+    const hasGrading = await callerHasScope(
+      c.get("adminRole"),
+      c.get("userId") ?? null,
+      "grading:review",
+    );
+    if (!hasGrading) {
+      return c.json({
+        error:
+          "Retrying a grading job voids the issued grade and requires the grading:review permission.",
+        code: "SCOPE_REQUIRED",
+        scope: "grading:review",
+      }, 403);
+    }
+    const stepUp = requireFreshStepUp(c);
+    if (stepUp) return stepUp;
+  }
 
   let result: { ok: boolean; error?: string; detail?: Record<string, unknown> };
   switch (kind) {

@@ -29,7 +29,7 @@ import {
 } from "../lib/feature-flags.ts";
 import { jsonError } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
-import { requireStepUp } from "../lib/step-up.ts";
+import { requireFreshStepUp, requireStepUp } from "../lib/step-up.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
@@ -66,6 +66,14 @@ adminFlagsRoutes.get("/", async (c) => {
 
 // ── Fast kill-switch toggle (enabled only). Body: { key, enabled } ──
 adminFlagsRoutes.put("/", async (c) => {
+  // US-2353 AC2: a feature flag is a kill switch. PUT here toggles ANY flag
+  // under the router-wide ops:write and nothing else, while the far less
+  // impactful per-flag RULE endpoint below required super_admin AND a step-up —
+  // the risk ordering was inverted.
+  {
+    const stepUp = requireFreshStepUp(c);
+    if (stepUp) return stepUp;
+  }
   let body: { key?: unknown; enabled?: unknown };
   try {
     body = await c.req.json();

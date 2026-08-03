@@ -17,6 +17,7 @@ import { requireScope } from "../lib/scope-guard.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { bustSettingCache } from "../lib/system-settings.ts";
 import { approveProposal, expireProposals, rejectProposal } from "../lib/agent-proposals.ts";
+import { requireFreshStepUp } from "../lib/step-up.ts";
 
 // The global agents kill-switch key (mirrors AGENTS_PAUSE_SETTING_KEY in
 // lib/agent-kernel.ts — kept as a literal here to avoid importing the kernel +
@@ -273,6 +274,12 @@ adminAgentsRoutes.get("/proposals", async (c) => {
 // ── Proposals (decisions) ────────────────────────────────────────────────────
 
 adminAgentsRoutes.post("/proposals/:id/approve", async (c) => {
+  // US-2353 AC2: approving a proposal EXECUTES an agent-authored operational
+  // write. The agent chose the action; the human is the only control on it.
+  {
+    const stepUp = requireFreshStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const id = c.req.param("id");
   // The engine claims pending→approved atomically and executes exactly once.
   const res = await approveProposal(id, c.get("userId"));

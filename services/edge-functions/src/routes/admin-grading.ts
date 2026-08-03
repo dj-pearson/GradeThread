@@ -103,7 +103,7 @@ import {
 import { type ShadowRow, summarizeComparisons } from "../lib/grading-shadow.ts";
 import { runGradingRegressionScan } from "../lib/grading-monitor.ts";
 import { computeIrrReport, type ItemRatings } from "../lib/irr.ts";
-import { requireStepUp } from "../lib/step-up.ts";
+import { requireFreshStepUp, requireStepUp } from "../lib/step-up.ts";
 import { requiresSuperAdmin } from "../lib/grade-adjust-rules.ts";
 import {
   clampScore,
@@ -648,6 +648,14 @@ adminGradingRoutes.post("/prompts/:id/activate", async (c) => {
 
 // POST /prompts/:id/deactivate — turn off an active prompt (reverts to code default).
 adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
+  // US-2353 AC3: deactivate is as dangerous as activate and had no gate.
+  // Turning off the active prompt reverts every grade to the code default —
+  // the same "changes live grading" the activate step-up exists for, reached
+  // from the other direction. An asymmetric pair is a gap with a shape.
+  {
+    const stepUp = requireFreshStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const id = c.req.param("id");
   const { error } = await supabaseAdmin
     .from("ai_prompt_versions")
@@ -2204,6 +2212,12 @@ adminGradingRoutes.post("/exemplars/:id/activate", async (c) => {
 // POST /exemplars/:id/deactivate — turn off an active set (reverts grading to no
 // exemplar block).
 adminGradingRoutes.post("/exemplars/:id/deactivate", async (c) => {
+  // US-2353 AC3: same asymmetry as the prompt pair above. Removing an active
+  // exemplar changes what the grader compares against.
+  {
+    const stepUp = requireFreshStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const id = c.req.param("id");
   await deactivateExemplarSet(id);
   await auditLog(c, "deactivate_exemplar_set", "grading_exemplar_set", id, {});
@@ -3327,6 +3341,13 @@ adminGradingRoutes.get("/baselines", async (c) => {
 });
 
 adminGradingRoutes.put("/baselines/:id", async (c) => {
+  // US-2353 AC2: this overwrites the expectation baseline the grader is
+  // measured against. Moving the yardstick is how a regression stops looking
+  // like one.
+  {
+    const stepUp = requireFreshStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const id = c.req.param("id");
   let body: { brief?: unknown };
   try {

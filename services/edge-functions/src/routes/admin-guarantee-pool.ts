@@ -25,6 +25,7 @@ import { emitReputationEvent, recomputeTrustScore } from "../lib/buyer-trust-sco
 import { notifyBuyer } from "../lib/buyer-notify.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { requireFreshStepUp } from "../lib/step-up.ts";
 
 type AdminEnv = { Variables: { userId: string } };
 
@@ -87,6 +88,12 @@ adminGuaranteePoolRoutes.get("/", async (c) => {
 // Resolve a manual-review buyer guarantee claim. approve → pay the remedy;
 // reject → close; reject_fraud → close + reputation penalty + REVOKE coverage.
 adminGuaranteePoolRoutes.post("/claims/:id/resolve", requireScope("billing:write"), async (c) => {
+  // US-2353 AC2: this draws the guarantee pool and grants reward credit — the
+  // only money-moving route in the service without a step-up.
+  {
+    const stepUp = requireFreshStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const adminId = c.get("userId");
   const claimId = c.req.param("id");
   let body: { action?: string; note?: string };

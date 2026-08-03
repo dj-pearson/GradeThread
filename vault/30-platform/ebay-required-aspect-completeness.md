@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-02
+reviewed: 2026-08-03
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---

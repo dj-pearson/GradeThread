@@ -73,6 +73,24 @@ export function assertAdminMfaConfig(
 // Override with ADMIN_STEP_UP_MAX_AGE_SEC (whole seconds, floored to a 60s
 // minimum). Setting it very high effectively disables the fresh-re-auth
 // protection on those actions.
+// US-2353 AC5: the SHORT window, for the tier where 24 hours is not a control.
+//
+// STEP_UP_MAX_AGE_SEC below is deliberately a working-day window — re-prompting
+// for an authenticator on every ordinary sensitive action trains people to keep
+// the app open and defeats itself. But that makes step-up a once-a-day gate, and
+// for the actions that move money, void issued grades, flip a kill switch or
+// execute an agent-authored write, "you verified this morning" is not evidence
+// that you are at the keyboard now.
+//
+// So there are two tiers rather than one changed default. `requireFreshStepUp`
+// uses this; everything else keeps the day window. Five minutes is long enough
+// to finish a multi-step action without re-prompting mid-flow and short enough
+// that a walked-away session cannot be used.
+export const STEP_UP_FRESH_SEC = (() => {
+  const raw = Number(Deno.env.get("ADMIN_STEP_UP_FRESH_SEC"));
+  return Number.isFinite(raw) && raw >= 60 ? Math.floor(raw) : 5 * 60;
+})();
+
 export const STEP_UP_MAX_AGE_SEC = (() => {
   const raw = Number(Deno.env.get("ADMIN_STEP_UP_MAX_AGE_SEC"));
   return Number.isFinite(raw) && raw >= 60 ? Math.floor(raw) : 24 * 60 * 60;
