@@ -4,6 +4,15 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useCatalogMatch, useAdoptCatalogProduct } from "@/hooks/use-ebay";
 
+// The reason worth showing the seller, or "" for the ones that are not. A dead
+// connection surfaces as the browser's own "Failed to fetch", which reads as
+// gibberish next to a sentence that already says we could not reach eBay.
+function serverReason(err: unknown): string {
+  const msg = err instanceof Error ? err.message.trim() : "";
+  if (!msg || /failed to fetch|networkerror|load failed/i.test(msg)) return "";
+  return `: ${msg}`;
+}
+
 // US-1475: find + adopt an eBay Catalog product (EPID) for an item. Adopting
 // auto-fills the catalog's authoritative item specifics (cutting aspect
 // violations) and sends the EPID at publish. On-demand (hits the eBay API only
@@ -16,7 +25,15 @@ export function EbayCatalogMatchCard({
   currentEpid?: string | null;
 }) {
   const [searching, setSearching] = useState(false);
-  const { data, isLoading } = useCatalogMatch(itemId, searching);
+  // `isError` is not cosmetic here. Without it a failed lookup fell through to
+  // the same branch as an empty result and told the seller "No confident catalog
+  // match found" — a verdict about their item, when eBay had not answered at
+  // all. Seen for real: the edge dropped the request, the console showed a CORS
+  // failure, and the card calmly reported no match.
+  const { data, isLoading, isError, error, refetch } = useCatalogMatch(
+    itemId,
+    searching,
+  );
   const adopt = useAdoptCatalogProduct();
 
   function doAdopt(epid: string) {
@@ -69,6 +86,16 @@ export function EbayCatalogMatchCard({
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching eBay
           catalog…
         </p>
+      ) : isError ? (
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-brand-red-text">
+            Couldn&apos;t reach the eBay catalog{serverReason(error)}. Your
+            specifics are unchanged.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Try again
+          </Button>
+        </div>
       ) : top ? (
         <div className="mt-2 space-y-2">
           <div className="text-sm">
