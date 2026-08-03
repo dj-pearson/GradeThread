@@ -1,11 +1,12 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**One pending: 00515 — and the branch is FROZEN until it is applied.** Prod
+**Two pending: 00515 and 00516 — the branch is FROZEN until both are applied.** Prod
 measured at **00514** on 2026-08-03: `/health/ready` returned
 `schema {expected:"00513", applied:"00514", status:"ahead"}`, the database's own
 answer through the service-role client rather than someone's recollection.
-`EXPECTED_SCHEMA_VERSION` is now **00515** and the highest migration in the tree
-is `00515_flipdesk_listing_page.sql`, so the tree is one ahead of prod.
+`EXPECTED_SCHEMA_VERSION` is now **00516** and the highest migration in the tree
+is `00516_debit_grade_credits_idempotency.sql`, so the tree is two ahead of prod.
+Apply in number order: 00515 then 00516.
 
 Unlike the last two, this one is **not** inert: the FlipDesk inventory table
 calls `flipdesk_listing_page` on every render. Apply it before pushing.
@@ -31,6 +32,45 @@ flips the marker when the SQL runs. The session-start hook reads these ⏳
 markers, so a stale one tells every future session the branch is frozen when it
 is not — which has happened twice (see the US-2017 note in prd.json). **When you
 apply a migration, flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00516_debit_grade_credits_idempotency.sql (US-2289 AC2 double-charge defence, 2026-08-03)
+
+**Risk: LOW, and it cannot change existing behaviour.** The new parameter is
+TRAILING and defaults to NULL, so every existing 4-arg caller behaves exactly as
+before. The old 4-arg overload is dropped in the same file — left in place it
+would silently keep winning for those callers and they would stay on the
+pre-idempotency body.
+
+**What it does.** `debit_grade_credits` gains `p_idempotency_key`. When a key is
+supplied and a ledger row already carries it, the function debits NOTHING and
+returns the current balance. The storage was already there and unused: 00216
+added `grade_credit_transactions.idempotency_key` and a partial unique index on
+it, and the grading path never set it.
+
+**Why.** A reclaimed batch-grading job re-entered the charge path, so one garment
+could be debited up to 5 times (MAX_GRADE_JOB_ATTEMPTS). The ROOT fix already
+shipped — the job row carries its submission_id, so a reclaim resumes instead of
+restarting — and this is the second line for any path that bypasses it. The edge
+now passes `grade-batch-job:{jobId}`, keyed on the JOB because that is what a
+reclaim re-runs.
+
+**Verified against a real database before being written down** (applied to the
+local stack, exercised in a transaction, rolled back): the same key three times
+debits ONCE (balance 10 → 7 → 7 → 7, exactly one ledger row); a different key
+debits normally; and a call with NO key debits every time, which is what keeps
+the existing callers correct.
+
+**Apply:**
+
+1. Run `supabase/migrations/00516_debit_grade_credits_idempotency.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — the RPC signature changed.
+3. Redeploy the edge (boot guard expects 00516).
+
+**Verify:** grade one item. The balance should drop by exactly the tier cost, and
+`grade_credit_transactions` should show one `grade_debit` row carrying an
+`idempotency_key` of `grade-batch-job:…` for batch grades.
 
 ---
 

@@ -154,7 +154,16 @@ async function gradeBatchItem(
   // proceed) — and we remove the unpaid submission we created.
   let paid = false;
   try {
-    const precedence = await runPaymentPrecedence(userId, submissionId, tier);
+    // US-2289 AC2: keyed on the JOB, not the submission. The job id is what a
+    // reclaim re-runs, so it is the thing that must charge exactly once — and
+    // it stays stable across attempts in a way a freshly-created submission
+    // would not have.
+    const precedence = await runPaymentPrecedence(
+      userId,
+      submissionId,
+      tier,
+      `grade-batch-job:${jobId}`,
+    );
     paid = precedence.paid;
   } catch (err) {
     await supabaseAdmin.from("submissions").delete().eq("id", submissionId);

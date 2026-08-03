@@ -119,6 +119,16 @@ export async function runPaymentPrecedence(
   userId: string,
   submissionId: string,
   tier: GradeTier,
+  /**
+   * US-2289 AC2: optional dedupe key for the CREDIT debit.
+   *
+   * A batch job that is reclaimed after a stale lease re-enters this path. The
+   * root fix stops it creating a second submission, but passing the job's own
+   * id here makes the charge itself idempotent at the database — the second
+   * call finds the ledger row, debits nothing and returns the current balance.
+   * Omitted (the default) the behaviour is exactly as before.
+   */
+  idempotencyKey?: string | null,
 ): Promise<PrecedenceResult> {
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
@@ -289,6 +299,7 @@ export async function runPaymentPrecedence(
         p_credits: cost,
         p_submission_id: submissionId,
         p_notes: `${tier} grade — ${cost} credit${cost === 1 ? "" : "s"}`,
+        p_idempotency_key: idempotencyKey ?? null,
       },
     );
 
