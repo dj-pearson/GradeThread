@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/grading-pipeline.ts
   - services/edge-functions/src/lib/upload-validation.ts
   - src/lib/media-intake.ts
-reviewed: 2026-08-02
+reviewed: 2026-08-03
 tags: [grading, uploads, images, gotcha]
 summary: A file's extension and its bytes disagree often enough to break grading — sniff the bytes on the way in and on the way out.
 ---
