@@ -22,6 +22,11 @@ like `garment_baselines`, `grading_exemplar_sets`, `abuse_signals`,
 `content_moderation_flags`. It is deny-all: RLS on, `revoke insert, update,
 delete from anon, authenticated`, and zero policies.
 
+> [!tip] The function-side counterpart
+> This note is about TABLES. For `SECURITY DEFINER` functions the edge calls,
+> see [[admin-rpc-guards]] — `is_admin()` is always false for the service role,
+> so a bare `is_admin()` guard rejects every call the edge makes.
+
 ## Two things to get right when adding one
 
 **1. Register it in `SERVICE_ROLE_ONLY`** with a one-line justification, or the

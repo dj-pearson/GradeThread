@@ -1,16 +1,56 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**One pending: 00513.** Prod measured at **00512** on 2026-08-02 (the
+**Two pending: 00513 and 00514.** Prod measured at **00512** on 2026-08-02 (the
 `/health/ready` schema block reported `applied: "00512"`), so 00510–00512 are
-in and this branch is exactly one ahead. `EXPECTED_SCHEMA_VERSION` is now
-**00513** and the highest migration in the tree is
-`00513_admin_dashboard_aggregates.sql`.
+in and this branch is two ahead. `EXPECTED_SCHEMA_VERSION` is now **00514** and
+the highest migration in the tree is
+`00514_admin_metrics_service_role_guard.sql`. Apply in number order.
 
 Why entries have gone stale here before: this file is edited by hand and nothing
 flips the marker when the SQL runs. The session-start hook reads these ⏳
 markers, so a stale one tells every future session the branch is frozen when it
 is not — which has happened twice (see the US-2017 note in prd.json). **When you
 apply a migration, flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00514_admin_metrics_service_role_guard.sql (US-2393 admin System 500, 2026-08-02)
+
+**This one fixes a LIVE outage, and it is independent of 00513.** If you only
+apply one thing tonight, apply this.
+
+**What it does.** Recreates `admin_system_metrics()` and
+`admin_revenue_metrics()` with one line changed each: the guard becomes
+`auth.role() = 'service_role' or public.is_admin()` (the 00207/00227 pattern).
+Nothing else about either function changes — the bodies are
+`pg_get_functiondef()` output, generated rather than retyped, so the diff cannot
+carry a behaviour change alongside the fix.
+
+**Why.** Both are called from `GET /api/admin/dashboard/system` through
+`supabaseAdmin`, the service-role client. `is_admin()` identifies the caller via
+`auth.uid()`, which is NULL for a service-role JWT — it has no `sub`. So the
+guard raised 42501 on *every* call and the route has been answering **500** ever
+since US-1565 moved that page behind the edge admin boundary. Confirmed against
+a real database on 2026-08-02, not inferred: `set local role service_role;
+select public.admin_system_metrics();` → `ERROR: admin_system_metrics: admin
+role required`.
+
+**Security: nothing is given up.** The route is already gated by the edge admin
+middleware (JWT + role + AAL2 + audit) — that is exactly what US-1565 moved it
+there for — and an authenticated non-admin is still refused by the `is_admin()`
+half. Both directions were verified locally after applying: service-role
+succeeds, and an authenticated non-admin still raises 42501.
+
+**Risk: LOW.** `CREATE OR REPLACE FUNCTION` only, re-runnable, no schema change.
+
+**Apply:**
+
+1. Run `supabase/migrations/00514_admin_metrics_service_role_guard.sql`.
+2. `NOTIFY pgrst, 'reload schema';` (function bodies changed).
+3. Redeploy the edge (boot guard expects 00514).
+
+**Verify:** open the admin **System** tab. It should render queue depth,
+processing time, storage and subscription numbers instead of failing to load.
 
 ---
 
