@@ -258,13 +258,26 @@ Deno.test("US-2300: BOTH serving paths call the one shared gate", () => {
     new URL("../routes/admin-grading.ts", import.meta.url),
   );
   assert(evalSrc.includes("export function checkPromptServingEligibility"));
-  assert(
-    evalSrc.includes("checkPromptServingEligibility(v, getGradingCompositeModel())"),
-    "activatePromptVersion must use the shared gate",
-  );
-  assert(
-    adminSrc.includes("checkPromptServingEligibility(v, getGradingCompositeModel())"),
-    "the canary route must use the shared gate",
+
+  // US-2307: this used to pin the exact call INCLUDING its second argument,
+  // `getGradingCompositeModel()`. That over-specified the property US-2300
+  // cares about — one shared gate, no drift — and baked in a model choice that
+  // turned out to be wrong for two of the three stages. The gate is shared; the
+  // MODEL fed to it is per-stage, and this case has no business asserting which.
+  //
+  // Pinned as "both call it with the same expression" instead, which is the
+  // anti-drift property itself rather than a snapshot of one correct answer.
+  const callOf = (src: string) =>
+    /checkPromptServingEligibility\(v,\s*([^)]+\))\)/.exec(src)?.[1] ?? null;
+  const evalCall = callOf(evalSrc);
+  const adminCall = callOf(adminSrc);
+  assert(evalCall, "activatePromptVersion must use the shared gate");
+  assert(adminCall, "the canary route must use the shared gate");
+  assertEquals(
+    evalCall,
+    adminCall,
+    "the two serving paths feed the shared gate DIFFERENT models — which is the " +
+      "same drift US-2300 closed, moved from the function to its argument",
   );
   // And the canary route must actually READ the column it now checks.
   assert(

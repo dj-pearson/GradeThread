@@ -271,9 +271,29 @@ export async function runListingEval(
   }
   const runId = runRow ? (runRow as { id: string }).id : null;
 
+  // US-2307 AC1: stamp qualified_model, exactly as the grading eval does.
+  //
+  // Without it the activation gate refuses EVERY listing_gen prompt — it fails
+  // closed on a missing stamp (US-2036), correctly, so listing_gen_v2 (seeded
+  // by 00446) was permanently unpromotable. The eval would run, report a pass,
+  // write eval_passed=true, and activation would still refuse with a message
+  // about the pass predating model attribution. Nothing in that loop pointed at
+  // the missing write.
+  //
+  // Cleared to null on a FAILING run, like the grading eval: a stale pass from
+  // an earlier model must not survive a failure and be read as attribution it
+  // never earned.
+  //
+  // `model` is the one this eval actually ran on (getDefaultModel), which is
+  // also what ai-listing.ts serves on — so the gate's model comparison is a
+  // real check here rather than a formality.
   await supabaseAdmin
     .from("ai_prompt_versions")
-    .update({ eval_passed: passed, eval_run_id: runId })
+    .update({
+      eval_passed: passed,
+      eval_run_id: runId,
+      qualified_model: passed ? model : null,
+    })
     .eq("id", input.promptVersionId);
 
   return {

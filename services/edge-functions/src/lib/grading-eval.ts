@@ -9,7 +9,7 @@ import {
   type PerImageAnalysis,
   type ResolvedPrompt,
 } from "./ai-grading.ts";
-import { getGradingCompositeModel, isAllowedGradingModel } from "./ai-config.ts";
+import { isAllowedGradingModel, servingModelForStage } from "./ai-config.ts";
 import { runListingEval } from "./listing-eval.ts";
 import { scoreToGradeTier } from "./human-review.ts";
 import { sniffImageFormat, IMAGE_CONTENT_TYPE } from "./upload-validation.ts";
@@ -200,10 +200,24 @@ export async function runEval(
     );
   }
 
+  // US-2307: the eval runs on, and stamps, the model THIS STAGE will serve on.
+  //
+  // It used to be getGradingCompositeModel() for every stage, and the stamp is
+  // what the activation gate later compares — so the two agreed with each other
+  // while both being wrong for per_image, which serves on getDefaultModel().
+  // A per_image prompt could be qualified on the composite model and then serve
+  // every paid grade on a different one, with eval_passed reading true. That is
+  // the exact hole US-2036 was filed to close, one stage over from where it was
+  // closed.
+  //
+  // No-op unless GRADING_COMPOSITE_MODEL is set: without the override both
+  // helpers return the same string. It only diverges when an operator has
+  // deliberately split the models, which is precisely when the old behaviour
+  // was already wrong.
   const model =
     modelOverride && isAllowedGradingModel(modelOverride)
       ? modelOverride
-      : getGradingCompositeModel();
+      : servingModelForStage(v.stage);
   const perCase: EvalCaseResult[] = [];
 
   for (const row of cases as EvalCaseRow[]) {
@@ -637,7 +651,11 @@ export async function activatePromptVersion(
   };
 
   // US-2300: one shared gate, so the canary route and this one cannot drift.
-  const eligible = checkPromptServingEligibility(v, getGradingCompositeModel());
+  // US-2307: compared against the model THIS STAGE serves on, not the composite
+  // model for every stage. A listing_gen prompt runs on getDefaultModel(), so
+  // gating it on the composite model proved the wrong thing — and refused it
+  // outright once the two diverge.
+  const eligible = checkPromptServingEligibility(v, servingModelForStage(v.stage));
   if (!eligible.ok) return eligible;
 
   // Deactivate the current active prompt for the same stage + scope slot.

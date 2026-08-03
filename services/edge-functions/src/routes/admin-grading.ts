@@ -77,7 +77,7 @@ import {
 } from "../lib/authenticity-accuracy.ts";
 import { recordMetric } from "../lib/observability.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
-import { getGradingCompositeModel, isAllowedGradingModel } from "../lib/ai-config.ts";
+import { isAllowedGradingModel, servingModelForStage } from "../lib/ai-config.ts";
 import { brandKeyForRaw } from "../lib/brand-normalize.ts";
 import {
   resealAfterAuthenticityChange,
@@ -1624,7 +1624,11 @@ adminGradingRoutes.patch("/prompts/:id/canary", async (c) => {
     // only eval_passed, so a prompt qualified on model A could serve a live
     // slice of paying customers while DEFAULT_AI_MODEL was model B. A canary is
     // a smaller audience, not a lower bar — the grades it produces are sold.
-    const eligible = checkPromptServingEligibility(v, getGradingCompositeModel());
+    // US-2307: per-STAGE serving model, matching activatePromptVersion. Sharing
+    // the gate function was never enough on its own — both callers passed the
+    // composite model for every stage, so the two agreed and were both wrong
+    // for per_image and listing_gen.
+    const eligible = checkPromptServingEligibility(v, servingModelForStage(v.stage));
     if (!eligible.ok) return c.json({ error: eligible.reason }, 422);
     // One canary per slot: clear any OTHER canary in the same (stage, scope).
     let clear = supabaseAdmin
@@ -1886,7 +1890,27 @@ adminGradingRoutes.get("/eval/cases", async (c) => {
 });
 
 // POST /eval/cases — add a golden case. images is [{ image_type, storage_path }].
+// US-2307 AC4: the asymmetry was NOT deliberate, and the decision is recorded
+// here rather than in a story note nobody will read next to this code.
+//
+// PATCH and DELETE on a case required step-up; creating one did not. The
+// implied reasoning is that editing ground truth is dangerous and adding to it
+// is routine. That gets the threat backwards.
+//
+// The golden set IS the eval gate. A prompt version is promoted to live paid
+// traffic on the strength of clearing MAE/agreement thresholds against these
+// cases, so whoever controls the cases controls the gate. Adding a fabricated
+// case with lenient expected scores is the straightforward way to make a
+// failing prompt pass — it needs no edit to anything that already exists and
+// leaves the existing cases untouched, which is exactly what makes it the
+// quieter path. The grading-engine contract says the set grows from REAL
+// corrected grades and never synthetic fabrications; that rule needed a gate
+// and had none.
+//
+// So all four writers now match: create, promote, promote-batch, edit, delete.
 adminGradingRoutes.post("/eval/cases", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
   const userId = c.get("userId");
   let body: Record<string, unknown>;
   try {
@@ -1940,6 +1964,21 @@ adminGradingRoutes.post("/eval/cases", async (c) => {
 // case (is_active=false, pending approval). US-329: the self-improvement loop.
 // Body: { grade_report_id, source?: "human_review" | "dispute" }. Idempotent —
 // one candidate per grade report (dedup on source_grade_report_id).
+// US-2307 AC4: DELIBERATELY NOT step-up gated, and the reasoning is the same
+// one that gates the route above rather than a softer version of it.
+//
+// This creates a CANDIDATE (is_active=false). A candidate counts for nothing:
+// the eval loads `.eq("is_active", true)`, so it cannot influence the gate
+// until an admin approves it via PATCH /eval/cases/:id — which IS step-up
+// gated. The privileged act is the approval, and it is already guarded.
+//
+// The second reason is stronger. This endpoint is called automatically and
+// best-effort by the web client after a reviewer adjusts a grade
+// (src/lib/eval-candidates.ts), inside a try/catch that swallows everything so
+// it can never block the correction it follows. A step-up here would not
+// prompt anybody — it would return 403 into a catch that discards it, and the
+// self-improvement loop would stop growing with nothing to show for it. That
+// is the go-quiet-on-failure shape, added on purpose.
 adminGradingRoutes.post("/eval/cases/promote", async (c) => {
   const userId = c.get("userId");
   let body: { grade_report_id?: string; source?: string };
@@ -1971,6 +2010,15 @@ adminGradingRoutes.post("/eval/cases/promote", async (c) => {
 // so coverage grows automatically (US-1068). Idempotent (dedup on source grade
 // report); candidates still need approval before counting toward the gate.
 // Body: { min_delta?, since_days?, limit? }. Safe to run on a schedule.
+// US-2307 AC4: not gated, for the same reason as the single promote — it also
+// writes is_active=false candidates (grading-eval.ts), so nothing it creates
+// reaches the eval gate without a step-up-gated approval.
+//
+// It is bulk, which is what made gating it tempting. But bulk-creating rows
+// that count for nothing is not a privileged act, and the cost was concrete:
+// this one IS operator-triggered from a button whose handler has no step-up
+// replay path, so gating it would have turned "Grow from corrections" into an
+// error toast.
 adminGradingRoutes.post("/eval/cases/promote-batch", async (c) => {
   const userId = c.get("userId");
   const body = await c.req.json().catch(() => ({}));

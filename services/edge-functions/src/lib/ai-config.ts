@@ -96,6 +96,46 @@ export function getGradingCompositeModel(): string {
   return getDefaultModel();
 }
 
+/**
+ * The model that will ACTUALLY serve traffic for a prompt version's stage.
+ *
+ * US-2307. `ai_prompt_versions.stage` is one of three, and they do not all run
+ * on the same model:
+ *
+ *   per_image   → getDefaultModel()          (the vision call, ai-grading.ts)
+ *   composite   → getGradingCompositeModel() (the text synthesis)
+ *   listing_gen → getDefaultModel()          (ai-listing.ts)
+ *
+ * The eval gate (US-2036) exists to prove a prompt was qualified on the model
+ * that will serve it. Both the activation gate and the canary route compared
+ * every stage against getGradingCompositeModel(), which is right for exactly
+ * one of the three. So the proof was being made against the wrong model for
+ * per_image and listing_gen — which is the same hole US-2036 closed, reopened
+ * one stage over.
+ *
+ * TODAY THIS IS A NO-OP, and that is the point: getGradingCompositeModel()
+ * returns getDefaultModel() unless GRADING_COMPOSITE_MODEL is set, so with no
+ * override all three stages resolve to the same string and nothing changes.
+ * The divergence only appears the moment an operator deliberately splits the
+ * models — which is precisely when the old code started attributing a prompt to
+ * a model that never ran it.
+ *
+ * An unknown stage resolves to the grading composite model, the strictest of
+ * the three: a stage nobody has classified should not get a laxer gate than the
+ * ones that were.
+ */
+export function servingModelForStage(stage: string): string {
+  switch (stage) {
+    case "per_image":
+    case "listing_gen":
+      return getDefaultModel();
+    case "composite":
+      return getGradingCompositeModel();
+    default:
+      return getGradingCompositeModel();
+  }
+}
+
 // Content-generation model, resolved per content KIND so an operator can route
 // low-stakes short-form (social, email) to the cheaper model while keeping
 // authority long-form (blog, refresh) on the default. `content` is the #1 AI

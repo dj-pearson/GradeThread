@@ -87,8 +87,33 @@ inherited a pass it never earned — no deploy, no eval, no audit entry.
 
 `runEval` now stamps `ai_prompt_versions.qualified_model` with the model that
 produced the result (and NULLs it on a failing run). `activatePromptVersion`
-refuses when it differs from `getGradingCompositeModel()`, and refuses when it
-is missing — an unattributable pass is not a pass.
+refuses when it differs from the serving model, and refuses when it is missing
+— an unattributable pass is not a pass.
+
+**The serving model is PER STAGE (US-2307).** `servingModelForStage()` in
+`ai-config.ts` is the one mapping, and both the activation gate and the canary
+route compare against it:
+
+| stage | serves on |
+|---|---|
+| `per_image` | `getDefaultModel()` |
+| `composite` | `getGradingCompositeModel()` |
+| `listing_gen` | `getDefaultModel()` |
+
+An unknown stage resolves to the composite model — the strictest — so a stage
+nobody has classified cannot get a laxer gate than one that was.
+
+Before US-2307 every stage was compared against `getGradingCompositeModel()`.
+US-2300 had already made the two callers share one gate FUNCTION, so they could
+not drift from each other — but both passed the same wrong argument, which is a
+consistent answer rather than a correct one. Two consequences: `listing_gen`
+prompts could never be activated at all (the listing eval also never stamped
+`qualified_model`), and a `per_image` prompt could be qualified on the composite
+model while serving every paid grade on the default one — the same hole this
+section exists to close, one stage over.
+
+It only diverges when `GRADING_COMPOSITE_MODEL` is set; otherwise all three
+stages resolve to the same string.
 
 Activation-time checking is necessary but NOT sufficient: the model can change
 under an already-active version. `grading-monitor` therefore raises a CRITICAL
@@ -105,7 +130,17 @@ on the active prompt version. There is no way to move the model without it.
   path filters `deleted_at IS NULL` — except the US-2034 contamination
   exclusion in `few-shot-exemplars.ts`, which deliberately still sees deleted
   rows because a restored case must not silently become an exemplar.
-- Both PATCH and DELETE require step-up, matching prompt activation/canary.
+- **Step-up follows what can reach the gate, not what writes a row (US-2307).**
+  `POST /eval/cases` requires it — `is_active` DEFAULTS TO TRUE, so a case built
+  from a request body counts immediately, and a fabricated lenient case is the
+  direct way to pass a failing prompt. `PATCH` (the approval that makes a
+  candidate count) and `DELETE` require it too.
+  `POST /eval/cases/promote` and `/promote-batch` deliberately DO NOT: both
+  write `is_active=false` candidates, which the eval never loads, so they cannot
+  influence anything until a gated `PATCH`. Adding a step-up there is a silent
+  outage rather than a stricter system — `/promote` is called automatically and
+  best-effort after a reviewer correction inside a catch that swallows the 403,
+  so it would just stop the self-improvement loop growing with nothing to show.
 - `expected_score` / `expected_tier` are IMMUTABLE (409) once the case has
   appeared in a passing run — editing ground truth retroactively invalidates
   every historical comparison. Retire the case and add a corrected one instead.
