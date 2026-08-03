@@ -122,6 +122,7 @@ export function ContentSettingsPage() {
                   {SOCIAL_PLATFORM_LABELS[platform]}
                 </p>
                 <Switch
+                  aria-label={`Publish to ${SOCIAL_PLATFORM_LABELS[platform]}`}
                   checked={enabled}
                   onCheckedChange={(v) => {
                     const current = (draft.social_platforms ??
@@ -153,6 +154,7 @@ export function ContentSettingsPage() {
               </p>
             </div>
             <Switch
+              aria-label="Pause all publishing"
               checked={draft.publishing_paused ?? false}
               onCheckedChange={(v) => setField("publishing_paused", v)}
             />
@@ -165,6 +167,7 @@ export function ContentSettingsPage() {
               </p>
             </div>
             <Switch
+              aria-label="Auto-publish blog"
               checked={draft.auto_publish_blog ?? false}
               onCheckedChange={(v) => setField("auto_publish_blog", v)}
             />
@@ -177,6 +180,7 @@ export function ContentSettingsPage() {
               </p>
             </div>
             <Switch
+              aria-label="Auto-publish social"
               checked={draft.auto_publish_social ?? false}
               onCheckedChange={(v) => setField("auto_publish_social", v)}
             />

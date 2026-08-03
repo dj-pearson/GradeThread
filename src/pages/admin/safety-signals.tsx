@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Link } from "react-router";
@@ -136,6 +136,11 @@ function userLabel(u: UserLite | null, fallbackId: string): string {
 
 export function AdminSafetySignalsPage() {
   const [type, setType] = useState<string>("all");
+  // US-2335: ids for the filter bar and the resolution field.
+  const statusFilterId = useId();
+  const typeFilterId = useId();
+  const severityFilterId = useId();
+  const resolutionId = useId();
   const [severity, setSeverity] = useState<string>("all");
   const [status, setStatus] = useState<string>("open");
   const [page, setPage] = useState(1);
@@ -258,18 +263,18 @@ export function AdminSafetySignalsPage() {
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1.5">
-          <Label className="text-xs">Status</Label>
+          <Label className="text-xs" htmlFor={statusFilterId}>Status</Label>
           <Select value={status} onValueChange={(v) => changeFilter(setStatus, v)}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-36" id={statusFilterId}><SelectValue /></SelectTrigger>
             <SelectContent>
               {STATUS_FILTERS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Type</Label>
+          <Label className="text-xs" htmlFor={typeFilterId}>Type</Label>
           <Select value={type} onValueChange={(v) => changeFilter(setType, v)}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-44" id={typeFilterId}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All types</SelectItem>
               {(Object.keys(TYPE_LABEL) as SignalType[]).map((t) => (
@@ -279,9 +284,9 @@ export function AdminSafetySignalsPage() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Severity</Label>
+          <Label className="text-xs" htmlFor={severityFilterId}>Severity</Label>
           <Select value={severity} onValueChange={(v) => changeFilter(setSeverity, v)}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-36" id={severityFilterId}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               {(["critical", "high", "medium", "low"] as Severity[]).map((s) => (
@@ -441,8 +446,8 @@ export function AdminSafetySignalsPage() {
                     )}
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Resolution reason (required to action/dismiss)</Label>
-                      <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Why are you resolving this signal?" />
+                      <Label className="text-xs" htmlFor={resolutionId}>Resolution reason (required to action/dismiss)</Label>
+                      <Textarea id={resolutionId} value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Why are you resolving this signal?" />
                     </div>
 
                     <div className="flex flex-wrap gap-2">
