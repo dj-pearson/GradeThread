@@ -78,13 +78,18 @@ Run each check so it stays silent on success and only surfaces output on
 failure. This keeps thousands of lines of green build/test logs from being
 re-ingested into context:
 
-1. `npx tsc --noEmit` — prints nothing on success; fix every error it reports.
+1. `npx tsc -b` — prints nothing on success; fix every error it reports. Use
+   `-b`, not `--noEmit`: CI and `npm run verify` both run `tsc -b`, which
+   follows project references and rejects casts `--noEmit` lets through.
 2. `npm run build:locked > /tmp/ralph-build.log 2>&1 || tail -n 60 /tmp/ralph-build.log`
    — use `build:locked` (not bare `build`) so a co-running loop can't starve it.
    Only inspect the log if the command failed.
-3. `npm test > /tmp/ralph-test.log 2>&1 || tail -n 80 /tmp/ralph-test.log`
+3. `npm run test:coverage > /tmp/ralph-test.log 2>&1 || tail -n 80 /tmp/ralph-test.log`
    — MANDATORY. `npm run build` does NOT run vitest; skipping this ships a red
-   `main`. Only read the log on failure.
+   `main`. Only read the log on failure. Run `test:coverage`, not `npm test`:
+   CI runs the coverage command and `vitest.config.ts` sets FAILING coverage
+   thresholds, so `npm test` can be green while CI is red on coverage alone.
+   `npm test` is a fine fast inner loop; it is not the gate.
 4. If you added/changed a SQL migration:
    `npm run verify:db > /tmp/ralph-db.log 2>&1 || tail -n 80 /tmp/ralph-db.log`
    (boots a throwaway Supabase in Docker, applies all migrations from scratch).

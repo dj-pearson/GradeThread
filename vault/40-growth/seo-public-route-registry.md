@@ -87,7 +87,7 @@ clause there, or it reads as unrouted.
 Verify order that actually works, since two of these depend on the one before:
 
 ```
-npx tsc --noEmit → eslint <files> → vitest run src/lib/seo
+npx tsc -b → eslint <files> → vitest run src/lib/seo
   → npm run build   (regenerates dist)
   → vitest run src/prerender   (dist-dependent — meaningless before the build)
 ```

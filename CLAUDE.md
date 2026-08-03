@@ -77,7 +77,7 @@ SaaS for standardized, AI-powered condition grading of pre-owned clothing: selle
 npm run dev        # Dev server (localhost:5173)
 npm run build      # tsc check + Vite production build
 npm run lint       # ESLint
-npx tsc --noEmit   # Type check only
+npx tsc -b         # Type check only — `-b`, same as CI; `--noEmit` is WEAKER and lets casts slide
 # Edge:
 cd services/edge-functions && deno run --allow-net --allow-env --allow-read src/main.ts
 ```

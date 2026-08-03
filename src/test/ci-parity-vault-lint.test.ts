@@ -17,10 +17,32 @@
 // weaker local command is worse than no local command, because it manufactures
 // confidence.
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), "utf8");
+
+/**
+ * Every markdown file a human or an agent might read for instructions.
+ *
+ * `vault/90-archive/` is excluded on purpose: archived notes are dated
+ * snapshots that must keep saying what was true then. Everything else is live
+ * instruction and has to name the real gate.
+ */
+const SKIP = /^(node_modules|dist|coverage|\.git|ios|android|test-results)$/;
+function walkMarkdown(dir: string, out: string[] = []): string[] {
+  for (const e of readdirSync(resolve(process.cwd(), dir), {
+    withFileTypes: true,
+  })) {
+    const p = dir === "." ? e.name : `${dir}/${e.name}`;
+    if (e.isDirectory()) {
+      if (!SKIP.test(e.name) && p !== "vault/90-archive") walkMarkdown(p, out);
+    } else if (e.name.endsWith(".md")) {
+      out.push(p);
+    }
+  }
+  return out;
+}
 
 describe("local vault:lint matches what CI runs", () => {
   it("the npm script passes --strict", () => {
@@ -95,6 +117,64 @@ describe("local vault:lint matches what CI runs", () => {
         `${doc} mentions vault:lint:soft as the routine check — it is the ` +
           `non-failing view, not the gate`,
       ).not.toMatch(/run `npm run vault:lint:soft`/);
+    }
+  });
+
+  // US-2391, the THIRD pair. Same class again, and the one with the widest
+  // blast radius: CLAUDE.md's own Commands block is where a fresh session looks
+  // first.
+  //
+  // CI (.github/workflows/ci.yml) and scripts/verify.mjs both run `npx tsc -b`.
+  // CLAUDE.md and scripts/ralph/CLAUDE.md both said `npx tsc --noEmit`. Those
+  // are not two spellings of one check: `-b` follows project references and
+  // rejects casts `--noEmit` lets slide, which vault/70-agent/ralph-learnings.md
+  // had already recorded — so the correction existed in the vault while the two
+  // documents people actually run kept naming the weaker command.
+  //
+  // Resolved by strengthening the DOC (unlike `npm test`, there is no inner-loop
+  // value in the weaker one — `tsc -b` is incremental and not slower).
+  it("CI and the verify lane both typecheck with `tsc -b`", () => {
+    // Both directions, same as the vault pair: if CI ever drops to `--noEmit`,
+    // the doc guard below would keep passing while the gate weakened.
+    expect(read(".github/workflows/ci.yml")).toContain("npx tsc -b");
+    expect(read("scripts/verify.mjs")).toContain("npx tsc -b");
+  });
+
+  it("no doc prescribes `npx tsc --noEmit` as the typecheck", () => {
+    // One file mentions the weaker command legitimately. Enumerated with the
+    // reason, not skipped by a blanket pattern — a rule broad enough to excuse
+    // it would excuse the next regression too.
+    //
+    // `vault/70-agent/reading-a-red-ci.md` needs no exemption: it runs
+    // `npx tsc -p tsconfig.functions.json --noEmit`, a DIFFERENT project. The
+    // root build never sees functions/, so that is an extra check rather than a
+    // substitute for the gate, and the pattern below does not match it.
+    const ALLOWED: Record<string, string> = {
+      // Names it in order to say it is NOT enough. That IS the correction.
+      "vault/70-agent/ralph-learnings.md":
+        "records that --noEmit is weaker than tsc -b",
+    };
+
+    const docs = walkMarkdown(".");
+    // Canary: the walk must actually reach the file the incident was in. A scan
+    // that finds nothing because it searched nowhere reads identically to a
+    // clean result.
+    expect(docs, "the markdown walk missed CLAUDE.md").toContain("CLAUDE.md");
+
+    const offenders = docs.filter(
+      (f) => !(f in ALLOWED) && /npx tsc --noEmit/.test(read(f)),
+    );
+    expect(
+      offenders,
+      "these docs name a typecheck weaker than the CI step; CI runs `npx tsc -b`",
+    ).toEqual([]);
+
+    // Guard the guard: every allowlist entry must still contain the string it
+    // is excused for. A stale exemption is how the next one gets waved through.
+    for (const [f, why] of Object.entries(ALLOWED)) {
+      expect(read(f), `${f} no longer ${why} — drop its exemption`).toContain(
+        "npx tsc --noEmit",
+      );
     }
   });
 });
