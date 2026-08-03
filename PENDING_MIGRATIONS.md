@@ -1,10 +1,10 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing is pending. 00515 through 00521 were all applied to prod on
-2026-08-03** (owner-confirmed), so the branch is not frozen.
+**One pending: 00522.** 00515 through 00521 were all applied to prod on
+2026-08-03 (owner-confirmed).
 
-`EXPECTED_SCHEMA_VERSION` is **00521**, which matches the highest migration in
-the tree. The edge needs a redeploy to pick that up: until it does, the database
+`EXPECTED_SCHEMA_VERSION` is **00522**, matching the highest migration in the
+tree. The edge needs a redeploy to pick that up: until it does, the database
 is AHEAD of the running image, which the boot guard treats as a warning and
 serves through. The reverse — an edge that expects a version the database does
 not have — is the one that crash-loops.
@@ -55,6 +55,48 @@ flips the marker when the SQL runs. The session-start hook reads these ⏳
 markers, so a stale one tells every future session the branch is frozen when it
 is not — which has happened twice (see the US-2017 note in prd.json). **When you
 apply a migration, flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00522_grade_report_certified_content_updated_at.sql (US-2392 certificate revision date, 2026-08-03)
+
+**Risk: LOW.** One nullable column and one partial index on `grade_reports`. No
+data is rewritten — the backfill is "leave everything NULL", which is the
+truthful state for a certificate that has never been revised.
+
+**What it closes.** `grade_reports` had no `updated_at` at all. A human-review
+adjustment rewrites the scores, the tier and the integrity hash on a LIVE,
+publicly-served row and recorded no timestamp on it. The integrity hash is what
+makes that sharper than missing metadata: the hash exists so a buyer can verify
+the certificate was not tampered with, and a legitimate adjustment RECOMPUTES it
+— so the certificate verified clean both before and after a score change, with
+nothing marking that one happened.
+
+**Verified on a throwaway stack:** the corpus applies on a fresh schema, the
+column is `timestamptz` and nullable, every row reads NULL, and the index is
+genuinely partial (`WHERE certified_content_updated_at IS NOT NULL`).
+
+**Ships with edge + web:** the adjustment path stamps it (inside the certificate
+branch only), the public certificate allowlist exposes it in the EXTRA set so the
+42703 genesis fallback still serves certificates if this is unapplied, and both
+the SPA and the cert SSR emit schema.org `dateModified` only when it is set.
+
+**Safe to deploy ahead of the SQL, unusually.** The column sits in the EXTRA
+allowlist, so on a database without it PostgREST answers 42703 and the existing
+US-1945 fallback serves the genesis columns — certificates render, and
+`dateModified` is simply absent. Apply it anyway; that is a degradation path, not
+a plan.
+
+**Apply:**
+
+1. Run `supabase/migrations/00522_grade_report_certified_content_updated_at.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — new column.
+3. Redeploy the edge (boot guard expects 00522).
+
+**Verify:** `select count(*) from grade_reports where
+certified_content_updated_at is not null;` returns 0 immediately after applying,
+and becomes non-zero the first time a human-review adjustment resaves a
+certificate.
 
 ---
 

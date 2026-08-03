@@ -46,6 +46,9 @@ interface PublicCertificate {
   ai_summary: string;
   buyer_writeup: string | null;
   created_at: string;
+  // US-2392: when the certified content was last rewritten in place by a
+  // human-review adjustment. Absent/null on an unrevised certificate.
+  certified_content_updated_at?: string | null;
   hero_image_url: string | null;
   // US-1413: the full ordered gallery (signed URLs). Returned by the public
   // endpoint but previously ignored by the SSR — now rendered as a photo grid.
@@ -288,6 +291,11 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     // image field, which the builder omits gracefully.
     images: certGalleryImageUrls(base, cert.id, cert.images?.length ?? 0),
     datePublished: cert.created_at,
+    // US-2392 / US-2071 AC3: mirrors the SPA exactly — see the note there. The
+    // byte-equality test in json-ld.test.ts exercises both the present and the
+    // absent case, because a fixture that omits the field cannot catch a
+    // divergence in it.
+    dateModified: cert.certified_content_updated_at ?? null,
     siteUrl: base,
   });
 

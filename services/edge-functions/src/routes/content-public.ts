@@ -696,9 +696,21 @@ const CERT_REPORT_GENESIS_COLUMNS =
 // prefers them only when both are present and falls back to the typed columns
 // otherwise. Kept in the EXTRA (not GENESIS) set so the 42703 fallback still
 // serves clothing certs if 00231 is unapplied in prod (US-1945 drift-safety).
+//
+// US-2392: certified_content_updated_at is when this certificate's scores were
+// last rewritten in place by a human-review adjustment. Exposing it is a
+// deliberate allowlist decision, not a side effect — 00231's own comment defers
+// exposure choices, so it is made here explicitly. It reveals nothing private:
+// THAT a certificate was revised, and when, is exactly what someone verifying it
+// is entitled to know, and it is the fact the integrity hash cannot carry
+// (a legitimate adjustment recomputes the hash, so it verifies clean either way).
+// NULL on every unrevised certificate, which is the truthful answer rather than
+// a missing one. Kept in the EXTRA set so the 42703 genesis fallback still serves
+// certificates if 00522 is unapplied.
 const CERT_REPORT_EXTRA_COLUMNS =
   "buyer_writeup, certificate_number, verified_capture, original_photos, " +
-  "live_capture, verified_360, factor_scores, rubric_key";
+  "live_capture, verified_360, factor_scores, rubric_key, " +
+  "certified_content_updated_at";
 
 const CERT_REPORT_COLUMNS = `${CERT_REPORT_GENESIS_COLUMNS}, ${CERT_REPORT_EXTRA_COLUMNS}`;
 

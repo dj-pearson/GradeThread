@@ -133,13 +133,44 @@ function main() {
     return 0;
   }
 
-  const leaked = held.filter((h) => existsInRef(upstream, h.file));
+  // TWO QUESTIONS, and the second was missing until 2026-08-03.
+  //
+  // `already` is a leak that HAPPENED: the file is upstream while still marked
+  // held. That was the whole hook, and it is retrospective — it reports a rule
+  // that was already broken and cannot prevent the next break.
+  //
+  // `incoming` is the leak ABOUT TO HAPPEN: the file is in the commits this push
+  // would send. Found by using the gate on a real held migration — the hook said
+  // OK (correctly, by its own question) and the CI copy blocked a moment later,
+  // which is the worst possible split: locally green, red after pushing. A
+  // pre-push hook that cannot stop the thing it is named for is a detector, not
+  // a gate.
+  const already = held.filter((h) => existsInRef(upstream, h.file));
+  const incoming = held.filter(
+    (h) => !existsInRef(upstream, h.file) && existsSync(h.file),
+  );
+  const leaked = [...already, ...incoming];
 
   if (leaked.length === 0) {
     console.log(
       `[held-migration-gate] ${held.length} HELD migration(s), none on ${upstream} — OK.`,
     );
     return 0;
+  }
+
+  if (already.length === 0) {
+    console.error("");
+    console.error(
+      "[held-migration-gate] BLOCKED — this push would send a migration that " +
+        "PENDING_MIGRATIONS.md still marks HELD:",
+    );
+    for (const h of incoming) console.error(`  • ${h.file}`);
+    console.error("");
+    console.error("  Apply the SQL to prod first, then flip its heading to");
+    console.error("  '## ✅ APPLIED:' and date it. That is the rule this enforces:");
+    console.error("  the SQL lands before the code that expects it.");
+    console.error("");
+    return 1;
   }
 
   console.error("");

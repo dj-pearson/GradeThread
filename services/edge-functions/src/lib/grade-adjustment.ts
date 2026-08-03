@@ -94,6 +94,16 @@ export async function applyGradeAdjustment(
     update.content_hash = integrity.content_hash;
     update.content_signature = integrity.content_signature;
     update.integrity_version = integrity.integrity_version;
+    // US-2392: stamp WHEN the certified content changed, on the row that serves
+    // the certificate. The information already existed in human_reviews.reviewed_at,
+    // but not where anything reading a certificate could see it — so a buyer
+    // verifying the integrity hash got a clean result both before and after a
+    // score change, with nothing marking that one happened.
+    //
+    // Inside the `if (report.certificate_id)` branch on purpose: an adjustment to
+    // an UNCERTIFIED report has no certificate to have revised, and stamping one
+    // would put a modification date on something never published.
+    update.certified_content_updated_at = new Date().toISOString();
     resealed = true;
   }
 

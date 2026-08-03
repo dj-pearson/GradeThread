@@ -216,6 +216,39 @@ describe("JSON-LD builders (US-298/299/300)", () => {
     });
   });
 
+  // US-2392 AC4: BOTH cases, present and absent.
+  //
+  // The present case is the divergence guard — US-2071 found the SSR mirror had
+  // no dateModified field at all while this test stayed green, because the
+  // fixture omitted it. The ABSENT case is the correctness one: a certificate
+  // that has never been revised must emit NO dateModified, because a regrade
+  // mints a NEW certificate_id whose modification date IS its publication date.
+  // Emitting one there tells a crawler a fresh certificate was edited.
+  it("omits dateModified entirely on an unrevised certificate, on BOTH paths", () => {
+    const unrevised = { ...CERT_INPUT, dateModified: null };
+    const spa = certificateLd(unrevised);
+    const ssr = certificateProductLd({ ...unrevised, siteUrl: SITE_URL });
+    expect("dateModified" in spa).toBe(false);
+    expect("dateModified" in ssr).toBe(false);
+    // Not "dateModified: null" and not equal to datePublished — both would be
+    // claims about a revision that did not happen.
+    expect(ssr).toEqual(spa);
+    // …and undefined behaves the same as null, since the column reads as either
+    // depending on which layer dropped it.
+    const undef = certificateLd({ ...CERT_INPUT, dateModified: undefined });
+    expect("dateModified" in undef).toBe(false);
+  });
+
+  it("emits dateModified on a revised certificate, on BOTH paths", () => {
+    const spa = certificateLd(CERT_INPUT);
+    const ssr = certificateProductLd({ ...CERT_INPUT, siteUrl: SITE_URL });
+    expect(spa.dateModified).toBe("2026-07-18");
+    expect(ssr.dateModified).toBe("2026-07-18");
+    // And it must differ from datePublished in the fixture, or the assertion
+    // above would pass on a builder that just echoed the publication date.
+    expect(spa.dateModified).not.toBe(spa["datePublished"]);
+  });
+
   it("SPA certificateLd and SSR certificateProductLd emit identical markup", () => {
     const spa = certificateLd(CERT_INPUT);
     const ssr = certificateProductLd({ ...CERT_INPUT, siteUrl: SITE_URL });

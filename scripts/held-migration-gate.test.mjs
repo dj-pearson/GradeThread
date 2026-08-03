@@ -106,3 +106,35 @@ describe("US-2346: the CI half of the gate", () => {
     ).toBe(true);
   });
 });
+
+// ── The gap the gate found in itself, 2026-08-03 ────────────────────────────
+//
+// The hook only ever asked "is a held migration ALREADY upstream?" — which is
+// retrospective. Using it on a real held migration showed the split: the hook
+// said OK (correctly, by its own question) and the CI copy blocked a moment
+// later. Locally green, red after pushing, which is the worst arrangement of
+// the two. A pre-push hook that cannot stop the thing it is named for is a
+// detector, not a gate.
+describe("US-2346: the hook blocks an INCOMING held migration", () => {
+  it("asks both questions, not only the retrospective one", () => {
+    const src = readFileSync(resolve(process.cwd(), "scripts/held-migration-gate.mjs"), "utf8");
+    expect(src, "the already-upstream check is gone").toContain("const already =");
+    expect(
+      src,
+      "the incoming check is gone — the hook is back to reporting a rule that " +
+        "was already broken rather than preventing the next break",
+    ).toContain("const incoming =");
+    // The incoming case is "not upstream yet, but present here", and both halves
+    // matter: without the first it would fire on every already-known leak twice,
+    // without the second it fires on nothing.
+    expect(src).toMatch(/!existsInRef\(upstream, h\.file\)[\s\S]{0,80}existsSync\(h\.file\)/);
+  });
+
+  it("tells the two cases apart in its output", () => {
+    // They need different fixes. "Already upstream" usually means the doc was
+    // never updated after applying; "about to push" means apply the SQL first.
+    const src = readFileSync(resolve(process.cwd(), "scripts/held-migration-gate.mjs"), "utf8");
+    expect(src).toContain("this push would send a migration");
+    expect(src).toContain("held migrations are already on ");
+  });
+});

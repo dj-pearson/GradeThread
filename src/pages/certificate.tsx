@@ -579,6 +579,13 @@ export function CertificatePage() {
             // gallery as stable /cert-photo urls, never the signed ones.
             images: certGalleryImageUrls(id ?? "", images.length),
             datePublished: gradeReport.created_at,
+            // US-2392 / US-2071 AC3: dateModified ONLY when the certified
+            // content actually changed. NULL on an unrevised certificate — and
+            // omitting it is the truthful answer, because a regrade mints a NEW
+            // certificate_id whose modification date IS its publication date.
+            // Emitting one there would tell a crawler that a fresh certificate
+            // had been edited.
+            dateModified: gradeReport.certified_content_updated_at ?? null,
           }),
           breadcrumbLd(breadcrumbTrail),
         ]}

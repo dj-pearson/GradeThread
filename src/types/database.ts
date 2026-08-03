@@ -834,6 +834,13 @@ export interface PublicGradeReportRow {
   id: string;
   submission_id: string;
   certificate_id: string;
+  // US-2392 (00522): when this certificate's CERTIFIED CONTENT — scores, tier,
+  // integrity hash — was last rewritten in place by a human-review adjustment.
+  // NULL means never revised, which is the truthful answer rather than a
+  // missing value: an unrevised certificate has no modification date distinct
+  // from its publication date. A REGRADE must not set it (00150 mints a new
+  // certificate_id instead). Drives the schema.org dateModified.
+  certified_content_updated_at: string | null;
   // 00307: PSA-style public certificate number ("GT-XXXXXXX"). Null only for
   // legacy rows before backfill. The verification key typed into /verify.
   certificate_number: string | null;
