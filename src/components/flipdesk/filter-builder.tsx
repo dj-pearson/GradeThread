@@ -159,7 +159,7 @@ export function FilterBuilder({
                     patchRule(rule.id, { field: v as FilterField })
                   }
                 >
-                  <SelectTrigger className="h-8 w-32 text-xs">
+                  <SelectTrigger className="h-8 w-32 text-xs" aria-label="Filter field">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -176,7 +176,7 @@ export function FilterBuilder({
                     patchRule(rule.id, { op: v as FilterOp })
                   }
                 >
-                  <SelectTrigger className="h-8 w-28 text-xs">
+                  <SelectTrigger className="h-8 w-28 text-xs" aria-label="Filter operator">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -194,7 +194,7 @@ export function FilterBuilder({
                     value={rule.value}
                     onValueChange={(v) => patchRule(rule.id, { value: v })}
                   >
-                    <SelectTrigger className="h-8 flex-1 text-xs">
+                    <SelectTrigger className="h-8 flex-1 text-xs" aria-label="Filter value">
                       <SelectValue placeholder="Select…" />
                     </SelectTrigger>
                     <SelectContent>
@@ -208,6 +208,7 @@ export function FilterBuilder({
                 ) : isDate ? (
                   <Input
                     type="date"
+                    aria-label="Filter value"
                     value={rule.value}
                     onChange={(e) =>
                       patchRule(rule.id, { value: e.target.value })
@@ -216,6 +217,7 @@ export function FilterBuilder({
                   />
                 ) : (
                   <Input
+                    aria-label="Filter value"
                     value={rule.value}
                     onChange={(e) =>
                       patchRule(rule.id, { value: e.target.value })

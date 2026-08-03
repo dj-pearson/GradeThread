@@ -298,7 +298,7 @@ export function SnapCatalog() {
               value={sourceId || "__none"}
               onValueChange={(v) => setSourceId(v === "__none" ? "" : v)}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Source">
                 <SelectValue placeholder="Select source" />
               </SelectTrigger>
               <SelectContent>
@@ -313,23 +313,26 @@ export function SnapCatalog() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Container</Label>
+              <Label htmlFor="snap-container">Container</Label>
               <Input
+                id="snap-container"
                 value={container}
                 onChange={(e) => setContainer(e.target.value)}
                 placeholder="e.g. A1"
               />
             </div>
             <div className="space-y-1">
-              <Label>Sourced by</Label>
+              <Label htmlFor="snap-sourced-by">Sourced by</Label>
               <Input
+                id="snap-sourced-by"
                 value={sourcedBy}
                 onChange={(e) => setSourcedBy(e.target.value)}
               />
             </div>
             <div className="space-y-1">
-              <Label>Cost per item</Label>
+              <Label htmlFor="snap-cost-per-item">Cost per item</Label>
               <Input
+                id="snap-cost-per-item"
                 type="number"
                 step="0.01"
                 inputMode="decimal"
@@ -339,8 +342,9 @@ export function SnapCatalog() {
               />
             </div>
             <div className="space-y-1">
-              <Label>Purchase date</Label>
+              <Label htmlFor="snap-purchase-date">Purchase date</Label>
               <Input
+                id="snap-purchase-date"
                 type="date"
                 value={purchaseDate}
                 onChange={(e) => setPurchaseDate(e.target.value)}

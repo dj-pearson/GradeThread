@@ -207,9 +207,9 @@ export function BulkEditDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Condition</Label>
+            <Label htmlFor="bulk-edit-condition">Condition</Label>
             <Select value={condition} onValueChange={setCondition}>
-              <SelectTrigger>
+              <SelectTrigger id="bulk-edit-condition">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -225,9 +225,9 @@ export function BulkEditDialog({
 
           {fulfillment.length > 0 && (
             <div className="space-y-1.5">
-              <Label>Shipping policy</Label>
+              <Label htmlFor="bulk-edit-shipping-policy">Shipping policy</Label>
               <Select value={shippingPolicy} onValueChange={setShippingPolicy}>
-                <SelectTrigger>
+                <SelectTrigger id="bulk-edit-shipping-policy">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -244,9 +244,9 @@ export function BulkEditDialog({
 
           {payment.length > 0 && (
             <div className="space-y-1.5">
-              <Label>Payment policy</Label>
+              <Label htmlFor="bulk-edit-payment-policy">Payment policy</Label>
               <Select value={paymentPolicy} onValueChange={setPaymentPolicy}>
-                <SelectTrigger>
+                <SelectTrigger id="bulk-edit-payment-policy">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -263,9 +263,9 @@ export function BulkEditDialog({
 
           {returns.length > 0 && (
             <div className="space-y-1.5">
-              <Label>Return policy</Label>
+              <Label htmlFor="bulk-edit-return-policy">Return policy</Label>
               <Select value={returnPolicy} onValueChange={setReturnPolicy}>
-                <SelectTrigger>
+                <SelectTrigger id="bulk-edit-return-policy">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

@@ -959,7 +959,7 @@ export function FlipdeskListingsPage() {
                     value={sortPreset}
                     onValueChange={(v) => setSortPreset(v as SortPreset)}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger aria-label="Sort listings by" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -995,7 +995,7 @@ export function FlipdeskListingsPage() {
                       }
                     }}
                   >
-                    <SelectTrigger className="w-full text-xs">
+                    <SelectTrigger aria-label="Saved views" className="w-full text-xs">
                       <SelectValue placeholder="Saved views" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1037,7 +1037,7 @@ export function FlipdeskListingsPage() {
             value={sortPreset}
             onValueChange={(v) => setSortPreset(v as SortPreset)}
           >
-            <SelectTrigger className="w-48">
+            <SelectTrigger aria-label="Sort listings by" className="w-48">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1064,7 +1064,7 @@ export function FlipdeskListingsPage() {
                 }
               }}
             >
-              <SelectTrigger className="h-9 w-44 text-xs">
+              <SelectTrigger aria-label="Saved views" className="h-9 w-44 text-xs">
                 <SelectValue placeholder="Saved views" />
               </SelectTrigger>
               <SelectContent>
@@ -1325,7 +1325,7 @@ export function FlipdeskListingsPage() {
                     value={String(pageSize)}
                     onValueChange={(v) => setPageSize(Number(v))}
                   >
-                    <SelectTrigger className="h-7 w-20">
+                    <SelectTrigger aria-label="Rows per page" className="h-7 w-20">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1438,7 +1438,7 @@ export function FlipdeskListingsPage() {
                     Bulk edit
                   </Button>
                   <Select value={bulkDropPct} onValueChange={setBulkDropPct}>
-                    <SelectTrigger className="h-9 w-28">
+                    <SelectTrigger aria-label="Price drop percentage" className="h-9 w-28">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1565,7 +1565,7 @@ export function FlipdeskListingsPage() {
               value={bulkStatusValue}
               onValueChange={(v) => setBulkStatusValue(v as ItemStatus)}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="New status for the selected items">
                 <SelectValue placeholder="Choose a status…" />
               </SelectTrigger>
               <SelectContent>

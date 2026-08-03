@@ -321,9 +321,9 @@ export function FlipdeskBulkPricingPage() {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1">
-              <Label>Price</Label>
+              <Label htmlFor="bulk-price-mode">Price</Label>
               <Select value={priceMode} onValueChange={(v) => setPriceMode(v as PriceMode)}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-40" id="bulk-price-mode">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -336,8 +336,11 @@ export function FlipdeskBulkPricingPage() {
             </div>
             {priceMode !== "none" && (
               <div className="space-y-1">
-                <Label>{priceMode === "set" ? "New price ($)" : "Percent (%)"}</Label>
+                <Label htmlFor="bulk-price-amount">
+                  {priceMode === "set" ? "New price ($)" : "Percent (%)"}
+                </Label>
                 <Input
+                  id="bulk-price-amount"
                   type="number"
                   min={priceMode === "set" ? 0.01 : 1}
                   max={priceMode === "reduce" ? 99 : undefined}
@@ -430,7 +433,7 @@ export function FlipdeskBulkPricingPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Brand</Label>
+              <Label className="text-xs" htmlFor="bulk-price-brand-filter">Brand</Label>
               <Select
                 value={brandFilter}
                 onValueChange={(v) => {
@@ -438,7 +441,7 @@ export function FlipdeskBulkPricingPage() {
                   resetPage();
                 }}
               >
-                <SelectTrigger className="h-9 w-40">
+                <SelectTrigger className="h-9 w-40" id="bulk-price-brand-filter">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -480,9 +483,9 @@ export function FlipdeskBulkPricingPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Sort</Label>
+              <Label className="text-xs" htmlFor="bulk-price-sort">Sort</Label>
               <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-                <SelectTrigger className="h-9 w-40">
+                <SelectTrigger className="h-9 w-40" id="bulk-price-sort">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -515,6 +518,7 @@ export function FlipdeskBulkPricingPage() {
                   className="flex items-center gap-3 rounded-md border p-2"
                 >
                   <Checkbox
+                    aria-label={`Select ${row.title}`}
                     checked={selected.has(row.id)}
                     onCheckedChange={() => toggle(row.id)}
                   />

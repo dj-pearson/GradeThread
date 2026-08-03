@@ -1702,7 +1702,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     />
                   </td>
                   <td className="p-2">
-                    <Input
+                    <Input aria-label="Title"
                       value={r.title}
                       onChange={(e) => patchRow(r.id, { title: e.target.value })}
                       placeholder={itemAttrs[r.itemId]?.title ?? "Title"}
@@ -1744,7 +1744,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     />
                   </td>
                   <td className="p-2">
-                    <Input
+                    <Input aria-label="Price"
                       type="number"
                       min="0"
                       step="0.01"
@@ -1835,7 +1835,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     )}
                   </td>
                   <td className="p-2">
-                    <Input
+                    <Input aria-label="Brand"
                       value={r.brand}
                       onChange={(e) => patchRow(r.id, { brand: e.target.value })}
                       className="h-8"
@@ -1853,7 +1853,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     )}
                   </td>
                   <td className="p-2">
-                    <Input
+                    <Input aria-label="Size"
                       value={r.size}
                       onChange={(e) => patchRow(r.id, { size: e.target.value })}
                       className="h-8"
@@ -1871,7 +1871,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     )}
                   </td>
                   <td className="p-2">
-                    <Input
+                    <Input aria-label="Color"
                       value={r.color}
                       onChange={(e) => patchRow(r.id, { color: e.target.value })}
                       className="h-8"
@@ -1902,7 +1902,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     />
                   </td>
                   <td className="p-2">
-                    <Input
+                    <Input aria-label="Quantity"
                       type="number"
                       min="1"
                       value={r.quantity}
@@ -1952,7 +1952,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     )}
                   </td>
                   <td className="p-2">
-                    <Input
+                    <Input aria-label="Scheduled publish time"
                       type="datetime-local"
                       value={r.scheduledAt}
                       onChange={(e) => patchRow(r.id, { scheduledAt: e.target.value })}
@@ -2031,7 +2031,7 @@ function DescriptionCell({
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[28rem] p-2">
-          <Textarea
+          <Textarea aria-label="Description"
             autoFocus
             value={value}
             onChange={(e) => onChange(e.target.value)}
@@ -2152,7 +2152,7 @@ function SpecificsCell({
               >
                 {name}
               </span>
-              <Input
+              <Input aria-label="Item specific values"
                 value={(values ?? []).join(", ")}
                 onChange={(e) => setValues(name, e.target.value)}
                 placeholder="value(s), comma-separated"
@@ -2190,7 +2190,7 @@ function SpecificsCell({
           </div>
         )}
         <div className="mt-2 flex items-center gap-1.5 border-t pt-2">
-          <Input
+          <Input aria-label="New item specific name"
             value={newKey}
             onChange={(e) => setNewKey(e.target.value)}
             onKeyDown={(e) => {
@@ -2364,7 +2364,7 @@ function CategorySearchControl({
         <div className="border-b p-2">
           <div className="relative">
             <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
+            <Input aria-label="Search categories"
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}

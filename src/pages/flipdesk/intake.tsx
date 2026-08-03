@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -607,7 +607,7 @@ export function FlipdeskIntakePage() {
                   )
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Category">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -648,7 +648,7 @@ export function FlipdeskIntakePage() {
                   patch("source_id", v === "__none" ? "" : v)
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Source">
                   <SelectValue placeholder="Select source" />
                 </SelectTrigger>
                 <SelectContent>
@@ -664,6 +664,7 @@ export function FlipdeskIntakePage() {
               {form.source_id === "__new" && (
                 <Input
                   className="mt-2"
+                  aria-label="New source name"
                   placeholder="New source name (e.g. Goodwill SE 14th)"
                   value={form.source_new}
                   onChange={(e) => patch("source_new", e.target.value)}
@@ -701,7 +702,7 @@ export function FlipdeskIntakePage() {
                 value={form.status}
                 onValueChange={(v) => patch("status", v as ItemStatus)}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -732,11 +733,12 @@ export function FlipdeskIntakePage() {
             />
           </div>
           <div className="space-y-1">
-            <Label>
+            <Label htmlFor="intake-condition-notes">
               Internal Notes
               {aiFields.has("condition_notes") && <AiMark />}
             </Label>
             <Textarea
+              id="intake-condition-notes"
               value={form.condition_notes}
               onChange={(e) => patch("condition_notes", e.target.value)}
               rows={3}
@@ -827,13 +829,19 @@ function Field({
   placeholder?: string;
   aiMarked?: boolean;
 }) {
+  // US-2335: one id per instance, from useId — NOT a slug of the label. Two
+  // fields can legitimately carry the same label text, and a duplicate id
+  // silently re-points the first label at the second input, which is worse than
+  // no association at all.
+  const id = useId();
   return (
     <div className="space-y-1">
-      <Label>
+      <Label htmlFor={id}>
         {label}
         {aiMarked && <AiMark />}
       </Label>
       <Input
+        id={id}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}

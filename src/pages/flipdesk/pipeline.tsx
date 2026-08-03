@@ -557,7 +557,7 @@ export function FlipdeskPipelinePage() {
           value={categoryFilter}
           onValueChange={(v) => setCategoryFilter(v as ItemCategory | "all")}
         >
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-40" aria-label="Filter by category">
             <Filter className="mr-2 h-4 w-4" />
             <SelectValue placeholder="Category" />
           </SelectTrigger>
@@ -571,7 +571,7 @@ export function FlipdeskPipelinePage() {
           </SelectContent>
         </Select>
         <Select value={brandFilter} onValueChange={setBrandFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-40" aria-label="Filter by brand">
             <SelectValue placeholder="Brand" />
           </SelectTrigger>
           <SelectContent>
@@ -584,7 +584,7 @@ export function FlipdeskPipelinePage() {
           </SelectContent>
         </Select>
         <Select value={sourceFilter} onValueChange={setSourceFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-40" aria-label="Filter by source">
             <SelectValue placeholder="Source" />
           </SelectTrigger>
           <SelectContent>
@@ -609,7 +609,7 @@ export function FlipdeskPipelinePage() {
                 }
               }}
             >
-              <SelectTrigger className="h-9 w-44 text-xs">
+              <SelectTrigger className="h-9 w-44 text-xs" aria-label="Saved views">
                 <SelectValue placeholder="Saved views" />
               </SelectTrigger>
               <SelectContent>
@@ -1123,8 +1123,14 @@ function PipelineLimitsDialog({
               key={step.status}
               className="flex items-center justify-between gap-3"
             >
-              <Label className="text-sm font-normal">{step.label}</Label>
+              <Label
+                htmlFor={`wip-limit-${step.status}`}
+                className="text-sm font-normal"
+              >
+                {step.label}
+              </Label>
               <Input
+                id={`wip-limit-${step.status}`}
                 type="number"
                 min={1}
                 className="w-24"
@@ -1313,7 +1319,7 @@ function BulkGradeDialog({
         </DialogHeader>
         <div className="space-y-3">
           <Select value={tier} onValueChange={(v) => setTier(v as GradingTier)}>
-            <SelectTrigger className="h-9 text-sm">
+            <SelectTrigger className="h-9 text-sm" aria-label="Grading tier">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
