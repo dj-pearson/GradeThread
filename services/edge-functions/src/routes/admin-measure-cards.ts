@@ -9,6 +9,7 @@
 // 'download' — US-1579 AC4).
 
 import { Hono } from "hono";
+import { writeAuditLog } from "../lib/audit-log.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 
@@ -165,5 +166,22 @@ adminMeasureCardRoutes.post("/requests/bulk", async (c) => {
         .eq("id", r.owner_user_id);
     }
   }
+  // US-2355: a bulk operator action over SHARED records (up to 500 ids), which
+  // also writes each seller's profile card-version when marking shipped — so it
+  // changes rows the operator does not own, and did so with no trace of who ran
+  // it. The affected ids go in the row, not just the count: "42 requests were
+  // marked shipped" cannot be reconciled against a vendor's mailing list, and
+  // "these 42" can.
+  await writeAuditLog(c, {
+    action: `measure_card.requests.bulk_${status}`,
+    targetType: "measure_card_request",
+    targetId: null,
+    after: { status, updated: rows.length },
+    details: {
+      request_ids: rows.map((r) => r.id),
+      // Marking shipped also stamps users.measure_card_version / _source.
+      profiles_stamped: status === "shipped" ? rows.map((r) => r.owner_user_id) : [],
+    },
+  });
   return c.json({ ok: true, updated: rows.length });
 });

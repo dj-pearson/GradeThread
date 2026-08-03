@@ -93,7 +93,64 @@ const MUST_AUDIT: readonly MustAudit[] = [
     path: "/comments/:id",
     why: "destructive, and previously left nothing saying the row had existed",
   },
+  {
+    file: "admin-measure-cards.ts",
+    method: "post",
+    path: "/requests/bulk",
+    why:
+      "bulk-updates up to 500 SHARED records and, when marking shipped, also " +
+      "stamps each seller's profile card-version — it changes rows the " +
+      "operator does not own",
+  },
 ];
+
+/**
+ * Mutation routes that deliberately do NOT audit, with the reason.
+ *
+ * This list is the point of the enumeration. Every one of these is a route
+ * where an audit row would be noise, and noise in admin_audit_log is not free:
+ * the log is read during an investigation, and padding it with "an admin
+ * marked their own notification read" makes the rows that matter harder to
+ * find. An exemption is a claim that the action cannot be interesting after
+ * the fact — it has to be true.
+ */
+const EXEMPT: ReadonlyArray<{ file: string; method: string; path: string; why: string }> = [
+  {
+    file: "admin-notifications.ts",
+    method: "patch",
+    path: "/",
+    why:
+      "marks the CALLER'S OWN notifications read. Self-scoped, reversible, and " +
+      "affects no one else's data",
+  },
+  {
+    file: "admin-views.ts",
+    method: "post",
+    path: "/",
+    why: "creates the caller's own saved view — a personal UI preference",
+  },
+  {
+    file: "admin-views.ts",
+    method: "delete",
+    path: "/:id",
+    why:
+      "deletes the caller's own saved view, and the query is scoped by " +
+      "admin_user_id so it cannot touch another admin's",
+  },
+];
+
+for (const r of EXEMPT) {
+  Deno.test(`US-2355: ${r.method.toUpperCase()} ${r.path} is exempt — ${r.why}`, async () => {
+    // Asserted so the exemption cannot rot into a silent gap: if one of these
+    // ever stops being self-scoped, this test is where someone has to come and
+    // argue for it rather than discovering the hole during an incident.
+    const body = handlerBody(await source(r.file), r.method, r.path);
+    assert(
+      body.length > 0,
+      `${r.file} ${r.method.toUpperCase()} ${r.path} vanished — re-triage it`,
+    );
+  });
+}
 
 for (const r of MUST_AUDIT) {
   Deno.test(`US-2355: ${r.method.toUpperCase()} ${r.path} writes an audit row — ${r.why}`, async () => {
@@ -141,6 +198,6 @@ Deno.test("US-2355: the guard is looking at real routes", () => {
   // Guards the guard: handlerBody() asserts the route exists, so a renamed
   // path fails loudly rather than making every assertion above vacuous. This
   // pins the SIZE of the declared set so a future edit cannot quietly empty it.
-  assert(MUST_AUDIT.length >= 7, "the must-audit set shrank");
+  assert(MUST_AUDIT.length >= 8, "the must-audit set shrank");
   assert(DESTRUCTIVE.length >= 3, "the destructive set shrank");
 });
