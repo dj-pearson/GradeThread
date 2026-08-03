@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -116,6 +116,9 @@ export function BillingActionsCard({
   // ── Plan change form ──
   const [newPlan, setNewPlan] = useState<FlipdeskPlanKey>("pro");
   const [newInterval, setNewInterval] = useState<BillingInterval>("monthly");
+  // US-2335: ids for the plan-change pair.
+  const newPlanId = useId();
+  const newIntervalId = useId();
 
   const changePlan = useMutation({
     mutationFn: async () => {
@@ -225,9 +228,9 @@ export function BillingActionsCard({
           <div className="text-sm font-semibold">Change FlipDesk plan</div>
           <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
             <div className="space-y-1">
-              <Label className="text-xs">New plan</Label>
+              <Label className="text-xs" htmlFor={newPlanId}>New plan</Label>
               <Select value={newPlan} onValueChange={(v) => setNewPlan(v as FlipdeskPlanKey)}>
-                <SelectTrigger>
+                <SelectTrigger id={newPlanId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -240,13 +243,13 @@ export function BillingActionsCard({
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Interval</Label>
+              <Label className="text-xs" htmlFor={newIntervalId}>Interval</Label>
               <Select
                 value={newInterval}
                 onValueChange={(v) => setNewInterval(v as BillingInterval)}
                 disabled={newPlan === "free"}
               >
-                <SelectTrigger>
+                <SelectTrigger id={newIntervalId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useId, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -143,6 +143,8 @@ export function AdminCompliancePage() {
   // New-request form.
   const [newUserId, setNewUserId] = useState("");
   const [newType, setNewType] = useState<ReqType>("export");
+  // US-2335: id for the create form's labelled Type select.
+  const newTypeId = useId();
 
   const listQuery = useQuery({
     queryKey: ["admin-compliance", "list", statusFilter, typeFilter],
@@ -321,9 +323,9 @@ export function AdminCompliancePage() {
             />
           </div>
           <div className="space-y-1">
-            <Label>Type</Label>
+            <Label htmlFor={newTypeId}>Type</Label>
             <Select value={newType} onValueChange={(v) => setNewType(v as ReqType)}>
-              <SelectTrigger className="w-36">
+              <SelectTrigger className="w-36" id={newTypeId}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -345,7 +347,7 @@ export function AdminCompliancePage() {
           value={statusFilter}
           onValueChange={(v) => setStatusFilter(v as StatusFilter)}
         >
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-40" aria-label="Filter by status">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -360,7 +362,10 @@ export function AdminCompliancePage() {
           value={typeFilter}
           onValueChange={(v) => setTypeFilter(v as TypeFilter)}
         >
-          <SelectTrigger className="w-36">
+          {/* Named apart from the create form's Type select above: both offer
+              Export/Delete, and one creates a deletion request against a real
+              user while this one filters a list. */}
+          <SelectTrigger className="w-36" aria-label="Filter by request type">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

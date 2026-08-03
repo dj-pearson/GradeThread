@@ -157,9 +157,9 @@ function CreateCouponDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Discount type</Label>
+              <Label htmlFor="c-discount-type">Discount type</Label>
               <Select value={discountType} onValueChange={(v) => setDiscountType(v as "percent" | "amount")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="c-discount-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="percent">Percent off</SelectItem>
                   <SelectItem value="amount">Amount off</SelectItem>
@@ -173,16 +173,19 @@ function CreateCouponDialog({
               </div>
             ) : (
               <div className="space-y-2">
-                <Label>Amount off ({currency.toUpperCase()})</Label>
-                <Input type="number" value={amountOff} onChange={(e) => setAmountOff(e.target.value)} />
+                {/* The other branch of this ternary was already paired; half a
+                    ternary paired and half not is how a file looks finished
+                    and is not. */}
+                <Label htmlFor="c-amount-off">Amount off ({currency.toUpperCase()})</Label>
+                <Input id="c-amount-off" type="number" value={amountOff} onChange={(e) => setAmountOff(e.target.value)} />
               </div>
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Duration</Label>
+              <Label htmlFor="c-duration">Duration</Label>
               <Select value={duration} onValueChange={(v) => setDuration(v as "once" | "repeating" | "forever")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="c-duration"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="once">Once</SelectItem>
                   <SelectItem value="repeating">Repeating</SelectItem>
