@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -119,6 +119,14 @@ function RuleEditorDialog({
   const [denyText, setDenyText] = useState("");
   const [startsLocal, setStartsLocal] = useState("");
   const [endsLocal, setEndsLocal] = useState("");
+  // US-2335: ids for the label/control pairs below. useId, not slugs — this
+  // dialog is one component instance per edited flag, and a duplicate id
+  // re-points a label at the wrong control while still reading as correct.
+  const rolloutId = useId();
+  const allowId = useId();
+  const denyId = useId();
+  const startsId = useId();
+  const endsId = useId();
 
   // Seed local state once per opened flag.
   if (flag && seededFor !== flag.key) {
@@ -209,9 +217,10 @@ function RuleEditorDialog({
 
           {/* Rollout percentage */}
           <div className="space-y-2">
-            <Label>Rollout: {pct}% of users</Label>
+            <Label htmlFor={rolloutId}>Rollout: {pct}% of users</Label>
             <div className="flex items-center gap-3">
               <input
+                id={rolloutId}
                 type="range"
                 min={0}
                 max={100}
@@ -220,7 +229,10 @@ function RuleEditorDialog({
                 className="h-2 w-full cursor-pointer accent-primary"
                 disabled={!enabled}
               />
+              {/* The label above points at the SLIDER; this box is the same
+                  value by another route, so it needs a name of its own. */}
               <Input
+                aria-label="Rollout percentage"
                 type="number"
                 min={0}
                 max={100}
@@ -266,8 +278,9 @@ function RuleEditorDialog({
           {/* User overrides */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Allow list (user ids)</Label>
+              <Label htmlFor={allowId}>Allow list (user ids)</Label>
               <Textarea
+                id={allowId}
                 value={allowText}
                 onChange={(e) => setAllowText(e.target.value)}
                 placeholder="one UUID per line"
@@ -276,8 +289,9 @@ function RuleEditorDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label>Deny list (user ids)</Label>
+              <Label htmlFor={denyId}>Deny list (user ids)</Label>
               <Textarea
+                id={denyId}
                 value={denyText}
                 onChange={(e) => setDenyText(e.target.value)}
                 placeholder="one UUID per line"
@@ -294,16 +308,18 @@ function RuleEditorDialog({
           {/* Schedule */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Starts at</Label>
+              <Label htmlFor={startsId}>Starts at</Label>
               <Input
+                id={startsId}
                 type="datetime-local"
                 value={startsLocal}
                 onChange={(e) => setStartsLocal(e.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <Label>Ends at</Label>
+              <Label htmlFor={endsId}>Ends at</Label>
               <Input
+                id={endsId}
                 type="datetime-local"
                 value={endsLocal}
                 onChange={(e) => setEndsLocal(e.target.value)}

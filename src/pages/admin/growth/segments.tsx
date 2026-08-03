@@ -151,7 +151,13 @@ function RuleBuilder({
       <div className="flex items-center gap-2 text-sm">
         <span>Match</span>
         <Select value={rules.match} onValueChange={(v) => onChange({ ...rules, match: v as "all" | "any" })}>
-          <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+          {/* US-2335: the visible words are a SENTENCE wrapped around this
+              control ("Match [ALL of] these conditions"), so there is no
+              label element to associate. Without a name it announces only
+              its current value — "ALL of, button". */}
+          <SelectTrigger className="w-28" aria-label="Match all or any of these conditions">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">ALL of</SelectItem>
             <SelectItem value="any">ANY of</SelectItem>
@@ -180,7 +186,9 @@ function RuleBuilder({
                 setCondition(i, { field, op, value: defaultValueFor(fieldMeta.kind, op) });
               }}
             >
-              <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-52" aria-label={`Condition ${i + 1} field`}>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {Object.entries(FIELDS).map(([k, m]) => (
                   <SelectItem key={k} value={k}>{m.label}</SelectItem>
@@ -192,7 +200,9 @@ function RuleBuilder({
               value={cond.op}
               onValueChange={(op) => setCondition(i, { op, value: defaultValueFor(meta.kind, op) })}
             >
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-40" aria-label={`Condition ${i + 1} operator`}>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {ops.map((op) => (
                   <SelectItem key={op} value={op}>{OPS[op]}</SelectItem>
@@ -202,6 +212,7 @@ function RuleBuilder({
 
             {showValue && (
               <ConditionValue
+                index={i}
                 meta={meta}
                 op={cond.op}
                 value={cond.value}
@@ -229,12 +240,19 @@ function RuleBuilder({
   );
 }
 
+// US-2335: every branch below is the SAME conceptual control — the condition's
+// value — rendered as a different widget per field kind. They all carry the
+// same name for that reason: someone tabbing a row hears field, operator,
+// value, and the name does not change when a different field kind swaps the
+// widget underneath it.
 function ConditionValue({
+  index,
   meta,
   op,
   value,
   onChange,
 }: {
+  index: number;
   meta: FieldMeta;
   op: string;
   value: Condition["value"];
@@ -243,7 +261,9 @@ function ConditionValue({
   if (meta.kind === "bool") {
     return (
       <Select value={String(value)} onValueChange={(v) => onChange(v === "true")}>
-        <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="w-28" aria-label={`Condition ${index + 1} value`}>
+          <SelectValue />
+        </SelectTrigger>
         <SelectContent>
           <SelectItem value="true">Yes</SelectItem>
           <SelectItem value="false">No</SelectItem>
@@ -254,7 +274,9 @@ function ConditionValue({
   if (meta.kind === "enum" && op !== "in") {
     return (
       <Select value={String(value ?? "")} onValueChange={onChange}>
-        <SelectTrigger className="w-44"><SelectValue placeholder="value" /></SelectTrigger>
+        <SelectTrigger className="w-44" aria-label={`Condition ${index + 1} value`}>
+          <SelectValue placeholder="value" />
+        </SelectTrigger>
         <SelectContent>
           {meta.values?.map((v) => (
             <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
@@ -268,6 +290,7 @@ function ConditionValue({
     return (
       <Input
         className="w-56"
+        aria-label={`Condition ${index + 1} value`}
         placeholder="comma,separated"
         value={Array.isArray(value) ? value.join(",") : ""}
         onChange={(e) =>
@@ -281,6 +304,7 @@ function ConditionValue({
       <Input
         type="number"
         className="w-32"
+        aria-label={`Condition ${index + 1} value`}
         value={typeof value === "number" ? value : ""}
         onChange={(e) => onChange(Number(e.target.value))}
       />
@@ -291,6 +315,7 @@ function ConditionValue({
     <Input
       type="date"
       className="w-44"
+      aria-label={`Condition ${index + 1} value`}
       value={typeof value === "string" ? value : ""}
       onChange={(e) => onChange(e.target.value)}
     />
