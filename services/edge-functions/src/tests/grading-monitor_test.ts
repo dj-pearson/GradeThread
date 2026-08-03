@@ -376,3 +376,54 @@ Deno.test("US-2301: every code-default prompt version is seeded, or declared uns
       "if you just seeded one, remove it from KNOWN_UNSEEDED_PROMPT_VERSIONS.",
   );
 });
+
+// US-2302 AC3: the monitor must target the SAME version string the pipeline
+// stamps on live grades.
+//
+// It did not. The fallback lookup hardcoded "composite_v2" while ai-grading.ts
+// attributes COMPOSITE_PROMPT_VERSION ("composite_v4"), and the fallback is the
+// NORMAL path — it runs whenever no composite override is active. So the
+// scheduled monitor evaluated a stale row and stamped eval_passed and
+// qualified_model onto it, while every live grade pointed somewhere else.
+// Orphaned in both directions: the version being graded had no row, and the row
+// being certified ran nothing.
+//
+// A SOURCE SCAN, not a behavioural test, and deliberately so. The defect is a
+// literal that drifts away from a constant, and the failure is silent by
+// construction — the monitor ran, wrote rows and reported success the whole
+// time. Nothing at runtime could have caught it, because nothing was broken;
+// the two ends simply described different things.
+Deno.test("US-2302: the monitor resolves the live prompt version, not a literal", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../lib/grading-monitor.ts", import.meta.url),
+  );
+  // Comment lines are stripped FIRST. The fix's own explanation quotes both
+  // version strings in order to say what went wrong, and a scan that punished
+  // the file for documenting itself would get the explanation deleted rather
+  // than the literal — the same trap already noted on
+  // no-client-storage-upload.test.ts.
+  const code = src
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("//"))
+    .join("\n");
+  const literals = [...code.matchAll(/"composite_v\d+"/g)].map((m) => m[0]);
+  assertEquals(
+    literals,
+    [],
+    `grading-monitor.ts hardcodes ${literals.join(", ")} — import ` +
+      `COMPOSITE_PROMPT_VERSION instead, so a version bump moves both ends ` +
+      `together. A literal here silently detaches the gate from the grades.`,
+  );
+  // And it reads the constant the pipeline stamps.
+  assertEquals(src.includes("COMPOSITE_PROMPT_VERSION"), true);
+});
+
+Deno.test("US-2302: ai-grading still exports the constant the monitor imports", async () => {
+  // The other half. If the export is renamed, the monitor's import breaks
+  // loudly at type-check — but if it were ever made optional or re-exported
+  // through a shim, this pins the name the guard above depends on.
+  const src = await Deno.readTextFile(
+    new URL("../lib/ai-grading.ts", import.meta.url),
+  );
+  assertEquals(/export const COMPOSITE_PROMPT_VERSION\s*=/.test(src), true);
+});

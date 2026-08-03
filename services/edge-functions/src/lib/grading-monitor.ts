@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { COMPOSITE_PROMPT_VERSION } from "./ai-grading.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { computeAccuracySummary, computeOutcomeFeedback } from "./accuracy-tracking.ts";
 import { evalThresholds, runEval } from "./grading-eval.ts";
@@ -297,10 +298,22 @@ async function resolveLiveCompositeVersion(): Promise<
     .maybeSingle();
   if (active) return active as { id: string; version_name: string };
 
+  // US-2302: fall back to the version the PIPELINE ACTUALLY ATTRIBUTES, not a
+  // hardcoded string. This read "composite_v2" while ai-grading.ts stamps live
+  // grades COMPOSITE_PROMPT_VERSION ("composite_v4"), so with no override
+  // active — the normal state — the scheduled monitor evaluated a stale row and
+  // wrote eval_passed and qualified_model onto it. Orphaned in both directions:
+  // the version being graded had no row, and the row being certified ran
+  // nothing. Monitor results and accuracy slices could never join, so the gate
+  // reported on a prompt that had not produced a grade in months.
+  //
+  // Importing the constant rather than repeating the string is the point — a
+  // v5 bump now moves both ends together, which is the only reason this cannot
+  // silently drift back apart.
   const { data: seeded } = await supabaseAdmin
     .from("ai_prompt_versions")
     .select("id, version_name")
-    .eq("version_name", "composite_v2")
+    .eq("version_name", COMPOSITE_PROMPT_VERSION)
     .maybeSingle();
   return (seeded as { id: string; version_name: string } | null) ?? null;
 }
