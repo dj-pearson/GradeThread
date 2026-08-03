@@ -331,7 +331,10 @@ export function ReferralsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">
-                <Input readOnly value={shareLink} className="font-mono text-sm" />
+                {/* Read-only, but still a control someone can focus and copy
+                    from — and the CardTitle above it names the CARD, not this
+                    field. */}
+                <Input aria-label="Your referral link" readOnly value={shareLink} className="font-mono text-sm" />
                 <Button onClick={copy} variant="outline">
                   {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 </Button>
@@ -454,6 +457,7 @@ export function ReferralsPage() {
             </CardHeader>
             <CardContent className="flex gap-2">
               <Input
+                aria-label="Campaign code"
                 value={campaignCode}
                 onChange={(e) => setCampaignCode(e.target.value.toUpperCase())}
                 placeholder="e.g. THRIFT10"
@@ -482,6 +486,7 @@ export function ReferralsPage() {
               </CardHeader>
               <CardContent className="flex gap-2">
                 <Input
+                  aria-label="Referral code from a friend"
                   value={redeemCode}
                   onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
                   placeholder="e.g. ABCD2345"

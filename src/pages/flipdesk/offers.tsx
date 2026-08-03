@@ -242,6 +242,7 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
         <div className="mt-3 space-y-1">
           <div className="flex items-center gap-2">
             <Input
+              aria-label="Counter offer price"
               type="number"
               step="0.01"
               min="0.01"
@@ -483,6 +484,7 @@ function SendOfferCard() {
               <span className="text-sm text-muted-foreground">%</span>
             </div>
             <Textarea
+              aria-label="Message to buyers"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               rows={2}
@@ -639,6 +641,7 @@ function MessageRow({ message }: { message: EbayBuyerMessage }) {
       {open ? (
         <div className="mt-2 space-y-2">
           <Textarea
+            aria-label="Reply to this buyer"
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={3}
