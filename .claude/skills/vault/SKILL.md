@@ -107,4 +107,13 @@ point: pointing first discards detail you have not moved yet.
 
 After editing, run `npm run vault:index` (regenerates INDEX.md) and
 `npm run vault:lint`. Both run in CI via the `vault` verify lane, so a broken
+
+> [!warning] `vault:lint` runs `--strict`, and it must stay that way
+> `--strict` escalates drift on a `type: contract` note from a WARNING to an
+> ERROR, and CI runs it. Until 2026-08-02 the npm script omitted the flag, so
+> the documented command reported six tolerable-looking warnings while CI
+> failed on the same six as errors — and a full day of edits shipped on that
+> reading. If you want the non-failing view, that is `npm run vault:lint:soft`.
+> A guard in `src/test/ci-parity-vault-lint.test.ts` fails if the two diverge
+> again. Better still, run `npm run verify`, which is the whole CI lane.
 link, an orphan, or a stale index fails the build rather than rotting quietly.

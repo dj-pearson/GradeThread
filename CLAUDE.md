@@ -113,7 +113,9 @@ what the code *does*? Go to the code.
 **Adding or editing a note, or changing something a note describes? Load the
 `vault` skill first** — it owns the retrieval protocol, the procedure-vs-fact
 split against the domain skills, and the same-commit update rule. Schema lives in
-`vault/CONTRACT.md`. `npm run vault:index` + `npm run vault:lint` (CI-enforced).
+`vault/CONTRACT.md`. `npm run vault:index` + `npm run vault:lint` (CI-enforced;
+`vault:lint` runs `--strict`, which makes drift on a `type: contract` note an
+ERROR rather than a warning — `vault:lint:soft` is the non-failing view).
 
 ## Architecture
 
