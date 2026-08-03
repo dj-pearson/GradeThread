@@ -247,10 +247,6 @@ export function getAlternativeByPath(path: string): CompetitorAlternative | unde
   return COMPETITOR_ALTERNATIVES.find((a) => alternativePath(a.slug) === clean);
 }
 
-export function isAlternativePath(path: string): boolean {
-  return getAlternativeByPath(path) !== undefined;
-}
-
 export function competitorAlternativeRoutes(): PublicRoute[] {
   return COMPETITOR_ALTERNATIVES.map((a) => ({
     path: alternativePath(a.slug),

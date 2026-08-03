@@ -271,9 +271,6 @@ export function getResellingGuideBySlug(slug: string): ResellingGuide | undefine
 export function getResellingGuideByPath(path: string): ResellingGuide | undefined {
   return GUIDE_BY_PATH.get(path);
 }
-export function isResellingGuidePath(path: string): boolean {
-  return GUIDE_BY_PATH.has(path);
-}
 export function isResellingPillarPath(path: string): boolean {
   return path === RESELLING_PILLAR_PATH;
 }

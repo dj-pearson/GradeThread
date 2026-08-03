@@ -47,10 +47,6 @@ export const FIT_CHECKER_META = {
   ],
 };
 
-export function isFitCheckerPath(path: string): boolean {
-  return path.replace(/\/+$/, "") === FIT_CHECKER_PATH;
-}
-
 export function fitCheckerRoute(): PublicRoute {
   return {
     path: FIT_CHECKER_PATH,

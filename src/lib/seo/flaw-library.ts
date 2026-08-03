@@ -994,9 +994,6 @@ export function getFlawBySlug(slug: string): FlawEntry | undefined {
 export function getFlawByPath(path: string): FlawEntry | undefined {
   return FLAW_BY_PATH.get(path);
 }
-export function isFlawPath(path: string): boolean {
-  return FLAW_BY_PATH.has(path);
-}
 export function isFlawHubPath(path: string): boolean {
   return path === FLAW_LIBRARY_HUB_PATH;
 }

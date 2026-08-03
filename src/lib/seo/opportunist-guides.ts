@@ -181,10 +181,6 @@ export function getOpportunistGuideByPath(path: string): OpportunistGuide | unde
   return OPPORTUNIST_GUIDES.find((g) => g.path === norm);
 }
 
-export function isOpportunistGuidePath(path: string): boolean {
-  return getOpportunistGuideByPath(path) !== undefined;
-}
-
 export function opportunistRoutes(): PublicRoute[] {
   return OPPORTUNIST_GUIDES.map((g) => ({
     path: g.path,

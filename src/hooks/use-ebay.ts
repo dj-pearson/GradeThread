@@ -1058,45 +1058,6 @@ export function useEbayCategoryCheck() {
   });
 }
 
-// ── Manage live listings (Week 4) ───────────────────────────────────
-
-// Updates a published listing's price on eBay via the Sell API. The
-// endpoint also writes-through to local `listings.listing_price` on
-// success so the UI doesn't need a follow-up refetch.
-//
-// 409 — listing has no platform_offer_id (typically a manually-marked
-// "listed" item that never went through Sell API). Callers should fall
-// back to local-only update.
-export function useEbayUpdateListingPrice() {
-  return useMutation<
-    { ok: true; listing_id: string; price: number },
-    Error & { status?: number },
-    { listingId: string; price: number }
-  >({
-    mutationFn: async ({ listingId, price }) => {
-      const res = await fetch(
-        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(
-          listingId
-        )}/price`,
-        {
-          method: "POST",
-          headers: await ebayHeaders(),
-          body: JSON.stringify({ price }),
-        }
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err: Error & { status?: number } = new Error(
-          json.error || "Price update failed."
-        );
-        err.status = res.status;
-        throw err;
-      }
-      return json;
-    },
-  });
-}
-
 // Revises a live listing — title / description / price all optional.
 // Server PUTs the inventory_item and offer as needed. 409 → no offer_id
 // (caller should treat the listing as not-yet-on-eBay and edit locally).
@@ -1570,35 +1531,6 @@ export function usePublishToEbay() {
   });
 }
 
-// ── Persistence ─────────────────────────────────────────────────────
-
-// Saves the chosen eBay category + aspect values on the inventory item.
-// Values are arrays so we can handle MULTI-cardinality aspects uniformly.
-export function useSaveEbayCategoryMapping() {
-  const qc = useQueryClient();
-  return useMutation<
-    void,
-    Error,
-    { itemId: string; categoryId: string; aspects: Record<string, string[]> }
-  >({
-    mutationFn: async ({ itemId, categoryId, aspects }) => {
-      const { error } = await supabase
-        .from("inventory_items")
-        .update({
-          ebay_category_id: categoryId,
-          ebay_aspects: aspects,
-        } as never)
-        .eq("id", itemId);
-      if (error) throw error;
-    },
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["items_full"] });
-      qc.invalidateQueries({ queryKey: ["inventory_item", vars.itemId] });
-    },
-    onError: (err) => toast.error(err.message),
-  });
-}
-
 // Sets a single eBay item specific (e.g. "Department") on an item and persists
 // it where the publish validator will actually read it. assemblePublishContext
 // resolves aspects as `listing.item_specifics_override ?? item.ebay_aspects`
@@ -1677,39 +1609,6 @@ export function useSetItemAspect() {
       qc.invalidateQueries({ queryKey: ["items_full"] });
       qc.invalidateQueries({ queryKey: ["inventory_item", vars.itemId] });
       qc.invalidateQueries({ queryKey: ["inventory_item_ebay", vars.itemId] });
-    },
-    onError: (err) => toast.error(err.message),
-  });
-}
-
-// Sets the eBay condition on the item's most-recent eBay listing so the publish
-// validator/push reads it (it resolves `listing.ebay_condition ?? grade-mapped`,
-// then auto-corrects against the category allow-list server-side). Returns false
-// when the item has no listing row yet (first publish — the composer owns
-// condition there), so the caller can hint the seller to use the composer.
-export function useSetListingCondition() {
-  const qc = useQueryClient();
-  return useMutation<boolean, Error, { itemId: string; condition: string }>({
-    mutationFn: async ({ itemId, condition }) => {
-      const { data: listingRow } = await supabase
-        .from("listings")
-        .select("id")
-        .eq("inventory_item_id", itemId)
-        .eq("platform", "ebay")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!listingRow) return false;
-      const { error } = await supabase
-        .from("listings")
-        .update({ ebay_condition: condition } as never)
-        .eq("id", (listingRow as { id: string }).id);
-      if (error) throw error;
-      return true;
-    },
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["items_full"] });
-      qc.invalidateQueries({ queryKey: ["inventory_item", vars.itemId] });
     },
     onError: (err) => toast.error(err.message),
   });

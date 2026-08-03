@@ -1460,9 +1460,6 @@ export function getGuideBySlug(slug: string): GarmentGuide | undefined {
 export function getGuideByPath(path: string): GarmentGuide | undefined {
   return GUIDE_BY_PATH.get(path);
 }
-export function isGuidePath(path: string): boolean {
-  return GUIDE_BY_PATH.has(path);
-}
 export function isGuideHubPath(path: string): boolean {
   return path === GARMENT_GUIDES_HUB_PATH;
 }

@@ -334,10 +334,6 @@ export function getComparisonByPath(path: string): Comparison | undefined {
   return COMPARISONS.find((c) => comparePath(c.slug) === norm);
 }
 
-export function isComparePath(path: string): boolean {
-  return getComparisonByPath(path) !== undefined;
-}
-
 export function isCompareHubPath(path: string): boolean {
   return path.replace(/\/+$/, "") === COMPARE_HUB_PATH;
 }

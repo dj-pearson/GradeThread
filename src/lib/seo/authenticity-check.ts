@@ -51,10 +51,6 @@ export const AUTHENTICITY_CHECK_META = {
   ],
 };
 
-export function isAuthenticityCheckPath(path: string): boolean {
-  return path.replace(/\/+$/, "") === AUTHENTICITY_CHECK_PATH;
-}
-
 export function authenticityCheckRoute(): PublicRoute {
   return {
     path: AUTHENTICITY_CHECK_PATH,

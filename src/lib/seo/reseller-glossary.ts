@@ -1096,9 +1096,6 @@ export function getResellerTermBySlug(slug: string): ResellerTerm | undefined {
 export function getResellerTermByPath(path: string): ResellerTerm | undefined {
   return TERM_BY_PATH.get(path);
 }
-export function isResellerGlossaryTermPath(path: string): boolean {
-  return TERM_BY_PATH.has(path);
-}
 export function isResellerGlossaryHubPath(path: string): boolean {
   return path === RESELLER_GLOSSARY_HUB_PATH;
 }

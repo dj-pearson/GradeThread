@@ -273,9 +273,6 @@ export function getFlipdeskLandingBySlug(slug: string): FlipdeskLanding | undefi
 export function getFlipdeskLandingByPath(path: string): FlipdeskLanding | undefined {
   return LANDING_BY_PATH.get(path);
 }
-export function isFlipdeskLandingPath(path: string): boolean {
-  return LANDING_BY_PATH.has(path);
-}
 
 /** PublicRoute entries for the five FlipDesk landing pages. */
 export function flipdeskLandingRoutes(): PublicRoute[] {
