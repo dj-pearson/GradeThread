@@ -13,6 +13,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { jsonError } from "../lib/http-errors.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 
 type AdminEnv = {
@@ -109,12 +110,36 @@ adminTasksRoutes.patch("/projects/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// US-2355 AC2: a DELETE with no before-image is unreconstructable.
+//
+// These three were bare: no existence check, no record of what was removed,
+// and no audit row at all — so a deleted project, task or comment left the
+// system with nothing anywhere saying it had ever existed, let alone who
+// removed it. `.delete()` against a missing id also succeeds silently, so the
+// route could not tell "deleted it" from "there was nothing there".
+//
+// Reading the row first fixes both: a 404 when it is absent, and the row
+// itself captured into the audit trail so the deletion can be described after
+// the fact rather than merely counted.
 adminTasksRoutes.delete("/projects/:id", async (c) => {
+  const id = c.req.param("id");
+  const { data: before } = await supabaseAdmin
+    .from("admin_task_projects")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (!before) return jsonError(c, 404, "Project not found");
   const { error } = await supabaseAdmin
     .from("admin_task_projects")
     .delete()
-    .eq("id", c.req.param("id"));
+    .eq("id", id);
   if (error) return jsonError(c, 500, "Failed to delete project");
+  await writeAuditLog(c, {
+    action: "admin_tasks.project.delete",
+    targetType: "admin_task_projects",
+    targetId: id,
+    before,
+  });
   return c.json({ ok: true });
 });
 
@@ -176,11 +201,24 @@ adminTasksRoutes.patch("/tasks/:id", async (c) => {
 });
 
 adminTasksRoutes.delete("/tasks/:id", async (c) => {
+  const id = c.req.param("id");
+  const { data: before } = await supabaseAdmin
+    .from("admin_tasks")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (!before) return jsonError(c, 404, "Task not found");
   const { error } = await supabaseAdmin
     .from("admin_tasks")
     .delete()
-    .eq("id", c.req.param("id"));
+    .eq("id", id);
   if (error) return jsonError(c, 500, "Failed to delete task");
+  await writeAuditLog(c, {
+    action: "admin_tasks.task.delete",
+    targetType: "admin_tasks",
+    targetId: id,
+    before,
+  });
   return c.json({ ok: true });
 });
 
@@ -229,11 +267,24 @@ adminTasksRoutes.post("/tasks/:id/comments", async (c) => {
 });
 
 adminTasksRoutes.delete("/comments/:id", async (c) => {
+  const id = c.req.param("id");
+  const { data: before } = await supabaseAdmin
+    .from("admin_task_comments")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (!before) return jsonError(c, 404, "Comment not found");
   const { error } = await supabaseAdmin
     .from("admin_task_comments")
     .delete()
-    .eq("id", c.req.param("id"));
+    .eq("id", id);
   if (error) return jsonError(c, 500, "Failed to delete comment");
+  await writeAuditLog(c, {
+    action: "admin_tasks.comment.delete",
+    targetType: "admin_task_comments",
+    targetId: id,
+    before,
+  });
   return c.json({ ok: true });
 });
 

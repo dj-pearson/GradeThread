@@ -16,6 +16,7 @@ import {
   isKeywordResearchConfigured,
 } from "../lib/keyword-research.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
 import { performGoogleAdsSync } from "../lib/google-ads-sync-job.ts";
 import { analyzeAds } from "../lib/ads-analysis.ts";
 import { applyRecommendation, revertChange } from "../lib/google-ads-apply-job.ts";
@@ -488,6 +489,16 @@ adminAdsRoutes.post("/conversions/upload", async (c) => {
   if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
   try {
     const result = await uploadOfflineConversions({ supabase: supabaseAdmin, ownerUserId: c.get("userId") ?? null });
+    // Sends first-party conversion data to Google/Apple. Not a spend change,
+    // but it is an outbound transfer of customer-derived data to an ad
+    // platform, which is exactly the kind of action a privacy review needs to
+    // be able to reconstruct after the fact.
+    await writeAuditLog(c, {
+      action: "ads.conversions.upload",
+      targetType: "ads_conversion_upload",
+      targetId: null,
+      after: result as unknown,
+    });
     return c.json(result);
   } catch (err) {
     return failSafe(c, 502, "Conversion upload failed.", err, "admin.ads.conversions.upload");
@@ -522,12 +533,30 @@ adminAdsRoutes.post("/recommendations/:id/apply", async (c) => {
   if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { dryRun?: unknown };
   const dryRun = body.dryRun !== false; // default true — dry-run unless explicitly false
+  const recId = c.req.param("id");
   const result = await applyRecommendation({
-    recId: c.req.param("id"),
+    recId,
     dryRun,
     ownerUserId: c.get("userId") ?? null,
   });
   const { httpStatus, ...payload } = result;
+  // US-2355 AC4: this changes bids and budgets in the LIVE Google/Apple ad
+  // accounts — real spend. It was recorded only in ads_change_audit, a
+  // domain-local table, so the central admin log (the one an investigation
+  // actually reads, and the one that carries actor, role, IP and user agent)
+  // had no idea any money decision had been made. A domain table is a good
+  // operational record and a poor forensic one.
+  //
+  // dryRun is part of the row on purpose: "applied" and "simulated" are the
+  // same call with one flag, and an audit trail that cannot tell them apart
+  // is worse than none.
+  await writeAuditLog(c, {
+    action: dryRun ? "ads.recommendation.apply_dry_run" : "ads.recommendation.apply",
+    targetType: "ads_recommendation",
+    targetId: recId,
+    after: { dryRun, httpStatus, ok: (payload as { ok?: unknown }).ok ?? null },
+    details: { live_spend_change: !dryRun },
+  });
   return c.json(payload, httpStatus as 200 | 400 | 404 | 409 | 422 | 500 | 502);
 });
 
@@ -545,8 +574,19 @@ adminAdsRoutes.post("/recommendations/:id/revert", async (c) => {
     .limit(1)
     .maybeSingle();
   if (!data) return c.json({ ok: false, error: "No applied change to roll back." }, 404);
-  const result = await revertChange({ auditId: (data as { id: string }).id, ownerUserId: c.get("userId") ?? null });
+  const auditId = (data as { id: string }).id;
+  const result = await revertChange({ auditId, ownerUserId: c.get("userId") ?? null });
   const { httpStatus, ...payload } = result;
+  // Reverting moves live spend just as applying does — the direction differs,
+  // the blast radius does not.
+  await writeAuditLog(c, {
+    action: "ads.recommendation.revert",
+    targetType: "ads_recommendation",
+    targetId: c.req.param("id"),
+    before: { ads_change_audit_id: auditId },
+    after: { httpStatus, ok: (payload as { ok?: unknown }).ok ?? null },
+    details: { live_spend_change: true },
+  });
   return c.json(payload, httpStatus as 200 | 400 | 404 | 409 | 422 | 500 | 502);
 });
 

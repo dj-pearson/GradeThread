@@ -1204,7 +1204,18 @@ adminOpsRoutes.post("/events/:id/acknowledge", async (c) => {
   return c.json({ ok: true, id, already: !data });
 });
 
-// POST /events/acknowledge-all — clear every unacked critical event (any admin).
+// POST /events/acknowledge-all — clear every unacked critical event.
+//
+// US-2355 AC3: this is a MASS state change over the operational alert record,
+// and it used to leave no trace of itself. That combination is the problem:
+// acknowledging a critical event is how it stops being visible, so an
+// unaudited bulk-acknowledge is an efficient way to erase the evidence that
+// anything was ever wrong — and nothing recorded who did it or what got
+// cleared.
+//
+// The audit row carries the ids it cleared, not just a count. A count says
+// "seventeen alerts vanished"; the ids say WHICH, which is the difference
+// between noticing an incident was buried and being able to reconstruct it.
 adminOpsRoutes.post("/events/acknowledge-all", async (c) => {
   const adminId = c.get("userId");
   const { data, error } = await supabaseAdmin
@@ -1212,10 +1223,28 @@ adminOpsRoutes.post("/events/acknowledge-all", async (c) => {
     .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: adminId })
     .eq("severity", "critical")
     .is("acknowledged_at", null)
-    .select("id");
+    .select("id, type, title");
   if (error) {
     captureException(error, { tags: { area: "ops-events" } });
     return c.json({ error: "Failed to acknowledge events" }, 500);
   }
-  return c.json({ ok: true, acknowledged: data?.length ?? 0 });
+  const cleared = (data ?? []) as Array<
+    { id: string; type: string | null; title: string | null }
+  >;
+  // Logged even when nothing matched. "An admin ran this and it cleared
+  // nothing" is a fact worth having; silence there is indistinguishable from
+  // the route never being called.
+  await writeAuditLog(c, {
+    action: "ops.events.acknowledge_all",
+    targetType: "ops_event",
+    targetId: null,
+    before: { unacknowledged_critical: cleared.length },
+    after: { acknowledged: cleared.length },
+    details: {
+      severity: "critical",
+      event_ids: cleared.map((e) => e.id),
+      events: cleared.map((e) => ({ id: e.id, type: e.type, title: e.title })),
+    },
+  });
+  return c.json({ ok: true, acknowledged: cleared.length });
 });
