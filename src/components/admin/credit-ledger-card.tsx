@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -107,6 +107,13 @@ export function CreditLedgerCard({ userId }: CreditLedgerCardProps) {
   const [reason, setReason] = useState<"admin_grant" | "correction" | "refund">("admin_grant");
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
+  // US-2335: ids for the label/control pairs below. This card is rendered per
+  // user, so useId rather than slugs.
+  const directionId = useId();
+  const reasonId = useId();
+  const amountId = useId();
+  const notesId = useId();
+  const chargeIdId = useId();
   const [adjusting, setAdjusting] = useState(false);
 
   // ── Pack refund ──
@@ -255,9 +262,9 @@ export function CreditLedgerCard({ userId }: CreditLedgerCardProps) {
           <div className="text-sm font-semibold">Manual adjustment</div>
           <div className="grid gap-2 sm:grid-cols-[140px_160px_110px_1fr_auto] sm:items-end">
             <div className="space-y-1">
-              <Label className="text-xs">Direction</Label>
+              <Label className="text-xs" htmlFor={directionId}>Direction</Label>
               <Select value={direction} onValueChange={(v) => setDirection(v as "add" | "remove")}>
-                <SelectTrigger>
+                <SelectTrigger id={directionId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -267,9 +274,9 @@ export function CreditLedgerCard({ userId }: CreditLedgerCardProps) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Reason</Label>
+              <Label className="text-xs" htmlFor={reasonId}>Reason</Label>
               <Select value={reason} onValueChange={(v) => setReason(v as typeof reason)}>
-                <SelectTrigger>
+                <SelectTrigger id={reasonId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -280,8 +287,9 @@ export function CreditLedgerCard({ userId }: CreditLedgerCardProps) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Credits</Label>
+              <Label className="text-xs" htmlFor={amountId}>Credits</Label>
               <Input
+                id={amountId}
                 type="number"
                 min="1"
                 max="10000"
@@ -290,8 +298,9 @@ export function CreditLedgerCard({ userId }: CreditLedgerCardProps) {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Note (required)</Label>
+              <Label className="text-xs" htmlFor={notesId}>Note (required)</Label>
               <Input
+                id={notesId}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="e.g. goodwill credit for support ticket #1234"
@@ -322,8 +331,9 @@ export function CreditLedgerCard({ userId }: CreditLedgerCardProps) {
           </p>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
             <div className="space-y-1">
-              <Label className="text-xs">Stripe charge id</Label>
+              <Label className="text-xs" htmlFor={chargeIdId}>Stripe charge id</Label>
               <Input
+                id={chargeIdId}
                 value={chargeId}
                 onChange={(e) => setChargeId(e.target.value)}
                 placeholder="ch_..."

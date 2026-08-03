@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -87,6 +87,12 @@ function EditTierDialog({
   const [price, setPrice] = useState("");
   const [creditCost, setCreditCost] = useState("");
   const [sla, setSla] = useState("");
+  // US-2335: useId rather than a slug of the label — "Price (USD)" also
+  // labels a control in EditPackDialog below, and two identical ids would
+  // point the first label at the wrong dialog's input.
+  const priceId = useId();
+  const creditCostId = useId();
+  const slaId = useId();
   const [seededFor, setSeededFor] = useState<string | null>(null);
 
   if (tier && seededFor !== tier.id) {
@@ -119,17 +125,17 @@ function EditTierDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Price (USD)</Label>
-            <Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} />
+            <Label htmlFor={priceId}>Price (USD)</Label>
+            <Input id={priceId} type="number" value={price} onChange={(e) => setPrice(e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Credit cost</Label>
-              <Input type="number" value={creditCost} onChange={(e) => setCreditCost(e.target.value)} />
+              <Label htmlFor={creditCostId}>Credit cost</Label>
+              <Input id={creditCostId} type="number" value={creditCost} onChange={(e) => setCreditCost(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>SLA (hours)</Label>
-              <Input type="number" value={sla} onChange={(e) => setSla(e.target.value)} />
+              <Label htmlFor={slaId}>SLA (hours)</Label>
+              <Input id={slaId} type="number" value={sla} onChange={(e) => setSla(e.target.value)} />
             </div>
           </div>
           {tier?.stripe_price_ref && (
@@ -165,6 +171,8 @@ function EditPackDialog({
 }) {
   const [price, setPrice] = useState("");
   const [credits, setCredits] = useState("");
+  const creditsId = useId();
+  const packPriceId = useId();
   const [seededFor, setSeededFor] = useState<string | null>(null);
 
   if (pack && seededFor !== pack.id) {
@@ -193,12 +201,12 @@ function EditPackDialog({
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <Label>Credits</Label>
-            <Input type="number" value={credits} onChange={(e) => setCredits(e.target.value)} />
+            <Label htmlFor={creditsId}>Credits</Label>
+            <Input id={creditsId} type="number" value={credits} onChange={(e) => setCredits(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label>Price (USD)</Label>
-            <Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} />
+            <Label htmlFor={packPriceId}>Price (USD)</Label>
+            <Input id={packPriceId} type="number" value={price} onChange={(e) => setPrice(e.target.value)} />
           </div>
         </div>
         {pack?.stripe_price_ref && (
@@ -231,6 +239,7 @@ function EditIncludedDialog({
   pending: boolean;
 }) {
   const [grades, setGrades] = useState("");
+  const gradesId = useId();
   const [seededFor, setSeededFor] = useState<string | null>(null);
 
   if (plan && seededFor !== plan.key) {
@@ -259,8 +268,8 @@ function EditIncludedDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label>Included Standard grades / period</Label>
-          <Input type="number" value={grades} onChange={(e) => setGrades(e.target.value)} />
+          <Label htmlFor={gradesId}>Included Standard grades / period</Label>
+          <Input id={gradesId} type="number" value={grades} onChange={(e) => setGrades(e.target.value)} />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -92,6 +92,15 @@ export function AdminMaintenancePage() {
   const [message, setMessage] = useState("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
+  // US-2335: label/control ids. useId rather than slugs — "Starts at" and
+  // "Ends at" are common enough field names that a slug would collide with
+  // another form on a shared layout, and a duplicate id points a label at the
+  // wrong control while still reading as correct.
+  const scopeId = useId();
+  const modeId = useId();
+  const messageId = useId();
+  const startsAtId = useId();
+  const endsAtId = useId();
 
   const query = useQuery({
     queryKey: ["admin-maintenance-windows"],
@@ -212,9 +221,9 @@ export function AdminMaintenancePage() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Scope</Label>
+              <Label htmlFor={scopeId}>Scope</Label>
               <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id={scopeId}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {SCOPES.map((s) => (
                     <SelectItem key={s} value={s}>{s}</SelectItem>
@@ -223,9 +232,9 @@ export function AdminMaintenancePage() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Mode</Label>
+              <Label htmlFor={modeId}>Mode</Label>
               <Select value={mode} onValueChange={(v) => setMode(v as Mode)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id={modeId}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {MODES.map((m) => (
                     <SelectItem key={m} value={m}>{m}</SelectItem>
@@ -237,8 +246,9 @@ export function AdminMaintenancePage() {
           </div>
 
           <div className="space-y-1.5">
-            <Label>Message (shown to users)</Label>
+            <Label htmlFor={messageId}>Message (shown to users)</Label>
             <Textarea
+              id={messageId}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               rows={2}
@@ -248,12 +258,12 @@ export function AdminMaintenancePage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Starts at (optional)</Label>
-              <Input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+              <Label htmlFor={startsAtId}>Starts at (optional)</Label>
+              <Input id={startsAtId} type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>Ends at (optional)</Label>
-              <Input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
+              <Label htmlFor={endsAtId}>Ends at (optional)</Label>
+              <Input id={endsAtId} type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
             </div>
           </div>
 
