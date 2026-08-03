@@ -101,8 +101,8 @@ export function ListingFormatControls({ value, onChange }: Props) {
       {value.format === "auction" && (
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">Starting bid ($)</Label>
-            <Input
+            <Label htmlFor="lfc-starting-bid" className="text-xs">Starting bid ($)</Label>
+            <Input id="lfc-starting-bid"
               type="number"
               min="0"
               step="0.01"
@@ -132,8 +132,8 @@ export function ListingFormatControls({ value, onChange }: Props) {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Reserve price ($, optional)</Label>
-            <Input
+            <Label htmlFor="lfc-reserve-price-optional" className="text-xs">Reserve price ($, optional)</Label>
+            <Input id="lfc-reserve-price-optional"
               type="number"
               min="0"
               step="0.01"
@@ -145,8 +145,8 @@ export function ListingFormatControls({ value, onChange }: Props) {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Buy It Now ($, optional)</Label>
-            <Input
+            <Label htmlFor="lfc-buy-it-now-optional" className="text-xs">Buy It Now ($, optional)</Label>
+            <Input id="lfc-buy-it-now-optional"
               type="number"
               min="0"
               step="0.01"
@@ -270,10 +270,10 @@ function VariationEditor({
               </div>
             ))}
             <div className="space-y-1">
-              <Label className="text-[10px] uppercase text-muted-foreground">
+              <Label htmlFor="lfc-qty" className="text-[10px] uppercase text-muted-foreground">
                 Qty
               </Label>
-              <Input
+              <Input id="lfc-qty"
                 className="h-8 w-16"
                 type="number"
                 min="0"
@@ -286,10 +286,10 @@ function VariationEditor({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[10px] uppercase text-muted-foreground">
+              <Label htmlFor="lfc-price" className="text-[10px] uppercase text-muted-foreground">
                 Price ($)
               </Label>
-              <Input
+              <Input id="lfc-price"
                 className="h-8 w-20"
                 type="number"
                 min="0"

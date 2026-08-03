@@ -136,25 +136,25 @@ function ComposeDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Internal name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Spring promo blast" />
+            <Label htmlFor="c-internal-name">Internal name</Label>
+            <Input id="c-internal-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Spring promo blast" />
           </div>
           <div className="space-y-2">
-            <Label>Subject / title</Label>
-            <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Email subject & push/in-app title" />
+            <Label htmlFor="c-subject-title">Subject / title</Label>
+            <Input id="c-subject-title" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Email subject & push/in-app title" />
           </div>
           <div className="space-y-2">
-            <Label>Message</Label>
-            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} placeholder="Body text. Blank lines split paragraphs." />
+            <Label htmlFor="c-message">Message</Label>
+            <Textarea id="c-message" value={body} onChange={(e) => setBody(e.target.value)} rows={5} placeholder="Body text. Blank lines split paragraphs." />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Button label (optional)</Label>
-              <Input value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} placeholder="Shop now" />
+              <Label htmlFor="c-button-label-optional">Button label (optional)</Label>
+              <Input id="c-button-label-optional" value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} placeholder="Shop now" />
             </div>
             <div className="space-y-2">
-              <Label>Button URL (optional)</Label>
-              <Input value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} placeholder="https://gradethread.com/…" />
+              <Label htmlFor="c-button-url-optional">Button URL (optional)</Label>
+              <Input id="c-button-url-optional" value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} placeholder="https://gradethread.com/…" />
             </div>
           </div>
 
@@ -194,8 +194,8 @@ function ComposeDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Schedule (optional)</Label>
-              <Input type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
+              <Label htmlFor="c-schedule-optional">Schedule (optional)</Label>
+              <Input id="c-schedule-optional" type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
             </div>
           </div>
         </div>

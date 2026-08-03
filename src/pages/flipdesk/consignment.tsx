@@ -499,8 +499,8 @@ function ConsignorEditDialog({
 
         <div className="space-y-4">
           <div className="space-y-1">
-            <Label>Name *</Label>
-            <Input
+            <Label htmlFor="c-name">Name *</Label>
+            <Input id="c-name"
               value={draft.name}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               placeholder="e.g. Jane Doe"
@@ -509,8 +509,8 @@ function ConsignorEditDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Email</Label>
-              <Input
+              <Label htmlFor="c-email">Email</Label>
+              <Input id="c-email"
                 type="email"
                 value={draft.email}
                 onChange={(e) => setDraft({ ...draft, email: e.target.value })}
@@ -518,8 +518,8 @@ function ConsignorEditDialog({
               />
             </div>
             <div className="space-y-1">
-              <Label>Phone</Label>
-              <Input
+              <Label htmlFor="c-phone">Phone</Label>
+              <Input id="c-phone"
                 value={draft.phone}
                 onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
                 placeholder="(555) 555-5555"
@@ -528,8 +528,8 @@ function ConsignorEditDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Split % (consignor's share)</Label>
-              <Input
+              <Label htmlFor="c-split-consignors-share">Split % (consignor's share)</Label>
+              <Input id="c-split-consignors-share"
                 type="number"
                 min={0}
                 max={100}
@@ -564,8 +564,8 @@ function ConsignorEditDialog({
             )}
           </div>
           <div className="space-y-1">
-            <Label>Notes</Label>
-            <Textarea
+            <Label htmlFor="c-notes">Notes</Label>
+            <Textarea id="c-notes"
               value={draft.notes}
               onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
               rows={3}
@@ -651,8 +651,8 @@ function IntakeDialog({
             out via the connected payout method after a sale clears.
           </div>
           <div className="space-y-1">
-            <Label>Signature (type full name) *</Label>
-            <Input
+            <Label htmlFor="c-signature-type-full-name">Signature (type full name) *</Label>
+            <Input id="c-signature-type-full-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Full legal name"
@@ -749,8 +749,8 @@ function PayoutDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1">
-            <Label>Amount (USD) *</Label>
-            <Input
+            <Label htmlFor="c-amount-usd">Amount (USD) *</Label>
+            <Input id="c-amount-usd"
               type="number"
               min={0}
               step={0.01}
@@ -759,8 +759,8 @@ function PayoutDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label>Note</Label>
-            <Input
+            <Label htmlFor="c-note">Note</Label>
+            <Input id="c-note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="e.g. March payout"

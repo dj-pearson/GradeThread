@@ -362,8 +362,8 @@ export function FlipdeskBulkPricingPage() {
               </div>
             )}
             <div className="space-y-1">
-              <Label>Set quantity (optional)</Label>
-              <Input
+              <Label htmlFor="bp-set-quantity-optional">Set quantity (optional)</Label>
+              <Input id="bp-set-quantity-optional"
                 type="number"
                 min={0}
                 step={1}
@@ -418,8 +418,8 @@ export function FlipdeskBulkPricingPage() {
           </CardTitle>
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[12rem] flex-1 space-y-1">
-              <Label className="text-xs">Search title</Label>
-              <Input
+              <Label htmlFor="bp-search-title" className="text-xs">Search title</Label>
+              <Input id="bp-search-title"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -452,8 +452,8 @@ export function FlipdeskBulkPricingPage() {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Min $</Label>
-              <Input
+              <Label htmlFor="bp-min" className="text-xs">Min $</Label>
+              <Input id="bp-min"
                 type="number"
                 min={0}
                 value={minPrice}
@@ -466,8 +466,8 @@ export function FlipdeskBulkPricingPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Max $</Label>
-              <Input
+              <Label htmlFor="bp-max" className="text-xs">Max $</Label>
+              <Input id="bp-max"
                 type="number"
                 min={0}
                 value={maxPrice}

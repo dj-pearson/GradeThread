@@ -723,8 +723,8 @@ export function FlipdeskIntakePage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1">
-            <Label>Description (public — for listing)</Label>
-            <Textarea
+            <Label htmlFor="i-description-public-for-listing">Description (public — for listing)</Label>
+            <Textarea id="i-description-public-for-listing"
               value={form.description}
               onChange={(e) => patch("description", e.target.value)}
               rows={3}

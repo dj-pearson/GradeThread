@@ -280,8 +280,8 @@ export function BillingActionsCard({
           <div className="text-sm font-semibold">Comp grade credits</div>
           <div className="grid gap-2 sm:grid-cols-[120px_1fr_auto]">
             <div className="space-y-1">
-              <Label className="text-xs">Credits</Label>
-              <Input
+              <Label htmlFor="bac-credits" className="text-xs">Credits</Label>
+              <Input id="bac-credits"
                 type="number"
                 min="1"
                 max="1000"
@@ -290,8 +290,8 @@ export function BillingActionsCard({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Reason (required)</Label>
-              <Input
+              <Label htmlFor="bac-reason-required" className="text-xs">Reason (required)</Label>
+              <Input id="bac-reason-required"
                 value={creditReason}
                 onChange={(e) => setCreditReason(e.target.value)}
                 placeholder="e.g. comp for stuck grade #..."
@@ -324,8 +324,8 @@ export function BillingActionsCard({
           <div className="text-sm font-semibold">Trial end date</div>
           <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
             <div className="space-y-1">
-              <Label className="text-xs">trial_ends_at</Label>
-              <Input
+              <Label htmlFor="bac-trialendsat" className="text-xs">trial_ends_at</Label>
+              <Input id="bac-trialendsat"
                 type="datetime-local"
                 value={trialInput}
                 onChange={(e) => setTrialInput(e.target.value)}
@@ -509,8 +509,8 @@ function ChargeList({ charges, refunding, refundingChargeId, onRefund }: ChargeL
             </div>
             {isOpen && (
               <div className="mt-3 space-y-2 border-t border-border pt-3">
-                <Label className="text-xs">Reason (optional)</Label>
-                <Textarea
+                <Label htmlFor="bac-reason-optional" className="text-xs">Reason (optional)</Label>
+                <Textarea id="bac-reason-optional"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Internal note — shown in Stripe metadata only."

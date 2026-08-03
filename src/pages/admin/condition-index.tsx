@@ -142,8 +142,8 @@ function SeedDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Slug</Label>
-            <Input
+            <Label htmlFor="ci-slug">Slug</Label>
+            <Input id="ci-slug"
               value={slug}
               onChange={(e) => setSlug(e.target.value)}
               placeholder="patagonia-better-sweater"
@@ -155,8 +155,8 @@ function SeedDialog({
             </p>
           </div>
           <div className="space-y-2">
-            <Label>Label</Label>
-            <Input
+            <Label htmlFor="ci-label">Label</Label>
+            <Input id="ci-label"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder="Patagonia Better Sweater"
@@ -164,12 +164,12 @@ function SeedDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Brand</Label>
-              <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Patagonia" />
+              <Label htmlFor="ci-brand">Brand</Label>
+              <Input id="ci-brand" value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Patagonia" />
             </div>
             <div className="space-y-2">
-              <Label>eBay category ID</Label>
-              <Input
+              <Label htmlFor="ci-ebay-category-id">eBay category ID</Label>
+              <Input id="ci-ebay-category-id"
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
                 placeholder="11450"
@@ -179,12 +179,12 @@ function SeedDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Keyword (optional)</Label>
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Better Sweater" />
+              <Label htmlFor="ci-keyword-optional">Keyword (optional)</Label>
+              <Input id="ci-keyword-optional" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Better Sweater" />
             </div>
             <div className="space-y-2">
-              <Label>Priority</Label>
-              <Input type="number" value={priority} onChange={(e) => setPriority(e.target.value)} />
+              <Label htmlFor="ci-priority">Priority</Label>
+              <Input id="ci-priority" type="number" value={priority} onChange={(e) => setPriority(e.target.value)} />
             </div>
           </div>
           <div className="flex items-center justify-between rounded-md border px-3 py-2">

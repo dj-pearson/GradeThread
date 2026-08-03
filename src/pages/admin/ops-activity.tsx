@@ -294,16 +294,16 @@ export function AdminOpsActivityPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Webhook URL (Slack/PagerDuty/generic)</Label>
-                <Input
+                <Label htmlFor="oa-webhook-url-slackpagerdutygeneric">Webhook URL (Slack/PagerDuty/generic)</Label>
+                <Input id="oa-webhook-url-slackpagerdutygeneric"
                   value={webhookUrl}
                   onChange={(e) => setWebhookUrl(e.target.value)}
                   placeholder="https://hooks.slack.com/…  (blank = MONITOR_ALERT_WEBHOOK)"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Alert email</Label>
-                <Input
+                <Label htmlFor="oa-alert-email">Alert email</Label>
+                <Input id="oa-alert-email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="ops@…  (blank = MONITOR_ALERT_EMAIL / SMTP_ADMIN_EMAIL)"
@@ -311,8 +311,8 @@ export function AdminOpsActivityPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Muted types (comma-separated)</Label>
-              <Input
+              <Label htmlFor="oa-muted-types-commaseparated">Muted types (comma-separated)</Label>
+              <Input id="oa-muted-types-commaseparated"
                 value={mutedTypes}
                 onChange={(e) => setMutedTypes(e.target.value)}
                 placeholder="job.failed, maintenance.updated"
@@ -367,8 +367,8 @@ export function AdminOpsActivityPage() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Type contains</Label>
-          <Input
+          <Label htmlFor="oa-type-contains" className="text-xs">Type contains</Label>
+          <Input id="oa-type-contains"
             className="w-48"
             value={typeFilter}
             onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
