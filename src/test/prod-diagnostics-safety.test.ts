@@ -63,7 +63,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     // questions from an older version of the script and reporting the answers
     // against the current one. Checked by table rather than by diff, because the
     // two files legitimately differ in their banners.
-    for (const section of ["§1", "§10", "§13"]) {
+    for (const section of ["§1", "§10", "§13", "§16"]) {
       expect(CONSOLE_SQL, `${section} is missing from the console copy`)
         .toContain(section);
     }
@@ -120,12 +120,25 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     // fails here instead of on prod. Deliberately checks the specific
     // table.column pairs the script joins on, not every identifier — a broad
     // identifier sweep would drown in SQL keywords and get deleted.
+    // COMMENTS STRIPPED FIRST, and this is a correctness fix rather than
+    // tidiness. Both branches below bound their search with `[^;]*` or a
+    // character window, and a `;` INSIDE A COMMENT truncates it — 00050 has
+    // "-- NULL = applies to all garments; otherwise a garment_category slug"
+    // in the middle of a multi-column ALTER, which cut the scan before
+    // `eval_passed` and reported a column that plainly exists as missing.
+    //
+    // The direction it failed in was safe (a false alarm), but the same
+    // truncation silently checks FEWER columns than this test claims for every
+    // statement containing prose punctuation, and that half is not safe. It also
+    // makes the check honest in the other direction: a column named only in a
+    // comment is not defined by it.
     const migrations = readdirSync(resolve(process.cwd(), "supabase/migrations"))
       .filter((f) => f.endsWith(".sql"))
       .map((f) =>
         readFileSync(resolve(process.cwd(), "supabase/migrations", f), "utf8"),
       )
-      .join("\n");
+      .join("\n")
+      .replace(/--[^\n]*/g, "");
 
     const required: Array<[string, string[]]> = [
       ["applied_migrations", ["version", "applied_at"]],
@@ -143,6 +156,8 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       ["buyer_wants", ["user_id", "created_at"]],
       ["buyer_guarantee_claims", ["user_id"]],
       ["marketplace_connections", ["is_active", "refresh_error", "marketplace", "last_refresh_attempt_at"]],
+      ["grading_eval_cases", ["is_active", "deleted_at"]],
+      ["ai_prompt_versions", ["version_name", "stage", "is_active", "eval_passed", "qualified_model", "rollout_percentage"]],
     ];
 
     const missing: string[] = [];
@@ -203,7 +218,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
   });
 
   it("still answers every question it claims to", () => {
-    // The header advertises thirteen sections. A future edit that drops one leaves
+    // The header advertises sixteen sections. A future edit that drops one leaves
     // the header lying about what the operator gets back, and they will not
     // re-read the SQL to notice.
     for (const section of [
@@ -220,6 +235,9 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       "§11",
       "§12",
       "§13",
+      "§14",
+      "§15",
+      "§16",
     ]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }
@@ -235,6 +253,10 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     expect(SQL).toContain("public.system_settings");
     expect(SQL).toContain("public.buyer_wants");
     expect(SQL).toContain("public.marketplace_connections");
+    // §15/§16, added 2026-08-03 for US-2347. §14 reads pg_proc, a catalog table
+    // no migration creates, so it is deliberately not in this list.
+    expect(SQL).toContain("public.grading_eval_cases");
+    expect(SQL).toContain("public.ai_prompt_versions");
   });
 
   it("§10 is the only scan, and the header admits it", () => {

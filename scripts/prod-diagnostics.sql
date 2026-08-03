@@ -31,6 +31,9 @@
 --   §11 US-2313 AC4 — are the ops alert destinations actually configured?
 --   §12 US-2359 AC4 — free-tier buyers who used a paid buyer feature.
 --   §13 US-2322 AC5 — sellers disconnected by an invalid_grant refresh.
+--   §14 US-2347 AC1 — SECURITY DEFINER functions callable by PUBLIC.
+--   §15 US-2347 AC3 — golden-set size and which prompt versions are live.
+--   §16 US-2347 AC4 — does the billing-source check still exclude Play?
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -482,6 +485,88 @@ WHERE is_active = false
 GROUP BY 1
 ORDER BY count(*) DESC
 LIMIT 20;
+
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§14  US-2347 AC1 — SECURITY DEFINER functions callable by PUBLIC'
+\echo '════════════════════════════════════════════════════════════════'
+-- A SECURITY DEFINER function runs as its OWNER, so one that PUBLIC may execute
+-- is a hole straight through RLS for whatever it touches. A NULL acl means the
+-- default, which for a function IS execute-to-PUBLIC — so "no explicit grant"
+-- is the dangerous case, not the safe one, and that is the column to read first.
+SELECT
+  proname,
+  (proacl IS NULL) AS default_acl_public_execute,
+  proacl::text     AS acl
+FROM pg_proc
+WHERE pronamespace = 'public'::regnamespace
+  AND prosecdef
+ORDER BY (proacl IS NULL) DESC, proname;
+
+\echo ''
+\echo '-- The short answer. A non-zero first number is the review list.'
+SELECT
+  count(*) FILTER (WHERE proacl IS NULL) AS public_executable,
+  count(*)                               AS security_definer_total
+FROM pg_proc
+WHERE pronamespace = 'public'::regnamespace
+  AND prosecdef;
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§15  US-2347 AC3 — the golden set, and which prompts are live'
+\echo '════════════════════════════════════════════════════════════════'
+-- US-2301 made an empty golden set raise a critical alert instead of skipping
+-- silently. This is the number that alert is about: an eval gate with no cases
+-- passes everything.
+SELECT
+  count(*)                                   AS eval_cases_total,
+  count(*) FILTER (WHERE is_active)          AS active,
+  count(*) FILTER (WHERE deleted_at IS NULL) AS not_deleted
+FROM public.grading_eval_cases;
+
+\echo ''
+\echo '-- Which prompt versions are actually serving, and were they eval-gated?'
+\echo '-- A live version with eval_passed false or qualified_model null is one'
+\echo '-- serving traffic on an unproven prompt.'
+SELECT
+  version_name,
+  stage,
+  is_active,
+  is_shadow,
+  is_canary,
+  rollout_percentage,
+  eval_passed,
+  qualified_model,
+  created_at
+FROM public.ai_prompt_versions
+ORDER BY is_active DESC, created_at DESC
+LIMIT 50;
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§16  US-2347 AC4 — does the billing-source check still exclude Play?'
+\echo '════════════════════════════════════════════════════════════════'
+-- US-2287: if the CHECK constraint has no 'googleplay' value, every Play
+-- subscription write fails outright. Reading the constraint text is the whole
+-- answer — the second query then says whether anyone has ever landed one.
+SELECT
+  conname,
+  pg_get_constraintdef(oid) AS definition,
+  (pg_get_constraintdef(oid) ILIKE '%googleplay%') AS allows_googleplay
+FROM pg_constraint
+WHERE conrelid = 'public.users'::regclass
+  AND conname = 'users_billing_source_chk';
+
+\echo ''
+\echo '-- Has any billing source other than the default ever been written?'
+SELECT
+  COALESCE(billing_source, '(null)') AS billing_source,
+  count(*)                           AS users
+FROM public.users
+GROUP BY 1
+ORDER BY count(*) DESC;
 
 
 \echo ''
