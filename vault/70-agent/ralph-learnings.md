@@ -4,7 +4,7 @@ type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-02
 tags: [agent, ralph, learnings]
 summary: Recurring gotchas the Ralph loop reads on every iteration; kept short on purpose because its cost is per-iteration.
 ---
@@ -44,8 +44,14 @@ a learning that only matters to ONE surface, put it in that surface's file.
 
 
 ## Build / verify
-- `npm run build` does NOT run vitest — it only typechecks + builds. Run
-  `npm test` separately or you ship a red `main`.
+- `npm run build` does NOT run vitest — it only typechecks + builds. Run the
+  tests separately or you ship a red `main`. **Run `npm run verify --web`, not
+  `npm test`.** `npm test` is `vitest run` with NO coverage, and CI runs
+  `npm run test:coverage`, which enforces FAILING thresholds (statements 65,
+  branches 58, functions 62, lines 67). So `npm test` can be green while CI is
+  red on coverage alone — the same trap that made `vault:lint` weaker than its
+  CI step until 2026-08-02 (US-2391). `npm test` is fine as the fast inner
+  loop; it is not the gate, and this line used to say it was.
 - Two web tests are red on clean `main` independent of your change (verified by
   stashing): `seo/__tests__/not-found.test.ts` (missing SPA-shell rule for
   /dashboard) and `prerender/__tests__/prerender.test.ts` (expects
