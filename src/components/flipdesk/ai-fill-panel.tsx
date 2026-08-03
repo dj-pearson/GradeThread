@@ -300,6 +300,7 @@ export function AiFillPanel({
                     // The AI-generated description is a multi-line paragraph —
                     // give it room to read/edit instead of a 1-line input.
                     <Textarea
+                      aria-label={fieldLabels[field] ?? humanize(field)}
                       value={values[field] ?? ""}
                       onChange={(e) =>
                         setValues((prev) => ({
@@ -312,6 +313,7 @@ export function AiFillPanel({
                     />
                   ) : (
                     <Input
+                      aria-label={fieldLabels[field] ?? humanize(field)}
                       value={values[field] ?? ""}
                       onChange={(e) =>
                         setValues((prev) => ({

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +52,9 @@ export function CancelSubscriptionDialog({
   const [step, setStep] = useState<1 | 2>(1);
   const [reason, setReason] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  // US-2335: ids for the cancel dialog's two fields.
+  const reasonId = useId();
+  const notesId = useId();
   const [confirmed, setConfirmed] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
@@ -182,9 +185,9 @@ export function CancelSubscriptionDialog({
 
               <div className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <Label>Reason (optional)</Label>
+                  <Label htmlFor={reasonId}>Reason (optional)</Label>
                   <Select value={reason} onValueChange={setReason}>
-                    <SelectTrigger>
+                    <SelectTrigger id={reasonId}>
                       <SelectValue placeholder="Pick one…" />
                     </SelectTrigger>
                     <SelectContent>
@@ -198,8 +201,9 @@ export function CancelSubscriptionDialog({
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Anything specific? (optional)</Label>
+                  <Label htmlFor={notesId}>Anything specific? (optional)</Label>
                   <Textarea
+                    id={notesId}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="What could we have done better?"

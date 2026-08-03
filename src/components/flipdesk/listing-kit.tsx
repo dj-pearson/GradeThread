@@ -167,12 +167,13 @@ function KitField({ field, value, editable, onChange }: KitFieldProps) {
       </div>
       {editable && field.multiline ? (
         <Textarea
+          aria-label={field.label}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="min-h-[88px] text-sm"
         />
       ) : editable ? (
-        <Input value={value} onChange={(e) => onChange(e.target.value)} className="text-sm" />
+        <Input aria-label={field.label} value={value} onChange={(e) => onChange(e.target.value)} className="text-sm" />
       ) : (
         <div className="whitespace-pre-wrap rounded-md border bg-muted/40 px-3 py-2 text-sm">
           {value || <span className="text-muted-foreground">—</span>}
