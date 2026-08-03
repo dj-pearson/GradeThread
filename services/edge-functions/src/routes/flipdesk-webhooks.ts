@@ -8,6 +8,7 @@ import { isDebugAllowed } from "../lib/env.ts";
 import { claimWebhookEvent, releaseWebhookEvent } from "../lib/webhook-idempotency.ts";
 import { verifyEbayNotification } from "../lib/ebay-notification-verify.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
+import { checkFreshness } from "../lib/webhook-freshness.ts";
 import { triggerEbaySyncForUser } from "./flipdesk-ebay.ts";
 import { classifyEbayTopic } from "../lib/ebay-webhook-topics.ts";
 import { notificationEndpointUrl } from "../lib/ebay-notification-subscriptions.ts";
@@ -173,6 +174,34 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
+  // US-2326 AC2: replay window. The signature proves eBay signed this; it does
+  // not prove it is RECENT, and a captured delivery stays validly signed
+  // forever. `publishDate` is declared in the notification type and was never
+  // read. Checked here rather than inside processEbayWebhookEvent because that
+  // runs detached from the response — a rejection there could not produce a
+  // status, and would be indistinguishable from success to the caller.
+  //
+  // Absent → accept: a topic that ships without the field must not become an
+  // outage. Present but stale or unparseable → reject.
+  const ebayNotif = (parsed.notification ?? {}) as {
+    publishDate?: string;
+    eventDate?: string;
+    notificationId?: string;
+  };
+  const ebayFreshness = checkFreshness(
+    ebayNotif.publishDate ?? ebayNotif.eventDate,
+    Date.now(),
+  );
+  if (!ebayFreshness.fresh) {
+    recordMetric("webhook.stale", 1, { provider: "ebay" });
+    console.warn(
+      `[flipdesk-webhooks] eBay event rejected as ${ebayFreshness.reason} ` +
+        `(id=${ebayNotif.notificationId ?? "(no-id)"} ` +
+        `ageMs=${ebayFreshness.ageMs ?? "n/a"})`,
+    );
+    return c.json({ error: "Stale notification" }, 400);
+  }
+
   processEbayWebhookEvent(parsed).catch((err) => {
     reportWebhookFailure("ebay", err);
   });
@@ -214,6 +243,22 @@ flipdeskWebhookRoutes.post("/shopify", async (c) => {
         "[flipdesk-webhooks] Shopify event rejected: signature mismatch",
       );
       return c.json({ error: "Invalid signature" }, 401);
+    }
+
+    // US-2326 AC2: replay window, from the X-Shopify-Triggered-At header
+    // Shopify already sends and this receiver never read. Checked AFTER the
+    // HMAC, so an unsigned request is still rejected as unsigned rather than
+    // as stale — the more accurate error, and the one that does not leak
+    // whether a guessed signature was close.
+    const triggeredAt = c.req.header("x-shopify-triggered-at");
+    const freshness = checkFreshness(triggeredAt, Date.now());
+    if (!freshness.fresh) {
+      recordMetric("webhook.stale", 1, { provider: "shopify" });
+      console.warn(
+        `[flipdesk-webhooks] Shopify event rejected as ${freshness.reason} ` +
+          `(ageMs=${freshness.ageMs ?? "n/a"})`,
+      );
+      return c.json({ error: "Stale notification" }, 400);
     }
   }
 

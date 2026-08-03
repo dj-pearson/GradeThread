@@ -40,7 +40,10 @@ const KNOWN_BARE_FETCH: Array<[string, number]> = [
   ["src/lib/cloudflare-purge.ts", 1],
   ["src/lib/coherent-cache.ts", 1],
   ["src/lib/content-webhook.ts", 2],
-  ["src/lib/ebay-notification-verify.ts", 1],
+  // US-2326: 1 -> 0. The public-key lookup was a bare fetch reached from an
+  // UNAUTHENTICATED webhook with an attacker-chosen kid, so it had no deadline
+  // and no negative cache — 600 outbound eBay calls/min/replica on requests
+  // that were going to be rejected anyway. It goes through fetchWithTimeout now.
   // US-2323: 3 → 0. All three Trading calls (tradingCall, GetItem specifics
   // and the GetMyeBaySelling paginator) now go through ebayResilientFetch,
   // which composes breaker → retry → timeout. Trading is eBay's slowest and

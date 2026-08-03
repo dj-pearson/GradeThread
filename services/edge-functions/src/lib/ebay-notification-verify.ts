@@ -22,6 +22,7 @@
 // a 401, which made eBay retry endlessly and flag the endpoint as unhealthy.
 
 import { apiHost, getAppAccessToken } from "./ebay-client.ts";
+import { fetchWithTimeout } from "./circuit-breaker.ts";
 
 interface XEbaySignature {
   kid: string;
@@ -91,6 +92,31 @@ export function derToRawEcdsa(der: Uint8Array, coordSize: number): Uint8Array | 
 // Public keys rotate rarely; cache by kid for the process lifetime.
 const keyCache = new Map<string, CachedKey>();
 
+// US-2326 AC4: a NEGATIVE cache, and why it is the load-bearing half.
+//
+// `kid` comes from the request's own signature header, so an unauthenticated
+// caller chooses it. Only SUCCESSES were cached, so every request bearing a kid
+// that does not resolve produced a fresh getAppAccessToken + a call to eBay's
+// public_key endpoint — bounded by nothing but the 600/60s limiter. That is 600
+// unauthenticated outbound eBay calls per minute per replica, burning the app's
+// own API quota, on requests that were going to be rejected anyway.
+//
+// Caching the FAILURE removes the amplification: a bad kid costs one lookup per
+// window, not one per request. The TTL is short because a kid can legitimately
+// start resolving (eBay publishes a new key) and a long negative cache would
+// then reject genuine notifications until the process restarted.
+const NEGATIVE_TTL_MS = 5 * 60_000;
+const keyMisses = new Map<string, number>();
+
+/** Deadline for the public-key lookup. Short: it sits in a webhook's path. */
+const KEY_FETCH_TIMEOUT_MS = 5_000;
+
+/** Exposed for tests — a process-lifetime cache otherwise leaks between cases. */
+export function _resetKeyCaches(): void {
+  keyCache.clear();
+  keyMisses.clear();
+}
+
 function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64.trim());
   const out = new Uint8Array(bin.length);
@@ -136,9 +162,13 @@ const fetchPublicKeyMaterial: PublicKeyFetcher = async (kid) => {
   let res: Response;
   try {
     const token = await getAppAccessToken();
-    res = await fetch(
+    // US-2326 AC4: bounded. This was a bare fetch with no deadline, reached
+    // from an unauthenticated webhook, so a slow or hanging eBay pinned a
+    // request handler for as long as it liked.
+    res = await fetchWithTimeout(
       `${apiHost()}/commerce/notification/v1/public_key/${encodeURIComponent(kid)}`,
       { headers: { Authorization: `Bearer ${token}` } },
+      KEY_FETCH_TIMEOUT_MS,
     );
   } catch (err) {
     console.warn("[ebay-notify] public_key fetch threw:", err);
@@ -163,10 +193,18 @@ async function loadPublicKey(
   if (useCache) {
     const cached = keyCache.get(kid);
     if (cached) return cached;
+    // A kid that recently failed to resolve is refused WITHOUT going to eBay.
+    const missedAt = keyMisses.get(kid);
+    if (missedAt !== undefined && Date.now() - missedAt < NEGATIVE_TTL_MS) {
+      return null;
+    }
   }
 
   const pk = await fetchKey(kid);
-  if (!pk) return null;
+  if (!pk) {
+    if (useCache) keyMisses.set(kid, Date.now());
+    return null;
+  }
   const alg = (pk.algorithm ?? "").toUpperCase();
   let der: Uint8Array;
   try {
