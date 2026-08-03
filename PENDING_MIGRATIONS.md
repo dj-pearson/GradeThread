@@ -1,7 +1,15 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**One pending: 00522.** 00515 through 00521 were all applied to prod on
+**Nothing pending.** 00515 through 00522 were all applied to prod on
 2026-08-03 (owner-confirmed).
+
+> [!warning] 00522 reached origin/main BEFORE it was applied — the second time
+> A concurrent agent pushed the branch while 00522 was still marked held, the
+> same ordering the hold rule exists to prevent and the same way it happened
+> last time. It was safe again, for the same reason recorded below: the column
+> sits in the EXTRA allowlist so an unapplied database degrades rather than
+> breaks. Twice is a pattern, not a coincidence — the hold rule cannot be
+> enforced by an agent that does not own the push.
 
 `EXPECTED_SCHEMA_VERSION` is **00522**, matching the highest migration in the
 tree. The edge needs a redeploy to pick that up: until it does, the database
@@ -58,7 +66,7 @@ apply a migration, flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00522_grade_report_certified_content_updated_at.sql (US-2392 certificate revision date, 2026-08-03)
+## ✅ APPLIED: 00522_grade_report_certified_content_updated_at.sql (US-2392 certificate revision date, applied 2026-08-03 — owner-confirmed)
 
 **Risk: LOW.** One nullable column and one partial index on `grade_reports`. No
 data is rewritten — the backfill is "leave everything NULL", which is the
