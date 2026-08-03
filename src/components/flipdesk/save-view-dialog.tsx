@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -32,6 +32,9 @@ export function SaveViewDialog({
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("");
+  // US-2335: ids for the save-view dialog fields.
+  const nameId = useId();
+  const emojiId = useId();
   const [pinned, setPinned] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -85,8 +88,9 @@ export function SaveViewDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label>Name</Label>
+            <Label htmlFor={nameId}>Name</Label>
             <Input
+              id={nameId}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Cheap Nike to list"
@@ -94,8 +98,9 @@ export function SaveViewDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label>Emoji (optional)</Label>
+            <Label htmlFor={emojiId}>Emoji (optional)</Label>
             <Input
+              id={emojiId}
               value={emoji}
               onChange={(e) => setEmoji(e.target.value)}
               placeholder="🔥"

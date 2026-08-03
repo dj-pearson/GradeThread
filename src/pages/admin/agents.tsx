@@ -270,6 +270,7 @@ export function AdminAgentsPage() {
             <div className="flex items-center gap-3">
               {globallyPaused && <Badge variant="destructive">PAUSED</Badge>}
               <Switch
+                aria-label="Pause all agents"
                 checked={globallyPaused}
                 disabled={busy === "global" || pauseQuery.isLoading}
                 onCheckedChange={(v) => void toggleGlobalPause(v)}
@@ -757,6 +758,7 @@ function ProposalsTab({ agents, visible }: { agents: AgentRow[]; visible: boolea
             </DialogDescription>
           </DialogHeader>
           <Textarea
+            aria-label="Rejection reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="Why is this being rejected?"

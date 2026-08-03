@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Loader2, Table2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -43,6 +43,9 @@ export function SheetMapCard() {
 
   const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState("");
+  // US-2335: id for the tab picker; the per-column selects are named from
+  // their own header.
+  const tabId = useId();
   const [suggestion, setSuggestion] = useState<SheetMapSuggestion | null>(null);
   // header → chosen field key ("" / UNMAPPED = don't sync).
   const [choices, setChoices] = useState<Record<string, string>>({});
@@ -175,9 +178,9 @@ export function SheetMapCard() {
           <div className="space-y-4">
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">Your tab</Label>
+                <Label className="text-xs" htmlFor={tabId}>Your tab</Label>
                 <Select value={tab} onValueChange={setTab}>
-                  <SelectTrigger className="h-9 w-64">
+                  <SelectTrigger className="h-9 w-64" id={tabId}>
                     <SelectValue placeholder="Pick a tab…" />
                   </SelectTrigger>
                   <SelectContent>
@@ -225,7 +228,7 @@ export function SheetMapCard() {
                                     setChoices((c) => ({ ...c, [h]: v }))
                                   }
                                 >
-                                  <SelectTrigger className="h-8 w-60 text-xs">
+                                  <SelectTrigger className="h-8 w-60 text-xs" aria-label={`Map column ${h} to`}>
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
