@@ -1,5 +1,6 @@
 -- READ-ONLY production diagnostics. Answers the prod-data questions that five
--- open stories are each individually blocked on, in ONE session.
+-- open stories are each individually blocked on, in ONE session (six now, §7
+-- added later for US-2293).
 --
 --   SUPABASE_DB_URL="postgres://…@host:5432/postgres" \
 --     psql "$SUPABASE_DB_URL" -f scripts/prod-diagnostics.sql
@@ -13,7 +14,7 @@
 -- WHY ONE SCRIPT. Each of the stories below has sat open for weeks with its
 -- last acceptance criterion reading "needs prod access". That is five separate
 -- asks of the one person who can answer them, which is how a question stops
--- being asked. One paste, one output, five answers.
+-- being asked. One paste, one output, every answer.
 --
 --   §1  US-2009 AC2 — is any migration MISSING from the middle of the sequence?
 --   §2  US-2009 AC2 — is any recorded migration a PHANTOM with no file?
@@ -21,6 +22,7 @@
 --   §4  US-2006 AC3 — how much past-retention imagery is still unpurged?
 --   §5  US-2041 AC4 — was any dispute resolved on the wrong displayed grade?
 --   §6  context — row counts for the tables the admin dashboard aggregates.
+--   §7  US-2293 AC3 — overage packs refunded before the credit clawback shipped.
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -205,6 +207,44 @@ UNION ALL SELECT 'grade_reports', count(*) FROM public.grade_reports
 UNION ALL SELECT 'sales',         count(*) FROM public.sales
 UNION ALL SELECT 'users',         count(*) FROM public.users
 ORDER BY rows DESC;
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§7  US-2293 AC3 — OVERAGE PACKS REFUNDED BEFORE THE CLAWBACK'
+\echo '════════════════════════════════════════════════════════════════'
+\echo 'Until the US-2293 fix, refunding an API overage pack returned the money'
+\echo 'and left the credits. The grant branch handled three products; the refund'
+\echo 'branch dispatched on only two, so api_overage fell through to a log line.'
+\echo ''
+\echo 'The fix stops it recurring. It does NOT reconcile the balances that were'
+\echo 'already wrong, and nothing else will — the ledger is append-only, so a'
+\echo 'missing debit stays missing until someone writes one.'
+\echo ''
+\echo 'A row below is a user whose purchases and clawbacks do not balance.'
+\echo 'Compare the count against your refunded api_overage charges in Stripe:'
+\echo 'a purchase with no matching refund_clawback is the shortfall to correct.'
+\echo ''
+
+SELECT
+  user_id,
+  count(*) FILTER (WHERE reason = 'api_overage_purchase')        AS purchases,
+  count(*) FILTER (WHERE reason LIKE '%refund%')                 AS clawbacks,
+  sum(delta) FILTER (WHERE reason = 'api_overage_purchase')      AS credits_granted,
+  sum(delta) FILTER (WHERE reason LIKE '%refund%')               AS credits_reversed,
+  max(created_at) FILTER (WHERE reason = 'api_overage_purchase') AS last_purchase
+FROM public.api_credit_transactions
+GROUP BY user_id
+HAVING count(*) FILTER (WHERE reason = 'api_overage_purchase') > 0
+ORDER BY credits_granted DESC NULLS LAST
+LIMIT 100;
+
+\echo ''
+\echo '-- Current wallet balances, so a clawback is not applied blind. The wallet'
+\echo '-- has CHECK (balance >= 0), so a debit larger than the balance would fail'
+\echo '-- the constraint rather than going negative — clamp it and record the'
+\echo '-- shortfall, which is what AC1 does for new refunds.'
+SELECT count(*) AS wallets, sum(balance) AS total_credits_outstanding
+FROM public.api_credit_wallet;
 
 \echo ''
 \echo '════════════════════════════════════════════════════════════════'

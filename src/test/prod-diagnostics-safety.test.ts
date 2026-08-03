@@ -86,6 +86,8 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       ["submissions", ["created_at"]],
       ["disputes", ["status", "updated_at", "grade_report_id"]],
       ["grade_reports", ["overall_score"]],
+      ["api_credit_transactions", ["user_id", "delta", "reason", "created_at"]],
+      ["api_credit_wallet", ["balance"]],
     ];
 
     const missing: string[] = [];
@@ -122,10 +124,10 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
   });
 
   it("still answers every question it claims to", () => {
-    // The header advertises six sections. A future edit that drops one leaves
+    // The header advertises seven sections. A future edit that drops one leaves
     // the header lying about what the operator gets back, and they will not
     // re-read the SQL to notice.
-    for (const section of ["§1", "§2", "§3", "§4", "§5", "§6"]) {
+    for (const section of ["§1", "§2", "§3", "§4", "§5", "§6", "§7"]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }
     // And the tables each section exists to measure.
@@ -133,5 +135,6 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     expect(SQL).toContain("public.email_deliveries");
     expect(SQL).toContain("public.submission_images");
     expect(SQL).toContain("public.disputes");
+    expect(SQL).toContain("public.api_credit_transactions");
   });
 });
