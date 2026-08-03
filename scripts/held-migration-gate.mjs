@@ -17,11 +17,30 @@
 // existence — otherwise it would block every push after a migration is
 // legitimately applied and its heading flipped to APPLIED.
 //
-// Usage:  node scripts/held-migration-gate.mjs [--upstream origin/main]
-// Exit 0 = clean, exit 1 = at least one held migration is already reachable
-// from the upstream ref (or would be pushed).
+// AND IT FAILED A THIRD TIME, on 2026-08-03, with this gate already installed.
+// 00515-00521 reached origin while still marked HELD. The hook runs on the
+// machine that pushes; `--no-verify` skips it, a different clone never had it,
+// and a concurrent agent pushing the same branch is not covered by any of them.
+// The note that shipped this gate said so at the time — "the hook is bypassable
+// with --no-verify, so the same check belongs in CI, where the comparison is
+// against the pushed ref" — and that half was never built. This adds it.
+//
+// TWO MODES, because the question is different in each place:
+//
+//   • hook (default): is a HELD migration ALREADY reachable from the upstream
+//     ref? Run before the push, this catches a leak that happened earlier.
+//   • --ci: does a HELD migration EXIST in this tree at all? CI runs on the
+//     pushed commit, so the file being here IS the leak — there is no "about to
+//     push" left to prevent, only a report that it already happened.
+//
+// Both key on the HELD MARKER rather than on the migration's existence.
+// Otherwise every push after a migration is legitimately applied and flipped to
+// APPLIED would be blocked.
+//
+// Usage:  node scripts/held-migration-gate.mjs [--upstream origin/main] [--ci]
+// Exit 0 = clean, exit 1 = a held migration has reached (or is on) origin.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
@@ -59,6 +78,7 @@ export function heldMigrations(docText) {
 
 function main() {
   const upstream = arg("--upstream", "origin/main");
+  const ciMode = process.argv.includes("--ci");
 
   let doc;
   try {
@@ -72,6 +92,33 @@ function main() {
   if (held.length === 0) {
     console.log("[held-migration-gate] no HELD migrations listed — OK.");
     return 0;
+  }
+
+  // In CI the checkout IS the pushed commit, so the question is simply whether
+  // the file is here. No ref comparison, and deliberately no "skip if the
+  // upstream is missing" escape — that escape is right for a fresh clone on a
+  // developer machine and wrong for the gate of last resort.
+  if (ciMode) {
+    const present = held.filter((h) => existsSync(h.file));
+    if (present.length === 0) {
+      console.log(
+        `[held-migration-gate] ${held.length} HELD migration(s), none in this ` +
+          `commit — OK.`,
+      );
+      return 0;
+    }
+    console.error("");
+    console.error(
+      "[held-migration-gate] BLOCKED — these migrations are marked HELD in " +
+        "PENDING_MIGRATIONS.md and are present on the pushed commit:",
+    );
+    for (const h of present) console.error(`  • ${h.file}`);
+    console.error("");
+    console.error("  A held migration must not reach origin before its SQL is applied.");
+    console.error("  If it HAS been applied, flip its heading to '## ✅ APPLIED:' and");
+    console.error("  date it — that is the fix, not bypassing this.");
+    console.error("");
+    return 1;
   }
 
   // Does the upstream ref exist locally? On a fresh clone or a new branch it

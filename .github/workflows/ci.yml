@@ -53,6 +53,15 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+
+      # US-2346 AC4, CI half. The pre-push hook has run this since 2026-08-02 and
+      # a held migration STILL reached origin on 2026-08-03 — the hook lives on
+      # the machine that pushes, so `--no-verify`, a different clone, or a
+      # concurrent agent all walk straight past it. This is the copy that cannot
+      # be skipped. It needs only the checkout, so it runs before the long lanes:
+      # a leak should be reported in seconds, not after twenty minutes of tests.
+      - name: Held-migration gate
+        run: node scripts/held-migration-gate.mjs --ci
       - run: npm ci
       # US-1998: every gate below carries `if: !cancelled()` so a failure in one
       # does NOT skip the rest. Previously `npm run lint` was the first step, so

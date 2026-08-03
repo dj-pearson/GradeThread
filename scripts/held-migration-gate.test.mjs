@@ -5,6 +5,8 @@
 // matched nothing, would make the gate pass by doing nothing.
 
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { heldMigrations } from "./held-migration-gate.mjs";
 
 describe("US-2346: which headings count as HELD", () => {
@@ -55,5 +57,52 @@ describe("US-2346: which headings count as HELD", () => {
     // not five digits, so it must not be picked up as a pending migration.
     const doc = "Add one `## ⏳ HELD: NNNNN_name.sql (US-#### short title, YYYY-MM-DD)` heading";
     expect(heldMigrations(doc)).toEqual([]);
+  });
+});
+
+// ── US-2346 AC4, CI half ────────────────────────────────────────────────────
+//
+// The hook has run this gate since 2026-08-02 and a held migration STILL reached
+// origin on 2026-08-03. The hook lives on the machine that pushes, so
+// `--no-verify`, a different clone, or a concurrent agent pushing the same
+// branch all walk past it. CI mode is the copy that cannot be skipped, and it
+// asks a different question: not "is this already upstream" but "is it HERE",
+// because CI runs on the pushed commit and the file being present IS the leak.
+describe("US-2346: the CI half of the gate", () => {
+  it("is wired into ci.yml, not only into the hook", () => {
+    const ci = readFileSync(resolve(process.cwd(), ".github/workflows/ci.yml"), "utf8");
+    expect(
+      ci.includes("held-migration-gate.mjs --ci"),
+      "the CI copy is gone — the gate is back to being skippable with --no-verify",
+    ).toBe(true);
+    const hook = readFileSync(resolve(process.cwd(), ".githooks/pre-push"), "utf8");
+    expect(
+      hook.includes("held-migration-gate.mjs"),
+      "the hook copy is gone — the fast local feedback went with it",
+    ).toBe(true);
+  });
+
+  it("CI mode has no upstream-missing escape hatch", () => {
+    // The hook skips when the upstream ref is absent, which is right on a fresh
+    // clone. In CI that escape would be a way for the gate of last resort to
+    // pass by doing nothing — the exact failure this script's own header warns
+    // about.
+    const src = readFileSync(resolve(process.cwd(), "scripts/held-migration-gate.mjs"), "utf8");
+    const ci = src.slice(src.indexOf("if (ciMode) {"), src.indexOf("// Does the upstream ref exist"));
+    expect(ci.length).toBeGreaterThan(100);
+    expect(ci).not.toContain("rev-parse");
+    expect(ci).toContain("existsSync");
+  });
+
+  it("both modes key on the HELD marker, never on the file's existence alone", () => {
+    // The design decision that makes it usable. Keying on the migration being
+    // present would block every push after one is legitimately applied and its
+    // heading flipped to APPLIED.
+    const src = readFileSync(resolve(process.cwd(), "scripts/held-migration-gate.mjs"), "utf8");
+    expect(src).toContain("HELD_HEADING");
+    expect(
+      /const held = heldMigrations\(doc\)/.test(src),
+      "the gate no longer derives its list from the HELD headings",
+    ).toBe(true);
   });
 });
