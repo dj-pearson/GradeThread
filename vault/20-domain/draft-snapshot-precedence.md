@@ -8,7 +8,7 @@ code_refs:
   - src/lib/composer-save.ts
   - src/pages/flipdesk/composer.tsx
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-08-02
+reviewed: 2026-08-03
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---

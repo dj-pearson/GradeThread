@@ -1217,8 +1217,63 @@ export interface ListingRow {
   compliance_violation_count: number;
   compliance_types: string[] | null;
   compliance_checked_at: string | null;
+  // ── US-2177: sixteen columns that existed in the schema and not here ──────
+  //
+  // This interface had drifted 16 columns behind `listings`, and several of the
+  // missing ones are heavily used. That is worse than an untyped field: code
+  // reading them had to cast, so the cast — not the schema — became the source
+  // of truth, and a column rename in a migration produced no tsc error anywhere.
+  // src/test/listing-row-schema-parity.test.ts now fails when the two diverge.
+  //
+  // US-1892 (00154): A/B title testing. `title_variants` is the variant array
+  // and `active_title_variant` names which one is live ('A' by default).
+  title_variants: TitleVariantRow[] | null;
+  active_title_variant: string | null;
+  // US-547 (00088): the AI's own confidence in a generated draft. `ai_confidence`
+  // is the overall 0–1 score; `ai_field_confidence` is per-field. `needs_review`
+  // is the flag those feed — the AutoLister queue reads it, so a draft that
+  // silently lost it would publish without ever being looked at.
+  ai_confidence: number | null;
+  ai_field_confidence: Record<string, number> | null;
+  needs_review: boolean;
+  // US-556 (00155): which prompt version produced this draft, for the
+  // acceptance-rate comparison the prompt lifecycle gates on.
+  ai_prompt_version: string | null;
+  // US-1875 (00177): a delist was ASKED FOR. It stays set until the Lister
+  // extension confirms the takedown, which is the whole point — the listing is
+  // still live in the meantime and must not read as ended.
+  delist_requested_at: string | null;
+  // US-2145 (00477): the seller-facing SKU carried onto the marketplace listing.
+  inventory_sku: string | null;
+  // US-1466 (00338): which marketplace_connections row published this listing.
+  // Null for rows that predate the column or were never published.
+  marketplace_connection_id: string | null;
+  // US-141 (00113): per-platform fields that do not deserve a column of their
+  // own, plus when they were generated. The Poshmark/Mercari markers the
+  // cross-listing alerts read live in here.
+  platform_fields: Record<string, unknown> | null;
+  platform_fields_generated_at: string | null;
+  // US-1552 (00086): the publish-worker lease. A non-null value means a worker
+  // holds this row; the reclaim compares it against the stale threshold.
+  publish_claimed_at: string | null;
+  // US-2170 (00476): the listing quality score and its block flag. Publishing
+  // is refused while `quality_blocked` is true.
+  quality_score: number | null;
+  quality_blocked: boolean | null;
+  quality_scored_at: string | null;
+  //
+  // NOT here on purpose: `search_vec`. It is a tsvector maintained by a trigger
+  // and consumed only by a GIN index — Postgres is its only reader. Typing it
+  // would invite a client `select` that ships a large internal blob for nothing.
+  // The parity guard carries it as a declared exemption.
   created_at: string;
   updated_at: string;
+}
+
+/** One entry in `listings.title_variants` (US-1892, migration 00154). */
+export interface TitleVariantRow {
+  title?: string;
+  [k: string]: unknown;
 }
 
 // US-828: one aspect (or set of values) the generation-time reconciliation

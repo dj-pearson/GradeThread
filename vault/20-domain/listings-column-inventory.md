@@ -6,6 +6,7 @@ source_of_truth: code
 code_refs:
   - scripts/audit-listings-columns.mjs
   - src/test/listings-select-star.test.ts
+  - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
 reviewed: 2026-08-03
 tags: [schema, listings, flipdesk, perf]
@@ -43,13 +44,20 @@ migration is warranted. That is a finding, not a deferral. The cost of this
 table is the WIDTH of its reads, not corpses in it — which is why the wins came
 from US-2167's projection work instead.
 
-**`ListingRow` is behind the schema.** Sixteen columns exist in the database and
-not in the `ListingRow` type in `src/types/database.ts` — including ones that
-are used heavily (`platform_fields`, `needs_review`, `quality_score`,
-`marketplace_connection_id`, `inventory_sku`). Code that touches them does so
-through an untyped cast, so a rename or a type change is invisible to `tsc`.
-The audit script's cross-check is what surfaces this; run it after any migration
-that adds a column.
+**`ListingRow` was behind the schema — FIXED 2026-08-03.** Sixteen columns
+existed in the database and not in the `ListingRow` type, including ones in
+daily use (`platform_fields`, `needs_review`, `quality_score`,
+`marketplace_connection_id`, `inventory_sku`). Code touching them cast instead,
+which is worse than an untyped field: a cast is an assertion `tsc` trusts, so
+the cast became the source of truth and a column renamed in a migration produced
+no type error anywhere. All sixteen are now declared.
+
+Drift in that direction is invisible by construction — nothing breaks when a
+type describes *less* than the row it stands for, it just stops protecting
+anything. So it is guarded rather than reviewed:
+`src/test/listing-row-schema-parity.test.ts` parses the migration corpus and
+fails in **both** directions (a column with no field, a field with no column).
+`search_vec` is the one declared exemption, with its reason.
 
 ## Classification
 
@@ -66,10 +74,24 @@ The script buckets every column, and the buckets are the useful part:
 - **other** — everything a prefix rule cannot place. A large bucket is itself a
   signal that the naming has drifted.
 
-Single-platform fields in the eBay bucket are the candidates for a move into the
-existing `platform_fields` jsonb, if that is ever worth doing. It is not
-obviously worth doing: jsonb costs typing and indexability, and the columns are
-cheap while reads are projected.
+Single-platform fields in the eBay bucket are the obvious candidates for a move
+into the existing `platform_fields` jsonb. **Assessed 2026-08-03: do not move
+them**, and the reason is specific rather than a preference.
+
+Of the 18 eBay-specific columns, **3 are indexed** (`platform_category_id`,
+`platform_offer_id`, `quality_score`) and **7 carry a NOT NULL or a default**
+(those three plus `best_offer_enabled`, `item_specifics_override`,
+`item_specifics_sources`, `synced_to_ebay_at`). A jsonb move gives up the index
+and the constraint on every one of them, and buys back an expression index and a
+check constraint that have to be written and maintained by hand.
+
+What it would buy is narrower rows — and that cost is already gone. Reads
+project (see the policy below), so a wide table costs nothing a projected read
+pays for. Moving them trades real guarantees for a benefit that was already
+collected somewhere else.
+
+Revisit only with numbers from prod — row width against actual storage and
+`toast` behaviour — not from a dev host.
 
 ## The read policy
 
