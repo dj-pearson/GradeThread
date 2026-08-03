@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { type CronRunRow, resolveLatestRuns } from "../lib/cron-latest-runs.ts";
 import {
   type CheckedUpdateClient,
   updateByIdChecked,
@@ -325,78 +326,24 @@ adminJobsRoutes.get("/crons", async (c) => {
     .select("job_name, status, http_status, duration_ms, created_at")
     .order("created_at", { ascending: false })
     .limit(2000);
-  const latest = new Map<string, {
-    status: string;
-    http_status: number | null;
-    duration_ms: number | null;
-    created_at: string;
-  }>();
-  for (const r of (runs ?? []) as Array<{
-    job_name: string;
-    status: string;
-    http_status: number | null;
-    duration_ms: number | null;
-    created_at: string;
-  }>) {
-    if (!latest.has(r.job_name)) {
-      latest.set(r.job_name, {
-        status: r.status,
-        http_status: r.http_status,
-        duration_ms: r.duration_ms,
-        created_at: r.created_at,
-      });
-    }
-  }
-
-  // US-2318 AC1: back-fill the jobs the window MISSED.
-  //
-  // A fixed 2,000-row window is roughly 14 hours of history at the current
-  // fleet cadence (67 recorded jobs, ~141 rows/hour, seven of them on */5), so
-  // every daily and 6-hourly job routinely falls outside it and rendered
-  // `last_run_at: null` — identical to never-configured. An operator checking
-  // the console learned nothing about exactly the jobs that matter most:
-  // trial-expiry, data-retention, guarantee-pool, billing-reconciliation.
-  //
-  // The window is a FUNCTION OF FLEET CADENCE, which is why raising the limit
-  // is not the fix — every new */5 job shortens it again and the dashboard
-  // silently rots back to lying. This asks per job instead, so the answer no
-  // longer depends on how busy the fleet is.
-  //
-  // Only for jobs actually missing, and only one row each: `cron_runs` is
-  // indexed on (job_name, created_at DESC), so each is a single indexed lookup.
-  // On a healthy fleet this loop is empty; at worst it is the daily jobs, on an
-  // admin route a human opened. Sequential rather than parallel on purpose —
-  // this is a dashboard read, and a burst of tiny queries against the pooler is
-  // a worse trade than a few hundred milliseconds an operator does not notice.
-  const missing = CRON_REGISTRY
-    .filter((d) => d.recorded !== false && !latest.has(d.name))
-    .map((d) => d.name);
-  for (const name of missing) {
-    const { data: one } = await supabaseAdmin
-      .from("cron_runs")
-      .select("job_name, status, http_status, duration_ms, created_at")
-      .eq("job_name", name)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    // Still absent means genuinely never recorded — leave it unset so the
-    // never-configured state stays distinguishable from merely-stale (AC2).
-    if (one) {
-      const r = one as {
-        status: string;
-        http_status: number | null;
-        duration_ms: number | null;
-        created_at: string;
-      };
-      latest.set(name, {
-        status: r.status,
-        http_status: r.http_status,
-        duration_ms: r.duration_ms,
-        created_at: r.created_at,
-      });
-    }
-  }
-
+  // US-2318: the reduce + back-fill lives in lib/cron-latest-runs.ts so it can
+  // be tested against a synthetic ledger (AC3). It used to be inline here,
+  // reading supabaseAdmin directly, which is exactly why the test could not be
+  // written — there was no seam to hand a fixture to.
+  const latest = await resolveLatestRuns(
+    (runs ?? []) as CronRunRow[],
+    CRON_REGISTRY.filter((d) => d.recorded !== false).map((d) => d.name),
+    async (jobName) => {
+      const { data } = await supabaseAdmin
+        .from("cron_runs")
+        .select("job_name, status, http_status, duration_ms, created_at")
+        .eq("job_name", jobName)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return (data as CronRunRow | null) ?? null;
+    },
+  );
   const crons = CRON_REGISTRY.map((def) => {
     const last = latest.get(def.name) ?? null;
     return {
