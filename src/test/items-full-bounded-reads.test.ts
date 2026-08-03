@@ -54,10 +54,11 @@ const DECLARED: readonly DeclaredRead[] = [
   },
   {
     file: "src/pages/flipdesk/listings.tsx",
-    bounds: ['.in("id", ids)', "fetchItemsPaged"],
+    bounds: ['.in("id", ids)'],
     why:
-      "the main read goes through the shared paged loop; the only direct " +
-      "from-call is the US-2172 undo, bounded by the ids it is putting back",
+      "US-2168 moved the main read to the flipdesk_listing_page RPC, which " +
+      "returns ONE page; the only direct from-call left is the US-2172 undo, " +
+      "bounded by the ids it is putting back",
   },
 ];
 
@@ -97,14 +98,24 @@ describe("every items_full read is bounded (US-2167)", () => {
     expect(src).toContain("export async function fetchItemsPaged");
   });
 
-  it("keeps the listings page on the shared loop, not its own request", () => {
-    // The listings table still materializes the whole tenant (its search, tab
-    // filtering and sort run client-side and can't move server-side until
-    // scoreListability has a SQL equivalent — US-2168 AC3). Bounding each
-    // REQUEST is the part that is achievable without that, and reusing the
-    // hook's loop is what keeps the cap handled in one place.
+  it("gets its rows from the server-side page, not from the whole tenant", () => {
+    // This assertion is the INVERSE of the one it replaces. That one required
+    // the page to use the shared paging loop, which was the best available
+    // answer while the table still needed every row to filter and sort in the
+    // browser. US-2168 AC3 removed that need: the tab predicate, search, Sold
+    // window, advanced filter and sort all run in SQL now, so the page asks for
+    // the fifty rows it draws instead of the account it belongs to.
+    //
+    // (The blocker recorded here for months — "scoreListability has no SQL
+    // equivalent" — was simply untrue. Every input it reads is a column on
+    // items_full.)
     const src = read("src/pages/flipdesk/listings.tsx");
-    expect(src).toContain("fetchItemsPaged<ItemFullRow>(LISTINGS_COLUMNS)");
+    expect(src).toContain('supabase.rpc("flipdesk_listing_page"');
+    // No CALL to the whole-tenant loop, and no import of it. The name may still
+    // appear in prose explaining what this replaced — that history is worth
+    // keeping, so the assertion targets the call and the import, not the word.
+    expect(src).not.toMatch(/fetchItemsPaged\s*[<(]/);
+    expect(src).not.toMatch(/^import .*fetchItemsPaged/m);
     // Exactly ONE direct from-call is expected here — the US-2172 undo's
     // read-back, which is scoped to the ids it is restoring. A second one would
     // be a new tenant-wide read wearing the first one's declaration.

@@ -13,7 +13,7 @@
 // those four for the single open item (see src/pages/flipdesk/composer.tsx).
 // comps/measurements
 // stay: listability scoring + the editor need them across the loaded set.
-export const LISTINGS_COLUMNS = [
+export const LISTINGS_COLUMN_LIST = [
   "id",
   "user_id",
   "item_number",
@@ -73,4 +73,15 @@ export const LISTINGS_COLUMNS = [
   "listing_needs_review",
   "listing_reviewed_at",
   "listing_title",
-].join(",");
+] as const;
+
+/**
+ * The same list as a PostgREST select string.
+ *
+ * US-2168 turned the array into the primary form: the listings page now sends
+ * the column names to `flipdesk_listing_page` as `p_columns`, so the projection
+ * is decided in one place here rather than restated in SQL where it would drift
+ * the first time someone added a column. This joined form stays for any caller
+ * that still builds a `.select()` by hand.
+ */
+export const LISTINGS_COLUMNS = LISTINGS_COLUMN_LIST.join(",");

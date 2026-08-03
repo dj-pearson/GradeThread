@@ -1,11 +1,14 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**One pending: 00515.** Prod measured at **00514** on 2026-08-03 — `/health/ready`
-returned `schema {expected:"00513", applied:"00514", status:"ahead"}`, i.e. the
-database's own answer through the service-role client, not someone's
-recollection. `EXPECTED_SCHEMA_VERSION` is **00514** and the highest migration
-in the tree is `00514_admin_metrics_service_role_guard.sql`, so the tree and
-prod agree and the branch is free to push.
+**One pending: 00515 — and the branch is FROZEN until it is applied.** Prod
+measured at **00514** on 2026-08-03: `/health/ready` returned
+`schema {expected:"00513", applied:"00514", status:"ahead"}`, the database's own
+answer through the service-role client rather than someone's recollection.
+`EXPECTED_SCHEMA_VERSION` is now **00515** and the highest migration in the tree
+is `00515_flipdesk_listing_page.sql`, so the tree is one ahead of prod.
+
+Unlike the last two, this one is **not** inert: the FlipDesk inventory table
+calls `flipdesk_listing_page` on every render. Apply it before pushing.
 
 > [!note] Why that read said `expected: "00513"` and it was still correct
 > The running edge image was built from the commit that carried
@@ -33,11 +36,17 @@ apply a migration, flip its marker in the same sitting.**
 
 ## ⏳ HELD: 00515_flipdesk_listing_page.sql (US-2168 AC3 server-side row selection, 2026-08-03)
 
-**Risk: LOW, and lower than usual — NOTHING CALLS IT YET.** This migration adds
-one collation and four functions. It changes no table, no column, no existing
-function, and no application code path. Applying it is inert until the listings
-page is switched over (see the handoff in US-2168's notes); not applying it
-breaks nothing either.
+**⚠️ THE LISTINGS PAGE NOW DEPENDS ON THIS.** An earlier draft of this entry said
+nothing called it yet; that is no longer true. `src/pages/flipdesk/listings.tsx`
+calls `flipdesk_listing_page` for every render of the inventory table, so on a
+database without this migration the table shows an error instead of rows.
+
+**Order matters.** Cloudflare Pages auto-deploys the frontend on push. Apply
+this BEFORE pushing, or the inventory table is broken for the window between
+the Pages deploy and the migration.
+
+It adds one collation and four functions; it changes no table, no column and no
+existing function, so there is nothing to back out of.
 
 **What it adds:**
 
@@ -48,7 +57,11 @@ breaks nothing either.
 - `flipdesk_listability_score(jsonb)` / `flipdesk_max_comp_price(jsonb)` — SQL
   mirrors of the two computed sort keys.
 - `flipdesk_listing_page(...)` — one page of the listings table, filtered,
-  searched, sorted and counted server-side.
+  searched, sorted and counted server-side. It also returns `soldAgg` (over the
+  whole FILTERED set) and `buyerCounts` (over the whole ACCOUNT), because both
+  are numbers the page used to derive from every row and would otherwise
+  silently become per-page numbers. `p_columns` carries the page's own column
+  list so the wire is not widened to all 61 columns.
 
 **SECURITY INVOKER on purpose.** `items_full` is `security_invoker = on` (00010),
 so RLS scopes these to the calling seller. They are granted to `authenticated`
@@ -60,10 +73,10 @@ read; do not.
 **Verified before being written down:** the parity harness
 (`src/test/listing-page-sql-parity.test.ts`) seeds a corpus, reads the rows back
 out of `items_full`, and runs BOTH the TypeScript `selectListingRows` and this
-SQL over those same rows — 67 cases covering 8 tabs, 4 sort presets, 24 column
-sorts, 6 searches, 5 sold-filter windows and 18 advanced filters, plus a
-paging check that no row is dropped or repeated. All 67 match on row ids **and
-order**. Re-run with:
+SQL over those same rows — 73 cases covering 8 tabs, 4 sort presets, 24 column
+sorts, 6 searches, 5 sold-filter windows and 18 advanced filters, the Sold
+aggregate strip, the repeat-buyer counts, and a paging check that no row is
+dropped or repeated. All 73 match on row ids **and order**. Re-run with:
 
 ```
 LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts
@@ -75,9 +88,12 @@ LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts
 2. `NOTIFY pgrst, 'reload schema';` — new RPCs; PostgREST 404s them until it
    reloads.
 3. Redeploy the edge (boot guard expects 00515).
+4. Then push.
 
-**Verify:** nothing user-visible changes. `select public.flipdesk_listing_page('all');`
-should return a `{total, rows}` document.
+**Verify:** open FlipDesk → Inventory. The table should list items, the header
+should read "N items", tab switching and search should still work, and paging
+should move through the set. If the function is missing the table errors rather
+than rendering a wrong subset, which is the intended failure direction.
 
 ---
 

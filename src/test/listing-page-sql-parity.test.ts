@@ -142,9 +142,12 @@ function corpusSql(): string {
 
     -- Sales for every sold/shipped/returned item, cycling the states the Sold
     -- tab and its payout filters key on.
+    -- buyer_id cycles over THREE buyers across more than three sales, so some
+    -- buyers genuinely repeat. Without that the repeat-buyer assertion below
+    -- compares two empty sets and passes without testing anything.
     insert into public.sales
       (inventory_item_id, user_id, sale_price, sale_date, sold_at, status,
-       platform_fees, payment_processing_fees, payout_amount)
+       platform_fees, payment_processing_fees, payout_amount, buyer_id)
     select i.id, '${USER_ID}',
            100 + (row_number() over (order by i.sku)),
            now() - ((row_number() over (order by i.sku)) * interval '5 days'),
@@ -152,7 +155,8 @@ function corpusSql(): string {
            (array['completed','refunded','cancelled','completed'])[1 + (row_number() over (order by i.sku))::int % 4],
            (array[5, 40, 0, 2])[1 + (row_number() over (order by i.sku))::int % 4],
            0,
-           (array[90, 0, 50, null])[1 + (row_number() over (order by i.sku))::int % 4]
+           (array[90, 0, 50, null])[1 + (row_number() over (order by i.sku))::int % 4],
+           (array['buyer-alpha','buyer-beta','buyer-gamma'])[1 + (row_number() over (order by i.sku))::int % 3]
     from public.inventory_items i
     where i.user_id = '${USER_ID}' and i.status in ('sold','shipped','returned');
 
@@ -300,6 +304,79 @@ describe.skipIf(!ENABLED)("listings row selection: SQL matches the client (US-21
     // And `total` is what the pager renders, so it has to match the set size
     // rather than the page size.
     expect(page.total).toBe(expected.length);
+  });
+
+  // Both of these are numbers the page derives from the WHOLE set today, so
+  // both are exactly what a naive server-side swap would quietly turn into
+  // per-page numbers — right-looking, smaller, and attributable to nothing.
+  it.each(["all", "awaiting_payout", "discrepancy", "d7", "d30"] as SoldFilter[])(
+    "soldAgg matches the client strip for sold filter %s",
+    (soldFilter) => {
+      const tab = TABS.find((t) => t.id === "sold")!;
+      const filtered = selectListingRows(rows, {
+        tab,
+        search: "",
+        soldFilter,
+        filterQuery: EMPTY_FILTER,
+        columnSort: null,
+        sortPreset: "listability",
+        now: dbNow,
+      });
+      // The client's own arithmetic, copied from listings.tsx's soldAgg memo.
+      let gross = 0, net = 0, marginSum = 0, marginN = 0;
+      for (const it of filtered) {
+        gross += it.sale_price ?? 0;
+        net += it.net_profit ?? 0;
+        if (it.sale_price != null && it.sale_price > 0 && it.net_profit != null) {
+          marginSum += (it.net_profit / it.sale_price) * 100;
+          marginN += 1;
+        }
+      }
+
+      const raw = asTenant(
+        `select public.flipdesk_listing_page('sold', '', ${lit(soldFilter)},
+           '{"combinator":"and","rules":[]}'::jsonb, null, 'listability', null, 5, 0);`,
+      ).trim();
+      const agg = (JSON.parse(raw) as {
+        soldAgg: { count: number; gross: number; net: number; avgMargin: number | null };
+      }).soldAgg;
+
+      // Over `base`, i.e. the filtered set — NOT the 5-row page requested above.
+      expect(agg.count).toBe(filtered.length);
+      expect(Number(agg.gross)).toBeCloseTo(gross, 6);
+      expect(Number(agg.net)).toBeCloseTo(net, 6);
+      if (marginN === 0) {
+        expect(agg.avgMargin).toBeNull();
+      } else {
+        expect(Number(agg.avgMargin)).toBeCloseTo(marginSum / marginN, 6);
+      }
+    },
+  );
+
+  it("buyerCounts counts a buyer across the account, not the page", () => {
+    const raw = asTenant(
+      `select public.flipdesk_listing_page('sold', '', 'all',
+         '{"combinator":"and","rules":[]}'::jsonb, null, 'listability', null, 3, 0);`,
+    ).trim();
+    const page = JSON.parse(raw) as {
+      rows: ItemFullRow[];
+      buyerCounts: Record<string, number>;
+    };
+
+    // The client's version: count every row with this buyer, over everything.
+    const expected = new Map<string, number>();
+    for (const it of rows) {
+      if (it.buyer_id) expected.set(it.buyer_id, (expected.get(it.buyer_id) ?? 0) + 1);
+    }
+
+    const pageBuyers = [...new Set(page.rows.map((r) => r.buyer_id).filter(Boolean))];
+    // Guards the guard: with no buyers seeded both sides are empty and this
+    // whole test asserts nothing.
+    expect(pageBuyers.length).toBeGreaterThan(0);
+    expect(Object.keys(page.buyerCounts).sort()).toEqual([...pageBuyers].sort() as string[]);
+    for (const b of pageBuyers) {
+      expect(Number(page.buyerCounts[b as string])).toBe(expected.get(b as string));
+    }
   });
 
   it("paginates without dropping or repeating a row", () => {

@@ -109,13 +109,12 @@ import {
 } from "@/pages/flipdesk/inventory-tabs";
 import {
   planListingDemote,
-  selectListingRows,
   type SoldFilter,
 } from "@/pages/flipdesk/listings-filter";
 import { usePageRowDetails } from "@/pages/flipdesk/listings-page-queries";
-import { LISTINGS_COLUMNS } from "@/pages/flipdesk/listings-columns";
+import { LISTINGS_COLUMN_LIST } from "@/pages/flipdesk/listings-columns";
 import { ListingsTable } from "@/pages/flipdesk/listings-table";
-import { fmtMoney, marginPct } from "@/pages/flipdesk/listings-format";
+import { fmtMoney } from "@/pages/flipdesk/listings-format";
 import {
   useEbayConnection,
   usePublishToEbay,
@@ -135,7 +134,7 @@ import {
   useEndListing,
   useUpdateListingPrice,
 } from "@/hooks/use-listing-lifecycle";
-import { useDeleteItem, fetchItemsPaged } from "@/hooks/use-items-full";
+import { useDeleteItem } from "@/hooks/use-items-full";
 import {
   planStatusUndo,
   undoEntriesFor,
@@ -199,6 +198,26 @@ const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
 // rows are virtualized. Kept comfortably above the 50-row min page size so the
 // smallest page never virtualizes.
 const VIRTUALIZE_ROW_THRESHOLD = 60;
+
+/**
+ * What `flipdesk_listing_page` returns (US-2168 AC3, migration 00515).
+ *
+ * `rows` is one page. The other three are the things this page needs that a
+ * page cannot answer for itself, which is exactly why they travel with it:
+ * `total` sizes the pager, `soldAgg` covers the whole FILTERED set, and
+ * `buyerCounts` covers the whole ACCOUNT.
+ */
+interface ListingPageResult {
+  total: number;
+  rows: ItemFullRow[];
+  soldAgg: {
+    count: number;
+    gross: number;
+    net: number;
+    avgMargin: number | null;
+  } | null;
+  buyerCounts: Record<string, number>;
+}
 
 
 export function FlipdeskListingsPage() {
@@ -393,26 +412,62 @@ export function FlipdeskListingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // US-2168 added `filterQuery` here. While paging was client-side, landing on
+  // an out-of-range page was harmless — `filtered.slice()` returned nothing and
+  // `safePage` clamped the pager on the same render. Server-side, the OFFSET is
+  // what gets sent, so narrowing the filter from page 6 asks for rows 500-600
+  // of a 40-row result and the table renders empty while the pager says page 1.
   useEffect(() => {
     setPage(1);
-  }, [search, pageSize, soldFilter]);
+  }, [search, pageSize, soldFilter, filterQuery]);
+
 
   // US-419: keyed under a DISTINCT "listings" suffix — NOT the bare
-  // ["items_full", user.id] the shared readers use. This query projects a
-  // narrower LISTINGS_COLUMNS subset, so sharing the canonical key would let a
-  // partial-column cache entry win and starve those consumers of fields like
-  // photo_count/has_required_photos. The "items_full" prefix keeps it covered by
-  // the existing invalidateQueries({ queryKey: ["items_full"] }) calls.
+  // ["items_full", user.id] the shared readers use. Sharing the canonical key
+  // would let this page's entry win and serve the other consumers something
+  // shaped for this page. The "items_full" PREFIX keeps it covered by the
+  // existing invalidateQueries({ queryKey: ["items_full"] }) calls.
   //
-  // US-2372: every optimistic write on this page MUST use this same key. Nine
-  // call sites used to spell the bare ["items_full", user.id] by hand, which is
-  // a cache entry this page does not read — so the optimistic patch landed
-  // nowhere visible and the rollback wrote this page's narrower rows into the
-  // full-row cache. One definition, referenced everywhere, is the fix.
+  // (US-419's ORIGINAL reason was that this query projected a narrower
+  // LISTINGS_COLUMNS subset, so a partial-column entry could starve consumers of
+  // photo_count/has_required_photos. US-2168 replaced the projected read with an
+  // RPC returning WHOLE rows, so that specific hazard is gone — but the rule it
+  // produced is still right for a different reason: this entry now holds a
+  // {total, rows, soldAgg, buyerCounts} document rather than an ItemFullRow[],
+  // and every shared reader expects an array. The distinct key is what keeps
+  // that from becoming their problem.)
+  //
+  // US-2372: every optimistic write on this page MUST target the entry this
+  // page READS. Nine call sites used to spell the bare ["items_full", user.id]
+  // by hand — a cache entry this page does not read — so the optimistic patch
+  // landed nowhere visible and the rollback wrote this page's rows into the
+  // full-row cache. One writer (`patchRow`), one key, is the fix.
+  //
+  // US-2168 AC3: the key now carries the CRITERIA, because the server does the
+  // selecting. Each (tab, search, sold window, filter, sort, page) combination
+  // is a different answer and therefore a different cache entry — the same
+  // reason the page-scoped detail reads key on pageRowIds. The first three
+  // elements are unchanged, so every existing
+  // invalidateQueries({ queryKey: ["items_full"] }) still sweeps all of them.
   const listingsItemsKey = ["items_full", "listings", user?.id] as const;
-  const { data: items = [], isLoading } = useQuery({
-    queryKey: listingsItemsKey,
+  const listingsPageKey = [
+    ...listingsItemsKey,
+    tab,
+    search,
+    soldFilter,
+    sortPreset,
+    columnSort,
+    filterQuery,
+    page,
+    pageSize,
+  ] as const;
+  const { data: pageData, isLoading } = useQuery<ListingPageResult>({
+    queryKey: listingsPageKey,
     enabled: !!user,
+    // A page's worth of rows is cheap to refetch and stale rows here are the
+    // expensive kind, so the previous entry stays visible while the next one
+    // loads rather than blanking the table on every keystroke or page click.
+    placeholderData: (prev) => prev,
     // US-2174 (replaces the US-735 reasoning).
     //
     // The old 15-minute window was justified by "mutations invalidate items_full
@@ -435,16 +490,80 @@ export function FlipdeskListingsPage() {
     // Gated on visibility (US-576 pattern): a backgrounded tab stops polling
     // entirely, and refetchOnWindowFocus covers the return.
     refetchInterval: isActive && visible ? 2 * 60 * 1000 : false,
-    // US-2167: paged through the shared fetchItemsPaged loop rather than issued
-    // as one unbounded request. This was the last items_full read that could be
-    // silently truncated: PostgREST caps a response at `db-max-rows` and reports
-    // it only in the Content-Range header, which supabase-js does not surface —
-    // so a seller past the cap saw a short table, correct-looking and quietly
-    // missing rows, on the surface where a missed listing costs money. Same
-    // order and same materialized array as before, so the client-side search,
-    // tab filtering, sort and paging below are untouched.
-    queryFn: () => fetchItemsPaged<ItemFullRow>(LISTINGS_COLUMNS),
+    // US-2168 AC3: ONE PAGE, selected server-side.
+    //
+    // This used to be the shared fetchItemsPaged loop over LISTINGS_COLUMNS —
+    // the whole tenant,
+    // paged only so that PostgREST's row cap could not truncate it silently
+    // (US-2167). It was still the whole tenant: every row crossed the wire so
+    // the browser could filter, sort and slice fifty of them, and the cost grew
+    // with the account rather than with the page.
+    //
+    // flipdesk_listing_page (migration 00515) applies the tab predicate, the
+    // search, the Sold window, the advanced filter and the sort in SQL and
+    // returns just this page, plus the counts the page cannot derive from a
+    // page: `total` for the pager, `soldAgg` over the whole filtered set, and
+    // `buyerCounts` across the whole account for the repeat-buyer star.
+    //
+    // It is SECURITY INVOKER and items_full is security_invoker, so RLS still
+    // scopes this to the caller exactly as the direct read did.
+    queryFn: async (): Promise<ListingPageResult> => {
+      const { data, error } = await supabase.rpc("flipdesk_listing_page", {
+        p_tab: tab,
+        p_search: search,
+        p_sold_filter: soldFilter,
+        p_filter: filterQuery,
+        p_column_sort: columnSort,
+        p_sort_preset: sortPreset,
+        // "Year to date" means the VIEWER's year; the database cannot know it.
+        p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+        p_limit: pageSize,
+        p_offset: (page - 1) * pageSize,
+        // The projection stays in ONE place (listings-columns.ts) and is sent
+        // to the server rather than restated in SQL, where it would drift the
+        // first time a column was added. Without it the RPC returns every
+        // items_full column, including the four heavy detail-only ones this
+        // table never renders.
+        p_columns: LISTINGS_COLUMN_LIST,
+      } as never);
+      if (error) throw error;
+      return (data ?? { total: 0, rows: [] }) as ListingPageResult;
+    },
   });
+
+  // The rows this page renders. Named `items` because that is what every
+  // handler below has always called them — what CHANGED is that it is now one
+  // page rather than the whole account, which is the entire point of US-2168.
+  // Anything that needs more than a page (CSV export) says so explicitly.
+  const items = useMemo(() => pageData?.rows ?? [], [pageData]);
+
+  /**
+   * Patch one row in THIS page's cache entry, returning its rollback.
+   *
+   * US-2372 is the reason this is a helper and not four hand-written pairs of
+   * setQueryData calls. That bug was nine call sites spelling a cache key by
+   * hand, four of which named an entry the page did not read — so the
+   * optimistic patch landed nowhere visible and the rollback wrote this page's
+   * rows into a different query's cache. One writer, one key, no spelling.
+   *
+   * US-2168 moved the key AND the shape (an ItemFullRow[] became a
+   * {total, rows, …} document), which is exactly the kind of change that would
+   * have re-scattered that bug across four handlers.
+   */
+  function patchRow(id: string, patch: Partial<ItemFullRow>): () => void {
+    const prev = qc.getQueryData<ListingPageResult>(listingsPageKey);
+    qc.setQueryData<ListingPageResult>(listingsPageKey, (old) =>
+      old
+        ? {
+          ...old,
+          rows: old.rows.map((i) => (i.id === id ? { ...i, ...patch } : i)),
+        }
+        : old,
+    );
+    return () => {
+      qc.setQueryData<ListingPageResult>(listingsPageKey, prev);
+    };
+  }
 
   // US-404: stage-tab counts come from a server-side grouped count (one row per
   // status) rather than from the loaded rows. US-958: extracted into the shared
@@ -483,14 +602,18 @@ export function FlipdeskListingsPage() {
       counts.archived = statusCounts.archived ?? 0;
       return counts;
     }
-    for (const it of items) {
-      for (const t of TABS) if (t.matches(it)) counts[t.id]++;
-    }
+    // US-2168: the old fallback counted the LOADED rows while statusCounts was
+    // in flight. That was sound when "loaded" meant the whole account; it is
+    // actively wrong now that it means one page, because it would badge every
+    // tab with a number no larger than the page size — "3" next to a tab
+    // holding 137 items. Zeros are the honest placeholder: obviously
+    // not-yet-known, rather than confidently wrong for the second it shows.
     return counts;
-  }, [items, statusCounts]);
+  }, [statusCounts]);
 
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0]!;
 
+  // Only rendered rows need a score, and `items` IS the rendered rows now.
   const scoreById = useMemo(() => {
     const m = new Map<string, number>();
     for (const it of items) m.set(it.id, scoreListability(it).score);
@@ -498,13 +621,19 @@ export function FlipdeskListingsPage() {
   }, [items]);
 
   // Count of sales per buyer — drives the repeat-buyer star.
+  //
+  // US-2168: this asks "has this buyer bought from me BEFORE", which is a
+  // question about the whole account, so it cannot be counted from the page.
+  // The server answers it for the buyers on this page and the star keeps
+  // meaning what it meant; deriving it from `items` now would silently show
+  // every buyer as first-time whenever their other orders sat on another page.
   const buyerCounts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const it of items) {
-      if (it.buyer_id) m.set(it.buyer_id, (m.get(it.buyer_id) ?? 0) + 1);
+    for (const [buyer, n] of Object.entries(pageData?.buyerCounts ?? {})) {
+      m.set(buyer, Number(n));
     }
     return m;
-  }, [items]);
+  }, [pageData]);
 
   // US-2168 AC5: the whole selection pipeline now lives in listings-filter.ts
   // as selectListingRows(), a pure function of (items, criteria). It used to be
@@ -518,48 +647,80 @@ export function FlipdeskListingsPage() {
   //
   // Written the other way round, a parity test would assert that the new
   // implementation matches itself.
-  const filtered = useMemo(
-    () =>
-      selectListingRows(items, {
-        tab: activeTab,
-        search,
-        soldFilter,
-        filterQuery,
-        columnSort,
-        sortPreset,
-        now: Date.now(),
-      }),
-    [items, activeTab, search, soldFilter, sortPreset, filterQuery, columnSort],
-  );
+  // US-2168 AC3: selectListingRows() has moved to the server (migration 00515,
+  // `flipdesk_listing_page`). It is still THE specification of what a tab shows
+  // — src/test/listing-page-sql-parity.test.ts runs it and the SQL over the same
+  // rows read back out of items_full and requires identical ids in identical
+  // order — it just no longer runs here, because running it here meant shipping
+  // the whole account to the browser to render fifty rows.
 
-  // Aggregate strip for the Sold tab — over the current filter.
+  // Aggregate strip for the Sold tab — over the current FILTER, not this page,
+  // which is why it comes back from the query rather than being summed here.
   const soldAgg = useMemo(() => {
-    if (!isSold) return null;
-    let gross = 0;
-    let net = 0;
-    let marginSum = 0;
-    let marginN = 0;
-    for (const it of filtered) {
-      gross += it.sale_price ?? 0;
-      net += it.net_profit ?? 0;
-      const m = marginPct(it);
-      if (m != null) {
-        marginSum += m;
-        marginN += 1;
-      }
-    }
+    if (!isSold || !pageData) return null;
+    const a = pageData.soldAgg;
     return {
-      count: filtered.length,
-      gross,
-      net,
-      avgMargin: marginN > 0 ? marginSum / marginN : null,
+      count: Number(a?.count ?? 0),
+      gross: Number(a?.gross ?? 0),
+      net: Number(a?.net ?? 0),
+      avgMargin: a?.avgMargin == null ? null : Number(a.avgMargin),
     };
-  }, [isSold, filtered]);
+  }, [isSold, pageData]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const totalRows = pageData?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  // The same hazard from the other direction: `total` can shrink underneath the
+  // current page without the criteria changing at all — a background refetch
+  // after items are archived elsewhere, say. Clamp rather than show a blank
+  // page the seller has no way to interpret.
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * pageSize;
-  const pageRows = filtered.slice(pageStart, pageStart + pageSize);
+  const pageRows = items;
+
+  // CSV export is the one thing here that legitimately wants every row of the
+  // current filter, so it asks for them explicitly instead of the table quietly
+  // holding them all year-round on its behalf. Paged rather than one big
+  // request, because `flipdesk_listing_page` caps `p_limit` — and a cap that
+  // silently truncated an export would be the same class of bug US-2390 removed
+  // from the admin dashboard.
+  const [exporting, setExporting] = useState(false);
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const PAGE = 500;
+      const all: ItemFullRow[] = [];
+      for (let offset = 0; ; offset += PAGE) {
+        const { data, error } = await supabase.rpc("flipdesk_listing_page", {
+          p_tab: tab,
+          p_search: search,
+          p_sold_filter: soldFilter,
+          p_filter: filterQuery,
+          p_column_sort: columnSort,
+          p_sort_preset: sortPreset,
+          p_ytd_start: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+          p_limit: PAGE,
+          p_offset: offset,
+          p_columns: LISTINGS_COLUMN_LIST,
+        } as never);
+        if (error) throw error;
+        const batch = ((data ?? {}) as ListingPageResult).rows ?? [];
+        all.push(...batch);
+        // Stop on an EMPTY page, not a short one — the same rule paged-read.ts
+        // spells out, for the same reason.
+        if (batch.length === 0 || all.length >= (((data ?? {}) as ListingPageResult).total ?? 0)) {
+          break;
+        }
+      }
+      downloadItemsCsv(all);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const pageRowIds = useMemo(() => pageRows.map((r) => r.id), [pageRows]);
 
@@ -698,12 +859,7 @@ export function FlipdeskListingsPage() {
   async function updateTracking(it: ItemFullRow, raw: string) {
     const next = raw.trim();
     if ((it.tracking ?? "") === next) return;
-    const prev = items;
-    qc.setQueryData<ItemFullRow[]>(listingsItemsKey, (old) =>
-      (old ?? []).map((i) =>
-        i.id === it.id ? { ...i, tracking: next || null } : i,
-      ),
-    );
+    const rollback = patchRow(it.id, { tracking: next || null });
     try {
       const saleId = await latestSaleId(it.id);
       if (!saleId) throw new Error("No sale record for this item.");
@@ -719,7 +875,7 @@ export function FlipdeskListingsPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success("Tracking updated.");
     } catch (err) {
-      qc.setQueryData(listingsItemsKey, prev);
+      rollback();
       toast.error(
         `Couldn't update tracking: ${
           err instanceof Error ? err.message : String(err)
@@ -732,12 +888,7 @@ export function FlipdeskListingsPage() {
   // delivered_at and moves the item to `completed` (terminal). Optimistic.
   async function markDelivered(it: ItemFullRow) {
     const now = new Date().toISOString();
-    const prev = items;
-    qc.setQueryData<ItemFullRow[]>(listingsItemsKey, (old) =>
-      (old ?? []).map((i) =>
-        i.id === it.id ? { ...i, delivered_at: now, status: "completed" } : i,
-      ),
-    );
+    const rollback = patchRow(it.id, { delivered_at: now, status: "completed" });
     try {
       const saleId = await latestSaleId(it.id);
       if (saleId) {
@@ -755,7 +906,7 @@ export function FlipdeskListingsPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success("Marked delivered.");
     } catch (err) {
-      qc.setQueryData(listingsItemsKey, prev);
+      rollback();
       toast.error(
         `Couldn't mark delivered: ${
           err instanceof Error ? err.message : String(err)
@@ -784,12 +935,7 @@ export function FlipdeskListingsPage() {
       toast.error("Enter a valid price.");
       return;
     }
-    const prev = items;
-    qc.setQueryData<ItemFullRow[]>(listingsItemsKey, (old) =>
-      (old ?? []).map((i) =>
-        i.id === it.id ? { ...i, list_price: next } : i,
-      ),
-    );
+    const rollback = patchRow(it.id, { list_price: next });
     try {
       const res = await updatePrice.mutateAsync({
         listingId: it.listing_id,
@@ -801,7 +947,7 @@ export function FlipdeskListingsPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success(res.pushed ? "Price updated on the marketplace." : "Price updated.");
     } catch (err) {
-      qc.setQueryData(listingsItemsKey, prev);
+      rollback();
       toast.error(
         `Price update failed: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -821,10 +967,7 @@ export function FlipdeskListingsPage() {
     viewPatch: Partial<ItemFullRow>,
     label: string,
   ) {
-    const prev = items;
-    qc.setQueryData<ItemFullRow[]>(listingsItemsKey, (old) =>
-      (old ?? []).map((i) => (i.id === it.id ? { ...i, ...viewPatch } : i)),
-    );
+    const rollback = patchRow(it.id, viewPatch);
     try {
       const { error } = await supabase
         .from("inventory_items")
@@ -834,7 +977,7 @@ export function FlipdeskListingsPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success(`${label} updated.`);
     } catch (err) {
-      qc.setQueryData(listingsItemsKey, prev);
+      rollback();
       toast.error(
         `Couldn't update ${label.toLowerCase()}: ${
           err instanceof Error ? err.message : String(err)
@@ -1419,11 +1562,11 @@ export function FlipdeskListingsPage() {
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
-            onClick={() => downloadItemsCsv(filtered)}
-            disabled={filtered.length === 0}
+            onClick={exportCsv}
+            disabled={totalRows === 0 || exporting}
           >
             <Download className="mr-2 h-4 w-4" />
-            Export CSV
+            {exporting ? "Exporting…" : "Export CSV"}
           </Button>
           {ebayConnection && (
             <Button
@@ -1787,7 +1930,7 @@ export function FlipdeskListingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {filtered.length} item{filtered.length === 1 ? "" : "s"}{" "}
+            {totalRows} item{totalRows === 1 ? "" : "s"}{" "}
             <span className="text-sm font-normal text-muted-foreground">
               in {activeTab.label}
             </span>
@@ -1979,7 +2122,7 @@ export function FlipdeskListingsPage() {
                 </div>
                 <div className="text-muted-foreground">
                   {pageStart + 1}–{pageStart + pageRows.length} of{" "}
-                  {filtered.length}
+                  {totalRows}
                 </div>
                 <div className="flex items-center gap-1">
                   <Button

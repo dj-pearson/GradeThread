@@ -106,19 +106,19 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
     });
   }
 
-  it("the main items_full read is projected and bounded (US-2167)", () => {
-    // This expectation is the FLIPPED form of the one that stood here while the
-    // read was unbounded. It still loads the whole tenant — search, tab
-    // filtering and sort run client-side over the full set and can't move
-    // server-side until scoreListability has a SQL equivalent (US-2168 AC3) —
-    // but it no longer does so in ONE request, which is what PostgREST's
-    // db-max-rows silently truncated.
-    const block = queryBlockByKeyExpr(pageSource(), "listingsItemsKey");
-    expect(block).toContain("LISTINGS_COLUMNS");
-    // Paged through the shared loop rather than a second copy of it, so the cap
-    // is handled in one place.
-    expect(block).toContain("fetchItemsPaged");
-    expect(block).not.toMatch(/\.order\("created_at"[^)]*\)\s*;/);
+  it("the main read asks the server for ONE page (US-2168 AC3)", () => {
+    // Third form of this assertion, and the last one it should need. It began
+    // as "the read is unbounded"; became "bounded per request, still the whole
+    // tenant" when US-2167 wrapped it in the paging loop; and is now "one page,
+    // selected server-side", which is what AC3 actually asked for.
+    const block = queryBlockByKeyExpr(pageSource(), "listingsPageKey");
+    expect(block).toContain('supabase.rpc("flipdesk_listing_page"');
+    // The criteria must be IN the key. Without them every tab, search and page
+    // shares one cache entry and the table shows the previous answer.
+    const key = pageSource().slice(pageSource().indexOf("const listingsPageKey"));
+    for (const part of ["tab", "search", "soldFilter", "sortPreset", "columnSort", "filterQuery", "page"]) {
+      expect(key.slice(0, 400)).toContain(part);
+    }
   });
 
   describe("the quality-score read (US-2170)", () => {
@@ -226,16 +226,25 @@ describe("optimistic writes target this page's own cache (US-2372)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("every setQueryData in this file uses the shared key", () => {
+  it("every setQueryData in this file uses the key this page reads", () => {
     const calls = [...src.matchAll(/qc\.setQueryData[^(]*\(([^,]+),/g)].map(
       (m) => (m[1] ?? "").trim(),
     );
-    // Guards the guard: if the edits are ever removed this test would pass
-    // vacuously, so assert they are still here and still all four pairs.
-    expect(calls.length).toBe(8);
+    // US-2168 collapsed eight hand-written calls into ONE writer, `patchRow`,
+    // which is the durable form of this fix: US-2372 happened because the key
+    // was spelled by hand at every site, and a page that moves its key or its
+    // cache SHAPE (as this one just did, from ItemFullRow[] to a
+    // {total, rows, …} document) would otherwise have to get all eight right
+    // again. The count is 2 — the patch and its rollback.
+    expect(calls.length).toBe(2);
     for (const arg of calls) {
-      expect(arg).toContain("listingsItemsKey");
+      expect(arg).toContain("listingsPageKey");
     }
+    // And the four handlers must still route through it, or the assertion above
+    // passes while the edits write somewhere else.
+    expect(src).toContain("function patchRow(");
+    const uses = [...src.matchAll(/const rollback = patchRow\(/g)];
+    expect(uses.length).toBe(4);
   });
 
   it("each inline edit reconciles with the server on success", () => {
@@ -284,12 +293,16 @@ describe("the load-bearing comments survive a refactor (US-2173)", () => {
   it("keeps the US-419 distinct-cache-key rationale next to the query", () => {
     expect(page).toContain("US-419");
     const at = page.indexOf("US-419");
-    const near = page.slice(at, at + 1200);
+    // Widened from 1200: US-2168 added the paragraph explaining that US-419's
+    // ORIGINAL reason (a narrower projection) no longer applies while its RULE
+    // still does. Keeping that history is the point of this guard, so the
+    // window has to fit it.
+    const near = page.slice(at, at + 2400);
     // Not just the tag — the reason. A bare "US-419" left behind explains
     // nothing to the next reader.
     expect(near).toMatch(/DISTINCT|distinct/);
     // And it has to still sit with the query it constrains.
-    expect(near).toContain("listingsItemsKey");
+    expect(near).toContain("listingsPageKey");
   });
 
   it("keeps every US-1489 effect-dependency note", () => {

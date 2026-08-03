@@ -305,7 +305,8 @@ create or replace function public.flipdesk_listing_page(
   p_sort_preset text default 'listability',
   p_ytd_start timestamptz default null,
   p_limit int default 100,
-  p_offset int default 0
+  p_offset int default 0,
+  p_columns text[] default null
 )
 returns jsonb
 language plpgsql
@@ -318,6 +319,13 @@ declare
   sort_dir text;
   col_type text;
   search_q text := btrim(coalesce(p_search, ''));
+  -- The row projection. NULL p_columns means "every column", which is what the
+  -- parity harness wants; the page passes its LISTINGS_COLUMNS so the wire
+  -- carries what it renders and not the four heavy detail-only columns
+  -- (comps, item_description, notes, ai_field_sources). The list stays in ONE
+  -- place — listings-columns.ts — rather than being restated here where it
+  -- would drift silently the first time a column was added.
+  row_json text;
   lim int := greatest(0, least(1000, coalesce(p_limit, 100)));
   off int := greatest(0, coalesce(p_offset, 0));
   result jsonb;
@@ -442,28 +450,72 @@ begin
   -- a row twice. `id` settles the remaining ties so the total order is strict.
   order_sql := order_sql || ', created_at desc nulls last, id';
 
+  row_json := case
+    when p_columns is null or array_length(p_columns, 1) is null then 'to_jsonb(p)'
+    else format(
+      'to_jsonb(p) - (select coalesce(array_agg(k), ''{}''::text[]) '
+      'from jsonb_object_keys(to_jsonb(p)) k where not (k = any(%L::text[])))',
+      p_columns
+    )
+  end;
+
+  -- `soldAgg` and `buyerCounts` ride along because both are things the page
+  -- derives from the WHOLE set today, and both would silently degrade to
+  -- per-page numbers the moment the client stops loading the tenant:
+  --
+  --   • soldAgg is the Sold tab's strip (gross, net, average margin). It is
+  --     computed over the FILTERED set, not the page, so it is taken from
+  --     `base` before pagination. `avgMargin` averages the per-row percentages
+  --     (matching marginPct() in listings-format.ts) rather than dividing the
+  --     totals — those are different numbers, and the client shows the former.
+  --   • buyerCounts drives the repeat-buyer star, which asks "has this buyer
+  --     bought from me before?" — a question about the whole account. It is
+  --     keyed to the buyers ON THIS PAGE but counted across everything the
+  --     caller can see, so the star means the same thing it did.
   execute format($sql$
     with base as (
       select f.* from public.items_full f where %s
+    ), page as (
+      select * from base order by %s limit %s offset %s
     )
     select jsonb_build_object(
       'total', (select count(*) from base),
       'rows', coalesce((
         select jsonb_agg(z.rowdata order by z.rn)
         from (
-          select to_jsonb(b) as rowdata, row_number() over () as rn
-          from (select * from base order by %s limit %s offset %s) b
+          select %s as rowdata, row_number() over () as rn from page p
         ) z
-      ), '[]'::jsonb)
+      ), '[]'::jsonb),
+      'soldAgg', (
+        select jsonb_build_object(
+          'count', count(*),
+          'gross', coalesce(sum(coalesce(sale_price, 0)), 0),
+          'net', coalesce(sum(coalesce(net_profit, 0)), 0),
+          'avgMargin', avg(
+            case when sale_price > 0 and net_profit is not null
+                 then (net_profit / sale_price) * 100 end
+          )
+        ) from base
+      ),
+      'buyerCounts', coalesce((
+        select jsonb_object_agg(b.buyer_id, b.n)
+        from (
+          select f.buyer_id, count(*) as n
+          from public.items_full f
+          where f.buyer_id is not null
+            and f.buyer_id in (select buyer_id from page where buyer_id is not null)
+          group by f.buyer_id
+        ) b
+      ), '{}'::jsonb)
     )
-  $sql$, where_sql, order_sql, lim, off)
+  $sql$, where_sql, order_sql, lim, off, row_json)
   into result;
 
   return result;
 end;
 $$;
 
-comment on function public.flipdesk_listing_page(text, text, text, jsonb, jsonb, text, timestamptz, int, int) is
+comment on function public.flipdesk_listing_page(text, text, text, jsonb, jsonb, text, timestamptz, int, int, text[]) is
   'US-2168 AC3: one page of the FlipDesk listings table, selected/filtered/'
   'sorted server-side. SECURITY INVOKER so items_full RLS scopes it to the '
   'caller. SQL mirror of selectListingRows(); pinned by '
@@ -472,6 +524,7 @@ comment on function public.flipdesk_listing_page(text, text, text, jsonb, jsonb,
 grant execute on function public.flipdesk_filter_matches(jsonb, jsonb) to authenticated;
 grant execute on function public.flipdesk_listability_score(jsonb) to authenticated;
 grant execute on function public.flipdesk_max_comp_price(jsonb) to authenticated;
-grant execute on function public.flipdesk_listing_page(text, text, text, jsonb, jsonb, text, timestamptz, int, int) to authenticated;
+grant execute on function public.flipdesk_listing_page(text, text, text, jsonb, jsonb, text, timestamptz, int, int, text[]) to authenticated;
+drop function if exists public.flipdesk_listing_page(text, text, text, jsonb, jsonb, text, timestamptz, int, int);
 
 insert into public.applied_migrations (version) values ('00515') on conflict do nothing;

@@ -61,18 +61,22 @@ const ITEMS_FULL_PAGE = READ_PAGE_SIZE;
  * Read every `items_full` row for the current tenant in bounded pages, newest
  * first, for an explicit column projection.
  *
- * US-2167: exported so the listings page reuses this loop instead of keeping
- * its own single unbounded request. That page holds the ONE items_full read
- * this hook does not own (it projects its own wider LISTINGS_COLUMNS under its
- * own query key), and it was the last read that could be silently truncated by
- * PostgREST's `db-max-rows` — a cap reported only in a header supabase-js does
- * not surface. Sharing the loop means the cap is handled in one place rather
- * than remembered in two.
+ * It was exported for the listings page under US-2167, so that page could share
+ * this loop instead of issuing its own unbounded request — the last read that
+ * PostgREST's `db-max-rows` could silently truncate, a cap reported only in a
+ * header supabase-js does not surface.
  *
- * This bounds each REQUEST, not the result: the caller still receives the whole
- * set. Serving a rendered page straight from the server is a different change,
- * and on the listings page it is blocked on search/sort moving server-side
- * (US-2168 AC3 — `scoreListability` has no SQL equivalent).
+ * US-2168 AC3 has since moved that page off this loop entirely: it asks
+ * `flipdesk_listing_page` for ONE page, selected in SQL. The note that used to
+ * sit here said the port was blocked because "`scoreListability` has no SQL
+ * equivalent". That was never true — every input that score reads is a column
+ * on `items_full` — and it is recorded rather than deleted because the claim
+ * had been copied into three files and gated the work for months. An unexamined
+ * blocker outlives the reason for it.
+ *
+ * This still bounds each REQUEST, not the result: remaining callers receive the
+ * whole set, which is the right shape for the surfaces that genuinely need it
+ * (the kanban, the prep queue, reconciliation matching).
  */
 export async function fetchItemsPaged<T>(columns: string): Promise<T[]> {
   // `.bind(supabase)` is LOAD-BEARING. supabase-js implements `from()` as
