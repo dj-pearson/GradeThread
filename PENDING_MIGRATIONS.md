@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing pending.** 00515 through 00523 were all applied to prod on
+**One pending: 00524.** 00515 through 00523 were all applied to prod on
 2026-08-03 (owner-confirmed).
 
 > [!warning] 00522 reached origin/main BEFORE it was applied — the second time
@@ -65,6 +65,39 @@ is not — which has happened twice (see the US-2017 note in prd.json). **When y
 apply a migration, flip its marker in the same sitting.**
 
 ---
+
+## ⏳ HELD: 00524_marketplace_sync_quarantine.sql (US-2324 AC3 sync quarantine, 2026-08-03)
+
+**Risk: VERY LOW.** One NEW table, nothing existing is touched. Both connectors
+that use it are behind env kill-switches defaulting to FALSE, so on prod today
+the table is created and never written.
+
+**What it closes.** The Etsy and Depop syncs keep no cursor: each run re-reads
+the provider window from the start. A permanently-bad record was therefore
+re-attempted on every run forever, and its failure was one more line in a log
+that becomes unreadable when something new breaks. After three failures a record
+is set aside, with its attempt count and last error kept as the evidence.
+
+**Deny-all by design:** RLS on, ZERO policies, grant revoked from anon and
+authenticated. Readable, it would show a seller raw provider error text for their
+own orders; writable, they could clear their own quarantine.
+
+**Owner column is `owner_user_id`, not `user_id`** — rls-guard discovers TENANT
+tables by that literal string in the CREATE TABLE block, and this is an operator
+table. Registered in SERVICE_ROLE_ONLY in the same commit; the guard failed
+first and passed after, which is how I know the registration is real.
+
+**Verified on a throwaway stack:** full corpus applies on a fresh schema, all
+nine columns present, RLS on with 0 policies, self-record row lands.
+
+**Apply:**
+
+1. Run `supabase/migrations/00524_marketplace_sync_quarantine.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — new table.
+3. Redeploy the edge (boot guard expects 00524).
+
+**Verify:** `select count(*) from marketplace_sync_failures;` returns 0, and stays
+0 until an Etsy or Depop sync actually fails on a record.
 
 ## ✅ APPLIED: 00523_users_trial_notice_sent_at.sql (US-2319 trial-notice idempotency, applied 2026-08-03 — owner-confirmed)
 

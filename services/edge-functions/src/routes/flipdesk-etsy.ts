@@ -1,5 +1,11 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  clearSyncFailure,
+  isQuarantined,
+  loadSyncFailures,
+  recordSyncFailure,
+} from "../lib/sync-quarantine.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
@@ -289,16 +295,54 @@ flipdeskEtsyRoutes.post("/sync", async (c) => {
     //
     // The catch is INSIDE the loop for that reason: one bad record must cost
     // that record, not the tail behind it.
+    // US-2324 AC3: skip records that have failed repeatedly.
+    //
+    // This sync has no cursor, so without this a permanently-bad receipt is
+    // re-attempted on every run forever, and its error is one more line in a log
+    // that becomes unreadable when something NEW breaks.
+    const priorFailures = await loadSyncFailures(userId, "etsy");
     const failures: string[] = [];
+    let quarantinedSkipped = 0;
     for (const receipt of receipts) {
+      const externalId = receipt.receiptId;
+      const prior = priorFailures.get(externalId);
+      if (isQuarantined(prior)) {
+        quarantinedSkipped++;
+        continue;
+      }
+      // handleEtsyReceiptEvent does NOT throw — it collects per-record failures
+      // into res.errors — so "did THIS record fail" is the union of that list
+      // and an unexpected throw. Both feed the same quarantine counter, because
+      // to the seller they are the same event: this order did not land.
+      let recordErrors: string[] = [];
       try {
         const res = await handleEtsyReceiptEvent(userId, receipt);
         salesNew += res.salesNew;
         soldFlipped += res.soldFlipped;
-        for (const e of res.errors) failures.push(e);
+        recordErrors = res.errors;
       } catch (err) {
-        failures.push(
+        recordErrors = [
           `receipt failed: ${err instanceof Error ? err.message : String(err)}`,
+        ];
+      }
+      if (recordErrors.length === 0) {
+        // Only when there IS history to clear: a delete per successful record
+        // would be hundreds of pointless writes on a sync that re-reads its
+        // whole window every run.
+        if (prior) await clearSyncFailure(userId, "etsy", externalId);
+        continue;
+      }
+      for (const e of recordErrors) failures.push(e);
+      const justQuarantined = await recordSyncFailure({
+        ownerUserId: userId,
+        marketplace: "etsy",
+        externalId,
+        message: recordErrors[0] ?? "unknown",
+        prior,
+      });
+      if (justQuarantined) {
+        console.warn(
+          `[flipdesk-etsy] receipt ${externalId} quarantined after repeated failures`,
         );
       }
     }
@@ -327,6 +371,9 @@ flipdeskEtsyRoutes.post("/sync", async (c) => {
       failed: failures.length,
       errors: failures.slice(0, 20),
       partial: failures.length > 0,
+      // Reported so a sync that looks quiet because everything is quarantined
+      // is distinguishable from one that is quiet because everything worked.
+      quarantined_skipped: quarantinedSkipped,
     });
   } catch (err) {
     console.error("[flipdesk-etsy] receipt sync failed:", err);

@@ -55,6 +55,12 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-2324: the marketplace sync quarantine. Deny-all in both directions.
+  // Readable, it would show a seller the raw provider error text for their own
+  // orders; writable, it would let them clear their own quarantine and re-poison
+  // the sync the quarantine exists to protect. Its owner column is deliberately
+  // `owner_user_id`, so the discovery below does not classify it as tenant data.
+  "marketplace_sync_failures",
   // US-2351: the impersonation ledger. Deny-all in BOTH directions and both
   // matter. A readable table would show a user their own impersonation history,
   // leaking operator activity; a writable one would let the person being

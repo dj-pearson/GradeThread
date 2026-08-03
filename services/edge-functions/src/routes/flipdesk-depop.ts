@@ -1,5 +1,11 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  clearSyncFailure,
+  isQuarantined,
+  loadSyncFailures,
+  recordSyncFailure,
+} from "../lib/sync-quarantine.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
@@ -284,16 +290,49 @@ flipdeskDepopRoutes.post("/sync", async (c) => {
     //
     // The catch is INSIDE the loop for that reason: one bad record must cost
     // that record, not the tail behind it.
+    // US-2324 AC3: skip records that have failed repeatedly. Same reasoning as
+    // the Etsy sync — no cursor, so a permanently-bad order is otherwise
+    // re-attempted every run forever and its error buries the next real one.
+    const priorFailures = await loadSyncFailures(userId, "depop");
     const failures: string[] = [];
+    let quarantinedSkipped = 0;
     for (const order of orders) {
+      const externalId = order.purchaseId;
+      const prior = priorFailures.get(externalId);
+      if (isQuarantined(prior)) {
+        quarantinedSkipped++;
+        continue;
+      }
+      // handleDepopOrderEvent does NOT throw — it collects per-record failures
+      // into res.errors — so "did THIS record fail" is that list plus an
+      // unexpected throw. Both count the same, because to the seller they are
+      // the same event: this order did not land.
+      let recordErrors: string[] = [];
       try {
         const res = await handleDepopOrderEvent(userId, order);
         salesNew += res.salesNew;
         soldFlipped += res.soldFlipped;
-        for (const e of res.errors) failures.push(e);
+        recordErrors = res.errors;
       } catch (err) {
-        failures.push(
+        recordErrors = [
           `order failed: ${err instanceof Error ? err.message : String(err)}`,
+        ];
+      }
+      if (recordErrors.length === 0) {
+        if (prior) await clearSyncFailure(userId, "depop", externalId);
+        continue;
+      }
+      for (const e of recordErrors) failures.push(e);
+      const justQuarantined = await recordSyncFailure({
+        ownerUserId: userId,
+        marketplace: "depop",
+        externalId,
+        message: recordErrors[0] ?? "unknown",
+        prior,
+      });
+      if (justQuarantined) {
+        console.warn(
+          `[flipdesk-depop] order ${externalId} quarantined after repeated failures`,
         );
       }
     }
@@ -322,6 +361,7 @@ flipdeskDepopRoutes.post("/sync", async (c) => {
       failed: failures.length,
       errors: failures.slice(0, 20),
       partial: failures.length > 0,
+      quarantined_skipped: quarantinedSkipped,
     });
   } catch (err) {
     console.error("[flipdesk-depop] order sync failed:", err);
