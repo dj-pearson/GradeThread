@@ -178,11 +178,25 @@ async function loadBestOpenHours(nowMs: number): Promise<Map<string, number>> {
   return best;
 }
 
-/** Emails already recorded in this issue's ledger (idempotency across ticks/re-runs). */
+/**
+ * Emails already recorded in this issue's ledger (idempotency across ticks).
+ *
+ * US-2316 AC4: `failed` rows are deliberately NOT excluded. Excluding every row
+ * regardless of status made `failed` a tombstone — a recipient whose send threw
+ * once was never offered to a later tick, so the reclaim arm in
+ * deliverIssueRecipient was unreachable and a transient SMTP error cost that
+ * person the issue permanently. Retrying is safe because the reclaim is
+ * conditional on the status it read, so two ticks cannot both take one row.
+ *
+ * `pending` IS excluded, and that is the deliberate trade documented on
+ * campaign-claim.ts: a claim that was never finalised is left alone rather than
+ * risking a duplicate.
+ */
 async function loadLedgerEmails(issueId: string): Promise<Set<string>> {
   const { data } = await supabaseAdmin
     .from("newsletter_issue_recipients")
     .select("email")
+    .neq("status", "failed")
     .eq("issue_id", issueId)
     .limit(MAX_SEND_RECIPIENTS);
   return new Set(((data ?? []) as { email: string }[]).map((r) => r.email.toLowerCase()));

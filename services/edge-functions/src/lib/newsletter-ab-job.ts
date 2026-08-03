@@ -29,6 +29,7 @@ import {
   substituteTokens,
 } from "./newsletter-personalization.ts";
 import { resolvePersonalizationForBatch } from "./newsletter-personalization-job.ts";
+import { isUniqueViolation, verdictForExistingRow } from "./campaign-claim.ts";
 import {
   type AbConfig,
   type AbMetric,
@@ -127,8 +128,33 @@ export interface DeliverResult {
 
 /**
  * Render + gate + deliver one issue email and record the per-issue ledger row
- * (with the variant + holdout flag). Inserts are conflict-ignored on (issue_id,
- * email) so a re-run never double-records. Returns the outcome for counter rollup.
+ * (with the variant + holdout flag). Returns the outcome for counter rollup.
+ *
+ * US-2316 AC4: CLAIM → SEND → FINALISE, not send-then-record.
+ *
+ * This used to send and THEN upsert the ledger row, so a container death
+ * between the two left no row at all — and `loadLedgerEmails` builds the next
+ * tick's skip set from that table, so the recipient came back round and was
+ * mailed a second time. Marketing mail is the one place a duplicate is not a
+ * private embarrassment: it lands in the inbox of someone who can report it,
+ * and the platform-wide 1/day frequency cap is a policy control that was never
+ * meant to be the idempotency mechanism.
+ *
+ * The claim is an INSERT, never an upsert. An upsert ALWAYS SUCCEEDS, which is
+ * exactly why it cannot pick a winner — the campaign path made that mistake and
+ * US-2316 AC2 fixed it there. The unique index on (issue_id, email) decides,
+ * atomically, in the database; the loser gets 23505 and asks what the existing
+ * row means (`verdictForExistingRow`, shared with the campaign path so the two
+ * cannot drift).
+ *
+ * ⚠ THE SAME DELIBERATE TRADE as the campaign path, restated because it is a
+ * real cost: a row left at `pending` is never re-sent. A worker that dies
+ * between claiming and sending loses that recipient until someone sets the row
+ * to `failed`, which a later tick will reclaim. Reclaiming stale `pending` rows
+ * on a timer was rejected there for a reason that holds here — nothing on the
+ * row distinguishes "claimed by a worker that died" from "claimed by a worker
+ * still working", and a pending→pending reclaim cannot be made exclusive, so
+ * both racers would win it and the duplicate would be back.
  */
 export async function deliverIssueRecipient(params: {
   issue: Pick<AbIssueRow, "id" | "title" | "preheader" | "sections">;
@@ -158,6 +184,57 @@ export async function deliverIssueRecipient(params: {
       is_ab_holdout: isHoldout,
     }, { onConflict: "issue_id,email", ignoreDuplicates: true });
     return { outcome: "skipped", reason: "no_account" };
+  }
+
+  // ── CLAIM ────────────────────────────────────────────────────────────────
+  const { error: claimErr } = await supabaseAdmin
+    .from("newsletter_issue_recipients")
+    .insert({
+      issue_id: issue.id,
+      email: recipient.email,
+      subscriber_user_id: recipient.user_id,
+      status: "pending",
+      variant: variantId,
+      is_ab_holdout: isHoldout,
+    });
+
+  if (claimErr) {
+    if (!isUniqueViolation(claimErr)) {
+      // Not a lost race — the ledger is unwritable. Refuse to send: an email we
+      // cannot record is one we cannot stop sending again. Treating this as a
+      // lost claim would be worse in the other direction (silently dropping
+      // recipients on a transient database error), so it is reported as failed.
+      captureException(claimErr, { tags: { area: "newsletter-ab.claim" } });
+      return { outcome: "failed", reason: "claim_error" };
+    }
+    const { data: existing } = await supabaseAdmin
+      .from("newsletter_issue_recipients")
+      .select("status")
+      .eq("issue_id", issue.id)
+      .eq("email", recipient.email)
+      .maybeSingle();
+    const verdict = verdictForExistingRow(existing as { status: string } | null);
+
+    if (verdict.action === "already") {
+      // Recorded on an earlier tick. Counted at its recorded status so the
+      // rollup stays truthful rather than reporting a fresh send.
+      return { outcome: verdict.status, reason: "already_recorded" };
+    }
+    if (verdict.action === "in_flight") {
+      return { outcome: "skipped", reason: "in_flight" };
+    }
+    // reclaim: a previous attempt failed. Take it back CONDITIONALLY —
+    // `.eq("status", "failed")` is what makes the reclaim exclusive, so two
+    // ticks racing the same failed row cannot both proceed to send.
+    const { data: reclaimed } = await supabaseAdmin
+      .from("newsletter_issue_recipients")
+      .update({ status: "pending" })
+      .eq("issue_id", issue.id)
+      .eq("email", recipient.email)
+      .eq("status", verdict.from)
+      .select("email")
+      .maybeSingle();
+    if (!reclaimed) return { outcome: "skipped", reason: "in_flight" };
   }
 
   try {
@@ -190,39 +267,32 @@ export async function deliverIssueRecipient(params: {
     });
 
     if (result.action === "drop") {
-      await supabaseAdmin.from("newsletter_issue_recipients").upsert({
-        issue_id: issue.id,
-        email: recipient.email,
-        subscriber_user_id: recipient.user_id,
-        status: "skipped",
-        skip_reason: result.reason,
-        variant: variantId,
-        is_ab_holdout: isHoldout,
-      }, { onConflict: "issue_id,email", ignoreDuplicates: true });
+      // FINALISE. An UPDATE, because the row is already ours — an upsert here
+      // would happily recreate a row someone else had finalised.
+      await supabaseAdmin
+        .from("newsletter_issue_recipients")
+        .update({ status: "skipped", skip_reason: result.reason })
+        .eq("issue_id", issue.id)
+        .eq("email", recipient.email);
       return { outcome: "skipped", reason: result.reason };
     }
 
     // send or defer — both durably accepted.
-    await supabaseAdmin.from("newsletter_issue_recipients").upsert({
-      issue_id: issue.id,
-      email: recipient.email,
-      subscriber_user_id: recipient.user_id,
-      status: "sent",
-      sent_at: new Date().toISOString(),
-      variant: variantId,
-      is_ab_holdout: isHoldout,
-    }, { onConflict: "issue_id,email", ignoreDuplicates: true });
+    await supabaseAdmin
+      .from("newsletter_issue_recipients")
+      .update({ status: "sent", sent_at: new Date().toISOString() })
+      .eq("issue_id", issue.id)
+      .eq("email", recipient.email);
     return { outcome: "sent" };
   } catch (err) {
     captureException(err, { tags: { area: "newsletter-ab.deliver" } });
-    await supabaseAdmin.from("newsletter_issue_recipients").upsert({
-      issue_id: issue.id,
-      email: recipient.email,
-      subscriber_user_id: recipient.user_id,
-      status: "failed",
-      variant: variantId,
-      is_ab_holdout: isHoldout,
-    }, { onConflict: "issue_id,email", ignoreDuplicates: true });
+    // Left at `failed`, not deleted: a later tick RECLAIMS a failed row, which
+    // is how a transient send error becomes a retry instead of a lost recipient.
+    await supabaseAdmin
+      .from("newsletter_issue_recipients")
+      .update({ status: "failed" })
+      .eq("issue_id", issue.id)
+      .eq("email", recipient.email);
     return { outcome: "failed" };
   }
 }
@@ -458,6 +528,13 @@ export async function finalizeAbTest(
     const { data, error } = await supabaseAdmin
       .from("newsletter_issue_recipients")
       .select("email")
+      // US-2316 AC4: a `failed` row is NOT an exclusion — it is the retry
+      // handle. Excluding every row regardless of status made `failed` a
+      // tombstone: a recipient whose send threw once was never offered again,
+      // and the reclaim arm in deliverIssueRecipient could never be reached.
+      // Retrying is exclusive (the reclaim is conditional on the status it
+      // read), so two ticks cannot both take one failed row.
+      .neq("status", "failed")
       .eq("issue_id", issue.id)
       .order("email", { ascending: true })
       .range(from, to);
