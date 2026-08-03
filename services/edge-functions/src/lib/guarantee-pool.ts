@@ -174,31 +174,19 @@ export async function getGuaranteePoolConfig(): Promise<GuaranteePoolConfig> {
   );
 }
 
-/** Sum a period's accruals/drawdowns (+ one buyer's drawdowns) for the gate. */
-export async function getPoolPeriodState(period: string, accountUserId: string): Promise<PoolPeriodState> {
-  const { data, error } = await supabaseAdmin
-    .from("guarantee_pool_ledger")
-    .select("entry_type, amount_cents, account_user_id")
-    .eq("period", period);
-  if (error) {
-    // Fail-CLOSED for the gate: pretend the period is fully drawn so a broken
-    // read can't wave through an over-cap auto-payout.
-    console.error("[guarantee-pool] period state load failed:", error.message);
-    return { periodAccruedCents: 0, periodDrawnCents: Number.MAX_SAFE_INTEGER, accountDrawnCents: Number.MAX_SAFE_INTEGER };
-  }
-  let accrued = 0;
-  let drawn = 0;
-  let accountDrawn = 0;
-  for (const r of data ?? []) {
-    const row = r as { entry_type: string; amount_cents: number; account_user_id: string | null };
-    if (row.entry_type === "accrual") accrued += row.amount_cents;
-    else {
-      drawn += row.amount_cents;
-      if (row.account_user_id === accountUserId) accountDrawn += row.amount_cents;
-    }
-  }
-  return { periodAccruedCents: accrued, periodDrawnCents: drawn, accountDrawnCents: accountDrawn };
-}
+// US-2363: `getPoolPeriodState` was deleted here, and the pure `evaluatePoolGate`
+// above was deliberately KEPT. The difference is the point.
+//
+// The gate is a pure, tested statement of the policy, and its own header already
+// warns that only the SQL side is live. This was the other half — an unlocked
+// read of the ledger, whose only purpose was to feed that gate the state it
+// needs. Together they ARE the read-then-decide sequence US-2144 deleted: two
+// concurrent claims read the same pre-drawdown totals and both pass one budget.
+//
+// So the policy statement is worth keeping and the loader is not. Nothing called
+// it; leaving it there left the removed sequence reassemblable from two imports.
+// The live path reads and decides inside one advisory lock —
+// `reservePoolDrawdown` below.
 
 /** Record a remedy drawdown, idempotent on the claim id. Returns true if new. */
 export interface PoolReserveResult {

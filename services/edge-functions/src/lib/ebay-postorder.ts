@@ -138,16 +138,10 @@ export async function searchReturns(
   return (data.members ?? []).map(normalizeReturn);
 }
 
-export async function getReturn(
-  userId: string,
-  returnId: string,
-): Promise<ReturnSummary> {
-  const data = await postOrderFetch<RawReturn>(
-    userId,
-    `/return/${encodeURIComponent(returnId)}`,
-  );
-  return normalizeReturn(data);
-}
+// US-2363: `getReturn` was deleted here. Every caller reaches a return through
+// the search above and then acts on it by id, so the single-resource GET was a
+// round trip nobody needed — and re-adding it is five lines the day a surface
+// wants to refresh one row. Same for `getCancellation` below.
 
 // Approve or decline a return request. Decline requires a reason+comment per
 // eBay policy; approve is a bare decision.
@@ -230,17 +224,6 @@ export async function searchCancellations(
     `/cancellation/search?limit=${limit}&offset=${offset}`,
   );
   return (data.cancellations ?? []).map(normalizeCancellation);
-}
-
-export async function getCancellation(
-  userId: string,
-  cancelId: string,
-): Promise<CancellationSummary> {
-  const data = await postOrderFetch<RawCancellation>(
-    userId,
-    `/cancellation/${encodeURIComponent(cancelId)}`,
-  );
-  return normalizeCancellation(data);
 }
 
 // Approve a buyer's cancellation request (seller agrees to cancel + refund).

@@ -1520,20 +1520,15 @@ export async function buildNorthStarWeeklyEmail(
   };
 }
 
-// Weekly encouragement digest tied to listing activity. Marketing-class
-// (carries an unsubscribe link). Sent by the north-star digest cron.
-export async function sendNorthStarWeeklyEmail(
-  to: string,
-  data: NorthStarWeeklyData,
-): Promise<boolean> {
-  const { subject, html } = await buildNorthStarWeeklyEmail(data);
-  return await sendEmail({
-    to,
-    subject,
-    html,
-    category: "north_star_weekly",
-  });
-}
+// US-2363: `sendNorthStarWeeklyEmail` was deleted here, not left unused.
+// It sent marketing-class email through `sendEmail` DIRECTLY, which is the one
+// thing this category must never do — US-934 introduced the `build*` split
+// precisely so `coordinateMarketingSend` could apply suppression, the
+// per-recipient daily cap, quiet hours and drip precedence first. The cron
+// (routes/jobs-north-star.ts) has used the coordinator since; the wrapper was
+// the pre-US-934 sender left behind, one import away from silently bypassing
+// every one of those protections. The same reasoning removed the milestone
+// wrapper below.
 
 interface NorthStarMilestoneData {
   userId: string;
@@ -1570,20 +1565,6 @@ export async function buildNorthStarMilestoneEmail(
     subject: `🏆 You've listed ${data.milestone} items on FlipDesk`,
     html: emailLayout(content, { unsubscribeUrl, preferenceCenterUrl }),
   };
-}
-
-// Celebrates crossing a lifetime items-listed milestone. Marketing-class.
-export async function sendNorthStarMilestoneEmail(
-  to: string,
-  data: NorthStarMilestoneData,
-): Promise<boolean> {
-  const { subject, html } = await buildNorthStarMilestoneEmail(data);
-  return await sendEmail({
-    to,
-    subject,
-    html,
-    category: "north_star_milestone",
-  });
 }
 
 // ─── Workspace invitation (team support) ─────────────────────────────

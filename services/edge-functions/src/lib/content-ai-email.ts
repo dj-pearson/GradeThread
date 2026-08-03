@@ -247,21 +247,8 @@ export async function persistEmailIssue(input: PersistEmailIssueInput): Promise<
   return (data as { id: string }).id;
 }
 
-/**
- * Convenience one-shot: generate the issue and persist it as a draft. Returns the
- * issue id + the generated copy + meta. Idempotent when `issueId` is provided.
- */
-export async function generateAndPersistEmailIssue(
-  input: GenerateEmailIssueInput & { issueId?: string; createdBy?: string | null },
-): Promise<{ issueId: string; result: GenerateEmailIssueResult }> {
-  const result = await generateEmailIssue(input);
-  const issueId = await persistEmailIssue({
-    issue: result.issue,
-    meta: result.meta,
-    topic: input.topic,
-    productFocus: input.productFocus,
-    issueId: input.issueId,
-    createdBy: input.createdBy ?? null,
-  });
-  return { issueId, result };
-}
+// US-2363: `generateAndPersistEmailIssue` was deleted here. It bundled
+// `generateEmailIssue` + `persistEmailIssue`, both of which callers already use
+// separately — and separately on purpose: the route between them decides whether
+// a generated issue is worth persisting at all. A one-shot that always writes
+// removes that decision point, which is the opposite of a convenience.

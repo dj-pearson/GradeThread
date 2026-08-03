@@ -2546,44 +2546,28 @@ export interface BulkResponseEntry {
   errors?: Array<{ errorId?: number; message?: string }>;
 }
 
-export async function bulkCreateOrReplaceInventoryItem(
-  userId: string,
-  requests: Array<Record<string, unknown>>,
-): Promise<BulkResponseEntry[]> {
-  const data = await fetchAuthedOnce<{ responses?: BulkResponseEntry[] }>(
-    userId,
-    `/sell/inventory/v1/bulk_create_or_replace_inventory_item`,
-    { method: "POST", body: JSON.stringify({ requests }) },
-  );
-  return data.responses ?? [];
-}
-
-export async function bulkCreateOffer(
-  userId: string,
-  requests: Array<Record<string, unknown>>,
-): Promise<BulkResponseEntry[]> {
-  const data = await fetchAuthedOnce<{ responses?: BulkResponseEntry[] }>(
-    userId,
-    `/sell/inventory/v1/bulk_create_offer`,
-    { method: "POST", body: JSON.stringify({ requests }) },
-  );
-  return data.responses ?? [];
-}
-
-export async function bulkPublishOffer(
-  userId: string,
-  offerIds: string[],
-): Promise<BulkResponseEntry[]> {
-  const data = await fetchAuthedOnce<{ responses?: BulkResponseEntry[] }>(
-    userId,
-    `/sell/inventory/v1/bulk_publish_offer`,
-    {
-      method: "POST",
-      body: JSON.stringify({ requests: offerIds.map((offerId) => ({ offerId })) }),
-    },
-  );
-  return data.responses ?? [];
-}
+// US-2363 AC4 — DECIDED: the three publish-side bulk helpers
+// (bulk_create_or_replace_inventory_item, bulk_create_offer, bulk_publish_offer)
+// were DELETED rather than wired. The story asked whether using them would cut
+// publish latency. They would, and it still is not the right trade here.
+//
+// The reason is in the shape of the publish, not in the API. Publishing one item
+// is a SEQUENCE — inventory PUT, then offer POST, then publish — and each step
+// consumes the previous step's output and writes it to that listing's own row
+// (the offer id, then the eBay listing id). Batching means holding 25 items
+// mid-sequence and re-attributing every per-entry result back to the right
+// listing at three separate points; a partial failure at step 2 leaves 25 rows
+// in three different states. The durable publish worker already gives each item
+// its own job, its own retries and its own persisted progress, and that is what
+// makes a stuck publish diagnosable.
+//
+// The two bulk helpers that SURVIVE are the honest signal. `bulkUpdatePriceQuantity`
+// and `bulkMigrateListing` both act on listings that ALREADY exist, in one call,
+// with nothing to thread between steps — which is where bulk earns its latency.
+//
+// Worth revisiting only if publish stops being a sequence, or if a single seller
+// routinely publishes enough items at once that the round trips dominate the
+// bounded concurrency the worker deliberately imposes (eBay 429s under burst).
 
 // US-1046 clean surface: update price and/or available quantity for up to 25
 // SKUs/offers in one call. Idempotent (re-applying the same values is a no-op),

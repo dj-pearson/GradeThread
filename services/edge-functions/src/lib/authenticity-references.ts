@@ -63,7 +63,13 @@ export interface AuthenticityReference {
  */
 export const REFERENCE_SIGNED_URL_TTL_SECONDS = 900;
 
-/** The bucket. PRIVATE — never `item-photos`, which is the only public one. */
+/**
+ * The bucket. PRIVATE — never `item-photos`, which is the only public one.
+ *
+ * Whatever eventually shows these images to a reviewer must reach them through
+ * `signReferenceUrl` below. NEVER a public URL: that link does not expire, and a
+ * reference image is a private asset.
+ */
 export const REFERENCE_BUCKET = "authenticity-references";
 
 /** A tell paired with whether we can actually check it visually. */
@@ -239,6 +245,13 @@ export async function getAuthenticityReferences(
  * Short-lived signed URL for a reference image, for the REVIEWER surface.
  * Never `getPublicUrl` — these objects live in a private bucket and a public
  * URL would be permanent.
+ *
+ * US-2363 DECIDED: KEEP, though nothing calls it yet. It is the only reader in
+ * this module, and US-2218's privacy contract requires that the module's reads
+ * be signed — `authenticity-references_test.ts` asserts `createSignedUrl`
+ * appears here, so deleting it would not have removed dead code, it would have
+ * removed the sanctioned way to read the bucket and pushed the next person to
+ * invent one. Unused here means the reviewer surface is not built yet.
  */
 export async function signReferenceUrl(
   storagePath: string,
