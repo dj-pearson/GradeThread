@@ -1,15 +1,28 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Two pending: 00515 and 00516 — the branch is FROZEN until both are applied.** Prod
+**Pending: 00515, 00516 and 00518 — the branch is FROZEN until all three are
+applied. 00517 IS ALREADY APPLIED (2026-08-03) and 00518 CORRECTS A BUG IN IT —
+apply 00518 promptly.** Prod
 measured at **00514** on 2026-08-03: `/health/ready` returned
 `schema {expected:"00513", applied:"00514", status:"ahead"}`, the database's own
 answer through the service-role client rather than someone's recollection.
-`EXPECTED_SCHEMA_VERSION` is now **00516** and the highest migration in the tree
-is `00516_debit_grade_credits_idempotency.sql`, so the tree is two ahead of prod.
-Apply in number order: 00515 then 00516.
+`EXPECTED_SCHEMA_VERSION` is now **00518** and the highest migration in the tree
+is `00518_audit_search_self_audit_ordering.sql`.
+Apply in number order: 00515, then 00516, then 00518.
 
-Unlike the last two, this one is **not** inert: the FlipDesk inventory table
-calls `flipdesk_listing_page` on every render. Apply it before pushing.
+> [!warning] 00517 went to prod ahead of 00515/00516, and it carried a bug
+> The numbers are out of order in prod. That is harmless here — 00517 touches
+> only two function bodies and depends on nothing 00515 or 00516 create — but it
+> means `applied_migrations` has a gap, so do not read a missing 00515 as "not
+> applied yet" without checking the others. What DOES matter is that 00517
+> polluted its own results (see the 00518 entry below); until 00518 is applied,
+> the audit-log list repeats a row on every page turn and its page count climbs
+> as you browse.
+
+00515 is **not** inert: the FlipDesk inventory table calls
+`flipdesk_listing_page` on every render, so it must be applied before the
+frontend deploys. (That sentence is about 00515 specifically — it predates the
+later entries and used to read as if it described whichever migration was newest.)
 
 > [!note] Why that read said `expected: "00513"` and it was still correct
 > The running edge image was built from the commit that carried
@@ -32,6 +45,119 @@ flips the marker when the SQL runs. The session-start hook reads these ⏳
 markers, so a stale one tells every future session the branch is frozen when it
 is not — which has happened twice (see the US-2017 note in prd.json). **When you
 apply a migration, flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00518_audit_search_self_audit_ordering.sql (corrects 00517, 2026-08-03)
+
+**Risk: LOW. This is a bug fix for a migration that is already in prod, and the
+bug is live right now.**
+
+**What went wrong in 00517 (my mistake).** It wrote the `audit_log.search` row
+BEFORE running the search, in the same function and so the same statement. Under
+READ COMMITTED the SELECT sees that row:
+
+- `total_count` is a window `count(*) over ()`, so it grows by one on EVERY call
+  and the console's page count climbs as you browse;
+- the new row sorts first under `created_at desc`, so it displaces everything by
+  one. Page 0 returns it plus originals 1-24; turning to page 1 inserts another
+  row and `offset 25` then returns originals 24-48 — **one duplicated row per
+  page turn**, and one skipped for each earlier insert.
+
+**Nothing is lost or mis-recorded.** The audit rows themselves are correct and
+the log is intact. What is wrong is the READING of it, which on a forensic
+surface is its own kind of bad: a list that quietly repeats and skips rows is
+worse than one that is obviously broken.
+
+**The fix** moves the insert after the `RETURN QUERY`. `RETURN QUERY` executes
+its query immediately and appends the rows, then execution continues — so the
+search sees the state the caller asked about and the audit row still lands. It
+also fills `actor_role`, which 00517 left NULL; every other writer sets it, so a
+filter on `actor_role` silently skipped these rows and the CSV export showed a
+blank column.
+
+**Known limitation, now written down rather than over-claimed.** A REFUSED call
+records nothing. The guard raises, the exception aborts the statement, and any
+row written before it rolls back — reordering does not help and an autonomous
+transaction is not available in a `SECURITY DEFINER` function. So the devtools
+attack is blocked, but blocked SILENTLY. 00517's header claims the RPC path "is
+no longer the quiet one" without that caveat, and an applied migration cannot be
+corrected — which is why the full story now lives in
+`vault/20-domain/audit-log-access-control.md`.
+
+**Apply:**
+
+1. Run `supabase/migrations/00518_audit_search_self_audit_ordering.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — the function body changed.
+3. Redeploy the edge (boot guard expects 00518).
+
+**Verify:** as a super_admin, open /admin/audit-log and turn to page 2. No row
+should appear on both pages, and the total should not increase as you page.
+
+**Cleanup worth doing once:** the `audit_log.search` rows written between 00517
+applying and 00518 applying are real records of real reads — keep them. They are
+just missing `actor_role`.
+
+---
+
+## ✅ APPLIED: 00517_audit_log_search_super_admin.sql (US-2352 audit-log exfiltration, applied 2026-08-03)
+
+> [!important] Applied ahead of 00515/00516, and PARTLY SUPERSEDED by 00518.
+> The gate it introduced is live and correct. Its self-audit ordering was wrong
+> and 00518 above fixes it — apply that one promptly. The marker here is ✅ and
+> not ⏳ on purpose: the session-start hook reads ⏳ as "the branch is frozen on
+> this", and a stale hold marker has already misled two sessions.
+
+**Risk: MEDIUM, and the risk is a LOCKOUT, not a break.** Now that it HAS applied,
+`admin_audit_log_search` and `admin_audit_log_filter_options` refuse any caller
+who is not `super_admin` or the service-role edge client. A plain admin opening
+/admin/audit-log will see the page's own "super admin only" panel (shipped in
+US-2357, same branch) rather than an error — but if you have an admin who is
+*meant* to read the audit log and is not a super_admin, decide that BEFORE
+applying, because the answer is a role grant, not a code change.
+
+**What it does.**
+
+1. The search RPC now requires `super_admin`. It was guarded by `is_admin()`
+   only, granted to `authenticated`, and the console calls it from the BROWSER —
+   so any plain admin could call it from devtools with `p_limit 50000` and take
+   the whole forensic log (every other admin's IPs, user agents and `details`),
+   leaving no export row behind. The edge route's super_admin gate and its
+   self-audit were both skippable by not using the route.
+2. Two ceilings instead of one. 50,000 stays for the service-role export path;
+   a browser caller is capped at 500. The console pages at 25.
+3. The RPC writes its own `audit_log.search` row for non-service-role callers,
+   so the way around the gate is no longer also the way around the record.
+   Service-role calls are left alone — the edge route already writes
+   `audit_log.export` and recording both would double-count every export.
+4. `admin_audit_log_filter_options` gets the same gate (it exposes the admin
+   roster and the action vocabulary of the same log).
+
+**Why the grant was not narrowed instead.** Revoking `authenticated` would break
+the console's own paginated list, forcing that read through the edge in the same
+change — a much bigger diff for the same security outcome.
+
+**The function becomes VOLATILE.** It was STABLE, and Postgres refuses a write
+inside a STABLE function, so the self-audit row forces the change. It is called
+once per request on a low-QPS admin surface; nothing depended on the old
+volatility.
+
+**NOT verified against a live database** — unlike 00516, this was not applied to
+a local stack. It is `CREATE OR REPLACE` on two existing functions with no schema
+change, and the guard test pins the properties, but the first real execution will
+be on prod. If you want a dry run, apply it to a scratch database and call the
+RPC as a plain admin (expect `42501`) and as a super_admin (expect rows).
+
+**Apply:**
+
+1. Run `supabase/migrations/00517_audit_log_search_super_admin.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — two function bodies changed.
+3. Redeploy the edge (boot guard expects 00517).
+
+**Verify:** as a super_admin, open /admin/audit-log — the list loads, and a new
+`audit_log.search` row appears in it naming your own user. As a plain admin, the
+page shows the super-admin-only panel and a devtools call to
+`admin_audit_log_search` returns `42501`.
 
 ---
 
