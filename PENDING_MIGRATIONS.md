@@ -1,14 +1,20 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Pending: 00515, 00516, 00518, 00519, 00520 and 00521 — the branch is FROZEN
-until all six are applied. 00517 IS ALREADY APPLIED (2026-08-03) and 00518
-CORRECTS A BUG IN IT — apply 00518 promptly.** Prod
-measured at **00514** on 2026-08-03: `/health/ready` returned
-`schema {expected:"00513", applied:"00514", status:"ahead"}`, the database's own
-answer through the service-role client rather than someone's recollection.
-`EXPECTED_SCHEMA_VERSION` is now **00521** and the highest migration in the tree
-is `00521_impersonation_sessions.sql`.
-Apply in number order: 00515, 00516, 00518, 00519, 00520, 00521.
+**Nothing is pending. 00515 through 00521 were all applied to prod on
+2026-08-03** (owner-confirmed), so the branch is not frozen.
+
+`EXPECTED_SCHEMA_VERSION` is **00521**, which matches the highest migration in
+the tree. The edge needs a redeploy to pick that up: until it does, the database
+is AHEAD of the running image, which the boot guard treats as a warning and
+serves through. The reverse — an edge that expects a version the database does
+not have — is the one that crash-loops.
+
+> [!note] These went to origin ahead of being applied, and it worked out
+> A concurrent agent pushed the branch while the migrations were still marked
+> held. That is the ordering the hold rule exists to prevent, and the outcome was
+> only safe because the frontend deploy did not race the SQL and the edge had not
+> yet redeployed. It is recorded here rather than quietly fixed, because "it was
+> fine last time" is how the rule gets dropped.
 
 **All of them applied cleanly to a throwaway local stack on 2026-08-03**
 (`supabase db reset` over the whole corpus on a fresh schema), so the ordering
@@ -52,7 +58,7 @@ apply a migration, flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00521_impersonation_sessions.sql (US-2351 [P0] impersonation bounds, 2026-08-03)
+## ✅ APPLIED: 00521_impersonation_sessions.sql (US-2351 [P0] impersonation bounds, applied 2026-08-03)
 
 **Risk: LOW. One new table, nothing existing is touched.** But the EDGE change
 that ships with it is behavioural, so migration and deploy have to travel
@@ -108,7 +114,7 @@ the 30-minute cap.
 
 ---
 
-## ⏳ HELD: 00520_audit_log_not_forgeable.sql (US-2349 [P0] audit integrity, 2026-08-03)
+## ✅ APPLIED: 00520_audit_log_not_forgeable.sql (US-2349 [P0] audit integrity, applied 2026-08-03)
 
 **Risk: LOW to apply, and it is the last of the three audit-log fixes.** No
 destructive statement — two policies are dropped and a browser grant is revoked.
@@ -172,7 +178,7 @@ a super_admin — the list still loads, because it reads through the RPC.
 
 ---
 
-## ⏳ HELD: 00519_audit_log_survives_actor_deletion.sql (US-2350 [P0] audit trail, 2026-08-03)
+## ✅ APPLIED: 00519_audit_log_survives_actor_deletion.sql (US-2350 [P0] audit trail, applied 2026-08-03)
 
 **Risk: LOW to apply, HIGH to keep postponing.** No destructive statement; one
 FK is replaced, one column is added, one trigger is created. The backfill is a
@@ -232,7 +238,7 @@ CASCADE is still there.
 
 ---
 
-## ⏳ HELD: 00518_audit_search_self_audit_ordering.sql (corrects 00517, 2026-08-03)
+## ✅ APPLIED: 00518_audit_search_self_audit_ordering.sql (corrects 00517, applied 2026-08-03)
 
 **Risk: LOW. This is a bug fix for a migration that is already in prod, and the
 bug is live right now.**
@@ -345,7 +351,7 @@ page shows the super-admin-only panel and a devtools call to
 
 ---
 
-## ⏳ HELD: 00516_debit_grade_credits_idempotency.sql (US-2289 AC2 double-charge defence, 2026-08-03)
+## ✅ APPLIED: 00516_debit_grade_credits_idempotency.sql (US-2289 AC2 double-charge defence, applied 2026-08-03)
 
 **Risk: LOW, and it cannot change existing behaviour.** The new parameter is
 TRAILING and defaults to NULL, so every existing 4-arg caller behaves exactly as
@@ -384,7 +390,7 @@ the existing callers correct.
 
 ---
 
-## ⏳ HELD: 00515_flipdesk_listing_page.sql (US-2168 AC3 server-side row selection, 2026-08-03)
+## ✅ APPLIED: 00515_flipdesk_listing_page.sql (US-2168 AC3 server-side row selection, applied 2026-08-03)
 
 **⚠️ THE LISTINGS PAGE NOW DEPENDS ON THIS.** An earlier draft of this entry said
 nothing called it yet; that is no longer true. `src/pages/flipdesk/listings.tsx`
