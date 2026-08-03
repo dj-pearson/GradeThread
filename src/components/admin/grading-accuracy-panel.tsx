@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -139,6 +139,7 @@ function pct(v: number | null | undefined): string {
 
 export function GradingAccuracyPanel() {
   const [period, setPeriod] = useState("month");
+  const windowId = useId();
 
   return (
     <Card>
@@ -164,9 +165,9 @@ export function GradingAccuracyPanel() {
 
           <TabsContent value="accuracy" className="space-y-4 pt-3">
             <div className="flex items-center gap-2">
-              <Label className="text-xs">Window</Label>
+              <Label className="text-xs" htmlFor={windowId}>Window</Label>
               <Select value={period} onValueChange={setPeriod}>
-                <SelectTrigger className="h-8 w-28">
+                <SelectTrigger className="h-8 w-28" id={windowId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -336,6 +337,7 @@ function OutcomesTab() {
 
 function ShadowTab() {
   const [version, setVersion] = useState("");
+  const shadowVersionId = useId();
 
   const { data: recent } = useQuery({
     queryKey: ["admin-grading-shadow-recent"],
@@ -373,9 +375,9 @@ function ShadowTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <Label className="text-xs">Shadow version</Label>
+        <Label className="text-xs" htmlFor={shadowVersionId}>Shadow version</Label>
         <Select value={version} onValueChange={setVersion}>
-          <SelectTrigger className="h-8 w-64">
+          <SelectTrigger className="h-8 w-64" id={shadowVersionId}>
             <SelectValue placeholder="Pick a shadow version…" />
           </SelectTrigger>
           <SelectContent>
@@ -436,6 +438,7 @@ function ToolsTab() {
     staleTime: 5 * 60 * 1000,
   });
   const [promptVersionId, setPromptVersionId] = useState("");
+  const promptVersionSelectId = useId();
 
   async function downloadExport() {
     setExporting(true);
@@ -524,9 +527,9 @@ function ToolsTab() {
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <div className="space-y-1.5">
-            <Label className="text-xs">Prompt version (usually the active default)</Label>
+            <Label className="text-xs" htmlFor={promptVersionSelectId}>Prompt version (usually the active default)</Label>
             <Select value={promptVersionId} onValueChange={setPromptVersionId}>
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-9" id={promptVersionSelectId}>
                 <SelectValue placeholder="Pick…" />
               </SelectTrigger>
               <SelectContent>

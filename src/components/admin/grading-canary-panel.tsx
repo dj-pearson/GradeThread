@@ -272,7 +272,10 @@ export function GradingCanaryPanel() {
                 {/* Adjust slider */}
                 <div className="flex items-center gap-3">
                   <span className="w-28 text-xs text-muted-foreground">Traffic share</span>
+                  {/* The "Traffic share" beside this is a <span>, not a label.
+                      Unnamed, this announces "slider, 25" — 25 of what. */}
                   <input
+                    aria-label="Traffic share for the running canary"
                     type="range"
                     min={0}
                     max={100}
@@ -395,7 +398,7 @@ export function GradingCanaryPanel() {
                   <div className="flex flex-wrap items-end gap-3">
                     <div className="min-w-[220px] flex-1">
                       <Select value={selectedCandidateId} onValueChange={setSelectedCandidateId}>
-                        <SelectTrigger>
+                        <SelectTrigger aria-label="Candidate prompt version">
                           <SelectValue placeholder="Choose a candidate prompt…" />
                         </SelectTrigger>
                         <SelectContent>
@@ -408,7 +411,12 @@ export function GradingCanaryPanel() {
                       </Select>
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* A DIFFERENT control from the slider above: that one
+                          adjusts the running canary, this one sets the share
+                          for the canary about to start. Same name for both
+                          would make two very different actions sound alike. */}
                       <input
+                        aria-label="Traffic share for the new canary"
                         type="range"
                         min={5}
                         max={100}
