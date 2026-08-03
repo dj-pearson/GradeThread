@@ -216,3 +216,31 @@ Deno.test("US-2001: observability is ok once a real SHA is present", () => {
   };
   assertEquals(computeFeatureReadiness((k) => env[k]).observability, "ok");
 });
+
+// Measured against production on 2026-08-02: /health/ready reported the literal
+// string "missing: " for the observability group — nothing after the colon.
+//
+// The cause is a group whose satisfiedWhen fails while every var it lists is
+// PRESENT. observability requires SENTRY_DSN plus a real RELEASE_SHA; the DSN is
+// set, so `miss` is empty, and the message named nothing. An operator reading
+// that at 3am is told something is missing and refused the name of it — which is
+// worse than no line at all, because it costs them the time to go looking.
+Deno.test("US-2003: a group that fails with every var SET says so, not 'missing: '", () => {
+  const get = (k: string) =>
+    ({ SENTRY_DSN: "https://x@y.ingest.sentry.io/1", RELEASE_SHA: "dev" })[k];
+  const status = computeFeatureReadiness(get);
+  assertEquals(
+    status.observability?.startsWith("missing: ") && status.observability.trim().endsWith(":"),
+    false,
+    "reported 'missing:' with an empty list",
+  );
+  assertEquals(status.observability?.includes("every var is present"), true);
+});
+
+Deno.test("US-2003: a genuinely absent var is still NAMED", () => {
+  // The regression the fix must not cause. Naming the missing var is the whole
+  // value of the line for every other group.
+  const get = (k: string) => ({ RELEASE_SHA: "abc1234" })[k];
+  const status = computeFeatureReadiness(get);
+  assertEquals(status.observability?.includes("SENTRY_DSN"), true);
+});

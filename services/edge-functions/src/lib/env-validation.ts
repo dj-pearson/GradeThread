@@ -199,7 +199,16 @@ export function computeFeatureReadiness(get: EnvGetter = realEnv): Record<string
       continue;
     }
     const miss = g.vars.filter((v) => !has(get, v));
-    out[g.name] = `missing: ${miss.join(", ")}`;
+    // A group can fail its satisfiedWhen with EVERY var present — observability
+    // is the live example: SENTRY_DSN is set and the check still fails because
+    // isRealReleaseSha() rejects release="dev". Prod reported the literal string
+    // "missing: " with nothing after the colon, which tells an operator a thing
+    // is missing and refuses to say which. Name the group instead: the reason
+    // lives in the group's own comment and, for this one, in the release key
+    // beside it.
+    out[g.name] = miss.length > 0
+      ? `missing: ${miss.join(", ")}`
+      : `set but not satisfied — every var is present; see the ${g.name} check`;
   }
   return out;
 }
@@ -216,7 +225,11 @@ export function warnMissingFeatureGroups(get: EnvGetter = realEnv): void {
       : g.vars.every((v) => has(get, v));
     if (satisfied) continue;
     const miss = g.vars.filter((v) => !has(get, v));
-    console.warn(`[BOOT] feature '${g.name}' is not fully configured — missing: ${miss.join(", ")}`);
+    console.warn(
+      miss.length > 0
+        ? `[BOOT] feature '${g.name}' is not fully configured — missing: ${miss.join(", ")}`
+        : `[BOOT] feature '${g.name}' is not satisfied even though every var (${g.vars.join(", ")}) is set — a value is present but rejected`,
+    );
   }
 }
 
