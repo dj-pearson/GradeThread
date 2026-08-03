@@ -9,6 +9,10 @@
 // preserving real 404s for genuinely unknown URLs.
 
 import type { PagesEnv } from "./blog-render";
+import {
+  appShellSecurityHeaders,
+  inlineBootstrapHash,
+} from "./app-shell-headers";
 
 /**
  * Returns the SPA shell (dist/index.html) with HTTP 200 so the React app boots
@@ -55,9 +59,19 @@ export async function serveSpaShell(
     '<meta name="robots" content="noindex, nofollow">',
   );
 
+  // US-2330: Cloudflare `_headers` does not apply to Pages Function responses,
+  // so this Response is the ONLY place the authenticated surface can get its
+  // security headers. Before this, /login and /dashboard shipped with none.
+  //
+  // The hash is computed from the HTML fetched above rather than hardcoded: the
+  // one in public/_headers is rewritten at build time from the built bootstrap,
+  // and a second copy here would go stale the first time that script changed.
+  const scriptHash = await inlineBootstrapHash(html);
+
   return new Response(html, {
     status: 200,
     headers: {
+      ...appShellSecurityHeaders(scriptHash),
       "content-type": shell.headers.get("content-type") ?? "text/html; charset=utf-8",
       // App shells are user-specific once mounted; don't let a shared cache pin
       // a stale build's HTML to an authed route.

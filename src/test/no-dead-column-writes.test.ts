@@ -108,7 +108,13 @@ describe("no dead-column writes (US-2382)", () => {
           `DEAD_COLUMNS in the same commit and say what reads it.\n` +
           offenders.join("\n"),
       ).toEqual([]);
-    });
+      // Each case re-reads the whole scanned corpus, which takes ~2s alone and
+      // ~7s when the full suite is running in parallel — over vitest's 5s
+      // default. It failed on a TIMEOUT in a full run while passing in
+      // isolation, which is the worst way for a guard to fail: it looks like a
+      // real finding, it is not reproducible, and the next person learns to
+      // re-run rather than to read it.
+    }, 30_000);
   }
 
   // Vacuity guard. If the walker stops finding files -- a moved root, a broken
