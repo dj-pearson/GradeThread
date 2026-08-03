@@ -90,6 +90,11 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       ["api_credit_wallet", ["balance"]],
       ["affiliate_commissions", ["status", "amount", "hold_until", "created_at"]],
       ["grading_exemplar_sets", ["version_name", "is_active", "eval_passed", "eval_mae", "created_at"]],
+      // §11-§13, added 2026-08-03.
+      ["system_settings", ["key", "value", "updated_at"]],
+      ["buyer_wants", ["user_id", "created_at"]],
+      ["buyer_guarantee_claims", ["user_id"]],
+      ["marketplace_connections", ["is_active", "refresh_error", "marketplace", "last_refresh_attempt_at"]],
     ];
 
     const missing: string[] = [];
@@ -150,7 +155,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
   });
 
   it("still answers every question it claims to", () => {
-    // The header advertises ten sections. A future edit that drops one leaves
+    // The header advertises thirteen sections. A future edit that drops one leaves
     // the header lying about what the operator gets back, and they will not
     // re-read the SQL to notice.
     for (const section of [
@@ -164,6 +169,9 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       "§8",
       "§9",
       "§10",
+      "§11",
+      "§12",
+      "§13",
     ]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }
@@ -176,6 +184,9 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     expect(SQL).toContain("public.affiliate_commissions");
     expect(SQL).toContain("public.grading_exemplar_sets");
     expect(SQL).toContain("public.items_full");
+    expect(SQL).toContain("public.system_settings");
+    expect(SQL).toContain("public.buyer_wants");
+    expect(SQL).toContain("public.marketplace_connections");
   });
 
   it("§10 is the only scan, and the header admits it", () => {
@@ -192,7 +203,13 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     // is adds nothing to the answer, and the header promises the output carries
     // no identifiers worth redacting — a promise the operator relies on when
     // they paste it back.
-    const section = SQL.slice(SQL.indexOf("§10  US-2331"));
+    // Bounded to §10. It used to slice to end-of-file, which was fine while §10
+    // was last and started matching across LATER sections the moment §11 was
+    // added — the assertion would have failed on SQL that has nothing to do with
+    // it. A section check has to know where its section ends.
+    const start = SQL.indexOf("§10  US-2331");
+    const next = SQL.indexOf("§11", start);
+    const section = SQL.slice(start, next === -1 ? undefined : next);
     expect(section).toContain("row_number() OVER");
     expect(section).not.toMatch(/SELECT[\s\S]*?\bf\.user_id\b[\s\S]*?FROM/);
   });

@@ -28,6 +28,9 @@
 --   §8  US-2031 AC1 — is the affiliate hold window long enough?
 --   §9  US-2034 AC2 — exemplar sets gated before the golden-set leak was fixed.
 --   §10 US-2331 AC4 — the items_full payload for the largest account.
+--   §11 US-2313 AC4 — are the ops alert destinations actually configured?
+--   §12 US-2359 AC4 — free-tier buyers who used a paid buyer feature.
+--   §13 US-2322 AC5 — sellers disconnected by an invalid_grant refresh.
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -378,6 +381,107 @@ FROM public.items_full f
 GROUP BY f.user_id
 ORDER BY count(*) DESC
 LIMIT 5;
+
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§11  US-2313 AC4 — do the ops alerts have anywhere to go?'
+\echo '════════════════════════════════════════════════════════════════'
+-- ops-events.ts reads both of these with an EMPTY-STRING default. If they are
+-- unset, every ops alert — including the cron-fleet-stalled alert that the whole
+-- of US-2313 is about — terminates in an admin screen nobody is watching. The
+-- VALUES are secrets-adjacent (a webhook URL is a capability), so this prints
+-- only whether each is present and how long it is.
+SELECT
+  key,
+  (value IS NOT NULL AND btrim(value::text, '" ') <> '') AS configured,
+  length(btrim(value::text, '" '))                       AS value_length,
+  updated_at
+FROM public.system_settings
+WHERE key IN ('ops_alert_webhook_url', 'ops_alert_email')
+ORDER BY key;
+
+\echo ''
+\echo '-- A missing ROW is the same as an empty value: both fall back to "".'
+SELECT
+  count(*) FILTER (WHERE key = 'ops_alert_webhook_url') AS webhook_row_present,
+  count(*) FILTER (WHERE key = 'ops_alert_email')       AS email_row_present
+FROM public.system_settings
+WHERE key IN ('ops_alert_webhook_url', 'ops_alert_email');
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§12  US-2359 AC4 — free-tier buyers who used a paid buyer feature'
+\echo '════════════════════════════════════════════════════════════════'
+-- Two features were genuinely ungated until today: the demand board (buyer_wants,
+-- Connoisseur-only) and the purchase-guarantee claim (Guard and up). Switching a
+-- gate on for people who have had it free is a support event, not just a fix —
+-- this is the number that decides whether to grandfather them.
+--
+-- Counted by ACCOUNT, not by row: "3,000 wants" and "4 buyers" call for very
+-- different decisions.
+SELECT
+  'demand_board' AS feature,
+  count(DISTINCT w.user_id) AS free_tier_accounts,
+  count(*)                  AS rows_created
+FROM public.buyer_wants w
+JOIN public.users u ON u.id = w.user_id
+WHERE COALESCE(u.buyer_plan, 'free') = 'free'
+UNION ALL
+SELECT
+  'guarantee_claim',
+  count(DISTINCT c.user_id),
+  count(*)
+FROM public.buyer_guarantee_claims c
+JOIN public.users u ON u.id = c.user_id
+WHERE COALESCE(u.buyer_plan, 'free') = 'free';
+
+\echo ''
+\echo '-- Recent activity only: an account that used it once a year ago is not'
+\echo '-- the same support problem as one using it this week.'
+SELECT
+  count(DISTINCT w.user_id) AS free_tier_accounts_last_30d
+FROM public.buyer_wants w
+JOIN public.users u ON u.id = w.user_id
+WHERE COALESCE(u.buyer_plan, 'free') = 'free'
+  AND w.created_at > now() - interval '30 days';
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§13  US-2322 AC5 — sellers disconnected by a refresh race'
+\echo '════════════════════════════════════════════════════════════════'
+-- Etsy, Whatnot and Depop rotate the refresh token and invalidate the old one on
+-- first use, so two of our own callers refreshing at once produced an
+-- invalid_grant for the loser — which every connector classified as PERMANENT
+-- and deactivated. Fixed 2026-08-03; these are the accounts that were already
+-- deactivated by it and are owed a reconnect prompt.
+--
+-- No token material is selected. refresh_error is our own message, not the
+-- provider's payload.
+SELECT
+  marketplace,
+  count(*)                                        AS deactivated,
+  count(*) FILTER (WHERE last_refresh_attempt_at > now() - interval '30 days')
+                                                  AS in_last_30d,
+  min(last_refresh_attempt_at)                    AS earliest,
+  max(last_refresh_attempt_at)                    AS latest
+FROM public.marketplace_connections
+WHERE is_active = false
+  AND refresh_error IS NOT NULL
+GROUP BY marketplace
+ORDER BY count(*) DESC;
+
+\echo ''
+\echo '-- The distinct reasons, so a genuine revocation is not mistaken for a race.'
+SELECT
+  left(refresh_error, 80) AS refresh_error_prefix,
+  count(*)                AS connections
+FROM public.marketplace_connections
+WHERE is_active = false
+  AND refresh_error IS NOT NULL
+GROUP BY 1
+ORDER BY count(*) DESC
+LIMIT 20;
 
 
 \echo ''
