@@ -24,6 +24,7 @@ import {
   notifyOfferReceived,
   notifyReturnOpened,
   type OfferReceivedEvent,
+  releaseMarketplaceEvent,
   type ReturnOpenedEvent,
 } from "./marketplace-event-notify.ts";
 
@@ -51,6 +52,17 @@ export interface MarketplacePollDeps {
     // existing fakes keep type-checking.
     itemExternalId?: string | null,
   ) => Promise<boolean>;
+  // US-2319 AC3: hand a claim back when the notification it was taken for
+  // fails, so the next poll retries instead of treating the failure as a
+  // delivery. Optional so existing fakes keep type-checking; when a test omits
+  // it, a failed notify simply does not retry — the OLD behaviour, which is the
+  // safe way for a seam to default.
+  release?: (
+    userId: string,
+    kind: MarketplaceEventKind,
+    externalId: string,
+    status: string,
+  ) => Promise<void>;
   notifyOffer: (ev: OfferReceivedEvent) => Promise<void>;
   notifyReturn: (ev: ReturnOpenedEvent) => Promise<void>;
   notifyDispute: (ev: DisputeOpenedEvent) => Promise<void>;
@@ -61,6 +73,7 @@ const defaultDeps: MarketplacePollDeps = {
   fetchReturns: (userId) => searchReturns(userId, { limit: 100 }),
   fetchDisputes: (userId) => searchPaymentDisputes(userId, { limit: 100 }),
   claim: claimMarketplaceEvent,
+  release: releaseMarketplaceEvent,
   notifyOffer: notifyOfferReceived,
   notifyReturn: notifyReturnOpened,
   notifyDispute: notifyDisputeOpened,
@@ -100,16 +113,27 @@ export async function pollMarketplaceEventsForUser(
         offer.itemId || null,
       );
       if (!fresh) continue;
-      await deps.notifyOffer({
-        userId: ownerId,
-        bestOfferId: offer.bestOfferId,
-        itemTitle: offer.itemTitle,
-        price: offer.price,
-        currency: offer.currency,
-        buyerUsername: offer.buyerUsername,
-        expiresAt: offer.expiresAt,
-      });
-      result.offers++;
+      // Per-event try/catch, not one around the batch. Two reasons, and both
+      // were live defects: the claim has to be released so the next poll
+      // retries this offer, and one failing notification used to abort the
+      // remaining offers in the batch by unwinding to the source handler.
+      try {
+        await deps.notifyOffer({
+          userId: ownerId,
+          bestOfferId: offer.bestOfferId,
+          itemTitle: offer.itemTitle,
+          price: offer.price,
+          currency: offer.currency,
+          buyerUsername: offer.buyerUsername,
+          expiresAt: offer.expiresAt,
+        });
+        result.offers++;
+      } catch (err) {
+        await deps.release?.(ownerId, "offer", offer.bestOfferId, "received");
+        result.errors.push(
+          `offer ${offer.bestOfferId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   } catch (err) {
     result.errors.push(`offers: ${err instanceof Error ? err.message : String(err)}`);
@@ -129,13 +153,20 @@ export async function pollMarketplaceEventsForUser(
         ret.itemId || null,
       );
       if (!fresh) continue;
-      await deps.notifyReturn({
-        userId: ownerId,
-        returnId: ret.returnId,
-        itemLabel: ret.itemId ?? ret.orderId,
-        reason: ret.reason,
-      });
-      result.returns++;
+      try {
+        await deps.notifyReturn({
+          userId: ownerId,
+          returnId: ret.returnId,
+          itemLabel: ret.itemId ?? ret.orderId,
+          reason: ret.reason,
+        });
+        result.returns++;
+      } catch (err) {
+        await deps.release?.(ownerId, "return", ret.returnId, "opened");
+        result.errors.push(
+          `return ${ret.returnId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   } catch (err) {
     result.errors.push(`returns: ${err instanceof Error ? err.message : String(err)}`);
@@ -153,16 +184,23 @@ export async function pollMarketplaceEventsForUser(
       }
       const fresh = await deps.claim(ownerId, "dispute", dispute.paymentDisputeId, "opened", "dispute_opened");
       if (!fresh) continue;
-      await deps.notifyDispute({
-        userId: ownerId,
-        disputeId: dispute.paymentDisputeId,
-        orderLabel: dispute.orderId,
-        reason: dispute.reason,
-        amount: dispute.amount,
-        currency: dispute.currency,
-        respondByDate: dispute.respondByDate,
-      });
-      result.disputes++;
+      try {
+        await deps.notifyDispute({
+          userId: ownerId,
+          disputeId: dispute.paymentDisputeId,
+          orderLabel: dispute.orderId,
+          reason: dispute.reason,
+          amount: dispute.amount,
+          currency: dispute.currency,
+          respondByDate: dispute.respondByDate,
+        });
+        result.disputes++;
+      } catch (err) {
+        await deps.release?.(ownerId, "dispute", dispute.paymentDisputeId, "opened");
+        result.errors.push(
+          `dispute ${dispute.paymentDisputeId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   } catch (err) {
     result.errors.push(`disputes: ${err instanceof Error ? err.message : String(err)}`);

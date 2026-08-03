@@ -86,6 +86,54 @@ export async function claimMarketplaceEvent(
   }
 }
 
+/**
+ * Give a claim back, so the next poll can try the notification again.
+ *
+ * US-2319 AC3: the claim exists to stop two runs notifying the same offer at
+ * once. It was also, accidentally, stopping the SAME run from ever retrying —
+ * the row was inserted before the notification was sent, and a send that threw
+ * left the claim standing. The next poll re-read the offer, got 23505, read it
+ * as "already notified", and moved on. Forever.
+ *
+ * The seller's loss is the whole point: a best offer expires in 48 hours, and
+ * an offer nobody was told about expires unanswered. Nothing anywhere reports
+ * that — the poll returns a clean result and the claim row looks exactly like a
+ * notification that succeeded.
+ *
+ * So the shape is claim → work → release-on-failure. A claim prevents a
+ * duplicate WHILE the work runs, not forever after it failed.
+ *
+ * Best-effort by design: if the release itself fails we are back to the old
+ * behaviour for that one event, which is where we started and no worse.
+ */
+export async function releaseMarketplaceEvent(
+  userId: string,
+  kind: MarketplaceEventKind,
+  externalId: string,
+  status: string,
+): Promise<void> {
+  if (!userId || !externalId) return;
+  try {
+    const { error } = await supabaseAdmin
+      .from("marketplace_event_notifications")
+      .delete()
+      .eq("user_id", userId)
+      .eq("source_kind", kind)
+      .eq("external_id", externalId)
+      .eq("status", status);
+    if (error) {
+      console.error(
+        `[marketplace-notify] release failed for ${userId} ${kind}:${externalId} (${status}): ${error.message}`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[marketplace-notify] release threw for ${userId} ${kind}:${externalId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 // ── Cross-channel delivery ──────────────────────────────────────────
 
 interface UserContact {

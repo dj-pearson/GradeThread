@@ -148,19 +148,36 @@ async function dispatchAnomalyAlert(
   return delivered > 0;
 }
 
-// Upsert a finding. Returns {isNew} — only a NEW finding (first time we've seen
-// this dedupe_key) triggers an alert, so an hourly re-run doesn't re-alert.
+// Upsert a finding. Returns whether it still NEEDS ALERTING — first sighting,
+// or a sighting whose alert has never actually been delivered.
+//
+// US-2319 AC3: this used to return `isNew = !existing`, and the difference is a
+// silently dropped alert. The upsert advances the state whether or not the alert
+// goes out, so a finding whose dispatch failed — every channel unconfigured, an
+// SMTP blip, a webhook 500 — was `existing` on the next run, read as "already
+// flagged", and skipped forever. The detector had done its job and nobody was
+// ever told.
+//
+// The row already carried the answer: `alerted` is set only after a delivery
+// succeeds. It was even SELECTed here and then thrown away, which is the
+// clearest evidence this was the intent rather than a design choice.
+//
+// Re-alerting an undelivered finding cannot spam: `alerted` flips on the first
+// success, so the retry stops the moment it works. The old shape had the
+// opposite bias — it went quiet on failure, which is the one direction an
+// alerting path must never fail in.
 async function persistFinding(
   f: AnomalyFinding,
   nowIso: string,
-): Promise<{ written: boolean; isNew: boolean }> {
+): Promise<{ written: boolean; needsAlert: boolean }> {
   // Does an OPEN finding already exist for this dedupe window?
   const { data: existing } = await supabaseAdmin
     .from("admin_audit_anomalies")
     .select("id, alerted")
     .eq("dedupe_key", f.dedupeKey)
     .maybeSingle();
-  const isNew = !existing;
+  const prior = existing as { id: string; alerted: boolean | null } | null;
+  const needsAlert = !prior || !prior.alerted;
 
   const { error } = await supabaseAdmin
     .from("admin_audit_anomalies")
@@ -178,9 +195,9 @@ async function persistFinding(
     );
   if (error) {
     console.error(`[audit-anomaly] upsert failed for ${f.dedupeKey}:`, error.message);
-    return { written: false, isNew };
+    return { written: false, needsAlert };
   }
-  return { written: true, isNew };
+  return { written: true, needsAlert };
 }
 
 async function markAlerted(dedupeKey: string): Promise<void> {
@@ -224,13 +241,16 @@ export async function handleAuditAnomalyCron(c: Context): Promise<Response> {
 
     const findings = detectAnomalies(rows, cfg, nowMs);
 
-    let newCount = 0;
+    let alertableCount = 0;
     let alertedCount = 0;
     for (const f of findings) {
-      const { written, isNew } = await persistFinding(f, nowIso);
+      const { written, needsAlert } = await persistFinding(f, nowIso);
       if (!written) continue;
-      if (!isNew) continue; // already flagged this window — don't re-alert
-      newCount += 1;
+      // Already flagged AND already delivered — nothing left to do. A flagged
+      // finding whose alert never landed still comes through here, because the
+      // alert is the point and the row is only the bookkeeping.
+      if (!needsAlert) continue;
+      alertableCount += 1;
       const label = await actorLabel(f.actorUserId);
       const delivered = await dispatchAnomalyAlert(f, label);
       if (delivered) {
@@ -258,7 +278,10 @@ export async function handleAuditAnomalyCron(c: Context): Promise<Response> {
       ok: true,
       scanned: rows.length,
       findings: findings.length,
-      new: newCount,
+      // Kept as `new` because the cron ledger reads this body. It now counts
+      // findings that NEEDED an alert — first sightings plus retries of ones
+      // whose alert never landed — which is the number an operator wants.
+      new: alertableCount,
       alerted: alertedCount,
       truncated,
     });

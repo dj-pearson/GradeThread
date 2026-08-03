@@ -134,3 +134,52 @@ Deno.test("dedupe key is stable for the same hour window", () => {
   const b = detectAnomalies(rows, CFG, NOW + 60_000)[0]!; // +1 min, same hour
   assertEquals(a.dedupeKey, b.dedupeKey);
 });
+
+// ── US-2319 AC3: an alert that never went out is not "already handled" ──────
+//
+// The scan upserts the finding, then dispatches the alert, then sets `alerted`
+// only if a channel accepted it. The gate in front of all that used to be
+// `isNew = !existing`, so the upsert — which happens either way — was what
+// decided whether anyone was ever told.
+//
+// A finding whose dispatch failed (no channel configured, an SMTP blip, a
+// webhook 500) was therefore `existing` on the next run, read as already
+// flagged, and skipped from then on. The detector had done its job and the
+// alert died silently. That is the one direction an alerting path must never
+// fail in, and this file is where the rule lives.
+//
+// Scanned from source rather than driven: persistFinding talks to the
+// service-role client directly, so exercising it needs a database. What can be
+// pinned without one is that the decision reads `alerted`.
+Deno.test("US-2319: an undelivered alert is retried, not swallowed", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../routes/jobs-audit-anomaly.ts", import.meta.url),
+  );
+  // Comments stripped. The explanation above the fix names the old expression
+  // verbatim, so a scan of the raw text would find `!existing` in prose and
+  // report the bug as present — or, worse, find the new form in a comment after
+  // a revert and report it fixed.
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/[^\n]*/g, "$1");
+
+  assert(
+    /needsAlert\s*=\s*!prior\s*\|\|\s*!prior\.alerted/.test(code),
+    "the alert decision no longer considers whether the alert was DELIVERED — " +
+      "a finding whose dispatch failed is skipped forever",
+  );
+  assert(
+    !/isNew\s*=\s*!existing/.test(code),
+    "the first-sighting-only gate is back",
+  );
+  // And `alerted` must still be read out of the row, or there is nothing to
+  // decide with. It was selected and ignored for the whole life of this bug.
+  assert(
+    /\.select\("id, alerted"\)/.test(code),
+    "the alerted column is no longer fetched",
+  );
+  // The flag is set only after a successful delivery — the other half of the
+  // contract. If it were set unconditionally the retry would never happen.
+  assert(
+    /if \(delivered\) \{[\s\S]{0,200}markAlerted/.test(code),
+    "markAlerted no longer depends on the delivery succeeding",
+  );
+});
