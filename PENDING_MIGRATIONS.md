@@ -6,6 +6,33 @@ in and this branch is two ahead. `EXPECTED_SCHEMA_VERSION` is now **00514** and
 the highest migration in the tree is
 `00514_admin_metrics_service_role_guard.sql`. Apply in number order.
 
+> [!caution] 00513 IS ALREADY ON `origin/main`, and it was not supposed to be
+> A concurrent agent committed and pushed `00513_admin_dashboard_aggregates.sql`
+> together with the `EXPECTED_SCHEMA_VERSION = "00513"` bump on 2026-08-02,
+> bypassing the hold. So the usual protection — "the SQL cannot reach prod
+> before you apply it, because the branch is frozen" — is **not in force for
+> 00513**.
+>
+> **What this does NOT do:** pushing does not run the migration, and it does not
+> deploy the edge. Prod's database is still at 00512 and the running edge still
+> expects 00512, so nothing is broken right now.
+>
+> **The live risk it creates:** the next edge deploy ships an image whose boot
+> guard expects **00513**. Against a database still at 00512 that is a CONFIRMED
+> BEHIND in production — the guard waits out its ~40s grace window, then exits
+> non-zero, and Coolify's restart loop turns that into a crash-loop across the
+> WHOLE edge service (Traefik "no available server" 503 on every route, the
+> shape recorded in `vault/10-ops/edge-hang-vs-crash-loop.md`). **Apply 00513
+> before anything triggers an edge deploy.**
+>
+> **Also already live-ish:** Cloudflare Pages auto-deploys the frontend from
+> `origin/main`, and the pushed commit includes the admin dashboard client that
+> reads the new `analytics` payload. Until the edge redeploys, the admin
+> Analytics tab renders zeros (empty funnel, no cohorts, no top users). The KPI
+> cards and the three charts are unaffected. Cosmetic and self-healing.
+>
+> 00514 is still correctly held — it is only on local `main`.
+
 Why entries have gone stale here before: this file is edited by hand and nothing
 flips the marker when the SQL runs. The session-start hook reads these ⏳
 markers, so a stale one tells every future session the branch is frozen when it
