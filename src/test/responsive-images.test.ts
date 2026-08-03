@@ -197,9 +197,21 @@ describe("deriveAltFromSrc (US-434)", () => {
 // asserts the behavior that matches the flag the build ran with.
 const distIndex = resolve(process.cwd(), "dist", "index.html");
 const hasDist = requireDist(distIndex, "responsive-images.test.ts");
-// Build-independent suite: skip when dist/ is absent (same precondition as the
-// prerender dist tests). The unit suite runs before `npm run build` in CI, so a
-// hard `existsSync` assertion here would fail the build — skip instead.
+// Skips only when dist/ is genuinely absent, which now means LOCAL runs before
+// a build — never CI.
+//
+// US-2038, corrected 2026-08-02: this comment used to read "the unit suite runs
+// before `npm run build` in CI, so a hard assertion here would fail the build —
+// skip instead." That premise is no longer true. ci.yml runs `npm run build`
+// (step ~104) BEFORE `npm run test:coverage` (~112) precisely so these
+// dist-gated suites execute, which was AC1 of the story that found 37 of them
+// had never fired.
+//
+// The skip is safe because `requireDist` above is not a boolean check — it
+// THROWS when DIST_TESTS_REQUIRED is on, so a CI lane that stops building fails
+// loudly instead of quietly shedding this suite. Left as a comment rather than
+// deleted because a stale justification is how a skip survives: the next reader
+// finds a reason not to touch it and moves on.
 describe.skipIf(!hasDist)("landing responsive image smoke test (US-306)", () => {
   const resizingEnabled = process.env.VITE_CF_IMAGE_RESIZING === "true";
   it(`landing logo ${resizingEnabled ? "ships a Cloudflare-resized srcset" : "ships the original (resizing off)"}`, () => {
