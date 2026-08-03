@@ -342,8 +342,8 @@ export function BulkIntake() {
             )}
           </div>
           <div className="space-y-1">
-            <Label>Sourced by</Label>
-            <Input
+            <Label htmlFor="bi-sourced-by">Sourced by</Label>
+            <Input id="bi-sourced-by"
               value={session.sourcedBy}
               onChange={(e) =>
                 setSession((s) => ({ ...s, sourcedBy: e.target.value }))
@@ -352,8 +352,8 @@ export function BulkIntake() {
             />
           </div>
           <div className="space-y-1">
-            <Label>Container / Bin</Label>
-            <Input
+            <Label htmlFor="bi-container-bin">Container / Bin</Label>
+            <Input id="bi-container-bin"
               value={session.container}
               onChange={(e) =>
                 setSession((s) => ({ ...s, container: e.target.value }))
@@ -362,8 +362,8 @@ export function BulkIntake() {
             />
           </div>
           <div className="space-y-1">
-            <Label>Purchase date</Label>
-            <Input
+            <Label htmlFor="bi-purchase-date">Purchase date</Label>
+            <Input id="bi-purchase-date"
               type="date"
               value={session.purchaseDate}
               onChange={(e) =>
@@ -372,8 +372,8 @@ export function BulkIntake() {
             />
           </div>
           <div className="space-y-1">
-            <Label>Haul total cost</Label>
-            <Input
+            <Label htmlFor="bi-haul-total-cost">Haul total cost</Label>
+            <Input id="bi-haul-total-cost"
               type="number"
               step="0.01"
               value={session.haulTotal}
@@ -407,8 +407,8 @@ export function BulkIntake() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-1">
-              <Label>Title *</Label>
-              <Input
+              <Label htmlFor="bi-title">Title *</Label>
+              <Input id="bi-title"
                 value={session.draft.title}
                 onChange={(e) => patchDraft("title", e.target.value)}
                 placeholder="e.g. Nike Dri-FIT Tee"
@@ -422,36 +422,36 @@ export function BulkIntake() {
               />
             </div>
             <div className="space-y-1">
-              <Label>SKU / Item #</Label>
-              <Input
+              <Label htmlFor="bi-sku-item">SKU / Item #</Label>
+              <Input id="bi-sku-item"
                 value={session.draft.sku}
                 onChange={(e) => patchDraft("sku", e.target.value)}
               />
             </div>
             <div className="space-y-1">
-              <Label>Brand</Label>
-              <Input
+              <Label htmlFor="bi-brand">Brand</Label>
+              <Input id="bi-brand"
                 value={session.draft.brand}
                 onChange={(e) => patchDraft("brand", e.target.value)}
               />
             </div>
             <div className="space-y-1">
-              <Label>Style</Label>
-              <Input
+              <Label htmlFor="bi-style">Style</Label>
+              <Input id="bi-style"
                 value={session.draft.style}
                 onChange={(e) => patchDraft("style", e.target.value)}
               />
             </div>
             <div className="space-y-1">
-              <Label>Size</Label>
-              <Input
+              <Label htmlFor="bi-size">Size</Label>
+              <Input id="bi-size"
                 value={session.draft.size}
                 onChange={(e) => patchDraft("size", e.target.value)}
               />
             </div>
             <div className="space-y-1">
-              <Label>Color</Label>
-              <Input
+              <Label htmlFor="bi-color">Color</Label>
+              <Input id="bi-color"
                 value={session.draft.color}
                 onChange={(e) => patchDraft("color", e.target.value)}
               />
@@ -482,8 +482,8 @@ export function BulkIntake() {
             </div>
           </div>
           <div className="space-y-1">
-            <Label>Notes</Label>
-            <Textarea
+            <Label htmlFor="bi-notes">Notes</Label>
+            <Textarea id="bi-notes"
               rows={2}
               value={session.draft.notes}
               onChange={(e) => patchDraft("notes", e.target.value)}
