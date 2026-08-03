@@ -87,3 +87,33 @@ Deno.test("US-2325: the marketplace is part of the question", async () => {
   );
   assert(seen.includes("get_default_category_tree_id"), `wrong endpoint: ${seen}`);
 });
+
+Deno.test("US-2325: the reconcile is actually WIRED to a caller", async () => {
+  // The gap this closes: the reconcile shipped exported, tested and invoked by
+  // nothing, which is scaffolding rather than a fix — the same shape US-1997
+  // exists to complain about. It hangs off debugSnapshot(), the surface an
+  // operator already opens when eBay misbehaves.
+  //
+  // A source assertion, because calling debugSnapshot() here would either hit
+  // eBay or prove nothing about the wiring.
+  const src = await Deno.readTextFile(
+    new URL("../lib/ebay-client.ts", import.meta.url),
+  );
+  const at = src.indexOf("export async function debugSnapshot");
+  const end = src.indexOf("\nexport ", at + 10);
+  const body = src.slice(at, end === -1 ? undefined : end);
+  assert(
+    body.includes("reconcileCategoryTreeId("),
+    "debugSnapshot no longer calls the reconcile — it is unwired again",
+  );
+  assert(
+    body.includes("category_tree_reconcile"),
+    "the reconcile result is no longer returned to the operator",
+  );
+  // Skipped when eBay is unconfigured: with no credential there is nothing to
+  // ask, and a failed call would render as drift.
+  assert(
+    body.includes("isEbayConfigured()") && body.includes("? await reconcileCategoryTreeId()"),
+    "the reconcile should be skipped (null) when eBay is not configured",
+  );
+});

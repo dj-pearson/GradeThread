@@ -158,6 +158,12 @@ export async function debugSnapshot(
   edge_encryption_key_present: boolean;
   edge_encryption_key_byte_length: number | null;
   account_handle_present: boolean | null;
+  /**
+   * US-2325 AC4: what eBay says the category tree id should be, next to what we
+   * have configured. Null when eBay is not configured at all — there is nothing
+   * to ask and a failed call would read as drift.
+   */
+  category_tree_reconcile: TreeIdReconcile | null;
 }> {
   const appId = readEnv("EBAY_APP_ID");
   const ruName = readEnv("EBAY_RU_NAME");
@@ -189,6 +195,15 @@ export async function debugSnapshot(
     }
   }
 
+  // Asked HERE rather than on a schedule because this is the surface an
+  // operator already opens when eBay behaves oddly, and a stale tree id is
+  // exactly that class of problem — category suggestions quietly wrong, aspects
+  // cached for 30 days against the wrong tree. One extra call on a diagnostics
+  // endpoint is not a hot path.
+  const treeReconcile = isEbayConfigured()
+    ? await reconcileCategoryTreeId()
+    : null;
+
   return {
     configured: isEbayConfigured(),
     env: getEbayEnv(),
@@ -211,6 +226,7 @@ export async function debugSnapshot(
     edge_encryption_key_present: !!encKey,
     edge_encryption_key_byte_length: keyBytes,
     account_handle_present: accountHandlePresent,
+    category_tree_reconcile: treeReconcile,
   };
 }
 
