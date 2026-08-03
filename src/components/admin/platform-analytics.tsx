@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AiEnrichmentLogRow, UserPlan } from "@/types/database";
-import { PLANS } from "@/lib/constants";
+import { FLIPDESK_PLANS, flipdeskPlanForLegacy } from "@/lib/constants";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   Card,
@@ -128,16 +128,20 @@ export function PlatformAnalytics({
     }
     const planDistribution = PLAN_ORDER.map((plan) => ({
       plan,
-      label: PLANS[plan].name,
+      label: FLIPDESK_PLANS[flipdeskPlanForLegacy(plan)].name,
       count: planCounts.get(plan) ?? 0,
     }));
 
     // ── Revenue breakdown (monthly recurring, by plan) ──
     const revenueByPlan = PLAN_ORDER.filter((p) => p !== "free")
       .map((plan) => {
-        const price = PLANS[plan].priceMonthly ?? 0;
+        // US-2365: cents on the current source; the legacy shim divided by 100
+        // for us. Doing it here keeps the one conversion visible instead of
+        // buried in a deprecated derivation.
+        const flip = FLIPDESK_PLANS[flipdeskPlanForLegacy(plan)];
+        const price = flip.priceMonthlyCents / 100;
         return {
-          name: PLANS[plan].name,
+          name: flip.name,
           plan,
           value: price * (planCounts.get(plan) ?? 0),
         };

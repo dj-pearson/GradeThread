@@ -6,8 +6,13 @@ import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
 import { supabase } from "@/lib/supabase";
 import { fetchInChunks } from "@/lib/supabase-batch";
-import { PLANS, getStatusBadgeClasses, getScoreColor } from "@/lib/constants";
-import type { PlanKey } from "@/lib/constants";
+import {
+  FLIPDESK_PLANS,
+  flipdeskPlanForLegacy,
+  getScoreColor,
+  getStatusBadgeClasses,
+  type PlanKey,
+} from "@/lib/constants";
 import type {
   SubmissionRow,
   GradeReportRow,
@@ -259,9 +264,16 @@ export function DashboardPage() {
   const navigate = useNavigate();
 
   const plan = profile?.plan ?? "free";
-  const planConfig = PLANS[plan as PlanKey];
+  // US-2365: the legacy shim's `gradesPerMonth` was
+  // FLIPDESK_PLANS.includedStandardGradesPerMonth under an older name. Read it
+  // directly, and prefer the current column where the profile carries one.
+  const planConfig = FLIPDESK_PLANS[
+    profile?.flipdesk_plan ?? flipdeskPlanForLegacy(plan as PlanKey)
+  ];
   const gradesUsed = profile?.grades_used_this_month ?? 0;
-  const gradesLimit = planConfig.gradesPerMonth === -1 ? "Unlimited" : planConfig.gradesPerMonth;
+  const gradesLimit = planConfig.includedStandardGradesPerMonth === -1
+    ? "Unlimited"
+    : planConfig.includedStandardGradesPerMonth;
   const gradesPercent =
     typeof gradesLimit === "number" ? Math.round((gradesUsed / gradesLimit) * 100) : 0;
 
@@ -586,11 +598,14 @@ export function DashboardPage() {
             <div className="flex items-center gap-2">
               <span className="text-2xl font-bold">{planConfig.name}</span>
               <Badge variant="secondary" className="text-xs">
-                {planConfig.priceMonthly === 0
+                {/* US-2365: cents on the current source. The legacy shim
+                    divided by 100 and mapped 0 to 0, so the two branches below
+                    are the same output through one fewer indirection. There is
+                    no "Custom" tier any more — the shim's null came from a
+                    price the old enterprise plan never carried. */}
+                {planConfig.priceMonthlyCents === 0
                   ? "Free"
-                  : planConfig.priceMonthly === null
-                    ? "Custom"
-                    : `$${planConfig.priceMonthly}/mo`}
+                  : `${planConfig.priceMonthlyCents / 100}/mo`}
               </Badge>
             </div>
           </CardContent>

@@ -606,14 +606,57 @@ export const FLIPDESK_UPGRADE_TRIGGERS = {
   userOptions: [0.5, 0.8, 0.95] as const,
 } as const;
 
-// ─── Legacy PLANS (DEPRECATED — see US-202) ──────────────────────
+// ─── The legacy plan vocabulary ──────────────────────────────────
 //
-// Kept for now so existing UI (billing, landing, admin, dashboard, etc.)
-// keeps compiling. New code MUST NOT add callers. Values are derived from
-// FLIPDESK_PLANS so changes propagate without drift. Legacy keys map:
-//   free → flipdesk.free, starter → flipdesk.starter,
-//   professional → flipdesk.pro, enterprise → flipdesk.business.
+// US-2365 removed the deprecated `PLANS` object. What could NOT be removed is
+// the vocabulary itself: `public.user_plan`
+// ('free'|'starter'|'professional'|'enterprise') is still the type of the
+// `users.plan` COLUMN, and the admin dashboard groups planDistribution by it
+// (00513). So the legacy keys are live data, not dead code.
+//
+// What changed is that the translation is now EXPLICIT. A caller holding a
+// legacy value calls flipdeskPlanForLegacy() or legacyPlanConfig() and can be
+// seen doing it; before, a deprecated alias did it invisibly and six call
+// sites accumulated behind it while the story that filed this counted two.
+//
+// Prefer `profile.flipdesk_plan` wherever it exists. Reach for these only when
+// the value you hold really is the legacy column.
+//
+// Legacy keys map: free → free, starter → starter,
+// professional → pro, enterprise → business.
 // Removed when US-211 (billing rebuild) + US-220 (landing rewrite) land.
+
+/**
+ * US-2365: the legacy `users.plan` enum → the current FlipDesk plan key.
+ *
+ * EXPORTED rather than folded away, because the legacy vocabulary is not dead
+ * code — `public.user_plan` ('free'|'starter'|'professional'|'enterprise') is
+ * still the type of the `users.plan` COLUMN, and the admin dashboard's
+ * planDistribution is grouped by it (00513). So callers that read that column
+ * genuinely need to translate, and hiding the translation inside a deprecated
+ * alias made it look like nobody did.
+ *
+ * Prefer `profile.flipdesk_plan` where it exists; use this only when the value
+ * you hold really is the legacy column.
+ */
+export function flipdeskPlanForLegacy(legacy: PlanKey): FlipdeskPlanKey {
+  return LEGACY_MAP[legacy];
+}
+
+/**
+ * The current plan config for a legacy `users.plan` value, or undefined when
+ * the string is not one.
+ *
+ * Tolerant on purpose: every caller reads this straight off a user row and
+ * already guarded with `?.`, so an unrecognised value must degrade to showing
+ * the raw string rather than throwing on an admin page.
+ */
+export function legacyPlanConfig(
+  legacy: string | null | undefined,
+): FlipdeskPlanConfig | undefined {
+  const key = LEGACY_MAP[legacy as PlanKey];
+  return key ? FLIPDESK_PLANS[key] : undefined;
+}
 
 const LEGACY_MAP: Record<PlanKey, FlipdeskPlanKey> = {
   free: "free",
@@ -622,34 +665,6 @@ const LEGACY_MAP: Record<PlanKey, FlipdeskPlanKey> = {
   enterprise: "business",
 };
 
-interface LegacyPlanShape {
-  name: string;
-  gradesPerMonth: number;
-  aiActionsPerMonth: number;
-  priceMonthly: number | null;
-  features: readonly string[];
-}
-
-function deriveLegacyPlan(key: PlanKey): LegacyPlanShape {
-  const flip = FLIPDESK_PLANS[LEGACY_MAP[key]];
-  return {
-    name: flip.name,
-    // Old "gradesPerMonth" → bundled grades. Old enterprise was unlimited,
-    // but the new Business tier is 75 — surface that as the legacy value too.
-    gradesPerMonth: flip.includedStandardGradesPerMonth,
-    aiActionsPerMonth: flip.aiActionsPerMonth,
-    priceMonthly: flip.priceMonthlyCents === 0 ? 0 : flip.priceMonthlyCents / 100,
-    features: flip.features,
-  };
-}
-
-/** @deprecated Use FLIPDESK_PLANS + GRADETHREAD_TIERS + CREDIT_PACKS instead (US-202). */
-export const PLANS: Record<PlanKey, LegacyPlanShape> = {
-  free: deriveLegacyPlan("free"),
-  starter: deriveLegacyPlan("starter"),
-  professional: deriveLegacyPlan("professional"),
-  enterprise: deriveLegacyPlan("enterprise"),
-};
 
 /** @deprecated Use FlipdeskPlanKey instead (US-202). */
 export type PlanKey = "free" | "starter" | "professional" | "enterprise";

@@ -10,7 +10,7 @@ import type {
   UserPlan,
   UserRole,
 } from "@/types/database";
-import { PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/constants";
+import { getPlanBadgeClasses, getRoleBadgeClasses, legacyPlanConfig } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -268,7 +268,7 @@ export function AdminUserDetailPage() {
       toast.success(
         body?.changed === false
           ? "Plan unchanged — the user is already on that plan."
-          : `Plan changed to ${PLANS[pendingPlan]?.name ?? pendingPlan}`,
+          : `Plan changed to ${legacyPlanConfig(pendingPlan)?.name ?? pendingPlan}`,
       );
       queryClient.invalidateQueries({ queryKey: ["admin-user-detail", id] });
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
@@ -551,7 +551,7 @@ export function AdminUserDetailPage() {
                 <CreditCard className="h-4 w-4 text-muted-foreground" />
                 <span className="text-muted-foreground">Plan:</span>
                 <Badge variant="secondary" className={getPlanBadgeClasses(targetUser.plan)}>
-                  {PLANS[targetUser.plan]?.name ?? targetUser.plan}
+                  {legacyPlanConfig(targetUser.plan)?.name ?? targetUser.plan}
                 </Badge>
                 {isSuspended && (
                   <Badge variant="destructive" className="ml-1">Suspended</Badge>
@@ -722,21 +722,22 @@ export function AdminUserDetailPage() {
             <div className="rounded-lg border p-3">
               <p className="text-xs text-muted-foreground">Current Plan</p>
               <p className="mt-1 text-lg font-semibold">
-                {PLANS[targetUser.plan]?.name ?? targetUser.plan}
+                {legacyPlanConfig(targetUser.plan)?.name ?? targetUser.plan}
               </p>
-              {PLANS[targetUser.plan]?.priceMonthly !== null &&
-                PLANS[targetUser.plan]?.priceMonthly !== undefined && (
+              {legacyPlanConfig(targetUser.plan)?.priceMonthlyCents !==
+                  undefined && (
                   <p className="text-sm text-muted-foreground">
-                    ${PLANS[targetUser.plan].priceMonthly}/mo
+                    ${legacyPlanConfig(targetUser.plan)!.priceMonthlyCents / 100}/mo
                   </p>
                 )}
             </div>
             <div className="rounded-lg border p-3">
               <p className="text-xs text-muted-foreground">Grade Limit</p>
               <p className="mt-1 text-lg font-semibold">
-                {PLANS[targetUser.plan]?.gradesPerMonth === -1
+                {legacyPlanConfig(targetUser.plan)?.includedStandardGradesPerMonth ===
+                    -1
                   ? "Unlimited"
-                  : `${PLANS[targetUser.plan]?.gradesPerMonth}/mo`}
+                  : `${legacyPlanConfig(targetUser.plan)?.includedStandardGradesPerMonth}/mo`}
               </p>
               <p className="text-sm text-muted-foreground">
                 {targetUser.grades_used_this_month} used this month
@@ -851,8 +852,8 @@ export function AdminUserDetailPage() {
             <AlertDialogDescription>
               Are you sure you want to change{" "}
               <strong>{targetUser.full_name || targetUser.email}</strong>'s plan
-              from <strong>{PLANS[targetUser.plan]?.name}</strong> to{" "}
-              <strong>{pendingPlan ? (PLANS[pendingPlan]?.name ?? pendingPlan) : ""}</strong>?
+              from <strong>{legacyPlanConfig(targetUser.plan)?.name}</strong> to{" "}
+              <strong>{pendingPlan ? (legacyPlanConfig(pendingPlan)?.name ?? pendingPlan) : ""}</strong>?
               This will take effect immediately.
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -25,7 +25,7 @@ import {
   withPreferenceDefaults,
 } from "@/lib/notification-preferences";
 import { buildAccountExport } from "@/lib/account-export";
-import { FLIPDESK_PLANS, PLANS, type PlanKey } from "@/lib/constants";
+import { FLIPDESK_PLANS, flipdeskPlanForLegacy, type PlanKey } from "@/lib/constants";
 import { effectiveAiLimit as computeEffectiveAiLimit } from "@/lib/ai-limit";
 import {
   Loader2,
@@ -185,12 +185,13 @@ export function SettingsPage() {
   const [savingAlerts, setSavingAlerts] = useState(false);
 
   // FlipDesk plan drives the AI allowance (US-202). Fall back to the legacy
-  // PLANS shim for users that haven't been backfilled yet — the shim derives
-  // the same numbers from FLIPDESK_PLANS so values match.
-  const flipdeskPlan = profile?.flipdesk_plan ?? null;
-  const planAiLimit = flipdeskPlan
-    ? FLIPDESK_PLANS[flipdeskPlan].aiActionsPerMonth
-    : PLANS[(profile?.plan ?? "free") as PlanKey].aiActionsPerMonth;
+  // US-2365: the un-backfilled fallback now translates the legacy column
+  // explicitly instead of going through the deprecated PLANS shim. Same
+  // numbers — the shim only ever derived them from FLIPDESK_PLANS — but the
+  // translation is visible rather than hidden behind an alias.
+  const flipdeskPlan = profile?.flipdesk_plan ??
+    flipdeskPlanForLegacy((profile?.plan ?? "free") as PlanKey);
+  const planAiLimit = FLIPDESK_PLANS[flipdeskPlan].aiActionsPerMonth;
   // US-1631: same min-of-plan-and-user-cap semantics as billing / usage meters
   // (previously `userLimit ?? plan`, which disagreed when a user's cap exceeded
   // the plan).

@@ -4,7 +4,7 @@ import { useNavigate } from "react-router";
 import { supabase } from "@/lib/supabase";
 import type { UserRow } from "@/types/database";
 import { fetchAdminUserListStats } from "@/lib/admin-aggregates";
-import { PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/constants";
+import { getPlanBadgeClasses, getRoleBadgeClasses, legacyPlanConfig } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -450,7 +450,7 @@ export function AdminUsersPage() {
                           variant="secondary"
                           className={getPlanBadgeClasses(user.plan)}
                         >
-                          {PLANS[user.plan]?.name ?? user.plan}
+                          {legacyPlanConfig(user.plan)?.name ?? user.plan}
                         </Badge>
                       </TableCell>
                       <TableCell>

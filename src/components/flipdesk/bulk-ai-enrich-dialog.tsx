@@ -20,7 +20,7 @@ import {
   type BulkExtractResponse,
 } from "@/hooks/use-ai-extract";
 import { useAuth } from "@/hooks/use-auth";
-import { PLANS, type PlanKey } from "@/lib/constants";
+import { FLIPDESK_PLANS, flipdeskPlanForLegacy, type PlanKey } from "@/lib/constants";
 
 interface BulkAiEnrichDialogProps {
   open: boolean;
@@ -43,8 +43,14 @@ export function BulkAiEnrichDialog({
   const bulk = useBulkExtract();
   const [result, setResult] = useState<BulkExtractResponse | null>(null);
 
-  const planKey = (profile?.plan ?? "free") as PlanKey;
-  const limit = profile?.ai_action_limit ?? PLANS[planKey].aiActionsPerMonth;
+  // US-2365: prefer flipdesk_plan, which is the current column; fall back to
+  // translating the legacy one for a profile that predates the backfill. The
+  // same shape settings.tsx already used — this was the only caller still
+  // reading the legacy value unconditionally.
+  const flipdeskPlan = profile?.flipdesk_plan ??
+    flipdeskPlanForLegacy((profile?.plan ?? "free") as PlanKey);
+  const limit = profile?.ai_action_limit ??
+    FLIPDESK_PLANS[flipdeskPlan].aiActionsPerMonth;
   const used = profile?.ai_actions_used_this_month ?? 0;
   const unlimited = limit < 0;
   const remaining = unlimited ? Infinity : Math.max(0, limit - used);
