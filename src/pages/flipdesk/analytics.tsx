@@ -310,7 +310,7 @@ function SellThroughReport() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Select value={groupKey} onValueChange={(v) => setGroupKey(v as GroupKey)}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className="w-44" aria-label="Group profit by">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -320,7 +320,7 @@ function SellThroughReport() {
           </SelectContent>
         </Select>
         <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className="w-44" aria-label="Profit date range">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -522,7 +522,7 @@ function GradingRoiReport() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className="w-44" aria-label="Sell-through date range">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -912,7 +912,7 @@ function ReturnReductionReport() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className="w-44" aria-label="Trends date range">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

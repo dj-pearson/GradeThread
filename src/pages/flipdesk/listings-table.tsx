@@ -145,6 +145,18 @@ interface Props {
 
 // Sortable column header. Moved here with the table — the page has no other
 // caller now that the header row lives in this component.
+//
+// EVERY header that CAN sort now does. Sorting happens in the database
+// (flipdesk_listing_page, migration 00515), which validates the field against
+// items_full's real columns — so a header can only be sortable when the value
+// it displays comes from a column, and the whole page is ordered, not just the
+// rows already fetched.
+//
+// The six that stay unsorted, and why, so nobody re-litigates them one at a
+// time: Margin, Ship by and the to-list Score are computed per row on the
+// client; Impressions and CTR are not in items_full at all; Platforms comes
+// from the listing rows joined per item; Buyer holds an opaque id, so ordering
+// by it would look sorted while meaning nothing.
 function SortHeader({
   field,
   children,
@@ -255,47 +267,100 @@ export function ListingsTable({
               )}
               <TableHead className="w-10" />
               <TableHead className="w-12 px-1" />
-              <TableHead className="min-w-[220px]">Title</TableHead>
+              <TableHead className="min-w-[220px]">
+                <SortHeader
+                  field="item_title"
+                  columnSort={columnSort}
+                  onToggle={toggleColumnSort}
+                >
+                  Title
+                </SortHeader>
+              </TableHead>
               <TableHead className="w-24">
-                <button
-                  type="button"
-                  onClick={() => toggleColumnSort("item_number")}
-                  className="inline-flex items-center gap-1 font-medium hover:text-foreground"
+                <SortHeader
+                  field="item_number"
+                  columnSort={columnSort}
+                  onToggle={toggleColumnSort}
                 >
                   SKU
-                  {columnSort?.field === "item_number" ? (
-                    columnSort.dir === "asc" ? (
-                      <ChevronUp className="h-3 w-3" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3" />
-                    )
-                  ) : (
-                    <ChevronsUpDown className="h-3 w-3 opacity-50" />
-                  )}
-                </button>
+                </SortHeader>
               </TableHead>
-              <TableHead className="w-32">Brand · Size</TableHead>
+              {/* The cell shows brand AND size; the sort is on brand, the one
+                  a seller means by "sort by brand". Size is free text
+                  ("M", "32x30", "10.5") and sorts as nonsense on its own. */}
+              <TableHead className="w-32">
+                <SortHeader
+                  field="brand"
+                  columnSort={columnSort}
+                  onToggle={toggleColumnSort}
+                >
+                  Brand · Size
+                </SortHeader>
+              </TableHead>
               {isSold ? (
                 <>
                   <TableHead className="w-20 text-right">
-                    Sold $
+                    <SortHeader
+                      field="sale_price"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Sold $
+                    </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20 text-right">Net</TableHead>
+                  <TableHead className="w-20 text-right">
+                    <SortHeader
+                      field="net_profit"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Net
+                    </SortHeader>
+                  </TableHead>
+                  {/* Margin, Ship by and Buyer stay unsorted on purpose — see
+                      the note above the header row. */}
                   <TableHead className="w-16 text-right">
                     Margin
                   </TableHead>
-                  <TableHead className="w-24">Payout</TableHead>
+                  <TableHead className="w-24">
+                    <SortHeader
+                      field="payout"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Payout
+                    </SortHeader>
+                  </TableHead>
                   <TableHead className="w-24">Ship by</TableHead>
                   <TableHead className="w-10">Buyer</TableHead>
                 </>
               ) : isToList ? (
                 <>
                   <TableHead className="w-20 text-right">
-                    Cost
+                    <SortHeader
+                      field="purchase_price"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Cost
+                    </SortHeader>
                   </TableHead>
                   <TableHead className="w-20 text-right">
-                    Target / List
+                    <SortHeader
+                      field="target_price"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Target / List
+                    </SortHeader>
                   </TableHead>
+                  {/* Not sortable: this Score is computed per row on the
+                      client (scoreById), so the server has nothing to order
+                      by. The Quality column further right IS a real column. */}
                   <TableHead className="w-20 text-right">
                     Score
                   </TableHead>
@@ -347,30 +412,105 @@ export function ListingsTable({
                 </>
               ) : isShipped ? (
                 <>
-                  <TableHead className="w-20 text-right">Net</TableHead>
-                  <TableHead className="w-20">Carrier</TableHead>
-                  <TableHead className="min-w-[150px]">
-                    Tracking
+                  <TableHead className="w-20 text-right">
+                    <SortHeader
+                      field="net_profit"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Net
+                    </SortHeader>
                   </TableHead>
-                  <TableHead className="w-36">Delivery</TableHead>
+                  <TableHead className="w-20">
+                    <SortHeader
+                      field="carrier"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Carrier
+                    </SortHeader>
+                  </TableHead>
+                  <TableHead className="min-w-[150px]">
+                    <SortHeader
+                      field="tracking"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Tracking
+                    </SortHeader>
+                  </TableHead>
+                  <TableHead className="w-36">
+                    <SortHeader
+                      field="delivered_at"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Delivery
+                    </SortHeader>
+                  </TableHead>
                 </>
               ) : (
                 <>
                   <TableHead className="w-20 text-right">
-                    Cost
+                    <SortHeader
+                      field="purchase_price"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Cost
+                    </SortHeader>
                   </TableHead>
                   <TableHead className="w-20 text-right">
-                    Target / List
+                    <SortHeader
+                      field="target_price"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Target / List
+                    </SortHeader>
                   </TableHead>
                   <TableHead className="w-20 text-right">
-                    Sale
+                    <SortHeader
+                      field="sale_price"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Sale
+                    </SortHeader>
                   </TableHead>
-                  <TableHead className="w-20 text-right">Net</TableHead>
+                  <TableHead className="w-20 text-right">
+                    <SortHeader
+                      field="net_profit"
+                      align="right"
+                      columnSort={columnSort}
+                      onToggle={toggleColumnSort}
+                    >
+                      Net
+                    </SortHeader>
+                  </TableHead>
                 </>
               )}
-              <TableHead className="w-24">Status</TableHead>
+              <TableHead className="w-24">
+                <SortHeader
+                  field="status"
+                  columnSort={columnSort}
+                  onToggle={toggleColumnSort}
+                >
+                  Status
+                </SortHeader>
+              </TableHead>
               <TableHead className="hidden min-w-[140px] 2xl:table-cell">
-                Notes
+                <SortHeader
+                  field="notes"
+                  columnSort={columnSort}
+                  onToggle={toggleColumnSort}
+                >
+                  Notes
+                </SortHeader>
               </TableHead>
               {(isDrafts || isActive) && (
                 <TableHead className="w-28">Platforms</TableHead>
@@ -396,8 +536,22 @@ export function ListingsTable({
                   </span>
                 </TableHead>
               )}
+              {/* Age is rendered as days-since-updated, so it sorts on the
+                  DATE it is derived from. That means the arrow points at the
+                  date, not the age: first click is oldest-touched first
+                  (highest age). Same shape as "Days listed", which has sorted
+                  on list_date since it shipped. */}
               {!isSold && !isActive && (
-                <TableHead className="w-16 text-right">Age</TableHead>
+                <TableHead className="w-16 text-right">
+                  <SortHeader
+                    field="updated_at"
+                    align="right"
+                    columnSort={columnSort}
+                    onToggle={toggleColumnSort}
+                  >
+                    Age
+                  </SortHeader>
+                </TableHead>
               )}
               {isActive && (
                 <TableHead className="w-32 text-right">

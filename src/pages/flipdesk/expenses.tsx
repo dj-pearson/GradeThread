@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useId, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Wallet, Plus, Pencil, Trash2, Loader2, Download } from "lucide-react";
@@ -406,6 +406,13 @@ function ExpenseDialog({
   );
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
+  // US-2335: ids for this dialog's four label/control pairs. useId rather
+  // than slugs — "Amount", "Date" and "Description" are common enough field
+  // names to collide with another form on the same page.
+  const categoryId = useId();
+  const amountId = useId();
+  const dateId = useId();
+  const descriptionId = useId();
   const [date, setDate] = useState(todayLocalDate());
   const [saving, setSaving] = useState(false);
 
@@ -486,12 +493,12 @@ function ExpenseDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label>Category</Label>
+            <Label htmlFor={categoryId}>Category</Label>
             <Select
               value={category}
               onValueChange={(v) => setCategory(v as ExpenseCategory)}
             >
-              <SelectTrigger>
+              <SelectTrigger id={categoryId}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -504,8 +511,9 @@ function ExpenseDialog({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Amount</Label>
+            <Label htmlFor={amountId}>Amount</Label>
             <Input
+              id={amountId}
               type="number"
               step="0.01"
               value={amount}
@@ -515,16 +523,18 @@ function ExpenseDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label>Date</Label>
+            <Label htmlFor={dateId}>Date</Label>
             <Input
+              id={dateId}
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
             />
           </div>
           <div className="space-y-1">
-            <Label>Description</Label>
+            <Label htmlFor={descriptionId}>Description</Label>
             <Input
+              id={descriptionId}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="optional"

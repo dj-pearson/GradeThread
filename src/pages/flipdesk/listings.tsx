@@ -372,9 +372,15 @@ export function FlipdeskListingsPage() {
   // `safePage` clamped the pager on the same render. Server-side, the OFFSET is
   // what gets sent, so narrowing the filter from page 6 asks for rows 500-600
   // of a 40-row result and the table renders empty while the pager says page 1.
+  //
+  // Re-sorting belongs in this list for the same reason, and it matters more
+  // now that every header sorts rather than six of them: page 6 of a list
+  // sorted by SKU is a different 100 rows than page 6 of the same list sorted
+  // by Title, so staying on 6 shows the seller an arbitrary slice of an answer
+  // they just asked to see from the top.
   useEffect(() => {
     setPage(1);
-  }, [search, pageSize, soldFilter, filterQuery]);
+  }, [search, pageSize, soldFilter, filterQuery, columnSort, sortPreset]);
 
 
   // US-419: keyed under a DISTINCT "listings" suffix — NOT the bare
