@@ -1559,6 +1559,13 @@ export function usePublishToEbay() {
       qc.invalidateQueries({ queryKey: ["items_full"] });
       qc.invalidateQueries({ queryKey: ["item_photos", vars.itemId] });
       qc.invalidateQueries({ queryKey: ["inventory_item_ebay", vars.itemId] });
+      // Publishing is what flips the listings row to active and gives it a
+      // platform_offer_id, and that row is exactly what the composer reads to
+      // decide between "Save & Publish to eBay" and "Save & resubmit to eBay".
+      // Without this the composer kept offering to publish an already-live
+      // listing until the seller reloaded the page. Invalidated by PREFIX (the
+      // push response carries eBay's item id, not our listings row id).
+      qc.invalidateQueries({ queryKey: ["listing"] });
     },
   });
 }

@@ -79,7 +79,7 @@ Deno.test("US-2349: RLS is asserted, not assumed", async () => {
   );
 });
 
-Deno.test("US-2349: no browser code writes the audit log", async () => {
+Deno.test("US-2349: no browser code writes the audit log", () => {
   // The reason the policy could not simply be dropped before: the SPA wrote
   // rows. US-2376 moved two of the three; the last one is deleted rather than
   // relocated, because an endpoint whose only job is "write me an audit row"

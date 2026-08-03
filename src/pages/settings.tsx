@@ -1277,38 +1277,40 @@ function DangerZoneCard() {
   const [reauthPassword, setReauthPassword] = useState("");
   const [deleting, setDeleting] = useState(false);
 
-  // Re-auth requirement (US-275). Password users must re-enter their password
-  // immediately before erasure; we verify it client-side via a fresh
-  // signInWithPassword so a walk-up attacker on an unlocked session can't nuke
-  // the account. Google/OAuth users have no password — for them the active
-  // session plus the typed confirmation phrase is the gate (re-running the
-  // OAuth dance just to delete would be hostile, and they can revoke our app
-  // from their Google account separately).
+  // Re-auth requirement (US-275, moved server-side by US-2351). Password users
+  // must re-enter their password immediately before erasure, so a walk-up
+  // attacker on an unlocked session cannot nuke the account. The check itself is
+  // now the SERVER's — this field only collects it. It used to be verified here
+  // and never sent, which meant the endpoint's real gate was the confirm string
+  // alone. Google/OAuth users have no password; for them the active session plus
+  // the typed phrase is the gate, and the server exempts them for the same
+  // reason (re-running the OAuth dance to delete would be hostile, and they can
+  // revoke the app from their Google account separately).
   const isOAuthUser = user?.app_metadata?.provider === "google";
 
   async function handleDelete() {
     if (confirmText !== DELETE_CONFIRM_PHRASE) return;
     setDeleting(true);
     try {
-      // Step-up re-authentication for password accounts.
-      if (!isOAuthUser) {
-        const email = user?.email;
-        if (!email) {
-          throw new Error("Could not verify your identity. Please sign in again.");
-        }
-        const { error: reauthError } = await supabase.auth.signInWithPassword({
-          email,
-          password: reauthPassword,
-        });
-        if (reauthError) {
-          throw new Error("Incorrect password. Please re-enter it to confirm.");
-        }
-      }
-
+      // US-2351 AC4: the password now goes to the SERVER, which checks it.
+      //
+      // This used to call signInWithPassword() here and then POST without it —
+      // so the check was a UX courtesy and the endpoint's only real control was
+      // the confirm string. Anything holding a session could delete the account
+      // by calling the API directly, including an impersonating admin, for whom
+      // this dialog never appears at all.
+      //
+      // The local check is gone rather than kept alongside: two places deciding
+      // the same thing is how one of them drifts, and the browser's answer was
+      // never the one that mattered. OAuth accounts have no password and send
+      // none; the server exempts them for the same reason.
       const res = await fetch(`${edgeApiUrl()}/api/account/delete`, {
         method: "POST",
         headers: await edgeAuthHeaders(),
-        body: JSON.stringify({ confirm: DELETE_CONFIRM_PHRASE }),
+        body: JSON.stringify({
+          confirm: DELETE_CONFIRM_PHRASE,
+          ...(isOAuthUser ? {} : { password: reauthPassword }),
+        }),
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));

@@ -55,11 +55,23 @@ describe("composer unsaved-changes guard (US-2256)", () => {
   it("clears the dirty flag after every successful save path", () => {
     // Two save paths (draft + live revise). Both must re-stamp, or the guard
     // fires on a form the seller just saved — the fastest way to teach someone
-    // to click through it.
-    expect(composer.split("markSaved();").length - 1).toBe(2);
-    expect(composer).toContain("function markSaved()");
-    expect(composer).toContain("setSavedSnapshot(formSnapshot);");
+    // to click through it. One definition + two calls.
+    expect(composer.match(/\bmarkSaved\(/g)?.length).toBe(3);
+    expect(composer).toContain("function markSaved(");
     expect(composer).toContain("setAspectsDirty(false);");
+  });
+
+  it("stamps fields the SAVE changed as saved, not as a fresh edit", () => {
+    // The eBay-leaf → coarse-category cascade updates item_category during the
+    // save, so the post-save form legitimately differs from the pre-save one.
+    // Stamping the pre-cascade snapshot would leave the composer permanently
+    // dirty the instant it finished saving — the guard firing on work that IS
+    // saved is the same wolf-crying failure as it never firing.
+    expect(composer).toContain("function markSaved(overrides?");
+    expect(composer).toMatch(
+      /JSON\.stringify\(\{ \.\.\.snapshotValues, \.\.\.overrides \}\)/,
+    );
+    expect(composer).toContain("markSaved(syncCascadedCategory(itemPatch))");
   });
 
   it("does not count the aspect picker's own mount report as a seller edit", () => {
@@ -71,8 +83,9 @@ describe("composer unsaved-changes guard (US-2256)", () => {
   });
 
   it("keeps the aspect map out of the form snapshot", () => {
+    // Both memos: the keyed value object and the string derived from it.
     const snapshot = composer.slice(
-      composer.indexOf("const formSnapshot = useMemo("),
+      composer.indexOf("const snapshotValues = useMemo("),
       composer.indexOf("// Stamped once seeding finishes"),
     );
     expect(snapshot.length).toBeGreaterThan(100);
@@ -81,8 +94,9 @@ describe("composer unsaved-changes guard (US-2256)", () => {
   });
 
   it("covers the fields a seller would be angriest to lose", () => {
+    // Both memos: the keyed value object and the string derived from it.
     const snapshot = composer.slice(
-      composer.indexOf("const formSnapshot = useMemo("),
+      composer.indexOf("const snapshotValues = useMemo("),
       composer.indexOf("// Stamped once seeding finishes"),
     );
     for (const field of [

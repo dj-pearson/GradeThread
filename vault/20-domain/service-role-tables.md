@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-07-31
+reviewed: 2026-08-03
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id.
 ---
@@ -46,6 +46,13 @@ This is subtler than it looks and is the part people get wrong:
 So name the owning column `owner_user_id` or `subject_user_id`, and resist the
 urge to explain in a comment that the table has no `user_id` — saying the words
 is what triggers it.
+
+> [!tip] Two owner columns? Drop `_user` entirely.
+> `admin_impersonation_sessions` (US-2351) has both an actor and a target. The
+> obvious names — `actor_user_id`, `target_user_id` — read fine and are wrong
+> here, because they contain the literal token and force discovery on a table
+> that must have no policy at all. They are `actor_id` and `target_id`. The rule
+> is about the STRING, not the semantics.
 
 ## Why discovery-by-regex rather than an explicit list
 

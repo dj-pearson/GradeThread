@@ -20,6 +20,7 @@ import {
   listEtsyReceipts,
 } from "../lib/etsy-api.ts";
 import { handleEtsyReceiptEvent } from "../lib/etsy-orders.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 
 // Etsy Open API v3 endpoints (US-1659). Mounted at /api/flipdesk/etsy.
 //
@@ -228,6 +229,10 @@ flipdeskEtsyRoutes.post("/oauth/refresh", async (c) => {
 // ── Disconnect ─────────────────────────────────────────────────────
 // Deactivate + null the stored tokens locally. Tenant-scoped to the owner.
 flipdeskEtsyRoutes.post("/disconnect", async (c) => {
+  // US-2351 AC3: an impersonating admin must not sever a seller's
+  // marketplace link — the disconnect would read as the seller's own.
+  const blocked = await refuseWhileImpersonating(c, "Disconnecting a marketplace");
+  if (blocked) return blocked;
   if (!isEtsyEnabled()) return c.json(DISABLED_BODY, 503);
   const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as
     | string

@@ -18,6 +18,7 @@ import {
   verifyOAuthHmac,
 } from "../lib/shopify-client.ts";
 import { registerShopifyWebhooks } from "../lib/shopify-graphql.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 
 // Shopify integration endpoints (US-599). Mounted at /api/flipdesk/shopify.
 //
@@ -223,6 +224,10 @@ flipdeskShopifyRoutes.get("/oauth/callback", async (c) => {
 // there's no token-revocation endpoint, so we deactivate + null the stored
 // token locally. Tenant-scoped to the workspace owner.
 flipdeskShopifyRoutes.post("/disconnect", async (c) => {
+  // US-2351 AC3: an impersonating admin must not sever a seller's
+  // marketplace link — the disconnect would read as the seller's own.
+  const blocked = await refuseWhileImpersonating(c, "Disconnecting a marketplace");
+  if (blocked) return blocked;
   const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as
     | string
     | undefined;

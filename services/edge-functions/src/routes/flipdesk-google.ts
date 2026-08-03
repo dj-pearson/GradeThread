@@ -10,6 +10,7 @@ import {
   normalizeSheetMap,
   validateSheetMap,
 } from "../lib/sheet-map.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 
 // Google Sheets connection (US-146). A long-lived OAuth grant that lets FlipDesk
 // read and write ONE designated "FlipDesk Sync" spreadsheet on the user's Drive.
@@ -603,6 +604,10 @@ flipdeskGoogleRoutes.delete("/sheet/map", async (c) => {
 // ── POST /disconnect ────────────────────────────────────────────────
 // Revoke the grant upstream at Google, then mark inactive locally.
 flipdeskGoogleRoutes.post("/disconnect", async (c) => {
+  // US-2351 AC3: an impersonating admin must not sever a seller's
+  // marketplace link — the disconnect would read as the seller's own.
+  const blocked = await refuseWhileImpersonating(c, "Disconnecting a marketplace");
+  if (blocked) return blocked;
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const conn = await loadConnection(userId);
   if (!conn) return c.json({ ok: true });

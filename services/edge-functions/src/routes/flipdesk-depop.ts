@@ -22,6 +22,7 @@ import {
   markDepopParcelShipped,
 } from "../lib/depop-api.ts";
 import { handleDepopOrderEvent } from "../lib/depop-orders.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 
 // Depop Selling API endpoints (US-713). Mounted at /api/flipdesk/depop.
 //
@@ -224,6 +225,10 @@ flipdeskDepopRoutes.post("/oauth/refresh", async (c) => {
 // ── Disconnect ─────────────────────────────────────────────────────
 // Deactivate + null the stored tokens locally. Tenant-scoped to the owner.
 flipdeskDepopRoutes.post("/disconnect", async (c) => {
+  // US-2351 AC3: an impersonating admin must not sever a seller's
+  // marketplace link — the disconnect would read as the seller's own.
+  const blocked = await refuseWhileImpersonating(c, "Disconnecting a marketplace");
+  if (blocked) return blocked;
   if (!isDepopEnabled()) return c.json(DISABLED_BODY, 503);
   const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as
     | string

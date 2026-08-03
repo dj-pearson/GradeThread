@@ -1,14 +1,14 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Pending: 00515, 00516, 00518, 00519 and 00520 — the branch is FROZEN until all
-five are applied. 00517 IS ALREADY APPLIED (2026-08-03) and 00518 CORRECTS A BUG
-IN IT — apply 00518 promptly.** Prod
+**Pending: 00515, 00516, 00518, 00519, 00520 and 00521 — the branch is FROZEN
+until all six are applied. 00517 IS ALREADY APPLIED (2026-08-03) and 00518
+CORRECTS A BUG IN IT — apply 00518 promptly.** Prod
 measured at **00514** on 2026-08-03: `/health/ready` returned
 `schema {expected:"00513", applied:"00514", status:"ahead"}`, the database's own
 answer through the service-role client rather than someone's recollection.
-`EXPECTED_SCHEMA_VERSION` is now **00520** and the highest migration in the tree
-is `00520_audit_log_not_forgeable.sql`.
-Apply in number order: 00515, 00516, 00518, 00519, 00520.
+`EXPECTED_SCHEMA_VERSION` is now **00521** and the highest migration in the tree
+is `00521_impersonation_sessions.sql`.
+Apply in number order: 00515, 00516, 00518, 00519, 00520, 00521.
 
 **All of them applied cleanly to a throwaway local stack on 2026-08-03**
 (`supabase db reset` over the whole corpus on a fresh schema), so the ordering
@@ -49,6 +49,62 @@ flips the marker when the SQL runs. The session-start hook reads these ⏳
 markers, so a stale one tells every future session the branch is frozen when it
 is not — which has happened twice (see the US-2017 note in prd.json). **When you
 apply a migration, flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00521_impersonation_sessions.sql (US-2351 [P0] impersonation bounds, 2026-08-03)
+
+**Risk: LOW. One new table, nothing existing is touched.** But the EDGE change
+that ships with it is behavioural, so migration and deploy have to travel
+together: after this, starting an impersonation REQUIRES writing a row here. If
+the table is missing, `/start` returns 500 and refuses — deliberately, because a
+session with no record is exactly the unbounded one this removes.
+
+**What was wrong.** The entry to impersonation was always well guarded —
+super_admin, `users:role`, a fresh step-up, privileged targets refused, start
+audited. Everything after the token was minted was open: no time limit, no
+revocation on stop, no server-visible marker, and a stop audit row whose
+`target_id` came straight from the request body. A super_admin could impersonate
+a disputing customer, cancel their subscription and delete their account, and
+every downstream record — Stripe, the deletion log, the marketplace disconnect —
+would show the CUSTOMER doing it.
+
+**What the table is.** The marker, the clock and the revocation handle in one.
+Server-side rather than a token claim on purpose: a claim is equally invisible to
+any route that does not parse it, and cannot be revoked once minted.
+
+**Column naming, for the next person.** `actor_id` / `target_id`, NOT
+`actor_user_id` / `target_user_id`. rls-guard discovers tenant tables by the
+literal string `user_id`, and this is an operator table that must have no policy
+at all. Registered in `SERVICE_ROLE_ONLY`.
+
+**PROVEN ON A REAL DATABASE** — corpus applied to a throwaway stack, then: the
+target cannot SELECT the row, cannot UPDATE it to end their own impersonation
+record, and the row survives deleting BOTH parties with the emails intact.
+
+**Ships with (edge + web):** a 30-minute hard cap enforced on read; `/stop` now
+revokes the target's sessions through GoTrue's admin logout with `scope: global`
+and reports whether it landed; the stop record comes from the START row rather
+than the request body; account delete, subscription cancel, billing portal and
+all five marketplace disconnects refuse while an impersonation is live;
+`reviewer` joins the non-impersonable roles; and the account-delete password
+re-authentication moves from the browser into the edge.
+
+**Apply:**
+
+1. Run `supabase/migrations/00521_impersonation_sessions.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — new table.
+3. Redeploy the edge (boot guard expects 00521).
+
+**Verify:** start an impersonation and check
+`select expires_at from admin_impersonation_sessions order by started_at desc
+limit 1;` is ~30 minutes out. Exit, and check `ended_at` and
+`end_reason = 'stopped'` are set. While impersonating, the account-delete
+endpoint should return 403 `impersonation_blocked`.
+
+**Still open (AC7):** confirm the GoTrue OTP TTL in prod. It sets the real
+lifetime of the minted impersonation and resume tokens — a second clock alongside
+the 30-minute cap.
 
 ---
 

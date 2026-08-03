@@ -55,6 +55,12 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-2351: the impersonation ledger. Deny-all in BOTH directions and both
+  // matter. A readable table would show a user their own impersonation history,
+  // leaking operator activity; a writable one would let the person being
+  // impersonated end the RECORD while the session continued — which is worse
+  // than no record, because the row would say it stopped.
+  "admin_impersonation_sessions",
   // US-2349: the admin audit trail. Zero policies is the WHOLE POINT here, and
   // it is a tightening rather than an omission — 00003 gave any is_admin()
   // caller SELECT and INSERT from the browser, so an admin could read the entire

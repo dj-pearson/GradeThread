@@ -48,6 +48,9 @@ export function useCrossPush() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["items_full"] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
+      // Same staleness as the eBay push: a cross-push writes listings rows, and
+      // the composer decides publish-vs-resubmit from the one it has cached.
+      void qc.invalidateQueries({ queryKey: ["listing"] });
     },
   });
 }

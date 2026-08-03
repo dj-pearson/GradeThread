@@ -12,6 +12,8 @@ import {
   pageThrough,
   streamJsonArrayMembers,
 } from "../lib/export-stream.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
+import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
 
 // Account data portability (US-275 / GDPR + CCPA). Authed user exports a copy
 // of their own data. Mounted behind authMiddleware in main.ts, so c.var.userId
@@ -377,10 +379,50 @@ accountRoutes.post("/data-requests", async (c) => {
 // stores an email, add it there.
 //
 // Body: { confirm: "DELETE MY ACCOUNT" } — guards against accidental calls.
+
+/**
+ * US-2351 AC4: confirm a password server-side.
+ *
+ * GoTrue's password grant is the only thing that can answer "is this the user's
+ * password" without holding the hash, so this asks it directly. It does NOT use
+ * the service-role client: that client is privileged by construction and would
+ * happily mint a session, which is exactly what must not happen here — a
+ * successful check must prove the password and produce nothing reusable. The
+ * token this returns is discarded; only the status is read.
+ */
+async function verifyPassword(email: string, password: string): Promise<boolean> {
+  const url = Deno.env.get("SUPABASE_URL");
+  const anon = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!url || !anon || !email) return false;
+  try {
+    // US-2321: a deadline. This is the last thing between a request and a
+    // permanent account deletion, so it must resolve one way or the other — a
+    // hang here is indistinguishable from a stuck delete to the person waiting.
+    const res = await fetchWithTimeout(
+      `${url}/auth/v1/token?grant_type=password`,
+      {
+        method: "POST",
+        headers: { apikey: anon, "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      },
+      8_000,
+    );
+    return res.ok;
+  } catch {
+    // Fail CLOSED. An unreachable auth service means we cannot prove the
+    // password, and "cannot prove" must not read as "proved" on the one
+    // endpoint that permanently destroys an account.
+    return false;
+  }
+}
+
 accountRoutes.post("/delete", async (c) => {
+  // US-2351 AC3: never delete an account while an admin is viewing it.
+  const blocked = await refuseWhileImpersonating(c, "Deleting an account");
+  if (blocked) return blocked;
   const userId = c.get("userId");
 
-  let body: { confirm?: string };
+  let body: { confirm?: string; password?: string };
   try {
     body = await c.req.json();
   } catch {
@@ -398,6 +440,43 @@ accountRoutes.post("/delete", async (c) => {
     .select("stripe_customer_id, role, email, full_name")
     .eq("id", userId)
     .maybeSingle();
+
+  // US-2351 AC4: the password re-authentication runs HERE, not in the browser.
+  //
+  // settings.tsx called signInWithPassword() before POSTing, which is a UX
+  // courtesy and nothing more — the server's only control was the confirm
+  // string, so anything holding a session could delete the account by calling
+  // this endpoint directly. That includes an impersonating admin, for whom the
+  // client-side prompt never appears at all.
+  //
+  // OAuth accounts have no password to check and are exempt, deliberately: the
+  // alternative is demanding a password that does not exist. They are covered by
+  // the impersonation refusal above and by the confirm string.
+  {
+    const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const providers = (authUser?.user?.app_metadata?.providers ?? []) as string[];
+    const hasPassword = providers.includes("email");
+    if (hasPassword) {
+      const password = typeof body.password === "string" ? body.password : "";
+      if (!password) {
+        return c.json(
+          {
+            error: "Enter your password to confirm deleting your account.",
+            code: "password_required",
+          },
+          400,
+        );
+      }
+      const email = (user?.email ?? authUser?.user?.email ?? "") as string;
+      const ok = await verifyPassword(email, password);
+      if (!ok) {
+        return c.json(
+          { error: "Incorrect password.", code: "password_incorrect" },
+          403,
+        );
+      }
+    }
+  }
 
   // US-2350 AC3: an admin cannot self-serve delete at all. A step-up proved the
   // person at the keyboard was the account holder, which was never the question

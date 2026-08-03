@@ -318,6 +318,7 @@ import {
   updateMarkdownSale,
   updateAdRateForListing,
 } from "../lib/ebay-marketing.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 
 // US-1447: listings.promo_mode ('cps' default | 'cpc' | 'smart') → the
 // attachPromotionAtPublish mode. Unknown/legacy values fall back to CPS.
@@ -531,6 +532,10 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
 // Tenant-scoped: only the workspace owner's (or the user's own) ebay rows are
 // touched — never an id from the request body.
 flipdeskEbayRoutes.post("/disconnect", async (c) => {
+  // US-2351 AC3: an impersonating admin must not sever a seller's
+  // marketplace link — the disconnect would read as the seller's own.
+  const blocked = await refuseWhileImpersonating(c, "Disconnecting a marketplace");
+  if (blocked) return blocked;
   const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as
     | string
     | undefined;

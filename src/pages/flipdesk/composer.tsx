@@ -711,37 +711,38 @@ export function FlipdeskComposerPage({
   // snapshot would make a freshly-opened composer look dirty before the seller
   // touched it — which is how a guard stops working. Aspect edits are tracked
   // separately against the picker's FIRST report (aspectBaseline below).
-  const formSnapshot = useMemo(
-    () =>
-      JSON.stringify([
-        title,
-        description,
-        ebayCondition,
-        conditionDesc,
-        price,
-        cost,
-        quantity,
-        scheduledAt,
-        primaryPhotoId,
-        promoteEnabled,
-        promoMode,
-        promoRate,
-        listingFormat,
-        bestOfferEnabled,
-        bestOfferAccept,
-        bestOfferDecline,
-        shippingPolicyId,
-        paymentPolicyId,
-        returnPolicyId,
-        measurements,
-        storageSku,
-        storageLocation,
-        storageContainer,
-        itemStatus,
-        itemCategory,
-        sourcedBy,
-        acquiredDate,
-      ]),
+  // Keyed rather than positional so `markSaved` can stamp a field the SAVE
+  // itself changed (the cascaded item_category) without re-listing all 27.
+  const snapshotValues = useMemo(
+    () => ({
+      title,
+      description,
+      ebayCondition,
+      conditionDesc,
+      price,
+      cost,
+      quantity,
+      scheduledAt,
+      primaryPhotoId,
+      promoteEnabled,
+      promoMode,
+      promoRate,
+      listingFormat,
+      bestOfferEnabled,
+      bestOfferAccept,
+      bestOfferDecline,
+      shippingPolicyId,
+      paymentPolicyId,
+      returnPolicyId,
+      measurements,
+      storageSku,
+      storageLocation,
+      storageContainer,
+      itemStatus,
+      itemCategory,
+      sourcedBy,
+      acquiredDate,
+    }),
     [
       title, description, ebayCondition, conditionDesc, price, cost, quantity,
       scheduledAt, primaryPhotoId, promoteEnabled, promoMode, promoRate,
@@ -750,6 +751,10 @@ export function FlipdeskComposerPage({
       returnPolicyId, measurements, storageSku, storageLocation,
       storageContainer, itemStatus, itemCategory, sourcedBy, acquiredDate,
     ],
+  );
+  const formSnapshot = useMemo(
+    () => JSON.stringify(snapshotValues),
+    [snapshotValues],
   );
   // Stamped once seeding finishes — computing it inside the seed effect would
   // read the pre-setState values and bake in a snapshot that never matches.
@@ -781,8 +786,18 @@ export function FlipdeskComposerPage({
   const isDirty =
     (savedSnapshot !== null && formSnapshot !== savedSnapshot) || aspectsDirty;
   // Re-stamp both baselines: a save makes the current form the saved form.
-  function markSaved() {
-    setSavedSnapshot(formSnapshot);
+  //
+  // `overrides` are fields the save itself changed on the way out — today just
+  // the cascaded item_category. They have to be folded in HERE rather than left
+  // to their own setState, because this runs in the same tick: stamping the
+  // pre-cascade snapshot and then setting the new category would leave the form
+  // reading as dirty the instant it finished saving.
+  function markSaved(overrides?: Partial<typeof snapshotValues>) {
+    setSavedSnapshot(
+      overrides
+        ? JSON.stringify({ ...snapshotValues, ...overrides })
+        : formSnapshot,
+    );
     aspectBaseline.current = JSON.stringify(livePickedAspects ?? null);
     setAspectsDirty(false);
   }
@@ -1232,6 +1247,27 @@ export function FlipdeskComposerPage({
     );
   }
 
+  // The cascade below writes `item_category` as part of the item patch, but the
+  // Item details card renders `itemCategory` state, which is seeded ONCE and
+  // never re-seeded (re-seeding on every refetch would throw away unsaved
+  // edits). So correcting the eBay category used to save the new coarse category
+  // and leave the card showing the old one until the seller reloaded the page.
+  //
+  // Returns the snapshot override rather than relying on its own setState:
+  // `markSaved` runs in the same tick and would otherwise stamp the pre-cascade
+  // values, leaving the form dirty the moment it finished saving.
+  function syncCascadedCategory(
+    patch: Record<string, unknown>,
+  ): Partial<typeof snapshotValues> | undefined {
+    if (!("item_category" in patch)) return undefined;
+    const next = normalizeItemCategory(
+      typeof patch.item_category === "string" ? patch.item_category : null,
+    );
+    if (next === itemCategory) return undefined; // manual route: already showing it
+    setItemCategory(next);
+    return { itemCategory: next };
+  }
+
   // Category coupling: when the seller fixes the eBay category here, derive the
   // coarse item_category from the chosen breadcrumb and cascade it — plus the
   // garment_type/category grading axis it seeds when the FAMILY changes — onto
@@ -1337,14 +1373,13 @@ export function FlipdeskComposerPage({
       // into their backing item fields so shared values (Brand & co.) stay
       // single-entry, and carry the Storage & SKU fields that used to be stranded
       // behind their own Save (US-2249).
+      const itemPatch = composerItemPatch(
+        state.resolvedAspects,
+        state.resolvedSources,
+      );
       const { error: sErr } = await supabase
         .from("inventory_items")
-        .update(
-          composerItemPatch(
-            state.resolvedAspects,
-            state.resolvedSources,
-          ) as never,
-        )
+        .update(itemPatch as never)
         .eq("id", item.id);
       // US-2249: the SKU rides the main save now, so the main save is where a
       // duplicate-SKU collision has to offer the merge.
@@ -1383,7 +1418,7 @@ export function FlipdeskComposerPage({
       });
       // US-1895: refresh the recommended-coverage meter after an aspect save.
       await qc.invalidateQueries({ queryKey: ["recommended-coverage", item.id] });
-      markSaved();
+      markSaved(syncCascadedCategory(itemPatch));
       toast.success(item.listing_id ? "Saved." : "Draft saved.");
       return listingId;
     } catch (err) {
@@ -1670,14 +1705,13 @@ export function FlipdeskComposerPage({
       // only, and a listed item's earned status can't regress) rather than being
       // skipped — the seller can now move a live item to sold/archived from the
       // same Item details card they use on a draft.
+      const itemPatch = composerItemPatch(
+        state.resolvedAspects,
+        state.resolvedSources,
+      );
       const { error: sErr } = await supabase
         .from("inventory_items")
-        .update(
-          composerItemPatch(
-            state.resolvedAspects,
-            state.resolvedSources,
-          ) as never,
-        )
+        .update(itemPatch as never)
         .eq("id", item.id);
       if (sErr) {
         if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
@@ -1691,7 +1725,7 @@ export function FlipdeskComposerPage({
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
-      markSaved();
+      markSaved(syncCascadedCategory(itemPatch));
       return item.listing_id;
     } catch (err) {
       toast.error(`Save failed: ${errorMessage(err)}`);

@@ -14,6 +14,7 @@ import {
   googleplaySubscriptionActive,
 } from "../lib/appstore/precedence.ts";
 import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -697,6 +698,13 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
 // paid period ends; the webhook flips buyer_cancel_at_period_end + eventually
 // deletes → free). Scoped to buyer_subscription_id.
 paymentRoutes.post("/buyer/cancel", async (c) => {
+  // US-2351 AC3: a subscription must not be ended — or a billing portal
+  // opened — while an admin is viewing the account as its owner. Every
+  // downstream record would show the customer doing it themselves.
+  {
+    const blocked = await refuseWhileImpersonating(c, "Cancelling a subscription");
+    if (blocked) return blocked;
+  }
   const userId = c.get("userId");
   const { data: user, error: userError } = await loadUser(userId);
   if (userError || !user) return c.json({ error: "User not found" }, 404);
@@ -1544,6 +1552,13 @@ paymentRoutes.post("/flipdesk/resume", async (c) => {
 // Until then, the user keeps full access. The customer.subscription.deleted
 // webhook drops them to Free when the period ends.
 paymentRoutes.post("/flipdesk/cancel", async (c) => {
+  // US-2351 AC3: a subscription must not be ended — or a billing portal
+  // opened — while an admin is viewing the account as its owner. Every
+  // downstream record would show the customer doing it themselves.
+  {
+    const blocked = await refuseWhileImpersonating(c, "Cancelling a subscription");
+    if (blocked) return blocked;
+  }
   const userId = c.get("userId");
 
   let body: { reason?: unknown };
@@ -1812,6 +1827,13 @@ paymentRoutes.post("/flipdesk/uncancel", async (c) => {
 // Stripe Customer Portal for users who want raw access (escape hatch from
 // the in-app billing UI in US-211).
 paymentRoutes.post("/portal", async (c) => {
+  // US-2351 AC3: a subscription must not be ended — or a billing portal
+  // opened — while an admin is viewing the account as its owner. Every
+  // downstream record would show the customer doing it themselves.
+  {
+    const blocked = await refuseWhileImpersonating(c, "Opening the billing portal");
+    if (blocked) return blocked;
+  }
   const userId = c.get("userId");
 
   const { data: user, error: userError } = await supabaseAdmin
