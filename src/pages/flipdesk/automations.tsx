@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   Activity,
   FlaskConical,
@@ -321,6 +321,10 @@ function RuleDialog({
   const [actionMessage, setActionMessage] = useState(
     initial?.action_json.type === "notify" ? initial.action_json.message : "",
   );
+  // US-2335: ids for the When / Then / Applies-to trio.
+  const triggerTypeId = useId();
+  const actionTypeId = useId();
+  const scopeModeId = useId();
   const [scopeMode, setScopeMode] = useState<"all" | "filter">(
     initial?.scope_json.type === "filter" ? "filter" : "all",
   );
@@ -455,13 +459,13 @@ function RuleDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>When</Label>
+            <Label htmlFor={triggerTypeId}>When</Label>
             <div className="flex flex-wrap items-center gap-2">
               <Select
                 value={triggerType}
                 onValueChange={(v) => setTriggerType(v as AutomationTrigger["type"])}
               >
-                <SelectTrigger className="w-56">
+                <SelectTrigger className="w-56" id={triggerTypeId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -598,13 +602,13 @@ function RuleDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Then</Label>
+            <Label htmlFor={actionTypeId}>Then</Label>
             <div className="flex flex-wrap items-center gap-2">
               <Select
                 value={actionType}
                 onValueChange={(v) => setActionType(v as AutomationAction["type"])}
               >
-                <SelectTrigger className="w-56">
+                <SelectTrigger className="w-56" id={actionTypeId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -712,13 +716,13 @@ function RuleDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Applies to</Label>
+            <Label htmlFor={scopeModeId}>Applies to</Label>
             <div className="flex items-center gap-2">
               <Select
                 value={scopeMode}
                 onValueChange={(v) => setScopeMode(v as "all" | "filter")}
               >
-                <SelectTrigger className="w-56">
+                <SelectTrigger className="w-56" id={scopeModeId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

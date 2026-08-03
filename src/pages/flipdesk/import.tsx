@@ -518,6 +518,7 @@ export function FlipdeskImportPage() {
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Input
+                aria-label="Google Sheet share link"
                 value={sheetUrl}
                 onChange={(e) => setSheetUrl(e.target.value)}
                 placeholder="https://docs.google.com/spreadsheets/d/…"
@@ -583,7 +584,11 @@ export function FlipdeskImportPage() {
             </div>
           </div>
 
+          {/* US-2335: the only text near this is a divider reading "or paste",
+              and its placeholder is a sample table that stops being announced on
+              the first keystroke. */}
           <Textarea
+            aria-label="Paste rows to import"
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={6}
@@ -618,6 +623,10 @@ A1	GT-0001	Lululemon Align Pant	..."
                       {header || `(col ${i + 1})`}
                     </Badge>
                   </div>
+                  {/* One per spreadsheet COLUMN. Named from the column header
+                      — stable source data, not something being edited — with the
+                      position as the fallback for an unnamed column, matching
+                      what the Badge above already shows. */}
                   <Select
                     value={mapping[i] ?? "skip"}
                     onValueChange={(v) => {
@@ -626,7 +635,7 @@ A1	GT-0001	Lululemon Align Pant	..."
                       setMapping(next);
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger aria-label={`Map column ${header || i + 1} to`}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
