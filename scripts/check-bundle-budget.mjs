@@ -156,6 +156,57 @@ if (tiptapChunks.length === 0) {
   // (an eager TipTap chunk is already reported by the FORBIDDEN_IN_EAGER pass)
 }
 
+// ── 3b. Sentry must stay lazily loaded (US-2332) ─────────────────────────────
+//
+// vendor-sentry is ~475 KB and is observability, not a rendering dependency, so
+// lib/sentry.ts wraps it behind a dynamic import. That façade is easy to bypass
+// by accident: a module writes `import * as Sentry from "@sentry/react"`
+// because the wrapper happens not to export the one function it needs, and
+// every chunk that reaches that module now statically pulls 475 KB.
+//
+// That is not hypothetical. welcome-email.ts did exactly this — the wrapper
+// offered captureException but not captureMessage — and because use-auth.ts
+// reaches it, the chunk landed in 59 of 609 chunks. FORBIDDEN_IN_EAGER did not
+// catch it, and could not: none of those 59 were eager, so nothing was breaking
+// a first-load budget. The cost was paid on route navigation instead, which no
+// existing check measures.
+//
+// The threshold is deliberately small rather than zero: the entry chunk carries
+// Vite's dynamic-import dependency map, which names the file without importing
+// it, so one reference is the correct steady state.
+const SENTRY_RE = /node_modules\/@sentry\//;
+const MAX_SENTRY_IMPORTERS = 2;
+
+const sentryChunks = Object.entries(manifest)
+  .filter(([, c]) => c.modules.some((m) => SENTRY_RE.test(m)))
+  .map(([f]) => f);
+
+if (sentryChunks.length === 0) {
+  errors.push(
+    "expected @sentry/* to appear in some chunk, but found none — has Sentry been removed? " +
+      "If so, delete this check rather than leaving it passing vacuously.",
+  );
+} else {
+  const importers = Object.entries(manifest)
+    .filter(([f, c]) =>
+      !sentryChunks.includes(f) &&
+      (c.imports ?? []).some((imp) => sentryChunks.includes(imp))
+    )
+    .map(([f]) => f);
+  if (importers.length > MAX_SENTRY_IMPORTERS) {
+    errors.push(
+      `${importers.length} chunks STATICALLY import vendor-sentry (max ${MAX_SENTRY_IMPORTERS}). ` +
+        `Someone has added a top-level \`import ... from "@sentry/react"\`. Use the lazy ` +
+        `façade in src/lib/sentry.ts — and if it lacks the function you need, ADD it there ` +
+        `rather than reaching past it. Offenders: ${importers.slice(0, 5).join(", ")}`,
+    );
+  } else {
+    console.log(
+      `[2mSentry is lazy: ${importers.length} static importer(s), ${sentryChunks.length} sentry chunk(s).[0m`,
+    );
+  }
+}
+
 // US-2112: WARN BEFORE THE BREACH, WITH THE CAUSE ATTACHED.
 //
 // The documented history of this file is four ceiling raises (48.2 -> 54.6 ->

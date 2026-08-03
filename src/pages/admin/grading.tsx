@@ -52,7 +52,8 @@ import {
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
 import { toast } from "sonner";
-import * as Sentry from "@sentry/react";
+// US-2332: lazy façade — see lib/sentry.ts.
+import { captureException } from "@/lib/sentry";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -332,7 +333,7 @@ export function AdminGradingQueuePage() {
       if (!res.ok) throw new Error(json.error || "Failed to load detail.");
       setDetail(json as ReviewDetailResponse);
     } catch (err) {
-      Sentry.captureException(err, { tags: { area: "admin.grading_review_detail" } });
+      captureException(err, { tags: { area: "admin.grading_review_detail" } });
       toast.error("Failed to load item detail", {
         description: err instanceof Error ? err.message : "Unknown error",
       });

@@ -1,4 +1,14 @@
-import * as Sentry from "@sentry/react";
+// US-2332: the LAZY façade, not a top-level @sentry/react import. This module
+// is reached from use-auth.ts, so a static import here put the 475 KB
+// vendor-sentry chunk into the static import list of 59 of 609 chunks —
+// measured, not estimated.
+//
+// NOT a first-load win, and worth being precise about: the eager graph was
+// 40 chunks / 795,123 bytes before and after, and vendor-sentry was in neither.
+// The cost was paid on NAVIGATION — 58 lazily-loaded route chunks each dragged
+// 475 KB along with them. That is exactly why the existing eager-only budget
+// check never noticed.
+import { captureException, captureMessage } from "@/lib/sentry";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 // US-1433: fire the welcome email once per account, on the first authenticated
@@ -26,13 +36,13 @@ export function sendWelcomeEmailOnce(userId: string): void {
         silentGate: true,
       });
       if (!res.ok) {
-        Sentry.captureMessage("welcome email request failed", {
+        captureMessage("welcome email request failed", {
           level: "warning",
           extra: { status: res.status },
         });
       }
     } catch (e) {
-      Sentry.captureException(e, { tags: { area: "auth.welcome_email" } });
+      captureException(e, { tags: { area: "auth.welcome_email" } });
     }
   })();
 }

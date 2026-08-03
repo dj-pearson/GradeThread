@@ -63,3 +63,21 @@ export function captureException(error: unknown, context?: CaptureCtx): void {
   if (!import.meta.env.VITE_SENTRY_DSN) return;
   void loadSentry().then((Sentry) => Sentry.captureException(error, context));
 }
+
+/**
+ * Capture a MESSAGE via the lazily-loaded Sentry (no-op without a DSN).
+ *
+ * US-2332: added because its absence was the reason the rule above got broken.
+ * `welcome-email.ts` needed captureMessage, this module only offered
+ * captureException, so it reached for a top-level `import * as Sentry` — and
+ * that module is reached from `use-auth.ts`, i.e. from the eager graph. One
+ * missing wrapper pulled the 475 KB vendor-sentry chunk into 59 of 609 chunks.
+ * A lazy façade only holds if it covers what callers actually need.
+ */
+export function captureMessage(
+  message: string,
+  context?: Parameters<SentryModule["captureMessage"]>[1],
+): void {
+  if (!import.meta.env.VITE_SENTRY_DSN) return;
+  void loadSentry().then((Sentry) => Sentry.captureMessage(message, context));
+}

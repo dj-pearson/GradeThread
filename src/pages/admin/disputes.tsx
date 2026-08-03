@@ -73,7 +73,8 @@ import {
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
 import { toast } from "sonner";
-import * as Sentry from "@sentry/react";
+// US-2332: lazy façade — see lib/sentry.ts.
+import { captureException } from "@/lib/sentry";
 
 // Notify the submitter of a dispute status change (in-app always, email on
 // resolve/reject). Best-effort — never blocks the admin action. Uses the edge
@@ -96,7 +97,7 @@ async function sendDisputeNotification(disputeId: string): Promise<void> {
     // US-785: the status change already succeeded — only the user notification
     // failed. Surface it to the admin + Sentry instead of swallowing it.
     if (import.meta.env.DEV) console.error("[Disputes] Failed to send status notification:", err);
-    Sentry.captureException(err, { tags: { area: "admin.dispute_notification" } });
+    captureException(err, { tags: { area: "admin.dispute_notification" } });
     toast.warning("Status updated, but the user notification failed to send.");
   }
 }
