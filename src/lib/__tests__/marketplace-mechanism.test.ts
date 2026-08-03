@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   API_CROSS_LISTING_PLATFORMS,
   EXTENSION_CROSS_LISTING_PLATFORMS,
@@ -22,6 +24,10 @@ describe("MARKETPLACE_MECHANISM", () => {
   });
 
   it("routes eBay/Shopify/Depop through the API", () => {
+    // Depop stays mechanism=api on purpose: the mechanism says HOW a channel
+    // would be reached, and Depop's adapter really is a server-side API
+    // connector. Whether it is switched on is MARKETPLACE_TIER's job, and that
+    // still reads api_pending. Conflating the two is what US-2327 unpicked.
     expect(MARKETPLACE_MECHANISM.ebay).toBe("api");
     expect(MARKETPLACE_MECHANISM.shopify).toBe("api");
     expect(MARKETPLACE_MECHANISM.depop).toBe("api");
@@ -51,8 +57,67 @@ describe("MARKETPLACE_MECHANISM", () => {
     }
   });
 
-  it("Depop is now a live API cross-list platform (US-714)", () => {
-    expect(LIVE_CROSS_LISTING_PLATFORMS as readonly string[]).toContain("depop");
+  // US-2327: this used to assert the opposite — that Depop IS live. The
+  // assertion was true of the constant and false of the product: the connector
+  // defaults to DISABLED, so on a stock deployment nothing about Depop works.
+  // A test that pins a claim the code cannot honour makes the claim harder to
+  // fix, not safer.
+  it("Depop is NOT advertised as live — the connector defaults off (US-2327)", () => {
+    expect(LIVE_CROSS_LISTING_PLATFORMS as readonly string[]).not.toContain("depop");
+  });
+
+  it("Whatnot is not reached by any mechanism (US-2327)", () => {
+    // Every adapter method is notImplemented and the API was modelled with no
+    // public docs, so "api" was the least supported claim in constants.ts.
+    expect(MARKETPLACE_MECHANISM.whatnot).toBe("none");
+  });
+});
+
+// US-2327 AC3: the frontend's "live" claim has to match what the SERVER can
+// actually do. Nothing in the UI reads these constants today, which is the only
+// reason the wrong values were harmless — the next consumer would have
+// inherited them. So the claim is tied to the adapters themselves rather than
+// to another constant that could drift alongside it.
+describe("the live list matches the adapters (US-2327)", () => {
+  const ADAPTERS = resolve(
+    process.cwd(),
+    "services/edge-functions/src/lib/marketplace-adapters",
+  );
+
+  it("every LIVE platform can actually PUBLISH", () => {
+    // Scoped to publish deliberately, and the scoping is a finding rather than
+    // a convenience: this assertion first failed on Shopify, whose adapter
+    // stubs syncListings and syncOrders while publish is real. "Live
+    // cross-listing" is a claim about PUSHING a listing out, so Shopify
+    // belongs in the list — but it cannot read anything back, which is a
+    // separate and unadvertised gap recorded on US-2327.
+    for (const p of LIVE_CROSS_LISTING_PLATFORMS) {
+      const src = readFileSync(resolve(ADAPTERS, `${p}.ts`), "utf8");
+      expect(
+        src,
+        `${p} is advertised as live but its publish path is a stub`,
+      ).not.toMatch(/publish:[^,]*notImplemented\(/);
+    }
+  });
+
+  it("a platform with a stubbed adapter can never be live", () => {
+    // The inverse, so the guard catches the failure from both directions: a
+    // half-built adapter being promoted, and a live platform regressing to a
+    // stub. Whatnot is the worked example.
+    for (const p of ["whatnot"] as const) {
+      const src = readFileSync(resolve(ADAPTERS, `${p}.ts`), "utf8");
+      expect(src).toMatch(/publish:[^,]*notImplemented\(/);
+      expect(LIVE_CROSS_LISTING_PLATFORMS as readonly string[]).not.toContain(p);
+    }
+  });
+
+  it("live implies tier 'api' — the two layers cannot disagree again", () => {
+    // The specific defect: LIVE_CROSS_LISTING_PLATFORMS said Depop was live
+    // while MARKETPLACE_TIER said api_pending, and nothing tied them together.
+    for (const p of LIVE_CROSS_LISTING_PLATFORMS) {
+      expect(MARKETPLACE_TIER[p], `${p} is listed live but its tier is not api`)
+        .toBe("api");
+    }
   });
 });
 

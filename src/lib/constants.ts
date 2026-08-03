@@ -1375,10 +1375,20 @@ export const CROSS_LISTING_PLATFORMS = [
   "etsy",
   "whatnot",
 ] as const;
-// Cross-list platforms that publish for real today via a server-side API
-// (US-599 Shopify, US-714 Depop). The extension platforms below are also "live"
-// but through the browser extension, not an API.
-export const LIVE_CROSS_LISTING_PLATFORMS = ["ebay", "shopify", "depop"] as const;
+// Cross-list platforms that publish for real TODAY via a server-side API. The
+// extension platforms below are also "live" but through the browser extension,
+// not an API.
+//
+// US-2327: Depop was removed. Its adapter is genuinely built (US-714, no
+// stubbed methods), but the whole connector is gated behind DEPOP_ENABLED,
+// which DEFAULTS TO FALSE — so on a stock deployment nothing about it works.
+// "Built" and "live" are different claims, and this constant makes the second
+// one. MARKETPLACE_TIER already said `api_pending` for Depop; this list
+// disagreed with it, and this list was the wrong one.
+//
+// The invariant, asserted in marketplace-mechanism.test.ts: everything here
+// must be MARKETPLACE_TIER === "api".
+export const LIVE_CROSS_LISTING_PLATFORMS = ["ebay", "shopify"] as const;
 export type CrossListingPlatform = (typeof CROSS_LISTING_PLATFORMS)[number];
 
 // US-717: how each marketplace is actually reached. The composer + Marketplaces
@@ -1396,7 +1406,12 @@ export const MARKETPLACE_MECHANISM: Record<
   shopify: "api",
   depop: "api",
   etsy: "api",
-  whatnot: "api",
+  // US-2327: was "api", which was the boldest claim in this file and the least
+  // supported. Every method on the Whatnot adapter is notImplemented, and
+  // lib/whatnot-api.ts states the base URL, endpoints and field names were
+  // MODELLED with no public documentation — so there is not an API waiting on
+  // approval, there is a guess. "none" is what a seller needs to read.
+  whatnot: "none",
   poshmark: "extension",
   mercari: "extension",
   grailed: "extension",
@@ -1429,7 +1444,11 @@ export const MARKETPLACE_TIER: Record<
   shopify: "api",
   depop: "api_pending",
   etsy: "api_pending",
-  whatnot: "api_pending",
+  // US-2327: demoted from api_pending. "Pending" implies an integration
+  // awaiting approval; Whatnot's is entirely unimplemented against an API
+  // nobody has documented. Moving it also keeps the tier↔mechanism consistency
+  // rule intact rather than carving out an exception for it.
+  whatnot: "coming_soon",
   poshmark: "extension",
   mercari: "extension",
   grailed: "extension",
@@ -1450,12 +1469,15 @@ export const MARKETPLACE_TIER_LABEL: Record<MarketplaceTier, string> = {
 
 // Cross-listable platforms fanned out server-side via POST /cross-push (the
 // US-708 adapter registry). Order = composer display order.
+// US-2327: Whatnot removed. This group means "reached by a server-side API",
+// and the existing consistency guard requires every member to be
+// mechanism=api — which Whatnot no longer is, because its adapter implements
+// nothing and its API was modelled without documentation.
 export const API_CROSS_LISTING_PLATFORMS = [
   "ebay",
   "shopify",
   "depop",
   "etsy",
-  "whatnot",
 ] as const satisfies readonly CrossListingPlatform[];
 
 // Cross-listable platforms reached through the browser extension (US-716).
