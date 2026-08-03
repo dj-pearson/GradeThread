@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**One pending: 00523.** 00515 through 00522 were all applied to prod on
+**Nothing pending.** 00515 through 00523 were all applied to prod on
 2026-08-03 (owner-confirmed).
 
 > [!warning] 00522 reached origin/main BEFORE it was applied — the second time
@@ -66,7 +66,7 @@ apply a migration, flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00523_users_trial_notice_sent_at.sql (US-2319 trial-notice idempotency, 2026-08-03)
+## ✅ APPLIED: 00523_users_trial_notice_sent_at.sql (US-2319 trial-notice idempotency, applied 2026-08-03 — owner-confirmed)
 
 **Risk: LOW.** One nullable column on `users`, plus a CREATE OR REPLACE of
 `guard_users_protected_columns` that only ADDS the new column to its denylist.

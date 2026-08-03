@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MarkdownPreview } from "@/components/admin/markdown-preview";
@@ -127,6 +127,9 @@ function fmtDate(iso: string): string {
 export function AdminKnowledgeBasePage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  // US-2335: ids for the editor form's two labelled selects.
+  const formCategoryId = useId();
+  const formAudienceId = useId();
   const [debounced, setDebounced] = useState("");
   const [category, setCategory] = useState<"all" | Category>("all");
   const [audience, setAudience] = useState<"all" | Audience>("all");
@@ -319,7 +322,10 @@ export function AdminKnowledgeBasePage() {
           />
         </div>
         <Select value={category} onValueChange={(v) => setCategory(v as typeof category)}>
-          <SelectTrigger className="w-44">
+          {/* US-2335: the placeholder is not a name. Unset this announces
+              "Category"; once chosen it announces the category — the control
+              renames itself as you use it. */}
+          <SelectTrigger className="w-44" aria-label="Filter by category">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent>
@@ -332,7 +338,7 @@ export function AdminKnowledgeBasePage() {
           </SelectContent>
         </Select>
         <Select value={audience} onValueChange={(v) => setAudience(v as typeof audience)}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-40" aria-label="Filter by audience">
             <SelectValue placeholder="Audience" />
           </SelectTrigger>
           <SelectContent>
@@ -342,7 +348,7 @@ export function AdminKnowledgeBasePage() {
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
-          <SelectTrigger className="w-36">
+          <SelectTrigger className="w-36" aria-label="Filter by status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -510,13 +516,13 @@ export function AdminKnowledgeBasePage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label>Category</Label>
+                      <Label htmlFor={formCategoryId}>Category</Label>
                       <Select
                         value={form.category}
                         onValueChange={(v) =>
                           setForm((f) => ({ ...f, category: v as Category }))}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger id={formCategoryId}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -529,13 +535,13 @@ export function AdminKnowledgeBasePage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Audience</Label>
+                      <Label htmlFor={formAudienceId}>Audience</Label>
                       <Select
                         value={form.audience}
                         onValueChange={(v) =>
                           setForm((f) => ({ ...f, audience: v as Audience }))}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger id={formAudienceId}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
