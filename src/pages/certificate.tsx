@@ -1068,7 +1068,7 @@ export function CertificatePage() {
                 alongside the Live-Verified / Verified Capture badges. */}
             {gradeReport.verified_360_badge && (
               <div className="flex items-start gap-3">
-                <Box className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-brand-red" />
+                <Box className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-brand-red-text" />
                 <div>
                   <p className="text-sm font-medium">360-Verified</p>
                   <p className="text-xs text-muted-foreground">
@@ -1089,7 +1089,7 @@ export function CertificatePage() {
                 the standard Verified Capture badge below. */}
             {gradeReport.live_capture_verified && (
               <div className="flex items-start gap-3">
-                <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-red dark:text-brand-red" />
+                <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-red-text dark:text-brand-red-text" />
                 <div>
                   <p className="text-sm font-medium">Live-Verified</p>
                   <p className="text-xs text-muted-foreground">

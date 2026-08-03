@@ -249,7 +249,7 @@ export function AdminSupportPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Headset className="h-6 w-6 text-brand-red" />
+            <Headset className="h-6 w-6 text-brand-red-text" />
             Support inbox
           </h1>
           <p className="text-sm text-muted-foreground">

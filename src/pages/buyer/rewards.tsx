@@ -346,7 +346,7 @@ function RewardsSummarySection() {
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
               <p className="flex items-center justify-center gap-1 text-2xl font-bold">
-                <Flame className="h-5 w-5 text-brand-red" />
+                <Flame className="h-5 w-5 text-brand-red-text" />
                 {summary.currentStreakWeeks}
               </p>
               <p className="text-xs text-muted-foreground">week streak</p>

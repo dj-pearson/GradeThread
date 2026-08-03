@@ -71,11 +71,11 @@ const BODY_STORAGE_KEY = "gt-anon-body-measures-in"; // inches, anon session
 const CM_PER_IN = 2.54;
 
 const VERDICT_TONE: Record<FitVerdict, string> = {
-  too_small: "text-brand-red",
+  too_small: "text-brand-red-text",
   slim: "text-amber-600 dark:text-amber-400",
   true: "text-emerald-600 dark:text-emerald-400",
   relaxed: "text-amber-600 dark:text-amber-400",
-  too_big: "text-brand-red",
+  too_big: "text-brand-red-text",
 };
 
 function num(raw: string): number | null {

@@ -157,7 +157,7 @@ function DurabilityReportBody() {
       <section className="border-t px-6 py-12">
         <div className="mx-auto max-w-4xl">
           <h2 className="flex items-center gap-2 text-2xl font-bold">
-            <TrendingDown className="h-6 w-6 text-brand-red" /> Loses condition fastest
+            <TrendingDown className="h-6 w-6 text-brand-red-text" /> Loses condition fastest
           </h2>
           <div className="mt-6">
             <BrandTable rows={data?.least_durable ?? []} kind="fragile" />

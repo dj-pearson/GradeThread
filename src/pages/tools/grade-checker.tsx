@@ -354,7 +354,7 @@ function GradeCheckerTool() {
             </div>
           </div>
         )}
-        {error ? <p className="mt-4 text-center text-sm text-brand-red">{error}</p> : null}
+        {error ? <p className="mt-4 text-center text-sm text-brand-red-text">{error}</p> : null}
       </div>
     </div>
   );

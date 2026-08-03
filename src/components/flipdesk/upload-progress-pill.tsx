@@ -31,7 +31,7 @@ export function UploadProgressPill() {
         </>
       ) : (
         <>
-          <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-brand-red" />
+          <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-brand-red-text" />
           <span className="truncate">
             {failed} upload{failed === 1 ? "" : "s"} failed — review
           </span>

@@ -180,7 +180,7 @@ function DisputesCard() {
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
-            <ShieldAlert className="h-4 w-4 text-brand-red" />
+            <ShieldAlert className="h-4 w-4 text-brand-red-text" />
             Payment disputes
           </span>
           {closedDisputes.length > 0 && (

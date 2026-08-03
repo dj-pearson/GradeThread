@@ -203,7 +203,7 @@ function TimelineEvent({ event, isLast }: { event: PassportEvent; isLast: boolea
           {/* Grade detail (graded events) */}
           {score !== null && tier && (
             <p className="text-sm text-muted-foreground">
-              <span className="font-semibold text-brand-red">{score.toFixed(1)}/10</span>
+              <span className="font-semibold text-brand-red-text">{score.toFixed(1)}/10</span>
               {" — "}
               {tier}
             </p>
@@ -376,7 +376,7 @@ export function PassportPage() {
             </div>
             {latestScore !== null && latestTier && (
               <div className="text-right">
-                <div className="text-3xl font-bold text-brand-red">
+                <div className="text-3xl font-bold text-brand-red-text">
                   {latestScore.toFixed(1)}
                 </div>
                 <div className="text-xs text-muted-foreground">{latestTier}</div>

@@ -51,7 +51,7 @@ function MethodBadge({ method }: { method: GradeBillingMethod }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-brand-red/10 px-2 py-0.5 text-[11px] font-medium text-brand-red">
+    <span className="inline-flex items-center gap-1 rounded-full bg-brand-red/10 px-2 py-0.5 text-[11px] font-medium text-brand-red-text">
       <CreditCard className="h-3 w-3" />
       Checkout
     </span>
@@ -139,7 +139,7 @@ export function GradePricingSummary({
             no checkout needed.
           </p>
         ) : (
-          <p className="font-medium text-brand-red">
+          <p className="font-medium text-brand-red-text">
             No included grades or credits left — a one-time{" "}
             {tierConfig.label} charge of $
             {(tierConfig.priceCents / 100).toFixed(2)} applies at checkout after

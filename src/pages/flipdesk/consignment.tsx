@@ -184,7 +184,7 @@ export function FlipdeskConsignmentPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Balance owed</CardDescription>
-            <CardTitle className="text-2xl tabular-nums text-brand-red">
+            <CardTitle className="text-2xl tabular-nums text-brand-red-text">
               {money(totals.owed)}
             </CardTitle>
           </CardHeader>
@@ -200,7 +200,7 @@ export function FlipdeskConsignmentPage() {
               Reconciled vs. estimated adjustment across all consignors:{" "}
               <span
                 className={
-                  totals.shareDelta >= 0 ? "text-green-600" : "text-brand-red"
+                  totals.shareDelta >= 0 ? "text-green-600" : "text-brand-red-text"
                 }
               >
                 {signedMoney(totals.shareDelta)}
@@ -298,7 +298,7 @@ export function FlipdeskConsignmentPage() {
                           className={`text-xs font-normal ${
                             Number(c.pnl?.consignor_share_delta) >= 0
                               ? "text-green-600"
-                              : "text-brand-red"
+                              : "text-brand-red-text"
                           }`}
                           title="Reconciled payout vs. sale-price estimate"
                         >

@@ -1102,7 +1102,7 @@ export function NewSubmissionPage() {
                     explain the value and point sellers to the app rather than
                     offering a toggle that can't truly attest. */}
                 <div className="flex items-start gap-3 rounded-lg border border-brand-red/30 bg-brand-red/5 p-3">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-red" />
+                  <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-red-text" />
                   <div className="space-y-0.5">
                     <p className="text-sm font-medium">
                       Want un-fakeable condition proof?

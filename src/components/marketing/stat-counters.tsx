@@ -60,7 +60,7 @@ export function StatCounters({ className }: { className?: string }) {
             const Icon = ICON_BY_KEY[c.key] ?? Gauge;
             return (
               <div key={c.key} className="flex flex-col items-center text-center">
-                <Icon aria-hidden="true" className="mb-2 h-5 w-5 text-brand-red" />
+                <Icon aria-hidden="true" className="mb-2 h-5 w-5 text-brand-red-text" />
                 <dt className="sr-only">{c.label}</dt>
                 <dd className="text-3xl font-extrabold font-display tabular-nums text-brand-navy dark:text-white">
                   {c.display}

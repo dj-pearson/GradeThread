@@ -17,11 +17,11 @@ import type { BodyProfileRow } from "@/types/database";
 // reusable on public cert/passport surfaces once measurements are exposed there.
 
 const VERDICT_TONE: Record<FitVerdict, string> = {
-  too_small: "text-brand-red",
+  too_small: "text-brand-red-text",
   slim: "text-amber-600 dark:text-amber-400",
   true: "text-emerald-600 dark:text-emerald-400",
   relaxed: "text-amber-600 dark:text-amber-400",
-  too_big: "text-brand-red",
+  too_big: "text-brand-red-text",
 };
 
 function coerceNumbers(m: Record<string, number | string> | null | undefined): Record<string, number> {

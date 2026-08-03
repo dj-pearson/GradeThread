@@ -44,7 +44,7 @@ interface AuthenticityResult {
 const VERDICT_UI: Record<Verdict, { label: string; tone: string }> = {
   likely_authentic: { label: "Looks consistent with genuine", tone: "text-emerald-600 dark:text-emerald-400" },
   inconclusive: { label: "Inconclusive", tone: "text-amber-600 dark:text-amber-400" },
-  red_flags: { label: "Red flags found", tone: "text-brand-red" },
+  red_flags: { label: "Red flags found", tone: "text-brand-red-text" },
 };
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -232,7 +232,7 @@ function AuthenticityCheckTool() {
             </div>
           </div>
         )}
-        {error ? <p className="mt-4 text-center text-sm text-brand-red">{error}</p> : null}
+        {error ? <p className="mt-4 text-center text-sm text-brand-red-text">{error}</p> : null}
       </div>
     </div>
   );

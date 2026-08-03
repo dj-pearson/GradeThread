@@ -734,7 +734,7 @@ export function LandingPage() {
           <dl className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-4">
             {PROOF_STATS.map((stat) => (
               <div key={stat.label} className="flex flex-col items-center text-center">
-                <stat.icon aria-hidden="true" className="mb-2 h-5 w-5 text-brand-red" />
+                <stat.icon aria-hidden="true" className="mb-2 h-5 w-5 text-brand-red-text" />
                 <dt className="sr-only">{stat.label}</dt>
                 <dd
                   data-countup

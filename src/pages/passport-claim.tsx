@@ -97,7 +97,7 @@ export function PassportClaimPage() {
             </>
           ) : (
             <>
-              <XCircle className="h-12 w-12 text-brand-red" />
+              <XCircle className="h-12 w-12 text-brand-red-text" />
               <h1 className="text-xl font-bold">Couldn't claim this passport</h1>
               <p className="text-muted-foreground">{state.message}</p>
               <Link

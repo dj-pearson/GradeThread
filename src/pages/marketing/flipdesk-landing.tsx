@@ -33,7 +33,7 @@ export function FlipdeskLandingPage({ slug: slugProp }: { slug?: string }) {
       {/* Hero — H1 + job-to-be-done intro */}
       <section className="px-6 py-16 lg:py-20">
         <div className="mx-auto max-w-3xl">
-          <p className="text-sm font-semibold uppercase tracking-wide text-brand-red">
+          <p className="text-sm font-semibold uppercase tracking-wide text-brand-red-text">
             FlipDesk
           </p>
           <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">
@@ -79,7 +79,7 @@ export function FlipdeskLandingPage({ slug: slugProp }: { slug?: string }) {
           <ul className="mt-6 space-y-3">
             {landing.featureList.map((f) => (
               <li key={f} className="flex gap-3 text-sm">
-                <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-red" />
+                <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-red-text" />
                 <span>{f}</span>
               </li>
             ))}

@@ -75,7 +75,7 @@ function DeltaChip({ value, label }: { value: number | null; label: string }) {
       className={cn(
         "inline-flex items-center gap-0.5",
         up && "text-emerald-600 dark:text-emerald-400",
-        down && "text-brand-red",
+        down && "text-brand-red-text",
         !up && !down && "text-muted-foreground",
       )}
       title={`${label}: ${value > 0 ? "+" : ""}${value.toFixed(1)} vs. previous grade`}
@@ -162,7 +162,7 @@ export function ConditionCurve({ points }: { points: ConditionCurvePoint[] }) {
                   className={cn(
                     "text-lg font-bold tabular-nums",
                     netDelta > 0 && "text-emerald-600 dark:text-emerald-400",
-                    netDelta < 0 && "text-brand-red",
+                    netDelta < 0 && "text-brand-red-text",
                     netDelta === 0 && "text-muted-foreground",
                   )}
                 >
@@ -183,7 +183,7 @@ export function ConditionCurve({ points }: { points: ConditionCurvePoint[] }) {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     {p.overall !== null && (
-                      <span className="text-base font-bold text-brand-red tabular-nums">
+                      <span className="text-base font-bold text-brand-red-text tabular-nums">
                         {p.overall.toFixed(1)}
                       </span>
                     )}

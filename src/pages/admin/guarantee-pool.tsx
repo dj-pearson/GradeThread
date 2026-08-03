@@ -103,7 +103,7 @@ export function AdminGuaranteePoolPage() {
       />
 
       {data.throttled && (
-        <div className="flex items-center gap-2 rounded-md border border-brand-red/40 bg-brand-red/10 p-3 text-sm text-brand-red">
+        <div className="flex items-center gap-2 rounded-md border border-brand-red/40 bg-brand-red/10 p-3 text-sm text-brand-red-text">
           <AlertTriangle className="h-4 w-4" />
           Loss ratio has breached the throttle ({pct(data.config.loss_ratio_throttle)}) — auto-payouts are routing to manual review.
         </div>

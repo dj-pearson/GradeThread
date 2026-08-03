@@ -105,7 +105,7 @@ export function TagScanPage() {
             </>
           ) : (
             <>
-              <XCircle className="h-12 w-12 text-brand-red" />
+              <XCircle className="h-12 w-12 text-brand-red-text" />
               <h1 className="text-xl font-bold">Tag not available</h1>
               <p className="text-muted-foreground">{state.message}</p>
               <Link

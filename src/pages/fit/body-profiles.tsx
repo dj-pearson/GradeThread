@@ -220,7 +220,7 @@ export function BodyProfilesPage() {
                       aria-label={`Delete ${p.name}`}
                       onClick={() => remove(p.id, p.name)}
                     >
-                      <Trash2 className="h-4 w-4 text-brand-red" />
+                      <Trash2 className="h-4 w-4 text-brand-red-text" />
                     </Button>
                   </div>
                 </li>

@@ -31,7 +31,7 @@ const GUIDANCE: Record<string, { label: string; cls: string } | undefined> = {
 function EstimateLine({ v, showGuidance }: { v: ItemValuation | null; showGuidance: boolean }) {
   if (!v || v.estimate_cents == null) return null;
   const trendColor =
-    v.trend === "up" ? "text-emerald-600" : v.trend === "down" ? "text-brand-red" : "text-muted-foreground";
+    v.trend === "up" ? "text-emerald-600" : v.trend === "down" ? "text-brand-red-text" : "text-muted-foreground";
   const g = showGuidance ? GUIDANCE[v.sell_guidance] : undefined;
   return (
     <p className="text-xs">
@@ -205,7 +205,7 @@ export function BuyerPortfolioPage() {
                 <p className="text-xs text-muted-foreground">Unrealized gain/loss</p>
                 <p
                   className={`text-lg font-semibold tabular-nums ${
-                    totals.unrealizedGainCents >= 0 ? "text-emerald-600" : "text-brand-red"
+                    totals.unrealizedGainCents >= 0 ? "text-emerald-600" : "text-brand-red-text"
                   }`}
                 >
                   {totals.unrealizedGainCents >= 0 ? "+" : "−"}{usd(Math.abs(totals.unrealizedGainCents))}

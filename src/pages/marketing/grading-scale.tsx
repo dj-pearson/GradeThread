@@ -35,7 +35,7 @@ export function GradingScalePage() {
       {/* Hero — H1 + the quotable, self-contained definition */}
       <section className="px-6 py-16 lg:py-20">
         <div className="mx-auto max-w-3xl">
-          <p className="text-sm font-semibold uppercase tracking-wide text-brand-red">
+          <p className="text-sm font-semibold uppercase tracking-wide text-brand-red-text">
             The standard
           </p>
           <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">

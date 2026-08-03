@@ -105,7 +105,7 @@ function AlternativeBody({ alt }: { alt: CompetitorAlternative }) {
           <ul className="mt-8 space-y-3">
             {alt.switchReasons.map((r) => (
               <li key={r} className="flex gap-3 text-muted-foreground">
-                <TriangleAlert className="mt-1 h-4 w-4 flex-shrink-0 text-brand-red" />
+                <TriangleAlert className="mt-1 h-4 w-4 flex-shrink-0 text-brand-red-text" />
                 {r}
               </li>
             ))}

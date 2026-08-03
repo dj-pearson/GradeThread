@@ -86,7 +86,7 @@ function SellerCard({ seller, rank }: { seller: DirectorySeller; rank: number })
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1.5 truncate font-semibold">
           {seller.display_name}
-          <BadgeCheck className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-brand-red" />
+          <BadgeCheck className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-brand-red-text" />
         </p>
         <p className="truncate text-sm text-muted-foreground">@{seller.handle}</p>
       </div>

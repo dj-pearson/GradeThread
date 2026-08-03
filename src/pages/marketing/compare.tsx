@@ -135,7 +135,7 @@ export function ComparisonPage({ slug: slugProp }: { slug?: string }) {
                     <th className="py-4 pr-4 font-medium">
                       {row.dimension}
                       {row.wedge ? (
-                        <span className="mt-1 flex items-center gap-1 text-xs font-normal text-brand-red">
+                        <span className="mt-1 flex items-center gap-1 text-xs font-normal text-brand-red-text">
                           <ShieldCheck className="h-3.5 w-3.5" />
                           Where a grade protects you
                         </span>

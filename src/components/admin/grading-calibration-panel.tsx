@@ -211,7 +211,7 @@ export function GradingCalibrationPanel() {
         {hasClaimSignal && (
           <div className="space-y-2 rounded-lg border border-brand-red/30 bg-brand-red/5 p-3">
             <div className="flex items-center gap-2 text-sm font-medium text-brand-navy dark:text-foreground">
-              <ShieldAlert className="h-4 w-4 text-brand-red" />
+              <ShieldAlert className="h-4 w-4 text-brand-red-text" />
               Buyer-claim calibration signal
             </div>
             <p className="text-xs text-muted-foreground">

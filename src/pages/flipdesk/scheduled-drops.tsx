@@ -335,7 +335,7 @@ export function FlipdeskScheduledDropsPage() {
                       <div
                         className={cn(
                           "mb-1 text-[11px] font-semibold",
-                          isToday ? "text-brand-red" : "text-muted-foreground",
+                          isToday ? "text-brand-red-text" : "text-muted-foreground",
                         )}
                       >
                         {cell.day}
@@ -350,7 +350,7 @@ export function FlipdeskScheduledDropsPage() {
                           >
                             <span className="flex items-center gap-1 font-medium text-brand-navy dark:text-blue-300">
                               {isPromoted(d) && (
-                                <Megaphone className="h-3 w-3 shrink-0 text-brand-red" />
+                                <Megaphone className="h-3 w-3 shrink-0 text-brand-red-text" />
                               )}
                               <span className="truncate">{titleOf(d)}</span>
                             </span>
