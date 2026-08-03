@@ -44,12 +44,36 @@ Deno.test("missing required angles abstain with one request each", () => {
   assert(r.photo_requests.some((m) => m.includes("label")));
 });
 
-Deno.test("missing detail photo abstains (coverage AC #3)", () => {
+Deno.test("missing detail photo WARNS and still grades (US-2397)", () => {
+  // Was an abstain until 2026-08-03. Refusing a garment with clean front/back/
+  // label coverage cost the seller a grade they had the photos for; the grade
+  // now happens, capped and human-checked (NO_FABRIC_CLOSEUP_CONFIDENCE_CAP).
   const r = evaluateImageQuality([img("front"), img("back"), img("label")]);
-  assert(r.abstain);
+  assert(!r.abstain);
+  assert(r.fabricCloseupMissing);
   assert(
-    r.issues.some((i) => i.problem === "missing" && i.image_type === "detail"),
+    r.issues.some((i) =>
+      i.problem === "missing" && i.image_type === "detail" &&
+      i.severity === "warn"
+    ),
   );
+  // A warning must never leak into the abstention asks — those are the
+  // "we cannot grade this" list, and this one is gradeable.
+  assert(r.photo_requests.length === 0);
+});
+
+Deno.test("a real close-up leaves fabricCloseupMissing false (no cap)", () => {
+  // The other half of the owner's rule: with a detail shot, business as usual.
+  for (const t of ["detail", "detail_2", "detail_3", "detail_4"]) {
+    const r = evaluateImageQuality([
+      img("front"),
+      img("back"),
+      img("label"),
+      img(t),
+    ]);
+    assert(!r.fabricCloseupMissing, t);
+    assert(r.ok, t);
+  }
 });
 
 Deno.test("severe blur on a CORE shot blocks; on a detail it only warns", () => {

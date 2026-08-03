@@ -567,7 +567,7 @@ async function escalateGrade(
     [],
     false,
     tagBlock,
-    // US-2396: recomputed from THIS pass's analyzed set, not inherited from the
+    // US-2397: recomputed from THIS pass's analyzed set, not inherited from the
     // first one — the escalation can drop an optional detail image, and an
     // escalated grade must never be the way an uncapped fabric guess ships.
     fabricCloseupMissingFor(perImageResults.map((r) => r.image_type)),
@@ -2006,7 +2006,7 @@ export async function processSubmission(submissionId: string) {
       false,
       // US-2210: trusted label transcription ("" when off / unread).
       tagBlock,
-      // US-2396: grading without a fabric close-up is allowed now, but never at
+      // US-2397: grading without a fabric close-up is allowed now, but never at
       // full confidence — this caps it and forces the human check.
       qualityGate.fabricCloseupMissing,
     );

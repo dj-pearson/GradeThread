@@ -39,6 +39,10 @@ export interface ValidationItem {
   cost: number;
   ready: boolean;
   blockers: string[];
+  // US-2397: non-blocking notices from the server validator. Optional because an
+  // edge deployed before this field still answers without it, and the card must
+  // render against the older shape rather than crash on undefined.map.
+  warnings?: string[];
   title: string | null;
   garment_type: string | null;
   garment_category: string | null;

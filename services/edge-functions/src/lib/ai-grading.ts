@@ -1780,7 +1780,7 @@ export const DEFECT_DIVERGENCE_CONFIDENCE_CAP = 0.6;
 // confidence well below the review threshold so the model's self-reported number
 // can never auto-approve a forged grade — it always routes to a human.
 export const PROMPT_INJECTION_CONFIDENCE_CAP = 0.5;
-// US-2396: no fabric close-up was supplied, so fabric_condition (30%, the
+// US-2397: no fabric close-up was supplied, so fabric_condition (30%, the
 // heaviest factor) came from the full-garment shots. Below the default review
 // threshold, and paired with a force-review flag so a reconfigured threshold
 // cannot let it through unchecked.
@@ -1839,7 +1839,7 @@ export interface ConfidencePolicyInput {
   // absent/false leaves behavior byte-identical for existing callers.
   injectionSuspected?: boolean;
   /**
-   * US-2396: no `detail_*` close-up was supplied, so fabric_condition — 30% of
+   * US-2397: no `detail_*` close-up was supplied, so fabric_condition — 30% of
    * the weighted overall, the single heaviest factor — was read off the
    * full-garment shots rather than the weave/knit.
    *
@@ -2116,7 +2116,7 @@ export async function compositeGrade(
   // suffix when present so accuracy-tracking can attribute the tag-grounded era
   // separately from the baseline/fabric/visual ones.
   tagBlock = "",
-  // US-2396: no fabric close-up was in the analyzed set, so fabric_condition was
+  // US-2397: no fabric close-up was in the analyzed set, so fabric_condition was
   // read off the full-garment shots. Caps confidence and forces review below.
   // Default false → byte-identical for every submission that has a close-up.
   fabricCloseupMissing = false,

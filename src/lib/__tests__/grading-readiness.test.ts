@@ -27,22 +27,39 @@ describe("grading readiness (shared fixture)", () => {
         photoTypes: c.input.photoTypes,
       });
       expect(got.blockers, `case: ${c.name}`).toEqual(c.expected.blockers);
+      expect(got.warnings, `case: ${c.name}`).toEqual(c.expected.warnings);
+      expect(got.ready, `case: ${c.name}`).toBe(c.expected.blockers.length === 0);
+    }
+  });
+
+  it("a warning never makes an item unready", () => {
+    // US-2397: the readiness verdict reads BLOCKERS only. If warnings ever leak
+    // into it, this becomes the old hard gate again wearing a softer word.
+    const warned = fixture.cases.filter((c) => c.expected.warnings.length > 0);
+    expect(warned.length).toBeGreaterThan(0);
+    for (const c of warned) {
+      const got = previewGradingReadiness({
+        garment_type: c.input.garment_type,
+        garment_category: c.input.garment_category,
+        title: c.input.title,
+        photoTypes: c.input.photoTypes,
+      });
       expect(got.ready, `case: ${c.name}`).toBe(c.expected.blockers.length === 0);
     }
   });
 
   it("a defect photo does NOT satisfy the fabric close-up requirement", () => {
-    // The distinction the copy exists to make — a defect shot is not a weave
-    // shot, and the pipeline ABSTAINS without a real close-up. Getting this
-    // wrong means a "ready" item comes back ungraded after the seller paid.
+    // The distinction the copy exists to make — a defect shot frames the flaw,
+    // not the weave. Post-US-2397 it earns the warning and the human check,
+    // rather than turning the seller away.
     const got = previewGradingReadiness({
       garment_type: "jeans",
       garment_category: "denim",
       title: "X",
       photoTypes: ["front", "back", "defect"],
     });
-    expect(got.ready).toBe(false);
-    expect(got.blockers.join(" ")).toContain("fabric close-up");
+    expect(got.ready).toBe(true);
+    expect(got.warnings.join(" ")).toContain("fabric close-up");
   });
 
   it("treats a whitespace-only title as missing", () => {

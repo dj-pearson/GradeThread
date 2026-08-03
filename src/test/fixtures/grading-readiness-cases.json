@@ -1,5 +1,5 @@
 {
-  "_comment": "US-2019 SHARED FIXTURE. Grading-readiness rules exist in two projects that cannot import each other: services/edge-functions/src/routes/flipdesk-grading.ts (gradingReadinessBlockers — the AUTHORITY, used by /validate and /submit) and src/lib/grading-readiness.ts (previewGradingReadiness — the web mirror driving the live Submit card). Both suites assert THIS table. Divergence is silent in both directions: a client saying ready when the server disagrees sends a seller into a submit-time rejection; a client saying not-ready when the server would accept blocks them from paying. Blocker strings are user-facing copy AND regex-matched by the web card (onlyGarmentBlocks), so changing one is a cross-project change.",
+  "_comment": "US-2019 SHARED FIXTURE. Grading-readiness rules exist in two projects that cannot import each other: services/edge-functions/src/routes/flipdesk-grading.ts (gradingReadinessBlockers — the AUTHORITY, used by /validate and /submit) and src/lib/grading-readiness.ts (previewGradingReadiness — the web mirror driving the live Submit card). Both suites assert THIS table. Divergence is silent in both directions: a client saying ready when the server disagrees sends a seller into a submit-time rejection; a client saying not-ready when the server would accept blocks them from paying. US-2397: the fabric close-up rule moved from blockers to WARNINGS — it no longer stops a submission, it caps the grade confidence and forces a human check instead, so a case with only that warning is READY. Blocker and warning strings are user-facing copy AND regex-matched by the web card (onlyGarmentBlocks), so changing one is a cross-project change.",
   "cases": [
     {
       "name": "fully ready",
@@ -15,6 +15,7 @@
       },
       "expected": {
         "blockers": [],
+        "warnings": [],
         "missingPhotos": []
       }
     },
@@ -32,6 +33,7 @@
       },
       "expected": {
         "blockers": [],
+        "warnings": [],
         "missingPhotos": []
       }
     },
@@ -45,8 +47,10 @@
       },
       "expected": {
         "blockers": [
-          "Missing required photos: front, back",
-          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+          "Missing required photos: front, back"
+        ],
+        "warnings": [
+          "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot."
         ],
         "missingPhotos": [
           "front",
@@ -69,6 +73,7 @@
         "blockers": [
           "Missing required photos: back"
         ],
+        "warnings": [],
         "missingPhotos": [
           "back"
         ]
@@ -89,6 +94,7 @@
         "blockers": [
           "Missing required photos: front"
         ],
+        "warnings": [],
         "missingPhotos": [
           "front"
         ]
@@ -106,8 +112,9 @@
         ]
       },
       "expected": {
-        "blockers": [
-          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+        "blockers": [],
+        "warnings": [
+          "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot."
         ],
         "missingPhotos": []
       }
@@ -125,8 +132,9 @@
         ]
       },
       "expected": {
-        "blockers": [
-          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+        "blockers": [],
+        "warnings": [
+          "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot."
         ],
         "missingPhotos": []
       }
@@ -147,6 +155,7 @@
         "blockers": [
           "Missing title"
         ],
+        "warnings": [],
         "missingPhotos": []
       }
     },
@@ -166,6 +175,7 @@
         "blockers": [
           "Missing title"
         ],
+        "warnings": [],
         "missingPhotos": []
       }
     },
@@ -185,6 +195,7 @@
         "blockers": [
           "Missing garment_type"
         ],
+        "warnings": [],
         "missingPhotos": []
       }
     },
@@ -204,6 +215,7 @@
         "blockers": [
           "Missing garment_category"
         ],
+        "warnings": [],
         "missingPhotos": []
       }
     },
@@ -220,8 +232,10 @@
           "Missing garment_type",
           "Missing garment_category",
           "Missing title",
-          "Missing required photos: front, back",
-          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+          "Missing required photos: front, back"
+        ],
+        "warnings": [
+          "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot."
         ],
         "missingPhotos": [
           "front",
@@ -242,8 +256,10 @@
       },
       "expected": {
         "blockers": [
-          "Missing required photos: front, back",
-          "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot."
+          "Missing required photos: front, back"
+        ],
+        "warnings": [
+          "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot."
         ],
         "missingPhotos": [
           "front",

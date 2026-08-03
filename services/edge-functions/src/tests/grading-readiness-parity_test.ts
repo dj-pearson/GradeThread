@@ -36,7 +36,7 @@ const fixture = JSON.parse(
       title: string | null;
       photoTypes: string[];
     };
-    expected: { blockers: string[]; missingPhotos: string[] };
+    expected: { blockers: string[]; warnings: string[]; missingPhotos: string[] };
   }>;
 };
 
@@ -54,24 +54,39 @@ Deno.test("edge grading readiness matches the cross-project fixture", () => {
       photoTypes: c.input.photoTypes,
     });
     assertEquals(got.blockers, c.expected.blockers, `case: ${c.name}`);
+    assertEquals(got.warnings, c.expected.warnings, `case: ${c.name}`);
     assertEquals(got.missingPhotos, c.expected.missingPhotos, `case: ${c.name}`);
   }
 });
 
 Deno.test("edge: a defect photo does NOT satisfy the fabric close-up rule", () => {
-  // If this ever passes, a seller pays for a grade on an item the pipeline will
-  // ABSTAIN on — the exact outcome the pre-submission blocker exists to prevent.
+  // Still not a substitute: a defect shot frames the flaw, not the weave. What
+  // changed in US-2397 is the CONSEQUENCE — it warns and caps the grade instead
+  // of refusing the submission.
   const got = gradingReadinessBlockers({
     garment_type: "jeans",
     garment_category: "denim",
     title: "X",
     photoTypes: ["front", "back", "defect"],
   });
-  assertEquals(got.blockers.length > 0, true);
   assertEquals(
-    got.blockers.some((b) => b.includes("fabric close-up")),
+    got.warnings.some((w) => w.includes("fabric close-up")),
     true,
   );
+});
+
+Deno.test("edge: a missing fabric close-up no longer blocks submission", () => {
+  // US-2397, the whole point: good front/back coverage and nothing tagged
+  // Detail is READY. If this ever goes back to blocking, sellers lose grades
+  // they have the photos for.
+  const got = gradingReadinessBlockers({
+    garment_type: "jeans",
+    garment_category: "denim",
+    title: "Levi 501",
+    photoTypes: ["front", "back", "label", "defect"],
+  });
+  assertEquals(got.blockers, []);
+  assertEquals(got.warnings.length, 1);
 });
 
 Deno.test("edge: blocker strings are the exact user-facing copy", () => {

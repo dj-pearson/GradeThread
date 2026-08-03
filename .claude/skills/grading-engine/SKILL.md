@@ -87,10 +87,21 @@ inert until they pass the eval gate and are explicitly activated
 - Additional forced-review triggers: defect-divergence, authenticity flags,
   partial image set (cap **0.6**, `PARTIAL_IMAGE_CONFIDENCE_CAP`), peer-norm
   outlier (cap 0.7, `PEER_NORM_CONFIDENCE_CAP`, US-1536), ≥2
-  visual-verification discrepancies (US-1537).
-  The two caps are DIFFERENT numbers and both are named constants — this doc
-  said 0.7 for both, and so did peer-norm.ts's own comment, which claimed its
-  0.7 "matched" the partial-image cap it has never equalled (US-2308).
+  visual-verification discrepancies (US-1537), **no fabric close-up** (cap
+  **0.6**, `NO_FABRIC_CLOSEUP_CONFIDENCE_CAP`, US-2397).
+  These caps are DIFFERENT numbers and all are named constants — this doc
+  said 0.7 for both the first two, and so did peer-norm.ts's own comment, which
+  claimed its 0.7 "matched" the partial-image cap it has never equalled
+  (US-2308). `NO_FABRIC_CLOSEUP_CONFIDENCE_CAP` equals the partial-image cap
+  TODAY and is deliberately not written in terms of it: one means "an image we
+  could not analyze", the other "an image the seller never took".
+- **A missing fabric close-up no longer abstains (US-2397).** `image-quality.ts`
+  used to refuse to grade without a `detail_*` shot, and the FlipDesk validator
+  mirrored that as a pre-submission blocker. Owner's call, 2026-08-03: both are
+  warnings now, because refusing a garment with clean front/back/label coverage
+  cost sellers grades they had the photos for. The grade happens, capped and
+  human-checked. **With a close-up present, every path is byte-identical** —
+  that is the other half of the decision and it is test-guarded.
 - Caps COMPOSE via min-of-caps; penalties floor at 0. Never raise confidence
   post-composite. New caps: follow `composeConfidenceCap` (peer-norm.ts).
 - **The mechanism, not just the rule (US-2299).** "Never raise post-composite"

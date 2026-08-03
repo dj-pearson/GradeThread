@@ -26,7 +26,20 @@ export interface GradingReadinessInput {
 export interface GradingReadiness {
   ready: boolean;
   blockers: string[];
+  /**
+   * US-2397: things worth telling the seller that do NOT stop submission.
+   * `ready` ignores them on purpose — a warning that blocks is just a blocker
+   * with softer wording, which is what the fabric close-up rule used to be.
+   */
+  warnings: string[];
 }
+
+// Verbatim copy of FABRIC_CLOSEUP_WARNING in the edge authority
+// (services/edge-functions/src/routes/flipdesk-grading.ts). Both are asserted
+// against src/test/fixtures/grading-readiness-cases.json, so an edit to one
+// fails the other project's suite rather than drifting quietly.
+export const FABRIC_CLOSEUP_WARNING =
+  "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot.";
 
 export function previewGradingReadiness(
   input: GradingReadinessInput,
@@ -36,6 +49,7 @@ export function previewGradingReadiness(
       ? input.photoTypes
       : new Set(input.photoTypes);
   const blockers: string[] = [];
+  const warnings: string[] = [];
 
   if (!input.garment_type) blockers.push("Missing garment_type");
   if (!input.garment_category) blockers.push("Missing garment_category");
@@ -47,10 +61,8 @@ export function previewGradingReadiness(
   }
 
   if (!FABRIC_CLOSEUP_PHOTO_TYPES.some((t) => have.has(t))) {
-    blockers.push(
-      "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot.",
-    );
+    warnings.push(FABRIC_CLOSEUP_WARNING);
   }
 
-  return { ready: blockers.length === 0, blockers };
+  return { ready: blockers.length === 0, blockers, warnings };
 }

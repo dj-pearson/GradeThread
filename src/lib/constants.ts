@@ -1186,11 +1186,15 @@ export const FLIPDESK_PHOTO_TYPES = [
 // (src/lib/photo-profiles.ts → usePhotoProfile); this remains the default/
 // fallback for clothing and for any consumer that hasn't loaded a profile.
 export const REQUIRED_PHOTO_TYPES = ["front", "back"] as const;
-// Grading needs at least ONE fabric close-up (weave/knit/seam) — it's what the
-// fabric_condition factor (30% of the score) is read from, and the pipeline's
-// image-quality gate abstains without it. Client mirror of
-// FABRIC_CLOSEUP_PHOTO_TYPES in services/edge-functions/src/routes/flipdesk-grading.ts;
-// the two MUST stay in lockstep. Consumed by previewGradingReadiness().
+// A fabric close-up (weave/knit/seam) is what the fabric_condition factor (30%
+// of the score) is read from. Client mirror of FABRIC_CLOSEUP_PHOTO_TYPES in
+// services/edge-functions/src/routes/flipdesk-grading.ts; the two MUST stay in
+// lockstep. Consumed by previewGradingReadiness().
+//
+// US-2397: no longer REQUIRED. The image-quality gate used to abstain without
+// one; now it warns, the grade proceeds capped, and a human checks it. So this
+// list decides whether the seller gets a warning and a slower grade, not whether
+// they can submit at all.
 export const FABRIC_CLOSEUP_PHOTO_TYPES = [
   "detail",
   "detail_2",

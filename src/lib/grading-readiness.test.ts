@@ -44,20 +44,29 @@ describe("previewGradingReadiness", () => {
     expect(r.blockers).toContain("Missing required photos: front, back");
   });
 
-  it("blocks when no fabric close-up is present (front+back only)", () => {
+  it("WARNS, and does not block, when no fabric close-up is present", () => {
+    // US-2397: front+back and nothing tagged Detail is a gradeable item. The
+    // seller is told the grade gets a human check rather than being turned away.
     const r = previewGradingReadiness({ ...READY, photoTypes: ["front", "back"] });
-    expect(r.ready).toBe(false);
-    expect(r.blockers.some((b) => b.startsWith("Add one fabric close-up"))).toBe(
-      true,
-    );
+    expect(r.ready).toBe(true);
+    expect(r.blockers).toEqual([]);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toContain("a person will check this grade");
   });
 
   it("does not count a defect shot as the fabric close-up", () => {
+    // A defect shot frames the flaw, not the weave — so it still earns the
+    // warning. It just no longer costs the seller the submission.
     const r = previewGradingReadiness({
       ...READY,
       photoTypes: ["front", "back", "defect"],
     });
-    expect(r.ready).toBe(false);
+    expect(r.ready).toBe(true);
+    expect(r.warnings).toHaveLength(1);
+  });
+
+  it("a real close-up leaves nothing to warn about", () => {
+    expect(previewGradingReadiness(READY).warnings).toEqual([]);
   });
 
   it("accepts a Set for photoTypes", () => {

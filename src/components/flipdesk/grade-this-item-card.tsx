@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   ExternalLink,
   History,
+  Info,
   ShieldCheck,
 } from "lucide-react";
 import {
@@ -395,6 +396,11 @@ export function GradeThisItemCard({
   // the card is used without live inputs.
   const ready = preview ? preview.ready : validation?.ready ?? false;
   const blockers = preview ? preview.blockers : validation?.blockers ?? [];
+  // US-2397: things worth saying that do NOT gate the button. Today: no fabric
+  // close-up, which now buys a human review instead of a refusal. Rendered
+  // separately from blockers so the seller can tell "you cannot submit" from
+  // "you can, and here is the cost".
+  const warnings = preview ? preview.warnings : validation?.warnings ?? [];
   const lastFailed = latest && latest.status === "failed" ? latest : null;
 
   // US-1423: when the garment fields are the ONLY thing blocking grading, show a
@@ -535,6 +541,17 @@ export function GradeThisItemCard({
               ))}
             </ul>
           )
+        )}
+
+        {warnings.length > 0 && (
+          <ul className="space-y-1 rounded-md border border-muted-foreground/25 bg-muted/40 p-2 text-xs">
+            {warnings.map((w, i) => (
+              <li key={i} className="flex items-start gap-1 text-muted-foreground">
+                <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                {w}
+              </li>
+            ))}
+          </ul>
         )}
 
         <div className="flex items-center justify-between gap-3">

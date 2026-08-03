@@ -19,6 +19,7 @@ const {
   DEFAULTED_FACTOR_VALUE,
   DEFAULTED_FACTOR_CONFIDENCE_CAP,
   AUTHENTICITY_FLAG_CONFIDENCE_CAP,
+  NO_FABRIC_CLOSEUP_CONFIDENCE_CAP,
 } = await import("../lib/ai-grading.ts");
 
 const VALID = {
@@ -256,4 +257,101 @@ Deno.test("US-2299: the pipeline seeds its running ceiling from the composite", 
   );
   // And the three provenance boosts must still clamp to that running ceiling.
   assertEquals(src.split("const ceiling = confidenceCeiling;").length - 1, 3);
+});
+
+// ── US-2397: grading without a fabric close-up ───────────────────────────────
+//
+// The image-quality gate used to ABSTAIN when no detail_* shot was supplied, so
+// this state could not reach the grader at all. It can now, by owner decision:
+// refusing a garment with clean front/back/label coverage cost sellers grades
+// they had the photos for. These tests pin the price of that decision — the
+// grade happens, but it can never be a confident one, because fabric_condition
+// is 30% of the weighted overall and its primary evidence is absent.
+
+Deno.test("US-2397: no fabric close-up caps confidence AND forces review", () => {
+  const r = applyGradingConfidencePolicy({
+    confidenceScore: 0.95,
+    authenticityFlagged: false,
+    defaultedFactorCount: 0,
+    reviewThreshold: 0.75,
+    fabricCloseupMissing: true,
+  });
+  assertEquals(r.finalConfidence, NO_FABRIC_CLOSEUP_CONFIDENCE_CAP);
+  assertEquals(r.confidenceCeiling, NO_FABRIC_CLOSEUP_CONFIDENCE_CAP);
+  assert(r.needsHumanReview);
+});
+
+Deno.test("US-2397: review is FORCED, not merely implied by the threshold", () => {
+  // The review threshold is configurable and calibrated. A permissive one must
+  // not become the way an unreviewed fabric guess ships — the cap lowers the
+  // number, the explicit flag is what guarantees a human sees it.
+  const r = applyGradingConfidencePolicy({
+    confidenceScore: 0.95,
+    authenticityFlagged: false,
+    defaultedFactorCount: 0,
+    reviewThreshold: 0.1,
+    fabricCloseupMissing: true,
+  });
+  assert(r.needsHumanReview);
+  assertEquals(r.finalConfidence, NO_FABRIC_CLOSEUP_CONFIDENCE_CAP);
+});
+
+Deno.test("US-2397: the cap LOWERS the ceiling, so no later boost lifts it", () => {
+  // The US-2299 rule: a cap that lowers finalConfidence but not the reported
+  // ceiling is invisible — the review gate fires, the grade looks handled, and
+  // the next provenance boost puts the STORED number back over the cap. That
+  // number is what the public confidence label and the calibration miner read.
+  const r = applyGradingConfidencePolicy({
+    confidenceScore: 0.4,
+    authenticityFlagged: false,
+    defaultedFactorCount: 0,
+    reviewThreshold: 0.75,
+    fabricCloseupMissing: true,
+  });
+  assertEquals(r.finalConfidence, 0.4); // already below the cap
+  assertEquals(r.confidenceCeiling, NO_FABRIC_CLOSEUP_CONFIDENCE_CAP);
+});
+
+Deno.test("US-2397: with a close-up present, behavior is byte-identical", () => {
+  // The owner's other half: "if it does have the detail then it is business as
+  // usual". Absent and explicitly-false must both leave the policy untouched.
+  const base = {
+    confidenceScore: 0.9,
+    authenticityFlagged: false,
+    defaultedFactorCount: 0,
+    reviewThreshold: 0.75,
+  };
+  const omitted = applyGradingConfidencePolicy(base);
+  const explicit = applyGradingConfidencePolicy({
+    ...base,
+    fabricCloseupMissing: false,
+  });
+  assertEquals(omitted, explicit);
+  assertEquals(explicit.finalConfidence, 0.9);
+  assertEquals(explicit.confidenceCeiling, 1);
+  assert(!explicit.needsHumanReview);
+});
+
+Deno.test("US-2397: composes by MIN with the other caps", () => {
+  const r = applyGradingConfidencePolicy({
+    confidenceScore: 1,
+    authenticityFlagged: false,
+    defaultedFactorCount: 1, // 0.5 cap — lower than this one
+    reviewThreshold: 0.75,
+    fabricCloseupMissing: true,
+  });
+  assertEquals(r.confidenceCeiling, DEFAULTED_FACTOR_CONFIDENCE_CAP);
+  assert(NO_FABRIC_CLOSEUP_CONFIDENCE_CAP > DEFAULTED_FACTOR_CONFIDENCE_CAP);
+});
+
+Deno.test("US-2397: the escalation re-grade recomputes the flag", () => {
+  // Source assertion, same reasoning as the US-2299 seeding test: an escalated
+  // grade is built by a SECOND compositeGrade call, and inheriting the first
+  // pass's flag (or forgetting it) is how the partial-image cap was lost on
+  // escalation once already (US-1642).
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-pipeline.ts", import.meta.url),
+  );
+  assertEquals(src.split("fabricCloseupMissingFor(").length - 1, 1);
+  assert(src.includes("qualityGate.fabricCloseupMissing"));
 });

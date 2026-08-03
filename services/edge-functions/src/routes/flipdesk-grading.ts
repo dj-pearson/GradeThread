@@ -51,7 +51,7 @@ interface ValidatedItem {
   cost: number;
   ready: boolean;
   blockers: string[];
-  // US-2396: things the seller should know before submitting that do NOT stop
+  // US-2397: things the seller should know before submitting that do NOT stop
   // the submission. `ready` deliberately ignores these — a warning that blocks
   // is just a blocker with softer wording.
   warnings: string[];
@@ -91,7 +91,7 @@ const REQUIRED_GRADING_PHOTO_TYPES = ["front", "back"] as const;
 // NOT a defect photo. These FlipDesk photo types map to a grading `detail_*`
 // image_type (see mapPhotoTypeForGrading) and satisfy it.
 //
-// US-2396: this used to be a hard blocker here, mirroring an ABSTAIN in
+// US-2397: this used to be a hard blocker here, mirroring an ABSTAIN in
 // image-quality.ts. Both are now warnings: a seller with solid front/back/label
 // coverage and nothing tagged Detail gets their grade. The cost is stated up
 // front rather than discovered later — the grade is capped below the review

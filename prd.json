@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2397",
+  "nextId": "US-2398",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2761,6 +2761,21 @@
       "notes": "[P3][Buyer/Money] Found 2026-08-03 while auditing unused exports for US-2363, not by looking for it. recordPoolDrawdown's doc says 'Pass the same poolDrawdownRef a reserve would have used, so if the claim WAS reserved this is an exact no-op instead of a second drawdown.' Its ONE caller (admin-guarantee-pool.ts:129) passes cl.id -- the claim id. That is the exact key mismatch US-2291 was filed for, sitting in the same file that fixed it. NOT REACHABLE TODAY, verified rather than assumed: 00490 inserts the ledger row only on the allowed path, a reserved claim therefore ends up auto_approved, and the admin resolve route refuses any claim whose status is not manual_review -- so no claim can be both reserved and manually approved. This is a latent mismatch and a doc that lies about its caller, not a live double-drawdown. Worth closing anyway because the whole point of US-2291's poolDrawdownRef was that ONE derivation exists, and a second key form in the ledger re-opens the door the moment either of those two conditions changes.",
       "passes": false,
       "priority": 1908
+    },
+    {
+      "id": "US-2397",
+      "passes": false,
+      "title": "Grading without a fabric close-up: warn and human-check instead of refusing",
+      "description": "As a seller with good front, back and label photos but nothing tagged Detail, I want to submit for grading anyway, so that a garment I already photographed well is not turned away.",
+      "acceptanceCriteria": [
+        "evaluateImageQuality (services/edge-functions/src/lib/image-quality.ts) no longer abstains when no detail_* image is present: the issue is severity \"warn\", abstain is false, photo_requests is empty, and the result carries fabricCloseupMissing: true.",
+        "gradingReadinessBlockers (services/edge-functions/src/routes/flipdesk-grading.ts) returns the fabric close-up message in a new warnings array rather than blockers, so ready stays true; ValidatedItem.warnings carries it to the client and readiness ignores warnings entirely.",
+        "applyGradingConfidencePolicy (ai-grading.ts) accepts fabricCloseupMissing and, when set, lowers BOTH finalConfidence and confidenceCeiling to NO_FABRIC_CLOSEUP_CONFIDENCE_CAP and forces needsHumanReview, so a later provenance boost cannot lift the stored number back over the cap (the US-2299 mechanism).",
+        "The escalation re-grade in grading-pipeline.ts recomputes the flag from its OWN analyzed set via the shared fabricCloseupMissingFor helper, so an escalated grade cannot ship uncapped the way the partial-image cap once did (US-1642).",
+        "With a detail_* photo present every path is byte-identical: a deno test asserts applyGradingConfidencePolicy returns the same result whether fabricCloseupMissing is omitted or explicitly false.",
+        "The web mirror src/lib/grading-readiness.ts returns the identical warning string, and both suites assert the shared fixture src/test/fixtures/grading-readiness-cases.json, which now carries a warnings array per case.",
+        "The Submit for grading card renders warnings in a separate, non-amber block that does not disable the submit button."
+      ]
     }
   ]
 }
