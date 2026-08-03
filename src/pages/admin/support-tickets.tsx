@@ -250,7 +250,9 @@ export function AdminSupportTicketsPage() {
             value={filter}
             onValueChange={(v) => setFilter(v as StatusFilter)}
           >
-            <SelectTrigger className="w-40">
+            {/* The "Assigned to me" label beside this belongs to the checkbox,
+                not to this filter. */}
+            <SelectTrigger className="w-40" aria-label="Filter tickets by status">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -380,7 +382,7 @@ export function AdminSupportTicketsPage() {
                     onValueChange={(v) =>
                       patchTicket({ status: v as TicketStatus }, "Status updated.")}
                   >
-                    <SelectTrigger className="h-8 w-32 text-xs">
+                    <SelectTrigger className="h-8 w-32 text-xs" aria-label="Ticket status">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -398,7 +400,7 @@ export function AdminSupportTicketsPage() {
                     onValueChange={(v) =>
                       patchTicket({ priority: v as Priority }, "Priority updated.")}
                   >
-                    <SelectTrigger className="h-8 w-32 text-xs">
+                    <SelectTrigger className="h-8 w-32 text-xs" aria-label="Ticket priority">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -453,7 +455,13 @@ export function AdminSupportTicketsPage() {
                 </div>
 
                 <div className="space-y-2 border-t p-4">
+                  {/* Named for what it always is. Its PLACEHOLDER changes with
+                      the internal-note toggle, so borrowing that as a name
+                      would make the control mean two different things — on
+                      top of a placeholder not being announced once you
+                      start typing. */}
                   <Textarea
+                    aria-label="Reply"
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
                     placeholder={internal

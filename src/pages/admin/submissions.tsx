@@ -436,7 +436,7 @@ export function AdminSubmissionsPage() {
                 setPage(1);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Filter by status">
                 <SelectValue placeholder="All Statuses" />
               </SelectTrigger>
               <SelectContent>
@@ -457,7 +457,7 @@ export function AdminSubmissionsPage() {
                 setPage(1);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Filter by confidence">
                 <SelectValue placeholder="All Confidence" />
               </SelectTrigger>
               <SelectContent>
@@ -471,6 +471,7 @@ export function AdminSubmissionsPage() {
             {/* Date from */}
             <Input
               type="date"
+              aria-label="Submitted from"
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value);
@@ -482,6 +483,7 @@ export function AdminSubmissionsPage() {
             {/* Date to */}
             <Input
               type="date"
+              aria-label="Submitted until"
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value);
