@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/ai-grading.ts
   - src/test/fixtures/weighted-grade-cases.json
-reviewed: 2026-08-02
+reviewed: 2026-08-03
 tags: [grading, rounding, lockstep, contract]
 summary: One client helper and one edge helper compute the weighted overall; they must agree exactly, and the formula has shipped wrong twice when copies drifted.
 ---

@@ -1,5 +1,11 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { fetchAllPages } from "../lib/paged-read.ts";
+import {
+  periodStartIso,
+  summarizeCompedSpend,
+  type UsageEvent,
+} from "../lib/comped-spend.ts";
 import {
   summarizeExtractionAccuracy,
   type ExtractionLogRow,
@@ -116,5 +122,69 @@ adminAiSpendRoutes.get("/extraction-accuracy", async (c) => {
     sample_size: rows.length,
     truncated: rows.length === ACCURACY_MAX_ROWS,
     days,
+  });
+});
+
+// GET /api/admin/ai/comped?period=today|7d|30d|90d
+//
+// US-2358 AC2: what the platform spends on grading it never charges for.
+//
+// Migration 00110 auto-elevates a super_admin row to Business/enterprise and
+// grade-billing gives super_admins UNCAPPED free grading, so granting the role
+// also grants unlimited Claude Vision spend in the same action. The decision
+// (AC1, recorded in lib/comped-spend.ts) is that the coupling stays automatic —
+// the platform owner grading their own inventory for free is intended. What was
+// wrong is that the spend was INVISIBLE: it sat in the same ledger as revenue-
+// generating usage with nothing separating the two, so a second super_admin
+// could run one up and it would look like business.
+//
+// Read-only. No RPC and no migration: ai_usage_events already carries user_id
+// and cost_usd, and the only thing missing was asking.
+adminAiSpendRoutes.get("/comped", async (c) => {
+  const period = c.req.query("period") ?? "30d";
+  if (!PERIODS.has(period)) {
+    return c.json({ error: `Invalid period "${period}"` }, 400);
+  }
+
+  const { data: admins, error: adminErr } = await supabaseAdmin
+    .from("users")
+    .select("id")
+    .eq("role", "super_admin");
+  if (adminErr) {
+    console.error("[admin-ai-spend] comped: super_admin lookup failed:", adminErr);
+    return c.json({ error: "Failed to load comped spend" }, 500);
+  }
+  const ids = ((admins ?? []) as Array<{ id: string }>).map((r) => r.id);
+  if (ids.length === 0) {
+    return c.json({ period, superAdmins: 0, summary: summarizeCompedSpend([]) });
+  }
+
+  const since = periodStartIso(period, Date.now());
+  // Paged: a comped account grading in bulk generates one row per Anthropic
+  // call, and a single unbounded read is exactly what PostgREST clips at
+  // db-max-rows with error:null — which would UNDERSTATE the number this
+  // endpoint exists to make un-hideable.
+  let events;
+  try {
+    events = await fetchAllPages<UsageEvent>(async (from, to) => {
+      const { data, error } = await supabaseAdmin
+        .from("ai_usage_events")
+        .select("user_id, submission_id, cost_usd, model")
+        .in("user_id", ids)
+        .gte("created_at", since)
+        .order("created_at", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as UsageEvent[];
+    });
+  } catch (err) {
+    console.error("[admin-ai-spend] comped: usage read failed:", err);
+    return c.json({ error: "Failed to load comped spend" }, 500);
+  }
+
+  return c.json({
+    period,
+    superAdmins: ids.length,
+    summary: summarizeCompedSpend(events),
   });
 });

@@ -8,6 +8,8 @@ code_refs:
   - services/edge-functions/src/lib/env.ts
   - services/edge-functions/src/lib/scope-guard.ts
   - services/edge-functions/src/tests/step-up-tiers_test.ts
+  - services/edge-functions/src/lib/comped-spend.ts
+  - services/edge-functions/src/lib/grade-billing.ts
 reviewed: 2026-08-03
 tags: [admin, security, mfa, scopes, policy]
 summary: Three tiers of admin authority — scope only, scope plus a day-window step-up, scope plus a five-minute step-up — and the rule for deciding which an action belongs to.
@@ -108,6 +110,31 @@ admin every `requireScope` except `users:role` is a no-op. Scope enforcement onl
 becomes a real control once an operator narrows a role, and nothing in the
 product prompts them to. That is US-2354 AC4 and it is the highest-leverage item
 left — none of the tiering above changes it.
+
+## ⚠️ A super_admin grant is also a SPEND grant
+
+Read this before granting the role to a second person.
+
+Migration `00110` auto-elevates any row with `role = 'super_admin'` to
+Business/enterprise, and `lib/grade-billing.ts` gives super_admins **uncapped
+free grading** — no counter increment, no credit debit, just a zero-delta ledger
+row for auditability. So the role grant is, in the same action, an unlimited
+Claude Vision spend grant. There is no second decision and no ceiling.
+
+**This is intended and stays automatic** (US-2358). The platform owner grading
+their own inventory for free is the point, and the bootstrap is genuinely clean:
+no seed migration, no env allowlist and no script mints a super_admin, so the
+first one has to be set by direct database access. Splitting the comp into a
+second grant would add a column, a migration, and a second thing to forget.
+
+What was actually wrong is that the spend was **invisible**. It sat in the same
+`ai_usage_events` ledger as revenue-generating usage with nothing separating the
+two, so a second super_admin could run up unbounded vision spend that looked
+exactly like business on the dashboard.
+
+`GET /api/admin/ai/comped?period=30d` now answers it: comped grades, calls, USD,
+split per user (biggest first — a runaway has a name) and per model (a model swap
+is how cost jumps). Check it after granting the role, not instead of granting it.
 
 ## Related
 
