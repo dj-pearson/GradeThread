@@ -135,9 +135,11 @@ if (slack >= 5) {
 //     first test written against grade.ts would set no floor, and the coverage
 //     it bought could be given straight back.
 //
-// Measured 2026-08-03.
+// Measured 2026-08-03. affiliate-payout ratcheted 4 -> 11 when US-2345 AC1
+// made fireTransfer testable — raise a floor in the same commit as the tests
+// that earned it, or the gain can be given straight back.
 const MONEY_FLOORS = {
-  "lib/affiliate-payout.ts": 4,
+  "lib/affiliate-payout.ts": 11,
   "lib/quick-grade.ts": 12,
 };
 const MONEY_DEBT = new Set([

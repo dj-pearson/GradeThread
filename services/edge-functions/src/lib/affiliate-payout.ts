@@ -448,14 +448,65 @@ async function findExistingTransfer(
 // `affiliate_payout_<id>` ⇒ a retry of the SAME row never double-pays.
 // `amount` is INTEGER CENTS (US-1655) — the same minor unit Stripe expects, so
 // it's passed straight through (no *100). Math.round is a defensive coercion.
-async function fireTransfer(args: {
+/**
+ * US-2345 AC1: the two writes `fireTransfer` makes, injectable.
+ *
+ * This is the money path's failure branch, and it was untestable for the usual
+ * reason — the writes went straight to the service-role client, so exercising
+ * "the transfer threw" needed a database. The default implementations below are
+ * exactly what the function did before; nothing about the live path changed.
+ *
+ * Both writes are scoped by payout id AND affiliate user id. That second
+ * predicate is not redundant: it is what stops a mis-derived payout id marking
+ * some other affiliate's payout as paid.
+ */
+export interface TransferIO {
+  markPaid(args: {
+    payoutId: string;
+    affiliateUserId: string;
+    amount: number;
+    transferId: string;
+  }): Promise<void>;
+  markFailed(args: {
+    payoutId: string;
+    affiliateUserId: string;
+    message: string;
+  }): Promise<void>;
+}
+
+const defaultTransferIO: TransferIO = {
+  async markPaid({ payoutId, affiliateUserId, amount, transferId }) {
+    await supabaseAdmin
+      .from("affiliate_payouts")
+      .update({
+        amount,
+        status: "paid",
+        stripe_transfer_id: transferId,
+        paid_at: new Date().toISOString(),
+        error: null,
+      })
+      .eq("id", payoutId)
+      .eq("affiliate_user_id", affiliateUserId);
+  },
+  async markFailed({ payoutId, affiliateUserId, message }) {
+    await supabaseAdmin
+      .from("affiliate_payouts")
+      .update({ status: "failed", error: message })
+      .eq("id", payoutId)
+      .eq("affiliate_user_id", affiliateUserId);
+  },
+};
+
+export async function fireTransfer(args: {
   payoutId: string;
   affiliateUserId: string;
   amount: number;
   accountId: string;
   stripe: Stripe;
+  io?: TransferIO;
 }): Promise<ProcessResult> {
   const { payoutId, affiliateUserId, amount, accountId, stripe } = args;
+  const io = args.io ?? defaultTransferIO;
   try {
     const transfer = await stripe.transfers.create(
       {
@@ -470,28 +521,19 @@ async function fireTransfer(args: {
       },
       { idempotencyKey: `affiliate_payout_${payoutId}` },
     );
-    await supabaseAdmin
-      .from("affiliate_payouts")
-      .update({
-        amount,
-        status: "paid",
-        stripe_transfer_id: transfer.id,
-        paid_at: new Date().toISOString(),
-        error: null,
-      })
-      .eq("id", payoutId)
-      .eq("affiliate_user_id", affiliateUserId);
+    await io.markPaid({
+      payoutId,
+      affiliateUserId,
+      amount,
+      transferId: transfer.id,
+    });
     return { outcome: "transferred", affiliateUserId, payoutId, amount };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Transfer failed";
     // Keep the commissions attached to this (now failed) payout — the sweep
     // retries the SAME row/key. Never release them to a new payout (would risk a
     // double-pay if the transfer actually went through on a network blip).
-    await supabaseAdmin
-      .from("affiliate_payouts")
-      .update({ status: "failed", error: message })
-      .eq("id", payoutId)
-      .eq("affiliate_user_id", affiliateUserId);
+    await io.markFailed({ payoutId, affiliateUserId, message });
     return { outcome: "failed", affiliateUserId, payoutId, reason: message };
   }
 }

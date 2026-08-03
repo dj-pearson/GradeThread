@@ -131,18 +131,35 @@ Deno.test("US-2345 AC3: the payout record really is two-phase", () => {
     /idempotencyKey: `affiliate_payout_\$\{payoutId\}`/.test(PAYOUT),
     "the transfer lost its idempotency key, so a retry can double-pay",
   );
+  // US-2345 AC1 made the two writes injectable, so this now follows ONE level of
+  // indirection instead of reading the catch block directly. Both halves are
+  // asserted, because either alone can be satisfied while the property is gone:
+  // the catch could call a markFailed that no longer writes `failed`, or the
+  // default IO could be correct and never called.
   const fail = PAYOUT.slice(PAYOUT.indexOf("} catch (err) {", PAYOUT.indexOf("async function fireTransfer")));
   assert(
-    /status: "failed"/.test(fail.slice(0, 600)),
+    /io\.markFailed\(/.test(fail.slice(0, 600)),
     "a failed transfer no longer marks the payout failed, so the retry phase " +
       "cannot find it",
   );
-  // And the commissions must NOT be released on failure.
-  assert(
-    !/status: "accrued"[\s\S]{0,200}payout_id: null/.test(fail.slice(0, 800)),
-    "a failed transfer releases the commissions — that risks double-paying a " +
-      "transfer that actually went through on a network blip",
+  const defaultIO = PAYOUT.slice(
+    PAYOUT.indexOf("const defaultTransferIO"),
+    PAYOUT.indexOf("export async function fireTransfer"),
   );
+  assert(
+    /markFailed\([\s\S]{0,400}status: "failed"/.test(defaultIO),
+    "the default markFailed no longer writes status:'failed' — the indirection " +
+      "is correct and the write behind it is not",
+  );
+  // And the commissions must NOT be released on failure — checked in the catch
+  // AND in the IO it delegates to, since the release could now live in either.
+  for (const [where, src] of [["catch", fail.slice(0, 800)], ["default IO", defaultIO]] as const) {
+    assert(
+      !/status: "accrued"[\s\S]{0,200}payout_id: null/.test(src),
+      `a failed transfer releases the commissions in the ${where} — that risks ` +
+        "double-paying a transfer that actually went through on a network blip",
+    );
+  }
 });
 
 Deno.test("US-2345 AC3: nothing sums commissions.status='paid' as money sent", () => {
