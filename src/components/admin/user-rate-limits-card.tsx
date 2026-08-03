@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
@@ -89,6 +89,11 @@ export function UserRateLimitsCard({ userId }: { userId: string }) {
   const [value, setValue] = useState("");
   const [minutes, setMinutes] = useState("60");
   const [reason, setReason] = useState("");
+  // US-2335: this card is rendered per user, so useId rather than slugs.
+  const modeId = useId();
+  const valueId = useId();
+  const minutesId = useId();
+  const reasonId = useId();
   const [saving, setSaving] = useState(false);
   const [lifting, setLifting] = useState(false);
   const [setStepUpOpen, setSetStepUpOpen] = useState(false);
@@ -247,9 +252,9 @@ export function UserRateLimitsCard({ userId }: { userId: string }) {
               </h4>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <Label className="text-xs">Mode</Label>
+                  <Label className="text-xs" htmlFor={modeId}>Mode</Label>
                   <Select value={mode} onValueChange={(v) => setMode(v as OverrideMode)}>
-                    <SelectTrigger>
+                    <SelectTrigger id={modeId}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -261,12 +266,13 @@ export function UserRateLimitsCard({ userId }: { userId: string }) {
                 </div>
                 {mode !== "block" && (
                   <div className="space-y-1">
-                    <Label className="text-xs">
+                    <Label className="text-xs" htmlFor={valueId}>
                       {mode === "multiplier"
                         ? `Multiplier (max ${bounds?.maxMultiplier ?? 20})`
                         : "Cap (requests / window)"}
                     </Label>
                     <Input
+                      id={valueId}
                       type="number"
                       min={0}
                       step={mode === "multiplier" ? "0.1" : "1"}
@@ -277,10 +283,11 @@ export function UserRateLimitsCard({ userId }: { userId: string }) {
                   </div>
                 )}
                 <div className="space-y-1">
-                  <Label className="text-xs">
+                  <Label className="text-xs" htmlFor={minutesId}>
                     Duration (minutes, max {bounds?.maxDurationMinutes ?? 10080})
                   </Label>
                   <Input
+                    id={minutesId}
                     type="number"
                     min={1}
                     value={minutes}
@@ -288,8 +295,9 @@ export function UserRateLimitsCard({ userId }: { userId: string }) {
                   />
                 </div>
                 <div className="space-y-1 sm:col-span-2">
-                  <Label className="text-xs">Reason</Label>
+                  <Label className="text-xs" htmlFor={reasonId}>Reason</Label>
                   <Input
+                    id={reasonId}
                     value={reason}
                     maxLength={300}
                     placeholder="Why this override is being applied"

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -105,6 +105,9 @@ export function AdminOpsActivityPage() {
 
   const [page, setPage] = useState(1);
   const [severity, setSeverity] = useState<Severity | "all">("all");
+  // US-2335: ids for the filter row below.
+  const severityFilterId = useId();
+  const statusFilterId = useId();
   const [status, setStatus] = useState<StatusFilter>("all");
   const [typeFilter, setTypeFilter] = useState("");
 
@@ -114,6 +117,9 @@ export function AdminOpsActivityPage() {
 
   // Config form state (super-admin).
   const [enabled, setEnabled] = useState<"true" | "false">("true");
+  // US-2335: ids for the label/control pairs in this card.
+  const fanoutId = useId();
+  const minSeverityId = useId();
   const [minSeverity, setMinSeverity] = useState<Severity>("warning");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [email, setEmail] = useState("");
@@ -271,9 +277,9 @@ export function AdminOpsActivityPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Fan-out</Label>
+                <Label htmlFor={fanoutId}>Fan-out</Label>
                 <Select value={enabled} onValueChange={(v) => setEnabled(v as "true" | "false")}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id={fanoutId}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="true">Enabled</SelectItem>
                     <SelectItem value="false">Disabled (feed-only)</SelectItem>
@@ -281,9 +287,9 @@ export function AdminOpsActivityPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Minimum severity to alert</Label>
+                <Label htmlFor={minSeverityId}>Minimum severity to alert</Label>
                 <Select value={minSeverity} onValueChange={(v) => setMinSeverity(v as Severity)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id={minSeverityId}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="info">info</SelectItem>
                     <SelectItem value="warning">warning</SelectItem>
@@ -344,9 +350,9 @@ export function AdminOpsActivityPage() {
       {/* Filters. */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1.5">
-          <Label className="text-xs">Severity</Label>
+          <Label className="text-xs" htmlFor={severityFilterId}>Severity</Label>
           <Select value={severity} onValueChange={(v) => { setSeverity(v as Severity | "all"); setPage(1); }}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-36" id={severityFilterId}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All severities</SelectItem>
               <SelectItem value="info">info</SelectItem>
@@ -356,9 +362,9 @@ export function AdminOpsActivityPage() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Status</Label>
+          <Label className="text-xs" htmlFor={statusFilterId}>Status</Label>
           <Select value={status} onValueChange={(v) => { setStatus(v as StatusFilter); setPage(1); }}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-40" id={statusFilterId}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="open">Unacknowledged</SelectItem>

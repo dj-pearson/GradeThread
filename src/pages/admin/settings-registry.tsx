@@ -187,10 +187,15 @@ function SettingEditor({
         </div>
       </div>
 
+      {/* US-2335: all four branches below are the same control — this
+          setting's value — so they share one name, built from the key. The
+          key is displayed above as a row heading, not as a field label, so
+          there is nothing to associate with htmlFor. */}
       <div className="max-w-xl">
         {setting.value_type === "bool" ? (
           <div className="flex items-center gap-2">
             <Switch
+              aria-label={`${setting.key} value`}
               checked={draft === true}
               onCheckedChange={(checked) => setDraft(checked)}
             />
@@ -198,6 +203,7 @@ function SettingEditor({
           </div>
         ) : setting.value_type === "json" ? (
           <Textarea
+            aria-label={`${setting.key} value`}
             value={String(draft)}
             onChange={(e) => setDraft(e.target.value)}
             rows={6}
@@ -206,6 +212,7 @@ function SettingEditor({
           />
         ) : setting.value_type === "number" ? (
           <Input
+            aria-label={`${setting.key} value`}
             type="number"
             value={String(draft)}
             onChange={(e) => setDraft(e.target.value)}
@@ -214,6 +221,7 @@ function SettingEditor({
           />
         ) : (
           <Input
+            aria-label={`${setting.key} value`}
             value={String(draft)}
             onChange={(e) => setDraft(e.target.value)}
             className={cn(!validation.ok && "border-destructive")}
