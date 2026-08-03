@@ -199,7 +199,14 @@ adminBrandKnowledgeRoutes.patch("/:table/:id", async (c) => {
   const table = c.req.param("table");
   const id = c.req.param("id");
   const adminId = c.get("userId");
-  if (!(table in KB_TABLES)) {
+  // US-2356 AC5: `in` walks the PROTOTYPE CHAIN, so "toString",
+  // "constructor", "valueOf" and friends all satisfied this allow-list.
+  // Nothing catastrophic followed — the lookup then yields undefined and the
+  // request dies on a TypeError or at PostgREST — but an allow-list that admits
+  // names it does not list is not an allow-list, and "it fails later anyway" is
+  // the argument that keeps a weak check in place right up until the thing after
+  // it stops failing.
+  if (!Object.hasOwn(KB_TABLES, table)) {
     return c.json({ error: "Unknown brand-knowledge table" }, 400);
   }
 
@@ -249,7 +256,7 @@ adminBrandKnowledgeRoutes.patch("/:table/:id", async (c) => {
 adminBrandKnowledgeRoutes.delete("/:table/:id", async (c) => {
   const table = c.req.param("table");
   const id = c.req.param("id");
-  if (!(table in KB_TABLES)) {
+  if (!Object.hasOwn(KB_TABLES, table)) {
     return c.json({ error: "Unknown brand-knowledge table" }, 400);
   }
 

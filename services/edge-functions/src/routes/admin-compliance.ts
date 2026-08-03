@@ -339,6 +339,28 @@ adminComplianceRoutes.post("/data-requests/:id/process", requireScope("moderatio
   }
 
   if (req.type === "export") {
+    // US-2356 AC3: gated like the DELETE branch below, and for the same reason.
+    // processExport assembles and signs a URL to a user's COMPLETE archive —
+    // submissions, inventory, listings, sales, storage objects. That it destroys
+    // nothing is not the distinction that matters: one branch erases a person's
+    // data and the other hands all of it to whoever holds the link, and only one
+    // of them was behind super_admin, a step-up and a typed confirmation.
+    //
+    // The confirm phrase differs from the delete branch's on purpose. One shared
+    // phrase becomes muscle memory, and the point of typing it is to notice
+    // which of the two irreversible things you are about to do.
+    if (c.get("adminRole") !== "super_admin") {
+      return c.json({ error: "Super-admin access required" }, 403);
+    }
+    const stepUp = requireStepUp(c);
+    if (stepUp) return stepUp;
+    const body = (await c.req.json().catch(() => ({}))) as { confirm?: unknown };
+    if (body.confirm !== "EXPORT USER DATA") {
+      return c.json(
+        { error: 'Confirmation required. Send { "confirm": "EXPORT USER DATA" }.' },
+        400,
+      );
+    }
     return await processExport(c, id, req.user_id);
   }
   return await processDelete(c, id, req.user_id);

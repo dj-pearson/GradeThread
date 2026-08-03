@@ -15,6 +15,7 @@ import { writeAuditLog } from "../lib/audit-log.ts";
 import { clearAccessGateCache } from "../lib/access-gate.ts";
 import { sendWaitlistInviteEmail } from "../lib/email.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { requireStepUp } from "../lib/step-up.ts";
 
 type AdminEnv = { Variables: { userId: string } };
 
@@ -169,6 +170,13 @@ adminWaitlistRoutes.patch("/:id", async (c: Context<AdminEnv>) => {
 // already invited/rejected), emails each, and flips status → invited. Returns
 // per-id outcomes so the UI can report partial failures.
 adminWaitlistRoutes.post("/invite", async (c: Context<AdminEnv>) => {
+  // US-2356 AC2: up to 500 invitations to real inboxes, from the platform
+  // address, in one call. admin-growth.ts already gates the same class of
+  // action; this did not, so the bar depended on which router the send lived in.
+  {
+    const stepUp = requireStepUp(c);
+    if (stepUp) return stepUp;
+  }
   let body: { ids?: unknown; cohort?: unknown };
   try {
     body = await c.req.json();

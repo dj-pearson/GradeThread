@@ -601,6 +601,12 @@ interface NotifyBody {
 // POST /notify-owner — message the owning tenant about flagged content.
 // Non-destructive (no content mutation) → audited but no step-up.
 adminModerationRoutes.post("/notify-owner", async (c: Context<AdminEnv>) => {
+  // US-2356 AC2: arbitrary copy to a real user from the platform address —
+  // same channel as admin-messages, same reasoning.
+  {
+    const stepUp = requireStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const body = (await c.req.json().catch(() => ({}))) as NotifyBody;
   const contentType = body.content_type;
   const contentId = body.content_id;

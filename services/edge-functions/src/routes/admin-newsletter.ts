@@ -724,6 +724,12 @@ adminNewsletterRoutes.post("/issues/:id/preview", async (c) => {
 // admin address. Bypasses marketing gating (it's a transactional preview), and
 // is prefixed [TEST]. Audited.
 adminNewsletterRoutes.post("/issues/:id/test-send", async (c) => {
+  // US-2356 AC2: same shape as the drip test-send — an arbitrary recipient
+  // means unreleased issue content can leave the building one address at a time.
+  {
+    const stepUp = requireStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const issue = await loadIssue(c.req.param("id"));
   if (!issue) return c.json({ error: "Issue not found" }, 404);
 

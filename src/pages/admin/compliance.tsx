@@ -91,6 +91,11 @@ const STATUS_STYLES: Record<ReqStatus, string> = {
 };
 
 const DELETE_CONFIRM = "ERASE USER DATA";
+// US-2356: deliberately NOT the same phrase as the delete. One shared string
+// becomes muscle memory, and the point of typing it is to notice which of the
+// two irreversible things you are about to do — erase a person's data, or hand
+// all of it to whoever holds the signed link.
+const EXPORT_CONFIRM = "EXPORT USER DATA";
 
 function StatusBadge({ status }: { status: ReqStatus }) {
   return (
@@ -132,6 +137,7 @@ export function AdminCompliancePage() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [acting, setActing] = useState(false);
   const [confirmErase, setConfirmErase] = useState("");
+  const [confirmExport, setConfirmExport] = useState("");
   const [rejectReason, setRejectReason] = useState("");
 
   // New-request form.
@@ -212,7 +218,7 @@ export function AdminCompliancePage() {
     try {
       const res = await edgeFetch(
         `/api/admin/compliance/data-requests/${routeId}/process`,
-        { method: "POST", json: {} },
+        { method: "POST", json: { confirm: EXPORT_CONFIRM } },
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Failed to run export");
@@ -488,12 +494,41 @@ export function AdminCompliancePage() {
                 {detail.type === "export" && (
                   <div className="space-y-2 border-t pt-4">
                     {actionable && (
-                      <Button onClick={runExport} disabled={acting} className="w-full">
-                        {acting
-                          ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                          : <Download className="mr-1 h-4 w-4" />}
-                        Assemble &amp; download export
-                      </Button>
+                      !isSuperAdmin
+                        ? (
+                          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Ban className="h-4 w-4" />
+                            Assembling an export requires super admin.
+                          </p>
+                        )
+                        : (
+                          <>
+                            <Label htmlFor="confirm-export" className="text-sm">
+                              Type <span className="font-mono">{EXPORT_CONFIRM}</span> to confirm
+                            </Label>
+                            <Input
+                              id="confirm-export"
+                              value={confirmExport}
+                              onChange={(e) => setConfirmExport(e.target.value)}
+                              placeholder={EXPORT_CONFIRM}
+                            />
+                            <Button
+                              onClick={runExport}
+                              disabled={acting || confirmExport !== EXPORT_CONFIRM}
+                              className="w-full"
+                            >
+                              {acting
+                                ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                : <Download className="mr-1 h-4 w-4" />}
+                              Assemble &amp; download export
+                            </Button>
+                            <p className="text-xs text-muted-foreground">
+                              Produces a signed link to this user's complete archive —
+                              submissions, inventory, listings, sales and stored files.
+                              Anyone with the link can read all of it.
+                            </p>
+                          </>
+                        )
                     )}
                     {detail.status === "completed" && detail.file_path && (
                       <Button

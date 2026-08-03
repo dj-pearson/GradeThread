@@ -395,6 +395,13 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // POST /campaigns/:campaign/test-send — send a rendered step to an admin address.
 // Body: { step, variantId?, to }. Audited.
 adminDripRoutes.post("/campaigns/:campaign/test-send", async (c) => {
+  // US-2356 AC2: the recipient is operator-supplied, so this is a
+  // content-exfiltration channel as much as a preview — campaign copy can be
+  // sent to any address at all. A step-up makes that a deliberate act.
+  {
+    const stepUp = requireStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const campaign = c.req.param("campaign");
   let body: { step?: unknown; variantId?: string; to?: string; incentive?: DripIncentive };
   try {

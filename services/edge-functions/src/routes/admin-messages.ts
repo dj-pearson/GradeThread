@@ -5,6 +5,7 @@ import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { sendAdminMessageEmail } from "../lib/email.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { requireStepUp } from "../lib/step-up.ts";
 
 // Ad-hoc admin → customer messaging (US-582). Lets an operator send a
 // transactional support / account email to a specific user from the admin app,
@@ -83,6 +84,13 @@ adminMessagesRoutes.get("/templates", (c: Context<AdminEnv>) => {
 
 // POST /:userId — send a transactional message to a specific user.
 adminMessagesRoutes.post("/:userId", async (c: Context<AdminEnv>) => {
+  // US-2356 AC2: an arbitrary subject and body, to a real user, FROM THE
+  // PLATFORM ADDRESS. That is the most convincing phishing channel the product
+  // has, and it had no second factor in front of it.
+  {
+    const stepUp = requireStepUp(c);
+    if (stepUp) return stepUp;
+  }
   const targetId = c.req.param("userId");
 
   const body = await c.req.json().catch(() => ({}));
