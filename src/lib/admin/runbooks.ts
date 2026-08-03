@@ -151,7 +151,7 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "restore-drill",
     sourceNote: "vault/10-ops/backups.md",
-    reviewed: "2026-07-19",
+    reviewed: "2026-08-02",
     title: "Backup & restore drill",
     category: "Resilience",
     summary:
@@ -166,6 +166,8 @@ export const RUNBOOKS: Runbook[] = [
     ],
     body: [
       "A backup you have never restored is a hope, not a backup. Run this drill on the cadence in the launch checklist so a real restore is muscle memory.",
+      "",
+      "> **Before trusting any recovery-point number: confirm the nightly cron is actually installed.** Everything below, and the RPO in the backups runbook, describes a mechanism that is verified to WORK. Whether anything RUNS it on a schedule in production has never been confirmed (US-2002). If it is not installed, the real exposure is not 24 hours of loss — it is total loss. On the DB host, `crontab -l` should list the backup line, and the offsite bucket should hold a dump from the last 24h WITH its `.sha256` beside it; a dump with no checksum is a backup nobody has proven readable.",
       "",
       "## Drill steps",
       "",
@@ -332,7 +334,7 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
-    reviewed: "2026-07-31",
+    reviewed: "2026-08-02",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:
