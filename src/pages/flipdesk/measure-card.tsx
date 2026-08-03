@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   Check,
   Download,
@@ -155,6 +156,38 @@ export function FlipdeskMeasureCardPage() {
               </li>
             ))}
           </ul>
+        </CardContent>
+      </Card>
+
+      {/* US-2231 AC1: the page described the capability and dead-ended. Every
+          control on it produced an ARTEFACT — a PDF to print, a card to mail —
+          and none of them led to the thing the artefact is for. A seller who
+          finished reading had to already know that measuring happens on an
+          item, and where to find one.
+
+          Points at the To-list tab rather than the inventory root: that is
+          where pre-listed items sit (statusParamToTab folds cataloged /
+          measured / photographed into it), so the seller lands on the set that
+          actually needs measuring instead of their whole catalog. Uses
+          ?status=cataloged rather than ?tab=to_list because status is the
+          documented external entry point the Overview grid and Kanban links
+          already use, and it survives a tab rename. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Measure an item</CardTitle>
+          <CardDescription>
+            Measurements are captured on the item itself, next to its photos —
+            open an item that is ready to list and fill in the measurement
+            fields with the card in frame.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild>
+            <Link to="/dashboard/flipdesk/inventory?status=cataloged">
+              <Ruler className="mr-2 h-4 w-4" />
+              Go to items ready to measure
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 
