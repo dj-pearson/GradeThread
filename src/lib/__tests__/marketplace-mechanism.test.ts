@@ -85,12 +85,20 @@ describe("the live list matches the adapters (US-2327)", () => {
   );
 
   it("every LIVE platform can actually PUBLISH", () => {
-    // Scoped to publish deliberately, and the scoping is a finding rather than
-    // a convenience: this assertion first failed on Shopify, whose adapter
-    // stubs syncListings and syncOrders while publish is real. "Live
-    // cross-listing" is a claim about PUSHING a listing out, so Shopify
-    // belongs in the list — but it cannot read anything back, which is a
-    // separate and unadvertised gap recorded on US-2327.
+    // Scoped to publish deliberately. Written as "no notImplemented anywhere",
+    // this first failed on Shopify — and the reason is a lesson in reading a
+    // stub before drawing a conclusion from it. Shopify's syncListings and
+    // syncOrders ARE 501, but the comment directly above them says why: order
+    // and listing changes arrive out-of-band through the webhook receiver
+    // (flipdesk-webhooks.ts /shopify) into shopify-orders.ts, plus a manual
+    // reconciliation pull, so there is deliberately no adapter-level batch
+    // pull (US-1472). A 501 there means "handled elsewhere", not "unbuilt" —
+    // unlike the poshmark/mercari/whatnot stubs, which that same comment
+    // explicitly distinguishes itself from.
+    //
+    // So the file-wide form of this assertion was not too strict, it was
+    // WRONG: it treated a documented design choice as a missing feature.
+    // Publish is the thing "live cross-listing" actually claims.
     for (const p of LIVE_CROSS_LISTING_PLATFORMS) {
       const src = readFileSync(resolve(ADAPTERS, `${p}.ts`), "utf8");
       expect(
