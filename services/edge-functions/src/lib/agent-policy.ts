@@ -18,6 +18,7 @@
 import type { AgentRow } from "./agent-kernel.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { emitOpsEvent } from "./ops-events.ts";
+import { captureException } from "./observability.ts";
 import { redact } from "./log-redact.ts";
 
 // ── Action-class taxonomy (extensible) ───────────────────────────────────────
@@ -251,7 +252,15 @@ export function resolveHalt(
 
 export interface PolicyDeps {
   loadAutonomy: (agentId: string) => Promise<Record<string, unknown>>;
+  /** MUST reject when the write does not land — see prodPolicyDeps. */
   saveAutonomy: (agentId: string, autonomy: Record<string, unknown>) => Promise<void>;
+  /**
+   * US-2364: the escalation when the demotion cannot be persisted. An agent
+   * that breached policy and could NOT be demoted must not keep running at the
+   * level it just abused, so it is paused instead — `resolveHalt` above already
+   * treats `status === "paused"` as halted.
+   */
+  pauseAgent: (agentId: string, reason: string) => Promise<void>;
   emitBreachEvent: (
     agent: AgentRow,
     actionClass: string,
@@ -273,10 +282,26 @@ export function prodPolicyDeps(): PolicyDeps {
       return a && typeof a === "object" ? a : {};
     },
     saveAutonomy: async (agentId, autonomy) => {
-      await supabaseAdmin
+      // US-2364: READ THE ERROR. supabase-js resolves with `{ data, error }`
+      // rather than rejecting, so the previous version could not fail: a
+      // rejected write returned normally and the caller's `.catch()` had
+      // nothing to catch. That was the deeper half of the silence — the
+      // swallow was only the visible half.
+      const { error } = await supabaseAdmin
         .from("agents")
         .update({ autonomy } as never)
         .eq("id", agentId);
+      if (error) throw new Error(`saveAutonomy failed: ${error.message}`);
+    },
+    pauseAgent: async (agentId, _reason) => {
+      // `agents` has no reason column (00357: status is a two-value CHECK), and
+      // adding one is a migration this does not need — the WHY travels on the
+      // critical ops event below, which is where an operator looks anyway.
+      const { error } = await supabaseAdmin
+        .from("agents")
+        .update({ status: "paused" } as never)
+        .eq("id", agentId);
+      if (error) throw new Error(`pauseAgent failed: ${error.message}`);
     },
     emitBreachEvent: (agent, actionClass, from, to, reason) =>
       emitOpsEvent("agent.policy_breach", "warning", {
@@ -289,14 +314,26 @@ export function prodPolicyDeps(): PolicyDeps {
 
 // Demote (agent, action-class) one level (floored at L0), persist the change,
 // and emit a warning ops event. A rejected-then-executed action or a budget
-// breach calls this (vault/70-agent/agentic-os-map.md §2). Best-effort persistence/event — never
-// throws. Returns the level transition.
+// breach calls this (vault/70-agent/agentic-os-map.md §2). Never throws — every
+// caller treats it as fire-and-forget — but US-2364 removed the SILENCE that
+// came with that: a demotion that cannot be persisted is retried, then escalated
+// by pausing the agent and emitting a CRITICAL ops event. Returns the level
+// transition plus whether it actually landed.
+const SAVE_ATTEMPTS = 3;
+
 export async function recordPolicyBreach(
   agent: AgentRow,
   actionClass: string,
   reason: string,
   deps: Partial<PolicyDeps> = {},
-): Promise<{ from: AutonomyLevel; to: AutonomyLevel }> {
+): Promise<{
+  from: AutonomyLevel;
+  to: AutonomyLevel;
+  /** False when the demotion could not be persisted after every attempt. */
+  applied: boolean;
+  /** True when the agent was paused because the demotion did not stick. */
+  halted: boolean;
+}> {
   const d = { ...prodPolicyDeps(), ...deps };
   const from = resolveAutonomy(agent, actionClass);
   const to = Math.max(0, from - 1) as AutonomyLevel;
@@ -310,7 +347,70 @@ export async function recordPolicyBreach(
     fresh = agent.autonomy ?? {};
   }
   const next = { ...fresh, [actionClass]: to };
-  await d.saveAutonomy(agent.id, next).catch(() => {});
-  await d.emitBreachEvent(agent, actionClass, from, to, reason).catch(() => {});
-  return { from, to };
+
+  // US-2364: the demotion is retried, and its failure is never silent.
+  //
+  // This used to be `.catch(() => {})`, which left an agent that had just
+  // breached policy sitting at the level it abused, with nothing anywhere
+  // recording that the demotion had not happened. The failure mode is the worst
+  // shape available: the system reports a demotion, the operator believes the
+  // agent is contained, and the agent keeps its old privileges.
+  let applied = false;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= SAVE_ATTEMPTS; attempt++) {
+    try {
+      await d.saveAutonomy(agent.id, next);
+      applied = true;
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  // The breach event itself is emitted either way — a breach happened whether or
+  // not we could record its consequence. No `.catch` here: emitOpsEvent is
+  // internally best-effort and reports its own failures, so a catch would only
+  // make this read as swallowing something.
+  await d.emitBreachEvent(agent, actionClass, from, to, reason);
+
+  let halted = false;
+  if (!applied) {
+    // Escalation, not a log line. An agent that cannot be demoted after a breach
+    // is more dangerous than one that is stopped, so it is stopped.
+    try {
+      await d.pauseAgent(agent.id, `demotion_failed:${actionClass}`);
+      halted = true;
+    } catch (err) {
+      captureException(err, {
+        route: "agent-policy.pauseAgent",
+        tags: { agent_key: agent.key, action_class: actionClass },
+      });
+    }
+    captureException(
+      lastErr instanceof Error ? lastErr : new Error(String(lastErr)),
+      {
+        route: "agent-policy.saveAutonomy",
+        tags: { agent_key: agent.key, action_class: actionClass },
+      },
+    );
+    await emitOpsEvent("agent.demotion_failed", "critical", {
+      title: halted
+        ? `Agent ${agent.key} could not be demoted on ${actionClass} — PAUSED`
+        : `Agent ${agent.key} could not be demoted on ${actionClass} and is STILL RUNNING at L${from}`,
+      source: "agent-policy",
+      data: {
+        agent_key: agent.key,
+        agent_id: agent.id,
+        action_class: actionClass,
+        intended_level: to,
+        still_at_level: from,
+        paused: halted,
+        attempts: SAVE_ATTEMPTS,
+        reason,
+        error: lastErr instanceof Error ? lastErr.message : String(lastErr),
+      },
+    });
+  }
+
+  return { from, to, applied, halted };
 }

@@ -38,12 +38,15 @@ export function useOfflineIntakeSync() {
       `Syncing ${total} offline item${total === 1 ? "" : "s"}…`,
     );
     try {
-      const { synced, failed } = await flushIntakeQueue();
+      const { synced, failed, firstError } = await flushIntakeQueue();
       if (synced > 0) await qc.invalidateQueries({ queryKey: ["items_full"] });
       if (failed > 0) {
+        // US-2364: name the reason. "Will retry" on its own is fine for a lost
+        // connection and actively misleading for a row the server will refuse
+        // every single time — the seller waits for a sync that can never happen.
         toast.error(
           `Synced ${synced}, ${failed} still queued — will retry.`,
-          { id: toastId },
+          { id: toastId, description: firstError ?? undefined, duration: 10_000 },
         );
       } else {
         toast.success(

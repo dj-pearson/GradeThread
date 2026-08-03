@@ -213,6 +213,12 @@ export function AdminDisputesPage() {
   // Detail dialog
   const [selectedDispute, setSelectedDispute] = useState<EnrichedDispute | null>(null);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  // US-2364: which photos FAILED to resolve, as opposed to not being there. A
+  // reviewer deciding a dispute has to be able to tell "the buyer sent no photo
+  // of the sleeve" from "we could not fetch the photo of the sleeve" — the two
+  // rendered identically, and the second one silently weakens the evidence the
+  // decision rests on.
+  const [photoErrors, setPhotoErrors] = useState<Record<string, string>>({});
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   // US-1416: signed URLs for the filer's attached evidence photos. These live
   // in another user's storage folder, so they must be signed server-side via
@@ -407,6 +413,7 @@ export function AdminDisputesPage() {
       odor_cleanliness_score: item.report.odor_cleanliness_score,
     });
     setPhotoUrls({});
+    setPhotoErrors({});
   }
 
   // Load signed URLs for photos when detail dialog opens
@@ -417,15 +424,17 @@ export function AdminDisputesPage() {
 
     async function loadUrls() {
       const urls: Record<string, string> = {};
+      const errors: Record<string, string> = {};
       for (const img of selectedDispute!.images) {
         try {
           urls[img.id] = await getImageUrl(img.storage_path);
-        } catch {
-          // Skip failed URLs
+        } catch (err) {
+          errors[img.id] = err instanceof Error ? err.message : String(err);
         }
       }
       if (!cancelled) {
         setPhotoUrls(urls);
+        setPhotoErrors(errors);
         setLoadingPhotos(false);
       }
     }
@@ -966,6 +975,16 @@ export function AdminDisputesPage() {
                             decoding="async"
                             className="aspect-square rounded-lg border object-cover"
                           />
+                        ) : photoErrors[img.id] ? (
+                          <div
+                            className="aspect-square rounded-lg border border-destructive/40 bg-destructive/5 flex flex-col items-center justify-center gap-1 p-2 text-center"
+                            title={photoErrors[img.id]}
+                          >
+                            <ImageIcon className="h-8 w-8 text-destructive/70" />
+                            <span className="text-[11px] leading-tight text-destructive">
+                              Photo didn&apos;t load — evidence incomplete
+                            </span>
+                          </div>
                         ) : (
                           <div className="aspect-square rounded-lg border bg-muted flex items-center justify-center">
                             <ImageIcon className="h-8 w-8 text-muted-foreground" />

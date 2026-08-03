@@ -130,9 +130,15 @@ Deno.test("applyWritePolicy: when paused, even an L2 proposal is dropped to a fi
 
 // ── Demotion (floor at L0) ───────────────────────────────────────────────────
 
-function capturingDeps(): { deps: Partial<PolicyDeps>; saved: Array<Record<string, unknown>>; events: string[] } {
+function capturingDeps(): {
+  deps: Partial<PolicyDeps>;
+  saved: Array<Record<string, unknown>>;
+  events: string[];
+  paused: string[];
+} {
   const saved: Array<Record<string, unknown>> = [];
   const events: string[] = [];
+  const paused: string[] = [];
   const deps: Partial<PolicyDeps> = {
     loadAutonomy: () => Promise.resolve({}),
     saveAutonomy: (_id, autonomy) => {
@@ -143,8 +149,12 @@ function capturingDeps(): { deps: Partial<PolicyDeps>; saved: Array<Record<strin
       events.push(actionClass);
       return Promise.resolve();
     },
+    pauseAgent: (id, reason) => {
+      paused.push(`${id}:${reason}`);
+      return Promise.resolve();
+    },
   };
-  return { deps, saved, events };
+  return { deps, saved, events, paused };
 }
 
 Deno.test("recordPolicyBreach: demotes one level and persists + emits", async () => {
@@ -153,15 +163,105 @@ Deno.test("recordPolicyBreach: demotes one level and persists + emits", async ()
   // loadAutonomy returns fresh copy so the class is preserved.
   cap.deps.loadAutonomy = () => Promise.resolve({ retry_job: 2 });
   const res = await recordPolicyBreach(agent, "retry_job", "test", cap.deps);
-  assertEquals(res, { from: 2 as AutonomyLevel, to: 1 as AutonomyLevel });
+  assertEquals(res, {
+    from: 2 as AutonomyLevel,
+    to: 1 as AutonomyLevel,
+    applied: true,
+    halted: false,
+  });
   assertEquals(cap.saved.at(-1)?.retry_job, 1);
   assertEquals(cap.events, ["retry_job"]); // a warning event was emitted
+  assertEquals(cap.paused, []); // nothing to escalate — the demotion landed
 });
 
 Deno.test("recordPolicyBreach: floors at L0 (an already-L0 class stays L0)", async () => {
   const agent = mk({ retry_job: 0 });
   const cap = capturingDeps();
   const res = await recordPolicyBreach(agent, "retry_job", "test", cap.deps);
-  assertEquals(res, { from: 0 as AutonomyLevel, to: 0 as AutonomyLevel });
+  assertEquals(res, {
+    from: 0 as AutonomyLevel,
+    to: 0 as AutonomyLevel,
+    applied: true,
+    halted: false,
+  });
   assertEquals(cap.saved.at(-1)?.retry_job, 0);
+});
+
+// ── US-2364: a demotion that does not stick ─────────────────────────────────
+//
+// The old code was `saveAutonomy(...).catch(() => {})`. An agent that had just
+// breached policy stayed at the level it abused, and nothing anywhere recorded
+// that the demotion had not happened — the system reported a demotion, the
+// operator believed the agent was contained, and it kept its privileges.
+//
+// Two layers were wrong. The visible one was the empty catch. The deeper one was
+// in prodPolicyDeps: supabase-js resolves with `{ data, error }` rather than
+// rejecting, and `saveAutonomy` never read `error`, so a refused write returned
+// normally and the catch had nothing to catch in the first place.
+
+Deno.test("US-2364: a save failure is retried before it is treated as a failure", async () => {
+  const cap = capturingDeps();
+  let attempts = 0;
+  cap.deps.loadAutonomy = () => Promise.resolve({ retry_job: 2 });
+  cap.deps.saveAutonomy = (_id, autonomy) => {
+    attempts++;
+    if (attempts < 3) return Promise.reject(new Error("transient"));
+    cap.saved.push(autonomy);
+    return Promise.resolve();
+  };
+  const res = await recordPolicyBreach(mk({ retry_job: 2 }), "retry_job", "t", cap.deps);
+  assertEquals(attempts, 3);
+  assertEquals(res.applied, true);
+  assertEquals(res.halted, false);
+  assertEquals(cap.saved.at(-1)?.retry_job, 1);
+  assertEquals(cap.paused, []); // it landed, so nothing is escalated
+});
+
+Deno.test("US-2364: a demotion that cannot be persisted PAUSES the agent", async () => {
+  // The escalation, and the whole point. An agent that cannot be demoted after a
+  // breach is more dangerous than one that is stopped, so it is stopped —
+  // resolveHalt already treats status "paused" as halted.
+  const cap = capturingDeps();
+  cap.deps.saveAutonomy = () => Promise.reject(new Error("rls denied"));
+  const res = await recordPolicyBreach(mk({ retry_job: 2 }), "retry_job", "t", cap.deps);
+  assertEquals(res.applied, false);
+  assertEquals(res.halted, true);
+  assertEquals(res.from, 2 as AutonomyLevel);
+  assertEquals(cap.paused, ["a1:demotion_failed:retry_job"]);
+  assertEquals(cap.saved, []); // nothing was written
+});
+
+Deno.test("US-2364: the breach event is emitted even when the demotion fails", async () => {
+  // A breach happened whether or not its consequence could be recorded. Dropping
+  // the event on the failure path would lose the only trace of the breach at the
+  // exact moment the demotion also went missing.
+  const cap = capturingDeps();
+  cap.deps.saveAutonomy = () => Promise.reject(new Error("nope"));
+  await recordPolicyBreach(mk({ retry_job: 2 }), "retry_job", "t", cap.deps);
+  assertEquals(cap.events, ["retry_job"]);
+});
+
+Deno.test("US-2364: a failed pause still reports, and does not throw", async () => {
+  // Worst case: the demotion failed AND the agent could not be paused. The agent
+  // is running at the level it abused, so the one thing that must not happen is
+  // a silent return — but throwing is no good either, since every caller treats
+  // this as fire-and-forget and would swallow it.
+  const cap = capturingDeps();
+  cap.deps.saveAutonomy = () => Promise.reject(new Error("nope"));
+  cap.deps.pauseAgent = () => Promise.reject(new Error("also nope"));
+  const res = await recordPolicyBreach(mk({ retry_job: 2 }), "retry_job", "t", cap.deps);
+  assertEquals(res.applied, false);
+  assertEquals(res.halted, false); // still running, and the result says so
+});
+
+Deno.test("US-2364: prodPolicyDeps.saveAutonomy reads the error rather than the promise", async () => {
+  // The deeper half of the bug, pinned by source: supabase-js RESOLVES on a
+  // refused write. A saveAutonomy that awaits the builder and ignores `error`
+  // can never reject, so every retry and escalation above would be unreachable.
+  const src = await Deno.readTextFile(new URL("../lib/agent-policy.ts", import.meta.url));
+  const at = src.indexOf("saveAutonomy: async (agentId, autonomy) => {");
+  assert(at > -1, "prodPolicyDeps.saveAutonomy was renamed");
+  const body = src.slice(at, at + 600);
+  assert(body.includes("const { error }"), "saveAutonomy ignores the error again");
+  assert(body.includes("throw"), "saveAutonomy reads the error but does not throw");
 });

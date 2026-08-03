@@ -2,6 +2,7 @@
 // without a connection, the intake payloads are persisted to IndexedDB and
 // flushed to Supabase once the device comes back online.
 import { supabase } from "@/lib/supabase";
+import { captureException } from "@/lib/sentry";
 import type { InventoryItemInsert } from "@/types/database";
 
 const DB_NAME = "flipdesk-offline";
@@ -17,6 +18,12 @@ export interface QueuedIntake {
 export interface FlushResult {
   synced: number;
   failed: number;
+  /**
+   * US-2364: why the first failure failed. A queue that retries forever without
+   * ever reporting a reason cannot be told apart from a queue that is simply
+   * offline — and those two need opposite responses.
+   */
+  firstError: string | null;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -84,6 +91,7 @@ export async function flushIntakeQueue(
   const queued = await getQueuedIntakes();
   let synced = 0;
   let failed = 0;
+  let firstError: string | null = null;
   for (let i = 0; i < queued.length; i++) {
     const record = queued[i]!;
     try {
@@ -100,10 +108,23 @@ export async function flushIntakeQueue(
       if (error) throw error;
       await removeQueuedIntake(record.id);
       synced++;
-    } catch {
+    } catch (err) {
+      // US-2364: keep the reason. Discarding it made the two failure modes
+      // indistinguishable, and they need opposite responses: a lost connection
+      // SHOULD retry forever, while an RLS refusal or a schema mismatch will
+      // fail identically on every future flush — a row that can never sync,
+      // retried silently, for as long as the browser profile lives. The queue
+      // still retries (that part was right); what it no longer does is retry
+      // without ever saying why.
       failed++;
+      const message = err instanceof Error ? err.message : String(err);
+      if (!firstError) firstError = message;
+      captureException(err, {
+        tags: { area: "offline-intake-flush" },
+        extra: { queueRecordId: record.id },
+      });
     }
     onProgress?.(i + 1, queued.length);
   }
-  return { synced, failed };
+  return { synced, failed, firstError };
 }
