@@ -1,37 +1,27 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Two pending: 00513 and 00514.** Prod measured at **00512** on 2026-08-02 (the
-`/health/ready` schema block reported `applied: "00512"`), so 00510–00512 are
-in and this branch is two ahead. `EXPECTED_SCHEMA_VERSION` is now **00514** and
-the highest migration in the tree is
-`00514_admin_metrics_service_role_guard.sql`. Apply in number order.
+**Nothing pending.** Prod measured at **00514** on 2026-08-03 — `/health/ready`
+returned `schema {expected:"00513", applied:"00514", status:"ahead"}`, i.e. the
+database's own answer through the service-role client, not someone's
+recollection. `EXPECTED_SCHEMA_VERSION` is **00514** and the highest migration
+in the tree is `00514_admin_metrics_service_role_guard.sql`, so the tree and
+prod agree and the branch is free to push.
 
-> [!caution] 00513 IS ALREADY ON `origin/main`, and it was not supposed to be
-> A concurrent agent committed and pushed `00513_admin_dashboard_aggregates.sql`
-> together with the `EXPECTED_SCHEMA_VERSION = "00513"` bump on 2026-08-02,
-> bypassing the hold. So the usual protection — "the SQL cannot reach prod
-> before you apply it, because the branch is frozen" — is **not in force for
-> 00513**.
+> [!note] Why that read said `expected: "00513"` and it was still correct
+> The running edge image was built from the commit that carried
+> `EXPECTED_SCHEMA_VERSION = "00513"`. `status: "ahead"` means the DATABASE is
+> newer than the image expects, which the boot guard treats as a warning and
+> serves through — a newer DB still serves an older edge. The next Coolify
+> deploy picks up the 00514 bump and the two line up at `match`.
 >
-> **What this does NOT do:** pushing does not run the migration, and it does not
-> deploy the edge. Prod's database is still at 00512 and the running edge still
-> expects 00512, so nothing is broken right now.
->
-> **The live risk it creates:** the next edge deploy ships an image whose boot
-> guard expects **00513**. Against a database still at 00512 that is a CONFIRMED
-> BEHIND in production — the guard waits out its ~40s grace window, then exits
-> non-zero, and Coolify's restart loop turns that into a crash-loop across the
-> WHOLE edge service (Traefik "no available server" 503 on every route, the
-> shape recorded in `vault/10-ops/edge-hang-vs-crash-loop.md`). **Apply 00513
-> before anything triggers an edge deploy.**
->
-> **Also already live-ish:** Cloudflare Pages auto-deploys the frontend from
-> `origin/main`, and the pushed commit includes the admin dashboard client that
-> reads the new `analytics` payload. Until the edge redeploys, the admin
-> Analytics tab renders zeros (empty funnel, no cohorts, no top users). The KPI
-> cards and the three charts are unaffected. Cosmetic and self-healing.
->
-> 00514 is still correctly held — it is only on local `main`.
+> The reverse of that ordering is the dangerous one, and it nearly happened:
+> a concurrent agent pushed 00513 with its version bump on 2026-08-02, ahead of
+> the hold. Had the edge redeployed before the SQL was applied, the guard would
+> have seen a CONFIRMED BEHIND in production, exhausted its ~40s grace window,
+> exited non-zero, and Coolify's restart loop would have crash-looped the whole
+> service (Traefik "no available server" on every route — see
+> `vault/10-ops/edge-hang-vs-crash-loop.md`). Applying the SQL closed that
+> window. Keeping migrations held until they are applied is what prevents it.
 
 Why entries have gone stale here before: this file is edited by hand and nothing
 flips the marker when the SQL runs. The session-start hook reads these ⏳
@@ -41,10 +31,10 @@ apply a migration, flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00514_admin_metrics_service_role_guard.sql (US-2393 admin System 500, 2026-08-02)
+## ✅ APPLIED: 00514_admin_metrics_service_role_guard.sql (US-2393 admin System 500, 2026-08-02 · applied — measured 2026-08-03)
 
-**This one fixes a LIVE outage, and it is independent of 00513.** If you only
-apply one thing tonight, apply this.
+**This one fixed a LIVE outage** — the admin System tab had been returning 500 —
+**and it was independent of 00513.** Applied 2026-08-03.
 
 **What it does.** Recreates `admin_system_metrics()` and
 `admin_revenue_metrics()` with one line changed each: the guard becomes
@@ -81,7 +71,7 @@ processing time, storage and subscription numbers instead of failing to load.
 
 ---
 
-## ⏳ HELD: 00513_admin_dashboard_aggregates.sql (US-2390 exact admin KPIs, 2026-08-02)
+## ✅ APPLIED: 00513_admin_dashboard_aggregates.sql (US-2390 exact admin KPIs, 2026-08-02 · applied — measured 2026-08-03)
 
 **What it does.** Adds three read-only aggregate functions and nothing else — no
 table, column, index or enum is touched, so there is no data migration and
