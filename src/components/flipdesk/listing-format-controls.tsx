@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,16 +72,20 @@ export function ListingFormatControls({ value, onChange }: Props) {
     onChange({ ...value, variations: next });
   }
 
+  // US-2335: ids for the two labelled selects below.
+  const formatId = useId();
+  const durationId = useId();
+
   return (
     <div className="space-y-4 rounded-lg border border-border p-4">
       <div className="space-y-2">
-        <Label className="text-sm font-medium">Listing format</Label>
+        <Label className="text-sm font-medium" htmlFor={formatId}>Listing format</Label>
         <Select
           value={value.format}
           onValueChange={(v) => setFormat(v as ListingFormat)}
           disabled={variationsOn}
         >
-          <SelectTrigger className="h-9 w-full max-w-xs">
+          <SelectTrigger className="h-9 w-full max-w-xs" id={formatId}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -114,12 +119,12 @@ export function ListingFormatControls({ value, onChange }: Props) {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Duration</Label>
+            <Label className="text-xs" htmlFor={durationId}>Duration</Label>
             <Select
               value={value.auctionDuration}
               onValueChange={(v) => onChange({ ...value, auctionDuration: v })}
             >
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-9" id={durationId}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -261,7 +266,12 @@ function VariationEditor({
                 <Label className="text-[10px] uppercase text-muted-foreground">
                   {spec}
                 </Label>
+                {/* One id per (variant, spec) is impossible with a single
+                    htmlFor: the same spec repeats once per variant, so one id
+                    would point every label at the first row. Named by both
+                    axes, which is what locates a grid cell anyway. */}
                 <Input
+                  aria-label={`${spec} for variant ${idx + 1}`}
                   className="h-8 w-24"
                   placeholder={spec}
                   value={variant.aspects?.[spec] ?? ""}

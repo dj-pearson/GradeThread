@@ -463,7 +463,9 @@ export function GradeThisItemCard({
 
         <div className="flex items-center gap-2">
           <Select value={tier} onValueChange={(v) => setTier(v as GradingTier)}>
-            <SelectTrigger className="h-9 w-56 text-sm">
+            {/* Options read "Standard — $4.99", so unnamed this announces a
+                PRICE and nothing about what the price buys. */}
+            <SelectTrigger className="h-9 w-56 text-sm" aria-label="Grading tier">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -488,7 +490,7 @@ export function GradeThisItemCard({
                 value={effGarmentType}
                 onValueChange={(v) => setGarmentType(v as GarmentType)}
               >
-                <SelectTrigger className="h-8 w-40 text-xs">
+                <SelectTrigger className="h-8 w-40 text-xs" aria-label="Garment type">
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -503,7 +505,7 @@ export function GradeThisItemCard({
                 value={effGarmentCategory}
                 onValueChange={(v) => setGarmentCategory(v as GarmentCategory)}
               >
-                <SelectTrigger className="h-8 w-40 text-xs">
+                <SelectTrigger className="h-8 w-40 text-xs" aria-label="Garment category">
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
                 <SelectContent>

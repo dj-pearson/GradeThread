@@ -307,7 +307,7 @@ export function BulkIntake() {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-1">
-            <Label>Source</Label>
+            <Label htmlFor="bi-source">Source</Label>
             <Select
               value={session.sourceId || "__none"}
               onValueChange={(v) =>
@@ -317,7 +317,7 @@ export function BulkIntake() {
                 }))
               }
             >
-              <SelectTrigger>
+              <SelectTrigger id="bi-source">
                 <SelectValue placeholder="Select source" />
               </SelectTrigger>
               <SelectContent>
@@ -333,6 +333,7 @@ export function BulkIntake() {
             {session.sourceId === "__new" && (
               <Input
                 className="mt-2"
+                aria-label="New source name"
                 placeholder="New source name"
                 value={session.sourceNew}
                 onChange={(e) =>
@@ -457,7 +458,7 @@ export function BulkIntake() {
               />
             </div>
             <div className="space-y-1">
-              <Label>Category</Label>
+              <Label htmlFor="bi-category">Category</Label>
               <Select
                 value={session.draft.category || "__none"}
                 onValueChange={(v) =>
@@ -467,7 +468,7 @@ export function BulkIntake() {
                   )
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger id="bi-category">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
