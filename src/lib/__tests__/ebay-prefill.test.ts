@@ -195,15 +195,57 @@ describe("projectColumnAspectsForSpec (composer, spec-aware)", () => {
     expect(sources.Color).toBe("manual");
   });
 
-  it("clears the aspect when its backing column is blanked", () => {
+  // This projection is OVERWRITE-ONLY. It used to delete the aspect here, which
+  // is the whole reason the bug below could happen: a blank column does not mean
+  // "the seller cleared it", it can equally mean "nothing ever filled it".
+  // Blanking a column still drops its specific in AutoLister bulk edit, which
+  // owns the column inputs and rebuilds the map with its own set-or-drop pass.
+  it("keeps the aspect when its backing column is blank, and still overwrites from a filled one", () => {
     const { aspects, sources } = projectColumnAspectsForSpec(
       cols({ brand: "   ", size: "M" }),
       [free("Brand"), free("Size")],
       { Brand: ["Nike"], Size: ["L"] },
       { Brand: "inventory_derived", Size: "manual" },
     );
-    expect(aspects).toEqual({ Size: ["M"] });
-    expect(sources.Brand).toBeUndefined();
+    expect(aspects).toEqual({ Brand: ["Nike"], Size: ["M"] });
+    expect(sources.Brand).toBe("inventory_derived");
+  });
+
+  // THE REGRESSION. Reported from a live draft: Brand visibly filled in the
+  // specifics editor, publish refusing with "Fill required eBay specifics:
+  // Brand". The state that produces it — a value stamped `inventory_derived`
+  // whose backing column is empty — is reachable whenever the item write of a
+  // save fails on its own (a duplicate-SKU 409 rolls it back while the listing
+  // row, written in the same handler, keeps the aspects). The reverse pass will
+  // not rescue a derived value, so if this projection also deletes it, every
+  // later save re-destroys a Brand the seller can plainly see.
+  it("does not destroy a specific whose column write never landed", () => {
+    const poisoned = { Brand: ["Nike"] };
+    const asDerived = { Brand: "inventory_derived" as const };
+    const emptyColumn = cols({ brand: null });
+
+    // Precondition: the reverse pass declines this value, by design.
+    expect(
+      reverseProjectAspectColumns({ ...base }, poisoned, asDerived).columns.brand,
+    ).toBeUndefined();
+
+    // So the projection is the last thing standing between it and deletion.
+    const once = projectColumnAspectsForSpec(
+      emptyColumn,
+      [free("Brand")],
+      poisoned,
+      asDerived,
+    );
+    expect(once.aspects.Brand).toEqual(["Nike"]);
+
+    // And it stays stable across repeated saves rather than decaying.
+    const twice = projectColumnAspectsForSpec(
+      emptyColumn,
+      [free("Brand")],
+      once.aspects,
+      once.sources,
+    );
+    expect(twice.aspects.Brand).toEqual(["Nike"]);
   });
 
   it("leaves attribute-, AI- and manually-set non-column aspects alone", () => {

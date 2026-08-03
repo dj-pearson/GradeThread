@@ -81,9 +81,30 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
 **one entry feeds both** — the seller never types the same value in two places:
 
 - **Columns are the write-authority.** At publish/revise the edge force-projects the current
-  column values onto their aspects (`forceColumnAspects` → `applyColumnAspects`). A blanked
-  column clears its aspect only on an item-page save (an explicit clear); the publish path is
-  overwrite-only, because it cannot tell a blanked field from a never-populated one.
+  column values onto their aspects (`forceColumnAspects` → `applyColumnAspects`).
+- **Every forward projection is OVERWRITE-ONLY. A blank column never clears its aspect.** It
+  cannot tell a blanked field from a never-populated one, and the second case is common:
+  iOS-created items, AI-filled specifics, and anything the seller typed into a specifics editor
+  all routinely carry a value whose column is empty.
+  - **The one surface that may clear is the one that owns the column inputs**: AutoLister bulk
+    edit rebuilds the specifics map with its own set-or-drop pass (`saveRow` in
+    `src/pages/flipdesk/autolister-bulk-edit.tsx`), where an emptied inline Brand/Size/Color
+    field is unambiguously an explicit clear. Clearing a specific from the picker also still
+    works everywhere — the picker drops the key and its provenance entry.
+  - **Why the composer's projection stopped clearing (2026-08-02).** `projectColumnAspectsForSpec`
+    did clear, on the reasoning that the reverse pass runs first, so a still-blank column must
+    mean a deliberate clear. That holds only while the write-back LANDS. The composer saves the
+    listing row and the item row as two statements with no transaction, so an item write that
+    fails alone — a duplicate-SKU 409 — left the listing holding the value stamped
+    `inventory_derived` over a column that was never written. Derived values are never written
+    back, so the rescue stopped firing and the projection deleted the specific on every
+    subsequent save. Reported symptom: Brand plainly visible in the specifics editor, publish
+    refusing with "Fill required eBay specifics in the composer: Brand". Pinned by
+    `src/lib/__tests__/ebay-prefill.test.ts`.
+  - **Save order is part of the contract: item row FIRST, listing row second.** The listing row
+    records the aspects as column-derived, which is a claim about the item row — so it must not
+    be written until the write that fills the columns has succeeded. Both composer save paths
+    (`saveDraft`, `saveLiveListing`) do it in that order.
   - **On web the forward projection is SPEC-AWARE** (`projectColumnAspectsForSpec`, US-2381).
     It resolves each column's aspect name from the **loaded category spec** rather than from
     the registry's first candidate, because the two differ per category — `Colour`,

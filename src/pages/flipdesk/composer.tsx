@@ -1320,6 +1320,39 @@ export function FlipdeskComposerPage({
         reviewedAt: new Date().toISOString(),
       });
 
+      // ITEM FIRST, then the listing. These are two statements with no
+      // transaction around them, so one of them can fail alone — and the order
+      // decides which halves get left behind. The item write carries the
+      // specifics write-back (a Brand the seller typed here becomes the item's
+      // Brand field); the listing write stores the same aspects stamped
+      // `inventory_derived`, i.e. "this came from the column". Listing-first
+      // meant a failed item write (a duplicate-SKU 409) published that claim
+      // about a column that had never been written, and since derived values are
+      // never written back, the seller's Brand was stranded in a specific whose
+      // backing field stayed empty. This way a failed item write aborts before
+      // the claim is made: the saved map keeps its `manual` provenance and the
+      // next successful save still rescues it into the column.
+      // Mirror the category + aspects onto the item so the inventory store stays
+      // in lockstep with the listing override (US-557), fold specifics edits back
+      // into their backing item fields so shared values (Brand & co.) stay
+      // single-entry, and carry the Storage & SKU fields that used to be stranded
+      // behind their own Save (US-2249).
+      const { error: sErr } = await supabase
+        .from("inventory_items")
+        .update(
+          composerItemPatch(
+            state.resolvedAspects,
+            state.resolvedSources,
+          ) as never,
+        )
+        .eq("id", item.id);
+      // US-2249: the SKU rides the main save now, so the main save is where a
+      // duplicate-SKU collision has to offer the merge.
+      if (sErr) {
+        if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
+        throw sErr;
+      }
+
       let listingId: string;
       // Update whenever a listing row EXISTS, whatever its status. The old
       // `&& item.listing_status === "draft"` gate was safe only because this
@@ -1341,27 +1374,6 @@ export function FlipdeskComposerPage({
           .single();
         if (error) throw error;
         listingId = (created as { id: string }).id;
-      }
-
-      // Mirror the category + aspects onto the item in the same save so the
-      // inventory store stays in lockstep with the listing override (US-557),
-      // fold specifics edits back into their backing item fields so shared
-      // values (Brand & co.) stay single-entry, and carry the Storage & SKU
-      // fields that used to be stranded behind their own Save (US-2249).
-      const { error: sErr } = await supabase
-        .from("inventory_items")
-        .update(
-          composerItemPatch(
-            state.resolvedAspects,
-            state.resolvedSources,
-          ) as never,
-        )
-        .eq("id", item.id);
-      // US-2249: the SKU rides the main save now, so the main save is where a
-      // duplicate-SKU collision has to offer the merge.
-      if (sErr) {
-        if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
-        throw sErr;
       }
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
@@ -1651,11 +1663,9 @@ export function FlipdeskComposerPage({
       // could change the promote rate, Best Offer limits, format, quantity or
       // primary photo on a live listing, get a success toast, and lose all of it.
       const state = composerListingState();
-      const { error } = await supabase
-        .from("listings")
-        .update(buildLiveListingPatch(state) as never)
-        .eq("id", item.listing_id);
-      if (error) throw error;
+      // Item first, for the reason saveDraft spells out: the listing row records
+      // the aspects as column-derived, so it must not claim that before the write
+      // that actually fills the columns has succeeded.
       // Mirror onto the item. Status still comes from resolveStatus (forward-
       // only, and a listed item's earned status can't regress) rather than being
       // skipped — the seller can now move a live item to sold/archived from the
@@ -1673,6 +1683,11 @@ export function FlipdeskComposerPage({
         if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
         throw sErr;
       }
+      const { error } = await supabase
+        .from("listings")
+        .update(buildLiveListingPatch(state) as never)
+        .eq("id", item.listing_id);
+      if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });

@@ -407,7 +407,28 @@ export function remapAspectsForCategory(
 //   • A SELECTION_ONLY value that cannot be matched at all LEAVES the existing
 //     aspect alone. The column simply is not expressible here; clearing would
 //     destroy a good value on the strength of a bad one.
-//   • A blank column CLEARS its aspect (drop value + source).
+//   • A blank column LEAVES its aspect alone. This projection is OVERWRITE-ONLY,
+//     for the same reason the edge's publish-time `applyColumnAspects` is: from
+//     a blank column it cannot tell "the seller cleared this field" from "this
+//     field was never populated and the specific came from AI, iOS or the
+//     seller's own typing", and clearing the second case destroys good data.
+//
+// WHY OVERWRITE-ONLY, given this used to clear. Clearing looks safe because the
+// reverse pass runs first and rescues a typed value into its column — so a blank
+// column "must" mean an intentional clear. It only means that when the write-back
+// actually LANDED. The composer saves the listing row and the item row as two
+// separate statements, so an item write that fails (a duplicate-SKU 409, say)
+// leaves the listing holding the value stamped `inventory_derived` while the
+// column stays empty. The reverse pass then declines to rescue it (derived values
+// are never written back) and this projection deleted it on the next save: the
+// specifics editor still showed Brand, the saved map had none, and publish
+// blocked on "Fill required eBay specifics: Brand" — a message that contradicted
+// the screen. Overwrite-only makes that state stable and recoverable instead.
+//
+// Blanking a column still clears its specific on the surface that OWNS the
+// column: AutoLister bulk edit rebuilds the map with its own set-or-drop pass
+// (`saveRow`), where an empty inline field is unambiguously an explicit clear.
+// The composer has no column inputs at all, so it can never observe one.
 //
 // CALLER CONTRACT: run this AFTER reverseProjectAspectColumns and feed it the
 // columns as they will be SAVED (item columns overlaid with the write-back). A
@@ -442,15 +463,11 @@ export function projectColumnAspectsForSpec(
     if (!name) continue;
     const raw = (item as unknown as Record<string, unknown>)[entry.column];
     const val = typeof raw === "string" ? raw.trim() : "";
-    if (val) {
-      const filled = fillAspect(aspect, [val], false);
-      if (filled.values.length === 0) continue; // not expressible — keep what's there
-      aspects[name] = filled.values;
-      sources[name] = "inventory_derived";
-    } else {
-      delete aspects[name];
-      delete sources[name];
-    }
+    if (!val) continue; // blank column — overwrite-only, see the header
+    const filled = fillAspect(aspect, [val], false);
+    if (filled.values.length === 0) continue; // not expressible — keep what's there
+    aspects[name] = filled.values;
+    sources[name] = "inventory_derived";
   }
   return { aspects, sources };
 }
