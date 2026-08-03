@@ -3,6 +3,8 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { trimTitleToLimit, trimTitleWithReport } from "../lib/title-trim.ts";
 import { lintTitle } from "../lib/title-lint.ts";
+import { captureException } from "../lib/observability.ts";
+import { planComplianceSync } from "../lib/ebay-compliance-plan.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import {
   filterListablePhotos,
@@ -1009,10 +1011,17 @@ flipdeskEbayRoutes.get("/compliance/violations", async (c) => {
   }
 });
 
+// How many `platform_listing_id`s go into one clearing UPDATE. Bounded because
+// the ids land in a PostgREST `in.(…)` list, which becomes a URL — an unbounded
+// list is a request that fails on length rather than on anything meaningful.
+const COMPLIANCE_CLEAR_CHUNK = 100;
+
 // US-1422 chunk 2: persist per-listing compliance so the pipeline can flag
-// unhealthy listings without a live API call. Resets previously-flagged listings
-// then re-flags current violations, matched by platform_listing_id. Writes only
-// to OUR DB (no eBay mutation) and is tenant-scoped (US-268).
+// unhealthy listings without a live API call. Matched by platform_listing_id,
+// writes only to OUR DB (no eBay mutation), tenant-scoped (US-268).
+//
+// US-2329: it plans the whole write before making any of it, so a listing that
+// is still violating is never momentarily recorded as compliant.
 flipdeskEbayRoutes.post("/compliance/sync", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
@@ -1039,32 +1048,92 @@ flipdeskEbayRoutes.post("/compliance/sync", async (c) => {
     }
 
     const nowIso = new Date().toISOString();
-    // Clear previously-flagged listings for this owner; re-flag current ones.
-    await supabaseAdmin
+
+    // US-2329 AC1: plan, then write. This used to zero every flagged listing in
+    // one statement and re-flag row by row, so between the two — no transaction,
+    // so the window is real — every listing with an open eBay policy violation
+    // read as compliant.
+    const { data: flaggedRows, error: readErr } = await supabaseAdmin
       .from("listings")
-      .update({
-        compliance_violation_count: 0,
-        compliance_types: null,
-        compliance_checked_at: nowIso,
-      } as never)
+      .select("platform_listing_id")
       .eq("user_id", ownerId)
       .gt("compliance_violation_count", 0);
+    if (readErr) {
+      // Without this list the clear side cannot be a diff, and falling back to
+      // "clear everything" is the defect. Fail instead.
+      throw new Error(`compliance sync could not read current flags: ${readErr.message}`);
+    }
+    const plan = planComplianceSync(
+      ((flaggedRows ?? []) as Array<{ platform_listing_id: string | null }>).map(
+        (r) => r.platform_listing_id,
+      ),
+      byListing,
+    );
 
+    // AC2: an update that fails is a listing whose health is now WRONG in our
+    // DB. It used to be counted away — `if (!upErr) flagged += 1` — which
+    // reported a smaller success number and no error at all.
+    const errors: string[] = [];
     let flagged = 0;
-    for (const [plid, e] of byListing) {
+    let cleared = 0;
+
+    // Violators first. A listing that is violating now and was violating before
+    // is rewritten in place and never passes through zero.
+    for (const t of plan.toFlag) {
       const { error: upErr } = await supabaseAdmin
         .from("listings")
         .update({
-          compliance_violation_count: e.count,
-          compliance_types: [...e.types],
+          compliance_violation_count: t.count,
+          compliance_types: t.types,
           compliance_checked_at: nowIso,
         } as never)
         .eq("user_id", ownerId)
-        .eq("platform_listing_id", plid);
-      if (!upErr) flagged += 1;
+        .eq("platform_listing_id", t.platformListingId);
+      if (upErr) errors.push(`flag ${t.platformListingId}: ${upErr.message}`);
+      else flagged += 1;
     }
 
-    return c.json({ access: true, flagged });
+    // Then, and only then, the listings that have genuinely become clean.
+    for (let i = 0; i < plan.toClear.length; i += COMPLIANCE_CLEAR_CHUNK) {
+      const chunk = plan.toClear.slice(i, i + COMPLIANCE_CLEAR_CHUNK);
+      const { error: clearErr } = await supabaseAdmin
+        .from("listings")
+        .update({
+          compliance_violation_count: 0,
+          compliance_types: null,
+          compliance_checked_at: nowIso,
+        } as never)
+        .eq("user_id", ownerId)
+        .in("platform_listing_id", chunk);
+      if (clearErr) errors.push(`clear ${chunk.length} listing(s): ${clearErr.message}`);
+      else cleared += chunk.length;
+    }
+
+    if (errors.length > 0) {
+      // AC2 + AC3: the failure reaches the seller who asked for it, and an
+      // operator, in the same breath. `ok:false` is the machine-readable half —
+      // a caller that only reads `flagged` would otherwise see a plausible
+      // number for a sync that left listings mislabelled.
+      console.error("[flipdesk-ebay] /compliance/sync partial failure:", errors);
+      captureException(
+        new Error(`compliance sync wrote ${errors.length} bad update(s)`),
+        { route: "flipdesk.ebay.compliance-sync", userId: ownerId },
+      );
+      return c.json(
+        {
+          ok: false,
+          access: true,
+          flagged,
+          cleared,
+          failed: errors.length,
+          errors: errors.slice(0, 20),
+          error: "Some listings could not be updated. Listing health may be out of date.",
+        },
+        502,
+      );
+    }
+
+    return c.json({ ok: true, access: true, flagged, cleared });
   } catch (err) {
     if (isAnalyticsAccessDenied(err)) return c.json({ access: false });
     console.error("[flipdesk-ebay] /compliance/sync failed:", err);

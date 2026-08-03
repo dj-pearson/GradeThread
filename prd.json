@@ -2497,18 +2497,6 @@
       "notes": "[P2][FlipDesk/Shopify] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
     },
     {
-      "id": "US-2329",
-      "passes": false,
-      "title": "eBay compliance sync clears every flag then re-flags row by row with no transaction",
-      "description": "flipdesk-ebay.ts:1023-1031 clears all compliance flags, then :1034-1045 re-flags each violating listing. No transaction, no diff, and upErr is ignored except to skip a counter. A throw or a run of failed updates after the clear leaves listings reading compliant while they have open eBay policy violations. It runs inline in the request with no job row.",
-      "acceptanceCriteria": [
-        "Replace clear-then-reflag with a diff or a single upsert so there is no window where everything reads compliant.",
-        "Update errors fail the sync rather than being counted away.",
-        "Move it to a job row so a failure is visible."
-      ],
-      "notes": "[P3][FlipDesk/eBay] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
-    },
-    {
       "id": "US-2330",
       "passes": false,
       "title": "The entire authenticated web surface ships with no security headers",

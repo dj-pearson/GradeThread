@@ -252,7 +252,14 @@ export function useEbayListingHealth(enabled = true) {
 export function useSyncListingHealth() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (): Promise<{ access: boolean; flagged?: number }> => {
+    // US-2329: `cleared` counts listings whose violations are gone. A non-2xx
+    // now means some listings could not be updated at all, and the message says
+    // health may be out of date rather than reporting a plausible `flagged`.
+    mutationFn: async (): Promise<{
+      access: boolean;
+      flagged?: number;
+      cleared?: number;
+    }> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/compliance/sync`,
         { method: "POST", headers: await ebayHeaders() },
@@ -261,7 +268,7 @@ export function useSyncListingHealth() {
       if (!res.ok) {
         throw new Error(json.error || "Could not re-check listing health.");
       }
-      return json as { access: boolean; flagged?: number };
+      return json as { access: boolean; flagged?: number; cleared?: number };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ebay_listing_health"] });
