@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Wallet, Plus, Trash2, Loader2, Download } from "lucide-react";
+import { Wallet, Plus, Pencil, Trash2, Loader2, Download } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -69,6 +69,11 @@ export function FlipdeskExpensesPage() {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
+  // US-2228 AC1/AC4: the row being edited (null = add), and the list filters.
+  const [editing, setEditing] = useState<ExpenseRow | null>(null);
+  const [filterCategory, setFilterCategory] = useState<ExpenseCategory | "all">("all");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   const { data: expenses = [], isLoading } = useQuery({
     queryKey: ["expenses", user?.id],
@@ -83,19 +88,46 @@ export function FlipdeskExpensesPage() {
     },
   });
 
+  // US-2228 AC4: category + date-range filter, applied client-side over the
+  // rows already loaded. `spent_on` is a plain yyyy-mm-dd date column and the
+  // inputs produce the same format, so string comparison IS date comparison —
+  // no parsing, and no timezone to get wrong. Both bounds are INCLUSIVE, which
+  // is what "from the 1st to the 31st" means to someone doing a month's books.
+  const filtered = useMemo(
+    () =>
+      expenses.filter((e) => {
+        if (filterCategory !== "all" && e.category !== filterCategory) {
+          return false;
+        }
+        if (fromDate && e.spent_on < fromDate) return false;
+        if (toDate && e.spent_on > toDate) return false;
+        return true;
+      }),
+    [expenses, filterCategory, fromDate, toDate],
+  );
+
+  const filterActive =
+    filterCategory !== "all" || fromDate !== "" || toDate !== "";
+
   // Per-month totals, most recent first.
+  //
+  // Computed over the FILTERED rows on purpose: someone who has narrowed to a
+  // category or a quarter is asking what that slice cost, and a summary that
+  // kept showing the all-time figure beside a filtered table would be read as
+  // the filtered total. The card is relabelled when a filter is on so the two
+  // readings cannot be confused.
   const months = useMemo(() => {
     const m = new Map<string, number>();
-    for (const e of expenses) {
+    for (const e of filtered) {
       const k = monthKey(e.spent_on);
       m.set(k, (m.get(k) ?? 0) + e.amount);
     }
     return Array.from(m.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [expenses]);
+  }, [filtered]);
 
   const total = useMemo(
-    () => expenses.reduce((s, e) => s + e.amount, 0),
-    [expenses],
+    () => filtered.reduce((s, e) => s + e.amount, 0),
+    [filtered],
   );
 
   async function remove(id: string) {
@@ -132,8 +164,8 @@ export function FlipdeskExpensesPage() {
           <>
             <Button
               variant="outline"
-              onClick={() => downloadExpensesCsv(expenses)}
-              disabled={expenses.length === 0}
+              onClick={() => downloadExpensesCsv(filtered)}
+              disabled={filtered.length === 0}
             >
               <Download className="mr-2 h-4 w-4" />
               Export CSV
@@ -151,7 +183,7 @@ export function FlipdeskExpensesPage() {
         <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <div className="rounded-lg border bg-brand-navy/5 p-3">
             <div className="text-xs uppercase tracking-wide text-muted-foreground">
-              All time
+              {filterActive ? "Filtered total" : "All time"}
             </div>
             <div className="mt-1 text-xl font-bold tabular-nums">
               ${total.toFixed(2)}
@@ -170,9 +202,73 @@ export function FlipdeskExpensesPage() {
         </div>
       )}
 
+      {/* US-2228 AC4. Rendered only once there is something to filter — a
+          filter bar above an empty table is furniture that teaches nothing. */}
+      {expenses.length > 0 && (
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="exp-cat" className="text-xs">Category</Label>
+            <Select
+              value={filterCategory}
+              onValueChange={(v) =>
+                setFilterCategory(v as ExpenseCategory | "all")
+              }
+            >
+              <SelectTrigger id="exp-cat" className="h-9 w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {EXPENSE_CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {EXPENSE_CATEGORY_LABELS[c]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="exp-from" className="text-xs">From</Label>
+            <Input
+              id="exp-from"
+              type="date"
+              className="h-9 w-40"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="exp-to" className="text-xs">To</Label>
+            <Input
+              id="exp-to"
+              type="date"
+              className="h-9 w-40"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+            />
+          </div>
+          {filterActive && (
+            <Button
+              variant="ghost"
+              className="h-9"
+              onClick={() => {
+                setFilterCategory("all");
+                setFromDate("");
+                setToDate("");
+              }}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>{expenses.length} expenses</CardTitle>
+          <CardTitle>
+            {filtered.length}
+            {filterActive ? ` of ${expenses.length}` : ""} expenses
+          </CardTitle>
           <CardDescription>
             Logged overhead. The Finances page subtracts this total from net
             profit in its Net After Overhead figure.
@@ -181,17 +277,38 @@ export function FlipdeskExpensesPage() {
         <CardContent className="px-0">
           {isLoading ? (
             <TableLoadingSkeleton rows={6} columns={5} />
-          ) : expenses.length === 0 ? (
-            <EmptyState
-              icon={Wallet}
-              title="No expenses logged"
-              description="Track overhead like shipping supplies, mileage, and subscriptions to get a true profit picture."
-              action={{
-                label: "Add expense",
-                onClick: () => setDialogOpen(true),
-                icon: Plus,
-              }}
-            />
+          ) : filtered.length === 0 ? (
+            /* Two different empty states, because they need opposite advice.
+               "Nothing logged yet" wants an Add button; "your filter matched
+               nothing" wants the filter cleared, and telling that seller to log
+               an expense would be answering a question they did not ask —
+               worse, it reads as though their existing expenses are gone. */
+            filterActive ? (
+              <EmptyState
+                icon={Wallet}
+                title="No expenses match these filters"
+                description="You have expenses logged, but none in this category or date range."
+                action={{
+                  label: "Clear filters",
+                  onClick: () => {
+                    setFilterCategory("all");
+                    setFromDate("");
+                    setToDate("");
+                  },
+                }}
+              />
+            ) : (
+              <EmptyState
+                icon={Wallet}
+                title="No expenses logged"
+                description="Track overhead like shipping supplies, mileage, and subscriptions to get a true profit picture."
+                action={{
+                  label: "Add expense",
+                  onClick: () => setDialogOpen(true),
+                  icon: Plus,
+                }}
+              />
+            )
           ) : (
             <Table>
               <TableHeader>
@@ -204,7 +321,7 @@ export function FlipdeskExpensesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {expenses.map((e) => (
+                {filtered.map((e) => (
                   <TableRow key={e.id}>
                     <TableCell className="text-sm">
                       {e.spent_on}
@@ -220,7 +337,19 @@ export function FlipdeskExpensesPage() {
                     <TableCell className="text-right font-mono tabular-nums">
                       ${e.amount.toFixed(2)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          setEditing(e);
+                          setDialogOpen(true);
+                        }}
+                        aria-label="Edit expense"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -239,17 +368,35 @@ export function FlipdeskExpensesPage() {
         </CardContent>
       </Card>
 
-      <AddExpenseDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <ExpenseDialog
+        open={dialogOpen}
+        onOpenChange={(o) => {
+          setDialogOpen(o);
+          // Drop the edit target on close so the next "Add" opens blank.
+          if (!o) setEditing(null);
+        }}
+        expense={editing}
+      />
     </div>
   );
 }
 
-function AddExpenseDialog({
+// US-2228 AC1: one dialog for both add and edit.
+//
+// `expense` null = add, non-null = edit. A second dialog would have duplicated
+// the validation, the permission check and the category list, and bookkeeping
+// is exactly where those must not drift — an edit that skipped the
+// manage_inventory check would let a workspace member rewrite the owner's
+// numbers, and an edit that skipped the amount validation would let a typo
+// through that the add path rejects.
+function ExpenseDialog({
   open,
   onOpenChange,
+  expense,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  expense: ExpenseRow | null;
 }) {
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId, can } = useWorkspace();
@@ -261,6 +408,18 @@ function AddExpenseDialog({
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(todayLocalDate());
   const [saving, setSaving] = useState(false);
+
+  // Seed from the row being edited, or reset to a blank add form. Keyed on the
+  // dialog OPENING rather than on `expense` alone: reopening the add form after
+  // an edit has to clear the previous row's values, and `expense` going null is
+  // not on its own enough to distinguish that from a re-render.
+  useEffect(() => {
+    if (!open) return;
+    setCategory(expense?.category ?? "shipping_supplies");
+    setAmount(expense ? String(expense.amount) : "");
+    setDescription(expense?.description ?? "");
+    setDate(expense?.spent_on ?? todayLocalDate());
+  }, [open, expense]);
 
   async function save() {
     if (!user || !workspaceOwnerId) return;
@@ -275,19 +434,33 @@ function AddExpenseDialog({
     }
     setSaving(true);
     try {
-      const insert: ExpenseInsert = {
-        user_id: workspaceOwnerId,
+      const fields = {
         category,
         amount: amt,
         description: description.trim() || null,
         spent_on: date,
       };
-      const { error } = await supabase
-        .from("flipdesk_expenses")
-        .insert(insert as never);
-      if (error) throw error;
+      if (expense) {
+        // No user_id in the patch: the row's owner never changes, and RLS
+        // scopes the update by it. Sending it would be a chance to move a row
+        // between workspaces, which nothing here should be able to do.
+        const { error } = await supabase
+          .from("flipdesk_expenses")
+          .update(fields as never)
+          .eq("id", expense.id);
+        if (error) throw error;
+      } else {
+        const insert: ExpenseInsert = {
+          user_id: workspaceOwnerId,
+          ...fields,
+        };
+        const { error } = await supabase
+          .from("flipdesk_expenses")
+          .insert(insert as never);
+        if (error) throw error;
+      }
       await qc.invalidateQueries({ queryKey: ["expenses"] });
-      toast.success("Expense logged.");
+      toast.success(expense ? "Expense updated." : "Expense logged.");
       setAmount("");
       setDescription("");
       onOpenChange(false);
@@ -304,9 +477,11 @@ function AddExpenseDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Add expense</DialogTitle>
+          <DialogTitle>{expense ? "Edit expense" : "Add expense"}</DialogTitle>
           <DialogDescription>
-            Log a business overhead cost.
+            {expense
+              ? "Correct a logged overhead cost."
+              : "Log a business overhead cost."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
