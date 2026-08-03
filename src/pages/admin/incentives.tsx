@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SuperAdminOnly } from "@/components/auth/super-admin-only";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -322,7 +323,7 @@ function SignupIncentiveCard({
   );
 }
 
-export function AdminIncentivesPage() {
+function AdminIncentivesPageInner() {
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [retry, setRetry] = useState<null | (() => void)>(null);
 
@@ -418,5 +419,17 @@ export function AdminIncentivesPage() {
 
       <MfaStepUpDialog open={stepUpOpen} onOpenChange={setStepUpOpen} onVerified={() => retry?.()} />
     </div>
+  );
+}
+
+// US-2357 AC4: the sidebar marks this route superAdminOnly and only HID the
+// link — typing the URL rendered the whole page for a plain admin. The nav
+// now tells the truth. The server-side scope + step-up on every action here
+// is the actual boundary; this is not a substitute for it.
+export function AdminIncentivesPage() {
+  return (
+    <SuperAdminOnly>
+      <AdminIncentivesPageInner />
+    </SuperAdminOnly>
   );
 }

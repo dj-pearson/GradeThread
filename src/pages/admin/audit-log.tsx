@@ -1,4 +1,5 @@
 import { Fragment, useState } from "react";
+import { SuperAdminOnly } from "@/components/auth/super-admin-only";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -92,7 +93,7 @@ function formatAction(action: string): string {
     .join(" ");
 }
 
-export function AdminAuditLogPage() {
+function AdminAuditLogPageInner() {
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === "super_admin";
 
@@ -680,5 +681,17 @@ export function AdminAuditLogPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// US-2357 AC4: the sidebar marks this route superAdminOnly and only HID the
+// link — typing the URL rendered the whole page for a plain admin. The nav
+// now tells the truth. The server-side scope + step-up on every action here
+// is the actual boundary; this is not a substitute for it.
+export function AdminAuditLogPage() {
+  return (
+    <SuperAdminOnly>
+      <AdminAuditLogPageInner />
+    </SuperAdminOnly>
   );
 }

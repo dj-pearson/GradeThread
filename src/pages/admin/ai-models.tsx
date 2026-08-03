@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { captureException } from "@/lib/sentry";
 import { downloadBlob } from "@/lib/download";
 import { useAuth } from "@/hooks/use-auth";
 import type {
@@ -539,7 +540,28 @@ export function AdminAiModelsPage() {
       target_id: targetId,
       details,
     };
-    await supabase.from("admin_audit_log").insert(entry as never);
+    // US-2357 AC3: read the error. An audit insert that fails silently is the
+    // worst kind of missing row — the action happened, the page said so, and
+    // the only record that it happened never existed. This does NOT block the
+    // action (the action already ran; refusing to acknowledge it would be
+    // worse), it makes the gap visible.
+    //
+    // Moving this write to the edge entirely is US-2349, which also has to
+    // revoke the client INSERT grant that makes the log forgeable. Until then
+    // the least this can do is stop pretending it succeeded.
+    const { error } = await supabase
+      .from("admin_audit_log")
+      .insert(entry as never);
+    if (error) {
+      captureException(error, {
+        tags: { area: "admin-audit-log-insert", action },
+        extra: { targetType, targetId },
+      });
+      toast.warning("That action ran, but the audit entry did not save.", {
+        description: error.message,
+        duration: 12_000,
+      });
+    }
   }
 
   // ─── Actions ──────────────────────────────────────────────────────
