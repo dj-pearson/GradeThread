@@ -39,6 +39,10 @@
 //   EDGE_ENCRYPTION_KEY    (shared with the eBay/Shopify/Depop/Etsy paths)
 
 import { supabaseAdmin } from "./supabase.ts";
+import {
+  siblingRefreshWon,
+  singleFlightRefresh,
+} from "./token-refresh-race.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
 import { fetchWithTimeout } from "./circuit-breaker.ts";
 
@@ -295,7 +299,40 @@ export interface WhatnotConnection {
   token: string;
 }
 
-export async function getWhatnotAccessToken(userId: string): Promise<string> {
+/** Default lead time: renew only when the token is nearly dead. */
+const TOKEN_REFRESH_LEAD_MS = 60_000;
+
+// US-2322: one refresh per connection per replica. A page load landing next
+// to a cron tick used to send two POSTs carrying the same refresh token;
+// whatnot rotates and invalidates the old one, so the loser took an
+// invalid_grant and the seller was deactivated by our own concurrency.
+//
+// `refreshWithinMs` is how much life left counts as "needs renewing". The
+// default is the old 60s. The proactive sweep passes its own horizon, which
+// is the whole of US-2322 AC3: the sweep selected connections expiring within
+// 24 hours and then called this with a 60-second threshold, so it decrypted
+// every active connection every run and refreshed nothing.
+//
+// The single-flight key deliberately ignores the threshold. A caller that
+// arrives mid-flight gets the in-flight result even if it would have asked a
+// stricter question — which is right in both directions: a page load inherits
+// the sweep's freshly renewed token, and a sweep that lands on a page load's
+// still-valid token simply renews on the next tick.
+export function getWhatnotAccessToken(
+  userId: string,
+  opts: { refreshWithinMs?: number } = {},
+): Promise<string> {
+  const within = opts.refreshWithinMs ?? TOKEN_REFRESH_LEAD_MS;
+  return singleFlightRefresh(
+    `whatnot:${userId}`,
+    () => getWhatnotAccessTokenUncoordinated(userId, within),
+  );
+}
+
+async function getWhatnotAccessTokenUncoordinated(
+  userId: string,
+  refreshWithinMs: number,
+): Promise<string> {
   const { data: row, error } = await supabaseAdmin
     .from("marketplace_connections")
     .select(
@@ -325,7 +362,7 @@ export async function getWhatnotAccessToken(userId: string): Promise<string> {
   }
 
   const expiresAt = r.token_expires_at ? new Date(r.token_expires_at).getTime() : 0;
-  const refreshNeeded = !expiresAt || expiresAt - Date.now() < 60_000;
+  const refreshNeeded = !expiresAt || expiresAt - Date.now() < refreshWithinMs;
   if (!refreshNeeded) {
     return await decryptToken(r.access_token_encrypted, { aad: userId });
   }
@@ -357,6 +394,40 @@ export async function getWhatnotAccessToken(userId: string): Promise<string> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const permanent = isPermanentWhatnotAuthFailure(err);
+    // US-2322: a "permanent" failure here may be a LOST RACE, not a lost
+    // grant. Single-flighting only covers this replica, so re-read the row:
+    // if another caller has already stored a different, still-valid token,
+    // the seller's connection is fine and deactivating it would be the bug.
+    if (permanent) {
+      const { data: afterRow } = await supabaseAdmin
+        .from("marketplace_connections")
+        .select("access_token_encrypted, token_expires_at")
+        .eq("id", r.id)
+        .maybeSingle();
+      const after = afterRow as
+        | { access_token_encrypted: string | null; token_expires_at: string | null }
+        | null;
+      if (
+        siblingRefreshWon(
+          {
+            accessTokenEncrypted: r.access_token_encrypted,
+            tokenExpiresAt: r.token_expires_at,
+          },
+          after
+            ? {
+              accessTokenEncrypted: after.access_token_encrypted,
+              tokenExpiresAt: after.token_expires_at,
+            }
+            : null,
+          Date.now(),
+        )
+      ) {
+        console.warn(
+          `[whatnot-client] refresh race for user ${userId}; using the token a sibling stored`,
+        );
+        return await decryptToken(after!.access_token_encrypted!, { aad: userId });
+      }
+    }
     await supabaseAdmin
       .from("marketplace_connections")
       .update({
@@ -441,7 +512,7 @@ export async function refreshExpiringWhatnotConnections(
   let failed = 0;
   for (const userId of userIds) {
     try {
-      await getWhatnotAccessToken(userId);
+      await getWhatnotAccessToken(userId, { refreshWithinMs: horizonMs });
       refreshed += 1;
     } catch (err) {
       failed += 1;
