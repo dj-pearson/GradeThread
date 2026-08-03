@@ -7,7 +7,9 @@ source_of_truth: code
 code_refs:
   - src/lib/constants.ts
   - scripts/setup-stripe-pricing.mjs
-reviewed: 2026-07-31
+  - src/pages/legal/refund.tsx
+  - src/pages/legal/terms.tsx
+reviewed: 2026-08-02
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
@@ -201,10 +203,48 @@ do **not** reset while paused.
 
 ## 8. Refund policy
 
-- **Subscriptions:** 14-day money-back guarantee on the **first** subscription
-  invoice only.
-- **Credit packs:** non-refundable — but **credits never expire**, so there is
-  no "use it or lose it" pressure.
+**The public legal pages are authoritative here, not this note.** Support and
+billing decisions are made against what a customer can actually read.
+
+- **Subscriptions:** non-refundable once a billing period has begun, except
+  where required by law or expressly granted in writing
+  (`src/pages/legal/refund.tsx` §3, `src/pages/legal/terms.tsx`).
+- **Credit packs:** non-refundable once a grade has been generated. Credits
+  themselves **never expire** (`CREDIT_PACKS` in `src/lib/constants.ts`,
+  migrations 00037 and 00415), so there is no "use it or lose it" pressure.
+- **Billing errors:** double-charges or charges after a valid cancellation are
+  refunded — 60-day window, per `refund.tsx` §3.
+
+> [!warning] There is no 14-day money-back guarantee (US-2127, settled 2026-08-02)
+> This section used to state one, "on the first subscription invoice only". It
+> was **never true**: both public legal pages say subscription fees are
+> non-refundable, and nothing in the codebase implements a refund window —
+> refunds are manual admin actions through `admin-billing.ts`.
+>
+> The owner settled it on 2026-08-02: the note was wrong, delete the claim. The
+> most likely origin is the 14-day free **trial**, which is real and is a
+> different thing entirely. Two features sharing a number is enough to produce a
+> policy nobody agreed to.
+>
+> The danger was directional. An internal note promising a refund the public
+> pages deny is a promise support might honour case by case, creating an
+> undisclosed policy — and inconsistent refunds are worse than either answer.
+
+### ⚠️ A separate contradiction, NOT resolved here
+
+`terms.tsx` says "Unused grading credits **do not roll over** and are not
+refundable." That conflates two different things:
+
+- **Purchased credit packs** never expire. Code and migrations both say so.
+- **The monthly plan allowance** (`grades_used_this_month`) resets each month
+  and genuinely does not roll over.
+
+So the sentence is true of one and false of the other, and the word "credits"
+is used for both. It understates what a paying customer gets, so it costs
+conversion rather than creating legal exposure — but it is still a false
+statement in the Terms. **Not edited here**: US-2127 AC4 puts the legal pages
+under counsel review, and rewriting Terms copy ahead of that trades one
+unreviewed statement for another. Carried on US-2127.
 
 ---
 
