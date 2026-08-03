@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { splitByOpenState } from "@/pages/flipdesk/post-sale-state";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -339,6 +340,15 @@ function ReturnsCard() {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const { data: returns = [], isLoading } = useEbayReturns();
+  // US-2227 AC3: the list arrived unfiltered and every row got Approve /
+  // Decline / Refund buttons, so a case eBay had already closed looked exactly
+  // like one waiting on the seller — with a destructive action attached.
+  const [showClosed, setShowClosed] = useState(false);
+  const { open: openReturns, closed: closedReturns } = useMemo(
+    () => splitByOpenState(returns),
+    [returns],
+  );
+  const visible = showClosed ? closedReturns : openReturns;
   const decide = useEbayDecideReturn();
   const refund = useEbayRefundReturn();
   const [busy, setBusy] = useState<string | null>(null);
@@ -393,18 +403,34 @@ function ReturnsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <RotateCcw className="h-4 w-4" />
-          Returns
+        <CardTitle className="flex items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            <RotateCcw className="h-4 w-4" />
+            Returns
+          </span>
+          {closedReturns.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs font-normal"
+              onClick={() => setShowClosed((v) => !v)}
+            >
+              {showClosed
+                ? `Show open (${openReturns.length})`
+                : `Show closed (${closedReturns.length})`}
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (
           <Skeleton className="h-16 w-full" />
-        ) : returns.length === 0 ? (
-          <EmptyRow text="No open returns." />
+        ) : visible.length === 0 ? (
+          <EmptyRow
+            text={showClosed ? "No closed returns." : "No open returns."}
+          />
         ) : (
-          returns.map((r) => (
+          visible.map((r) => (
             <div
               key={r.returnId}
               className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
@@ -420,6 +446,10 @@ function ReturnsCard() {
                   Return {r.returnId} · opened {fmtDate(r.creationDate)}
                 </p>
               </div>
+              {/* US-2227: no actions on a closed case. Offering Refund on a
+                  case eBay has already resolved is an invitation to a
+                  destructive no-op, and its confirm text promises otherwise. */}
+              {!showClosed && (
               <div className="flex shrink-0 gap-2">
                 <Button
                   size="sm"
@@ -460,6 +490,7 @@ function ReturnsCard() {
                   Refund
                 </Button>
               </div>
+              )}
             </div>
           ))
         )}
