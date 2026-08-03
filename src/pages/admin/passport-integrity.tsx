@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -180,6 +180,11 @@ export function AdminPassportIntegrityPage() {
   const [reason, setReason] = useState("");
   const [noteText, setNoteText] = useState("");
   const [severReason, setSeverReason] = useState("");
+  // US-2335: ids for the label/control pairs below.
+  const statusFilterId = useId();
+  const typeFilterId = useId();
+  const severityFilterId = useId();
+  const resolutionId = useId();
   const [busy, setBusy] = useState(false);
 
   const [stepUpOpen, setStepUpOpen] = useState(false);
@@ -327,18 +332,18 @@ export function AdminPassportIntegrityPage() {
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1.5">
-          <Label className="text-xs">Status</Label>
+          <Label className="text-xs" htmlFor={statusFilterId}>Status</Label>
           <Select value={status} onValueChange={(v) => changeFilter(setStatus, v)}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-36" id={statusFilterId}><SelectValue /></SelectTrigger>
             <SelectContent>
               {STATUS_FILTERS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Type</Label>
+          <Label className="text-xs" htmlFor={typeFilterId}>Type</Label>
           <Select value={type} onValueChange={(v) => changeFilter(setType, v)}>
-            <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-52" id={typeFilterId}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All types</SelectItem>
               {(Object.keys(TYPE_LABEL) as SignalType[]).map((t) => (
@@ -348,9 +353,9 @@ export function AdminPassportIntegrityPage() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Severity</Label>
+          <Label className="text-xs" htmlFor={severityFilterId}>Severity</Label>
           <Select value={severity} onValueChange={(v) => changeFilter(setSeverity, v)}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-36" id={severityFilterId}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               {(["critical", "high", "medium", "low"] as Severity[]).map((s) => (
@@ -500,7 +505,16 @@ export function AdminPassportIntegrityPage() {
                     </ul>
                   )}
                   <div className="flex items-start gap-2">
-                    <Input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add an annotation…" className="text-sm" />
+                    {/* US-2335: placeholder-only. A placeholder is not an
+                        accessible name — it vanishes on first keystroke, so a
+                        half-typed field announces nothing at all. */}
+                    <Input
+                      aria-label="Annotation"
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      placeholder="Add an annotation…"
+                      className="text-sm"
+                    />
                     <Button size="sm" variant="outline" disabled={busy} onClick={() => addNote(selected)}>
                       <MessageSquarePlus className="h-3.5 w-3.5" /> Add
                     </Button>
@@ -522,7 +536,16 @@ export function AdminPassportIntegrityPage() {
                       Severing drops a fraudulent ownership/listing link from the public passport chain.
                       Requires super_admin + a fresh second factor.
                     </p>
-                    <Textarea value={severReason} onChange={(e) => setSeverReason(e.target.value)} rows={2} placeholder="Why is this link being severed?" />
+                    {/* The Label above names the whole SECTION ("Sever a
+                        probable link"), not this field, so attaching it here
+                        would announce the section heading as the field name. */}
+                    <Textarea
+                      aria-label="Reason for severing this link"
+                      value={severReason}
+                      onChange={(e) => setSeverReason(e.target.value)}
+                      rows={2}
+                      placeholder="Why is this link being severed?"
+                    />
                     <ul className="space-y-1.5">
                       {links.map((lk) => (
                         <li key={lk.id} className="flex items-center justify-between gap-2 rounded-md border p-2 text-xs">
@@ -549,8 +572,8 @@ export function AdminPassportIntegrityPage() {
                       </Button>
                     )}
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Resolution reason (required to action/dismiss)</Label>
-                      <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Why are you resolving this signal?" />
+                      <Label className="text-xs" htmlFor={resolutionId}>Resolution reason (required to action/dismiss)</Label>
+                      <Textarea id={resolutionId} value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Why are you resolving this signal?" />
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button size="sm" disabled={busy} onClick={() => setSignalStatus(selected, "actioned")}>

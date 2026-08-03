@@ -214,6 +214,7 @@ export function AdminUsersPage() {
         <CardContent>
           <form onSubmit={handleLookup} className="flex flex-col gap-2 sm:flex-row">
             <Input
+              aria-label="Account lookup"
               placeholder="Email, Stripe customer (cus_…), submission ID, or certificate ID"
               value={lookupQ}
               onChange={(e) => setLookupQ(e.target.value)}
@@ -287,7 +288,10 @@ export function AdminUsersPage() {
                 setPage(1);
               }}
             >
-              <SelectTrigger>
+              {/* US-2335: without a name this announces its VALUE — "All
+                  Plans" unset, "Professional" once chosen — so the control
+                  renames itself as you use it. */}
+              <SelectTrigger aria-label="Filter by plan">
                 <SelectValue placeholder="All Plans" />
               </SelectTrigger>
               <SelectContent>
@@ -307,7 +311,7 @@ export function AdminUsersPage() {
                 setPage(1);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Filter by role">
                 <SelectValue placeholder="All Roles" />
               </SelectTrigger>
               <SelectContent>
@@ -322,6 +326,7 @@ export function AdminUsersPage() {
             {/* Date from */}
             <Input
               type="date"
+              aria-label="Signed up from"
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value);
@@ -333,6 +338,7 @@ export function AdminUsersPage() {
             {/* Date to */}
             <Input
               type="date"
+              aria-label="Signed up until"
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value);
