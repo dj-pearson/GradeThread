@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useId, useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { downloadBlob } from "@/lib/download";
@@ -277,6 +277,9 @@ export function AdminAiModelsPage() {
   // Compare dialog
   const [compareDialogOpen, setCompareDialogOpen] = useState(false);
   const [compareLeft, setCompareLeft] = useState<string>("");
+  // US-2335: ids for the version-compare pair.
+  const compareLeftId = useId();
+  const compareRightId = useId();
   const [compareRight, setCompareRight] = useState<string>("");
 
   // Activate/Delete confirmation
@@ -1369,7 +1372,7 @@ export function AdminAiModelsPage() {
                 setPage(1);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Filter by status">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -1871,9 +1874,9 @@ export function AdminAiModelsPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Left Version</Label>
+                <Label htmlFor={compareLeftId}>Left Version</Label>
                 <Select value={compareLeft} onValueChange={setCompareLeft}>
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger className="mt-1" id={compareLeftId}>
                     <SelectValue placeholder="Select version..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -1886,9 +1889,9 @@ export function AdminAiModelsPage() {
                 </Select>
               </div>
               <div>
-                <Label>Right Version</Label>
+                <Label htmlFor={compareRightId}>Right Version</Label>
                 <Select value={compareRight} onValueChange={setCompareRight}>
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger className="mt-1" id={compareRightId}>
                     <SelectValue placeholder="Select version..." />
                   </SelectTrigger>
                   <SelectContent>

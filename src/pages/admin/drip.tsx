@@ -765,6 +765,7 @@ function StepCard({
           </div>
           <div className="flex items-center gap-2">
             <Input
+              aria-label="Test recipient email"
               placeholder="test recipient email"
               value={testTo}
               onChange={(e) => setTestTo(e.target.value)}
@@ -1263,13 +1264,13 @@ function IncentivePanel({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label className="text-xs">Promotion code</Label>
+            <Label className="text-xs" htmlFor="drip-promo-code">Promotion code</Label>
             <Select
               value={incentive?.promoCode || ""}
               disabled={disabled || coupons.isLoading}
               onValueChange={selectPromo}
             >
-              <SelectTrigger>
+              <SelectTrigger id="drip-promo-code">
                 <SelectValue placeholder={coupons.isLoading ? "Loading…" : "Select a promo code"} />
               </SelectTrigger>
               <SelectContent>
@@ -1390,6 +1391,7 @@ function Simulator({ campaign }: { campaign: string }) {
       <CardContent className="space-y-3">
         <div className="flex items-center gap-2">
           <Input
+            aria-label="User id to simulate"
             placeholder="user id (UUID)"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}

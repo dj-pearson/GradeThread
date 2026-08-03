@@ -28,7 +28,7 @@ import { auditFile, walk } from "../../scripts/audit-control-labels.mjs";
  * a batch lands; never raise it. Raising it is the moment this test stops
  * meaning anything, so if you are about to, add the label instead.
  */
-const BASELINE = 114;
+const BASELINE = 108;
 
 describe("form controls carry an accessible name (US-2335)", () => {
   const files = walk(resolve(process.cwd(), "src"));
