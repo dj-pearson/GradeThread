@@ -82,15 +82,19 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
 
 - **Columns are the write-authority.** At publish/revise the edge force-projects the current
   column values onto their aspects (`forceColumnAspects` → `applyColumnAspects`).
-- **Every forward projection is OVERWRITE-ONLY. A blank column never clears its aspect.** It
-  cannot tell a blanked field from a never-populated one, and the second case is common:
-  iOS-created items, AI-filled specifics, and anything the seller typed into a specifics editor
-  all routinely carry a value whose column is empty.
-  - **The one surface that may clear is the one that owns the column inputs**: AutoLister bulk
-    edit rebuilds the specifics map with its own set-or-drop pass (`saveRow` in
-    `src/pages/flipdesk/autolister-bulk-edit.tsx`), where an emptied inline Brand/Size/Color
-    field is unambiguously an explicit clear. Clearing a specific from the picker also still
-    works everywhere — the picker drops the key and its provenance entry.
+- **A blank column may only clear its aspect on a surface that OWNS the column inputs.**
+  Anywhere else, a blank column cannot be told apart from a never-populated one — and the
+  second case is the common one: iOS-created items, AI-filled specifics, and anything the
+  seller typed into a specifics editor all routinely carry a value whose column is empty.
+  - **May clear** (the seller emptied a field they can see, in the same save): AutoLister bulk
+    edit's set-or-drop pass (`saveRow` in `src/pages/flipdesk/autolister-bulk-edit.tsx`),
+    Android `AspectSync.projectColumnAspects`, and iOS via the server's `columnCleared` list
+    (`InventoryAspectSync` → `applyColumnAuthority`). All three run off an item form.
+  - **Must not clear** (overwrite-only): the edge publish/revise path
+    (`applyColumnAspects`, no `clearEmpty`) and the web composer's
+    `projectColumnAspectsForSpec`. Neither has a column input on screen.
+  - Clearing a specific from the picker still works everywhere — the picker drops the key and
+    its provenance entry, so there is nothing left for a projection to preserve.
   - **Why the composer's projection stopped clearing (2026-08-02).** `projectColumnAspectsForSpec`
     did clear, on the reasoning that the reverse pass runs first, so a still-blank column must
     mean a deliberate clear. That holds only while the write-back LANDS. The composer saves the

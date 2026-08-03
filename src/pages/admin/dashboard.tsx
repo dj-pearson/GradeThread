@@ -5,7 +5,10 @@ import { CHART_PALETTE } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PlatformAnalytics } from "@/components/admin/platform-analytics";
+import {
+  PlatformAnalytics,
+  type PlatformAnalyticsData,
+} from "@/components/admin/platform-analytics";
 import { PendingRefundsCard } from "@/components/admin/pending-refunds-card";
 import { WebhookDeadLettersCard } from "@/components/admin/webhook-dead-letters-card";
 import {
@@ -42,12 +45,12 @@ interface AdminKPIs {
   activeSubscribers: number;
   submissionsToday: number;
   revenueThisMonth: number;
+  // US-2390: an EXACT all-time mean, aggregated in SQL (migration 00513). It
+  // briefly travelled with `averageGradeSampleSize`/`averageGradeTruncated`
+  // while it was measured from a capped read of rows; there is no sample to
+  // describe any more, so those fields are gone rather than left reading
+  // "not truncated" forever.
   averageGrade: number;
-  // US-2390: the average is the one KPI measured from ROWS rather than a
-  // server-side count, so it travels with its own provenance. Every other KPI
-  // here is an exact count and cannot be truncated.
-  averageGradeSampleSize: number;
-  averageGradeTruncated: boolean;
   disputeRatePercent: number;
   aiAccuracyPercent: number;
   pendingReviews: number;
@@ -79,12 +82,11 @@ interface AdminChartData {
 interface AdminDashboardData {
   kpis: AdminKPIs;
   charts: AdminChartData;
-  // Slim rows — exactly the fields PlatformAnalytics aggregates (US-1565).
-  raw: {
-    users: Array<{ id: string; plan: string; created_at: string; email: string; full_name: string | null }>;
-    submissions: Array<{ user_id: string; status: string; created_at: string }>;
-    gradeReports: Array<{ created_at: string }>;
-  };
+  // US-2390: the ANSWERS, not the rows. This used to be `raw` — every user and
+  // submission row, which PlatformAnalytics aggregated in a useMemo while
+  // believing it had the whole corpus. It is aggregated in SQL now, so the
+  // payload is a fixed size whatever the platform's.
+  analytics: PlatformAnalyticsData;
 }
 
 export function AdminDashboardPage() {
@@ -218,17 +220,13 @@ export function AdminDashboardPage() {
               <div className="text-2xl font-bold">
                 {kpis?.averageGrade ? kpis.averageGrade.toFixed(1) : "—"}
               </div>
-              {/* US-2390: this used to read "Across all grades", which was
-                  not true even then — the read behind it was silently capped
-                  by PostgREST with nothing to say so. The number is now
-                  explicitly the most RECENT N, and N is shown, because a
-                  plausible number with no provenance is worse than a smaller
-                  one that states its own scope. */}
-              <CardDescription>
-                {kpis?.averageGradeTruncated
-                  ? `Most recent ${kpis.averageGradeSampleSize.toLocaleString()} grades`
-                  : "Across all grades"}
-              </CardDescription>
+              {/* US-2390: "Across all grades" is TRUE again. It was not true
+                  when this endpoint summed rows in JS — PostgREST capped the
+                  read with nothing to say so — and for one pass the label read
+                  "most recent N" to stop the caption claiming more than the
+                  number could support. The mean is an SQL aggregate now, so
+                  the original caption is the accurate one. */}
+              <CardDescription>Across all grades</CardDescription>
             </CardContent>
           </Card>
 
@@ -447,11 +445,7 @@ export function AdminDashboardPage() {
               ))}
             </div>
           ) : (
-            <PlatformAnalytics
-              users={data?.raw.users ?? []}
-              submissions={data?.raw.submissions ?? []}
-              gradeReports={data?.raw.gradeReports ?? []}
-            />
+            <PlatformAnalytics analytics={data?.analytics} />
           )}
         </TabsContent>
       </Tabs>

@@ -103,38 +103,27 @@ function queryChain(src: string, at: number): string {
  * this test exists to stop.
  */
 const KNOWN_UNBOUNDED: readonly string[] = [
-  // US-2387 worked this down 31 → 9 → 3. What is left is one read, counted
-  // three times because it is three tables in one `Promise.all`, and it is now
-  // TRIAGED rather than merely outstanding.
+  // EMPTY, and the way the last three left is the point.
   //
-  // GET /admin-dashboard/summary loads every submission, every grade report and
-  // every sale, then computes the KPIs and the 30-day charts in JS — and
-  // returns the raw rows to the client, where PlatformAnalytics builds a
-  // signup→submit→pay funnel, plan cohorts and a top-users-by-submissions
-  // table from them.
+  // US-2387 worked this register 31 → 9 → 3. The last three were one read
+  // counted three times: GET /admin-dashboard/summary loaded every submission,
+  // every grade report and every sale in one `Promise.all`, computed the KPIs
+  // and charts in JS, and shipped the rows on to the client, where
+  // PlatformAnalytics built a funnel, plan cohorts and a top-users table.
   //
-  // A `.limit()` here would be ACTIVELY HARMFUL, which is why it has not been
-  // applied. The KPIs are all-time aggregates: average grade, dispute rate,
-  // AI-accuracy percentage. Computed over an arbitrary first slice they do not
-  // fail — they come back plausible. An admin reads "average grade 7.8" and has
-  // no way to tell it was measured on a fraction of the corpus. That is the
-  // same confident-wrong-number shape US-2386 removed from the grading path,
-  // and adding a cap here to clear a register entry would be installing it.
+  // They were NOT cleared by adding a `.limit()`, and that was deliberate. The
+  // KPIs were all-time aggregates, and over an arbitrary first slice such a
+  // number does not fail — it comes back plausible. Capping would have made us
+  // the author of the wrong number rather than merely its inheritor.
   //
-  // (Worth stating plainly: this read is ALREADY silently truncated if prod
-  // enforces db-max-rows. Capping it does not create the bug, it just makes us
-  // the author of it. The fix is not a bound.)
+  // US-2390 removed the reads instead (migration 00513): every count-shaped KPI
+  // is a `count: "exact", head: true` query that reads zero rows, the mean and
+  // the month's revenue are SQL aggregates, the charts are SQL bucket counts,
+  // and the row-level analytics are aggregated server-side rather than shipped.
   //
-  // The real fix is to stop counting rows in JS: exact `count: "exact",
-  // head: true` queries for every count-shaped KPI (which is all of them except
-  // the average), date-scoped reads for the 30-day charts since the window IS
-  // the definition, and an aggregate RPC for the average. The row-level
-  // analytics the client builds needs its own answer, because those genuinely
-  // need rows. That is a redesign of the admin analytics data path, not a bound
-  // — filed separately rather than smuggled into this register.
-  "routes/admin-dashboard.ts:grade_reports",
-  "routes/admin-dashboard.ts:sales",
-  "routes/admin-dashboard.ts:submissions",
+  // Keep this list empty. An entry added here is a read that ships an unknown
+  // number of rows; the bar for adding one is the reasoning above, not
+  // convenience.
 ];
 
 async function walk(dir: URL, out: string[] = []): Promise<string[]> {

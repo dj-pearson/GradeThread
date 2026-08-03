@@ -50,15 +50,11 @@ const PLAN_COLORS: Record<UserPlan, string> = {
 };
 const RETENTION_COLUMNS = 6;
 
-function monthIndex(iso: string): number {
-  const d = new Date(iso);
-  return d.getFullYear() * 12 + d.getMonth();
-}
-
-function monthLabel(idx: number): string {
-  const year = Math.floor(idx / 12);
-  const month = idx % 12;
-  return new Date(year, month, 1).toLocaleString("en-US", {
+/** "2026-06" -> "Jun 26". The server keys cohorts by month; labelling is ours. */
+function monthLabel(key: string): string {
+  const [year, month] = key.split("-").map(Number);
+  if (!year || !month) return key;
+  return new Date(year, month - 1, 1).toLocaleString("en-US", {
     month: "short",
     year: "2-digit",
   });
@@ -84,44 +80,51 @@ interface CohortRow {
   retention: (number | null)[];
 }
 
-// US-1565: slim structural props — exactly the fields this component
-// aggregates, matching the edge /api/admin/dashboard/summary raw payload
-// (full rows never leave the server anymore).
+/**
+ * US-2390: the server-aggregated analytics document.
+ *
+ * This component used to receive ROWS — every user and every submission — and
+ * aggregate them here. That was wrong in a way nothing showed: PostgREST caps
+ * any response at `db-max-rows` and reports it only in a header supabase-js does
+ * not surface, so the funnel, the cohorts and the top-users table were computed
+ * over whatever fraction came back, and rendered as if they covered everything.
+ * The aggregation is SQL now (migration 00513), and these are the answers.
+ */
+export interface PlatformAnalyticsData {
+  funnel: {
+    signedUp: number;
+    firstSubmission: number;
+    completedGrade: number;
+    subscribed: number;
+  };
+  /** Plan slug -> user count. Absent plans mean zero, not missing. */
+  planDistribution: Record<string, number>;
+  topUsers: Array<{ id: string; name: string; plan: string; count: number }>;
+  /** `month` is "YYYY-MM"; a null retention cell is a month not yet reached. */
+  cohorts: Array<{ month: string; size: number; retention: (number | null)[] }>;
+  gradeVolume: Array<{ label: string; count: number }>;
+}
+
 interface PlatformAnalyticsProps {
-  users: Array<{ id: string; plan: string; created_at: string; email: string; full_name: string | null }>;
-  submissions: Array<{ user_id: string; status: string; created_at: string }>;
-  gradeReports: Array<{ created_at: string }>;
+  analytics: PlatformAnalyticsData | undefined;
 }
 
 export function PlatformAnalytics({
-  users,
-  submissions,
-  gradeReports,
+  analytics: data,
 }: PlatformAnalyticsProps) {
   const analytics = useMemo(() => {
-    // ── User funnel ──
-    const submitterIds = new Set(submissions.map((s) => s.user_id));
-    const completedUserIds = new Set(
-      submissions
-        .filter((s) => s.status === "completed")
-        .map((s) => s.user_id)
-    );
-    const subscribedUserIds = new Set(
-      users.filter((u) => u.plan !== "free").map((u) => u.id)
-    );
+    // ── User funnel ── (counts of DISTINCT users, computed server-side)
     const funnel: FunnelStage[] = [
-      { label: "Signed Up", count: users.length },
-      { label: "First Submission", count: submitterIds.size },
-      { label: "Completed Grade", count: completedUserIds.size },
-      { label: "Subscribed", count: subscribedUserIds.size },
+      { label: "Signed Up", count: data?.funnel.signedUp ?? 0 },
+      { label: "First Submission", count: data?.funnel.firstSubmission ?? 0 },
+      { label: "Completed Grade", count: data?.funnel.completedGrade ?? 0 },
+      { label: "Subscribed", count: data?.funnel.subscribed ?? 0 },
     ];
 
     // ── Plan distribution ──
     const planCounts = new Map<UserPlan, number>();
-    for (const plan of PLAN_ORDER) planCounts.set(plan, 0);
-    for (const u of users) {
-      const plan = u.plan as UserPlan;
-      planCounts.set(plan, (planCounts.get(plan) ?? 0) + 1);
+    for (const plan of PLAN_ORDER) {
+      planCounts.set(plan, data?.planDistribution[plan] ?? 0);
     }
     const planDistribution = PLAN_ORDER.map((plan) => ({
       plan,
@@ -142,87 +145,20 @@ export function PlatformAnalytics({
       .filter((slice) => slice.value > 0);
     const totalMrr = revenueByPlan.reduce((sum, s) => sum + s.value, 0);
 
-    // ── Grade volume trend (last 90 days) ──
-    const now = new Date();
-    const volumeBuckets: { label: string; key: string; count: number }[] = [];
-    const keyToIdx = new Map<string, number>();
-    for (let i = 89; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 86400000);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      keyToIdx.set(key, volumeBuckets.length);
-      volumeBuckets.push({
-        label: `${d.getMonth() + 1}/${d.getDate()}`,
-        key,
-        count: 0,
-      });
-    }
-    for (const report of gradeReports) {
-      const d = new Date(report.created_at);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const idx = keyToIdx.get(key);
-      if (idx !== undefined) volumeBuckets[idx]!.count += 1;
-    }
-
-    // ── Top users by submissions ──
-    const subCountByUser = new Map<string, number>();
-    for (const s of submissions) {
-      subCountByUser.set(s.user_id, (subCountByUser.get(s.user_id) ?? 0) + 1);
-    }
-    const userById = new Map(users.map((u) => [u.id, u]));
-    const topUsers = Array.from(subCountByUser.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([userId, count]) => {
-        const u = userById.get(userId);
-        return {
-          id: userId,
-          name: u?.full_name || u?.email || "Unknown user",
-          plan: u?.plan ?? "free",
-          count,
-        };
-      });
-
-    // ── Cohort retention (monthly) ──
-    // A user is "active" in a month if they created a submission that month.
-    const activityByUser = new Map<string, Set<number>>();
-    for (const s of submissions) {
-      const set = activityByUser.get(s.user_id) ?? new Set<number>();
-      set.add(monthIndex(s.created_at));
-      activityByUser.set(s.user_id, set);
-    }
-
-    const cohortMembers = new Map<number, string[]>();
-    for (const u of users) {
-      const idx = monthIndex(u.created_at);
-      const list = cohortMembers.get(idx) ?? [];
-      list.push(u.id);
-      cohortMembers.set(idx, list);
-    }
-    const cohortIndices = Array.from(cohortMembers.keys())
-      .sort((a, b) => a - b)
-      .slice(-RETENTION_COLUMNS);
-    const cohorts: CohortRow[] = cohortIndices.map((cohortIdx) => {
-      const members = cohortMembers.get(cohortIdx) ?? [];
-      const retention: (number | null)[] = [];
-      for (let offset = 0; offset < RETENTION_COLUMNS; offset++) {
-        const targetMonth = cohortIdx + offset;
-        if (targetMonth > monthIndex(now.toISOString())) {
-          retention.push(null);
-          continue;
-        }
-        const active = members.filter((id) =>
-          activityByUser.get(id)?.has(targetMonth)
-        ).length;
-        retention.push(
-          members.length > 0 ? (active / members.length) * 100 : 0
-        );
-      }
-      return {
-        label: monthLabel(cohortIdx),
-        size: members.length,
-        retention,
-      };
-    });
+    // ── Grade volume trend, top users, cohort retention ──
+    // All three arrive aggregated. The bucket labels are built alongside the
+    // counts on the server, so a bucket and its label can no longer disagree.
+    const volumeBuckets = data?.gradeVolume ?? [];
+    const topUsers = data?.topUsers ?? [];
+    const cohorts: CohortRow[] = (data?.cohorts ?? []).map((c) => ({
+      label: monthLabel(c.month),
+      size: c.size,
+      // Pad to the rendered width so a short row can't misalign the columns.
+      retention: Array.from(
+        { length: RETENTION_COLUMNS },
+        (_, i) => c.retention[i] ?? null,
+      ),
+    }));
 
     return {
       funnel,
@@ -233,25 +169,34 @@ export function PlatformAnalytics({
       topUsers,
       cohorts,
     };
-  }, [users, submissions, gradeReports]);
+  }, [data]);
 
   const funnelMax = analytics.funnel[0]?.count || 1;
 
   // AI enrichment acceptance — suggested vs accepted fields (US-167).
   const { data: aiLogs } = useQuery({
     queryKey: ["admin-ai-acceptance"],
-    queryFn: async (): Promise<AiEnrichmentLogRow[]> => {
+    queryFn: async (): Promise<{
+      logs: AiEnrichmentLogRow[];
+      truncated: boolean;
+    }> => {
       // US-1565: through the edge boundary instead of a direct table read.
       const res = await edgeFetch("/api/admin/dashboard/enrichment-log");
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to load enrichment log.");
-      return (json.logs ?? []) as AiEnrichmentLogRow[];
+      // US-2390: this endpoint is capped, and it now says so. Every other number
+      // on this page is an exact aggregate, which is exactly why the one capped
+      // number has to be labelled — otherwise it inherits their credibility.
+      return {
+        logs: (json.logs ?? []) as AiEnrichmentLogRow[],
+        truncated: json.truncated === true,
+      };
     },
     staleTime: 60 * 1000,
   });
 
   const aiAcceptance = useMemo(() => {
-    const logs = aiLogs ?? [];
+    const logs = aiLogs?.logs ?? [];
     const byField = new Map<string, { suggested: number; accepted: number }>();
     let totalSuggested = 0;
     let totalAccepted = 0;
@@ -284,6 +229,7 @@ export function PlatformAnalytics({
       overallRate:
         totalSuggested > 0 ? (totalAccepted / totalSuggested) * 100 : 0,
       logCount: logs.length,
+      truncated: aiLogs?.truncated === true,
     };
   }, [aiLogs]);
 
@@ -582,7 +528,15 @@ export function PlatformAnalytics({
             prompts. {aiAcceptance.totalAccepted} of{" "}
             {aiAcceptance.totalSuggested} suggested fields accepted (
             {aiAcceptance.overallRate.toFixed(0)}% overall) across{" "}
-            {aiAcceptance.logCount} extraction calls.
+            {aiAcceptance.logCount.toLocaleString()}{" "}
+            {aiAcceptance.truncated ? "most recent" : ""} extraction calls.
+            {aiAcceptance.truncated && (
+              <>
+                {" "}
+                Older calls exist beyond this window — unlike the other panels
+                here, these rates are measured over a sample.
+              </>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>

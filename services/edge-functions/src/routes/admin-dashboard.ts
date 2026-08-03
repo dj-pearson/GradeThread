@@ -20,16 +20,19 @@ type AdminEnv = {
 
 export const adminDashboardRoutes = new Hono<AdminEnv>();
 
+/** How many days the dashboard's headline charts cover. */
+export const CHART_DAYS = 30;
+/** How many days the analytics tab's grade-volume trend covers. */
+export const VOLUME_DAYS = 90;
+/** How many monthly signup cohorts the retention table shows. */
+export const COHORT_MONTHS = 6;
 /**
- * US-2390: how many recent completed grades the average is measured over.
- *
- * Sized well under the assumed `db-max-rows` ceiling (1000 by Supabase default,
- * unconfirmed for this deployment) so the read is answered in full rather than
- * being cut short by the server — which is the failure this whole endpoint was
- * rewritten to remove. If the ceiling turns out to be lower, the sample is
- * simply smaller and `averageGradeSampleSize` says so; nothing becomes wrong.
+ * Cap on the enrichment log — the ONE read in this file that still returns rows
+ * and therefore the one bound that can hide something. The response carries
+ * `truncated` so the panel can say the acceptance rates are measured over a
+ * window rather than over everything.
  */
-export const AVERAGE_GRADE_SAMPLE = 500;
+export const ENRICHMENT_LOG_LIMIT = 2000;
 
 interface DailyBucket {
   date: string;
@@ -57,26 +60,54 @@ export function buildDailyBuckets(days: number, now = new Date()): DailyBucket[]
   return buckets;
 }
 
-interface UserSlim {
-  id: string;
-  plan: string;
-  created_at: string;
-  email: string;
-  full_name: string | null;
+/**
+ * The N+1 instants describing N daily buckets.
+ *
+ * These go to the SQL aggregates rather than a day count, so the counts and the
+ * labels are derived from ONE set of boundaries. Letting Postgres work out its
+ * own day edges would disagree with these labels whenever the database session's
+ * timezone differs from this container's — and disagree invisibly, as a chart
+ * shifted by a whole column.
+ */
+function bucketEdges(buckets: DailyBucket[]): string[] {
+  if (buckets.length === 0) return [];
+  return [
+    ...buckets.map((b) => b.start.toISOString()),
+    buckets[buckets.length - 1]!.end.toISOString(),
+  ];
 }
-interface SubmissionSlim {
-  user_id: string;
-  status: string;
-  created_at: string;
+
+/** One bucket as the SQL series returns it. */
+interface SeriesRow {
+  start: string;
+  submissions: number;
+  newUsers: number;
+  revenue: number;
 }
-interface ReportSlim {
-  overall_score: number;
-  confidence_score: number;
-  created_at: string;
+interface VolumeRow {
+  start: string;
+  count: number;
 }
-interface SaleSlim {
-  sale_price: number;
-  sale_date: string;
+interface AggregateRow {
+  averageGrade: number;
+  gradedReportCount: number;
+  revenueThisMonth: number;
+}
+interface AnalyticsRow {
+  funnel: {
+    signedUp: number;
+    firstSubmission: number;
+    completedGrade: number;
+    subscribed: number;
+  };
+  planDistribution: Record<string, number>;
+  topUsers: Array<{ id: string; name: string; plan: string; count: number }>;
+  gradeVolume: VolumeRow[];
+  cohorts: Array<{
+    month: string;
+    size: number;
+    retention: (number | null)[];
+  }>;
 }
 
 // GET /summary — the KPIs + 30-day charts the dashboard renders, plus the
@@ -126,74 +157,51 @@ adminDashboardRoutes.get("/summary", async (c) => {
       .is("adjusted_score", null),
   ]);
 
-  // US-2390: the raw arrays are now read ONLY for the 30-day charts and for the
-  // client-side analytics (funnel, plan cohorts, top users), which genuinely
-  // need rows. No KPI depends on them any more, so a truncated read here can no
-  // longer corrupt a headline number — it can only shorten a chart. Making
-  // these bounded is US-2390's remaining half; they are still listed in
-  // KNOWN_UNBOUNDED with that reasoning.
-  const [usersRes, subsRes, reportsRes, salesRes] = await Promise.all([
-    supabaseAdmin.from("users").select("id, plan, created_at, email, full_name"),
-    supabaseAdmin.from("submissions").select("user_id, status, created_at"),
-    supabaseAdmin.from("grade_reports").select(
-      "overall_score, confidence_score, created_at",
-    ),
-    supabaseAdmin.from("sales").select("sale_price, sale_date"),
+  // US-2390: everything that needs VALUES rather than a count is now aggregated
+  // in SQL (migration 00513). The three unbounded reads this handler used to
+  // issue — every user, every submission, every grade report, every sale — are
+  // gone, and with them the whole class of failure they carried: a number
+  // computed over whatever fraction of the corpus PostgREST chose to return,
+  // presented as if it were the whole.
+  //
+  // Nothing below returns rows, so nothing below can truncate. The charts come
+  // back as 30 buckets and the analytics as a fixed-size document, whatever the
+  // platform's size.
+  const buckets = buildDailyBuckets(CHART_DAYS, now);
+  const volumeBuckets = buildDailyBuckets(VOLUME_DAYS, now);
+  const [aggRes, seriesRes, analyticsRes] = await Promise.all([
+    supabaseAdmin.rpc("admin_dashboard_aggregates", {
+      p_month_start: monthStart.toISOString(),
+    }),
+    supabaseAdmin.rpc("admin_dashboard_daily_series", {
+      p_edges: bucketEdges(buckets),
+    }),
+    supabaseAdmin.rpc("admin_platform_analytics", {
+      p_volume_edges: bucketEdges(volumeBuckets),
+      p_cohort_months: COHORT_MONTHS,
+    }),
   ]);
-  for (const res of [usersRes, subsRes, reportsRes, salesRes]) {
-    if (res.error) {
-      return jsonError(c, 500, "Failed to load dashboard data");
-    }
+  if (aggRes.error || seriesRes.error || analyticsRes.error) {
+    return jsonError(c, 500, "Failed to load dashboard data");
   }
 
-  const users = (usersRes.data ?? []) as UserSlim[];
-  const submissions = (subsRes.data ?? []) as SubmissionSlim[];
-  const reports = (reportsRes.data ?? []) as ReportSlim[];
-  const sales = (salesRes.data ?? []) as SaleSlim[];
+  const agg = (aggRes.data ?? {}) as Partial<AggregateRow>;
+  const series = (seriesRes.data ?? []) as SeriesRow[];
+  const analytics = (analyticsRes.data ?? {}) as Partial<AnalyticsRow>;
+
   const disputeCount = disputesRes.count ?? 0;
   const completedReportCount = completedReportsRes.count ?? 0;
   const completedSubmissionCount = completedSubsRes.count ?? 0;
-
-  // The ONE KPI that needs values rather than a count. It is read capped and
-  // NEWEST-FIRST, and the response says so: `averageGradeSampleSize` and
-  // `averageGradeTruncated` travel with the number.
-  //
-  // Capping a mean is normally exactly the mistake this story exists to remove
-  // — an arbitrary slice yields a plausible wrong number. What makes it
-  // acceptable here is that the sample is not arbitrary and not silent: ordered
-  // by `created_at` descending it is "the most recent N grades", a statistic an
-  // operator can reason about, and the payload carries N. A number with stated
-  // provenance is honest; the same number with none is not.
-  //
-  // The durable fix is an aggregate RPC (`avg(overall_score)` in SQL, alongside
-  // the existing admin_system_metrics). That needs a migration, and a migration
-  // blocks pushes until an operator applies it, so it is deliberately left to a
-  // follow-up rather than bundled here.
-  const meanRes = await supabaseAdmin
-    .from("grade_reports")
-    .select("overall_score")
-    .gt("overall_score", 0)
-    .order("created_at", { ascending: false })
-    .limit(AVERAGE_GRADE_SAMPLE);
-  const meanRows = (meanRes.data ?? []) as { overall_score: number }[];
-  const averageGrade = meanRows.length > 0
-    ? Math.round(
-      (meanRows.reduce((sum, r) => sum + r.overall_score, 0) / meanRows.length) * 10,
-    ) / 10
-    : 0;
 
   const kpis = {
     totalUsers: totalUsersRes.count ?? 0,
     activeSubscribers: activeSubsRes.count ?? 0,
     submissionsToday: submissionsTodayRes.count ?? 0,
-    revenueThisMonth: sales
-      .filter((s) => new Date(s.sale_date) >= monthStart)
-      .reduce((sum, s) => sum + s.sale_price, 0),
-    averageGrade,
-    averageGradeSampleSize: meanRows.length,
-    // True when the sample filled the cap, i.e. older grades exist beyond it.
-    averageGradeTruncated: meanRows.length >= AVERAGE_GRADE_SAMPLE &&
-      completedReportCount > meanRows.length,
+    revenueThisMonth: Number(agg.revenueThisMonth ?? 0),
+    // An exact all-time mean now, not a sample of one. The sample-size and
+    // truncation fields that used to travel with it are gone because there is
+    // no longer a sample to describe.
+    averageGrade: Number(agg.averageGrade ?? 0),
     disputeRatePercent: completedSubmissionCount > 0
       ? Math.round((disputeCount / completedSubmissionCount) * 1000) / 10
       : 0,
@@ -206,37 +214,47 @@ adminDashboardRoutes.get("/summary", async (c) => {
     pendingReviews: pendingRes.count ?? 0,
   };
 
-  const buckets = buildDailyBuckets(30, now);
-  const inBucket = (iso: string, b: DailyBucket) => {
-    const d = new Date(iso);
-    return d >= b.start && d < b.end;
-  };
+  // Zip the SQL buckets back onto the labels they were computed from. Index
+  // rather than date-match: the edges went out in order and come back in order,
+  // and a missing bucket should read as zero rather than shift the series.
   const charts = {
-    submissionVolume: buckets.map((b) => ({
+    submissionVolume: buckets.map((b, i) => ({
       date: b.date,
       label: b.label,
-      count: submissions.filter((s) => inBucket(s.created_at, b)).length,
+      count: Number(series[i]?.submissions ?? 0),
     })),
-    revenueOverTime: buckets.map((b) => ({
+    revenueOverTime: buckets.map((b, i) => ({
       date: b.date,
       label: b.label,
-      revenue: sales.filter((s) => inBucket(s.sale_date, b))
-        .reduce((sum, s) => sum + s.sale_price, 0),
+      revenue: Number(series[i]?.revenue ?? 0),
     })),
-    newUsers: buckets.map((b) => ({
+    newUsers: buckets.map((b, i) => ({
       date: b.date,
       label: b.label,
-      count: users.filter((u) => inBucket(u.created_at, b)).length,
+      count: Number(series[i]?.newUsers ?? 0),
     })),
   };
 
   return c.json({
     kpis,
     charts,
-    raw: {
-      users,
-      submissions,
-      gradeReports: reports.map((r) => ({ created_at: r.created_at })),
+    // Replaces the old `raw` arrays. The client used to receive every user and
+    // submission row and aggregate them in a useMemo, believing it was seeing
+    // everything; it now receives the answers.
+    analytics: {
+      funnel: analytics.funnel ?? {
+        signedUp: 0,
+        firstSubmission: 0,
+        completedGrade: 0,
+        subscribed: 0,
+      },
+      planDistribution: analytics.planDistribution ?? {},
+      topUsers: analytics.topUsers ?? [],
+      cohorts: analytics.cohorts ?? [],
+      gradeVolume: volumeBuckets.map((b, i) => ({
+        label: b.label,
+        count: Number(analytics.gradeVolume?.[i]?.count ?? 0),
+      })),
     },
   });
 });
@@ -270,12 +288,24 @@ adminDashboardRoutes.get("/system", async (c) => {
 
 // GET /enrichment-log — recent AI enrichment acceptance rows (US-167 panel on
 // the dashboard's analytics tab; was a direct client table read).
+//
+// US-2390 AC5: this is the one read here that still returns rows, so it is the
+// one place a bound can hide something. The cap stays — the acceptance rates it
+// feeds are a tuning signal, not an accounting figure, and the newest N calls
+// are the useful ones — but the response now SAYS when it is measuring a window
+// instead of everything, and the panel repeats that to the operator. A capped
+// number with stated provenance is honest; the same number with none is not.
 adminDashboardRoutes.get("/enrichment-log", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("ai_enrichment_log")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(2000);
+    .limit(ENRICHMENT_LOG_LIMIT);
   if (error) return jsonError(c, 500, "Failed to load enrichment log");
-  return c.json({ logs: data ?? [] });
+  const logs = data ?? [];
+  return c.json({
+    logs,
+    truncated: logs.length >= ENRICHMENT_LOG_LIMIT,
+    limit: ENRICHMENT_LOG_LIMIT,
+  });
 });
