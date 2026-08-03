@@ -1,14 +1,11 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { captureException } from "@/lib/sentry";
 import { downloadBlob } from "@/lib/download";
-import { useAuth } from "@/hooks/use-auth";
 import type {
   AiPromptVersionRow,
   HumanReviewRow,
   GradeReportRow,
-  AdminAuditLogInsert,
 } from "@/types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -250,7 +247,6 @@ const PAGE_SIZE = 15;
 
 export function AdminAiModelsPage() {
   const queryClient = useQueryClient();
-  const { profile } = useAuth();
 
   // Filters & Sort
   const [search, setSearch] = useState("");
@@ -524,45 +520,27 @@ export function AdminAiModelsPage() {
     return sum / withAccuracy.length;
   }, [versions]);
 
-  // ─── Audit Logging ────────────────────────────────────────────────
-
-  async function logAuditAction(
-    action: string,
-    targetType: string,
-    targetId: string,
-    details: Record<string, unknown>
-  ) {
-    if (!profile) return;
-    const entry: AdminAuditLogInsert = {
-      admin_user_id: profile.id,
-      action,
-      target_type: targetType,
-      target_id: targetId,
-      details,
-    };
-    // US-2357 AC3: read the error. An audit insert that fails silently is the
-    // worst kind of missing row — the action happened, the page said so, and
-    // the only record that it happened never existed. This does NOT block the
-    // action (the action already ran; refusing to acknowledge it would be
-    // worse), it makes the gap visible.
-    //
-    // Moving this write to the edge entirely is US-2349, which also has to
-    // revoke the client INSERT grant that makes the log forgeable. Until then
-    // the least this can do is stop pretending it succeeded.
-    const { error } = await supabase
-      .from("admin_audit_log")
-      .insert(entry as never);
-    if (error) {
-      captureException(error, {
-        tags: { area: "admin-audit-log-insert", action },
-        extra: { targetType, targetId },
-      });
-      toast.warning("That action ran, but the audit entry did not save.", {
-        description: error.message,
-        duration: 12_000,
-      });
-    }
-  }
+  // ─── Audit Logging: none, on purpose (US-2349) ──────────────────────
+  //
+  // This page used to write admin_audit_log rows straight from the browser. The
+  // table's INSERT policy was `WITH CHECK (is_admin())` with no tie between
+  // admin_user_id and auth.uid(), so ANY admin could write a row naming ANY
+  // other admin — grant yourself credits, then stamp a dozen role-change rows
+  // with the super_admin's id. 00520 removes that policy entirely; the log is
+  // now written only by the service-role edge client and SECURITY DEFINER
+  // triggers, which is what makes it evidence rather than a comment box.
+  //
+  // The one call left here logged that an admin had VIEWED a weekly accuracy
+  // summary, with numbers the browser itself had computed — a self-report of a
+  // read, unverifiable by construction, and consumed by nothing. It also passed
+  // target_id: "weekly" into a `uuid` column, so it had been failing on every
+  // call since it was written; the error was discarded until US-2357 made that
+  // write report itself. It is deleted rather than relocated: an endpoint whose
+  // only job is "write me an audit row on request" would reintroduce exactly
+  // the forgery this story closes.
+  //
+  // Every MUTATION on this page already goes through the edge (US-2348), which
+  // writes the audit row server-side with the actor's role, IP and user agent.
 
   // ─── Actions ──────────────────────────────────────────────────────
 
@@ -1003,12 +981,6 @@ export function AdminAiModelsPage() {
         duration: 10000,
       });
 
-      await logAuditAction("weekly_accuracy_summary", "ai_accuracy", "weekly", {
-        period: "7d",
-        total_reviews: count,
-        mean_absolute_error: mae,
-        agreement_rate: agreementRate,
-      });
     } catch (err) {
       toast.error("Summary failed", {
         description: err instanceof Error ? err.message : "Unknown error",

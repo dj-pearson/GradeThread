@@ -55,6 +55,20 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-2349: the admin audit trail. Zero policies is the WHOLE POINT here, and
+  // it is a tightening rather than an omission — 00003 gave any is_admin()
+  // caller SELECT and INSERT from the browser, so an admin could read the entire
+  // forensic log unrecorded AND write rows naming a DIFFERENT admin. Grant
+  // yourself credits, then stamp a dozen role-change rows with the super_admin's
+  // id: non-repudiation gone for the whole table, and the 00227 anomaly
+  // detectors firing on the forged actor.
+  //
+  // Every legitimate path bypasses RLS already: lib/audit-log.ts writes through
+  // the service-role client, the 00065 dispute trigger / 00518 self-audit /
+  // 00519 stamping trigger are SECURITY DEFINER, and reads go through
+  // admin_audit_log_search, which is SECURITY DEFINER and super_admin-gated.
+  // Proven end to end in scripts/verify-audit-log-not-forgeable.sql.
+  "admin_audit_log",
   // US-2117 compliance records. All three are EVIDENTIARY: they exist so a past
   // claim about price/terms can be proven later, and they are read only by
   // admin/support tooling through the service-role client. Deny-all is the

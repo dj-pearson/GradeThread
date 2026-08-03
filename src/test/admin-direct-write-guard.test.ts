@@ -32,16 +32,15 @@ interface DirectWrite {
 // Every direct-to-Postgres write left in an admin surface, and why it is still
 // there. Sorted by file.
 const DECLARED: Array<DirectWrite & { why: string }> = [
-  {
-    file: "src/pages/admin/ai-models.tsx",
-    table: "admin_audit_log",
-    op: "insert",
-    why:
-      "US-2349 owns this: the audit log is writable — and therefore forgeable — " +
-      "by any admin through RLS, on three admin pages. Closing it means moving " +
-      "every logAuditAction call to the edge and revoking the client grant, " +
-      "which is that story's whole subject, not a side effect of this one.",
-  },
+  // US-2349 emptied this list. ai-models.tsx was the last entry — it wrote
+  // admin_audit_log from the browser, and migration 00520 removed the INSERT
+  // policy that made that possible (and forgeable: the policy had no tie
+  // between admin_user_id and auth.uid(), so an admin could write rows naming
+  // another admin). The call is deleted rather than moved to the edge; see the
+  // note where it used to live.
+  //
+  // An EMPTY list is the goal state, not a broken scan — the two cases below
+  // prove the scan still works by feeding it a sample.
 ];
 // US-2376 closed four of the original six entries. submissions.tsx and
 // user-detail.tsx now route every mutation through the edge, so their

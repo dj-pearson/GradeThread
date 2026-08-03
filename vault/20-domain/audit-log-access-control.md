@@ -7,7 +7,9 @@ code_refs:
   - supabase/migrations/00517_audit_log_search_super_admin.sql
   - supabase/migrations/00518_audit_search_self_audit_ordering.sql
   - supabase/migrations/00519_audit_log_survives_actor_deletion.sql
+  - supabase/migrations/00520_audit_log_not_forgeable.sql
   - scripts/verify-audit-survives-actor-deletion.sql
+  - scripts/verify-audit-log-not-forgeable.sql
   - services/edge-functions/src/routes/admin-audit.ts
   - services/edge-functions/src/tests/audit-rpc-gate_test.ts
   - src/pages/admin/audit-log.tsx
@@ -101,6 +103,39 @@ This is exactly the case the US-2059 rule exists for (see `vault/CONTRACT.md`): 
 **immutable and now partly wrong**, because it claims the RPC path "is no longer
 the quiet one" without the caveat that refusals still are. A note can be
 corrected; an applied migration cannot.
+
+## The table itself has no browser policies (US-2349)
+
+`admin_audit_log` is **RLS-enabled with ZERO policies**, and that is the design
+rather than an omission. 00003 gave any `is_admin()` caller SELECT and INSERT
+from the browser, which meant two things at once:
+
+- **forgery** — the INSERT policy was `WITH CHECK (is_admin())` with nothing
+  tying `admin_user_id` to `auth.uid()`, so an admin could write rows naming a
+  *different* admin. Grant yourself credits, then stamp a dozen role-change rows
+  with the super_admin's id. The 00227 anomaly detectors then fire on the forged
+  actor and aim the investigation at the wrong person;
+- **an unrecorded read** — the SELECT policy survived the US-2352 work, so
+  `.from("admin_audit_log").select()` returned everything, to any admin, with no
+  self-audit row. Hardening the RPC while the table stayed readable is worse
+  than leaving both, because it reads as fixed.
+
+**Why not `WITH CHECK (admin_user_id = auth.uid())`.** It stops an admin framing
+someone else and stops nothing else: they could still write any action, target
+and details under their own name, so the log would record fictions that are
+merely correctly attributed. An audit log its own subjects can append to is not
+evidence.
+
+Every legitimate path bypasses RLS already — `lib/audit-log.ts` writes as
+`service_role`; the 00065 dispute trigger, the 00518 self-audit and the 00519
+stamping trigger are `SECURITY DEFINER`; reads go through the search RPC, also
+`SECURITY DEFINER`. `service_role` is deliberately not revoked.
+
+`scripts/verify-audit-log-not-forgeable.sql` proves it. One trap it has to avoid,
+worth knowing before writing any RLS proof here: a local `supabase db reset`
+grants `authenticated` no SELECT/INSERT on **any** public table, so a run without
+an explicit grant blocks the forgery for a reason unrelated to the fix. The
+script grants first, reproducing prod, so the policy is the only thing under test.
 
 ## Rows outlive their author (US-2350)
 

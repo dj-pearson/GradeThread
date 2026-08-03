@@ -131,11 +131,28 @@ describe("US-2357: no admin-page write assumes it succeeded", () => {
   });
 
   it("the scan can still see a write, so a passing run means something", () => {
-    // Without this, a rename of `supabase` or a formatting change would empty
-    // the scan and the test above would pass by finding nothing at all.
-    const seen = adminPageFiles().filter((f) =>
-      /supabase\s*\.from\([\s\S]{0,500}?\.(insert|update|delete|upsert)\(/.test(read(f)),
-    );
-    expect(seen.length).toBeGreaterThan(0);
+    // Guards the guard. Without it, a rename of `supabase` or a formatting
+    // change would empty the scan and the test above would pass by finding
+    // nothing at all.
+    //
+    // It USED to require a real unchecked-adjacent write to exist somewhere in
+    // src/pages/admin — and then US-2349 removed the last direct write in any
+    // admin page, so the world became correct and this case went red for it.
+    // A guard-the-guard that depends on the defect still being present is a
+    // guard that punishes the fix. It feeds the parser a known SAMPLE instead,
+    // which is what it was really trying to establish.
+    const RE = /supabase\s*\.from\(([^)]*)\)([\s\S]{0,500}?);/g;
+    const withCheck = `const { error } = await supabase.from("x").update({}).eq("id", id);`;
+    const without = `await supabase.from("x").update({}).eq("id", id);`;
+    expect([...withCheck.matchAll(RE)].length, "the scan sees no write at all").toBe(1);
+    expect([...without.matchAll(RE)].length).toBe(1);
+    // And it can tell them apart, which is the actual judgement it makes.
+    const check = (src: string) => {
+      const m = [...src.matchAll(RE)][0]!;
+      const start = Math.max(src.lastIndexOf(";", m.index!), src.lastIndexOf("{", m.index!));
+      return /\berror\b/.test(src.slice(start + 1, m.index! + m[0].length));
+    };
+    expect(check(withCheck), "a checked write reads as unchecked").toBe(true);
+    expect(check(without), "an unchecked write reads as checked").toBe(false);
   });
 });

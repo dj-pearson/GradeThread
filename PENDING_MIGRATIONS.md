@@ -1,16 +1,16 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Pending: 00515, 00516, 00518 and 00519 — the branch is FROZEN until all four
-are applied. 00517 IS ALREADY APPLIED (2026-08-03) and 00518 CORRECTS A BUG IN
-IT — apply 00518 promptly.** Prod
+**Pending: 00515, 00516, 00518, 00519 and 00520 — the branch is FROZEN until all
+five are applied. 00517 IS ALREADY APPLIED (2026-08-03) and 00518 CORRECTS A BUG
+IN IT — apply 00518 promptly.** Prod
 measured at **00514** on 2026-08-03: `/health/ready` returned
 `schema {expected:"00513", applied:"00514", status:"ahead"}`, the database's own
 answer through the service-role client rather than someone's recollection.
-`EXPECTED_SCHEMA_VERSION` is now **00519** and the highest migration in the tree
-is `00519_audit_log_survives_actor_deletion.sql`.
-Apply in number order: 00515, then 00516, then 00518, then 00519.
+`EXPECTED_SCHEMA_VERSION` is now **00520** and the highest migration in the tree
+is `00520_audit_log_not_forgeable.sql`.
+Apply in number order: 00515, 00516, 00518, 00519, 00520.
 
-**All four applied cleanly to a throwaway local stack on 2026-08-03**
+**All of them applied cleanly to a throwaway local stack on 2026-08-03**
 (`supabase db reset` over the whole corpus on a fresh schema), so the ordering
 and the SQL itself are verified rather than assumed.
 
@@ -49,6 +49,70 @@ flips the marker when the SQL runs. The session-start hook reads these ⏳
 markers, so a stale one tells every future session the branch is frozen when it
 is not — which has happened twice (see the US-2017 note in prd.json). **When you
 apply a migration, flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00520_audit_log_not_forgeable.sql (US-2349 [P0] audit integrity, 2026-08-03)
+
+**Risk: LOW to apply, and it is the last of the three audit-log fixes.** No
+destructive statement — two policies are dropped and a browser grant is revoked.
+
+**Two holes, one migration.**
+
+1. **Forgery.** 00003 defined the INSERT policy as `WITH CHECK (is_admin())`
+   with nothing tying `admin_user_id` to `auth.uid()`. Any admin could write
+   rows naming a *different* admin: grant yourself credits, then stamp a dozen
+   `admin.change_role` rows with the super_admin's id. Non-repudiation gone for
+   the whole table, and the 00227 anomaly detectors firing on the forged actor.
+2. **The read, which 00517 did NOT close.** 00517 put the search RPC behind
+   super_admin and gave it a self-audit. The table's own SELECT policy was still
+   `is_admin()`, so `.from("admin_audit_log").select()` in the browser returned
+   everything, to any admin, unrecorded. Hardening the front door while the wall
+   stays open is worse than leaving both — it reads as fixed.
+
+**The table ends with ZERO policies, by design.** Not a narrower INSERT policy:
+`WITH CHECK (admin_user_id = auth.uid())` stops an admin framing someone else
+and stops nothing else — they could still write any action and any details under
+their own name, so the log would record fictions that are merely correctly
+attributed. An audit log its own subjects can append to is not evidence.
+
+**Nothing legitimate loses access,** and this was verified rather than reasoned:
+`lib/audit-log.ts` writes as service_role; the 00065 dispute trigger, the 00518
+self-audit and the 00519 stamping trigger are all SECURITY DEFINER; reads go
+through `admin_audit_log_search`, also SECURITY DEFINER. `service_role` is
+deliberately NOT revoked.
+
+**PROVEN ON A REAL DATABASE, both directions** —
+`scripts/verify-audit-log-not-forgeable.sql` against the full corpus on a
+throwaway stack: forgery refused with 42501, a direct read returns 0 while the
+row demonstrably exists, and both the service-role write and the RPC read still
+work. Restoring the old policies made the same forgery succeed.
+
+> [!note] The trap that would have produced a confident false pass
+> A local `supabase db reset` grants `authenticated` no SELECT/INSERT on ANY
+> public table — `human_reviews`, untouched by this work, is in the same state.
+> So a run without an explicit grant "blocks" the forgery for a reason unrelated
+> to the fix. The script grants first, reproducing prod, so the policy is the
+> only thing under test.
+
+**Ships with a web change.** `ai-models.tsx` no longer writes audit rows from the
+browser. That call logged an admin having VIEWED a weekly accuracy summary, with
+numbers the browser itself computed — a self-report of a read, unverifiable by
+construction, consumed by nothing. It also passed `target_id: "weekly"` into a
+`uuid` column, so it had been failing on every call; the error was discarded
+until US-2357 made that write report itself. Deleted rather than relocated: an
+endpoint whose only job is "write me an audit row" reintroduces this forgery.
+
+**Apply:**
+
+1. Run `supabase/migrations/00520_audit_log_not_forgeable.sql`.
+2. `NOTIFY pgrst, 'reload schema';`
+3. Redeploy the edge (boot guard expects 00520).
+
+**Verify:** `select count(*) from pg_policies where tablename =
+'admin_audit_log';` returns 0, and `select relrowsecurity from pg_class where oid
+= 'public.admin_audit_log'::regclass;` returns `t`. Then open /admin/audit-log as
+a super_admin — the list still loads, because it reads through the RPC.
 
 ---
 
