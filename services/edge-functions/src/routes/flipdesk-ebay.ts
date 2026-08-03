@@ -5665,6 +5665,25 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     }
   }
 
+  // US-2395: a VARIATION listing has no offer id and never will — eBay publishes
+  // it by inventory_item_group. Telling that seller to "republish to enable
+  // edits" is advice that cannot work, and republishing a live listing is worse
+  // than doing nothing. Until the group-revise branch lands (US-2395 AC1/AC3),
+  // say what is actually true.
+  if (!row.listing.platform_offer_id && row.listing.variations) {
+    return c.json(
+      {
+        error:
+          "Editing a multi-variation listing on eBay isn't supported yet. eBay " +
+          "publishes these as a variation group rather than a single offer, and " +
+          "the revise path doesn't handle groups. Edit it on eBay for now — " +
+          "republishing here would not help.",
+        code: "variation_revise_unsupported",
+      },
+      409
+    );
+  }
+
   if (!row.listing.platform_offer_id) {
     return c.json(
       {
@@ -8832,6 +8851,43 @@ export type EndStrategy =
   | { kind: "group"; groupKey: string }
   | { kind: "offer"; offerId: string }
   | { kind: "local" };
+
+// US-2395 AC2: which mechanism revises this listing.
+//
+// Deliberately the same shape and the same ORDER as resolveEndStrategy below —
+// group FIRST. A multi-variation listing is published through
+// publish_by_inventory_item_group and eBay never mints a platform_offer_id for
+// it, so an offer-first resolver reads a group listing as having no mechanism at
+// all. That is exactly the bug: revise 409'd with "no eBay offer id" on a
+// listing that was never going to have one, which froze every variation listing
+// the moment it went live.
+//
+// The group key is the PINNED listings.inventory_sku, not the item's current
+// sku. The inventory_item_group was created under the base SKU at publish, so a
+// later SKU rename would otherwise point the revise at a group that does not
+// exist — the same reasoning US-1999 applied to the withdraw path.
+//
+// `kind: "none"` is NOT the same as end's `"local"`: ending locally is a
+// meaningful outcome (the listing is closed in FlipDesk), whereas a revise with
+// no mechanism has done nothing and must say so.
+export type ReviseStrategy =
+  | { kind: "group"; groupKey: string }
+  | { kind: "offer"; offerId: string }
+  | { kind: "none" };
+
+export function resolveReviseStrategy(input: {
+  variations: ListingVariations | null;
+  itemSku: string | null;
+  platformOfferId: string | null;
+}): ReviseStrategy {
+  if (input.variations && input.itemSku) {
+    return { kind: "group", groupKey: input.itemSku };
+  }
+  if (input.platformOfferId) {
+    return { kind: "offer", offerId: input.platformOfferId };
+  }
+  return { kind: "none" };
+}
 
 export function resolveEndStrategy(input: {
   variations: ListingVariations | null;

@@ -1036,12 +1036,23 @@ export function FlipdeskComposerPage({
   // the Drafts list to publish.
   // US-1490: a published listing the seller can revise in place. The composer
   // doubles as the live-listing editor; this gates the "Save & resubmit to eBay"
-  // action and banner. platform_offer_id is required for a revise (the server
-  // 409s without it), so include it in the live check.
+  // action and banner.
+  //
+  // US-2395 AC5: a MULTI-VARIATION listing counts as live too. eBay publishes
+  // those through an inventory_item_group and never mints a platform_offer_id
+  // for them, so requiring one classified every live variation listing as a
+  // DRAFT — and the footer then offered to "Publish to eBay" something that was
+  // already live. That is the worse half of the bug: the revise 409 at least
+  // refused, while this invited a seller to publish a duplicate.
+  //
+  // platform_listing_id is what proves a group listing is live (it is the eBay
+  // item id the publish-by-group call returned), which is why the variation
+  // branch keys on it rather than on the offer id it will never have.
   const isLiveListing =
     !!listing &&
     listing.listing_status === "active" &&
-    !!listing.platform_offer_id;
+    (!!listing.platform_offer_id ||
+      (!!listing.variations && !!listing.platform_listing_id));
 
   // One editor, three shapes. The FIELDS are identical at every status — only
   // the header wording and the footer actions differ, which is the whole point:

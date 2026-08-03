@@ -103,3 +103,139 @@ Deno.test("variantSku: explicit suffix wins, else slug of the aspect values", ()
     "GT-9-XL-NAVYBLUE",
   );
 });
+
+// ── US-2395: a variation listing is not a listing without a mechanism ───────
+//
+// eBay publishes a multi-variation listing through publish_by_inventory_item_group
+// and never mints a `platform_offer_id` for it. The revise route's first check
+// was `if (!platform_offer_id) return 409`, so every variation listing froze the
+// moment it went live — Save and resubmit answered "This listing has no eBay
+// offer id. Sync from eBay or republish to enable edits", which is advice that
+// cannot work: republishing does not create an offer id for a group, and
+// republishing a LIVE listing is worse than doing nothing.
+//
+// The END path already got this right (resolveEndStrategy, group-first,
+// US-1999). The revise path did not. Two resolvers in one file giving different
+// answers to the same question is the shape worth guarding.
+
+const { resolveReviseStrategy, resolveEndStrategy } = await import(
+  "../routes/flipdesk-ebay.ts"
+);
+
+/** A variation matrix, as `listings.variations` stores it. */
+const VARIATION_MATRIX = {
+  specifications: ["Size", "Color"],
+  variants: [
+    { aspects: { Size: "M", Color: "Blue" }, quantity: 1, price_cents: 2499, sku_suffix: "v1" },
+    { aspects: { Size: "L", Color: "Blue" }, quantity: 2, price_cents: 2499, sku_suffix: "v2" },
+  ],
+} as never;
+
+Deno.test("US-2395 AC4: a variation listing revises through the GROUP", () => {
+  // The row a live group listing actually has: variations set, a pinned base
+  // SKU, and NO offer id. That exact combination used to be the 409.
+  assertEquals(
+    resolveReviseStrategy({
+      variations: VARIATION_MATRIX,
+      itemSku: "GT-1234",
+      platformOfferId: null,
+    }),
+    { kind: "group", groupKey: "GT-1234" },
+  );
+});
+
+Deno.test("US-2395 AC4: a single-offer listing still revises through the OFFER", () => {
+  // The common path, and the one a mistake here would break for every seller.
+  assertEquals(
+    resolveReviseStrategy({
+      variations: null,
+      itemSku: "GT-1234",
+      platformOfferId: "offer-99",
+    }),
+    { kind: "offer", offerId: "offer-99" },
+  );
+});
+
+Deno.test("US-2395 AC2: group wins even when an offer id is also present", () => {
+  // Order matters, not just membership. A group listing carrying a stale offer
+  // id from a previous single-SKU publish must still revise through the group,
+  // because the group is what is live.
+  assertEquals(
+    resolveReviseStrategy({
+      variations: VARIATION_MATRIX,
+      itemSku: "GT-1234",
+      platformOfferId: "offer-99",
+    }),
+    { kind: "group", groupKey: "GT-1234" },
+  );
+});
+
+Deno.test("US-2395 AC2: the group key is whichever sku the caller pinned", () => {
+  // The route passes `inventory_sku ?? item_sku` — pinned first. The group was
+  // created under the base SKU at publish, so a later rename would aim the
+  // revise at a group that does not exist. Same reasoning US-1999 applied to
+  // the withdraw path.
+  assertEquals(
+    resolveReviseStrategy({
+      variations: VARIATION_MATRIX,
+      itemSku: "PINNED-AT-PUBLISH",
+      platformOfferId: null,
+    }),
+    { kind: "group", groupKey: "PINNED-AT-PUBLISH" },
+  );
+});
+
+Deno.test("US-2395: no mechanism is 'none', never a silent offer path", () => {
+  assertEquals(
+    resolveReviseStrategy({ variations: null, itemSku: "GT-1", platformOfferId: null }),
+    { kind: "none" },
+  );
+  // A variation matrix with no SKU cannot name a group either — guessing a key
+  // would PUT against a group that does not exist.
+  assertEquals(
+    resolveReviseStrategy({
+      variations: VARIATION_MATRIX,
+      itemSku: null,
+      platformOfferId: null,
+    }),
+    { kind: "none" },
+  );
+});
+
+Deno.test("US-2395: revise and end answer the same question the same way", () => {
+  // They must not drift. They differ ONLY in the no-mechanism case, and
+  // deliberately: ending locally is a real outcome (the listing is closed in
+  // FlipDesk), whereas a revise with no mechanism has done nothing.
+  for (
+    const input of [
+      { variations: VARIATION_MATRIX, itemSku: "GT-1", platformOfferId: null },
+      { variations: VARIATION_MATRIX, itemSku: "GT-1", platformOfferId: "o1" },
+      { variations: null, itemSku: "GT-1", platformOfferId: "o1" },
+    ]
+  ) {
+    assertEquals(
+      resolveReviseStrategy(input),
+      resolveEndStrategy(input) as never,
+      `revise and end disagree for ${JSON.stringify(input)}`,
+    );
+  }
+  const bare = { variations: null, itemSku: "GT-1", platformOfferId: null };
+  assertEquals(resolveEndStrategy(bare), { kind: "local" });
+  assertEquals(resolveReviseStrategy(bare), { kind: "none" });
+});
+
+Deno.test("US-2395: the refusal stops telling a variation seller to republish", () => {
+  // Until the group-revise branch lands, the refusal must at least be TRUE.
+  const src = Deno.readTextFileSync(
+    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
+  );
+  const at = src.indexOf("variation_revise_unsupported");
+  assertEquals(at > -1, true, "the variation-specific refusal is gone");
+  const before = src.slice(Math.max(0, at - 900), at);
+  assertEquals(
+    /if \(!row\.listing\.platform_offer_id && row\.listing\.variations\)/.test(before),
+    true,
+    "the variation refusal no longer fires ahead of the generic offer-id 409, " +
+      "so a variation seller gets the misleading 'republish' advice again",
+  );
+});
