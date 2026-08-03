@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-02
 tags: [ops, backup, disaster-recovery]
 summary: What is backed up, how often, and the restore drill that proves it works.
 ---
@@ -33,6 +33,27 @@ wires it to a schedule and records the verified restore procedure.
   dump 1s + restore 11s for the full schema (near-empty data — scale with
   volume); budget the rest for provisioning a replacement host, repointing
   DNS/secrets, and the storage `rclone sync` back.
+
+> [!danger] The 24h figure assumes the nightly cron is INSTALLED, and that has
+> never been confirmed on the prod host (US-2002, [!LAUNCH BLOCKER])
+> Every number above is a property of the backup *mechanism*. The scripts exist,
+> they work, and the restore was drilled on 2026-06-12. What was never verified
+> is that anything **runs them on a schedule in production**.
+>
+> If the cron is not installed, the real RPO is not 24 hours — it is **total
+> loss**, and this table would have told an operator otherwise at exactly the
+> moment being wrong costs the most. That is the specific failure AC3 of US-2002
+> forbids: a documented RPO the infrastructure cannot deliver.
+>
+> **Confirm before trusting any number here.** On the prod DB host:
+> `crontab -l` should list the backup line from the Setup section below, and the
+> offsite bucket should hold a dump from the last 24h **with its `.sha256`
+> beside it** — a dump with no checksum is a backup nobody has proven is
+> readable. Once both are true, replace this callout with the date you checked.
+>
+> Note the shape of this gap, because it is not a missing feature: it is a
+> runbook step marked MANUAL that nobody performed. Everything needed already
+> exists.
 
 ## What to back up
 
