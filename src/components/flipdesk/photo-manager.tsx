@@ -55,6 +55,7 @@ import {
   useItemPhotoDisplayUrl,
   useItemPhotoOriginalUrl,
 } from "@/hooks/use-item-photo-url";
+import { needsSignedDisplayUrl } from "@/lib/item-photo-url";
 import {
   persistRetag,
   persistDelete,
@@ -297,12 +298,16 @@ export function PhotoManager({
     blob: Blob,
     recipe: PhotoEditRecipe | null,
   ) {
-    // Defence in depth — the editor is not offered for these types at all. Their
-    // originals live in the PRIVATE bucket, and this path writes to the public
-    // one, so an edited tag or certificate would be republished as a public URL
-    // carrying exactly the PII the private bucket exists to hold.
-    if (isSensitivePhotoType(photo.photo_type)) {
-      throw new Error("Label, tag, and certificate photos can't be edited.");
+    // Defence in depth — the editor is not offered for a private original. This
+    // path writes to the PUBLIC bucket, so editing one would republish exactly
+    // the PII the private bucket exists to hold. Tested on where the file
+    // actually lives rather than on its type, for the reason spelled out beside
+    // `editBlockedReason`: a tag that was always public is not the hazard, and
+    // blocking it taught sellers a retag-rotate-retag workaround that IS.
+    if (needsSignedDisplayUrl(photo)) {
+      throw new Error(
+        "Tag and certificate photos captured on the phone are stored privately and can't be edited here.",
+      );
     }
     await persistPhotoEdit(supabase, photo, blob, recipe);
     photosDirtyRef.current = true;
@@ -540,11 +545,25 @@ function SortablePhoto({
 
   // A photo sent for grading can't be deleted while a grade is in flight.
   const deleteBlocked = photo.used_for_grading && gradingInFlight;
-  const sensitive = isSensitivePhotoType(photo.photo_type);
+  // Blocked because the ORIGINAL IS PRIVATE, not because of what it is tagged.
+  //
+  // The rule being protected is "never republish a private-bucket image to the
+  // public one". `isSensitivePhotoType` tested the TYPE, which is a proxy for
+  // that and a leaky one: a Garment Tag uploaded here on the web is already in
+  // the public bucket with a public photo_url, so editing it republishes
+  // nothing — yet it was blocked, and sellers learned to retag it to "Front",
+  // rotate, and retag back. That workaround is strictly worse than the thing
+  // the guard forbids: run it on an iOS tag and it DOES copy a private image
+  // into the public bucket, which is the exact leak this exists to stop.
+  //
+  // `needsSignedDisplayUrl` is the real test — sensitive type AND no public
+  // photo_url AND a private storage_path. iOS-captured tags stay blocked; ones
+  // that were always public become editable in place.
+  const privateOriginal = needsSignedDisplayUrl(photo);
   // US-2278: why editing is unavailable, or null when it's available. Both cases
   // were previously expressed by hiding the button, which looks like a bug.
-  const editBlockedReason = sensitive
-    ? "Label, tag and certificate photos can't be edited — they're stored privately because they can show names and addresses, and an edited copy would have to be saved publicly."
+  const editBlockedReason = privateOriginal
+    ? "This tag or certificate photo was captured on the phone and is stored privately, because it can show names and addresses. Editing it would have to save a public copy, so it's locked."
     : photo.storage_path == null
       ? "This photo is still uploading, or its file is missing, so there's nothing to edit yet."
       : null;
@@ -603,7 +622,9 @@ function SortablePhoto({
               />
             </button>
           )}
-          {photo.photo_type !== "flatlay" && removeBgEnabled && !sensitive && (
+          {/* Same rule as editing: remove-bg writes a NEW public object, so it
+              is the private original that must not go through it. */}
+          {photo.photo_type !== "flatlay" && removeBgEnabled && !privateOriginal && (
             <button
               type="button"
               onClick={() => onRemoveBg(photo)}

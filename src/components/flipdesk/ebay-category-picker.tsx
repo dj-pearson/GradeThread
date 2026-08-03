@@ -407,6 +407,19 @@ export function EbayCategoryPicker({
     aspectsQuery.data,
     onMeasurementsChange,
   ]);
+  // Set by confirmDiscard so the dialog's own close handler can tell "the user
+  // accepted" from "the user dismissed". Without it, confirming UNDID itself:
+  // AlertDialogAction closes the dialog, closing fires onOpenChange(false),
+  // and that called cancelDiscard — which reverts categoryId to
+  // `fromCategoryId`. On an item that had no category yet that value is null,
+  // so accepting a new category blanked the picker back to the search box, and
+  // the specifics never rendered. Picking again worked because by then
+  // appliedCategoryRef matched, so no dialog opened to undo it.
+  //
+  // A ref, not state: it is read inside the same event that sets it, before
+  // React has re-rendered.
+  const discardConfirmedRef = useRef(false);
+
   function confirmDiscard() {
     if (!pendingDiscard || !aspectsQuery.data) return;
     const aspectList = aspectsQuery.data.aspects.aspects ?? [];
@@ -418,6 +431,7 @@ export function EbayCategoryPicker({
     commitRemap(aspectList, result);
     appliedCategoryRef.current = pendingDiscard.toCategoryId;
     appliedCategoryPathRef.current = pendingDiscard.toCategoryPath;
+    discardConfirmedRef.current = true;
     setPendingDiscard(null);
   }
 
@@ -854,7 +868,15 @@ export function EbayCategoryPicker({
       <AlertDialog
         open={!!pendingDiscard}
         onOpenChange={(next) => {
-          if (!next) cancelDiscard();
+          if (next) return;
+          // Escape, the overlay and the Cancel button all mean "keep the
+          // current category". Confirming also closes the dialog, and that
+          // must NOT be read as a dismissal — see discardConfirmedRef.
+          if (discardConfirmedRef.current) {
+            discardConfirmedRef.current = false;
+            return;
+          }
+          cancelDiscard();
         }}
       >
         <AlertDialogContent>
