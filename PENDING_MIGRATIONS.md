@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing pending.** Prod measured at **00514** on 2026-08-03 — `/health/ready`
+**One pending: 00515.** Prod measured at **00514** on 2026-08-03 — `/health/ready`
 returned `schema {expected:"00513", applied:"00514", status:"ahead"}`, i.e. the
 database's own answer through the service-role client, not someone's
 recollection. `EXPECTED_SCHEMA_VERSION` is **00514** and the highest migration
@@ -28,6 +28,56 @@ flips the marker when the SQL runs. The session-start hook reads these ⏳
 markers, so a stale one tells every future session the branch is frozen when it
 is not — which has happened twice (see the US-2017 note in prd.json). **When you
 apply a migration, flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00515_flipdesk_listing_page.sql (US-2168 AC3 server-side row selection, 2026-08-03)
+
+**Risk: LOW, and lower than usual — NOTHING CALLS IT YET.** This migration adds
+one collation and four functions. It changes no table, no column, no existing
+function, and no application code path. Applying it is inert until the listings
+page is switched over (see the handoff in US-2168's notes); not applying it
+breaks nothing either.
+
+**What it adds:**
+
+- `public.natural_ci` — an ICU collation (`en-u-kn-true-ks-level1`) that matches
+  JavaScript's `localeCompare(numeric:true, sensitivity:"base")`, so a
+  server-side column sort orders identically to the client sort it replaces.
+- `flipdesk_filter_matches(jsonb, jsonb)` — SQL mirror of `evalQuery()`.
+- `flipdesk_listability_score(jsonb)` / `flipdesk_max_comp_price(jsonb)` — SQL
+  mirrors of the two computed sort keys.
+- `flipdesk_listing_page(...)` — one page of the listings table, filtered,
+  searched, sorted and counted server-side.
+
+**SECURITY INVOKER on purpose.** `items_full` is `security_invoker = on` (00010),
+so RLS scopes these to the calling seller. They are granted to `authenticated`
+and are called from the BROWSER, not the edge — the opposite of US-2393's case,
+and the reason the guard question does not arise here. Making
+`flipdesk_listing_page` `SECURITY DEFINER` would turn it into a cross-tenant
+read; do not.
+
+**Verified before being written down:** the parity harness
+(`src/test/listing-page-sql-parity.test.ts`) seeds a corpus, reads the rows back
+out of `items_full`, and runs BOTH the TypeScript `selectListingRows` and this
+SQL over those same rows — 67 cases covering 8 tabs, 4 sort presets, 24 column
+sorts, 6 searches, 5 sold-filter windows and 18 advanced filters, plus a
+paging check that no row is dropped or repeated. All 67 match on row ids **and
+order**. Re-run with:
+
+```
+LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts
+```
+
+**Apply:**
+
+1. Run `supabase/migrations/00515_flipdesk_listing_page.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — new RPCs; PostgREST 404s them until it
+   reloads.
+3. Redeploy the edge (boot guard expects 00515).
+
+**Verify:** nothing user-visible changes. `select public.flipdesk_listing_page('all');`
+should return a `{total, rows}` document.
 
 ---
 
