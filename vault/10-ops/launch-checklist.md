@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-02
 tags: [ops, launch, checklist]
 summary: The env gate, scheduled tasks, backup drill and smoke tests before going live.
 ---
@@ -245,6 +245,14 @@ offsite dump on a scratch host. Record the result here so the drill has a home.
 |---|---|---|---|---|
 |  |  |  |  |  |
 |  |  |  |  |  |
+
+> [!danger] The FIRST box is not one of five — it is the one the others assume
+> Until the cron is installed and a dump has landed offsite, the RPO stated in
+> [[backups]] does not hold, and the real exposure is **total loss** rather than
+> the documented 24 hours. Every other box on this list, and the drill table
+> above, describes a mechanism that is verified to WORK; none of them establishes
+> that anything RUNS it. Tick that box first, and treat the rest as unstarted
+> until it is (US-2002).
 
 - ☐ Backup cron installed on the DB host (`vault/10-ops/backups.md` §Schedule) and the first
   nightly dump confirmed in the offsite bucket (with `.sha256` sidecar)
