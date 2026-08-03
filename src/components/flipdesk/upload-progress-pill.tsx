@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router";
 import { Loader2, TriangleAlert } from "lucide-react";
 import { useAutolisterUploadStore } from "@/stores/autolister-upload-store";
 

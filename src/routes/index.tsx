@@ -3,7 +3,7 @@
 // router config below. Fast-refresh constraints don't apply here.
 /* eslint-disable react-refresh/only-export-components */
 import { lazy, SuspenseWrapper } from "./lazy";
-import { createBrowserRouter, Navigate, useLocation } from "react-router-dom";
+import { createBrowserRouter, Navigate, useLocation } from "react-router";
 import { RootLayout } from "@/layouts/root-layout";
 import { RouteErrorFallback } from "@/components/error-boundary";
 import {

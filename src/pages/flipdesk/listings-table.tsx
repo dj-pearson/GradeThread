@@ -12,7 +12,7 @@
 // ItemCardList instead).
 
 import type { ReactNode, RefObject } from "react";
-import { Link, type NavigateFunction } from "react-router-dom";
+import { Link, type NavigateFunction } from "react-router";
 import type { Virtualizer, VirtualItem } from "@tanstack/react-virtual";
 import {
   AlertCircle,

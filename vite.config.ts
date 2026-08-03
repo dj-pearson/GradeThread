@@ -372,7 +372,7 @@ export default defineConfig({
         // targets the vendors that otherwise land in the eager index chunk.
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
-          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id))
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|scheduler)[\\/]/.test(id))
             return "vendor-react";
           if (id.includes("@supabase")) return "vendor-supabase";
           if (id.includes("@stripe")) return "vendor-stripe";

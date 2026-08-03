@@ -5,7 +5,7 @@
 // covered by the US-728 AA color tokens + manual review.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import axe from "axe-core";
 import { Package } from "lucide-react";
 

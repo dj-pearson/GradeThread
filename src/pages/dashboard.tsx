@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";

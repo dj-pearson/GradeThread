@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { CheckCircle2, History, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";

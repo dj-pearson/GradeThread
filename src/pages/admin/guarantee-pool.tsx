@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { AlertTriangle, Loader2, PiggyBank, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";

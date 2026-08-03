@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import type { FinAgingBracket, FinStaleItem } from "@/lib/finances-dashboard";
 import { CHART_PALETTE } from "@/lib/constants";
 import {

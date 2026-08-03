@@ -1,4 +1,4 @@
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router";
 import { Bell, Chrome, Gift, Leaf, ScanLine, Share2, ShieldCheck, Shirt } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";

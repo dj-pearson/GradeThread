@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { AdminSavedViews } from "@/components/admin/admin-saved-views";

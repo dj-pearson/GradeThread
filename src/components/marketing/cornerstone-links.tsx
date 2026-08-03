@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
 
 // Shared "explore the standard" cross-link block for the cornerstone pillar

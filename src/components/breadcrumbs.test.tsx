@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { StaticRouter } from "react-router-dom";
+import { StaticRouter } from "react-router";
 import { Breadcrumbs, type BreadcrumbItem } from "./breadcrumbs";
 import {
   breadcrumbListLd,

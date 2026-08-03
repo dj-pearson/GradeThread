@@ -1,4 +1,4 @@
-import { Outlet, Link } from "react-router-dom";
+import { Outlet, Link } from "react-router";
 import { Store } from "lucide-react";
 import { BuyerSidebar } from "@/components/buyer/buyer-sidebar";
 import { RouteErrorBoundary } from "@/components/error-boundary";

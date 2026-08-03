@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { edgeFetch } from "@/lib/edge-fetch";

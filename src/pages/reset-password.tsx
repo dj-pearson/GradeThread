@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { resetPassword, updatePassword, verifyEmailTokenHash } from "@/lib/auth";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { supabase } from "@/lib/supabase";

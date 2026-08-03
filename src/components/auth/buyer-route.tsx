@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet } from "react-router";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";

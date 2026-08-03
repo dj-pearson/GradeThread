@@ -7,7 +7,7 @@
 // disclaimer copy below must stay.
 
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Coins, Info, Sparkles } from "lucide-react";
 import {
   Card,

@@ -1,6 +1,6 @@
 import { Component, useEffect } from "react";
 import type { ReactNode, ErrorInfo } from "react";
-import { useRouteError, useLocation } from "react-router-dom";
+import { useRouteError, useLocation } from "react-router";
 import { captureException } from "@/lib/sentry";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";

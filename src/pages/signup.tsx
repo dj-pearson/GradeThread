@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { Rocket, Check, Sparkles } from "lucide-react";
 import {
   appleOAuthEnabled,

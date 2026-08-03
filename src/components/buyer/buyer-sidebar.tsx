@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router";
 import { Lock, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BUYER_NAV } from "@/lib/buyer-nav";

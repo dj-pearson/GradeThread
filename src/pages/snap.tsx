@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Camera, Loader2, Sparkles, BadgeCheck, Store, Info } from "lucide-react";
 import {
   Card,

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createElement as h, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { Package } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 

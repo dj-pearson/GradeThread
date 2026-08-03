@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {

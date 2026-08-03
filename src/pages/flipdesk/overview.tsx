@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useItemsList } from "@/hooks/use-items-full";
 import { useRepricingSuggestions } from "@/hooks/use-repricing";
 import { ErrorState } from "@/components/ui/error-state";

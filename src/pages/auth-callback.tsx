@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { supabase } from "@/lib/supabase";
 import { isIdentityLinkingError, OAUTH_LINKING_MESSAGE } from "@/lib/auth-identity";
 import { readAuthError } from "@/lib/auth-error";

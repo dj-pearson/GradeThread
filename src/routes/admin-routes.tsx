@@ -12,7 +12,7 @@
 // paths here are relative ("users", not "/admin/users"). That costs the data
 // router APIs (loader/action) for this subtree — verified unused: no admin route
 // declared either before the split.
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router";
 import { lazy, SuspenseWrapper } from "./lazy";
 
 // Shared with the /dashboard/* 404 in index.tsx, so that declaration stays put.

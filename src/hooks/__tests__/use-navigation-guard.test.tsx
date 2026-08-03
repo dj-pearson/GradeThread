@@ -24,7 +24,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createElement as h, act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { createMemoryRouter, Link, RouterProvider } from "react-router-dom";
+import { createMemoryRouter, Link, RouterProvider } from "react-router";
 import { useNavigationGuard, type NavigationGuard } from "@/hooks/use-navigation-guard";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

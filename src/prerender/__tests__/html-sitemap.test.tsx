@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToString } from "react-dom/server";
 import { createElement as h, StrictMode } from "react";
 import { HelmetProvider } from "react-helmet-async";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { HtmlSitemapPage } from "@/pages/marketing/sitemap";

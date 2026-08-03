@@ -2,7 +2,7 @@
 // endpoints, the SDK, the free sandbox, rate limits, quotas, and the pricing
 // tier — the "beyond internal plumbing" product surface. Prerendered + indexable
 // (registered in PUBLIC_ROUTES + entry-server).
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Code, FlaskConical, Gauge, KeyRound, Package, Layout, LineChart, Layers, Webhook, FileJson, ListChecks } from "lucide-react";
 import {
   MarketingLayout,

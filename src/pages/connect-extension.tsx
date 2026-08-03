@@ -10,7 +10,7 @@
 // password, no Supabase session, no marketplace credentials.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { useAuth } from "@/hooks/use-auth";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { sendExtensionMessage, listerExtensionId } from "@/lib/lister-extension";

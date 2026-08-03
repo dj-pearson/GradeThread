@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createElement as h, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { createMemoryRouter, RouterProvider } from "react-router";
 
 const captureException = vi.fn();
 vi.mock("@/lib/sentry", () => ({

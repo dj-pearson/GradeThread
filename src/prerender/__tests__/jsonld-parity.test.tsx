@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createElement as h, act, Suspense } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { HelmetProvider } from "react-helmet-async";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentType } from "react";
 

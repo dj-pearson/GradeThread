@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { captureException } from "@/lib/sentry";
 import { ScrollText } from "lucide-react";

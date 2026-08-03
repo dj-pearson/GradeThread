@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {

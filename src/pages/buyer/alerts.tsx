@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { Bell, BellRing, ExternalLink, Loader2, Lock, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

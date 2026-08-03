@@ -28,7 +28,7 @@ import {
 import { Key, Plus, Copy, Trash2, Check, Loader2, AlertTriangle, Crown, ShieldCheck, BookOpen, Code, FlaskConical, RefreshCw } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { usePlanUsage } from "@/hooks/use-plan-usage";
 import { useAuth } from "@/hooks/use-auth";
 import { FLIPDESK_PLANS } from "@/lib/constants";

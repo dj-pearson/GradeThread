@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet } from "react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { RouteErrorBoundary } from "@/components/error-boundary";
 import { CookieConsent } from "@/components/cookie-consent";

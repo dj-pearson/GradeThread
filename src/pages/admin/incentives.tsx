@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";

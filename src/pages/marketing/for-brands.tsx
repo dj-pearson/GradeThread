@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ArrowRight, BarChart3, Leaf, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MarketingLayout, MarketingCTA } from "@/components/marketing/marketing-layout";

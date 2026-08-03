@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import type { InventoryView } from "@/components/flipdesk/inventory-view-switcher";
 import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ChevronRight } from "lucide-react";
 import { SITE_URL } from "@/lib/seo/site";
 import { cn } from "@/lib/utils";

@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import type { FinTomRow, FinTomDist, FinSlowItem } from "@/lib/finances-dashboard";
 import {
   Card,

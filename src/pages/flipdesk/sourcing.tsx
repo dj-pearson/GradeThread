@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { resolveSourcingTab } from "@/pages/flipdesk/nav-tabs";

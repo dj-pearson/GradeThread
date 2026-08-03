@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Lock, Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";

@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { AccountHubContext } from "@/hooks/use-account-hub";

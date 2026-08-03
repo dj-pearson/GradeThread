@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { LegalLayout } from "@/components/legal/legal-layout";
 
 export function PrivacyPage() {

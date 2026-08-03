@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Camera, Check, Flame, Gift, Loader2, Lock, Plus, Share2, ShieldCheck, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

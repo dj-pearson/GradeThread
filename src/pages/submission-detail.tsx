@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
+import { useParams, useSearchParams, Link, useNavigate } from "react-router";
 import {
   ArrowLeft,
   Share2,

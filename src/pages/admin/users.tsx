@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { supabase } from "@/lib/supabase";
 import type { UserRow } from "@/types/database";
 import { fetchAdminUserListStats } from "@/lib/admin-aggregates";

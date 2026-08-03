@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
 

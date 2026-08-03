@@ -4,7 +4,7 @@
 // rendered branch: Business sees the management UI; lower plans see the gate.
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { usePlanUsage, type PlanUsage } from "@/hooks/use-plan-usage";

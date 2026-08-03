@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { Check, Crown, Loader2, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

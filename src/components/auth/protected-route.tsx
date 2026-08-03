@@ -1,4 +1,4 @@
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router";
 import { useAuth } from "@/hooks/use-auth";
 import { VerifyEmailGate } from "@/components/auth/verify-email-gate";
 import { LegalGate } from "@/components/auth/legal-gate";

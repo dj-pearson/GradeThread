@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";

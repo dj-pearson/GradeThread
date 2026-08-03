@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import { BadgeCheck, Loader2, ShieldCheck } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Card, CardContent } from "@/components/ui/card";

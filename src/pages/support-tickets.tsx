@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {

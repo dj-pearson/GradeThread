@@ -19,7 +19,7 @@
 // Neither alone is sufficient, which is why both are here.
 
 import { useEffect } from "react";
-import { useBlocker } from "react-router-dom";
+import { useBlocker } from "react-router";
 
 export interface NavigationGuard {
   /** True when navigation was intercepted and the user must confirm. */

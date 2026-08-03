@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 // URL-backed scalar state (US-958). Reads a single query param and writes it
 // back with { replace: true } so updates don't pollute browser history. The

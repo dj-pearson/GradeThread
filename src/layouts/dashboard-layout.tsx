@@ -1,4 +1,4 @@
-import { Outlet } from "react-router-dom";
+import { Outlet } from "react-router";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { Header } from "@/components/dashboard/header";
 import { RouteErrorBoundary } from "@/components/error-boundary";

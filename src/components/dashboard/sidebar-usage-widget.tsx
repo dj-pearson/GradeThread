@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { TrendingUp } from "lucide-react";
 import {
   Popover,

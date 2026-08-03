@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";

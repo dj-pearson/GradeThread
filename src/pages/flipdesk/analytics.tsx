@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {

@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { ShieldCheck, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";

@@ -50,7 +50,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.cfg.outputs.configured == 'true'
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - name: Staging smoke (edge + supabase + frontend)
         if: steps.cfg.outputs.configured == 'true'

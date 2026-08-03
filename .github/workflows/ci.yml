@@ -51,7 +51,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       # US-1998: every gate below carries `if: !cancelled()` so a failure in one
@@ -167,7 +167,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       # US-511: build the SPA, then run Playwright against `vite preview` of the

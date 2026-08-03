@@ -14,7 +14,7 @@
 // public-safe source the full /cert/:id page uses — so nothing private is ever
 // exposed through the embed.
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router";
 import { History, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { GRADE_FACTORS, SCORE_STOP } from "@/lib/constants";

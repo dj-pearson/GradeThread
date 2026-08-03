@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { renderToString } from "react-dom/server";
 import { createElement as h, StrictMode } from "react";
 import { HelmetProvider } from "react-helmet-async";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { TransparencyPage } from "@/pages/marketing/transparency";

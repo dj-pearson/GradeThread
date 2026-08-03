@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Gift, Trophy } from "lucide-react";
 import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { TopReferrers } from "@/components/referral/top-referrers";

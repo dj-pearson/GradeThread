@@ -7,7 +7,7 @@
 // manual review per the Accessibility Statement).
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { HelmetProvider } from "react-helmet-async";
 import axe from "axe-core";
 
