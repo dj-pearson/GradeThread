@@ -37,7 +37,55 @@ function executableSql(): string {
     .join("\n");
 }
 
+const CONSOLE_SQL = readFileSync(
+  resolve(process.cwd(), "scripts/prod-diagnostics-console.sql"),
+  "utf8",
+);
+
 describe("prod-diagnostics.sql is safe to paste into prod", () => {
+  it("the console copy carries no psql meta-commands", () => {
+    // THE REPORT: pasting the original into a SQL editor failed with
+    // `ERROR: 42601: syntax error at or near "\"` on its first \pset.
+    //
+    // \pset, \timing and \echo are psql CLIENT commands — the client consumes
+    // them and never sends them. A SQL console has no such client, so it
+    // forwards them to Postgres, which rejects the first one.
+    //
+    // Worth stating plainly: the original WAS verified, with `psql -f`, and that
+    // verification was correct. It just proved the file worked in the mode I
+    // picked for it rather than the mode it would be used in.
+    const metaLines = CONSOLE_SQL.split("\n").filter((l) => l.startsWith("\\"));
+    expect(metaLines).toEqual([]);
+  });
+
+  it("the console copy is in sync with the source", () => {
+    // A stale copy is worse than no copy: the operator would be answering
+    // questions from an older version of the script and reporting the answers
+    // against the current one. Checked by table rather than by diff, because the
+    // two files legitimately differ in their banners.
+    for (const section of ["§1", "§10", "§13"]) {
+      expect(CONSOLE_SQL, `${section} is missing from the console copy`)
+        .toContain(section);
+    }
+    const tables = new Set(
+      [...SQL.matchAll(/FROM public\.([a-z_]+)/g)].map((m) => m[1]),
+    );
+    expect(tables.size).toBeGreaterThan(5);
+    for (const tbl of tables) {
+      expect(CONSOLE_SQL, `console copy is stale — missing public.${tbl}`)
+        .toContain(`public.${tbl}`);
+    }
+  });
+
+  it("the console copy is read-only too", () => {
+    const body = CONSOLE_SQL.split("\n")
+      .filter((l) => !l.trim().startsWith("--"))
+      .join("\n");
+    const found = ["INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP"]
+      .filter((verb) => new RegExp(`\\b${verb}\\b`, "i").test(body));
+    expect(found).toEqual([]);
+  });
+
   it("contains no statement that writes", () => {
     const body = executableSql();
     // Word-boundary matched so `updated_at` does not read as UPDATE and
