@@ -119,6 +119,13 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
           )
           : false;
         const inAlter = new RegExp(
+          // Same truncation hazard as the CREATE branch above, and left as
+          // `[^;]*` DELIBERATELY here: an `ALTER TABLE … ADD COLUMN …;` is a
+          // single statement, so stopping at the semicolon is the correct
+          // boundary rather than an accidental one. The CREATE branch was
+          // different because a table body legitimately spans many lines of
+          // prose. Noting it so the next reader does not "fix" this one to
+          // match and quietly widen it across statements.
           `ALTER TABLE[^;]*\\b${table}\\b[^;]*ADD COLUMN[^;]*\\b${column}\\b`,
           "is",
         ).test(migrations);
