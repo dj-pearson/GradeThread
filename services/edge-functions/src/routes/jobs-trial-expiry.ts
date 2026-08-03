@@ -66,11 +66,19 @@ export function shouldSendTrialNotice(args: {
 }): boolean {
   if (args.daysLeft === null) return false;
   // Already sent — once is the requirement, and a repeat reads as marketing.
+  // With users.trial_notice_sent_at (00523) this is now a REAL marker rather
+  // than a hardcoded null, which is what lets the window below widen.
   if (args.alreadyNotifiedAt) return false;
-  // The day the notice is due. A trial already past its end gets nothing: the
-  // downgrade below is the event, and a "3 days left" mail about a lapsed trial
-  // is worse than silence.
-  return args.daysLeft === NOTICE_DAYS_BEFORE;
+  // A trial already past its end gets nothing: the downgrade is the event, and
+  // a "3 days left" mail about a lapsed trial is worse than silence.
+  if (args.daysLeft < 0) return false;
+  // US-2319 AC2: DUE OR OVERDUE, not "exactly the third day". The old
+  // `=== NOTICE_DAYS_BEFORE` made the daily cron the dedupe, so a single missed
+  // run meant the customer was never warned at all — and the miss was silent,
+  // because a notice nobody received leaves no trace. Now a run on day 2 or day
+  // 1 still catches them, late, and the marker stops the repeat that widening
+  // the window would otherwise cause.
+  return args.daysLeft <= NOTICE_DAYS_BEFORE;
 }
 
 
@@ -94,7 +102,7 @@ export async function handleTrialExpiryCron(c: Context): Promise<Response> {
     const nowMs = Date.now();
     const { data: soon } = await supabaseAdmin
       .from("users")
-      .select("id, email, full_name, trial_ends_at")
+      .select("id, email, full_name, trial_ends_at, trial_notice_sent_at")
       .eq("subscription_status", "trialing")
       .is("flipdesk_subscription_id", null)
       .gt("trial_ends_at", new Date(nowMs).toISOString())
@@ -106,16 +114,20 @@ export async function handleTrialExpiryCron(c: Context): Promise<Response> {
       email: string | null;
       full_name: string | null;
       trial_ends_at: string | null;
+      trial_notice_sent_at: string | null;
     }>) {
       const daysLeft = daysUntil(row.trial_ends_at, nowMs);
-      // `alreadyNotifiedAt` is null today: successful sends are not recorded in
-      // email_deliveries (only skips and failures are), so there is no existing
-      // marker to read. The exact-day window IS the dedupe — on a daily cron a
-      // user hits daysLeft === NOTICE_DAYS_BEFORE exactly once. The seam is kept
-      // because that is a weaker guarantee than a stored marker: a missed cron
-      // day means a missed notice, and a same-day manual re-run could double-
-      // send. A users.trial_notice_sent_at column plugs in here and removes both.
-      if (!shouldSendTrialNotice({ daysLeft, alreadyNotifiedAt: null })) continue;
+      // US-2319: the stored marker (00523), not a hardcoded null. The old seam
+      // was documented right here: the exact-day window was the only dedupe, so
+      // a missed cron day meant the customer was never warned and a same-day
+      // re-run double-sent. Both are gone — the marker dedupes, so the window
+      // above can be "due or overdue".
+      if (
+        !shouldSendTrialNotice({
+          daysLeft,
+          alreadyNotifiedAt: row.trial_notice_sent_at,
+        })
+      ) continue;
       if (!row.email || !row.trial_ends_at) continue;
 
       safeSendEmail(
@@ -130,6 +142,26 @@ export async function handleTrialExpiryCron(c: Context): Promise<Response> {
         }),
         "trial_expiring",
       );
+      // Stamped AFTER the send is handed off, deliberately — the same ordering
+      // US-2314 settled on for the North Star digest. Stamping first means a
+      // crash loses the notice PERMANENTLY (the marker says it went); stamping
+      // after means a crash between the two could re-send on the next daily run.
+      // A rare duplicate is recoverable and a silently missing warning is not,
+      // and this notice is the last thing a customer hears before they are
+      // downgraded.
+      const { error: markErr } = await supabaseAdmin
+        .from("users")
+        .update({ trial_notice_sent_at: new Date(nowMs).toISOString() })
+        .eq("id", row.id);
+      if (markErr) {
+        // Not fatal: the mail is already on its way, and the worst case is one
+        // duplicate tomorrow. But an unrecorded send is how "why did I get this
+        // twice" becomes unexplainable, so it is logged rather than swallowed.
+        console.error(
+          "[trial-expiry] notice sent but not marked:",
+          markErr.message,
+        );
+      }
       noticesSent++;
     }
   } catch (err) {

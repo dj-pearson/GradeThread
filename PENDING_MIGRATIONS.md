@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing pending.** 00515 through 00522 were all applied to prod on
+**One pending: 00523.** 00515 through 00522 were all applied to prod on
 2026-08-03 (owner-confirmed).
 
 > [!warning] 00522 reached origin/main BEFORE it was applied — the second time
@@ -65,6 +65,41 @@ is not — which has happened twice (see the US-2017 note in prd.json). **When y
 apply a migration, flip its marker in the same sitting.**
 
 ---
+
+## ⏳ HELD: 00523_users_trial_notice_sent_at.sql (US-2319 trial-notice idempotency, 2026-08-03)
+
+**Risk: LOW.** One nullable column on `users`, plus a CREATE OR REPLACE of
+`guard_users_protected_columns` that only ADDS the new column to its denylist.
+No data is rewritten and no existing column changes meaning.
+
+**What it closes.** The trial-ending notice had no marker: the exact-day window
+(`daysLeft === 3`) was the only dedupe, so a missed cron day meant the customer
+was NEVER warned — silently, because a notice nobody received leaves no trace —
+and a same-day re-run double-sent. With the marker the window widens to
+due-or-overdue and still sends exactly once.
+
+**Why the guard changes too.** `guard_users_protected_columns` is a DENYLIST: a
+new column is writable by the account owner unless it is named. A trialist
+setting this themselves would suppress their own warning.
+
+**Verified on a throwaway stack:** full corpus applies on a fresh schema, the
+column is `timestamptz` and nullable, the replaced guard function names it, and
+the self-record row lands.
+
+**Ships with edge code that READS the column** (`jobs-trial-expiry.ts` selects
+`trial_notice_sent_at`). On a database without it PostgREST answers 42703 and the
+notice scan throws — the job catches and logs, so the downgrade half still runs,
+but no notices go out until this is applied. Apply BEFORE the edge redeploys.
+
+**Apply:**
+
+1. Run `supabase/migrations/00523_users_trial_notice_sent_at.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — new column.
+3. Redeploy the edge (boot guard expects 00523).
+
+**Verify:** `select count(*) from users where trial_notice_sent_at is not null;`
+returns 0 immediately after applying, and becomes non-zero the first time the
+trial-expiry cron sends a notice.
 
 ## ✅ APPLIED: 00522_grade_report_certified_content_updated_at.sql (US-2392 certificate revision date, applied 2026-08-03 — owner-confirmed)
 

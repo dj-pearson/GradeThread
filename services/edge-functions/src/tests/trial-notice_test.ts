@@ -53,11 +53,28 @@ Deno.test("daysUntil counts whole days, rounding up", () => {
   assertEquals(daysUntil("not-a-date", now), null);
 });
 
-Deno.test("the notice fires on exactly one day, not every day in the window", () => {
-  // A daily cron plus a `<= 3` rule would mail the same person three times,
-  // which is precisely what makes a required notice read as marketing.
-  assertEquals(shouldSendTrialNotice({ daysLeft: 3, alreadyNotifiedAt: null }), true);
-  for (const d of [5, 4, 2, 1, 0]) {
+Deno.test("the notice fires once, but the window is due-OR-OVERDUE", () => {
+  // US-2319 CHANGED THIS CONTRACT DELIBERATELY, and the old version of this case
+  // is why it is worth spelling out. It asserted `daysLeft === 3` and nothing
+  // else, because the exact-day rule was the ONLY dedupe — a `<= 3` rule with a
+  // daily cron would have mailed the same person three times.
+  //
+  // The cost of that was silent and worse: one missed cron day and the customer
+  // got NO warning before their trial ended, for good, with nothing recording
+  // the miss. 00523's users.trial_notice_sent_at is now the dedupe, so the
+  // window can be inclusive and still send exactly once.
+  //
+  // "Fires once" is now a property of the MARKER (see the case below and
+  // trial-notice-idempotency_test.ts), not of the window.
+  for (const d of [3, 2, 1, 0]) {
+    assertEquals(
+      shouldSendTrialNotice({ daysLeft: d, alreadyNotifiedAt: null }),
+      true,
+      `daysLeft=${d} must still catch an un-notified trialist`,
+    );
+  }
+  // Not early, though: a warning four days out is not the warning we promised.
+  for (const d of [5, 4]) {
     assertEquals(
       shouldSendTrialNotice({ daysLeft: d, alreadyNotifiedAt: null }),
       false,
