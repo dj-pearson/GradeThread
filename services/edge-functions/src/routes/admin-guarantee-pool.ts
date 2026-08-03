@@ -13,6 +13,7 @@ import {
   getGuaranteePoolConfig,
   periodKey,
   type PoolLedgerEntry,
+  poolDrawdownRef,
   recordPoolDrawdown,
 } from "../lib/guarantee-pool.ts";
 import { getSetting } from "../lib/system-settings.ts";
@@ -109,11 +110,19 @@ adminGuaranteePoolRoutes.post("/claims/:id/resolve", requireScope("billing:write
 
   const { data: claim } = await supabaseAdmin
     .from("buyer_guarantee_claims")
-    .select("id, user_id, remedy_cents, status")
+    // US-2396: purchase_id comes along because the pool ledger is keyed on the
+    // PURCHASE, never on the claim. See the drawdown call below.
+    .select("id, user_id, purchase_id, remedy_cents, status")
     .eq("id", claimId)
     .maybeSingle();
   if (!claim) return c.json({ error: "Claim not found." }, 404);
-  const cl = claim as { id: string; user_id: string; remedy_cents: number; status: string };
+  const cl = claim as {
+    id: string;
+    user_id: string;
+    purchase_id: string;
+    remedy_cents: number;
+    status: string;
+  };
   if (cl.status !== "manual_review") {
     return c.json({ error: `Claim is already ${cl.status}.` }, 409);
   }
@@ -126,7 +135,27 @@ adminGuaranteePoolRoutes.post("/claims/:id/resolve", requireScope("billing:write
       await getSetting<unknown>(BUYER_GUARANTEE_REMEDY_SETTING_KEY, DEFAULT_BUYER_GUARANTEE_REMEDY_CONFIG),
     );
     const credits = Math.floor(cl.remedy_cents / remedyConfig.cents_per_credit);
-    await recordPoolDrawdown(cl.id, cl.user_id, cl.remedy_cents, periodKey(Date.now()));
+    // US-2396: keyed on the PURCHASE, via the same derivation the automatic
+    // reserve uses. This used to pass cl.id — the claim id — which is the exact
+    // key mismatch US-2291 was filed for, sitting in the file that fixed it.
+    //
+    // NOT A LIVE DOUBLE-DRAWDOWN TODAY, and saying so plainly matters more than
+    // claiming a save: 00490 writes the ledger row only on the allowed path, so
+    // a reserved claim ends up auto_approved, and this route refuses any claim
+    // whose status is not manual_review. No claim can therefore be both
+    // reserved and manually approved, and the two key forms never met.
+    //
+    // It is fixed anyway because the entire point of poolDrawdownRef was that
+    // ONE derivation exists. A second key form in the same ledger re-opens the
+    // door the moment either of those two conditions changes — and neither is
+    // written down anywhere that a future editor of the RPC or of this status
+    // check would be forced to read.
+    await recordPoolDrawdown(
+      poolDrawdownRef(cl.purchase_id),
+      cl.user_id,
+      cl.remedy_cents,
+      periodKey(Date.now()),
+    );
     if (credits > 0) {
       await supabaseAdmin.rpc("grant_buyer_reward_credit", {
         p_user_id: cl.user_id,

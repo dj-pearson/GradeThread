@@ -259,9 +259,17 @@ export async function reservePoolDrawdown(
  * writes the ledger row atomically, and calling both is what US-2291 fixed.
  * Pass the same {@link poolDrawdownRef} a reserve would have used, so if the
  * claim WAS reserved this is an exact no-op instead of a second drawdown.
+ *
+ * US-2396: the first parameter is `referenceId`, not `claimId`, and the rename
+ * IS the fix rather than tidying. The doc above has always said "pass
+ * poolDrawdownRef"; the parameter said "claimId", and the only caller believed
+ * the parameter. A signature that contradicts its own documentation is read as
+ * the documentation being aspirational, and the value lands in `reference_id`
+ * unexamined either way — so the mismatch is invisible at the call site and
+ * only shows up as a second ledger row much later.
  */
 export async function recordPoolDrawdown(
-  claimId: string,
+  referenceId: string,
   accountUserId: string,
   amountCents: number,
   period: string,
@@ -274,7 +282,7 @@ export async function recordPoolDrawdown(
         amount_cents: amountCents,
         period,
         account_user_id: accountUserId,
-        reference_id: claimId,
+        reference_id: referenceId,
         reason: "guarantee_remedy",
       } as never,
       { onConflict: "entry_type,reference_id", ignoreDuplicates: true },

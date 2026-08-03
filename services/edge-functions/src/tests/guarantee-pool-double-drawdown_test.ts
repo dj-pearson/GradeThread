@@ -17,7 +17,7 @@
 // and the KEY was wrong, and nothing anywhere compared the two. So these assert
 // the shared derivation and the arithmetic it protects.
 
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -120,4 +120,77 @@ Deno.test("double-counting also trips the loss-ratio breaker at half the real lo
     ).allowAuto,
     false,
   );
+});
+
+// ── US-2396: ONE derivation, both writers ──────────────────────────────────
+//
+// The point of poolDrawdownRef is that a single function decides what a
+// drawdown is keyed on. Two writers reach guarantee_pool_ledger — the
+// automatic reserve in buyer-guarantee-claim.ts and the manual approval in
+// admin-guarantee-pool.ts — and the manual one passed the CLAIM id while the
+// reserve passed the PURCHASE id, which is the exact mismatch US-2291 was
+// filed for, in the file that fixed it.
+//
+// STATE PLAINLY WHAT THIS WAS: not a live double-drawdown. 00490 writes the
+// ledger row only on the allowed path, so a reserved claim ends up
+// auto_approved, and the admin route refuses any claim whose status is not
+// manual_review — so no claim could be both reserved and manually approved,
+// and the two key forms never met. It was a latent mismatch and a doc that
+// lied about its only caller.
+//
+// The reason to close it anyway is that both of those conditions live far from
+// this code and neither is written where an editor would have to read it. The
+// guard below is what makes the invariant survive them changing.
+
+Deno.test("US-2396: both drawdown writers derive the ref from poolDrawdownRef", async () => {
+  const read = async (p: string) =>
+    (await Deno.readTextFile(new URL(p, import.meta.url)))
+      // Comments stripped. Both files now EXPLAIN this rule at length and name
+      // the old shape verbatim, so a raw scan would be satisfied by the prose
+      // describing the bug — and would stay green after a revert.
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|\s)\/\/[^\n]*/g, "$1");
+
+  const admin = await read("../routes/admin-guarantee-pool.ts");
+  const auto = await read("../lib/buyer-guarantee-claim.ts");
+
+  // The manual path: keyed through the shared derivation, on the PURCHASE.
+  assert(
+    /recordPoolDrawdown\(\s*poolDrawdownRef\(cl\.purchase_id\)/.test(admin),
+    "the manual approval no longer keys its drawdown through poolDrawdownRef — " +
+      "a second key form in the ledger means a reserved claim can be drawn " +
+      "down twice as soon as it becomes reachable",
+  );
+  // And specifically NOT on the claim id, which is what it used to pass.
+  assert(
+    !/recordPoolDrawdown\(\s*cl\.id\b/.test(admin),
+    "the manual approval is keyed on the claim id again",
+  );
+
+  // The automatic path, unchanged — asserted here so the two are pinned
+  // TOGETHER. Either one drifting alone re-creates the mismatch, and a guard
+  // that watches only one of them cannot see that.
+  assert(
+    /poolDrawdownRef\(purchase\.id\)/.test(auto),
+    "the automatic reserve no longer keys on the purchase",
+  );
+});
+
+Deno.test("US-2396: the parameter name no longer contradicts the doc", () => {
+  // The mismatch was invited by the signature. The doc said "pass
+  // poolDrawdownRef"; the parameter was called `claimId`, and the only caller
+  // believed the parameter. The value lands in `reference_id` unexamined
+  // either way, so nothing at the call site could reveal the disagreement.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/guarantee-pool.ts", import.meta.url),
+  );
+  const at = src.indexOf("export async function recordPoolDrawdown(");
+  assert(at > -1, "recordPoolDrawdown is gone");
+  const sig = src.slice(at, src.indexOf(")", at));
+  assert(
+    /referenceId: string/.test(sig),
+    "the first parameter is named for a claim again, which is how the wrong " +
+      "id got passed in the first place",
+  );
+  assert(!/claimId/.test(sig), "the claimId parameter name is back");
 });
