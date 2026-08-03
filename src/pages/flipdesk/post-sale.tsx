@@ -114,6 +114,15 @@ function DisputesCard() {
   const [busy, setBusy] = useState<string | null>(null);
   // The dispute currently being contested (drives the note dialog), plus its note.
   const [contestFor, setContestFor] = useState<EbayPaymentDispute | null>(null);
+  // US-2227 AC3: same unfiltered-list defect as Returns. A dispute eBay has
+  // closed still rendered Accept / Contest buttons against a respond-by
+  // deadline that has already passed.
+  const [showClosed, setShowClosed] = useState(false);
+  const { open: openDisputes, closed: closedDisputes } = useMemo(
+    () => splitByOpenState(disputes),
+    [disputes],
+  );
+  const visible = showClosed ? closedDisputes : openDisputes;
   const [contestNote, setContestNote] = useState("");
 
   async function runResolve(
@@ -169,18 +178,26 @@ function DisputesCard() {
   return (
     <Card className="border-brand-red/30">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ShieldAlert className="h-4 w-4 text-brand-red" />
-          Payment disputes
+        <CardTitle className="flex items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-brand-red" />
+            Payment disputes
+          </span>
+          {closedDisputes.length > 0 && (
+            <Button size="sm" variant="ghost" className="h-7 text-xs font-normal"
+              onClick={() => setShowClosed((v) => !v)}>
+              {showClosed ? `Show open (${openDisputes.length})` : `Show closed (${closedDisputes.length})`}
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (
           <Skeleton className="h-16 w-full" />
-        ) : disputes.length === 0 ? (
-          <EmptyRow text="No open payment disputes." />
+        ) : visible.length === 0 ? (
+          <EmptyRow text={showClosed ? "No closed payment disputes." : "No open payment disputes."} />
         ) : (
-          disputes.map((d) => {
+          visible.map((d) => {
             const days = daysUntil(d.respondByDate);
             const overdue = days != null && days < 0;
             return (
@@ -213,6 +230,9 @@ function DisputesCard() {
                     {d.buyerUsername ? ` · ${d.buyerUsername}` : ""}
                   </p>
                 </div>
+                {/* US-2227: a closed dispute keeps no actions — Accept refunds the
+                    buyer, and Contest is meaningless once eBay has decided. */}
+                {!showClosed && (
                 <div className="flex shrink-0 gap-2">
                   <EvidenceUploader disputeId={d.paymentDisputeId} disabled={!!busy} />
                   <Button
@@ -242,6 +262,7 @@ function DisputesCard() {
                     Accept &amp; refund
                   </Button>
                 </div>
+                )}
               </div>
             );
           })
@@ -507,6 +528,13 @@ function CancellationsCard() {
   const { data: cancellations = [], isLoading } = useEbayCancellations();
   const decide = useEbayDecideCancellation();
   const [busy, setBusy] = useState<string | null>(null);
+  // US-2227 AC3: third instance of the same unfiltered-list defect.
+  const [showClosed, setShowClosed] = useState(false);
+  const { open: openCancels, closed: closedCancels } = useMemo(
+    () => splitByOpenState(cancellations),
+    [cancellations],
+  );
+  const visible = showClosed ? closedCancels : openCancels;
 
   async function act(ca: EbayCancellation, action: "approve" | "reject") {
     if (action === "approve") {
@@ -538,18 +566,26 @@ function CancellationsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <PackageX className="h-4 w-4" />
-          Cancellation requests
+        <CardTitle className="flex items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            <PackageX className="h-4 w-4" />
+            Cancellation requests
+          </span>
+          {closedCancels.length > 0 && (
+            <Button size="sm" variant="ghost" className="h-7 text-xs font-normal"
+              onClick={() => setShowClosed((v) => !v)}>
+              {showClosed ? `Show open (${openCancels.length})` : `Show closed (${closedCancels.length})`}
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (
           <Skeleton className="h-16 w-full" />
-        ) : cancellations.length === 0 ? (
-          <EmptyRow text="No open cancellation requests." />
+        ) : visible.length === 0 ? (
+          <EmptyRow text={showClosed ? "No closed cancellation requests." : "No open cancellation requests."} />
         ) : (
-          cancellations.map((ca) => (
+          visible.map((ca) => (
             <div
               key={ca.cancelId}
               className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
@@ -567,6 +603,8 @@ function CancellationsCard() {
                   Order {ca.orderId ?? "—"} · {fmtDate(ca.creationDate)}
                 </p>
               </div>
+              {/* US-2227: no Approve/Reject on a cancellation eBay has settled. */}
+              {!showClosed && (
               <div className="flex shrink-0 gap-2">
                 <Button
                   size="sm"
@@ -595,6 +633,7 @@ function CancellationsCard() {
                   Approve &amp; cancel
                 </Button>
               </div>
+              )}
             </div>
           ))
         )}
