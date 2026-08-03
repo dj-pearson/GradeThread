@@ -15,7 +15,31 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00512_job_lock_holder_release.sql (US-2311 job-lock holder check, 2026-08-02)
+## ✅ APPLIED: 00512_job_lock_holder_release.sql (US-2311 job-lock holder check, 2026-08-02 · applied — measured 2026-08-02)
+
+> [!note] How 00510–00512 were confirmed, and what that evidence does NOT cover
+> Flipped on 2026-08-02 from a live measurement, not from someone remembering.
+> `GET https://functions.gradethread.com/health/ready` returned
+> `schema {expected:"00512", applied:"00512", status:"match"}` — the US-1566
+> block reading `applied_migrations` through the service-role client, i.e. the
+> database's own answer rather than a config file.
+>
+> **The limit of that evidence.** `applied` is the recorded MAX. It proves 00512
+> landed and that nothing above it is expected. It does **not** individually
+> prove 00510 and 00511, because a mid-sequence gap is invisible to a maximum —
+> that is US-2009's whole subject, and the blind spot that let 00005 never land
+> while the watermark moved on regardless. Section 1 of
+> `scripts/prod-diagnostics.sql` answers it properly by listing gaps.
+> **If that query reports a gap at 00510 or 00511, flip the heading back and
+> apply the file.** Every migration here is idempotent, so re-running one that
+> did land costs nothing.
+>
+> **Why flipping was safe either way.** All three were already on `origin/main`
+> before this. The hold was blocking future pushes of unrelated work, not
+> holding these back — so the code-ahead-of-schema risk the gate exists to
+> prevent had already resolved one way or the other, and the doc was simply
+> out of date. Precedent: the same measurement cleared 00475/00476 on
+> 2026-07-18 (recorded on US-1880).
 
 - **Apply order.** After 00511. Idempotent: `DROP FUNCTION IF EXISTS` then
   `CREATE OR REPLACE FUNCTION`, the whole file in one transaction. Verified safe
@@ -76,7 +100,7 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00511_submissions_protected_columns_guard.sql (US-2376 submissions guard, 2026-08-01)
+## ✅ APPLIED: 00511_submissions_protected_columns_guard.sql (US-2376 submissions guard, 2026-08-01 · applied — measured 2026-08-02)
 
 - **Apply order.** After 00510. Idempotent: `CREATE OR REPLACE FUNCTION`,
   `COMMENT ON FUNCTION`, `DROP TRIGGER IF EXISTS` then `CREATE TRIGGER`. Safe to
@@ -124,7 +148,7 @@ flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00510_prompt_versions_service_role_writes.sql (US-2348 prompt writes, 2026-08-01)
+## ✅ APPLIED: 00510_prompt_versions_service_role_writes.sql (US-2348 prompt writes, 2026-08-01 · applied — measured 2026-08-02)
 
 - **Apply order.** After 00509. Idempotent: three `DROP POLICY IF EXISTS` and
   one `COMMENT ON TABLE`. Safe to re-run.
