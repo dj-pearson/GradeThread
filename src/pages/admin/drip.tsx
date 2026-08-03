@@ -722,8 +722,8 @@ function StepCard({
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <div>
-            <Label className="text-xs">Brief (drives AI copy)</Label>
-            <Textarea
+            <Label htmlFor="d-brief-drives-ai-copy" className="text-xs">Brief (drives AI copy)</Label>
+            <Textarea id="d-brief-drives-ai-copy"
               value={step.brief}
               disabled={disabled}
               rows={2}
@@ -744,8 +744,8 @@ function StepCard({
         </div>
 
         <div className="flex items-center gap-2">
-          <Label className="text-xs">Delay (hours from anchor)</Label>
-          <Input
+          <Label htmlFor="d-delay-hours-from-anchor" className="text-xs">Delay (hours from anchor)</Label>
+          <Input id="d-delay-hours-from-anchor"
             type="number"
             className="h-8 w-28"
             disabled={disabled}
@@ -777,8 +777,8 @@ function StepCard({
               <div className="flex items-center justify-between">
                 <Badge variant="outline">variant {v.id}</Badge>
                 <div className="flex items-center gap-2">
-                  <Label className="text-xs">weight</Label>
-                  <Input
+                  <Label htmlFor="d-weight" className="text-xs">weight</Label>
+                  <Input id="d-weight"
                     type="number"
                     className="h-7 w-20"
                     disabled={disabled}
@@ -800,16 +800,16 @@ function StepCard({
                 </div>
               </div>
               <div>
-                <Label className="text-xs">Subject</Label>
-                <Input
+                <Label htmlFor="d-subject" className="text-xs">Subject</Label>
+                <Input id="d-subject"
                   value={v.subject}
                   disabled={disabled}
                   onChange={(e) => onPatchVariant(v.id, { subject: e.target.value })}
                 />
               </div>
               <div>
-                <Label className="text-xs">HTML body</Label>
-                <Textarea
+                <Label htmlFor="d-html-body" className="text-xs">HTML body</Label>
+                <Textarea id="d-html-body"
                   value={v.html}
                   disabled={disabled}
                   rows={4}
@@ -1302,8 +1302,8 @@ function IncentivePanel({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Max discount guardrail (%)</Label>
-            <Input
+            <Label htmlFor="d-max-discount-guardrail" className="text-xs">Max discount guardrail (%)</Label>
+            <Input id="d-max-discount-guardrail"
               type="number"
               min={1}
               max={100}
@@ -1317,8 +1317,8 @@ function IncentivePanel({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Offer window (hours)</Label>
-            <Input
+            <Label htmlFor="d-offer-window-hours" className="text-xs">Offer window (hours)</Label>
+            <Input id="d-offer-window-hours"
               type="number"
               min={1}
               disabled={disabled}

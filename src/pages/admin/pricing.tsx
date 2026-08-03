@@ -154,47 +154,47 @@ function EditPlanDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Display name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
+            <Label htmlFor="p-display-name">Display name</Label>
+            <Input id="p-display-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Monthly price (USD)</Label>
-              <Input type="number" value={priceMonthly} onChange={(e) => setPriceMonthly(e.target.value)} />
+              <Label htmlFor="p-monthly-price-usd">Monthly price (USD)</Label>
+              <Input id="p-monthly-price-usd" type="number" value={priceMonthly} onChange={(e) => setPriceMonthly(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Yearly price (USD)</Label>
-              <Input type="number" value={priceYearly} onChange={(e) => setPriceYearly(e.target.value)} />
+              <Label htmlFor="p-yearly-price-usd">Yearly price (USD)</Label>
+              <Input id="p-yearly-price-usd" type="number" value={priceYearly} onChange={(e) => setPriceYearly(e.target.value)} />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <div className="space-y-2">
-              <Label>Active listing cap</Label>
-              <Input type="number" value={listingCap} onChange={(e) => setListingCap(e.target.value)} />
+              <Label htmlFor="p-active-listing-cap">Active listing cap</Label>
+              <Input id="p-active-listing-cap" type="number" value={listingCap} onChange={(e) => setListingCap(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>AI actions / mo</Label>
-              <Input type="number" value={aiActions} onChange={(e) => setAiActions(e.target.value)} />
+              <Label htmlFor="p-ai-actions-mo">AI actions / mo</Label>
+              <Input id="p-ai-actions-mo" type="number" value={aiActions} onChange={(e) => setAiActions(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Marketplaces cap</Label>
-              <Input type="number" value={marketplaces} onChange={(e) => setMarketplaces(e.target.value)} />
+              <Label htmlFor="p-marketplaces-cap">Marketplaces cap</Label>
+              <Input id="p-marketplaces-cap" type="number" value={marketplaces} onChange={(e) => setMarketplaces(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Included grades / mo</Label>
-              <Input type="number" value={grades} onChange={(e) => setGrades(e.target.value)} />
+              <Label htmlFor="p-included-grades-mo">Included grades / mo</Label>
+              <Input id="p-included-grades-mo" type="number" value={grades} onChange={(e) => setGrades(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Team seats</Label>
-              <Input type="number" value={teamSeats} onChange={(e) => setTeamSeats(e.target.value)} />
+              <Label htmlFor="p-team-seats">Team seats</Label>
+              <Input id="p-team-seats" type="number" value={teamSeats} onChange={(e) => setTeamSeats(e.target.value)} />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>Feature bullets (one per line)</Label>
-            <textarea
+            <Label htmlFor="p-feature-bullets-one-per-line">Feature bullets (one per line)</Label>
+            <textarea id="p-feature-bullets-one-per-line"
               className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
               value={features}
               onChange={(e) => setFeatures(e.target.value)}
@@ -218,8 +218,8 @@ function EditPlanDialog({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Stripe price ID — monthly</Label>
-              <Input
+              <Label htmlFor="p-stripe-price-id-monthly">Stripe price ID — monthly</Label>
+              <Input id="p-stripe-price-id-monthly"
                 value={priceIdMonthly}
                 onChange={(e) => setPriceIdMonthly(e.target.value)}
                 placeholder="(env fallback if empty)"
@@ -227,8 +227,8 @@ function EditPlanDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label>Stripe price ID — yearly</Label>
-              <Input
+              <Label htmlFor="p-stripe-price-id-yearly">Stripe price ID — yearly</Label>
+              <Input id="p-stripe-price-id-yearly"
                 value={priceIdYearly}
                 onChange={(e) => setPriceIdYearly(e.target.value)}
                 placeholder="(env fallback if empty)"

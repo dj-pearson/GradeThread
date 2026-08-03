@@ -125,12 +125,12 @@ function EditorDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Title</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Label htmlFor="a-title">Title</Label>
+            <Input id="a-title" value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label>Body</Label>
-            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} />
+            <Label htmlFor="a-body">Body</Label>
+            <Textarea id="a-body" value={body} onChange={(e) => setBody(e.target.value)} rows={3} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
@@ -160,28 +160,28 @@ function EditorDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Button label (optional)</Label>
-              <Input value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} />
+              <Label htmlFor="a-button-label-optional">Button label (optional)</Label>
+              <Input id="a-button-label-optional" value={ctaLabel} onChange={(e) => setCtaLabel(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Button URL (optional)</Label>
-              <Input value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} />
+              <Label htmlFor="a-button-url-optional">Button URL (optional)</Label>
+              <Input id="a-button-url-optional" value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Starts</Label>
-              <Input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+              <Label htmlFor="a-starts">Starts</Label>
+              <Input id="a-starts" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Ends (optional)</Label>
-              <Input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
+              <Label htmlFor="a-ends-optional">Ends (optional)</Label>
+              <Input id="a-ends-optional" type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
-              <Label>Priority</Label>
-              <Input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} />
+              <Label htmlFor="a-priority">Priority</Label>
+              <Input id="a-priority" type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} />
             </div>
             <label className="flex items-center gap-2 pt-7 text-sm">
               <input type="checkbox" checked={dismissible} onChange={(e) => setDismissible(e.target.checked)} />

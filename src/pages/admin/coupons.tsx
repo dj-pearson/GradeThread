@@ -152,8 +152,8 @@ function CreateCouponDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Internal name (optional)</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Spring sale" />
+            <Label htmlFor="c-internal-name-optional">Internal name (optional)</Label>
+            <Input id="c-internal-name-optional" value={name} onChange={(e) => setName(e.target.value)} placeholder="Spring sale" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
@@ -168,8 +168,8 @@ function CreateCouponDialog({
             </div>
             {discountType === "percent" ? (
               <div className="space-y-2">
-                <Label>Percent off</Label>
-                <Input type="number" value={percentOff} onChange={(e) => setPercentOff(e.target.value)} />
+                <Label htmlFor="c-percent-off">Percent off</Label>
+                <Input id="c-percent-off" type="number" value={percentOff} onChange={(e) => setPercentOff(e.target.value)} />
               </div>
             ) : (
               <div className="space-y-2">
@@ -192,24 +192,24 @@ function CreateCouponDialog({
             </div>
             {duration === "repeating" && (
               <div className="space-y-2">
-                <Label>Months</Label>
-                <Input type="number" value={durationInMonths} onChange={(e) => setDurationInMonths(e.target.value)} />
+                <Label htmlFor="c-months">Months</Label>
+                <Input id="c-months" type="number" value={durationInMonths} onChange={(e) => setDurationInMonths(e.target.value)} />
               </div>
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Max redemptions (optional)</Label>
-              <Input type="number" value={maxRedemptions} onChange={(e) => setMaxRedemptions(e.target.value)} />
+              <Label htmlFor="c-max-redemptions-optional">Max redemptions (optional)</Label>
+              <Input id="c-max-redemptions-optional" type="number" value={maxRedemptions} onChange={(e) => setMaxRedemptions(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Redeem by (optional)</Label>
-              <Input type="date" value={redeemBy} onChange={(e) => setRedeemBy(e.target.value)} />
+              <Label htmlFor="c-redeem-by-optional">Redeem by (optional)</Label>
+              <Input id="c-redeem-by-optional" type="date" value={redeemBy} onChange={(e) => setRedeemBy(e.target.value)} />
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Promo code (optional)</Label>
-            <Input
+            <Label htmlFor="c-promo-code-optional">Promo code (optional)</Label>
+            <Input id="c-promo-code-optional"
               value={promoCode}
               onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
               placeholder="SPRING25"
@@ -260,8 +260,8 @@ function EditCouponDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label>Internal name</Label>
-          <Input
+          <Label htmlFor="c-internal-name">Internal name</Label>
+          <Input id="c-internal-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Spring sale"
