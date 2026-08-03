@@ -6,9 +6,10 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
+  - services/edge-functions/src/lib/circuit-breaker.ts
 reviewed: 2026-08-03
 tags: [edge, caching, deploy, contract]
-summary: The edge runs N replicas and migrations apply separately from the code roll; both facts constrain what any edge module may assume.
+summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
 
 # Edge runtime invariants
@@ -58,6 +59,35 @@ Note the failure mode this guard once had: a pending migration used to 503 the
 *whole* edge service, because the boot guard ran before `Deno.serve` and crashed
 the process into a restart loop. The grace window (US-778) exists because the
 strict version was worse than the problem.
+
+## 3. A timeout that stops at the headers is not a timeout
+
+`fetch()` resolves as soon as the response **headers** arrive. The body is still
+streaming. So a deadline released when that promise settles — the natural way to
+write it, with `clearTimeout` in a `finally` — bounds the handshake and nothing
+else, and every `await res.text()` in the codebase runs unbounded.
+
+The failure that produces is the worst shape available: an upstream that answers
+`200 OK` and then stalls the body hangs the caller **forever**, while the
+breaker records a success, the retry never fires, and the metrics look healthy.
+US-2323 found `fetchWithTimeout` in exactly this state, affecting every caller,
+after an audit flagged only the eBay Trading symptom.
+
+`fetchWithTimeout` now keeps the timer armed and returns a Response whose body
+is piped through a reader that releases the deadline when the body ENDS —
+normally, by error, or by cancellation. A stall trips the same
+`AbortController` and surfaces as the same `TimeoutError` the retry and breaker
+machinery already understand.
+
+**The general rule for this repo:** a deadline must cover the work the caller
+actually waits on, not the first promise that happens to settle. When adding a
+timeout to anything streaming, ask what the caller awaits AFTER the function
+returns.
+
+Pinned by `circuit-breaker_test.ts`, which serves a real stalled body over
+loopback rather than stubbing `fetch` — the bug lives in the seam between the
+headers promise and the body stream, and a stub has no such seam. The test was
+confirmed non-vacuous by restoring the old behaviour and watching it hang.
 
 ## Related
 

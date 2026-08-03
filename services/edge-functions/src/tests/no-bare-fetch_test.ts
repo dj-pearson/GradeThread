@@ -41,7 +41,10 @@ const KNOWN_BARE_FETCH: Array<[string, number]> = [
   ["src/lib/coherent-cache.ts", 1],
   ["src/lib/content-webhook.ts", 2],
   ["src/lib/ebay-notification-verify.ts", 1],
-  ["src/lib/ebay-trading.ts", 3],
+  // US-2323: 3 → 0. All three Trading calls (tradingCall, GetItem specifics
+  // and the GetMyeBaySelling paginator) now go through ebayResilientFetch,
+  // which composes breaker → retry → timeout. Trading is eBay's slowest and
+  // least reliable surface and had none of the three.
   ["src/lib/fcm.ts", 1],
   ["src/lib/gsc-client.ts", 2],
   ["src/lib/indexnow.ts", 1],

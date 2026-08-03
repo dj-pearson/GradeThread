@@ -25,27 +25,100 @@ export class TimeoutError extends Error {
   }
 }
 
-// fetch with a hard deadline. On timeout the request is aborted and a
-// TimeoutError is thrown (which isRetryableError matches, so withRetry retries).
+/**
+ * fetch with a hard deadline that covers the RESPONSE BODY, not just the
+ * headers. On timeout the request is aborted and a TimeoutError is thrown
+ * (which isRetryableError matches, so withRetry retries).
+ *
+ * US-2323 — WHY THE BODY MATTERS, and why the obvious version of this function
+ * is wrong. `fetch()` resolves as soon as the response HEADERS arrive; the body
+ * is still streaming. The previous implementation cleared its timer in a
+ * `finally` attached to that resolution, so by the time any caller reached
+ * `await res.text()` there was no deadline left at all. A partner that returns
+ * `200 OK` and then stalls the body hung the caller FOREVER — with no timeout,
+ * no retry and no breaker trip, because from the breaker's point of view the
+ * request had already succeeded.
+ *
+ * That is the worst shape a timeout bug can take: it looks handled. Every
+ * caller of this function was exposed, not just the eBay Trading path that
+ * surfaced it.
+ *
+ * The fix keeps the timer armed and hands back a Response whose body is piped
+ * through a reader that clears the deadline when the body ENDS — normally, by
+ * error, or by cancellation. A stall therefore trips the same AbortController
+ * and surfaces as the same TimeoutError, which the existing retry/breaker
+ * machinery already understands.
+ */
 export async function fetchWithTimeout(
   input: string | URL | Request,
   init: RequestInit = {},
   timeoutMs = 15_000,
 ): Promise<Response> {
   const ctrl = new AbortController();
+  let cleared = false;
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    return await fetch(input, { ...init, signal: ctrl.signal });
-  } catch (err) {
-    if (ctrl.signal.aborted) {
-      throw new TimeoutError(
-        `Request timed out after ${timeoutMs}ms: ${describeTarget(input)}`,
-      );
+  const clear = () => {
+    if (!cleared) {
+      cleared = true;
+      clearTimeout(timer);
     }
+  };
+  const timedOut = () =>
+    new TimeoutError(
+      `Request timed out after ${timeoutMs}ms: ${describeTarget(input)}`,
+    );
+
+  let res: Response;
+  try {
+    res = await fetch(input, { ...init, signal: ctrl.signal });
+  } catch (err) {
+    clear();
+    if (ctrl.signal.aborted) throw timedOut();
     throw err;
-  } finally {
-    clearTimeout(timer);
   }
+
+  // Nothing to stream: 204/304 and friends carry no body, so the deadline has
+  // nothing left to cover and holding the timer would just pin the event loop.
+  if (!res.body) {
+    clear();
+    return res;
+  }
+
+  const source = res.body;
+  const monitored = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = source.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          controller.enqueue(value);
+        }
+        controller.close();
+      } catch (err) {
+        // An abort mid-body is the case this whole function exists for, so it
+        // must surface as a TimeoutError rather than as a generic AbortError —
+        // isRetryableError keys on the former.
+        controller.error(ctrl.signal.aborted ? timedOut() : err);
+      } finally {
+        clear();
+      }
+    },
+    cancel(reason) {
+      clear();
+      return source.cancel(reason);
+    },
+  });
+
+  // `new Response(...)` does not carry `url` across, and callers do read it
+  // (redirect handling, error messages), so it is restored explicitly.
+  const wrapped = new Response(monitored, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  });
+  Object.defineProperty(wrapped, "url", { value: res.url, configurable: true });
+  return wrapped;
 }
 
 function describeTarget(input: string | URL | Request): string {

@@ -16,11 +16,23 @@
 
 import { XMLParser } from "fast-xml-parser";
 import {
+  ebayResilientFetch,
   getConnectionAccessToken,
   getEbayEnv,
   getMarketplaceId,
   getUserAccessToken,
 } from "./ebay-client.ts";
+
+/**
+ * US-2323: the deadline for a single Trading call.
+ *
+ * Longer than the Sell APIs' default because Trading genuinely is slower —
+ * GetMyeBaySelling pages and GetItem with ReturnAll both routinely take
+ * seconds. The number matters far less than its existence: before this there
+ * was no bound at all, and a stalled connection held a worker until the process
+ * restarted.
+ */
+export const TRADING_TIMEOUT_MS = 30_000;
 
 // Compatibility level pins the XML schema we're targeting. eBay bumps this
 // occasionally; 1193 is stable as of late 2024 and supports SKU in the
@@ -240,7 +252,11 @@ async function fetchActiveListPage(
   const { appId, certId, devId } = devEnv();
   const body = buildRequestXml(page, entriesPerPage);
 
-  const res = await fetch(`${tradingHost()}/ws/api.dll`, {
+  // US-2323: the legacy pull walks this page by page, so a bare fetch meant one
+  // transient 500 partway through aborted the WHOLE sync and a stall held the
+  // worker until the process restarted. Retrying a single page is cheap and
+  // safe — GetMyeBaySelling is a read.
+  const res = await ebayResilientFetch(`${tradingHost()}/ws/api.dll`, {
     method: "POST",
     headers: {
       "Content-Type": "text/xml",
@@ -253,7 +269,7 @@ async function fetchActiveListPage(
       "X-EBAY-API-IAF-TOKEN": token,
     },
     body,
-  });
+  }, { timeoutMs: TRADING_TIMEOUT_MS, label: "Trading GetMyeBaySelling" });
 
   const text = await res.text();
   if (!res.ok) {
@@ -371,7 +387,9 @@ export async function getItemSpecifics(
       `</GetItemRequest>`,
     ].join("\n");
 
-    const res = await fetch(`${tradingHost()}/ws/api.dll`, {
+    // US-2323: same resilient path as tradingCall. This one runs once PER ITEM
+    // in a sync loop, so an unbounded call here multiplies by the batch size.
+    const res = await ebayResilientFetch(`${tradingHost()}/ws/api.dll`, {
       method: "POST",
       headers: {
         "Content-Type": "text/xml",
@@ -384,7 +402,7 @@ export async function getItemSpecifics(
         "X-EBAY-API-IAF-TOKEN": token,
       },
       body,
-    });
+    }, { timeoutMs: TRADING_TIMEOUT_MS, label: `Trading GetItem` });
 
     const text = await res.text();
     if (!res.ok) {
@@ -441,7 +459,14 @@ async function tradingCall(
     ? await getConnectionAccessToken(connectionId, userId)
     : await getUserAccessToken(userId);
   const { appId, certId, devId } = devEnv();
-  const res = await fetch(`${tradingHost()}/ws/api.dll`, {
+  // US-2323: through the shared resilient path (breaker → retry → timeout)
+  // rather than a bare fetch. Trading is eBay's slowest and least reliable
+  // surface and this is the single entry point for eight callers, so a hang
+  // here tied up a worker indefinitely and one transient 500 aborted an entire
+  // legacy pull. TRADING_TIMEOUT_MS is deliberately longer than the Sell
+  // default — GetMyeBaySelling pages are genuinely slow — but it is a bound,
+  // which is the part that was missing.
+  const res = await ebayResilientFetch(`${tradingHost()}/ws/api.dll`, {
     method: "POST",
     headers: {
       "Content-Type": "text/xml",
@@ -454,7 +479,7 @@ async function tradingCall(
       "X-EBAY-API-IAF-TOKEN": token,
     },
     body,
-  });
+  }, { timeoutMs: TRADING_TIMEOUT_MS, label: `Trading ${callName}` });
   const text = await res.text();
   return { ok: res.ok, status: res.status, text };
 }

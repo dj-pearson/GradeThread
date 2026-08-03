@@ -9,7 +9,7 @@ code_refs:
   - src/hooks/use-items-full.ts
   - services/edge-functions/src/routes/admin-dashboard.ts
   - services/edge-functions/src/tests/admin-dashboard-kpi-provenance_test.ts
-reviewed: 2026-08-02
+reviewed: 2026-08-03
 tags: [postgrest, supabase, perf, correctness, flipdesk, admin]
 summary: Every read must page until empty, count without rows, aggregate in SQL, or declare its cap out loud, because PostgREST truncates silently and supabase-js does not surface it.
 ---
@@ -76,7 +76,9 @@ of three shapes. The first two are fine; the third is the bug.
 
 A single server-side page with `count: "exact"` (as `grid.tsx` does) is a
 legitimate variant of shape 2: the count tells the seller what they are not
-seeing.
+seeing. The FlipDesk listings table is the fullest worked example (US-2168): it
+asks `flipdesk_listing_page` for one page and gets `total` back alongside the
+rows, so the pager is honest without the client ever holding the set.
 
 ### The fourth shape: don't read the rows at all
 
