@@ -1,6 +1,5 @@
--- READ-ONLY production diagnostics. Answers the prod-data questions that five
--- open stories are each individually blocked on, in ONE session (six now, §7
--- added later for US-2293).
+-- READ-ONLY production diagnostics. Answers the prod-data questions that seven
+-- open stories are each individually blocked on, in ONE session.
 --
 --   SUPABASE_DB_URL="postgres://…@host:5432/postgres" \
 --     psql "$SUPABASE_DB_URL" -f scripts/prod-diagnostics.sql
@@ -12,7 +11,7 @@
 -- it is the reason this exists as a script rather than as ad-hoc pasted SQL.
 --
 -- WHY ONE SCRIPT. Each of the stories below has sat open for weeks with its
--- last acceptance criterion reading "needs prod access". That is five separate
+-- last acceptance criterion reading "needs prod access". That is seven separate
 -- asks of the one person who can answer them, which is how a question stops
 -- being asked. One paste, one output, every answer.
 --
@@ -23,6 +22,7 @@
 --   §5  US-2041 AC4 — was any dispute resolved on the wrong displayed grade?
 --   §6  context — row counts for the tables the admin dashboard aggregates.
 --   §7  US-2293 AC3 — overage packs refunded before the credit clawback shipped.
+--   §8  US-2031 AC1 — is the affiliate hold window long enough?
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -245,6 +245,50 @@ LIMIT 100;
 \echo '-- shortfall, which is what AC1 does for new refunds.'
 SELECT count(*) AS wallets, sum(balance) AS total_credits_outstanding
 FROM public.api_credit_wallet;
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§8  US-2031 AC1 — IS THE AFFILIATE HOLD WINDOW LONG ENOUGH?'
+\echo '════════════════════════════════════════════════════════════════'
+\echo 'affiliate_commissions has a hold_until window (default 30 days) but no'
+\echo 'refund or chargeback reversal. A referred subscription refunded AFTER the'
+\echo 'hold expires leaves the commission paid and unrecoverable.'
+\echo ''
+\echo 'AC1 does not ask you to build a clawback. It asks you to MEASURE first,'
+\echo 'then choose: extend the hold, build the clawback, or accept the loss with'
+\echo 'a number next to it. All three are defensible; guessing is not.'
+\echo ''
+\echo 'Read this as: how long does a commission actually sit before payout, and'
+\echo 'how many are already paid. Pair it with your Stripe refund-age data — the'
+\echo 'question is what share of refunds land after the hold, and only Stripe'
+\echo 'knows the refund dates.'
+\echo ''
+
+SELECT
+  status,
+  count(*)                                                        AS commissions,
+  sum(amount)                                                     AS total_amount,
+  min(created_at)                                                 AS oldest,
+  -- Days from accrual to the end of hold. If this clusters at exactly 30 the
+  -- default is untouched; a spread means someone has been setting it per row.
+  round(avg(extract(epoch FROM (hold_until - created_at)) / 86400)::numeric, 1)
+                                                                  AS avg_hold_days
+FROM public.affiliate_commissions
+GROUP BY status
+ORDER BY status;
+
+\echo ''
+\echo '-- Paid commissions by age, so the exposure window is concrete. A refund'
+\echo '-- arriving today can only be clawed back from a commission still accrued;'
+\echo '-- everything under `paid` is already out the door.'
+SELECT
+  count(*) FILTER (WHERE status = 'paid')                         AS paid_total,
+  sum(amount) FILTER (WHERE status = 'paid')                      AS paid_amount,
+  count(*) FILTER (WHERE status = 'accrued' AND hold_until > now()) AS still_held,
+  sum(amount) FILTER (WHERE status = 'accrued' AND hold_until > now()) AS still_held_amount,
+  count(*) FILTER (WHERE status = 'accrued' AND hold_until <= now()) AS due_for_payout,
+  count(*) FILTER (WHERE status = 'void')                         AS voided
+FROM public.affiliate_commissions;
 
 \echo ''
 \echo '════════════════════════════════════════════════════════════════'
