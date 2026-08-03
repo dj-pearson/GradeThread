@@ -5,6 +5,7 @@ import {
   DECISION_MIN_GRADE_CONFIDENCE,
 } from "../lib/scout-decision.ts";
 import type { ValueRange } from "../lib/condition-value.ts";
+import { ebayNetProceedsCents } from "../lib/ebay-fees.ts";
 import type { SellThroughForecast } from "../lib/sell-through.ts";
 
 const value = (medianCents: number | null, sufficient = true): ValueRange => ({
@@ -26,7 +27,7 @@ const sell = (label: SellThroughForecast["label"]): SellThroughForecast => ({
 });
 
 Deno.test("cheap item with strong margin → buy", () => {
-  // Resells $80 → net ~$69.6. Cost $8 → ~770% ROI, fast mover.
+  // Resells $80 → net ~$69. Cost $8 → ~760% ROI, fast mover.
   const d = decideBuy({
     shadowGrade: 8.5,
     gradeConfidence: 0.85,
@@ -37,7 +38,29 @@ Deno.test("cheap item with strong margin → buy", () => {
   assertEquals(d.recommendation, "buy");
   assert(d.estMarginCents! > 0);
   assert(d.roiPct! > 1);
-  assertEquals(d.breakevenCents, Math.round(8000 * 0.87));
+  // US-2325: derived from the SHARED fee model rather than restated as a
+  // literal. This used to read Math.round(8000 * 0.87), hard-coding ScoutAI's
+  // private 13%-and-no-fixed-fee — so it would have kept passing while ScoutAI
+  // drifted away from the profit estimate the seller is actually shown, which
+  // is exactly the divergence this story is about.
+  assertEquals(d.breakevenCents, ebayNetProceedsCents(8000));
+});
+
+Deno.test("US-2325: the decision nets fees the same way the composer does", () => {
+  // The point of the story, asserted directly: a buy/skip verdict and the
+  // profit screen the seller lands on next must not disagree. Both run the one
+  // model now, INCLUDING the fixed per-order fee ScoutAI never modelled — worth
+  // the most, proportionally, on the cheap items a sourcing tool surfaces most.
+  const d = decideBuy({
+    shadowGrade: 8,
+    gradeConfidence: 0.9,
+    value: value(1200),
+    sellThrough: sell("fast"),
+    costCents: 500,
+  });
+  assertEquals(d.estProceedsCents, ebayNetProceedsCents(1200));
+  // 13.25% of $12 is $1.59; the fixed $0.40 is another 3.3% of the sale on top.
+  assertEquals(d.estProceedsCents, 1200 - (Math.ceil(1200 * 0.1325) + 40));
 });
 
 Deno.test("negative margin → skip", () => {

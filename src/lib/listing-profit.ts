@@ -3,12 +3,16 @@
 // BACKWARD-looking — it needs a recorded sale's actual fees; this estimates
 // them up front from the price.)
 //
-// eBay Managed Payments: a final-value fee (~13.25% for most categories, which
-// already includes payment processing) plus a fixed per-order fee (~$0.40).
-// Both are overridable so a category-specific rate can be passed later.
-
-export const DEFAULT_EBAY_FEE_RATE = 0.1325;
-export const DEFAULT_EBAY_FIXED_FEE = 0.4;
+// US-2325: the fee numbers moved to lib/ebay-fees.ts, the single source of
+// truth now shared with ScoutAI's scoring and buy/skip decision. Those two used
+// to carry their own flat 13% with no fixed fee, so the estimate a seller saw
+// here disagreed with the recommendation that sent them to the item.
+//
+// Re-exported under the original names because they are part of this module's
+// public surface (listing-profit.test.ts and callers import them from here);
+// the VALUES have one home.
+export { EBAY_FEE_RATE as DEFAULT_EBAY_FEE_RATE, EBAY_FIXED_FEE as DEFAULT_EBAY_FIXED_FEE } from "./ebay-fees";
+import { EBAY_FEE_RATE, EBAY_FIXED_FEE } from "./ebay-fees";
 
 export interface ProfitInputs {
   /** The list price being considered (USD). */
@@ -57,8 +61,8 @@ export interface MarginFloorInputs {
 // Returns null when the target is unreachable at any finite price — i.e. the
 // fee rate plus the margin meet or exceed 100% (denominator ≤ 0).
 export function priceForMargin(input: MarginFloorInputs): number | null {
-  const feeRate = input.feeRate ?? DEFAULT_EBAY_FEE_RATE;
-  const fixedFee = input.fixedFee ?? DEFAULT_EBAY_FIXED_FEE;
+  const feeRate = input.feeRate ?? EBAY_FEE_RATE;
+  const fixedFee = input.fixedFee ?? EBAY_FIXED_FEE;
   const costs =
     Math.max(0, input.costBasis ?? 0) +
     Math.max(0, input.gradingCost ?? 0) +
@@ -71,8 +75,8 @@ export function priceForMargin(input: MarginFloorInputs): number | null {
 
 export function estimateListingProfit(input: ProfitInputs): ProfitEstimate {
   const price = Math.max(0, input.price || 0);
-  const feeRate = input.feeRate ?? DEFAULT_EBAY_FEE_RATE;
-  const fixedFee = input.fixedFee ?? DEFAULT_EBAY_FIXED_FEE;
+  const feeRate = input.feeRate ?? EBAY_FEE_RATE;
+  const fixedFee = input.fixedFee ?? EBAY_FIXED_FEE;
   const costBasis = Math.max(0, input.costBasis ?? 0);
   const grading = Math.max(0, input.gradingCost ?? 0);
   const shipping = Math.max(0, input.shippingCost ?? 0);

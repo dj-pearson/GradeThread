@@ -10,10 +10,12 @@
 
 import type { ValueRange } from "./condition-value.ts";
 import type { SellThroughForecast } from "./sell-through.ts";
+import { EBAY_FEE_RATE, ebayNetProceedsCents } from "./ebay-fees.ts";
 
-// eBay final-value-fee approximation for apparel (~13%), same basis as ScoutAI
-// arbitrage scoring. Net proceeds = resale * (1 - fee).
-export const DECISION_FEE_RATE = 0.13;
+// US-2325: from lib/ebay-fees.ts, the same model the composer's profit estimate
+// uses. Was a local 0.13 with no fixed fee — the buy/skip verdict and the
+// profit screen the seller landed on afterwards did not agree on any item.
+export const DECISION_FEE_RATE = EBAY_FEE_RATE;
 // Below this shadow-grade confidence we never issue a strong "buy" — a graded
 // item we're unsure about is at best a "maybe".
 export const DECISION_MIN_GRADE_CONFIDENCE = 0.6;
@@ -102,7 +104,7 @@ export function decideBuy(
 
   // Net-of-fees resale at the grade-positioned median. Breakeven is the highest
   // cost that still clears (margin ≥ 0), which equals net proceeds.
-  const estProceeds = Math.round(value.medianCents * (1 - feeRate));
+  const estProceeds = ebayNetProceedsCents(value.medianCents, { feeRate });
   const breakeven = estProceeds;
 
   if (input.costCents == null || input.costCents <= 0) {

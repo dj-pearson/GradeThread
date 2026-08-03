@@ -1139,6 +1139,103 @@ export function getCategoryTreeId(): string {
   return readEnv("EBAY_CATEGORY_TREE_ID") ?? "0";
 }
 
+/**
+ * US-2325 AC4: check the CONFIGURED category tree id against eBay's own answer.
+ *
+ * `getCategoryTreeId()` reads an env var and falls back to "0". Nothing ever
+ * asked eBay whether that is still right, and eight call sites depend on it —
+ * category suggestion, aspect metadata, the lot. eBay versions its taxonomy per
+ * marketplace, so a bump silently points every one of those at a stale tree,
+ * and because aspects are cached for 30 days (ASPECT_TTL_MS) the wrong answers
+ * stay warm for up to a month before anything looks different.
+ *
+ * Deliberately REPORTS rather than self-heals. Switching tree ids underneath a
+ * running catalogue would invalidate cached aspects and change category
+ * suggestions mid-session; which tree to use is an operator decision, and the
+ * job here is to make the drift visible instead of silent.
+ *
+ * `deps` is injectable so this is testable without a live eBay call.
+ */
+export interface TreeIdReconcile {
+  configured: string;
+  actual: string | null;
+  matches: boolean;
+  /** False when eBay could not be asked — never render that as "matches". */
+  checked: boolean;
+  detail: string;
+}
+
+export async function reconcileCategoryTreeId(
+  deps: {
+    doFetch?: (url: string) => Promise<Response>;
+    marketplaceId?: string;
+    configured?: string;
+  } = {},
+): Promise<TreeIdReconcile> {
+  const configured = deps.configured ?? getCategoryTreeId();
+  const marketplaceId = deps.marketplaceId ?? getMarketplaceId();
+  const url = `${apiHost()}/commerce/taxonomy/v1/get_default_category_tree_id` +
+    `?marketplace_id=${encodeURIComponent(marketplaceId)}`;
+
+  try {
+    const res = deps.doFetch
+      ? await deps.doFetch(url)
+      : await ebayResilientFetch(url, {
+        headers: { Authorization: `Bearer ${await getAppAccessToken()}` },
+      }, { label: "Taxonomy get_default_category_tree_id" });
+    if (!res.ok) {
+      return {
+        configured,
+        actual: null,
+        matches: false,
+        checked: false,
+        detail: `eBay returned HTTP ${res.status}`,
+      };
+    }
+    const json = await res.json() as { categoryTreeId?: string };
+    const actual = typeof json.categoryTreeId === "string"
+      ? json.categoryTreeId
+      : null;
+    if (actual === null) {
+      return {
+        configured,
+        actual: null,
+        matches: false,
+        checked: false,
+        detail: "response carried no categoryTreeId",
+      };
+    }
+    const matches = actual === configured;
+    if (!matches) {
+      console.error(
+        `[ebay-client] CATEGORY TREE DRIFT for ${marketplaceId}: configured ` +
+          `${configured}, eBay says ${actual}. Category suggestions and cached ` +
+          `aspects are being read from the wrong tree. Set ` +
+          `EBAY_CATEGORY_TREE_ID=${actual} and expire ebay_category_aspects.`,
+      );
+    }
+    return {
+      configured,
+      actual,
+      matches,
+      checked: true,
+      detail: matches
+        ? "configured tree id matches eBay"
+        : `configured ${configured}, eBay says ${actual}`,
+    };
+  } catch (err) {
+    // Fails CLOSED in the sense that matters: checked:false means "we do not
+    // know", which must never be rendered as agreement.
+    return {
+      configured,
+      actual: null,
+      matches: false,
+      checked: false,
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 export interface CategorySuggestion {
   categoryId: string;
   categoryName: string;

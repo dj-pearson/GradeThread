@@ -9,10 +9,14 @@
 // feed never surfaces a false signal.
 
 import type { ValueRange } from "./condition-value.ts";
+import { EBAY_FEE_RATE, ebayNetProceedsCents } from "./ebay-fees.ts";
 
-// eBay final-value-fee approximation for apparel (~13%). Net resale proceeds =
-// value * (1 - fee). Conservative; excludes promoted-listing ad rate + shipping.
-export const SCOUT_FEE_RATE = 0.13;
+// US-2325: the fee model now comes from lib/ebay-fees.ts, shared with the
+// composer's profit estimate. This used to be a local 0.13 with no fixed fee,
+// which made ScoutAI the OPTIMISTIC one of the two — it told a seller to buy on
+// numbers the composer would then contradict. Still excludes promoted-listing
+// ad rate and shipping.
+export const SCOUT_FEE_RATE = EBAY_FEE_RATE;
 // A candidate is only "actionable" above this shadow-grade confidence.
 export const SCOUT_MIN_GRADE_CONFIDENCE = 0.7;
 // Flag "underpriced for its condition" when net resale value clears asking by
@@ -85,7 +89,10 @@ export function scoreCandidate(
     return { ...base, reason: "Not enough condition-matched comps to value this item." };
   }
 
-  const netResale = Math.round(value.medianCents * (1 - feeRate));
+  // Fixed per-order fee included (US-2325). Omitting it overstated every
+  // margin, and by the largest proportion on exactly the cheap items a
+  // sourcing tool surfaces most.
+  const netResale = ebayNetProceedsCents(value.medianCents, { feeRate });
   const margin = netResale - candidate.askingCents;
   const marginPct = margin / candidate.askingCents;
   const underpriced = value.medianCents >= candidate.askingCents * ratio;
