@@ -215,3 +215,35 @@ Deno.test("US-2351 AC5: a reviewer cannot be impersonated either", () => {
   // And ordinary users must stay impersonable — that is what the feature is for.
   assert(!roles.includes("user"), "nobody can be impersonated at all now");
 });
+
+Deno.test("the refusal names the rule that actually stopped you", () => {
+  // AC5 added `reviewer` to PRIVILEGED_ROLES and left the message saying "an
+  // admin or super-admin", so a refused reviewer was told about a rule that was
+  // not the one applied. The cost is not cosmetic: the next operator reads a
+  // message that does not match the code, concludes the check is broken, and
+  // goes looking for a bug that is not there.
+  //
+  // Asserted against PRIVILEGED_ROLES itself rather than a fixed string, so the
+  // message cannot drift away from the set again.
+  const m = /const PRIVILEGED_ROLES = new Set\(\[([^\]]*)\]\)/.exec(ROUTE);
+  assert(m, "PRIVILEGED_ROLES is gone");
+  const roles = m[1]!.split(",").map((r) => r.trim().replace(/"/g, "")).filter(Boolean);
+
+  const refusal = ROUTE.slice(ROUTE.indexOf("PRIVILEGED_ROLES.has(target.role)"));
+  // COMMENTS STRIPPED. The first version of this checked the raw slice, and the
+  // explanatory comment above the message names every role — so reverting the
+  // message to the stale one left the case GREEN, satisfied by prose about the
+  // very bug it was written to catch. Negative verification is the only reason
+  // that was found; the assertion read as correct.
+  const message = refusal
+    .slice(0, refusal.indexOf("403"))
+    .replace(/\/\/[^\n]*/g, "");
+  for (const role of roles) {
+    // super_admin appears as "super-admin" in prose; compare on the stem.
+    const stem = role.replace(/_/g, "-");
+    assert(
+      message.includes(stem) || message.includes(role),
+      `the refusal does not mention ${role}, which it refuses`,
+    );
+  }
+});

@@ -85,7 +85,16 @@ adminImpersonationRoutes.post("/start/:id", async (c: Context<AdminEnv>) => {
   if (!target) return c.json({ error: "User not found" }, 404);
   if (PRIVILEGED_ROLES.has(target.role)) {
     return c.json(
-      { error: "Impersonating an admin or super-admin is not allowed." },
+      {
+        // US-2351 AC5 added `reviewer` to the set and left this message behind,
+        // so a refused reviewer was told the rule was about admins. The message
+        // an operator reads has to describe the rule that actually stopped them,
+        // or the next person concludes the check is broken and goes looking for
+        // a bug that is not there.
+        error:
+          "Impersonating a reviewer, admin or super-admin is not allowed — " +
+          "their actions audit to them, not to you.",
+      },
       403,
     );
   }
