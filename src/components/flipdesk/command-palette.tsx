@@ -42,7 +42,9 @@ import type { WorkspaceCapability } from "@/lib/workspace-permissions";
 import { isTypingTarget } from "@/hooks/use-keyboard-shortcuts";
 import { OPEN_SHORTCUTS_EVENT } from "@/components/dashboard/shortcuts-help";
 import { cn } from "@/lib/utils";
-import type { ItemFullRow, SourceRow } from "@/types/database";
+import type { SourceRow } from "@/types/database";
+import type { ItemListRow } from "@/lib/item-list-columns";
+import { itemsListQueryKey } from "@/hooks/use-items-full";
 
 interface SearchHit {
   result_type: string;
@@ -77,7 +79,7 @@ type ActionEntry = {
 
 type Entry =
   | ActionEntry
-  | { kind: "item"; id: string; item: ItemFullRow }
+  | { kind: "item"; id: string; item: ItemListRow }
   | { kind: "source"; id: string; source: SourceRow }
   | { kind: "submission"; id: string; sub: SubmissionLite }
   | { kind: "deep"; id: string; hit: SearchHit }
@@ -250,8 +252,18 @@ export function CommandPalette() {
   // Read whatever the app already cached — no extra round-trips. Wrapped
   // in useMemo so the references are stable for the downstream useMemo
   // that builds the entries list (otherwise it re-runs every render).
+  //
+  // The key must be the one a hook actually WRITES. This read used to spell
+  // out `["items_full", user?.id]` by hand — the key `useItemsFull()` fills.
+  // US-2188 moved every consumer to the projected `useItemsList()`, which
+  // writes a DIFFERENT key, so `useItemsFull()` was left with no callers and
+  // its key with no writer. Nothing errored: `getQueryData` on a key nobody
+  // populates returns undefined, the `?? []` turned that into an empty list,
+  // and the palette's Recent section — which exists precisely for the empty
+  // search box — silently had nothing to show. Typed searches still worked,
+  // via the FTS RPC below, which is why it read as fine.
   const items = useMemo(
-    () => qc.getQueryData<ItemFullRow[]>(["items_full", user?.id]) ?? [],
+    () => qc.getQueryData<ItemListRow[]>(itemsListQueryKey(user?.id)) ?? [],
     [qc, user?.id],
   );
   const sources = useMemo(
@@ -492,7 +504,7 @@ export function CommandPalette() {
     const recentEntries: Entry[] = !q
       ? recentIds
           .map((id) => items.find((it) => it.id === id))
-          .filter((it): it is ItemFullRow => !!it)
+          .filter((it): it is ItemListRow => !!it)
           .slice(0, 5)
           .map((it) => ({ kind: "item", id: it.id, item: it }) as Entry)
       : [];
