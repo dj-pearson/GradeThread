@@ -113,3 +113,84 @@ if (slack >= 5) {
       `floor. Raise the floors in this file so the gains cannot be given back.`,
   );
 }
+
+// ── US-2345 AC5: a floor over the MONEY paths specifically ───────────────────
+//
+// The fleet-wide floors above cannot see a money file: grade.ts and
+// admin-billing.ts together are ~3,150 lines that no test imports, so they are
+// absent from the table entirely and contribute nothing to the average. A
+// project-wide number can rise while the three files where a bug costs real
+// money stay at zero.
+//
+// Two mechanisms, because the files are in two different states.
+//
+//   • MONEY_FLOORS — files that ARE exercised. Set just below the current
+//     measurement, so adding untested lines to one drops its percentage and
+//     fails here. That is the "prevents new untested money code" the AC asks
+//     for, applied where it can actually bite.
+//
+//   • MONEY_DEBT — files with NO coverage at all. Enumerated rather than
+//     silently excluded, and the list is SHRINK-ONLY: a file that starts being
+//     covered must be moved into MONEY_FLOORS in the same commit. Otherwise the
+//     first test written against grade.ts would set no floor, and the coverage
+//     it bought could be given straight back.
+//
+// Measured 2026-08-03.
+const MONEY_FLOORS = {
+  "lib/affiliate-payout.ts": 4,
+  "lib/quick-grade.ts": 12,
+};
+const MONEY_DEBT = new Set([
+  // ~1,400 lines. The charge/refund path. AC1 of US-2345 owns this; the work is
+  // a request-context + Stripe-double harness, not a test file.
+  "routes/grade.ts",
+  // ~1,750 lines. Refunds, credits and plan changes, same harness problem.
+  "routes/admin-billing.ts",
+]);
+
+const seen = new Map();
+for (const l of plain.split("\n")) {
+  const m = l.match(/\|\s*((?:lib|routes)\/[\w.-]+\.ts)\s*\|[^|]*\|[^|]*\|\s*(\d+\.\d+)\s*\|/);
+  if (m) seen.set(m[1], Number(m[2]));
+}
+
+let moneyFailed = false;
+for (const [file, floor] of Object.entries(MONEY_FLOORS)) {
+  const actual = seen.get(file);
+  if (actual === undefined) {
+    console.error(
+      `✗ money ${file} — expected in the coverage table and absent. Either its ` +
+        `tests stopped importing it (in which case the floor is doing its job) ` +
+        `or the file moved.`,
+    );
+    moneyFailed = true;
+    continue;
+  }
+  const ok = actual >= floor;
+  if (!ok) moneyFailed = true;
+  console.log(
+    `${ok ? "✓" : "✗"} money ${file.padEnd(30)} ${String(actual).padStart(5)}%  (floor ${floor}%)`,
+  );
+}
+
+for (const file of MONEY_DEBT) {
+  if (seen.has(file)) {
+    console.error(
+      `✗ money ${file} now has coverage (${seen.get(file)}% lines). Move it from ` +
+        `MONEY_DEBT into MONEY_FLOORS in this commit, or the coverage you just ` +
+        `bought has no floor under it.`,
+    );
+    moneyFailed = true;
+  } else {
+    console.log(`· money ${file.padEnd(30)}      —  (no coverage, declared debt)`);
+  }
+}
+
+if (moneyFailed) {
+  console.error(
+    "\ncoverage-floor: the money paths regressed. These are the files where a " +
+      "bug costs real money (US-2345); a drop here is not the same kind of news " +
+      "as a drop in the project average.",
+  );
+  Deno.exit(1);
+}
