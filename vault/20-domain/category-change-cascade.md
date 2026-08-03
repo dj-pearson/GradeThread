@@ -78,7 +78,26 @@ dropped, rewrites}`:
 
 Dropped values are **parked, not discarded**: `parkedRef` in the picker holds
 them, and each later commit restores whatever fits the new category. Switching
-back recovers them, and the confirm dialog says "set aside" for that reason.
+back recovers them.
+
+> [!warning] The confirm dialog is gone (owner decision, 2026-08-03)
+> US-824 held a category change behind an AlertDialog whenever specifics would
+> not carry over. It is deleted, and a **toast** reports what was set aside
+> instead. Two reasons, and the second is the one that matters if anyone
+> proposes bringing it back:
+>
+> 1. It priced a non-loss as a loss. Parking is recoverable, and a blocking
+>    confirm is the weight of "about to delete your work".
+> 2. **It broke the change it was gating.** `AlertDialogAction` closes the
+>    dialog when clicked; closing fired `onOpenChange(false)`; that ran the
+>    same `cancelDiscard()` Escape uses, which reverted `categoryId` to the
+>    category being replaced. On an item with no saved category that value is
+>    `null` — so confirming a change blanked the picker to its search box and
+>    the new category's specifics never appeared. Re-picking "fixed" it,
+>    because by then `appliedCategoryRef` matched and no dialog opened to undo
+>    the choice, which is why it read as flaky rather than broken.
+>
+> Pinned by `src/components/flipdesk/__tests__/category-discard-confirm.test.ts`.
 
 Two limits worth knowing: parking is **session-only** (persisting it needs a
 migration), and `kept` does **not** re-validate values against the new spec, so a

@@ -539,12 +539,14 @@ function ExtractionAccuracyCard() {
             </Button>
           ))}
           <input
+            aria-label="Filter by brand"
             value={brand}
             onChange={(e) => setBrand(e.target.value)}
             placeholder="Filter brand…"
             className="h-8 rounded-md border bg-background px-2 text-sm"
           />
           <input
+            aria-label="Filter by item category"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             placeholder="item_category…"

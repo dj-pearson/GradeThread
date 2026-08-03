@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent } from "@/components/ui/card";
@@ -83,6 +83,9 @@ export function AdminCategoryMapPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [platformFilter, setPlatformFilter] = useState("all");
+  // US-2335: the editor's Platform select is a DIFFERENT control from the
+  // filter above — one edits a mapping, the other filters the list.
+  const editorPlatformId = useId();
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR);
@@ -212,7 +215,7 @@ export function AdminCategoryMapPage() {
           />
         </div>
         <Select value={platformFilter} onValueChange={setPlatformFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-40" aria-label="Filter by platform">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -302,13 +305,13 @@ export function AdminCategoryMapPage() {
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label>Platform</Label>
+              <Label htmlFor={editorPlatformId}>Platform</Label>
               <Select
                 value={editor.platform}
                 onValueChange={(v) => setEditor({ ...editor, platform: v })}
                 disabled={editingExisting}
               >
-                <SelectTrigger>
+                <SelectTrigger id={editorPlatformId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

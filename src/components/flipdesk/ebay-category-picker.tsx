@@ -41,16 +41,6 @@ import {
   parseMeasurementAspectValue,
   type LengthUnit,
 } from "@/lib/measurements";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 
 interface Props {
   itemId: string;
@@ -249,15 +239,13 @@ export function EbayCategoryPicker({
   // atop the confirm dialog). Keyed by their original aspect name.
   const parkedRef = useRef<Record<string, string[]>>({});
   const appliedCategoryPathRef = useRef<string | null>(null);
-  // When a category change would discard previously-entered specifics, we hold
-  // the change and ask first instead of dropping silently.
-  const [pendingDiscard, setPendingDiscard] = useState<{
-    toCategoryId: string;
-    toCategoryPath: string | null;
-    fromCategoryId: string | null;
-    fromCategoryPath: string | null;
-    dropped: Record<string, string[]>;
-  } | null>(null);
+// US-824 originally held a category change behind a confirm when specifics
+// would not carry over. Removed by owner decision, 2026-08-03: the dialog
+// interrupted every re-categorisation to report something that is not a loss.
+// Dropped values are PARKED, not destroyed — switch back, or pick a category
+// that supports them, and they return. The change now applies immediately and
+// says what it set aside in a toast, which is the honest weight for
+// "these moved out of view" rather than "confirm before we delete your work".
 
   // Commit a remap result: keep still-valid values, carry re-homed (remapped)
   // values under their new aspect name, add the derived gap-fills, restore any
@@ -341,17 +329,20 @@ export function EbayCategoryPicker({
       itemFields ?? null,
     );
     // Same id we last applied ⇒ first load or a re-fetch (itemFields change),
-    // not a user category switch — apply without prompting.
+    // not a user category switch. Only a real switch is worth reporting.
     const isInitial = appliedCategoryRef.current === categoryId;
-    if (!isInitial && Object.keys(result.dropped).length > 0) {
-      setPendingDiscard({
-        toCategoryId: categoryId!,
-        toCategoryPath: categoryPathRef.current,
-        fromCategoryId: appliedCategoryRef.current,
-        fromCategoryPath: appliedCategoryPathRef.current,
-        dropped: result.dropped,
-      });
-      return;
+    const droppedNames = Object.keys(result.dropped);
+    if (!isInitial && droppedNames.length > 0) {
+      const shown = droppedNames.slice(0, 3).join(", ");
+      toast.info(
+        `${droppedNames.length} item ${
+          droppedNames.length === 1 ? "specific has" : "specifics have"
+        } no match here: ${shown}${droppedNames.length > 3 ? "…" : ""}`,
+        {
+          description:
+            "Set aside, not deleted — switch back or pick a category that supports them and they return.",
+        },
+      );
     }
     commitRemap(aspectList, result);
     appliedCategoryRef.current = categoryId;
@@ -407,46 +398,6 @@ export function EbayCategoryPicker({
     aspectsQuery.data,
     onMeasurementsChange,
   ]);
-  // Set by confirmDiscard so the dialog's own close handler can tell "the user
-  // accepted" from "the user dismissed". Without it, confirming UNDID itself:
-  // AlertDialogAction closes the dialog, closing fires onOpenChange(false),
-  // and that called cancelDiscard — which reverts categoryId to
-  // `fromCategoryId`. On an item that had no category yet that value is null,
-  // so accepting a new category blanked the picker back to the search box, and
-  // the specifics never rendered. Picking again worked because by then
-  // appliedCategoryRef matched, so no dialog opened to undo it.
-  //
-  // A ref, not state: it is read inside the same event that sets it, before
-  // React has re-rendered.
-  const discardConfirmedRef = useRef(false);
-
-  function confirmDiscard() {
-    if (!pendingDiscard || !aspectsQuery.data) return;
-    const aspectList = aspectsQuery.data.aspects.aspects ?? [];
-    const result = remapAspectsForCategory(
-      aspectValuesRef.current,
-      aspectList,
-      itemFields ?? null,
-    );
-    commitRemap(aspectList, result);
-    appliedCategoryRef.current = pendingDiscard.toCategoryId;
-    appliedCategoryPathRef.current = pendingDiscard.toCategoryPath;
-    discardConfirmedRef.current = true;
-    setPendingDiscard(null);
-  }
-
-  // Revert to the previous category (cached spec re-resolves instantly and the
-  // effect re-applies it as "initial", so no values are lost).
-  function cancelDiscard() {
-    if (!pendingDiscard) return;
-    const backId = pendingDiscard.fromCategoryId;
-    const backPath = pendingDiscard.fromCategoryPath;
-    setPendingDiscard(null);
-    setCategoryId(backId);
-    setCategoryPath(backPath);
-    onCategoryChange?.(backId, backPath);
-  }
-
   const aspects: EbayAspect[] = useMemo(
     () => aspectsQuery.data?.aspects.aspects ?? [],
     [aspectsQuery.data]
@@ -623,10 +574,6 @@ export function EbayCategoryPicker({
       /* hook surfaces the error toast */
     }
   }
-
-  const droppedEntries = pendingDiscard
-    ? Object.entries(pendingDiscard.dropped)
-    : [];
 
   return (
     <>
@@ -863,57 +810,6 @@ export function EbayCategoryPicker({
       </CardContent>
       </Card>
 
-      {/* US-824: confirm before discarding specifics that don't carry over to
-          the new category — never drop the user's work silently. */}
-      <AlertDialog
-        open={!!pendingDiscard}
-        onOpenChange={(next) => {
-          if (next) return;
-          // Escape, the overlay and the Cancel button all mean "keep the
-          // current category". Confirming also closes the dialog, and that
-          // must NOT be read as a dismissal — see discardConfirmedRef.
-          if (discardConfirmedRef.current) {
-            discardConfirmedRef.current = false;
-            return;
-          }
-          cancelDiscard();
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {droppedEntries.length} item{" "}
-              {droppedEntries.length === 1 ? "specific has" : "specifics have"} no
-              match in the new category
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Equivalent values carry over automatically (Brand, Color, Material,
-              and same-meaning specifics under a different name), and gaps are
-              refilled from this item — no AI is used. The ones below have no
-              matching field here, so they&apos;re <strong>set aside</strong> —
-              switch back or pick a category that supports them and they return.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs">
-            {droppedEntries.map(([name, values]) => (
-              <li key={name} className="flex justify-between gap-3">
-                <span className="font-medium">{name}</span>
-                <span className="truncate text-muted-foreground">
-                  {values.join(", ")}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={cancelDiscard}>
-              Keep current category
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDiscard}>
-              Change category
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
