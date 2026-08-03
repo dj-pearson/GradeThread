@@ -271,17 +271,58 @@ flipdeskEtsyRoutes.post("/sync", async (c) => {
     const receipts = await listEtsyReceipts(conn.token, conn.shopId);
     let salesNew = 0;
     let soldFlipped = 0;
+    // US-2324: per-record isolation, and per-record errors that SURVIVE.
+    //
+    // Two defects lived in the old three-line loop. First, handleEtsyReceiptEvent
+    // never throws — it collects failures into `res.errors`, and nothing read
+    // them, so a receipt that failed to write was indistinguishable from one
+    // that succeeded and the response still said ok:true. Second, there was no
+    // per-record try/catch, so an unexpected throw at receipt 200 abandoned
+    // 201-500; and because this sync has no cursor and always restarts from the
+    // beginning, the next run hits the same poison record and dies in the same
+    // place, forever.
+    //
+    // The catch is INSIDE the loop for that reason: one bad record must cost
+    // that record, not the tail behind it.
+    const failures: string[] = [];
     for (const receipt of receipts) {
-      const res = await handleEtsyReceiptEvent(userId, receipt);
-      salesNew += res.salesNew;
-      soldFlipped += res.soldFlipped;
+      try {
+        const res = await handleEtsyReceiptEvent(userId, receipt);
+        salesNew += res.salesNew;
+        soldFlipped += res.soldFlipped;
+        for (const e of res.errors) failures.push(e);
+      } catch (err) {
+        failures.push(
+          `receipt failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
-    await supabaseAdmin
-      .from("marketplace_connections")
-      .update({ last_synced_at: new Date().toISOString() })
-      .eq("user_id", userId)
-      .eq("marketplace", "etsy");
-    return c.json({ ok: true, receipts: receipts.length, sales_new: salesNew, sold_flipped: soldFlipped });
+    // The watermark only advances on a CLEAN pass. Stamping it after partial
+    // failures is what turns "some records did not land" into "they never
+    // will" — the shape US-2320 removed from the eBay orders sync.
+    if (failures.length === 0) {
+      await supabaseAdmin
+        .from("marketplace_connections")
+        .update({ last_synced_at: new Date().toISOString() })
+        .eq("user_id", userId)
+        .eq("marketplace", "etsy");
+    } else {
+      console.error(
+        `[flipdesk-etsy] receipt sync completed with ${failures.length} failure(s):`,
+        failures.slice(0, 10),
+      );
+    }
+    return c.json({
+      // `ok` is now a claim about the WHOLE pass, not about reaching the end
+      // of it. A caller that only checks ok:true still gets the truth.
+      ok: failures.length === 0,
+      receipts: receipts.length,
+      sales_new: salesNew,
+      sold_flipped: soldFlipped,
+      failed: failures.length,
+      errors: failures.slice(0, 20),
+      partial: failures.length > 0,
+    });
   } catch (err) {
     console.error("[flipdesk-etsy] receipt sync failed:", err);
     return c.json({ error: "Etsy receipt sync failed." }, 502);
