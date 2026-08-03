@@ -14,10 +14,15 @@
 // that matters. So the routes that must audit are NAMED, and the ones named
 // here are the ones whose absence was a real forensic hole.
 //
-// The full policy table AC1 asks for — every admin mutation classified, and
-// reviewed as policy rather than derived by a script — is NOT this. It is a
-// judgement pass over 100+ routes and remains open on the story. This guard
-// holds the ground that has been taken.
+// The full policy table AC1 asks for is NOT this, and is no longer open: it
+// lives in `src/test/admin-audit-policy.test.ts`. That guard classifies all 210
+// admin mutations and fails when a new one appears with no central trail and no
+// written reason. This guard is still the sharper of the two — it names the
+// routes that must audit and WHY each one's absence was a forensic hole, which
+// a completeness check cannot express.
+//
+// Read them as a pair: this one holds specific ground, that one stops the
+// perimeter moving.
 
 import { assert } from "@std/assert";
 

@@ -1187,6 +1187,18 @@ adminOpsRoutes.post("/events/test", async (c) => {
 
 // POST /events/:id/acknowledge — triage one event (any admin). Routes AFTER the
 // specific /events/config + /events/test paths so they aren't shadowed.
+// US-2355 AC1: this audits for exactly the reason acknowledge-all does.
+//
+// The bulk route was fixed and this one was not, which left the rule saying
+// "burying alerts is auditable, unless you do it one at a time". Seventeen
+// single acknowledgements clear the same seventeen alerts as one bulk call, and
+// the loophole is the more likely path — it does not look like a mass action.
+//
+// The row on ops_events does record acknowledged_by, so this was never
+// traceless. But that trace only answers "who acknowledged THIS alert", asked
+// of an alert you already suspect. The central log answers "what did this admin
+// do", which is the question an investigation starts from, and nothing about a
+// one-at-a-time sweep reaches it.
 adminOpsRoutes.post("/events/:id/acknowledge", async (c) => {
   const id = c.req.param("id");
   const adminId = c.get("userId");
@@ -1195,13 +1207,32 @@ adminOpsRoutes.post("/events/:id/acknowledge", async (c) => {
     .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: adminId })
     .eq("id", id)
     .is("acknowledged_at", null)
-    .select("id")
+    .select("id, type, title, severity")
     .maybeSingle();
   if (error) {
     captureException(error, { tags: { area: "ops-events" } });
     return c.json({ error: "Failed to acknowledge event" }, 500);
   }
-  return c.json({ ok: true, id, already: !data });
+  const cleared = data as
+    | { id: string; type: string | null; title: string | null; severity: string | null }
+    | null;
+  // Audited even when it matched nothing (already acknowledged, or no such id).
+  // Same reasoning as the bulk route: a no-op is a fact, and silence there
+  // cannot be told apart from the route never being called.
+  await writeAuditLog(c, {
+    action: "ops.event.acknowledge",
+    targetType: "ops_event",
+    targetId: id,
+    before: { acknowledged: false },
+    after: { acknowledged: !!cleared },
+    details: {
+      already_acknowledged: !cleared,
+      type: cleared?.type ?? null,
+      title: cleared?.title ?? null,
+      severity: cleared?.severity ?? null,
+    },
+  });
+  return c.json({ ok: true, id, already: !cleared });
 });
 
 // POST /events/acknowledge-all — clear every unacked critical event.
