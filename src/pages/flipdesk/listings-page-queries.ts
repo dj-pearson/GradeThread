@@ -49,6 +49,25 @@ interface DraftMetaRow {
   scheduled_publish_at: string | null;
 }
 
+/**
+ * What `flipdesk_listing_page` returns (US-2168 AC3, migration 00515).
+ *
+ * It lives here rather than in the page because two modules now depend on the
+ * shape: the page renders it, and listings-actions.ts replays the same RPC to
+ * build the CSV export. A second hand-written copy is how the two would drift.
+ */
+export interface ListingPageResult {
+  total: number;
+  rows: ItemFullRow[];
+  soldAgg: {
+    count: number;
+    gross: number;
+    net: number;
+    avgMargin: number | null;
+  } | null;
+  buyerCounts: Record<string, number>;
+}
+
 export interface DraftMeta {
   listingPrice: number | null;
   priceIsEstimated: boolean;

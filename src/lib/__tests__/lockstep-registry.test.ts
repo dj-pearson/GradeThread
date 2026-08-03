@@ -178,7 +178,10 @@ const EXEMPT: Record<string, string> = {
   "src/components/marketing/scroll-experience/lenis-engine.ts":
     "Not a value mirror: keeps ScrollTrigger's scroll cache in step with " +
     "Lenis's virtual scroll position at runtime. Two libraries, one frame.",
-  "src/pages/flipdesk/listings.tsx":
+  // US-2173 AC2 moved the mutation handlers — and this comment with them —
+  // into listings-actions.ts. The path is restated rather than loosened,
+  // because the point of the registry is that a mirror is claimed per file.
+  "src/pages/flipdesk/listings-actions.ts":
     "Not a value mirror: keeps a react-query listing row in step with an item " +
     "row after a status write, so a re-drafted item stops showing its old " +
     "listing. Intra-page cache coherence.",

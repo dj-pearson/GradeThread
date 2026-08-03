@@ -53,7 +53,11 @@ const DECLARED: readonly DeclaredRead[] = [
     why: "the photo-less link picker asks for at most 200 candidates",
   },
   {
-    file: "src/pages/flipdesk/listings.tsx",
+    // US-2173 AC2 moved the mutation handlers into their own module, and the
+    // one direct from-call on this surface travelled with them. The
+    // declaration follows the code rather than the filename, which is the
+    // point of declaring by file: a move has to be restated, not inferred.
+    file: "src/pages/flipdesk/listings-actions.ts",
     bounds: ['.in("id", ids)'],
     why:
       "US-2168 moved the main read to the flipdesk_listing_page RPC, which " +
@@ -109,7 +113,12 @@ describe("every items_full read is bounded (US-2167)", () => {
     // (The blocker recorded here for months — "scoreListability has no SQL
     // equivalent" — was simply untrue. Every input it reads is a column on
     // items_full.)
-    const src = read("src/pages/flipdesk/listings.tsx");
+    // Two files now: the page runs the paged query, and listings-actions.ts
+    // replays the SAME RPC to build the CSV export — an export that read the
+    // rendered page instead would silently ship 50 rows of a 900-row account.
+    const src =
+      read("src/pages/flipdesk/listings.tsx") +
+      read("src/pages/flipdesk/listings-actions.ts");
     expect(src).toContain('supabase.rpc("flipdesk_listing_page"');
     // No CALL to the whole-tenant loop, and no import of it. The name may still
     // appear in prose explaining what this replaced — that history is worth

@@ -15,8 +15,17 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const FILE = "src/pages/flipdesk/listings.tsx";
+// US-2173 AC2: the bulk handlers this scans became injected-dependency units in
+// their own module. A source scan is file-path-bound, so it follows them. What is
+// asserted is unchanged: an undo offered for every reversible bulk action, and an
+// explicit "there is no undo" for the two that are not.
+const FILE = "src/pages/flipdesk/listings-actions.ts";
 const src = readFileSync(resolve(process.cwd(), FILE), "utf8");
+// The confirm DIALOG copy stayed in the page — it is JSX. The promise it makes
+// and the toast that repeats it are now in two files, and both halves matter:
+// the dialog is where a seller decides, the toast is where they look for Undo.
+const PAGE = "src/pages/flipdesk/listings.tsx";
+const pageSrc = readFileSync(resolve(process.cwd(), PAGE), "utf8");
 
 /** The body of one `async function name(...)` up to the next top-level one. */
 function fn(name: string): string {
@@ -79,7 +88,7 @@ describe("irreversible bulk actions say so", () => {
     // Whitespace-insensitive: this copy is JSX-wrapped and reflows on edit, so
     // matching the literal line breaks would fail on a reformat rather than on
     // the promise disappearing.
-    expect(src.replace(/\s+/g, " ")).toContain("This can't be undone");
+    expect(pageSrc.replace(/\s+/g, " ")).toContain("This can't be undone");
     expect(fn("bulkDeleteItems")).toContain("there's nothing to undo");
     expect(fn("bulkDeleteItems")).not.toContain('label: "Undo"');
   });

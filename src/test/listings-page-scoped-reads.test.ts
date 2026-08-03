@@ -26,6 +26,11 @@ const PAGE_FILE = "src/pages/flipdesk/listings.tsx";
 // about what a ROW renders now lives here. The page still owns the main read,
 // the mutations and the hook-order constraint, which is why both are scanned.
 const TABLE_FILE = "src/pages/flipdesk/listings-table.tsx";
+// US-2173 AC2: the mutation handlers became injected-dependency units in their
+// own module. This guard is a SOURCE SCAN, so it is file-path-bound and has to
+// follow the code it guards — the same honest deviation US-2173 recorded when
+// the query layer moved. What is asserted did not change; where it lives did.
+const ACTIONS_FILE = "src/pages/flipdesk/listings-actions.ts";
 /** Kept for the error messages below, which name the file a rename broke. */
 const FILE = QUERIES_FILE;
 
@@ -35,6 +40,10 @@ function source(): string {
 
 function pageSource(): string {
   return readFileSync(resolve(process.cwd(), PAGE_FILE), "utf8");
+}
+
+function actionsSource(): string {
+  return readFileSync(resolve(process.cwd(), ACTIONS_FILE), "utf8");
 }
 
 function tableSource(): string {
@@ -205,9 +214,13 @@ describe("listings table per-row reads are page-scoped (US-2168)", () => {
 // "work", and nothing at runtime complains. The failure is a wrong string.
 
 describe("optimistic writes target this page's own cache (US-2372)", () => {
-  // The optimistic writes stayed in the page — US-2173 moved the READS out, not
-  // the mutations, so this half still scans listings.tsx.
+  // US-2173 AC2 moved the mutations out too, so the writes and their rollbacks
+  // are now scanned in listings-actions.ts. `patchRow` itself STAYED in the
+  // page: it closes over the page's own query key and cache document, which is
+  // the whole point of US-2372 — the key has exactly one definition, next to
+  // the query that reads it. The handlers receive it as a dependency.
   const src = pageSource();
+  const actions = actionsSource();
 
   it("defines the page's items key exactly once", () => {
     // The whole fix is one definition. Nine hand-spelled copies is how it
@@ -241,9 +254,10 @@ describe("optimistic writes target this page's own cache (US-2372)", () => {
       expect(arg).toContain("listingsPageKey");
     }
     // And the four handlers must still route through it, or the assertion above
-    // passes while the edits write somewhere else.
+    // passes while the edits write somewhere else. The definition stays in the
+    // page (it owns the key); the uses moved with the handlers.
     expect(src).toContain("function patchRow(");
-    const uses = [...src.matchAll(/const rollback = patchRow\(/g)];
+    const uses = [...actions.matchAll(/const rollback = patchRow\(/g)];
     expect(uses.length).toBe(4);
   });
 
@@ -260,9 +274,9 @@ describe("optimistic writes target this page's own cache (US-2372)", () => {
         "async function patchItemColumn",
       ]
     ) {
-      const at = src.indexOf(fn);
+      const at = actions.indexOf(fn);
       expect(at, `${fn} not found`).toBeGreaterThan(-1);
-      const body = src.slice(at, src.indexOf("\n  }", at));
+      const body = actions.slice(at, actions.indexOf("\n  }", at));
       expect(
         body.includes('invalidateQueries({ queryKey: ["items_full"] })'),
         `${fn} must invalidate on success`,
