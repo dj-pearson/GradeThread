@@ -5,8 +5,11 @@
 --     psql "$SUPABASE_DB_URL" -f scripts/prod-diagnostics.sql
 --
 -- ⚠️ NOTHING HERE WRITES. No INSERT, UPDATE, DELETE, CREATE, ALTER or DROP.
--- It is safe to run on prod during business hours; every query is a SELECT and
--- the heaviest is a table-size lookup from the catalog, not a scan. If you are
+-- It is safe to run on prod during business hours; every query is a SELECT.
+-- §1–§9 are catalog lookups and bounded reads. §10 is the one SCAN — of
+-- items_full, bounded by the inventory row count §6 reports — and it is called
+-- out rather than averaged into the claim, because a sentence that is 90% true
+-- is what stops the next person re-reading this file at all. If you are
 -- reviewing this file before running it, that property is the thing to check —
 -- it is the reason this exists as a script rather than as ad-hoc pasted SQL.
 --
@@ -24,6 +27,7 @@
 --   §7  US-2293 AC3 — overage packs refunded before the credit clawback shipped.
 --   §8  US-2031 AC1 — is the affiliate hold window long enough?
 --   §9  US-2034 AC2 — exemplar sets gated before the golden-set leak was fixed.
+--   §10 US-2331 AC4 — the items_full payload for the largest account.
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -335,6 +339,46 @@ SELECT
   count(*) FILTER (WHERE is_active)                    AS active_total,
   count(*)                                             AS sets_total
 FROM public.grading_exemplar_sets;
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§10  US-2331 AC4 — the items_full payload, before and after'
+\echo '════════════════════════════════════════════════════════════════'
+-- The one section that SCANS rather than reading the catalog. It is bounded by
+-- the inventory row count §6 reports (hundreds today, not millions), so it is
+-- still safe during business hours — but it is a scan, and the header says so.
+--
+-- WHAT THE NUMBERS MEAN. Two changes are being measured, and they are separate:
+--
+--   • The DETAIL page used to fetch every row and `.find()` the one it wanted.
+--     Before = full_bytes for that account. After = one row. So the ratio is
+--     simply `items`:1, and `avg_row_bytes` turns it into bytes.
+--   • Every LIST surface still reads every row, but through a projection that
+--     drops four detail-only columns (item_description, notes, comps,
+--     ai_field_sources). `detail_only_bytes` is exactly what that saves.
+--
+-- Accounts are reported by RANK, not by id: the question is about the largest
+-- account's payload, and naming the seller adds nothing to the answer.
+\echo ''
+\echo '-- Top 5 accounts by inventory size. full_bytes is the OLD payload.'
+SELECT
+  row_number() OVER (ORDER BY count(*) DESC)                  AS rank,
+  count(*)                                                    AS items,
+  pg_size_pretty(sum(pg_column_size(f))::bigint)              AS full_bytes,
+  pg_size_pretty(
+    sum(
+      pg_column_size(f.item_description)
+      + pg_column_size(f.notes)
+      + pg_column_size(f.comps)
+      + pg_column_size(f.ai_field_sources)
+    )::bigint
+  )                                                           AS detail_only_bytes,
+  (sum(pg_column_size(f)) / greatest(count(*), 1))::int       AS avg_row_bytes
+FROM public.items_full f
+GROUP BY f.user_id
+ORDER BY count(*) DESC
+LIMIT 5;
+
 
 \echo ''
 \echo '════════════════════════════════════════════════════════════════'

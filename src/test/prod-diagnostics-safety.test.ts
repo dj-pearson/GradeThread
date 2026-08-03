@@ -150,10 +150,21 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
   });
 
   it("still answers every question it claims to", () => {
-    // The header advertises nine sections. A future edit that drops one leaves
+    // The header advertises ten sections. A future edit that drops one leaves
     // the header lying about what the operator gets back, and they will not
     // re-read the SQL to notice.
-    for (const section of ["§1", "§2", "§3", "§4", "§5", "§6", "§7", "§8", "§9"]) {
+    for (const section of [
+      "§1",
+      "§2",
+      "§3",
+      "§4",
+      "§5",
+      "§6",
+      "§7",
+      "§8",
+      "§9",
+      "§10",
+    ]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }
     // And the tables each section exists to measure.
@@ -164,5 +175,25 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     expect(SQL).toContain("public.api_credit_transactions");
     expect(SQL).toContain("public.affiliate_commissions");
     expect(SQL).toContain("public.grading_exemplar_sets");
+    expect(SQL).toContain("public.items_full");
+  });
+
+  it("§10 is the only scan, and the header admits it", () => {
+    // Every other section reads the catalog or a bounded slice. §10 aggregates
+    // over items_full, which is a real scan — small today, but the header's
+    // safety claim is the thing an operator checks before running this on prod,
+    // so it has to name the exception rather than round it away.
+    expect(SQL).toMatch(/§10 is the one SCAN/);
+    expect(SQL).toMatch(/FROM public\.items_full/);
+  });
+
+  it("§10 reports accounts by rank, never by id", () => {
+    // The question is how big the largest account's payload is. Which seller it
+    // is adds nothing to the answer, and the header promises the output carries
+    // no identifiers worth redacting — a promise the operator relies on when
+    // they paste it back.
+    const section = SQL.slice(SQL.indexOf("§10  US-2331"));
+    expect(section).toContain("row_number() OVER");
+    expect(section).not.toMatch(/SELECT[\s\S]*?\bf\.user_id\b[\s\S]*?FROM/);
   });
 });
