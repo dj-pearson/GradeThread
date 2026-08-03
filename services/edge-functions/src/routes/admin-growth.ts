@@ -38,6 +38,8 @@ import {
 } from "../lib/email-engagement-token.ts";
 import { getSetting } from "../lib/system-settings.ts";
 import { captureException } from "../lib/observability.ts";
+import { acquireJobLock } from "../lib/job-lock.ts";
+import { fetchAllPages } from "../lib/paged-read.ts";
 import { normalizeEmail } from "../lib/email-suppression.ts";
 import {
   DEFAULT_MAX_SEND_RATE_PER_SEC,
@@ -656,11 +658,36 @@ export async function dispatchCampaign(
   // idempotent — only 'failed'/'pending' rows are reprocessed.
   const done = new Set<string>();
   {
-    const { data: prior } = await supabaseAdmin
-      .from("campaign_recipients")
-      .select("user_id, channel, status")
-      .eq("campaign_id", id);
-    for (const r of (prior ?? []) as Array<{ user_id: string; channel: string; status: string }>) {
+    // US-2316 AC3: PAGED, because a truncated done-set sends duplicate email.
+    //
+    // This was a single unbounded select. PostgREST caps any response at
+    // db-max-rows and reports the clip only in a Content-Range header
+    // supabase-js does not surface — so on a large campaign the read came back
+    // short with error:null, the done-set silently lost its tail, and every
+    // recipient in that tail was emailed AGAIN on the next tick. The failure
+    // scales with campaign size, i.e. it appears exactly when it costs most.
+    //
+    // fetchAllPages advances by rows RETURNED and stops only on an empty
+    // response, so it cannot be fooled by a server ceiling it does not know.
+    const prior = await fetchAllPages<
+      { user_id: string; channel: string; status: string }
+    >(async (from, to) => {
+      const { data, error } = await supabaseAdmin
+        .from("campaign_recipients")
+        .select("user_id, channel, status")
+        .eq("campaign_id", id)
+        // An ORDER BY is required for paging to be stable: without it the
+        // server may return rows in a different order per request and a page
+        // boundary can skip a row entirely.
+        .order("user_id", { ascending: true })
+        .order("channel", { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(`done-set read failed: ${error.message}`);
+      return (data ?? []) as Array<
+        { user_id: string; channel: string; status: string }
+      >;
+    });
+    for (const r of prior) {
       if (r.status === "sent" || r.status === "skipped") done.add(`${r.user_id}:${r.channel}`);
     }
   }
@@ -1395,6 +1422,26 @@ export async function handleGrowthDispatchCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
+  // US-2316 AC1: the ONLY bulk-email job in the fleet without a lock, on a
+  // */15 schedule. dispatchCampaign's "already in progress" 409 is deliberately
+  // BYPASSED on the resume path (resume:true) — which is exactly the path two
+  // overlapping ticks take — so nothing serialised them. Each tick loads its
+  // own done-set snapshot at start, so any recipient tick 1 finalises AFTER
+  // tick 2 took its snapshot can be sent to twice.
+  //
+  // The lease is longer than the 15-minute schedule on purpose: a tick that
+  // overruns its own interval is the case this exists for, and a lease shorter
+  // than the work would hand the campaign to the next tick mid-send.
+  //
+  // Safe to add only as of US-2311, which made release verify the holder —
+  // before that, a displaced run deleted its successor's lease, and adding a
+  // lock here would have inherited that bug rather than fixed anything.
+  const lock = await acquireJobLock("growth-dispatch", 1800);
+  if (!lock.acquired) {
+    return c.json({ ok: true, skipped: true, reason: lock.reason ?? "already running" });
+  }
+
+  try {
   const nowIso = new Date().toISOString();
   const { data: due } = await supabaseAdmin
     .from("growth_campaigns")
@@ -1414,13 +1461,45 @@ export async function handleGrowthDispatchCron(c: Context): Promise<Response> {
   const ids = ((due ?? []) as Array<{ id: string }>).map((r) => r.id);
   const resumeIds = ((resuming ?? []) as Array<{ id: string }>).map((r) => r.id);
   const dispatched: Array<{ id: string; ok: boolean }> = [];
-  for (const id of ids) {
-    const result = await dispatchCampaign(id);
-    dispatched.push({ id, ok: result.ok });
+
+  // US-2316: each campaign is isolated. Neither loop had a try/catch, so ONE
+  // throwing campaign aborted the handler and every campaign queued behind it
+  // in the same tick — a single bad recipient list could stall the whole
+  // marketing fleet, and the failure looked like a cron error rather than a
+  // campaign error.
+  const runOne = async (id: string, opts?: { resume: true }) => {
+    try {
+      const result = await dispatchCampaign(id, opts);
+      dispatched.push({ id, ok: result.ok });
+    } catch (err) {
+      console.error(
+        `[growth-dispatch] campaign ${id} threw:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      captureException(err, { route: "growth-dispatch", tags: { campaign: id } });
+      dispatched.push({ id, ok: false });
+    }
+  };
+
+  for (const id of ids) await runOne(id);
+  for (const id of resumeIds) await runOne(id, { resume: true });
+
+  // US-2316: a FAILED COUNT, not just per-campaign ok flags.
+  //
+  // US-2312 made the cron ledger read failure counts out of the response body,
+  // but it looks for NAMED counters (failed/failures/errors/…). An array of
+  // {ok:false} objects matches none of them, and "checked" is not a
+  // rows-processed key either — so a tick in which EVERY campaign failed still
+  // recorded as a success with rows_processed 0. The alerting was blind to
+  // exactly the job this story is about.
+  const failed = dispatched.filter((d) => !d.ok).length;
+  return c.json({
+    checked: ids.length + resumeIds.length,
+    processed: dispatched.length,
+    failed,
+    dispatched,
+  });
+  } finally {
+    await lock.release();
   }
-  for (const id of resumeIds) {
-    const result = await dispatchCampaign(id, { resume: true });
-    dispatched.push({ id, ok: result.ok });
-  }
-  return c.json({ checked: ids.length + resumeIds.length, dispatched });
 }
