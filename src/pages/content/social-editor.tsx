@@ -235,7 +235,11 @@ function SocialEditorInner({
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {/* US-2335: the CardTitle names the CARD. Two of these boxes sit
+                side by side with identical markup, so an unnamed pair is two
+                controls a screen reader cannot tell apart. */}
             <Textarea
+              aria-label="Long post (LinkedIn / Facebook)"
               value={longBody}
               onChange={(e) => {
                 setLongBody(e.target.value);
@@ -261,6 +265,7 @@ Then the body..."
           </CardHeader>
           <CardContent>
             <Textarea
+              aria-label="Short post (X / Threads)"
               value={shortBody}
               onChange={(e) => {
                 setShortBody(e.target.value);
@@ -666,7 +671,10 @@ function PlatformVariantCard({
         </Button>
       </CardHeader>
       <CardContent className="space-y-2">
+        {/* Rendered once per platform, so the name carries the platform —
+            stable data, not something being edited. */}
         <Textarea
+          aria-label={`${SOCIAL_PLATFORM_LABELS[platform]} post`}
           value={body}
           onChange={(e) => {
             setBody(e.target.value);

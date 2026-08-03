@@ -536,7 +536,7 @@ export function AdminGradingQueuePage() {
               onChange={(e) => setSearch(e.target.value)}
             />
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Filter by category">
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
@@ -1284,6 +1284,7 @@ function GarmentBaselinesCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <Input
+          aria-label="Filter baselines by brand"
           value={brandFilter}
           onChange={(e) => setBrandFilter(e.target.value)}
           placeholder="Filter by brand…"
@@ -1319,7 +1320,11 @@ function GarmentBaselinesCard() {
               </div>
               {editing?.id === row.id ? (
                 <div className="space-y-2">
+                  {/* This edits the as-manufactured expectation BRIEF that is
+                      injected into the grading prompt, and the row header above
+                      names the brand rather than the field. */}
                   <Textarea
+                    aria-label="Baseline brief"
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     rows={6}
