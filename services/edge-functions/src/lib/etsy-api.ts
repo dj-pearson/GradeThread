@@ -16,6 +16,7 @@
 // the verified token in.
 
 import { fetchWithTimeout } from "./circuit-breaker.ts";
+import { fetchWithRateLimitRetry } from "./http-retry.ts";
 import { getEtsyKeystring } from "./etsy-client.ts";
 
 const ETSY_TIMEOUT_MS = 25_000;
@@ -65,7 +66,15 @@ export async function etsyFetch<T = unknown>(
     },
     ...(body != null ? { body: JSON.stringify(body) } : {}),
   };
-  const res = await fetchWithTimeout(url, init, ETSY_TIMEOUT_MS);
+  // US-2324 AC4: retry 429 and 5xx, honouring Retry-After. This used to be a
+  // bare fetchWithTimeout followed by `throw on !ok`, so a rate-limit reply —
+  // the one failure guaranteed to clear if you wait — aborted the whole sync,
+  // and the server's own Retry-After was discarded. Only 429/5xx retry; every
+  // other status is returned unchanged so the handling below still runs.
+  const res = await fetchWithRateLimitRetry(
+    () => fetchWithTimeout(url, init, ETSY_TIMEOUT_MS),
+    { label: `Etsy ${method} ${path}` },
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new EtsyApiError(
@@ -193,7 +202,9 @@ async function etsyFetchForm<T = unknown>(
     throw new EtsyApiError("Etsy keystring (ETSY_KEYSTRING) is not configured.", 503);
   }
   const url = path.startsWith("http") ? path : `${apiBase()}${path}`;
-  const res = await fetchWithTimeout(
+  const res = await fetchWithRateLimitRetry(
+    () =>
+      fetchWithTimeout(
     url,
     {
       method,
@@ -206,6 +217,8 @@ async function etsyFetchForm<T = unknown>(
       body: params,
     },
     ETSY_TIMEOUT_MS,
+      ),
+    { label: "Etsy API" },
   );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -381,7 +394,9 @@ export async function uploadEtsyListingImage(
   form.append("image", blob, `image_${rank}.jpg`);
   form.append("rank", String(rank));
   // NOTE: do NOT set Content-Type — fetch derives the multipart boundary.
-  const res = await fetchWithTimeout(
+  const res = await fetchWithRateLimitRetry(
+    () =>
+      fetchWithTimeout(
     `${apiBase()}/v3/application/shops/${encodeURIComponent(shopId)}/listings/${encodeURIComponent(listingId)}/images`,
     {
       method: "POST",
@@ -393,6 +408,8 @@ export async function uploadEtsyListingImage(
       body: form,
     },
     ETSY_TIMEOUT_MS,
+      ),
+    { label: "Etsy API" },
   );
   if (!res.ok) {
     await res.body?.cancel();

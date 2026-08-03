@@ -24,6 +24,7 @@
 // scoped to the workspace owner and passing the verified token in.
 
 import { fetchWithTimeout } from "./circuit-breaker.ts";
+import { fetchWithRateLimitRetry } from "./http-retry.ts";
 
 const DEPOP_TIMEOUT_MS = 25_000;
 
@@ -66,7 +67,15 @@ export async function depopFetch<T = unknown>(
     },
     ...(body != null ? { body: JSON.stringify(body) } : {}),
   };
-  const res = await fetchWithTimeout(url, init, DEPOP_TIMEOUT_MS);
+  // US-2324 AC4: retry 429 and 5xx, honouring Retry-After. This used to be a
+  // bare fetchWithTimeout followed by `throw on !ok`, so a rate-limit reply —
+  // the one failure guaranteed to clear if you wait — aborted the whole sync,
+  // and the server's own Retry-After was discarded. Only 429/5xx retry; every
+  // other status is returned unchanged so the handling below still runs.
+  const res = await fetchWithRateLimitRetry(
+    () => fetchWithTimeout(url, init, DEPOP_TIMEOUT_MS),
+    { label: `Depop ${method} ${path}` },
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new DepopApiError(
