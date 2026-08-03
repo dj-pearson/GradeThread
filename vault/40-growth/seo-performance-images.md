@@ -51,6 +51,15 @@ SSR emit a Cloudflare `srcset` + `sizes` **only** when
 untransformed original rather than a broken image. With the flag off, the plain
 original ships and nothing degrades.
 
+> [!caution] `onerror=redirect` does NOT make the flag safe to flip blind
+> It covers a bad SOURCE image once Transformations is running. It cannot
+> cover a zone where Transformations is OFF: there `/cdn-cgi/image/*` 404s
+> at the edge before any transform executes, and a 404ing `srcset`
+> candidate does **not** fall back to `src` — the image renders broken,
+> site-wide. That asymmetry is why the order is dashboard-first, flag-
+> second, and why the `curl` check below is the gate rather than a
+> formality.
+
 **Bundle and interaction (INP).** Marketing routes are `React.lazy()` in
 `src/routes/index.tsx`, keeping the auth/dashboard/Supabase/Radix graph out of the
 eager entry chunk — marketing pages do not ship the ~80 KB gz they never use.
