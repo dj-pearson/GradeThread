@@ -6,12 +6,14 @@ source_of_truth: code
 code_refs:
   - supabase/migrations/00517_audit_log_search_super_admin.sql
   - supabase/migrations/00518_audit_search_self_audit_ordering.sql
+  - supabase/migrations/00519_audit_log_survives_actor_deletion.sql
+  - scripts/verify-audit-survives-actor-deletion.sql
   - services/edge-functions/src/routes/admin-audit.ts
   - services/edge-functions/src/tests/audit-rpc-gate_test.ts
   - src/pages/admin/audit-log.tsx
 reviewed: 2026-08-03
 tags: [admin, security, audit, rpc]
-summary: The admin audit log is super_admin-only, enforced in the RPC rather than in the route in front of it; a successful read records itself, a refused one does not.
+summary: The admin audit log is super_admin-only, enforced in the RPC rather than the route in front of it; a successful read records itself, a refused one does not; and rows survive the deletion of the admin who wrote them.
 ---
 
 # Audit-log access control
@@ -99,6 +101,39 @@ This is exactly the case the US-2059 rule exists for (see `vault/CONTRACT.md`): 
 **immutable and now partly wrong**, because it claims the RPC path "is no longer
 the quiet one" without the caveat that refusals still are. A note can be
 corrected; an applied migration cannot.
+
+## Rows outlive their author (US-2350)
+
+`admin_audit_log.admin_user_id` was **ON DELETE CASCADE**. The append-only
+guarantee is a pair of RLS policies permitting SELECT and INSERT and nothing
+else — and a cascade is not a policy-checked DELETE, it is referential action, so
+it went straight through. Account deletion is self-serve, so an admin could issue
+refunds and role changes for a week, delete their own account, and take every row
+they authored with them.
+
+Three things make the trail durable now:
+
+1. the FK is **ON DELETE SET NULL**;
+2. the row carries **`actor_email`**, captured at write time — SET NULL alone
+   leaves a surviving row that names nobody;
+3. a **BEFORE INSERT trigger** fills `actor_email` / `actor_role` from `users`.
+   In the database, not in the edge writer, because rows arrive from at least
+   three places (`lib/audit-log.ts`, the 00065 dispute trigger, the 00518
+   self-audit) and a rule in one writer is not followed by the others.
+
+And an admin can no longer self-serve delete at all: `POST /api/account/delete`
+returns 403 `admin_self_delete_blocked` and directs them to have another admin
+remove the role first. The step-up it replaces proved the person at the keyboard
+was the account holder, which was never the question.
+
+**Retention over erasure, deliberately.** This keeps an email address after a
+user asks to be deleted — but only on rows where that person acted as an ADMIN,
+on other people's accounts. An audit trail a subject can erase by leaving is not
+an audit trail. Ordinary users author no rows here.
+
+`scripts/verify-audit-survives-actor-deletion.sql` proves it against a real
+database, in a transaction that rolls back. It was also run with the CASCADE
+restored, where the rows vanish — so the proof measures what it claims to.
 
 ## The fifteen-function trap
 

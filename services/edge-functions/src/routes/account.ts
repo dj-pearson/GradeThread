@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { requireStepUp } from "../lib/step-up.ts";
 import { sendAccountDeletedEmail } from "../lib/email.ts";
 import { type AuthAssuranceClaims, isAal2 } from "../lib/jwt-claims.ts";
 import {
@@ -400,12 +399,30 @@ accountRoutes.post("/delete", async (c) => {
     .eq("id", userId)
     .maybeSingle();
 
-  // US-270: deleting a privileged account is destructive — require a fresh MFA
-  // step-up. Regular users self-deleting (GDPR) are unaffected (they may have
-  // no second factor), so this is gated only for admin/super_admin actors.
+  // US-2350 AC3: an admin cannot self-serve delete at all. A step-up proved the
+  // person at the keyboard was the account holder, which was never the question
+  // — the question is whether the actor whose administrative decisions are on
+  // record gets to remove themselves unilaterally. They do not. Another admin
+  // demotes the role first, which is itself an audited action by a second
+  // person, and the account then deletes normally as an ordinary user.
+  //
+  // 00519 makes the audit rows SURVIVE this deletion, so the trail is no longer
+  // what is at stake here. What is at stake is that removing a privileged
+  // account is an operational decision, and letting its holder make it alone is
+  // the same one-person-controls gap as any other unilateral destructive act.
+  //
+  // Ordinary users self-deleting (GDPR) are completely unaffected: this branch
+  // only fires for role admin or super_admin.
   if (user && (user.role === "admin" || user.role === "super_admin")) {
-    const stepUp = requireStepUp(c);
-    if (stepUp) return stepUp;
+    return c.json(
+      {
+        error:
+          "An admin account can't be deleted from here. Ask another admin to " +
+          "remove your admin role first, then delete the account.",
+        code: "admin_self_delete_blocked",
+      },
+      403,
+    );
   }
 
   // US-372: this user may OWN a shared workspace. workspace_members.owner_id has

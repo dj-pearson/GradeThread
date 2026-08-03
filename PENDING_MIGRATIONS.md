@@ -1,14 +1,18 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Pending: 00515, 00516 and 00518 — the branch is FROZEN until all three are
-applied. 00517 IS ALREADY APPLIED (2026-08-03) and 00518 CORRECTS A BUG IN IT —
-apply 00518 promptly.** Prod
+**Pending: 00515, 00516, 00518 and 00519 — the branch is FROZEN until all four
+are applied. 00517 IS ALREADY APPLIED (2026-08-03) and 00518 CORRECTS A BUG IN
+IT — apply 00518 promptly.** Prod
 measured at **00514** on 2026-08-03: `/health/ready` returned
 `schema {expected:"00513", applied:"00514", status:"ahead"}`, the database's own
 answer through the service-role client rather than someone's recollection.
-`EXPECTED_SCHEMA_VERSION` is now **00518** and the highest migration in the tree
-is `00518_audit_search_self_audit_ordering.sql`.
-Apply in number order: 00515, then 00516, then 00518.
+`EXPECTED_SCHEMA_VERSION` is now **00519** and the highest migration in the tree
+is `00519_audit_log_survives_actor_deletion.sql`.
+Apply in number order: 00515, then 00516, then 00518, then 00519.
+
+**All four applied cleanly to a throwaway local stack on 2026-08-03**
+(`supabase db reset` over the whole corpus on a fresh schema), so the ordering
+and the SQL itself are verified rather than assumed.
 
 > [!warning] 00517 went to prod ahead of 00515/00516, and it carried a bug
 > The numbers are out of order in prod. That is harmless here — 00517 touches
@@ -45,6 +49,66 @@ flips the marker when the SQL runs. The session-start hook reads these ⏳
 markers, so a stale one tells every future session the branch is frozen when it
 is not — which has happened twice (see the US-2017 note in prd.json). **When you
 apply a migration, flip its marker in the same sitting.**
+
+---
+
+## ⏳ HELD: 00519_audit_log_survives_actor_deletion.sql (US-2350 [P0] audit trail, 2026-08-03)
+
+**Risk: LOW to apply, HIGH to keep postponing.** No destructive statement; one
+FK is replaced, one column is added, one trigger is created. The backfill is a
+single UPDATE over `admin_audit_log` — check its row count first if that table
+is large on your instance.
+
+**The defect it closes.** `admin_audit_log.admin_user_id` was ON DELETE CASCADE
+(00003). The append-only guarantee is a pair of RLS policies allowing SELECT and
+INSERT and nothing else — and a cascade is not a policy-checked DELETE, it is
+referential action, so it goes straight through. `POST /api/account/delete` is
+self-serve, so an admin could issue refunds and role changes for a week, delete
+their own account, and take every row they had ever authored with them. The
+forensic export then returned nothing about any of it.
+
+**What it does.**
+
+1. The FK becomes ON DELETE SET NULL. `admin_user_id` was already nullable
+   (00065), so nothing else had to change.
+2. New `actor_email`, captured at write time and backfilled where the actor
+   still exists. SET NULL alone would leave a row that survives but names
+   nobody, which is not much better than no row.
+3. A BEFORE INSERT trigger fills `actor_email` / `actor_role` from `users`. In
+   the database rather than the edge writer because rows arrive from at least
+   three places — `lib/audit-log.ts`, the 00065 dispute trigger and the 00518
+   audit-search self-audit — and a rule in one writer is not followed by the
+   others.
+
+**PROVEN AGAINST A REAL DATABASE, both directions.** The whole corpus was applied
+to a throwaway local stack and `scripts/verify-audit-survives-actor-deletion.sql`
+run inside a transaction: two audit rows written, the acting admin deleted
+through `auth.users` (the exact path account/delete takes), and both rows
+survived with their email and role intact. Then the CASCADE was restored and the
+same script showed the rows vanish — so the proof measures what it claims to.
+The script is committed; you can re-run it anywhere.
+
+**The privacy question, stated rather than skipped.** This deliberately retains
+an email address after a user asks to be deleted. It applies ONLY to rows where
+that person acted as an ADMIN, on other people's accounts. An audit trail a
+subject can erase by leaving is not an audit trail. Ordinary users author no
+`admin_audit_log` rows and are untouched.
+
+**Ships with a behaviour change in the edge (AC3).** An admin or super_admin can
+no longer self-serve delete: the endpoint returns 403 `admin_self_delete_blocked`
+and tells them to have another admin remove the role first. The step-up it
+replaces proved the person at the keyboard was the account holder, which was
+never the question.
+
+**Apply:**
+
+1. Run `supabase/migrations/00519_audit_log_survives_actor_deletion.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — a column was added.
+3. Redeploy the edge (boot guard expects 00519).
+
+**Verify:** `select confdeltype from pg_constraint where conname =
+'admin_audit_log_admin_user_id_fkey';` returns `n` (SET NULL). `c` would mean the
+CASCADE is still there.
 
 ---
 
