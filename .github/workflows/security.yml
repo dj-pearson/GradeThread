@@ -108,8 +108,16 @@ jobs:
       # US-519: --coverage records edge coverage; the summary is printed so edge
       # coverage is reported separately from the frontend's vitest coverage.
       - run: deno test --allow-net --allow-env --allow-read --coverage=cov_profile
+      # US-2344 AC3: this used to be `deno coverage cov_profile || true`, which
+      # printed a number and threw away its exit code — so edge coverage has
+      # never been enforced. A check that cannot fail is worse than no check: it
+      # occupies the slot a real one would take and looks like a safety net on
+      # the dashboard. The floors are set just below the 2026-08-03 measurement,
+      # so they cannot be met by accident or missed except by a real drop.
       - name: Edge coverage summary
-        run: deno coverage cov_profile || true
+        run: deno coverage cov_profile
+      - name: Edge coverage floor
+        run: deno run -A scripts/coverage-floor.mjs cov_profile
 
   trivy-edge-image:
     name: Trivy scan (edge Deno image)

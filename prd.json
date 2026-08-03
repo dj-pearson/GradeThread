@@ -2635,19 +2635,6 @@
       "notes": "[P2][iOS/Quality] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
     },
     {
-      "id": "US-2344",
-      "passes": false,
-      "title": "iOS UI tests and edge coverage are configured never to fail",
-      "description": ".github/workflows/ios-ci.yml:151 sets continue-on-error: true on the entire ui-test job. .github/workflows/security.yml:99 runs `deno coverage cov_profile || true`, so edge coverage is never enforced. Both look like safety nets on the dashboard and neither can block anything.",
-      "acceptanceCriteria": [
-        "Decide per job: make it blocking, or delete it and say so. A permanently-non-blocking check is worse than no check.",
-        "If iOS UI tests are flaky, quarantine the flaky cases rather than the whole job.",
-        "Set and enforce an edge coverage floor at the current measured level, then ratchet.",
-        "Note: iOS cannot be built or tested on Windows, so the macOS runner IS the safety net. That makes the continue-on-error more serious, not less."
-      ],
-      "notes": "[P1][CI] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
-    },
-    {
       "id": "US-2345",
       "passes": false,
       "title": "The three highest-value money paths have zero tests",

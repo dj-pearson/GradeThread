@@ -139,16 +139,33 @@ jobs:
 
   # US-1153: critical-flow UI tests (sign-in, paywall purchase via the
   # GradeThread.storekit configuration, capture→grade). A SEPARATE job from the
-  # fast unit lane and intentionally NON-BLOCKING (`continue-on-error: true`)
-  # until it has proven stable across runner/simulator churn — promote it to a
-  # required check once green is reliable. Runs the dedicated GradeThreadUITests
-  # scheme (skips the fastlane-only ScreenshotUITests via the test plan in
-  # project.yml). The hermetic `-uitest*` launch arguments keep it offline.
+  # fast unit lane so a slow simulator run does not hold up the quick feedback —
+  # but BLOCKING since US-2344, see the note on the job below. Runs the dedicated
+  # GradeThreadUITests scheme (skips the fastlane-only ScreenshotUITests via the
+  # test plan in project.yml). The hermetic `-uitest*` launch arguments keep it
+  # offline.
   ui-test:
     name: UI tests (critical flows)
     runs-on: macos-14
     timeout-minutes: 40
-    continue-on-error: true
+    # US-2344 AC1/AC2: BLOCKING, decided on evidence rather than nerve.
+    #
+    # `continue-on-error: true` meant this job could never fail anything, so the
+    # comment above about promoting it "once green is reliable" had no trigger —
+    # nothing was measuring reliability. The measurement, taken 2026-08-03 over
+    # the last 14 runs on main: 11 success, 2 failure, 1 cancelled. Both failures
+    # were on runs where the BLOCKING "Build + test" job failed too, so this job
+    # has never gone red on its own. It is not flaky; it was just non-blocking.
+    #
+    # That also settles AC2: there is no flaky case to quarantine, because there
+    # has been no independent failure to attribute to one.
+    #
+    # AC4 is why this matters more than it looks — iOS cannot be built or tested
+    # on the Windows dev host, so this runner IS the safety net. A safety net
+    # wired to ignore its own result is a decoration.
+    #
+    # If it does turn flaky: quarantine the offending CASE, do not restore
+    # continue-on-error on the whole job. That is what put it here.
 
     steps:
       - uses: actions/checkout@v4
