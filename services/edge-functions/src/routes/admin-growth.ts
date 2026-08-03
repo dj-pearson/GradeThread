@@ -37,6 +37,10 @@ import {
   engagementSigningSecret,
 } from "../lib/email-engagement-token.ts";
 import { getSetting } from "../lib/system-settings.ts";
+import {
+  isUniqueViolation,
+  verdictForExistingRow,
+} from "../lib/campaign-claim.ts";
 import { captureException } from "../lib/observability.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { fetchAllPages } from "../lib/paged-read.ts";
@@ -525,30 +529,60 @@ interface CampaignEmailData {
 async function sendCampaignEmailDurable(
   campaign: CampaignEmailData,
   member: { userId: string; email: string; prefs?: Record<string, unknown> | null },
-): Promise<"sent" | "skipped" | "failed"> {
-  // Reserve the ledger row so its id can be the per-send tracking token.
+): Promise<"sent" | "skipped" | "failed" | "in_flight"> {
+  // US-2316 AC2: CLAIM the ledger row, do not merely reserve it.
+  //
+  // This was an UPSERT to `pending`, which always succeeds — so two workers on
+  // one recipient both "reserved" and both sent, and the done-set (rows already
+  // sent/skipped) could not see a claim in progress. The INSERT makes the unique
+  // index on (campaign_id, user_id, channel) decide the winner atomically, in
+  // the database. A loser takes 23505 and asks what the existing row means.
+  let token: string | null = null;
   const { data: row, error: resErr } = await supabaseAdmin
     .from("campaign_recipients")
-    .upsert(
-      {
-        campaign_id: campaign.id,
-        user_id: member.userId,
-        channel: "email",
-        status: "pending",
-        error: null,
-        sent_at: null,
-      },
-      { onConflict: "campaign_id,user_id,channel" },
-    )
+    .insert({
+      campaign_id: campaign.id,
+      user_id: member.userId,
+      channel: "email",
+      status: "pending",
+      error: null,
+      sent_at: null,
+    })
     .select("id")
     .maybeSingle();
-  if (resErr || !row) {
+
+  if (resErr && isUniqueViolation(resErr as { code?: string })) {
+    const { data: existing } = await supabaseAdmin
+      .from("campaign_recipients")
+      .select("id, status")
+      .eq("campaign_id", campaign.id)
+      .eq("user_id", member.userId)
+      .eq("channel", "email")
+      .maybeSingle();
+    const ex = existing as { id: string; status: string } | null;
+    const verdict = verdictForExistingRow(ex);
+    if (verdict.action === "already") return verdict.status;
+    if (verdict.action === "in_flight") return "in_flight";
+    // A previous attempt FAILED. Take the claim back, and only send if this
+    // update actually moved the row — a second worker doing the same thing at
+    // the same moment finds it already out of `failed` and stands down.
+    const { data: reclaimed } = await supabaseAdmin
+      .from("campaign_recipients")
+      .update({ status: "pending", error: null, sent_at: null })
+      .eq("id", ex!.id)
+      .eq("status", verdict.from)
+      .select("id")
+      .maybeSingle();
+    if (!reclaimed) return "in_flight";
+    token = (reclaimed as { id: string }).id;
+  } else if (resErr || !row) {
     captureException(resErr ?? new Error("reserve failed"), {
       route: "admin-growth.broadcast.reserve",
     });
     return "failed";
+  } else {
+    token = (row as { id: string }).id;
   }
-  const token = (row as { id: string }).id;
 
   try {
     const unsubscribeUrl = await marketingUnsubscribeUrl(member.userId);
@@ -708,6 +742,9 @@ export async function dispatchCampaign(
     sent_push: 0,
     skipped: 0,
     failed: 0,
+    // Claimed by another worker (or left held by one that died). Counted so a
+    // campaign that stalls on held rows is visible instead of looking complete.
+    in_flight: 0,
   };
 
   // AC3: bound email sends per tick (SES warmup); overflow resumes next tick.
@@ -749,6 +786,9 @@ export async function dispatchCampaign(
             });
             if (outcome === "sent") stats.sent_email++;
             else if (outcome === "skipped") stats.skipped++;
+            // US-2316 AC2: a recipient another worker holds is NOT a failure and
+            // must not be reported as one — it is a claim we did not win.
+            else if (outcome === "in_flight") stats.in_flight++;
             else stats.failed++;
             continue;
           }
@@ -822,6 +862,7 @@ export async function dispatchCampaign(
         });
         if (outcome === "sent") stats.sent_email++;
         else if (outcome === "skipped") stats.skipped++;
+        else if (outcome === "in_flight") stats.in_flight++;
         else stats.failed++;
       }
     }

@@ -14,6 +14,7 @@
 // the route file so the route stays thin and this is reusable by the finalize cron.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { fetchAllPages } from "./paged-read.ts";
 import { getSetting } from "./system-settings.ts";
 import { captureException } from "./observability.ts";
 import { coordinateMarketingSend } from "./marketing-coordinator.ts";
@@ -44,8 +45,13 @@ import {
   variantById,
 } from "./newsletter-ab.ts";
 
-// Bound a single synchronous send (mirrors the console's manual cap).
-const MAX_SEND_RECIPIENTS = 1000;
+// US-2316 AC4: `MAX_SEND_RECIPIENTS = 1000` was deleted here. It capped three
+// reads and every one of them was wrong in a different way — the confirmed
+// subscriber list (subscriber 1001 never received an issue), the already-sent
+// ledger (a truncated tail is emailed twice) and the holdout stats (a winner
+// chosen from an arbitrary sample). None had an ORDER BY either, so WHICH rows
+// fell outside the cap changed between runs, which is why nobody was
+// consistently missing and nobody complained twice. All three now page.
 
 function postalAddress(): string {
   return Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() || "Pearson Media LLC, Iowa, USA";
@@ -232,17 +238,42 @@ function personalizationFor(ctx: PersonalizationCtx, userId: string | null) {
   };
 }
 
+/**
+ * US-2316 AC4 (first half): every confirmed subscriber, in a stable order.
+ *
+ * This was a single `.limit(MAX_SEND_RECIPIENTS)` with NO `.order()`, and both
+ * halves of that were bugs. The cap meant subscriber 1001 never received an
+ * issue — not "received it late", never — and without an ORDER BY the server may
+ * return rows in a different order per request, so WHICH 1000 got the newsletter
+ * was unstable between runs. The missing subscribers were therefore different
+ * every week, which is precisely the shape nobody notices: no one is
+ * consistently missing, so no one complains twice.
+ *
+ * `fetchAllPages` advances by rows RETURNED and stops only on an empty response,
+ * so it is also immune to the PostgREST `db-max-rows` ceiling that would clip a
+ * single large read with error:null.
+ */
 async function resolveConfirmed(): Promise<{ email: string; user_id: string | null }[]> {
-  const { data, error } = await supabaseAdmin
-    .from("email_subscribers")
-    .select("email, user_id")
-    .eq("status", "confirmed")
-    .limit(MAX_SEND_RECIPIENTS);
-  if (error) {
-    captureException(error, { tags: { area: "newsletter-ab.resolve" } });
+  try {
+    return await fetchAllPages<{ email: string; user_id: string | null }>(
+      async (from, to) => {
+        const { data, error } = await supabaseAdmin
+          .from("email_subscribers")
+          .select("email, user_id")
+          .eq("status", "confirmed")
+          // Required for paging to be stable: without it a page boundary can
+          // skip a row entirely, which is the same missing-subscriber bug in a
+          // new costume.
+          .order("email", { ascending: true })
+          .range(from, to);
+        if (error) throw new Error(`confirmed-subscriber read failed: ${error.message}`);
+        return (data ?? []) as { email: string; user_id: string | null }[];
+      },
+    );
+  } catch (err) {
+    captureException(err, { tags: { area: "newsletter-ab.resolve" } });
     return [];
   }
-  return (data ?? []) as { email: string; user_id: string | null }[];
 }
 
 export interface PhaseSummary {
@@ -371,12 +402,24 @@ export async function finalizeAbTest(
   }
 
   // Roll up per-variant engagement from the holdout ledger.
-  const { data: holdoutRows } = await supabaseAdmin
-    .from("newsletter_issue_recipients")
-    .select("variant, opened_at, clicked_at")
-    .eq("issue_id", issue.id)
-    .eq("is_ab_holdout", true)
-    .limit(MAX_SEND_RECIPIENTS);
+  // US-2316 AC4: paged. A cap here does not duplicate email, it SKEWS the
+  // winner — the variant stats would be computed from an arbitrary 1000 of the
+  // holdout, and the subject line chosen from that sample ships to everyone.
+  const holdoutRows = await fetchAllPages<
+    { variant: string | null; opened_at: string | null; clicked_at: string | null }
+  >(async (from, to) => {
+    const { data, error } = await supabaseAdmin
+      .from("newsletter_issue_recipients")
+      .select("variant, opened_at, clicked_at")
+      .eq("issue_id", issue.id)
+      .eq("is_ab_holdout", true)
+      .order("email", { ascending: true })
+      .range(from, to);
+    if (error) throw new Error(`holdout read failed: ${error.message}`);
+    return (data ?? []) as Array<
+      { variant: string | null; opened_at: string | null; clicked_at: string | null }
+    >;
+  });
   const signals: RecipientSignals[] = ((holdoutRows ?? []) as Array<{ variant: string | null; opened_at: string | null; clicked_at: string | null }>)
     .map((r) => ({ variant: r.variant, opened: !!r.opened_at, clicked: !!r.clicked_at }));
   const stats = aggregateVariantStats(variants, signals);
@@ -408,11 +451,19 @@ export async function finalizeAbTest(
 
   // Send the winning subject to the remainder (everyone confirmed not already in
   // the ledger). Re-resolving + excluding the holdout keeps it idempotent.
-  const { data: ledgerRows } = await supabaseAdmin
-    .from("newsletter_issue_recipients")
-    .select("email")
-    .eq("issue_id", issue.id)
-    .limit(MAX_SEND_RECIPIENTS);
+  // US-2316 AC4: paged, and this is the one that DUPLICATES. It is the
+  // already-sent set for phase 2; a truncated read drops its tail and every
+  // recipient in that tail is emailed the winning subject a second time.
+  const ledgerRows = await fetchAllPages<{ email: string }>(async (from, to) => {
+    const { data, error } = await supabaseAdmin
+      .from("newsletter_issue_recipients")
+      .select("email")
+      .eq("issue_id", issue.id)
+      .order("email", { ascending: true })
+      .range(from, to);
+    if (error) throw new Error(`ledger read failed: ${error.message}`);
+    return (data ?? []) as Array<{ email: string }>;
+  });
   const alreadySent = new Set(((ledgerRows ?? []) as { email: string }[]).map((r) => r.email.toLowerCase()));
 
   const confirmed = await resolveConfirmed();
