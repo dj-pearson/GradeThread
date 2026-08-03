@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { useId, Fragment, useState } from "react";
 import { SuperAdminOnly } from "@/components/auth/super-admin-only";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -98,6 +98,10 @@ function AdminAuditLogPageInner() {
   const isSuperAdmin = profile?.role === "super_admin";
 
   const [adminFilter, setAdminFilter] = useState("all");
+  // US-2335: ids for the filter card's label/control pairs.
+  const adminFilterId = useId();
+  const actionFilterId = useId();
+  const targetTypeFilterId = useId();
   const [actionFilter, setActionFilter] = useState("all");
   const [targetTypeFilter, setTargetTypeFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
@@ -382,7 +386,7 @@ function AdminAuditLogPageInner() {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
           <div className="space-y-1.5">
-            <Label className="text-xs">Admin User</Label>
+            <Label className="text-xs" htmlFor={adminFilterId}>Admin User</Label>
             <Select
               value={adminFilter}
               onValueChange={(v) => {
@@ -390,7 +394,7 @@ function AdminAuditLogPageInner() {
                 setPage(0);
               }}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" id={adminFilterId}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -405,7 +409,7 @@ function AdminAuditLogPageInner() {
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Action</Label>
+            <Label className="text-xs" htmlFor={actionFilterId}>Action</Label>
             <Select
               value={actionFilter}
               onValueChange={(v) => {
@@ -413,7 +417,7 @@ function AdminAuditLogPageInner() {
                 setPage(0);
               }}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" id={actionFilterId}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -428,7 +432,7 @@ function AdminAuditLogPageInner() {
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Target Type</Label>
+            <Label className="text-xs" htmlFor={targetTypeFilterId}>Target Type</Label>
             <Select
               value={targetTypeFilter}
               onValueChange={(v) => {
@@ -436,7 +440,7 @@ function AdminAuditLogPageInner() {
                 setPage(0);
               }}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" id={targetTypeFilterId}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

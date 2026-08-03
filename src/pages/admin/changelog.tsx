@@ -245,14 +245,14 @@ export function ChangelogPage() {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <Label>Category</Label>
+                <Label htmlFor="cl-category">Category</Label>
                 <Select
                   value={draft.category}
                   onValueChange={(v) =>
                     setDraft({ ...draft, category: v as ChangelogCategory })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="cl-category">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -266,14 +266,14 @@ export function ChangelogPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label>Audience</Label>
+                <Label htmlFor="cl-audience">Audience</Label>
                 <Select
                   value={draft.audience}
                   onValueChange={(v) =>
                     setDraft({ ...draft, audience: v as ChangelogAudience })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="cl-audience">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -287,14 +287,14 @@ export function ChangelogPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label>Status</Label>
+                <Label htmlFor="cl-status">Status</Label>
                 <Select
                   value={draft.status}
                   onValueChange={(v) =>
                     setDraft({ ...draft, status: v as ChangelogStatus })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="cl-status">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
