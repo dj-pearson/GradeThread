@@ -15,6 +15,7 @@ import { requireJobSecret } from "./job-auth.ts";
 import { acquireJobLock } from "./job-lock.ts";
 import { captureException, logEvent, recordMetric } from "./observability.ts";
 import { emitOpsEvent } from "./ops-events.ts";
+import { purgeAbandonedIssueAssets } from "./newsletter-imagery.ts";
 
 const BUCKET = "submission-images";
 const BATCH_LIMIT = 200;
@@ -147,6 +148,9 @@ export async function handleDataRetentionCron(c: {
   }
   let emailSentPurged = 0;
   let emailBodiesStripped = 0;
+  // US-2363: generated newsletter imagery from issues that were never sent.
+  let newsletterIssuesSwept = 0;
+  let newsletterObjectsDeleted = 0;
   try {
     const result = await purgeExpiredGradingPii();
     // US-584: keep the cron-run ledger bounded (30-day window). Best-effort —
@@ -284,6 +288,22 @@ export async function handleDataRetentionCron(c: {
       captureException(err, { route: "data-retention.stall_check" });
     }
 
+    // US-2363: reclaim generated imagery from abandoned newsletter issues.
+    // `cleanupIssueAssets` was written for this and had no caller, so every
+    // drafted-then-abandoned issue left its hero image in the PUBLIC bucket
+    // forever. Sent and sending issues are never touched — their recipients
+    // hold an email that hot-links the object.
+    //
+    // Best-effort, like the prunes above: an imagery sweep must never be the
+    // reason the PII purge reports failure.
+    try {
+      const sweep = await purgeAbandonedIssueAssets(Date.now());
+      newsletterIssuesSwept = sweep.issues_swept;
+      newsletterObjectsDeleted = sweep.objects_deleted;
+    } catch (err) {
+      captureException(err, { route: "data-retention.newsletter_assets" });
+    }
+
     return c.json({
       ok: true,
       ...result,
@@ -295,6 +315,8 @@ export async function handleDataRetentionCron(c: {
       email_sent_purged: emailSentPurged,
       email_bodies_stripped: emailBodiesStripped,
       email_purge_batch: EMAIL_PURGE_BATCH,
+      newsletter_issues_swept: newsletterIssuesSwept,
+      newsletter_objects_deleted: newsletterObjectsDeleted,
     });
   } catch (err) {
     captureException(err, { route: "data-retention.cron" });

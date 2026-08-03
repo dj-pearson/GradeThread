@@ -242,6 +242,78 @@ export async function cleanupIssueAssets(issueId: string): Promise<number> {
   return removed;
 }
 
+// ── US-2363: the abandoned-issue sweep ──────────────────────────────────────
+//
+// `cleanupIssueAssets` above was written for "the issue-deletion / cleanup path"
+// and nothing ever called it. There is no issue-deletion endpoint either, so an
+// issue that is drafted, generates a hero image and is then abandoned — blocked
+// and never reopened, or simply left in draft — keeps its objects in the PUBLIC
+// content-images bucket forever, with a public URL, and nothing ever looks at
+// them again.
+//
+// THE LINE THAT MATTERS: a SENT issue keeps its imagery, permanently. Its
+// recipients hold an email that hot-links the object; deleting it would break
+// every newsletter already delivered. `sending` is excluded for the same reason
+// plus the obvious race. So the sweep only ever touches issues that were never
+// sent to anyone.
+//
+// AND IT IS DRIVEN BY THE REGISTRY, NEVER BY LISTING THE BUCKET. That is not a
+// preference — newsletter heroes are uploaded through uploadHeroImage with
+// `surface: "blog"`, so they land at `blog/<issueId>/…` alongside real blog
+// post heroes at `blog/<postId>/…`. The two are indistinguishable by path. A
+// sweep that listed the prefix and deleted "objects with no issue" would delete
+// blog hero images, on the public marketing site, silently. Only
+// newsletter_issue_assets knows which object belongs to a newsletter.
+//
+// The cascade hazard, for whoever adds a delete endpoint: newsletter_issue_assets
+// rows cascade with the issue, so deleting an issue row drops the registry and
+// leaves the objects UNREACHABLE — no path, no way to find them again. Call
+// cleanupIssueAssets BEFORE deleting an issue, not after. A guard test pins that.
+
+/** Days an unsent issue may sit before its generated imagery is reclaimed. */
+export const ABANDONED_ISSUE_DAYS = 90;
+
+/** Issue states whose imagery is NEVER swept — someone may be holding a link. */
+export const KEEP_ASSETS_STATUSES = ["sent", "sending"] as const;
+
+export interface AssetSweepResult {
+  issues_swept: number;
+  objects_deleted: number;
+  cutoff: string;
+}
+
+/**
+ * Reclaim generated imagery from issues that were never sent and have gone
+ * stale. Bounded per run; the caller is a daily cron, so a backlog drains over
+ * consecutive nights rather than becoming one enormous batch.
+ */
+export async function purgeAbandonedIssueAssets(
+  nowMs: number,
+  batchLimit = 100,
+): Promise<AssetSweepResult> {
+  const cutoff = new Date(nowMs - ABANDONED_ISSUE_DAYS * 86_400_000).toISOString();
+  const result: AssetSweepResult = { issues_swept: 0, objects_deleted: 0, cutoff };
+
+  const { data, error } = await supabaseAdmin
+    .from("newsletter_issues")
+    .select("id")
+    .not("status", "in", `(${KEEP_ASSETS_STATUSES.join(",")})`)
+    .lt("updated_at", cutoff)
+    .order("updated_at", { ascending: true })
+    .limit(batchLimit);
+  if (error) {
+    console.warn(`[newsletter-imagery] abandoned sweep read failed: ${error.message}`);
+    return result;
+  }
+
+  for (const row of (data ?? []) as Array<{ id: string }>) {
+    const removed = await cleanupIssueAssets(row.id);
+    if (removed > 0) result.objects_deleted += removed;
+    result.issues_swept++;
+  }
+  return result;
+}
+
 // ── Impure: the per-issue orchestrator ───────────────────────────────────────
 
 export interface ResolveImageInput {
