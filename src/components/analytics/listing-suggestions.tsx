@@ -10,6 +10,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { GRADING_REVIEW_CONFIDENCE_THRESHOLD } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type {
   InventoryItemRow,
@@ -120,7 +121,11 @@ function generateListingSuggestions(
     // Suggestion: "Re-grade with more photos" if grade confidence is low
     if (item.submission_id) {
       const report = gradeMap.get(item.submission_id);
-      if (report && report.confidence_score < 0.75) {
+      // US-2303: the shared constant, not a literal. This decides whether the
+      // seller is told their grade is low-confidence, and it has to mean the
+      // same thing as the review gate — a hardcoded copy here would keep
+      // advising at 0.75 after the gate moved.
+      if (report && report.confidence_score < GRADING_REVIEW_CONFIDENCE_THRESHOLD) {
         suggestions.push({
           id: `regrade_photos_${item.id}`,
           type: "regrade_photos",

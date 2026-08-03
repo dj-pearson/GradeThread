@@ -62,6 +62,18 @@ export interface QualityGateResult {
   // De-duplicated, user-facing asks derived from the blocking issues.
   photo_requests: string[];
   summary: string;
+  /**
+   * No `detail_*` close-up was supplied, so fabric_condition (30% of the grade)
+   * was read off the full-garment shots instead of the weave/knit.
+   *
+   * This USED to abstain. It no longer does: a seller with good front/back/label
+   * coverage and nothing tagged Detail can now get a grade. What it must never
+   * do is get that grade for free — the caller caps confidence and routes to a
+   * human (NO_FABRIC_CLOSEUP_CONFIDENCE_CAP in ai-grading.ts). Reported as an
+   * explicit boolean rather than re-derived by scanning `issues` for a message,
+   * because a copy edit would silently switch the cap off.
+   */
+  fabricCloseupMissing: boolean;
 }
 
 // Required angles for a gradeable submission (AC #3).
@@ -91,6 +103,22 @@ function label(t: string): string {
   return TYPE_LABEL[t] ?? t;
 }
 
+/**
+ * Is the fabric close-up absent from this set of image types?
+ *
+ * The ONE definition of that rule. Exported because two places need it and they
+ * must not drift: the quality gate below, and the escalation re-grade in
+ * grading-pipeline.ts, which builds its own analyzed set on the stronger model
+ * and would otherwise ship an UNCAPPED escalated grade. That is precisely the
+ * bug US-1642 fixed for the partial-image cap, one cap over.
+ */
+export function fabricCloseupMissingFor(imageTypes: Iterable<string>): boolean {
+  for (const t of imageTypes) {
+    if (t.startsWith("detail")) return false;
+  }
+  return true;
+}
+
 export function evaluateImageQuality(
   images: QualityImageInput[],
 ): QualityGateResult {
@@ -109,13 +137,21 @@ export function evaluateImageQuality(
     }
   }
   // Any detail_* slot satisfies the "at least one close-up" requirement.
-  if (![...present].some((t) => t.startsWith("detail"))) {
+  //
+  // WARN, not BLOCK (owner's call, 2026-08-03). Refusing to grade a garment that
+  // has good front/back/label coverage and simply nothing tagged Detail cost the
+  // seller a grade they had the photos for. So we grade it — and the caller caps
+  // confidence and sends it to a human, because fabric_condition is 30% of the
+  // score and its primary evidence is genuinely absent. The trade is "a slower,
+  // checked grade" instead of "no grade", never "the same grade for less".
+  const fabricCloseupMissing = fabricCloseupMissingFor(present);
+  if (fabricCloseupMissing) {
     issues.push({
       image_type: "detail",
       problem: "missing",
-      severity: "block",
+      severity: "warn",
       message:
-        "Add one close-up of the fabric itself — the weave/knit texture or a seam, shot up close. This isn't a defect photo; it's what lets us grade the fabric.",
+        "No fabric close-up, so a person will check this grade before it is final. A close-up of the weave/knit or a seam gets you a faster, more certain grade next time. This isn't a defect photo.",
     });
   }
 
@@ -218,6 +254,7 @@ export function evaluateImageQuality(
   return {
     ok: issues.length === 0,
     abstain,
+    fabricCloseupMissing,
     issues,
     photo_requests,
     summary,

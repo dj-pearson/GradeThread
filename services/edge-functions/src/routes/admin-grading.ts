@@ -1444,8 +1444,15 @@ async function computeCanaryVersionMetrics(
   const grades = rows.length;
   const sumScore = rows.reduce((s, r) => s + Number(r.overall_score), 0);
   const sumConf = rows.reduce((s, r) => s + Number(r.confidence_score), 0);
+  // US-2303: the TUNABLE threshold, not a literal. This counts how many grades
+  // the review gate caught, so a hardcoded 0.75 meant lowering the threshold in
+  // the admin UI moved the real gate while this metric kept scoring against the
+  // old one — the calibration screen would report on a threshold nobody was
+  // using any more, which is worse than not reporting.
+  const reviewThreshold = reviewConfidenceThreshold();
   const reviewed = rows.filter(
-    (r) => r.needs_human_review === true || Number(r.confidence_score) < 0.75,
+    (r) => r.needs_human_review === true ||
+      Number(r.confidence_score) < reviewThreshold,
   ).length;
 
   // Early dispute rate: of these grades, how many drew a dispute. Chunk the IN
@@ -2637,6 +2644,12 @@ const REVIEW_CLAIM_TTL_SEC = 15 * 60;
 // selecting it off the base table 42703s. Derive it in code from
 // confidence_score using the SAME thresholds as the view so the queue matches
 // the public certificate.
+// US-2303: these literals are DELIBERATELY not the tunable review threshold.
+// They are display buckets that must match the SQL view byte for byte — moving
+// them with the gate would make the admin queue disagree with the public
+// certificate about the same grade, which is a worse failure than a stale
+// bucket boundary. Declared in confidence-threshold-sites_test.ts so a future
+// sweep does not "fix" them.
 function confidenceLabelFor(confidenceScore: number): string {
   if (confidenceScore >= 0.9) return "very_high";
   if (confidenceScore >= 0.75) return "high";

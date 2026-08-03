@@ -72,7 +72,11 @@ import {
   runForensicPass,
   type ForensicInputImage,
 } from "./forensics.ts";
-import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
+import {
+  evaluateImageQuality,
+  fabricCloseupMissingFor,
+  REQUIRED_IMAGE_TYPES,
+} from "./image-quality.ts";
 import { withImageBufferSlot } from "./grading-capacity.ts";
 import { sniffImageFormat, IMAGE_CONTENT_TYPE } from "./upload-validation.ts";
 import { captureServer } from "./posthog.ts";
@@ -563,6 +567,10 @@ async function escalateGrade(
     [],
     false,
     tagBlock,
+    // US-2396: recomputed from THIS pass's analyzed set, not inherited from the
+    // first one — the escalation can drop an optional detail image, and an
+    // escalated grade must never be the way an uncapped fabric guess ships.
+    fabricCloseupMissingFor(perImageResults.map((r) => r.image_type)),
   );
   // US-1642: surface whether the ESCALATION dropped an optional image. The
   // caller ORs this into partialSuccess so a defect/detail image that failed to
@@ -1998,6 +2006,9 @@ export async function processSubmission(submissionId: string) {
       false,
       // US-2210: trusted label transcription ("" when off / unread).
       tagBlock,
+      // US-2396: grading without a fabric close-up is allowed now, but never at
+      // full confidence — this caps it and forces the human check.
+      qualityGate.fabricCloseupMissing,
     );
 
     // US-1066: escalate a low-confidence / high-value first-pass grade to the

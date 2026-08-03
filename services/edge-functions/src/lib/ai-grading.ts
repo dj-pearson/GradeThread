@@ -1780,6 +1780,19 @@ export const DEFECT_DIVERGENCE_CONFIDENCE_CAP = 0.6;
 // confidence well below the review threshold so the model's self-reported number
 // can never auto-approve a forged grade — it always routes to a human.
 export const PROMPT_INJECTION_CONFIDENCE_CAP = 0.5;
+// US-2396: no fabric close-up was supplied, so fabric_condition (30%, the
+// heaviest factor) came from the full-garment shots. Below the default review
+// threshold, and paired with a force-review flag so a reconfigured threshold
+// cannot let it through unchecked.
+//
+// Deliberately its OWN constant, and deliberately NOT written as
+// `= PARTIAL_IMAGE_CONFIDENCE_CAP`, even though both are 0.6 today. They answer
+// different questions — that one is "an image we had failed to analyze", this
+// one is "an image the seller never took" — and tying them together is how
+// peer-norm.ts ended up with a comment claiming its cap matched a number it had
+// never equalled (US-2308). If one moves, the other should not follow by
+// accident.
+export const NO_FABRIC_CLOSEUP_CONFIDENCE_CAP = 0.6;
 
 const FACTOR_KEYS: (keyof FactorScores)[] = [
   "fabric_condition",
@@ -1825,6 +1838,18 @@ export interface ConfidencePolicyInput {
   // check so image-read content can't drive an auto-approval. Optional →
   // absent/false leaves behavior byte-identical for existing callers.
   injectionSuspected?: boolean;
+  /**
+   * US-2396: no `detail_*` close-up was supplied, so fabric_condition — 30% of
+   * the weighted overall, the single heaviest factor — was read off the
+   * full-garment shots rather than the weave/knit.
+   *
+   * Until 2026-08-03 this case could not reach grading at all: the image-quality
+   * gate abstained. Allowing it is a deliberate product change, and this cap is
+   * the other half of it. Optional → absent/false leaves behavior byte-identical
+   * for every submission that DOES carry a close-up, which is the whole contract
+   * with the owner: "if it does have the detail then it is business as usual".
+   */
+  fabricCloseupMissing?: boolean;
 }
 
 export interface ConfidencePolicyResult {
@@ -1870,12 +1895,19 @@ export function applyGradingConfidencePolicy(
   if (input.injectionSuspected) {
     confidenceCeiling = Math.min(confidenceCeiling, PROMPT_INJECTION_CONFIDENCE_CAP);
   }
+  if (input.fabricCloseupMissing) {
+    confidenceCeiling = Math.min(confidenceCeiling, NO_FABRIC_CLOSEUP_CONFIDENCE_CAP);
+  }
   const finalConfidence = Math.min(input.confidenceScore, confidenceCeiling);
   const needsHumanReview =
     finalConfidence < input.reviewThreshold ||
     input.authenticityFlagged ||
     input.defaultedFactorCount > 0 ||
-    (input.injectionSuspected ?? false);
+    (input.injectionSuspected ?? false) ||
+    // Forced, not merely implied by the cap. The cap sits below the DEFAULT
+    // review threshold, but the threshold is configurable (and calibrated) — a
+    // permissive one would otherwise let an unreviewed fabric guess ship.
+    (input.fabricCloseupMissing ?? false);
   return { finalConfidence, needsHumanReview, confidenceCeiling };
 }
 
@@ -2084,6 +2116,10 @@ export async function compositeGrade(
   // suffix when present so accuracy-tracking can attribute the tag-grounded era
   // separately from the baseline/fabric/visual ones.
   tagBlock = "",
+  // US-2396: no fabric close-up was in the analyzed set, so fabric_condition was
+  // read off the full-garment shots. Caps confidence and forces review below.
+  // Default false → byte-identical for every submission that has a close-up.
+  fabricCloseupMissing = false,
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -2460,12 +2496,24 @@ export async function compositeGrade(
         garment_category: garmentInfo.garment_category,
       });
     }
+    if (fabricCloseupMissing) {
+      console.warn(
+        `[AI Grading] no fabric close-up in the analyzed set — capping confidence ` +
+          `at ${NO_FABRIC_CLOSEUP_CONFIDENCE_CAP} and routing to human review | ` +
+          `prompt_version=${promptVersion}`,
+      );
+      void captureServer("grading-engine", "grading.no_fabric_closeup", {
+        prompt_version: promptVersion,
+        garment_category: garmentInfo.garment_category,
+      });
+    }
     const policy = applyGradingConfidencePolicy({
       confidenceScore,
       authenticityFlagged,
       defaultedFactorCount,
       reviewThreshold: effectiveThreshold,
       injectionSuspected,
+      fabricCloseupMissing,
     });
     let finalConfidence = policy.finalConfidence;
     let needsHumanReview = policy.needsHumanReview;

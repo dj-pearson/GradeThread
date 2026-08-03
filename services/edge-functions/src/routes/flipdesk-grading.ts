@@ -51,6 +51,10 @@ interface ValidatedItem {
   cost: number;
   ready: boolean;
   blockers: string[];
+  // US-2396: things the seller should know before submitting that do NOT stop
+  // the submission. `ready` deliberately ignores these — a warning that blocks
+  // is just a blocker with softer wording.
+  warnings: string[];
   // Echoed for the UI to render — picked from inventory_items.
   title: string | null;
   garment_type: string | null;
@@ -82,19 +86,28 @@ interface ValidationResult {
 // covers the weaker-signal case.
 const REQUIRED_GRADING_PHOTO_TYPES = ["front", "back"] as const;
 
-// The grading pipeline's image-quality gate (image-quality.ts) ABSTAINS unless
-// at least one close-up "detail_*" shot is present — it's what lets the grader
-// read the fabric weave/knit, which drives the fabric_condition factor (30% of
-// the score). It is NOT a defect photo. We surface it as a pre-submission
-// blocker here (rather than letting a "ready" item abstain post-submit) so the
-// requirement is known BEFORE the round-trip. These FlipDesk photo types map to
-// a grading `detail_*` image_type (see mapPhotoTypeForGrading) and satisfy it.
+// A close-up "detail_*" shot is what lets the grader read the fabric weave/knit,
+// which drives fabric_condition — 30% of the score, the heaviest factor. It is
+// NOT a defect photo. These FlipDesk photo types map to a grading `detail_*`
+// image_type (see mapPhotoTypeForGrading) and satisfy it.
+//
+// US-2396: this used to be a hard blocker here, mirroring an ABSTAIN in
+// image-quality.ts. Both are now warnings: a seller with solid front/back/label
+// coverage and nothing tagged Detail gets their grade. The cost is stated up
+// front rather than discovered later — the grade is capped below the review
+// threshold and a human checks it (NO_FABRIC_CLOSEUP_CONFIDENCE_CAP). Supply a
+// close-up and nothing about grading changes.
 const FABRIC_CLOSEUP_PHOTO_TYPES = [
   "detail",
   "detail_2",
   "detail_3",
   "detail_4",
 ] as const;
+
+// User-facing copy, kept verbatim in the web mirror (src/lib/grading-readiness.ts)
+// and asserted by src/test/fixtures/grading-readiness-cases.json.
+export const FABRIC_CLOSEUP_WARNING =
+  "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot.";
 
 // Pulls the user record + all items + photo coverage in one round-trip set,
 // then computes per-item readiness. Used by both /validate (just returns the
@@ -126,11 +139,12 @@ export function gradingReadinessBlockers(input: {
   garment_category: string | null | undefined;
   title: string | null | undefined;
   photoTypes: Set<string> | readonly string[];
-}): { blockers: string[]; missingPhotos: string[] } {
+}): { blockers: string[]; warnings: string[]; missingPhotos: string[] } {
   const have = input.photoTypes instanceof Set
     ? input.photoTypes
     : new Set(input.photoTypes);
   const blockers: string[] = [];
+  const warnings: string[] = [];
   const missingPhotos: string[] = [];
 
   if (!input.garment_type) blockers.push("Missing garment_type");
@@ -143,15 +157,14 @@ export function gradingReadinessBlockers(input: {
   if (missingPhotos.length > 0) {
     blockers.push(`Missing required photos: ${missingPhotos.join(", ")}`);
   }
-  // Mirror the grading gate's fabric close-up requirement up front so a
-  // "ready" item doesn't abstain after submission (see FABRIC_CLOSEUP note).
+  // A WARNING, not a blocker (owner's call, 2026-08-03). It still tells the
+  // seller what they give up, because the consequence is real and they should
+  // learn it BEFORE they submit, not from a slower grade afterwards.
   if (!FABRIC_CLOSEUP_PHOTO_TYPES.some((t) => have.has(t))) {
-    blockers.push(
-      "Add one fabric close-up (a detail photo of the weave/knit or a seam) — it's what we grade the fabric from, not a defect shot.",
-    );
+    warnings.push(FABRIC_CLOSEUP_WARNING);
   }
 
-  return { blockers, missingPhotos };
+  return { blockers, warnings, missingPhotos };
 }
 
 async function buildValidation(
@@ -277,6 +290,7 @@ async function buildValidation(
   const items: ValidatedItem[] = inputs.map((input) => {
     const item = itemMap.get(input.inventory_item_id);
     const blockers: string[] = [];
+    const warnings: string[] = [];
     const missingPhotos: string[] = [];
 
     if (!item) {
@@ -296,6 +310,7 @@ async function buildValidation(
         photoTypes: have,
       });
       blockers.push(...computed.blockers);
+      warnings.push(...computed.warnings);
       missingPhotos.push(...computed.missingPhotos);
     }
 
@@ -305,6 +320,7 @@ async function buildValidation(
       cost: tierPriceDollars(input.tier),
       ready: blockers.length === 0,
       blockers,
+      warnings,
       title: item?.title ?? null,
       garment_type: item?.garment_type ?? null,
       garment_category: item?.garment_category ?? null,
