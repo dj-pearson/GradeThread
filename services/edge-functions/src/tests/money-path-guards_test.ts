@@ -186,3 +186,108 @@ Deno.test("US-2345 AC3: nothing sums commissions.status='paid' as money sent", (
       `left Stripe: ${offenders.join(", ")}. Use affiliate_payouts.status.`,
   );
 });
+
+// ── US-2298: the read-then-act debit race on POST /pay/:id ──────────────────
+//
+// /pay reads `payment_status !== "unpaid"` and returns early, then debits. Two
+// concurrent calls can both pass the read before either writes, and both
+// charge. Narrow window, real money — the worst combination, because it fires
+// too rarely to be noticed and reproduced, and each time it does a customer
+// paid twice for one grade.
+//
+// A TRUE TWO-CALLER RACE TEST NEEDS THE LOCAL SUPABASE STACK. The dedupe is
+// enforced in SQL (a keyed pre-check under the users-row lock, backstopped by
+// the partial unique index from 00216), so nothing in this suite can execute
+// it. What is pinned here is the half that lives in TypeScript: the key is
+// passed, it is DERIVED so a retry reproduces it, and the RPC still forwards
+// it. Those are the three ways this regresses silently.
+
+Deno.test("US-2298: EVERY charge site in grade.ts passes a derived key", () => {
+  // Enumerated, not "find the call and check it". The first version of this
+  // case did exactly that and asserted against `indexOf`, which found the
+  // CREATE path at :715 rather than the /pay retry it was written for — there
+  // are two charge sites in this file and the story names only one. It failed
+  // for the right reason and pointed at a second site that also had no key.
+  const calls = [...GRADE.matchAll(/runPaymentPrecedence\(/g)];
+  assert(
+    calls.length >= 2,
+    `expected both grade.ts charge sites, found ${calls.length} — if a charge ` +
+      "path was removed, this guard is now checking less than it claims",
+  );
+
+  for (const m of calls) {
+    const call = GRADE.slice(m.index!, m.index! + 300);
+    // Matched to the CLOSING BACKTICK, and that is the whole assertion rather
+    // than a stylistic detail. The key must be derived and NOTHING else: a key
+    // of `grade_pay:${submissionId}:${crypto.randomUUID()}` is fresh on every
+    // attempt, so it dedupes nothing while reading as idempotent in review —
+    // strictly worse than passing no key, because it stops anyone looking.
+    //
+    // A separate "is it random?" assertion was written here and then removed:
+    // pinning the exact form already rejects every appended-entropy variant, so
+    // that case could not fail on any mutation and only implied coverage it did
+    // not have. Negative verification is what surfaced it.
+    assert(
+      /`grade_pay:\$\{submissionId\}`/.test(call),
+      "a charge site in grade.ts passes no idempotency key (or a key that is " +
+        "not exactly the derived one), so two concurrent calls can both pass " +
+        "the unpaid check and both debit real money",
+    );
+  }
+});
+
+Deno.test("US-2298: the key reaches the RPC, and the DB half still checks it", () => {
+  const BILLING = read("../lib/grade-billing.ts");
+  assert(
+    /p_idempotency_key: idempotencyKey \?\? null/.test(BILLING),
+    "runPaymentPrecedence no longer forwards the key to debit_grade_credits — " +
+      "callers would pass one and it would be dropped on the floor",
+  );
+
+  // The SQL side, read from the migration that owns it. Comments stripped: the
+  // migration explains the mechanism at length and names these very
+  // identifiers, so a raw scan would pass on prose alone.
+  const sql = Deno.readTextFileSync(
+    new URL(
+      "../../../../supabase/migrations/00516_debit_grade_credits_idempotency.sql",
+      import.meta.url,
+    ),
+  ).replace(/--[^\n]*/g, "");
+  assert(
+    /IF p_idempotency_key IS NOT NULL THEN[\s\S]{0,400}RETURN v_balance;/.test(sql),
+    "debit_grade_credits no longer short-circuits on a key it has already " +
+      "seen, so the key is accepted and ignored",
+  );
+  // The check must sit BEFORE the insufficient-balance test and the insert, or
+  // a repeat of an already-paid debit can fail as INSUFFICIENT_CREDITS and
+  // push the caller into a checkout it does not need.
+  assert(
+    sql.indexOf("IF p_idempotency_key IS NOT NULL THEN") <
+      sql.indexOf("INSUFFICIENT_CREDITS"),
+    "the dedupe check moved after the balance test — a paid-for retry can now " +
+      "be refused for want of credits it does not need to spend",
+  );
+});
+
+Deno.test("US-2298: the row lock is NOT mistaken for the dedupe", () => {
+  // debit_grade_credits takes `SELECT … FOR UPDATE` on the users row, so it
+  // LOOKS safe and the idempotency key looks redundant. FOR UPDATE serialises
+  // the two debits; it does not deduplicate them — both take the lock in turn,
+  // both find sufficient balance, both write a ledger row. The result is a
+  // double charge in tidy sequential order rather than a torn one.
+  //
+  // The lock protects the balance ARITHMETIC (US-207). Nothing protects the
+  // DECISION to charge. This case exists so that reasoning is attached to the
+  // code rather than living only in a story note.
+  const sql = Deno.readTextFileSync(
+    new URL(
+      "../../../../supabase/migrations/00516_debit_grade_credits_idempotency.sql",
+      import.meta.url,
+    ),
+  );
+  assert(/FOR UPDATE/.test(sql), "the balance row lock is gone");
+  assert(
+    /idempotency_key/.test(sql.replace(/--[^\n]*/g, "")),
+    "the key was removed as redundant with the lock — it is not",
+  );
+});

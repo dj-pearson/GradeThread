@@ -712,7 +712,20 @@ gradeRoutes.post("/submit", async (c) => {
   // they have the plan and credit balance.
   let precedence: PrecedenceResult;
   try {
-    precedence = await runPaymentPrecedence(ownerId, submissionId, tier);
+    // Same derived key as the /pay retry below (US-2298), so the unit of
+    // charge is the SUBMISSION rather than the route that happened to charge
+    // for it. This path is not racy on its own — each request mints its own
+    // submissionId, and two concurrent submissions are two grades and two
+    // legitimate charges — but sharing the key makes "one debit per
+    // submission" an invariant instead of a property of one handler. A retry
+    // that reaches either entry point for an already-paid submission now
+    // debits nothing.
+    precedence = await runPaymentPrecedence(
+      ownerId,
+      submissionId,
+      tier,
+      `grade_pay:${submissionId}`,
+    );
   } catch (err) {
     console.error(`Payment precedence failed for ${submissionId}:`, err);
     return c.json({ error: "Payment processing error" }, 500);
@@ -805,7 +818,34 @@ gradeRoutes.post("/pay/:id", async (c) => {
 
   let precedence: PrecedenceResult;
   try {
-    precedence = await runPaymentPrecedence(ownerId, submissionId, tier);
+    // US-2298 AC1: one credit debit per submission, enforced by the database.
+    //
+    // The check above is a read, and the debit below is a separate write, so
+    // two concurrent /pay calls could both see `unpaid` and both charge. The
+    // window is narrow and the charge is real money, which is the worst
+    // combination to leave to chance — it fires rarely enough never to be
+    // noticed and reproduced, and each time it does, a customer paid twice.
+    //
+    // WHY THE ROW LOCK ALREADY IN debit_grade_credits IS NOT THE ANSWER, and
+    // this is worth stating because the function LOOKS safe: it does
+    // `SELECT grade_credit_balance … FOR UPDATE` on the users row, so anyone
+    // reading it concludes the debit is protected. FOR UPDATE serialises the
+    // two debits; it does not deduplicate them. Both take the lock in turn,
+    // both find sufficient balance, both write a ledger row. The lock protects
+    // the balance ARITHMETIC, which was its job (US-207); nothing protects the
+    // DECISION to charge. Do not remove this key as redundant with it.
+    //
+    // The key is derived, not random: the same submission retried later
+    // produces the same string, which is what makes the second call a no-op
+    // rather than a second charge. The machinery already exists — US-2289 gave
+    // the RPC its `p_idempotency_key` parameter (00516) and the partial unique
+    // index came with 00216 — so this path was simply never passing one.
+    precedence = await runPaymentPrecedence(
+      ownerId,
+      submissionId,
+      tier,
+      `grade_pay:${submissionId}`,
+    );
   } catch (err) {
     console.error(`Retry precedence failed for ${submissionId}:`, err);
     return c.json({ error: "Payment processing error" }, 500);
