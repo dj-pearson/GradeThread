@@ -1,4 +1,4 @@
--- READ-ONLY production diagnostics. Answers the prod-data questions that seven
+-- READ-ONLY production diagnostics. Answers the prod-data questions that eight
 -- open stories are each individually blocked on, in ONE session.
 --
 --   SUPABASE_DB_URL="postgres://…@host:5432/postgres" \
@@ -11,7 +11,7 @@
 -- it is the reason this exists as a script rather than as ad-hoc pasted SQL.
 --
 -- WHY ONE SCRIPT. Each of the stories below has sat open for weeks with its
--- last acceptance criterion reading "needs prod access". That is seven separate
+-- last acceptance criterion reading "needs prod access". That is eight separate
 -- asks of the one person who can answer them, which is how a question stops
 -- being asked. One paste, one output, every answer.
 --
@@ -23,6 +23,7 @@
 --   §6  context — row counts for the tables the admin dashboard aggregates.
 --   §7  US-2293 AC3 — overage packs refunded before the credit clawback shipped.
 --   §8  US-2031 AC1 — is the affiliate hold window long enough?
+--   §9  US-2034 AC2 — exemplar sets gated before the golden-set leak was fixed.
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -289,6 +290,51 @@ SELECT
   count(*) FILTER (WHERE status = 'accrued' AND hold_until <= now()) AS due_for_payout,
   count(*) FILTER (WHERE status = 'void')                         AS voided
 FROM public.affiliate_commissions;
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§9  US-2034 AC2 — EXEMPLAR SETS GATED BEFORE THE LEAK WAS FIXED'
+\echo '════════════════════════════════════════════════════════════════'
+\echo 'Until 2026-07-18 the few-shot exemplar pool did not exclude golden-set'
+\echo 'sources, so an exemplar set could be evaluated against cases it had been'
+\echo 'built from. That does not make a set WRONG — it makes its eval number'
+\echo 'unearned, because the gate was marking its own homework.'
+\echo ''
+\echo 'Any set CREATED before that date carries an eval figure that proves less'
+\echo 'than it appears to. A set still ACTIVE is the one that matters: it is'
+\echo 'shaping live grading prompts on the strength of that number.'
+\echo ''
+\echo 'AC2 asks you to re-run the gate for those. AC3 asks whether any published'
+\echo 'accuracy figure cites them — if a set below is active AND pre-fix, treat'
+\echo 'any number derived from it as unrestated until the re-run.'
+\echo ''
+
+SELECT
+  version_name,
+  garment_category,
+  status,
+  is_active,
+  eval_passed,
+  eval_mae,
+  eval_agreement_rate,
+  exemplar_count,
+  created_at,
+  -- The whole question, in one column.
+  (created_at < TIMESTAMPTZ '2026-07-18') AS gated_before_fix
+FROM public.grading_exemplar_sets
+ORDER BY is_active DESC, created_at DESC
+LIMIT 100;
+
+\echo ''
+\echo '-- The short answer. A non-zero first number is the re-run list.'
+SELECT
+  count(*) FILTER (
+    WHERE is_active AND created_at < TIMESTAMPTZ '2026-07-18'
+  )                                                    AS active_and_pre_fix,
+  count(*) FILTER (WHERE created_at < TIMESTAMPTZ '2026-07-18') AS all_pre_fix,
+  count(*) FILTER (WHERE is_active)                    AS active_total,
+  count(*)                                             AS sets_total
+FROM public.grading_exemplar_sets;
 
 \echo ''
 \echo '════════════════════════════════════════════════════════════════'

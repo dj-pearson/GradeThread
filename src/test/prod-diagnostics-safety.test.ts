@@ -89,6 +89,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       ["api_credit_transactions", ["user_id", "delta", "reason", "created_at"]],
       ["api_credit_wallet", ["balance"]],
       ["affiliate_commissions", ["status", "amount", "hold_until", "created_at"]],
+      ["grading_exemplar_sets", ["version_name", "is_active", "eval_passed", "eval_mae", "created_at"]],
     ];
 
     const missing: string[] = [];
@@ -96,10 +97,27 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       for (const column of columns) {
         // The column must appear either in that table's CREATE block or in an
         // ADD COLUMN targeting it.
-        const inCreate = new RegExp(
-          `CREATE TABLE[^;]*\\b${table}\\b[^;]*\\b${column}\\b`,
-          "is",
-        ).test(migrations);
+        //
+        // The block is bounded by a WINDOW after the table name, not by
+        // `[^;]*`. That earlier form silently truncated at the first semicolon
+        // — including one inside a COMMENT. grading_exemplar_sets has
+        // "-- NULL = global set (applies to every category); else scoped…"
+        // three lines in, so the scan stopped before most of its columns and
+        // reported four real ones as missing.
+        //
+        // Worth noting the direction it failed in: it produced a FALSE ALARM,
+        // which is the safe half. But the same truncation makes it check FEWER
+        // columns than it claims for every table whose CREATE block contains a
+        // semicolon in prose, and that half is silent.
+        const declStart = new RegExp(
+          `CREATE TABLE[^\\n]*\\b${table}\\b`,
+          "i",
+        ).exec(migrations);
+        const inCreate = declStart
+          ? new RegExp(`\\b${column}\\b`, "i").test(
+            migrations.slice(declStart.index, declStart.index + 3000),
+          )
+          : false;
         const inAlter = new RegExp(
           `ALTER TABLE[^;]*\\b${table}\\b[^;]*ADD COLUMN[^;]*\\b${column}\\b`,
           "is",
@@ -125,10 +143,10 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
   });
 
   it("still answers every question it claims to", () => {
-    // The header advertises eight sections. A future edit that drops one leaves
+    // The header advertises nine sections. A future edit that drops one leaves
     // the header lying about what the operator gets back, and they will not
     // re-read the SQL to notice.
-    for (const section of ["§1", "§2", "§3", "§4", "§5", "§6", "§7", "§8"]) {
+    for (const section of ["§1", "§2", "§3", "§4", "§5", "§6", "§7", "§8", "§9"]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }
     // And the tables each section exists to measure.
@@ -138,5 +156,6 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     expect(SQL).toContain("public.disputes");
     expect(SQL).toContain("public.api_credit_transactions");
     expect(SQL).toContain("public.affiliate_commissions");
+    expect(SQL).toContain("public.grading_exemplar_sets");
   });
 });
