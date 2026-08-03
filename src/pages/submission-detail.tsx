@@ -23,6 +23,7 @@ import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { Button } from "@/components/ui/button";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { Badge } from "@/components/ui/badge";
+import { AuthenticityAppealDialog } from "@/components/grade/authenticity-appeal-dialog";
 import {
   Card,
   CardContent,
@@ -165,6 +166,8 @@ export function SubmissionDetailPage() {
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  // US-2145: the authenticity appeal dialog.
+  const [appealOpen, setAppealOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dispute, setDispute] = useState<DisputeRow | null>(null);
   const [linkedItem, setLinkedItem] = useState<InventoryItemRow | null>(null);
@@ -1125,7 +1128,28 @@ export function SubmissionDetailPage() {
                 A SEPARATE garment-authenticity signal — distinct from the
                 condition grade and from photo-tamper detection. A confidence
                 estimate, with limitations disclosed. */}
-            {gradeReport.authenticity_assessment?.assessed && (() => {
+            {/* US-2145: while an appeal is open the server has NULLED the
+                verdict, confidence, risk and summary, so the normal card would
+                render a row of blanks. Show the pending state instead — the
+                seller needs to know the result is withheld, not that it broke. */}
+            {gradeReport.authenticity_assessment?.under_appeal && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                    Authenticity Check — under review
+                  </CardTitle>
+                  <CardDescription>
+                    You contested this result. It is hidden from your
+                    certificate and from buyers while a human reviews it, and
+                    we will let you know the outcome.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            )}
+
+            {gradeReport.authenticity_assessment?.assessed &&
+              !gradeReport.authenticity_assessment?.under_appeal && (() => {
               const auth = gradeReport.authenticity_assessment!;
               const risk = COUNTERFEIT_RISK_LABELS[auth.counterfeit_risk];
               const tone =
@@ -1196,6 +1220,16 @@ export function SubmissionDetailPage() {
                     <p className="rounded-md bg-muted/60 px-3 py-2 text-xs italic text-muted-foreground">
                       {auth.limitations}
                     </p>
+                    {/* US-2145: the contest action, on the surface where the
+                        seller SEES the verdict. Everything behind it already
+                        existed; nothing called it. */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAppealOpen(true)}
+                    >
+                      This is genuine — contest this result
+                    </Button>
                   </CardContent>
                 </Card>
               );
@@ -1632,6 +1666,18 @@ export function SubmissionDetailPage() {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {/* US-2145: rendered at the page root rather than inside the card, so
+          the dialog is not unmounted the moment the card swaps to its
+          under-appeal state on a successful file. */}
+      {gradeReport && (
+        <AuthenticityAppealDialog
+          gradeReportId={gradeReport.id}
+          open={appealOpen}
+          onOpenChange={setAppealOpen}
+          onFiled={() => void refetchData()}
+        />
       )}
     </div>
   );

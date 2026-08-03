@@ -697,6 +697,14 @@ export interface AuthenticityAssessment {
   limitations: string;
   model: string;
   prompt_version: string;
+  // US-2145: set by POST /api/grade/authenticity-appeal. While an appeal is
+  // open the server NULLS verdict / confidence / risk / summary and stashes the
+  // original in appeal_hidden_original, so the seller is not left defending a
+  // verdict that is still on display. Every nulled field above is therefore
+  // nullable in practice — read them through the under_appeal check, not
+  // around it.
+  under_appeal?: boolean;
+  appeal_opened_at?: string | null;
 }
 
 // US-341: server-side forensic manipulation pass fused with the US-336 vision
