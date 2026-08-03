@@ -37,11 +37,6 @@ const DECLARED: readonly DeclaredStar[] = [
     why: "the composer canvas renders ONE listing and reads across its width",
   },
   {
-    file: "src/pages/inventory-detail.tsx",
-    bound: '.eq("inventory_item_id"',
-    why: "one item's listings — a handful of rows, all columns rendered",
-  },
-  {
     file: "services/edge-functions/src/lib/data-export.ts",
     bound: '.eq("user_id"',
     why:

@@ -49,7 +49,6 @@
     "@imgly/background-removal": "^1.7.0",
     "@sentry/cli": "^3.6.0",
     "@sentry/react": "^10.56.0",
-    "@stripe/stripe-js": "^8.7.0",
     "@supabase/supabase-js": "^2.95.3",
     "@tanstack/react-query": "^5.90.21",
     "@tanstack/react-virtual": "^3.14.2",

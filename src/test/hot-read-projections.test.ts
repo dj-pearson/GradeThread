@@ -51,7 +51,12 @@ function selectArgsFor(src: string, table: string): string[] {
 // [file, table] pairs whose reads are on a hot path and must stay projected.
 const PROJECTED_READS: ReadonlyArray<readonly [string, string]> = [
   ["src/pages/submissions.tsx", "submissions"],
-  ["src/pages/inventory.tsx", "inventory_items"],
+  // US-2362: src/pages/inventory.tsx was DELETED. It was superseded by
+  // /dashboard/flipdesk/inventory and its old route had been a <Navigate>
+  // since the consolidation, so nothing could reach it. Its entries are
+  // removed here rather than pointed at the replacement, because the FlipDesk
+  // listings page is guarded by its own, stricter pair —
+  // items-full-bounded-reads.test.ts and listings-page-scoped-reads.test.ts.
   ["src/pages/dashboard.tsx", "submissions"],
   ["src/pages/new-submission.tsx", "inventory_items"],
   ["src/components/dashboard/grade-charts.tsx", "submissions"],
@@ -62,7 +67,6 @@ const PROJECTED_READS: ReadonlyArray<readonly [string, string]> = [
 // renamed away the read has almost certainly gone back to "*".
 const PROJECTION_CONSTANTS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ["src/pages/submissions.tsx", ["SUBMISSION_LIST_COLUMNS"]],
-  ["src/pages/inventory.tsx", ["INVENTORY_LIST_COLUMNS"]],
   ["src/pages/dashboard.tsx", ["RECENT_SUBMISSION_COLUMNS"]],
   ["src/pages/new-submission.tsx", ["LINKABLE_ITEM_COLUMNS"]],
   [
