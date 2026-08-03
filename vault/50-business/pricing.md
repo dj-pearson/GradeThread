@@ -9,7 +9,7 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-08-02
+reviewed: 2026-08-03
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
@@ -59,6 +59,14 @@ a tier may open; it is not a count of every channel a seller can list to:
   off behind `DEPOP_ENABLED` until the platform approves the app; advertised as
   "coming soon", never as a live API integration.
 - **Coming soon** (no integration yet): Facebook, OfferUp, Whatnot.
+
+> [!note] This note was right and the code was wrong (US-2327, 2026-08-03)
+> `MARKETPLACE_TIER` called Whatnot `api_pending` and `MARKETPLACE_MECHANISM`
+> called it `"api"`, while every method on its adapter is `notImplemented`
+> and its client file says the endpoints were modelled with no public docs.
+> The row above already said "coming soon". The fix moved the CODE to match
+> this note, not the other way round — worth remembering next time the two
+> disagree.
 
 ### Gate flags per tier (`gateFlags`)
 

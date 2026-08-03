@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - src/lib/images.ts
   - functions/_shared/blog-render.ts
-reviewed: 2026-07-31
+reviewed: 2026-08-03
 tags: [seo, performance, images, cwv]
 summary: The shipped performance levers, the Cloudflare toggles still to enable, and how responsive images are actually gated.
 ---
@@ -100,9 +100,19 @@ All three are Cloudflare dashboard actions. None are done in code.
 
 | Toggle | Where | Effect |
 |---|---|---|
-| **Image Transformations** | Speed → Optimization → Image Optimization → Transformations → Enable for this zone | `/cdn-cgi/image/…` URLs 404 until this is on. This is what actually turns on responsive `srcset`. |
+| ~~**Image Transformations**~~ ✅ **DONE** | — | Verified live 2026-08-03 (US-2333): the transform URL returns **200** and `Content-Type: image/avif`. `VITE_CF_IMAGE_RESIZING` is now `"true"` in `.env.production` and `wrangler.toml` (both prod and preview), and the build emits `srcSet`. |
 | **Early Hints** | Speed → Optimization | Consumes the `Link` preload header already emitted. |
 | **HTTP/3 (QUIC)** | Network | Transport-level latency. |
+
+> [!warning] This was OFF for a blocker that had already been cleared
+> The dashboard toggle was enabled at some point, but the flag stayed `"false"`,
+> so every image shipped full-size in its original format while the code to
+> avoid that sat behind a switch waiting on a step that was already done. On
+> `logo_primary.png` that was **125,781 B → 5,420 B (−95.7%)** left on the
+> table. The lesson is in the shape, not the number: a two-step toggle where
+> one step is a dashboard action and the other is in the repo will sit
+> half-finished, because nothing fails when only one is done. The `curl` check
+> below is the thing that closes it — run it rather than assuming.
 
 Enabling Transformations is two steps, not one: turn it on in the dashboard,
 **then** set `VITE_CF_IMAGE_RESIZING="true"` in the Cloudflare Pages project

@@ -7,7 +7,7 @@ code_refs:
   - scripts/audit-listings-columns.mjs
   - src/test/listings-select-star.test.ts
   - src/types/database.ts
-reviewed: 2026-08-02
+reviewed: 2026-08-03
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's 91 columns are for, why none of them is provably dead, and the rule for reading them.
 ---

@@ -213,7 +213,26 @@ const hasDist = requireDist(distIndex, "responsive-images.test.ts");
 // deleted because a stale justification is how a skip survives: the next reader
 // finds a reason not to touch it and moves on.
 describe.skipIf(!hasDist)("landing responsive image smoke test (US-306)", () => {
-  const resizingEnabled = process.env.VITE_CF_IMAGE_RESIZING === "true";
+  // US-2333: read the flag from the file the BUILD read, not from this
+  // process. vitest never loads .env.production, so `process.env` was always
+  // undefined here and this suite silently asserted the "off" branch —
+  // including after the flag was turned on, when it failed claiming the build
+  // was wrong. The build is not wrong; the expectation was sourced from the
+  // wrong place. What this suite is actually for is "the build honoured the
+  // configured flag", so the configuration has to come from the config.
+  const resizingEnabled = (() => {
+    const fromEnv = process.env.VITE_CF_IMAGE_RESIZING;
+    if (fromEnv != null) return fromEnv === "true";
+    try {
+      const envFile = readFileSync(
+        resolve(process.cwd(), ".env.production"),
+        "utf8",
+      );
+      return /^\s*VITE_CF_IMAGE_RESIZING\s*=\s*"?true"?\s*$/m.test(envFile);
+    } catch {
+      return false;
+    }
+  })();
   it(`landing logo ${resizingEnabled ? "ships a Cloudflare-resized srcset" : "ships the original (resizing off)"}`, () => {
     // HTML attributes are case-insensitive; React's SSR emits `srcSet` (camel),
     // which browsers parse identically to `srcset`. Lowercase before matching.

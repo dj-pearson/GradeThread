@@ -31,12 +31,16 @@ pages_build_output_dir = "./dist"
 [vars]
 PUBLIC_SITE_URL = "https://gradethread.com"
 EDGE_API_URL = "https://functions.gradethread.com"
-# Flip to "true" only after enabling Image Resizing/Transformations on the zone
-# (gates the blog SSR /cdn-cgi/image srcset — see imageResizingEnabled()).
-VITE_CF_IMAGE_RESIZING = "false"
+# Gates the blog SSR /cdn-cgi/image srcset — see imageResizingEnabled().
+# VERIFIED LIVE 2026-08-03: Transformations ARE enabled on this zone.
+#   curl -sI "https://gradethread.com/cdn-cgi/image/width=320,format=auto/logo_primary.png"
+#   -> HTTP/1.1 200 OK, Content-Type: image/avif  (125,781 B -> 5,420 B, -95.7%)
+# The flag had been left "false" waiting on a dashboard step that was
+# already done, so every image shipped full-size in its original format.
+VITE_CF_IMAGE_RESIZING = "true"
 
 # Preview deployments inherit the same non-secret runtime config.
 [env.preview.vars]
 PUBLIC_SITE_URL = "https://gradethread.com"
 EDGE_API_URL = "https://functions.gradethread.com"
-VITE_CF_IMAGE_RESIZING = "false"
+VITE_CF_IMAGE_RESIZING = "true"
