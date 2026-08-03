@@ -53,12 +53,22 @@ migration set, so a fresh database starts in exactly that state.
 ## Dynamic-context suffixes
 
 Per-item context blocks are flag-gated and append suffixes to the REPORTED
-prompt_version (deterministic order): `+baseline` (US-1533, GRADING_BASELINES
-env), `+fabric` (US-1534, fires when a label fiber read exists), `+visual`
-(US-1537, `grading_composite_visual` system setting). The base version name
-never changes when a block is merely absent — prompts must be byte-identical
-with the feature off (test-guarded in garment-baselines_test /
-fabric-criteria_test / composite-visual-verification_test).
+prompt_version. There are FOUR, and the order is fixed by the concatenation in
+`ai-grading.ts` (`compositeGrade`), not by convention:
+
+`+baseline` (US-1533, GRADING_BASELINES env) → `+fabric` (US-1534, fires when a
+label fiber read exists) → `+visual` (US-1537, `grading_composite_visual` system
+setting) → `+tag` (US-2210, trusted label transcription).
+
+Order matters because `prompt_version` is what accuracy-tracking groups by: the
+same four blocks in a different order would report as a different era and split
+one version's history in two.
+
+The base version name never changes when a block is merely absent — prompts must
+be byte-identical with the feature off. Test-guarded per suffix in
+`garment-baselines_test` (+baseline), `fabric-criteria_test` (+fabric),
+`composite-visual-verification_test` (+visual) and `prompt-suffix-order_test`
+(+tag, plus the order above).
 
 ## Exemplar block (US-1067/US-1535)
 

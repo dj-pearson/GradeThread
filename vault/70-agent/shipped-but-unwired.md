@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/lib/authenticity-eval.ts
   - services/edge-functions/src/lib/title-sync.ts
   - src/test/no-dead-column-writes.test.ts
-reviewed: 2026-08-02
+reviewed: 2026-08-03
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one is a real unenforced guarantee, one is uncalled by design, one was a policy retirement that got deleted once a live switch started promising it — and telling the shapes apart is the point.
 ---

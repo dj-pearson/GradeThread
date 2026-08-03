@@ -8,7 +8,8 @@ code_refs:
   - services/edge-functions/src/lib/etsy-client.ts
   - services/edge-functions/src/lib/whatnot-client.ts
   - services/edge-functions/src/lib/crypto-aes.ts
-reviewed: 2026-08-02
+  - services/edge-functions/src/lib/token-refresh-race.ts
+reviewed: 2026-08-03
 tags: [marketplaces, oauth, contract, security]
 summary: Every marketplace connector shares one kill-switch, PKCE, token-encryption and refresh shape; new connectors copy it rather than inventing one.
 ---
@@ -39,6 +40,34 @@ procedure and the `v2:<keyId>:` format.
 **4. Refresh happens inline AND on a shared cron.** Inline covers the active
 seller; the cron covers the fleet so tokens do not expire while an account sits
 idle.
+
+That second half was **not true until 2026-08-03** (US-2322). All three sweeps
+selected connections expiring within 24 hours and then called a getter that only
+refreshed inside 60 seconds, so every run decrypted every active connection and
+renewed none of them. The getters now take `refreshWithinMs` and the sweep passes
+its own horizon. A new connector that copies the sweep must copy that too, or it
+inherits a cron that looks like a safety net and is not one.
+
+**4a. The refresh is single-flighted, and a lost race is not a lost grant.**
+Etsy, Whatnot and Depop all ROTATE the refresh token and invalidate the old one
+on first use. Two of our own callers refreshing at once therefore produced an
+`invalid_grant` for the loser, which every connector classified as PERMANENT —
+`is_active: false` and a reconnect message, i.e. the seller disconnected by our
+own concurrency with nothing wrong with their account.
+
+Two defences, in `lib/token-refresh-race.ts`:
+
+- `singleFlightRefresh` collapses concurrent refreshes for one connection inside
+  a replica. A rejected refresh is **not** cached, so a transient provider 503
+  does not become a disconnect for everyone waiting behind it.
+- `siblingRefreshWon` makes the race harmless across replicas: before
+  deactivating, re-read the row, and if a sibling stored a **different** and
+  still-valid token, use theirs and leave the connection active.
+
+A cross-replica advisory lock was considered and deliberately not built —
+`job_locks` belongs to the cron fleet, and a lock only makes the race rarer while
+the re-read makes it survivable. eBay is exempt from all of this: it does not
+rotate its refresh token.
 
 The fleet sweep is **bounded and ordered** (`TOKEN_REFRESH_SCAN_CAP = 5_000`,
 `.order("token_expires_at", { ascending: true })`) in all three clients. The

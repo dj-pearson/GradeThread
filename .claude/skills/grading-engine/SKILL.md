@@ -29,13 +29,19 @@ Tiers: NWT 10 · NWOT 9 · Excellent 8 · Very Good 7 · Good 6 · Fair 5 · Poo
 
 ## ⚠️ The three rounding sites — LOCKSTEP RULE
 
-The weighted-overall computation exists in THREE places that must stay
-byte-for-byte equivalent (same weights, same 0.1 rounding). Changing one means
-changing all three in the same commit:
+The weighted-overall computation exists in TWO real implementations that must
+stay byte-for-byte equivalent (same weights, same 0.1 rounding). Changing one
+means changing the other in the same commit:
 
 1. `services/edge-functions/src/lib/ai-grading.ts` → `roundToTenth`
 2. `services/edge-functions/src/lib/human-review.ts` → `computeWeightedOverall`
-3. `src/pages/admin/reviews.tsx` → `computeWeightedScore`
+
+The third site people still look for, `src/pages/admin/reviews.tsx` →
+`computeWeightedScore`, is now a ONE-LINE DELEGATION to the shared helper. It is
+not a third copy and must not be edited as one. `references/rounding-sites.md`
+has said so for a while; this body had not caught up (US-2308). If you find
+yourself changing arithmetic in reviews.tsx, you are re-forking the copy that
+delegation removed.
 
 The lockstep map (which implementations exist, and why it shipped wrong
 twice) is `vault/20-domain/weighted-overall-lockstep.md` — a drift-guarded
@@ -79,8 +85,12 @@ inert until they pass the eval gate and are explicitly activated
 
 - Confidence < **0.75** → `needs_human_review` (the flat threshold).
 - Additional forced-review triggers: defect-divergence, authenticity flags,
-  partial image set (cap 0.7), peer-norm outlier (cap 0.7, US-1536), ≥2
+  partial image set (cap **0.6**, `PARTIAL_IMAGE_CONFIDENCE_CAP`), peer-norm
+  outlier (cap 0.7, `PEER_NORM_CONFIDENCE_CAP`, US-1536), ≥2
   visual-verification discrepancies (US-1537).
+  The two caps are DIFFERENT numbers and both are named constants — this doc
+  said 0.7 for both, and so did peer-norm.ts's own comment, which claimed its
+  0.7 "matched" the partial-image cap it has never equalled (US-2308).
 - Caps COMPOSE via min-of-caps; penalties floor at 0. Never raise confidence
   post-composite. New caps: follow `composeConfidenceCap` (peer-norm.ts).
 - **The mechanism, not just the rule (US-2299).** "Never raise post-composite"

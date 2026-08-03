@@ -13,8 +13,14 @@
 // chunks. Kept pure so it is fully unit-testable with no DB / AI call.
 
 // Cap sits just under the 0.75 human-review threshold so a peer-norm outlier is
-// always routed to a reviewer — matching PARTIAL_IMAGE_CONFIDENCE_CAP and the
-// other confidence caps in grading-pipeline.ts (composed via min-of-caps).
+// always routed to a reviewer. It composes with the other caps in
+// grading-pipeline.ts via min-of-caps.
+//
+// US-2308: this comment used to say the value MATCHED PARTIAL_IMAGE_CONFIDENCE_CAP.
+// It never has — that one is 0.6 (ai-grading.ts). The claim was copied into the
+// grading-engine skill, which then documented 0.7 for both. Two caps that
+// compose by min do not need to be equal, and asserting they are is how a
+// reader concludes that changing one should change the other.
 export const PEER_NORM_CONFIDENCE_CAP = 0.7;
 
 export interface PeerNormConfig {

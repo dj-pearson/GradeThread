@@ -1888,6 +1888,27 @@ export function applyGradingConfidencePolicy(
 // lower confidence. Pure + unit-tested.
 export const PARTIAL_IMAGE_CONFIDENCE_CAP = 0.6;
 
+/**
+ * The dynamic-context suffix appended to the REPORTED `prompt_version`.
+ *
+ * US-2308: extracted from an inline concatenation in `compositeGrade` so the
+ * ORDER can be tested. It was already deterministic; it just was not checkable,
+ * and the order is not cosmetic — `prompt_version` is what accuracy-tracking
+ * groups by, so the same four blocks emitted in a different order would report
+ * as a different era and split one version's history in two.
+ *
+ * New suffixes APPEND. Inserting one in the middle silently rewrites what every
+ * previously-recorded version string means.
+ */
+export function promptVersionSuffix(
+  blocks: { baseline: boolean; fabric: boolean; visual: boolean; tag: boolean },
+): string {
+  return (blocks.baseline ? "+baseline" : "") +
+    (blocks.fabric ? "+fabric" : "") +
+    (blocks.visual ? "+visual" : "") +
+    (blocks.tag ? "+tag" : "");
+}
+
 export interface SettledImage {
   imageType: string;
   // The analysis result, or null when analyzeImage() rejected for this image.
@@ -2096,13 +2117,13 @@ export async function compositeGrade(
   const fabricBlock = fabricCriteriaBlock(perImageResults);
 
   // US-1533/US-1534/US-1537/US-2210: attribute baseline/fabric/visual/tag-era
-  // grades distinctly for the accuracy loop (deterministic suffix order — new
-  // suffixes APPEND so previously-recorded version strings keep their meaning).
-  const promptVersion = prompt.versionName +
-    (baselineBlock ? "+baseline" : "") +
-    (fabricBlock ? "+fabric" : "") +
-    (verificationImages.length > 0 ? "+visual" : "") +
-    (tagBlock ? "+tag" : "");
+  // grades distinctly for the accuracy loop.
+  const promptVersion = prompt.versionName + promptVersionSuffix({
+    baseline: !!baselineBlock,
+    fabric: !!fabricBlock,
+    visual: verificationImages.length > 0,
+    tag: !!tagBlock,
+  });
 
   // US-1067: when grading a real submission (no explicit override), append the
   // ACTIVE, eval-gated few-shot exemplar block for this category to the composite

@@ -2367,19 +2367,6 @@
       "notes": "[P3][Grading/Admin] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing."
     },
     {
-      "id": "US-2308",
-      "passes": false,
-      "title": "Fix grading-engine skill doc drift found by the contract audit",
-      "description": "Four documented facts are now wrong. SKILL.md:73 says the partial-image set caps confidence at 0.7; the code caps at 0.6 (ai-grading.ts:1838), and peer-norm.ts:16's comment repeats the error claiming its 0.7 matches PARTIAL_IMAGE_CONFIDENCE_CAP. SKILL.md:36-38 still names three rounding sites including src/pages/admin/reviews.tsx computeWeightedScore, which is now a one-line delegation; references/rounding-sites.md already says so but the SKILL body was not updated with it. references/prompt-lifecycle.md:29-36 omits a fourth dynamic-context suffix, +tag (US-2210), shipping at ai-grading.ts:2054. And prompt-lifecycle.md reads as if a CI gate exists when none does.",
-      "acceptanceCriteria": [
-        "All four corrections land in the skill and its references.",
-        "+visual and +tag get byte-identical-when-off regression tests, matching +baseline (garment-baselines_test.ts:108,120) and +fabric (fabric-criteria_test.ts:127).",
-        "A test asserts suffix concatenation order.",
-        "peer-norm.ts:16's comment is corrected or its 0.7 is derived from the constant."
-      ],
-      "notes": "[P3][Grading/Docs] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. Doc-only except the two missing suffix tests."
-    },
-    {
       "id": "US-2309",
       "passes": false,
       "title": "quick-grade bypasses every pipeline-level confidence control",
