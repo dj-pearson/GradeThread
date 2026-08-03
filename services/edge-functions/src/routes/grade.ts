@@ -1062,7 +1062,26 @@ gradeRoutes.post("/snap", async (c) => {
     garmentClassification = classification;
   } catch (err) {
     // Refund the reserved snap so a transient grading failure isn't counted.
-    await supabaseAdmin.rpc("refund_snap", { p_user_id: ownerId }).then(() => {}, () => {});
+    //
+    // US-2345 AC2: this used to be `.then(() => {}, () => {})` — both callbacks
+    // empty, so a refund that never happened looked exactly like one that did.
+    // The user is already being told the grade failed; what they must not also
+    // get is a silently consumed snap, and nobody would ever hear about it.
+    //
+    // Still non-blocking: the 502 below is the honest answer to the caller
+    // whether or not the refund lands, and holding the response on a second
+    // database call would make a bad path slower for no benefit. What changed is
+    // that a failure is now REPORTED — the user's snap balance is wrong and an
+    // operator can put it right, which they cannot do if nothing was recorded.
+    const { error: refundErr } = await supabaseAdmin.rpc("refund_snap", {
+      p_user_id: ownerId,
+    });
+    if (refundErr) {
+      captureException(refundErr, {
+        route: "grade.snap.refund",
+        tags: { user: ownerId },
+      });
+    }
     captureException(err, { route: "grade.snap", correlationId: readCtxVar(c, "correlationId") });
     return c.json({ error: "Couldn't grade that photo. Try a clearer, well-lit shot." }, 502);
   }

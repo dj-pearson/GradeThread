@@ -557,6 +557,14 @@ export async function sweepAffiliatePayouts(): Promise<SweepSummary> {
     .from("affiliate_payouts")
     .select("id, created_at")
     .in("status", ["pending", "failed"])
+    // US-2345 AC4: OLDEST FIRST, and the order is the whole point rather than
+    // tidiness. Without it Postgres returns an arbitrary set, and an arbitrary
+    // set from a stable plan is the SAME 500 rows every run — so past the cap
+    // an affiliate is not delayed, they are permanently starved, and nothing
+    // anywhere reports it. Oldest-first also matches what a retry queue should
+    // do: a payout that has been failing for a week outranks one that failed a
+    // minute ago.
+    .order("created_at", { ascending: true })
     .limit(SWEEP_LIMIT);
   for (
     const p of (openRaw ?? []) as Array<
@@ -599,6 +607,11 @@ export async function sweepAffiliatePayouts(): Promise<SweepSummary> {
     .eq("status", "accrued")
     .is("payout_id", null)
     .lte("hold_until", nowIso)
+    // US-2345 AC4: longest-waiting first. Same reasoning as the retry phase
+    // above — and it matters more here, because this phase has no age cap to
+    // eventually flush a row. An affiliate past the unordered cap would wait
+    // forever while the same 500 rows were re-read every sweep.
+    .order("hold_until", { ascending: true })
     .limit(SWEEP_LIMIT);
   const affiliateIds = new Set<string>();
   for (const r of (eligibleRaw ?? []) as Array<{ affiliate_user_id: string }>) {
