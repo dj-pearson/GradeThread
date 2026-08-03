@@ -219,7 +219,11 @@ export function AdminWaitlistPage() {
               {data?.gatingActive ? "ON" : "OFF"}
             </span>
           </div>
+          {/* US-2335: the words beside this are a sentence ("Gate is currently
+              ON"), not a label, so unnamed it announces "switch, on" with
+              nothing saying what is gated. */}
           <Switch
+            aria-label="Waitlist gating"
             checked={Boolean(data?.gatingActive)}
             disabled={working || isLoading}
             onCheckedChange={toggleGating}
@@ -304,7 +308,7 @@ export function AdminWaitlistPage() {
                 className="h-9 w-44"
               />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9 w-36" aria-label="Filter by status"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All statuses</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
@@ -314,7 +318,7 @@ export function AdminWaitlistPage() {
                 </SelectContent>
               </Select>
               <Select value={cohortFilter} onValueChange={setCohortFilter}>
-                <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9 w-36" aria-label="Filter by cohort"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All cohorts</SelectItem>
                   {cohortNames.map((n) => (

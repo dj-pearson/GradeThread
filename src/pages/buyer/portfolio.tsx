@@ -240,9 +240,13 @@ export function BuyerPortfolioPage() {
           <div className="space-y-2 border-t pt-4">
             <Label>Or add manually</Label>
             <div className="grid gap-2 sm:grid-cols-3">
-              <Input placeholder="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} />
-              <Input placeholder="Type" value={type} onChange={(e) => setType(e.target.value)} />
-              <Input placeholder="Size" value={size} onChange={(e) => setSize(e.target.value)} />
+              {/* US-2335: the <Label> above names the GROUP ("Or add
+                  manually"), not any one field, and a placeholder stops being
+                  announced on the first keystroke — so all three would go silent
+                  together the moment someone starts typing. */}
+              <Input aria-label="Brand" placeholder="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} />
+              <Input aria-label="Type" placeholder="Type" value={type} onChange={(e) => setType(e.target.value)} />
+              <Input aria-label="Size" placeholder="Size" value={size} onChange={(e) => setSize(e.target.value)} />
             </div>
             <div className="flex justify-end">
               <Button variant="outline" size="sm" onClick={addManual} disabled={isAdding}>
