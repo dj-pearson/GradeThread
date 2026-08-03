@@ -1,0 +1,301 @@
+// US-2359: every buyer route is either tier-gated or explicitly not.
+//
+// THE LEAK THIS CLOSES. `requireBuyerFeature` — the 402 upgrade-required guard —
+// was written, exported, and called by nothing. `BuyerGateFlags` declares
+// thirteen paid features; across seven buyer route files exactly ONE read a gate
+// flag. The demand board, a Connoisseur feature, had no gate on any of its four
+// routes. The purchase-guarantee claim, a Guard feature, had none either. So the
+// paid tiers were sold and not enforced.
+//
+// Dead security code is the worst kind of dead code: the helper's EXISTENCE is
+// what makes a reviewer believe the gating is handled. Nothing about reading
+// `buyer-wants.ts` says "this is ungated" — the absence is the bug, and absence
+// is what a diff never shows you.
+//
+// So the guard is an ENUMERATION over the whole route surface: every buyer route
+// is listed with either the feature that gates it or a stated reason it is
+// ungated, and the scan asserts the listed set IS the route set. A new buyer
+// route fails this test until its author answers the question — which is the
+// question that never got asked for thirteen features.
+//
+// WHY NOT DRIVE THE ROUTES. A live 402 assertion needs an authenticated request
+// against a seeded free-tier buyer, which needs the database. What can be
+// verified without one is stronger than it sounds: that the guard is CALLED, on
+// the right route, with the right feature name, and that the feature is one the
+// plan matrix actually withholds from someone.
+
+import { assert, assertEquals } from "@std/assert";
+import {
+  BUYER_PLAN_ENTITLEMENTS,
+  type BuyerFeature,
+  type BuyerPlanKey,
+} from "../lib/buyer-plans.ts";
+
+const ROUTES_DIR = new URL("../routes/", import.meta.url);
+
+interface RouteGate {
+  /** The route file, without the directory. */
+  readonly file: string;
+  /** Method + path exactly as the Hono registration spells it. */
+  readonly route: string;
+  /** The feature that gates it, or null when it is deliberately open. */
+  readonly feature: BuyerFeature | null;
+  /** Required when `feature` is null. Why this route is not gated. */
+  readonly why?: string;
+}
+
+const GATES: readonly RouteGate[] = [
+  // ── gated ────────────────────────────────────────────────────────────────
+  {
+    file: "buyer-wants.ts",
+    route: 'post("/wants"',
+    feature: "demandBoard",
+    why: "creating a want IS the demand board — Connoisseur only",
+  },
+  {
+    file: "buyer-wants.ts",
+    route: 'patch("/wants/:id"',
+    feature: "demandBoard",
+    why: "editing a want is the same feature as creating one",
+  },
+  {
+    file: "buyer-purchases.ts",
+    route: 'post("/purchases/:id/claim"',
+    feature: "purchaseGuarantee",
+    why: "filing a claim IS the guarantee — Guard and up",
+  },
+
+  // ── ungated, with the reason ─────────────────────────────────────────────
+  {
+    file: "buyer-wants.ts",
+    route: 'get("/wants"',
+    feature: null,
+    why:
+      "a downgraded buyer still owns the wants they created; a 402 here would " +
+      "hide their own data from them. Gate creation, never retrieval.",
+  },
+  {
+    file: "buyer-wants.ts",
+    route: 'delete("/wants/:id"',
+    feature: null,
+    why:
+      "same rule, sharper: a 402 on delete turns a billing state into data the " +
+      "buyer cannot clean up.",
+  },
+  {
+    file: "buyer-authenticity.ts",
+    route: 'post("/authenticity"',
+    feature: null,
+    why:
+      "gated, but by its own inline check returning 403 not_entitled. NOT " +
+      "converted to requireBuyerFeature: that would change the status to 402, " +
+      "which the buyer web and iOS clients may branch on. A status-code change " +
+      "is a client contract change and belongs in its own story, not in a " +
+      "sweep. The flag it reads is authenticityAddon.",
+  },
+  {
+    file: "buyer-closet.ts",
+    route: 'get("/closet/valuation"',
+    feature: null,
+    why: "wardrobePortfolio is true on every tier — a gate would never deny",
+  },
+  {
+    file: "buyer-closet.ts",
+    route: 'get("/closet/export.csv"',
+    feature: null,
+    why: "wardrobePortfolio is true on every tier; also a data-export path",
+  },
+  {
+    file: "buyer-closet.ts",
+    route: 'post("/closet/:id/list"',
+    feature: null,
+    why: "promotes a closet item into FlipDesk; the seller side owns its own gate",
+  },
+  {
+    file: "buyer-closet.ts",
+    route: 'post("/closet"',
+    feature: null,
+    why: "wardrobePortfolio is true on every tier; the CAP is an allowance, not a gate",
+  },
+  {
+    file: "buyer-closet.ts",
+    route: 'delete("/closet/:id"',
+    feature: null,
+    why: "never gate removing your own data — a 402 here strands the closet",
+  },
+  {
+    file: "buyer-profile.ts",
+    route: 'post("/extension-token"',
+    feature: null,
+    why: "extensionSecondOpinion is true on every tier; the free quota is an allowance",
+  },
+  {
+    file: "buyer-profile.ts",
+    route: 'get("/profile"',
+    feature: null,
+    why: "reading your own buyer account is not a feature any tier withholds",
+  },
+  {
+    file: "buyer-profile.ts",
+    route: 'post("/profile"',
+    feature: null,
+    why: "editing your own buyer account is not a feature any tier withholds",
+  },
+  {
+    file: "buyer-purchases.ts",
+    route: 'post("/purchases"',
+    feature: null,
+    why: "recording a purchase is the base loop every tier is sold on",
+  },
+  {
+    file: "buyer-purchases.ts",
+    route: 'get("/impact"',
+    feature: null,
+    why: "circularity impact (US-1842) has no flag in BuyerGateFlags",
+  },
+  {
+    file: "buyer-purchases.ts",
+    route: 'post("/purchases/:id/arrival"',
+    feature: null,
+    why: "logging an arrival is part of the base purchase loop every tier gets",
+  },
+  {
+    file: "buyer-purchases.ts",
+    route: 'post("/purchases/:id/confirm"',
+    feature: null,
+    why: "part of the base purchase loop; also feeds the guarantee evidence",
+  },
+  {
+    file: "buyer-rewards.ts",
+    route: 'post("/rewards/leaderboard"',
+    feature: null,
+    why: "rewards is true on every tier, so a gate would never deny anyone",
+  },
+  {
+    file: "buyer-rewards.ts",
+    route: 'get("/rewards/leaderboard"',
+    feature: null,
+    why: "rewards is true on every tier, so a gate would never deny anyone",
+  },
+  {
+    file: "buyer-trust.ts",
+    route: 'post("/trust-signals"',
+    feature: null,
+    why: "trustScore is true on every tier, so a gate would never deny anyone",
+  },
+];
+
+const FILES = [...new Set(GATES.map((g) => g.file))].sort();
+
+async function read(file: string): Promise<string> {
+  return await Deno.readTextFile(new URL(file, ROUTES_DIR));
+}
+
+/**
+ * Every Hono route registration in a buyer route file.
+ *
+ * Anchored to the `…Routes.` receiver rather than to a bare `.get(`, which also
+ * matched `c.get("userId")` in every handler — the first version reported a
+ * phantom route on every file. Over-matching here is not harmless: it would put
+ * the guard permanently red, and a permanently red guard gets deleted.
+ */
+function registrations(src: string): string[] {
+  return [
+    ...src.matchAll(/\w*Routes\.(get|post|patch|put|delete)\((["'][^"']+["'])/g),
+  ].map((m) => `${m[1]}(${m[2]!.replace(/'/g, '"')}`);
+}
+
+Deno.test("US-2359: the declared route set IS the route set", async () => {
+  // The assertion that makes this guard durable. A new buyer route lands here
+  // as a failure until someone says whether it is gated — the question that
+  // was never asked while thirteen paid features shipped ungated.
+  for (const file of FILES) {
+    const found = registrations(await read(file)).sort();
+    const declared = GATES.filter((g) => g.file === file)
+      .map((g) => g.route)
+      .sort();
+    assertEquals(
+      found,
+      declared,
+      `${file}: routes and declarations disagree. Add the new route to GATES ` +
+        `with its feature, or with a reason it is open.`,
+    );
+  }
+});
+
+Deno.test("US-2359: every gated route actually calls the guard", async () => {
+  for (const g of GATES.filter((x) => x.feature)) {
+    const src = await read(g.file);
+    const at = src.indexOf(g.route);
+    assert(at > -1, `${g.file}: ${g.route} not found`);
+    // The handler body, up to the next registration in the same file.
+    const rest = src.slice(at);
+    const nextAt = rest.slice(1).search(/\n\w+Routes\.(get|post|patch|put|delete)\(/);
+    const body = nextAt === -1 ? rest : rest.slice(0, nextAt + 1);
+    assert(
+      body.includes(`requireBuyerFeature(c, "${g.feature}")`),
+      `${g.file} ${g.route} is declared gated on ${g.feature} but does not call ` +
+        `requireBuyerFeature with it`,
+    );
+    assert(
+      body.includes("instanceof Response"),
+      `${g.file} ${g.route} calls the guard but does not RETURN its refusal — ` +
+        `requireBuyerFeature returns a Response to be returned, not to be ignored`,
+    );
+  }
+});
+
+Deno.test("US-2359: a gate is only claimed for a feature some tier lacks", () => {
+  // Guards against a gate that reads as protection and denies nobody. If a flag
+  // is true on every tier, gating a route on it is decoration plus a database
+  // round trip.
+  const tiers = Object.keys(BUYER_PLAN_ENTITLEMENTS) as BuyerPlanKey[];
+  for (const g of GATES) {
+    if (!g.feature) continue;
+    const withheld = tiers.filter(
+      (t) => !BUYER_PLAN_ENTITLEMENTS[t].gateFlags[g.feature!],
+    );
+    assert(
+      withheld.length > 0,
+      `${g.route} is gated on ${g.feature}, which every tier already has — ` +
+        `the gate denies nobody and costs a query`,
+    );
+  }
+});
+
+Deno.test("US-2359: every ungated route states why", () => {
+  for (const g of GATES) {
+    if (g.feature) continue;
+    assert(
+      (g.why ?? "").length > 30,
+      `${g.file} ${g.route} is declared ungated with no real reason. "Ungated" ` +
+        `without a reason is how the original thirteen happened.`,
+    );
+  }
+});
+
+Deno.test("US-2359: the two features the audit named are enforced somewhere", async () => {
+  // Named rather than inferred, so a future refactor that drops one of them
+  // fails on the specific finding this story exists for.
+  const wants = await read("buyer-wants.ts");
+  const purchases = await read("buyer-purchases.ts");
+  assert(
+    wants.includes('requireBuyerFeature(c, "demandBoard")'),
+    "the demand board is ungated again — it is Connoisseur-only",
+  );
+  assert(
+    purchases.includes('requireBuyerFeature(c, "purchaseGuarantee")'),
+    "the guarantee claim is ungated again — it is Guard and up",
+  );
+});
+
+Deno.test("US-2359: the free tier really does lack what we gate on", () => {
+  // Pins the matrix rows the two gates depend on. If demandBoard were flipped
+  // true on free, the gates above would silently stop denying anyone and the
+  // route tests would still pass.
+  assertEquals(BUYER_PLAN_ENTITLEMENTS.free.gateFlags.demandBoard, false);
+  assertEquals(BUYER_PLAN_ENTITLEMENTS.guard.gateFlags.demandBoard, false);
+  assertEquals(BUYER_PLAN_ENTITLEMENTS.connoisseur.gateFlags.demandBoard, true);
+  assertEquals(BUYER_PLAN_ENTITLEMENTS.free.gateFlags.purchaseGuarantee, false);
+  assertEquals(BUYER_PLAN_ENTITLEMENTS.guard.gateFlags.purchaseGuarantee, true);
+});

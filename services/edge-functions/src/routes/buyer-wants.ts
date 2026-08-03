@@ -9,12 +9,19 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { hasCriteria, normalizeWantInput } from "../lib/demand-board.ts";
 import { computeWantMatches } from "../lib/demand-board-db.ts";
+import { requireBuyerFeature } from "../lib/buyer-entitlements.ts";
 
 type BuyerEnv = { Variables: { userId: string } };
 export const buyerWantsRoutes = new Hono<BuyerEnv>();
 
 const MAX_ACTIVE_WANTS = 25;
 
+// DELIBERATELY UNGATED, both here and on DELETE below. A buyer who downgrades
+// still owns the wants they created, and a 402 on read or delete would leave
+// them unable to see or clean up their own data — the gate would have turned a
+// billing state into data loss. The rule this follows: gate the paths that
+// CREATE or CONSUME a paid feature, never the ones that read or remove what the
+// buyer already has.
 buyerWantsRoutes.get("/wants", async (c) => {
   const userId = c.get("userId");
   const { data, error } = await supabaseAdmin
@@ -27,6 +34,11 @@ buyerWantsRoutes.get("/wants", async (c) => {
 });
 
 buyerWantsRoutes.post("/wants", async (c) => {
+  // US-2359: the demand board is a Connoisseur feature and had no gate on any
+  // of its four routes, so every tier had it. Gating the WRITE paths only is
+  // deliberate — see the note above GET /wants.
+  const gate = await requireBuyerFeature(c, "demandBoard");
+  if (gate instanceof Response) return gate;
   const userId = c.get("userId");
   let body: unknown;
   try {
@@ -76,6 +88,8 @@ buyerWantsRoutes.post("/wants", async (c) => {
 
 // Manage a want's lifecycle (expire / re-activate / mark fulfilled).
 buyerWantsRoutes.patch("/wants/:id", async (c) => {
+  const gate = await requireBuyerFeature(c, "demandBoard");
+  if (gate instanceof Response) return gate;
   const userId = c.get("userId");
   const id = c.req.param("id");
   let body: { status?: string };
@@ -99,6 +113,7 @@ buyerWantsRoutes.patch("/wants/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// Ungated on purpose — see the note above GET /wants.
 buyerWantsRoutes.delete("/wants/:id", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");

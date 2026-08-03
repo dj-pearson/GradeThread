@@ -16,6 +16,7 @@ import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { snapshotCoverageForPurchase } from "../lib/buyer-guarantee-coverage.ts";
 import { recordBuyerGradeOutcome } from "../lib/buyer-grade-confirmation.ts";
 import { fileBuyerGuaranteeClaim } from "../lib/buyer-guarantee-claim.ts";
+import { requireBuyerFeature } from "../lib/buyer-entitlements.ts";
 import { summarizeUserImpact } from "../lib/impact-estimate.ts";
 
 export const ARRIVAL_IMAGE_TYPES = ["front", "back", "label", "detail"] as const;
@@ -294,6 +295,11 @@ buyerPurchasesRoutes.post("/purchases/:id/confirm", async (c) => {
 // Ownership FIRST (foreign id → 0 rows → 404). The remedy decision rides the
 // confirm evidence + frozen coverage; auto-approved claims grant reward credits.
 buyerPurchasesRoutes.post("/purchases/:id/claim", async (c) => {
+  // US-2359: filing a claim is the purchase guarantee, which is Guard and up.
+  // The gate goes BEFORE the ownership read: a free-tier buyer should be told
+  // to upgrade, not told whether some other buyer's purchase id exists.
+  const gate = await requireBuyerFeature(c, "purchaseGuarantee");
+  if (gate instanceof Response) return gate;
   const userId = c.get("userId");
   const purchaseId = c.req.param("id");
 
