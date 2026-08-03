@@ -75,6 +75,11 @@ if (on("web")) {
   run("web: production build (incl. prerender)", "npm run build");
   run("web: vitest + coverage", "npm run test:coverage");
   run("web: bundle-size budget + code-splitting", "node scripts/check-bundle-budget.mjs");
+  // US-2336: the UI anti-pattern gate. Blocks on the tells the project's own
+  // guidance rules out (side tabs, gradient text, nested cards); reports the
+  // rest against a recorded noise baseline. Runs here rather than as a bare
+  // impeccable call so one noisy rule cannot block a deploy.
+  run("web: UI anti-patterns (impeccable)", "node scripts/check-ui-antipatterns.mjs");
   run("web: npm audit (high)", "npm audit --audit-level=high");
 }
 

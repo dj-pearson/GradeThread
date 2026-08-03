@@ -655,7 +655,7 @@ export function LandingPage() {
             differentiator rather than the opening claim. */}
         <h1 className="gt-hero-lift max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl font-display">
           Photograph it.{" "}
-          <span className="bg-gradient-to-r from-brand-red to-rose-500 bg-clip-text text-transparent drop-shadow-sm">We'll write the listing.</span>
+          <span className="text-brand-red-text">We'll write the listing.</span>
         </h1>
         <p className="gt-hero-rise gt-hero-rise-2 mt-6 max-w-xl text-lg text-muted-foreground">
           {/* US-2043 still binds: no reproducibility claim ("the same grade

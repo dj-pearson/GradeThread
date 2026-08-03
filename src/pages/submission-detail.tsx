@@ -1582,7 +1582,7 @@ export function SubmissionDetailPage() {
 
       {/* Dispute Status */}
       {dispute && (
-        <Card className="border-l-4 border-l-yellow-500">
+        <Card className="border-yellow-500/60 bg-yellow-500/5">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">

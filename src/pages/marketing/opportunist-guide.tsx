@@ -46,7 +46,7 @@ function OpportunistGuideView({ guide }: { guide: OpportunistGuide }) {
             {guide.h1}
           </h1>
           {/* Quotable definition block (AI-citable answer). */}
-          <p className="mt-6 rounded-xl border-l-4 border-brand-navy bg-muted/30 p-5 text-lg text-foreground dark:border-foreground">
+          <p className="mt-6 rounded-xl bg-muted/40 p-5 text-lg font-medium text-foreground">
             {guide.definition}
           </p>
           <p className="mt-6 text-muted-foreground">{guide.intro}</p>

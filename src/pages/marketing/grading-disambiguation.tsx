@@ -19,7 +19,7 @@ import {
 // A reusable quotable definition callout (the snippet + AI-citation unit).
 function DefinitionBlock({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mt-6 rounded-lg border-l-4 border-brand-red bg-card p-5 text-lg text-foreground">
+    <p className="mt-6 rounded-lg bg-muted/40 p-5 text-lg font-medium text-foreground">
       {children}
     </p>
   );

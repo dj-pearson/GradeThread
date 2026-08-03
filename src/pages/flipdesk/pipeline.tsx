@@ -140,22 +140,6 @@ function csvCell(v: unknown): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-const STATUS_ACCENT: Partial<Record<ItemStatus, string>> = {
-  sourced: "border-l-slate-400",
-  acquired: "border-l-slate-400",
-  cataloged: "border-l-sky-400",
-  measured: "border-l-sky-500",
-  photographed: "border-l-indigo-500",
-  grading: "border-l-violet-500",
-  graded: "border-l-violet-600",
-  comped: "border-l-amber-500",
-  drafted: "border-l-orange-500",
-  listed: "border-l-emerald-500",
-  sold: "border-l-emerald-600",
-  shipped: "border-l-emerald-700",
-  completed: "border-l-zinc-500",
-  returned: "border-l-rose-500",
-};
 
 export function FlipdeskPipelinePage() {
   const user = useAuthStore((s) => s.user);
@@ -1035,13 +1019,16 @@ function ItemCardVisual({
     fmtMoney(item.purchase_price);
   const age = daysSince(item.updated_at);
   const aging = age != null && age >= 14;
-  const accent = STATUS_ACCENT[item.status] ?? "border-l-slate-300";
-
+  // US-2336: the status accent used to be a 4px coloured left border. It said
+  // nothing the card did not already say — every card sits inside a LABELLED
+  // per-status column, so the tab restated its own container. (The one column
+  // holding two statuses, Sourced + acquired, gave them the SAME colour, so it
+  // did not disambiguate there either.) Removing it drops the most
+  // recognizable AI-default tell without losing a single bit of information.
   return (
     <div
       className={cn(
-        "rounded-md border border-l-4 bg-card p-2.5 pl-6 text-left transition-shadow",
-        accent,
+        "rounded-md border bg-card p-2.5 text-left transition-shadow",
         dragging && "shadow-lg ring-2 ring-brand-navy",
       )}
     >

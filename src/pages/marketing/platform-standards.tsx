@@ -116,7 +116,7 @@ function PlatformStandardView({ std }: { std: PlatformStandard }) {
             {std.h1}
           </h1>
           {/* Quotable answer block (AI-citable). */}
-          <p className="mt-6 rounded-xl border-l-4 border-brand-navy bg-muted/30 p-5 text-lg text-foreground dark:border-foreground">
+          <p className="mt-6 rounded-xl bg-muted/40 p-5 text-lg font-medium text-foreground">
             {std.definition}
           </p>
           <p className="mt-6 text-muted-foreground">{std.intro}</p>

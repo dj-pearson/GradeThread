@@ -235,8 +235,10 @@ export function ListingSuggestions({
             <div
               key={suggestion.id}
               className={cn(
-                "flex items-start gap-3 rounded-lg border-l-4 p-3",
-                styles.border,
+                // US-2336: was a 4px coloured left border. Severity now reads
+                // from the tinted surface and the icon that is already in the
+                // row, so the tell goes without the signal going.
+                "flex items-start gap-3 rounded-lg p-3",
                 styles.bg
               )}
             >
@@ -329,7 +331,9 @@ export function InventoryItemSuggestions({
         return (
           <Card
             key={suggestion.id}
-            className={cn("border-l-4", styles.border, styles.bg)}
+            // US-2336: severity reads from the tinted surface and the
+            // coloured icon in the title row, not a side tab.
+            className={cn(styles.bg)}
           >
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center justify-between text-base">
