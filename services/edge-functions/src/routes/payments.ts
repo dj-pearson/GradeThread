@@ -1571,6 +1571,29 @@ paymentRoutes.post("/flipdesk/cancel", async (c) => {
 
   const { data: user, error: userError } = await loadUser(userId);
   if (userError || !user) return c.json({ error: "User not found" }, 404);
+
+  // US-2125 AC4: cancellation must be available in the SAME MEDIUM as signup,
+  // and an in-app subscriber must be SENT there rather than told they have
+  // nothing.
+  //
+  // These guards existed on the subscribe and plan-change paths but not on
+  // cancel, and the gap had a specific, bad shape: an App Store subscriber has
+  // no flipdesk_subscription_id, so they fell to the check below and were told
+  // "No subscription to cancel" — while Apple carried on billing them monthly.
+  // A user who believes that message reasonably concludes they are not
+  // subscribed, and the next thing they hear is a renewal receipt.
+  //
+  // Apple and Google both REQUIRE cancellation to happen on-platform, so the
+  // honest answer is not an error at all: it is where to go. Same 409 +
+  // `action` contract the purchase paths already return, which the clients
+  // already branch on.
+  if (appstoreSubscriptionBlocksStripe(user)) {
+    return c.json({ error: "ACTIVE_APPSTORE_SUBSCRIPTION", action: "manage_in_app" }, 409);
+  }
+  if (googleplaySubscriptionActive(user)) {
+    return c.json({ error: "ACTIVE_GOOGLEPLAY_SUBSCRIPTION", action: "manage_in_play" }, 409);
+  }
+
   if (!user.flipdesk_subscription_id) {
     return c.json({ error: "No subscription to cancel" }, 400);
   }
