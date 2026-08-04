@@ -141,6 +141,13 @@ if (slack >= 5) {
 const MONEY_FLOORS = {
   "lib/affiliate-payout.ts": 11,
   "lib/quick-grade.ts": 12,
+  // US-2345 AC1: the admin manual-refund SEQUENCE, extracted from
+  // admin-billing.ts so its failure branches could be reached without Stripe.
+  // Measured at 97.9% line — floored just below, so adding an untested branch
+  // drops the percentage and fails rather than riding on the existing margin.
+  // admin-billing.ts itself stays in MONEY_DEBT: nothing imports it, this test
+  // reads it as TEXT, so its own coverage is still zero.
+  "lib/admin-charge-refund.ts": 97,
 };
 const MONEY_DEBT = new Set([
   // ~1,400 lines. The charge/refund path. AC1 of US-2345 owns this; the work is

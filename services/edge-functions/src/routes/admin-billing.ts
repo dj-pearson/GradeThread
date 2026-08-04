@@ -24,6 +24,11 @@ import {
   normalizeRefundAmount,
   refundIdempotencyKey,
 } from "../lib/refund-amount.ts";
+import {
+  type AdminRefundIO,
+  performAdminChargeRefund,
+  refundableCeiling,
+} from "../lib/admin-charge-refund.ts";
 
 const SITE_URL = Deno.env.get("SITE_URL") ?? "https://gradethread.com";
 
@@ -837,14 +842,30 @@ adminBillingRoutes.post("/charges/:id/refund", requireScope("billing:write"), as
   // is actually still refundable. Without this there was no ceiling at all — a
   // typo'd extra digit went straight to Stripe, and a charge already partly
   // refunded would fail only AFTER the audit-log entry was written.
-  let remainingCents: number | null = null;
-  try {
-    const charge = await stripe.charges.retrieve(chargeId);
-    remainingCents = (charge.amount ?? 0) - (charge.amount_refunded ?? 0);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return c.json({ error: `Could not read charge: ${msg}` }, 502);
+  // US-2345 AC1: the sequence lives in lib/admin-charge-refund.ts so its
+  // failure branches are testable without Stripe. Behaviour is unchanged.
+  const io: AdminRefundIO = {
+    retrieveCharge: (id) => stripe.charges.retrieve(id),
+    createRefund: ({ chargeId: id, amount, metadata, idempotencyKey }) =>
+      stripe.refunds.create(
+        {
+          charge: id,
+          ...(amount !== undefined ? { amount } : {}),
+          reason: "requested_by_customer",
+          metadata,
+        },
+        { idempotencyKey },
+      ),
+    writeAudit: async (details) => {
+      await auditLog(c, "admin.refund_charge", "charge", chargeId, details);
+    },
+  };
+
+  const ceiling = await refundableCeiling(chargeId, io);
+  if (!ceiling.ok) {
+    return c.json({ error: `Could not read charge: ${ceiling.message}` }, 502);
   }
+  const remainingCents: number | null = ceiling.remainingCents;
 
   // US-2294: `amount: 0` used to be FALSY, so the field was dropped and Stripe
   // read the request as a full refund — an admin typing 0 refunded the whole
@@ -853,43 +874,23 @@ adminBillingRoutes.post("/charges/:id/refund", requireScope("billing:write"), as
   const parsed = normalizeRefundAmount(body.amount, remainingCents);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
-  try {
-    const refund = await stripe.refunds.create(
-      {
-        charge: chargeId,
-        ...(parsed.kind === "partial" ? { amount: parsed.amount } : {}),
-        reason: "requested_by_customer",
-        metadata: {
-          admin_id: adminId,
-          ...(refundReason ? { admin_reason: refundReason } : {}),
-        },
-      },
-      // US-1641: idempotency so a double-click / retry can't issue a second
-      // refund. Keyed on (charge, amount) — a distinct partial amount still goes
-      // through, but an identical resubmit within Stripe's 24h window is replayed,
-      // not re-charged. US-2294 moved the key next to the validator, because the
-      // old spelling produced `:0` for an amount Stripe executed as a FULL
-      // refund — a different key for the same effect, so the double-click guard
-      // was bypassed by the exact input that caused the bug.
-      { idempotencyKey: refundIdempotencyKey(chargeId, parsed) },
-    );
-
-    await auditLog(c, "admin.refund_charge", "charge", chargeId, {
-      refund_id: refund.id,
-      amount: refund.amount,
+  const result = await performAdminChargeRefund(
+    chargeId,
+    {
+      parsed,
       reason: refundReason,
-    });
-
-    return c.json({
-      ok: true,
-      refund_id: refund.id,
-      amount: refund.amount,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[admin-billing] refund failed:", msg);
-    return c.json({ error: `Refund failed: ${msg}` }, 500);
+      adminId,
+      // US-2294: derived next to the validator, because the two drifted once and
+      // produced a different key for the same effect.
+      idempotencyKey: refundIdempotencyKey(chargeId, parsed),
+    },
+    io,
+  );
+  if (!result.ok) {
+    console.error("[admin-billing] refund failed:", result.message);
+    return c.json({ error: `Refund failed: ${result.message}` }, result.status);
   }
+  return c.json({ ok: true, refund_id: result.refundId, amount: result.amount });
 });
 
 // ── GET /coupons (US-223) ────────────────────────────────────────
