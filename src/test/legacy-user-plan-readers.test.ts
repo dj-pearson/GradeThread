@@ -42,10 +42,10 @@ const LEGACY_READ =
  */
 const KNOWN: Record<string, string> = {
   "00513_admin_dashboard_aggregates.sql":
-    "planDistribution + topUsers[].plan — US-2398 AC1 moves these to flipdesk_plan",
+    "SUPERSEDED by 00525 (US-2398). Migrations are immutable, so the old text " +
+    "stays on disk; admin_platform_analytics now reads flipdesk_plan",
   "00514_admin_metrics_service_role_guard.sql":
-    "totalPaid + churnFreeWithActivity — US-2398 AC1, and the churn numerator is " +
-    "the sharpest of the four",
+    "SUPERSEDED by 00525 (US-2398). admin_system_metrics now reads flipdesk_plan",
   "00147_admin_aggregates.sql":
     "superseded revision of the 00514 aggregate; kept because migrations are " +
     "immutable, and it no longer defines the live function",
@@ -100,6 +100,24 @@ describe("US-2398: the frozen users.plan column", () => {
         "was migrated (delete the entry) or the filename is wrong, in which " +
         "case the exemption was never protecting what it claimed to",
     ).toEqual([]);
+  });
+
+  it("US-2398: the REPLACEMENT migration is not itself a reader", () => {
+    // The fix is only a fix if 00525 stopped reading the frozen column. Since
+    // the superseded definitions stay on disk forever, the KNOWN list alone
+    // cannot tell "replaced" from "still broken" — this is what distinguishes
+    // them.
+    const sql = readFileSync(
+      resolve(MIGRATIONS, "00525_admin_metrics_flipdesk_plan.sql"),
+      "utf8",
+    ).replace(/--[^\n]*/g, "");
+    LEGACY_READ.lastIndex = 0;
+    expect(
+      LEGACY_READ.test(sql),
+      "00525 still reads users.plan — it was written to stop doing exactly that",
+    ).toBe(false);
+    // And it must actually read the live column, not merely avoid the dead one.
+    expect(sql).toMatch(/flipdesk_plan/);
   });
 
   it("MRR is NOT one of the readers", () => {

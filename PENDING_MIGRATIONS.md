@@ -1,7 +1,34 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**One pending: 00524.** 00515 through 00523 were all applied to prod on
-2026-08-03 (owner-confirmed).
+**Two pending: 00524 and 00525.** 00515 through 00523 were all applied to prod
+on 2026-08-03 (owner-confirmed).
+
+## 00525 — admin metrics read flipdesk_plan (US-2398)
+
+**Risk: LOW. Read-path only, and it CORRECTS numbers rather than changing
+behaviour.** Two `CREATE OR REPLACE FUNCTION` statements
+(`admin_system_metrics`, `admin_platform_analytics`) and nothing else — no
+table, column, index or data change. Safe to re-run.
+
+**What it fixes.** `users.plan` has not been written since the 00039 backfill:
+no update in the edge service, no `SET` in any migration. It is `NOT NULL
+DEFAULT 'free'`, so every account created since carries the default. SIX
+metrics read it, two of which an operator acts on — the paid-user count and the
+churn numerator. Both errors run the same direction (fewer paying users, more
+churn), so the dashboard has been telling a consistent story about a business
+doing worse than it is. MRR was never affected; it already priced off
+`flipdesk_plan`, which is why nobody noticed.
+
+**Expect the numbers to MOVE on apply.** Paid users up, churn down, and the
+plan mix relabelled: `professional`/`enterprise` disappear because those were
+the frozen vocabulary — the live tiers are `pro`/`business`. Nothing is being
+recalculated retroactively; the dashboard simply starts reading the column the
+rest of the system uses.
+
+**Apply order:** after 00524. No `NOTIFY pgrst` needed for the functions
+themselves, but harmless to run.
+
+
 
 > [!warning] 00522 reached origin/main BEFORE it was applied — the second time
 > A concurrent agent pushed the branch while 00522 was still marked held, the
@@ -11,7 +38,7 @@
 > breaks. Twice is a pattern, not a coincidence — the hold rule cannot be
 > enforced by an agent that does not own the push.
 
-`EXPECTED_SCHEMA_VERSION` is **00522**, matching the highest migration in the
+`EXPECTED_SCHEMA_VERSION` is **00525**, matching the highest migration in the
 tree. The edge needs a redeploy to pick that up: until it does, the database
 is AHEAD of the running image, which the boot guard treats as a warning and
 serves through. The reverse — an edge that expects a version the database does
