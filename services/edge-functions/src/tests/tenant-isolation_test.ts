@@ -664,6 +664,124 @@ Deno.test({
 });
 
 Deno.test({
+  // US-2014 AC1: /api/flipdesk/images/archive is the images group's MUTATING
+  // route and the one worth a case. It moves photos to R2 and REWRITES
+  // photo_url to an unauthenticated public URL, so a cross-tenant reach would
+  // not merely read A's data — it would republish A's images at a new address
+  // and delete the Supabase originals.
+  //
+  // Like /export and /equity it takes no resource id: eligibility comes from
+  // the caller, via `.eq("inventory_items.user_id", userId)` on the join. So
+  // assertDenied is meaningless here and CONTAINMENT is the property — B's own
+  // archive run must never mention a photo of A's.
+  //
+  // Asserted on the RESPONSE BODY rather than the status, because the failure
+  // this guards against returns 200: a scoping bug would archive A's photos and
+  // report a perfectly healthy count.
+  name: "B's image archive touches NONE of A's photos",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_PHOTO_ID"),
+  fn: async () => {
+    const aPhoto = Deno.env.get("TEST_USER_A_PHOTO_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/images/archive`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    // 503 = R2 not configured in this environment. A skip, not a pass: the
+    // ownership scoping sits AFTER the config guard, exactly as remove-bg does.
+    if (res.status === 503) {
+      await res.body?.cancel();
+      return;
+    }
+    const text = await res.text();
+    assertEquals(res.status, 200, `B's own archive must succeed: ${text}`);
+    assert(
+      !text.includes(aPhoto),
+      `B's archive response names A's photo ${aPhoto} — the eligibility join ` +
+        `is no longer scoped to the caller, so A's images were republished to ` +
+        `a public R2 URL and their originals deleted`,
+    );
+  },
+});
+
+Deno.test({
+  // US-2014 AC1: the equity case above pins only that the route is
+  // authenticated, with a stated reason — a containment check "needs seeded
+  // values to compare against". It does not, and this is the stronger property
+  // that needs no fixture at all.
+  //
+  // computeEquityForOwner aggregates the CALLER's inventory. If the user_id
+  // scoping were ever dropped, every caller would receive the SAME platform-wide
+  // total — so two different tenants seeing identical numbers is the signature
+  // of exactly that bug. A leak here returns 200 with a plausible figure, which
+  // is why the auth-only case could not catch it.
+  //
+  // Guarded against a false alarm: two tenants can legitimately match when both
+  // are empty, so the assertion only bites when at least one side is non-zero.
+  // That makes it silent on a bare fixture rather than flaky, which is the trade
+  // that keeps a probe alive.
+  name: "A and B do not receive the same equity aggregate",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const read = async (jwt: string) => {
+      const res = await fetch(`${BASE}/api/flipdesk/equity/`, {
+        headers: authHeaders(jwt),
+      });
+      const text = await res.text();
+      return { status: res.status, text };
+    };
+    const a = await read(A_JWT!);
+    const b = await read(B_JWT!);
+
+    // 402/404 = the plan gate or the feature flag, not a tenancy answer.
+    if (a.status !== 200 || b.status !== 200) return;
+
+    // BOTH SPELLINGS. GET /equity/ returns computeEquityForOwner, whose field
+    // is `totalEquityCents`; only the /trend snapshot rows use the snake_case
+    // `total_equity_cents`. My first version matched snake_case only — so the
+    // parse always returned 0, both sides looked empty, and the case exited
+    // early EVERY time. A probe that never reaches its assertion is the exact
+    // failure this suite exists to catch, written into the suite itself.
+    const KEY = /"(?:totalEquityCents|total_equity_cents)"\s*:\s*(-?\d+)/;
+    const total = (body: string) => {
+      const m = body.match(KEY);
+      return m ? Number(m[1]) : null;
+    };
+    const [ta, tb] = [total(a.text), total(b.text)];
+
+    // Neither response carries the field the probe reads. That is a SHAPE
+    // change, not an empty tenant, and silently passing on it is how this went
+    // vacuous in the first place.
+    assert(
+      ta !== null || tb !== null,
+      "neither equity response contained a recognisable total — the payload " +
+        "shape changed and this probe is no longer reading anything",
+    );
+    // DIRECT CONTAINMENT, stronger than the inequality below and available for
+    // free: the payload carries `items` with per-item ids, so if A's item id
+    // appears in B's aggregate the scope is gone and there is nothing to infer.
+    // Checked first because it names the leak instead of describing its shape.
+    const aItem = Deno.env.get("TEST_USER_A_ITEM_ID");
+    if (aItem) {
+      assert(
+        !b.text.includes(aItem),
+        `B's equity payload contains A's item ${aItem} — the aggregate is not ` +
+          `scoped to the caller`,
+      );
+    }
+
+    if ((ta ?? 0) === 0 && (tb ?? 0) === 0) return; // both empty; nothing to tell apart.
+
+    assert(
+      a.text !== b.text,
+      `A and B received byte-identical equity (total ${ta}). That is what a ` +
+        `dropped user_id scope looks like: every caller aggregating the whole ` +
+        `platform, returned as a healthy 200.`,
+    );
+  },
+});
+
+Deno.test({
   // US-2101: the UTM persist route writes ONLY the caller's own user row — the
   // target id is c.get("userId"), never taken from the body — so there is no
   // foreign-tenant id to smuggle in. The meaningful boundary is that it is
