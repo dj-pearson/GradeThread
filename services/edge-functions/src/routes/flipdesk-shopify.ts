@@ -5,6 +5,8 @@ import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { resyncItemListedStatus } from "../lib/active-listings.ts";
 import { ingestPaidOrdersSince } from "../lib/shopify-orders.ts";
+import { createShopifyFulfillment } from "../lib/shopify-fulfillment.ts";
+import { toGid } from "../lib/shopify-graphql.ts";
 import {
   buildConsentUrl,
   exchangeCodeForToken,
@@ -374,5 +376,124 @@ flipdeskShopifyRoutes.post("/listings/pull", async (c) => {
     sales_new: salesNew,
     payouts_new: payoutsNew,
     errors,
+  });
+});
+
+// POST /orders/:saleId/ship — push tracking to Shopify (US-2328).
+//
+// Shopify was REAL for connect/list/sync/delist/revise and SHELL for ship: no
+// fulfillment call existed anywhere, so a seller who shipped through FlipDesk
+// left the Shopify order unfulfilled and the buyer never got tracking. Shopify
+// is what emails the buyer, so the gap was invisible on our side and obvious
+// on theirs.
+//
+// Shaped after the eBay ship route so the two behave the same way for a seller:
+// tenant-scoped load, idempotent on an already-shipped sale, a 502 carrying
+// Shopify's own words when it refuses, and a local write-back either way.
+flipdeskShopifyRoutes.post("/orders/:saleId/ship", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const saleId = c.req.param("saleId");
+
+  let body: { tracking_number?: unknown; carrier?: unknown } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const trackingNumber =
+    typeof body.tracking_number === "string" ? body.tracking_number.trim() : "";
+  const carrier = typeof body.carrier === "string" ? body.carrier.trim() : null;
+  if (!trackingNumber) {
+    return c.json({ error: "tracking_number is required" }, 400);
+  }
+
+  // Tenant-scoped (US-268): the sale reaches this seller only through an
+  // inventory_item they own. The id in the URL never selects the row alone.
+  const { data: saleRow } = await supabaseAdmin
+    .from("sales")
+    .select(
+      "id, platform_order_id, shipped_at, tracking_number, inventory_items!inner(user_id)",
+    )
+    .eq("id", saleId)
+    .eq("inventory_items.user_id", userId)
+    .maybeSingle();
+  const sale = saleRow as {
+    id: string;
+    platform_order_id: string | null;
+    shipped_at: string | null;
+    tracking_number: string | null;
+  } | null;
+  if (!sale) return c.json({ error: "Sale not found" }, 404);
+
+  // A sale ingested before US-2328 has no Shopify order id, so there is nothing
+  // to fulfil against. Said out loud rather than silently recording tracking
+  // locally: the seller would otherwise believe the buyer was notified.
+  if (!sale.platform_order_id) {
+    return c.json(
+      {
+        error:
+          "This sale has no Shopify order id, so tracking cannot be pushed to " +
+          "Shopify. Re-sync Shopify orders and try again; mark it shipped in " +
+          "Shopify directly if it stays missing.",
+        code: "missing_platform_order_id",
+      },
+      409,
+    );
+  }
+
+  const conn = await getShopifyConnection(userId);
+  if (!conn) {
+    return c.json({ error: "Shopify is not connected." }, 409);
+  }
+
+  // Idempotent, matching eBay: re-sending the SAME tracking on an already
+  // shipped sale re-asserts local state without calling Shopify again.
+  const alreadyShipped =
+    sale.shipped_at != null && sale.tracking_number === trackingNumber;
+
+  let result: Awaited<ReturnType<typeof createShopifyFulfillment>> | null = null;
+  if (!alreadyShipped) {
+    try {
+      result = await createShopifyFulfillment(
+        conn.shop,
+        conn.token,
+        toGid("Order", String(sale.platform_order_id)),
+        { trackingNumber, carrier },
+      );
+    } catch (err) {
+      // AC2: surfaced, not swallowed. fulfillmentCreate answers HTTP 200 with a
+      // populated userErrors array when it refuses, so a handler that only
+      // checked transport status would tell the seller their buyer has tracking
+      // when Shopify had rejected it.
+      console.error("[flipdesk-shopify] createShopifyFulfillment failed:", err);
+      return c.json(
+        {
+          error: "Shopify rejected the tracking upload.",
+          detail: err instanceof Error ? err.message.slice(0, 500) : String(err),
+        },
+        502,
+      );
+    }
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from("sales")
+    .update({
+      shipped_at: sale.shipped_at ?? new Date().toISOString(),
+      tracking_number: trackingNumber,
+      ...(carrier ? { carrier } : {}),
+    })
+    .eq("id", sale.id);
+  if (updErr) {
+    console.error("[flipdesk-shopify] sale ship write-back failed:", updErr.message);
+  }
+
+  return c.json({
+    ok: true,
+    pushed_to_shopify: !alreadyShipped && (result?.fulfilled ?? 0) > 0,
+    // Reported so the seller can tell "Shopify already had it" apart from "we
+    // just told Shopify" — the two look identical from a bare ok:true.
+    already_fulfilled_on_shopify: result?.alreadyFulfilled ?? false,
+    fulfillments: result?.fulfillmentIds ?? [],
   });
 });

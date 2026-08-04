@@ -743,6 +743,30 @@ Deno.test({
 });
 
 Deno.test({
+  // US-2328: the Shopify ship route is new, and it is the same shape as the
+  // eBay one above — the sale is loaded THROUGH inventory_items.user_id, so B
+  // pointing at A's sale id hits 0 rows and 404s before any Shopify call is
+  // made. Worth its own case rather than trusting the shared shape: this route
+  // pushes tracking to an EXTERNAL shop, so a leak here would not just read
+  // A's row, it would fulfil A's Shopify order under B's request.
+  name: "B cannot mark A's sale shipped via Shopify",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SALE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_SALE_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/shopify/orders/${id}/ship`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ tracking_number: "PWNED123", carrier: "USPS" }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST shopify order ship");
+  },
+});
+
+Deno.test({
   // US-1659: the Etsy disconnect is a workspace-wide teardown of
   // marketplace_connections, scoped to the owner (.eq user_id) and admin-gated
   // (roleAtLeast admin). A foreign non-admin B must NEVER succeed — the response

@@ -196,6 +196,17 @@ export async function ingestShopifyOrder(
         sold_at: soldAt,
         sale_date: soldAt.slice(0, 10),
         buyer_username: order.name || null,
+        // US-2328: the Shopify order id, without which the sale cannot be
+        // fulfilled. It was never stored — `ingestShopifyOrder` recorded the
+        // money and dropped the only handle back to Shopify, so shipping had
+        // nothing to target. eBay has carried this since 00032; Shopify simply
+        // never populated the column.
+        //
+        // ⚠ Sales ingested BEFORE this change have it null and cannot be
+        // fulfilled. The ship route says so explicitly rather than reporting a
+        // silent no-op, because "we pushed your tracking" when nothing was
+        // pushed is the failure this story is about.
+        platform_order_id: String(order.id),
         // US-2292: record what the money actually IS. Without this the column
         // stayed null, isPayableCurrency read the blank as payable, and a
         // 200 GBP sale paid the consignor their share as if it were dollars.
