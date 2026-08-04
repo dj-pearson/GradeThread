@@ -16,9 +16,13 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { gradingReadinessBlockers } = await import(
-  "../routes/flipdesk-grading.ts"
-);
+const {
+  gradingReadinessBlockers,
+  gradingImageTypeToPhotoType,
+  mapPhotoTypeForGrading: mapPhotoTypeForGradingForTest,
+  REQUIRED_GRADING_PHOTO_TYPES,
+} = await import("../routes/flipdesk-grading.ts");
+const { REQUIRED_IMAGE_TYPES } = await import("../lib/image-quality.ts");
 
 const fixture = JSON.parse(
   await Deno.readTextFile(
@@ -83,7 +87,10 @@ Deno.test("edge: a missing fabric close-up no longer blocks submission", () => {
     garment_type: "jeans",
     garment_category: "denim",
     title: "Levi 501",
-    photoTypes: ["front", "back", "label", "defect"],
+    // FLIPDESK photo types, so `tag` — not the grading `label` this used to
+    // say. It passed either way while neither was required; US-2304 made the
+    // tag required and the wrong name became a failure.
+    photoTypes: ["front", "back", "tag", "defect"],
   });
   assertEquals(got.blockers, []);
   assertEquals(got.warnings.length, 1);
@@ -101,5 +108,43 @@ Deno.test("edge: blocker strings are the exact user-facing copy", () => {
   assertEquals(got.blockers[0], "Missing garment_type");
   assertEquals(got.blockers[1], "Missing garment_category");
   assertEquals(got.blockers[2], "Missing title");
-  assertEquals(got.blockers[3], "Missing required photos: front, back");
+  assertEquals(got.blockers[3], "Missing required photos: front, back, tag");
+});
+
+// ── US-2304 AC2: the two requirement lists cannot disagree ─────────────────
+//
+// This is the defect, not a symptom of it. flipdesk-grading required front+back
+// while image-quality required front+back+label at severity `block`, and the
+// gate runs at pipeline Step 4b — BEFORE any confidence scoring. So the comment
+// justifying the shorter list ("the <0.75 → human-review path covers it") named
+// a path that never executed. A FlipDesk item with no tag was charged, ran one
+// Claude Vision call per image, abstained to needs_photos and was refunded: the
+// money came back, the AI spend did not, and the seller round-tripped.
+//
+// Fixed by DERIVATION rather than by matching two literals, so the lists cannot
+// drift apart again. These cases pin the derivation itself.
+Deno.test("US-2304: the FlipDesk required list IS the grading gate's list", () => {
+  assertEquals(
+    [...REQUIRED_GRADING_PHOTO_TYPES],
+    REQUIRED_IMAGE_TYPES.map(gradingImageTypeToPhotoType),
+    "the FlipDesk requirement list stopped being derived from the grading gate",
+  );
+  // And the tag is actually in it — the derivation could be intact while the
+  // gate itself quietly dropped `label`, which is the same seller-facing bug
+  // arriving from the other side.
+  assertEquals(REQUIRED_GRADING_PHOTO_TYPES.includes("tag"), true);
+});
+
+Deno.test("US-2304: the photo-type mapping round-trips", () => {
+  // A wrong entry in GRADING_TO_PHOTO_TYPE would make the two lists agree on
+  // paper while asking the seller for a photo type the UI cannot produce.
+  for (const imageType of REQUIRED_IMAGE_TYPES) {
+    const photoType = gradingImageTypeToPhotoType(imageType);
+    assertEquals(
+      mapPhotoTypeForGradingForTest(photoType),
+      imageType,
+      `${photoType} does not map back to ${imageType} — the requirement list ` +
+        `asks for a photo type that never becomes this grading image type`,
+    );
+  }
 });

@@ -1,5 +1,5 @@
 import {
-  REQUIRED_PHOTO_TYPES,
+  REQUIRED_GRADING_PHOTO_TYPES,
   FABRIC_CLOSEUP_PHOTO_TYPES,
 } from "@/lib/constants";
 
@@ -55,7 +55,10 @@ export function previewGradingReadiness(
   if (!input.garment_category) blockers.push("Missing garment_category");
   if (!input.title || !input.title.trim()) blockers.push("Missing title");
 
-  const missingPhotos = REQUIRED_PHOTO_TYPES.filter((t) => !have.has(t));
+  // US-2304: the GRADING list, not the listing one. A tagless garment may be
+  // listed; it may not be graded, because the grading gate blocks on a missing
+  // label after the seller has already been charged.
+  const missingPhotos = REQUIRED_GRADING_PHOTO_TYPES.filter((t) => !have.has(t));
   if (missingPhotos.length > 0) {
     blockers.push(`Missing required photos: ${missingPhotos.join(", ")}`);
   }

@@ -1186,6 +1186,34 @@ export const FLIPDESK_PHOTO_TYPES = [
 // (src/lib/photo-profiles.ts → usePhotoProfile); this remains the default/
 // fallback for clothing and for any consumer that hasn't loaded a profile.
 export const REQUIRED_PHOTO_TYPES = ["front", "back"] as const;
+
+/**
+ * Photos a clothing item must have before it can be SUBMITTED FOR GRADING.
+ *
+ * US-2304 (owner's call, 2026-08-03): a superset of REQUIRED_PHOTO_TYPES, and a
+ * SEPARATE constant on purpose. Those two lists answer different questions and
+ * had been sharing one answer:
+ *
+ *   REQUIRED_PHOTO_TYPES         — may this item advance to "photographed" and
+ *                                  be listed? Front + back. Unchanged.
+ *   REQUIRED_GRADING_PHOTO_TYPES — may this item be graded? Front, back, tag.
+ *
+ * Folding the tag into the first one would have blocked the LISTING pipeline
+ * for every tagless garment, which nobody asked for and which is a different
+ * product decision from what grading needs.
+ *
+ * Why grading needs the tag: image-quality.ts lists `label` in
+ * REQUIRED_IMAGE_TYPES at severity `block`, and the pipeline applies it BEFORE
+ * any confidence scoring. A FlipDesk item with no tag photo was charged, ran a
+ * vision call per image, then abstained and refunded — the money came back and
+ * the AI spend did not. This is the client half of telling the seller first.
+ *
+ * Client mirror of REQUIRED_GRADING_PHOTO_TYPES in
+ * services/edge-functions/src/routes/flipdesk-grading.ts, which DERIVES its
+ * list from the grading gate. Asserted against the shared fixture
+ * src/test/fixtures/grading-readiness-cases.json by both suites.
+ */
+export const REQUIRED_GRADING_PHOTO_TYPES = ["front", "back", "tag"] as const;
 // A fabric close-up (weave/knit/seam) is what the fabric_condition factor (30%
 // of the score) is read from. Client mirror of FABRIC_CLOSEUP_PHOTO_TYPES in
 // services/edge-functions/src/routes/flipdesk-grading.ts; the two MUST stay in

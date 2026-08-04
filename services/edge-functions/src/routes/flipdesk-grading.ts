@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { downloadItemPhoto } from "../lib/item-photo-storage.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
+import { REQUIRED_IMAGE_TYPES } from "../lib/image-quality.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import { isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import { validateJson, z } from "../lib/validation.ts";
@@ -78,13 +79,58 @@ interface ValidationResult {
   limit_exceeded: boolean; // not enough included + credits to cover the batch
 }
 
-// FlipDesk photo types required for a grading submission. Only Front + Back
-// are mandatory. The `tag` shot (GradeThread `label` image_type) still drives
-// brand/material/size extraction and the grader uses it when present, but it
-// is no longer required — many garments (e.g. Lululemon with a cut size label)
-// have no readable tag, and the <0.75-confidence → human-review path already
-// covers the weaker-signal case.
-const REQUIRED_GRADING_PHOTO_TYPES = ["front", "back"] as const;
+/**
+ * The inverse of {@link mapPhotoTypeForGrading}, for the required-photo list.
+ *
+ * US-2304: only the two names that actually differ are listed. Everything else
+ * is the same string on both sides, and spelling out an identity mapping would
+ * invite it to drift into something that is not one.
+ *
+ * MUST be declared ABOVE REQUIRED_GRADING_PHOTO_TYPES. That list is built at
+ * module load, and a `const` declared later is still in its temporal dead
+ * zone then — the edge crashed at import until this moved up. A function
+ * declaration hoists; the map it reads does not.
+ *
+ * Exported so the parity test can assert the round trip rather than trusting
+ * this table — a wrong entry here would make the requirement lists agree on
+ * paper while asking the seller for a photo type that does not exist.
+ */
+const GRADING_TO_PHOTO_TYPE: Record<string, string> = {
+  label: "tag",
+  label_2: "tag_2",
+};
+
+export function gradingImageTypeToPhotoType(imageType: string): string {
+  return GRADING_TO_PHOTO_TYPE[imageType] ?? imageType;
+}
+
+// FlipDesk photo types required for a grading submission.
+//
+// US-2304 (owner's call, 2026-08-03): the `tag` shot is REQUIRED, and this list
+// is DERIVED from the grading gate rather than written out, because the two
+// disagreeing is the whole defect.
+//
+// The comment that used to sit here said Front + Back were enough because "the
+// <0.75-confidence → human-review path already covers the weaker-signal case".
+// That premise was false. image-quality.ts lists `label` in REQUIRED_IMAGE_TYPES
+// at severity `block`, and grading-pipeline.ts applies it at Step 4b — which
+// runs BEFORE any confidence scoring. So the review path it named never
+// executed. What actually happened to a FlipDesk item with no tag photo:
+// charged, one Claude Vision call per image, abstain to needs_photos, refund.
+// The money came back and the AI spend did not, every single time, and the
+// seller round-tripped to be told something we could have told them up front.
+//
+// Requiring it here is therefore strictly better for the SAME seller the old
+// comment was written to protect: a garment with no readable tag is refused at
+// the point of submission instead of after payment and a full vision run.
+//
+// ⚠ The concern in that old comment is real and is NOT resolved by this: some
+// garments (Lululemon cut size labels, tagless resale) genuinely have no
+// readable tag. That is a product question about what those sellers photograph,
+// deliberately left open rather than settled by loosening a grading gate.
+export const REQUIRED_GRADING_PHOTO_TYPES = REQUIRED_IMAGE_TYPES.map(
+  gradingImageTypeToPhotoType,
+);
 
 // A close-up "detail_*" shot is what lets the grader read the fabric weave/knit,
 // which drives fabric_condition — 30% of the score, the heaviest factor. It is
@@ -401,7 +447,7 @@ flipdeskGradingRoutes.post("/validate", async (c) => {
 
 // Maps a FlipDesk photo type to the GradeThread submission_images image_type.
 // Returns null for photos that aren't useful for grading (interior/flatlay/on_model).
-function mapPhotoTypeForGrading(t: string): string | null {
+export function mapPhotoTypeForGrading(t: string): string | null {
   if (t === "front") return "front";
   if (t === "back") return "back";
   if (t === "tag") return "label";

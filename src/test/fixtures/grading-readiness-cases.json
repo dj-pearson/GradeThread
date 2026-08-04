@@ -1,5 +1,5 @@
 {
-  "_comment": "US-2019 SHARED FIXTURE. Grading-readiness rules exist in two projects that cannot import each other: services/edge-functions/src/routes/flipdesk-grading.ts (gradingReadinessBlockers — the AUTHORITY, used by /validate and /submit) and src/lib/grading-readiness.ts (previewGradingReadiness — the web mirror driving the live Submit card). Both suites assert THIS table. Divergence is silent in both directions: a client saying ready when the server disagrees sends a seller into a submit-time rejection; a client saying not-ready when the server would accept blocks them from paying. US-2397: the fabric close-up rule moved from blockers to WARNINGS — it no longer stops a submission, it caps the grade confidence and forces a human check instead, so a case with only that warning is READY. Blocker and warning strings are user-facing copy AND regex-matched by the web card (onlyGarmentBlocks), so changing one is a cross-project change.",
+  "_comment": "US-2019 SHARED FIXTURE. Grading-readiness rules exist in two projects that cannot import each other: services/edge-functions/src/routes/flipdesk-grading.ts (gradingReadinessBlockers — the AUTHORITY, used by /validate and /submit) and src/lib/grading-readiness.ts (previewGradingReadiness — the web mirror driving the live Submit card). Both suites assert THIS table. Divergence is silent in both directions: a client saying ready when the server disagrees sends a seller into a submit-time rejection; a client saying not-ready when the server would accept blocks them from paying. US-2304 (owner's call, 2026-08-03): the TAG shot is required for GRADING. It is NOT required to LIST — src/lib/constants.ts keeps those as two separate lists (REQUIRED_PHOTO_TYPES vs REQUIRED_GRADING_PHOTO_TYPES), because folding them together would block the listing pipeline for every tagless garment, which is a different decision. The grading gate (image-quality.ts REQUIRED_IMAGE_TYPES) blocks on a missing label BEFORE any confidence scoring, so an item without one used to be charged, burn a vision call per photo, then abstain and refund. US-2397: the fabric close-up rule moved from blockers to WARNINGS — it no longer stops a submission, it caps the grade confidence and forces a human check instead, so a case with only that warning is READY. Blocker and warning strings are user-facing copy AND regex-matched by the web card (onlyGarmentBlocks), so changing one is a cross-project change.",
   "cases": [
     {
       "name": "fully ready",
@@ -10,7 +10,8 @@
         "photoTypes": [
           "front",
           "back",
-          "detail"
+          "detail",
+          "tag"
         ]
       },
       "expected": {
@@ -28,7 +29,8 @@
         "photoTypes": [
           "front",
           "back",
-          "detail_3"
+          "detail_3",
+          "tag"
         ]
       },
       "expected": {
@@ -47,14 +49,15 @@
       },
       "expected": {
         "blockers": [
-          "Missing required photos: front, back"
+          "Missing required photos: front, back, tag"
         ],
         "warnings": [
           "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot."
         ],
         "missingPhotos": [
           "front",
-          "back"
+          "back",
+          "tag"
         ]
       }
     },
@@ -66,7 +69,8 @@
         "title": "X",
         "photoTypes": [
           "front",
-          "detail"
+          "detail",
+          "tag"
         ]
       },
       "expected": {
@@ -87,7 +91,8 @@
         "title": "X",
         "photoTypes": [
           "back",
-          "detail_2"
+          "detail_2",
+          "tag"
         ]
       },
       "expected": {
@@ -108,7 +113,8 @@
         "title": "X",
         "photoTypes": [
           "front",
-          "back"
+          "back",
+          "tag"
         ]
       },
       "expected": {
@@ -128,7 +134,8 @@
         "photoTypes": [
           "front",
           "back",
-          "defect"
+          "defect",
+          "tag"
         ]
       },
       "expected": {
@@ -148,7 +155,8 @@
         "photoTypes": [
           "front",
           "back",
-          "detail"
+          "detail",
+          "tag"
         ]
       },
       "expected": {
@@ -168,7 +176,8 @@
         "photoTypes": [
           "front",
           "back",
-          "detail"
+          "detail",
+          "tag"
         ]
       },
       "expected": {
@@ -188,7 +197,8 @@
         "photoTypes": [
           "front",
           "back",
-          "detail"
+          "detail",
+          "tag"
         ]
       },
       "expected": {
@@ -208,7 +218,8 @@
         "photoTypes": [
           "front",
           "back",
-          "detail"
+          "detail",
+          "tag"
         ]
       },
       "expected": {
@@ -232,19 +243,20 @@
           "Missing garment_type",
           "Missing garment_category",
           "Missing title",
-          "Missing required photos: front, back"
+          "Missing required photos: front, back, tag"
         ],
         "warnings": [
           "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot."
         ],
         "missingPhotos": [
           "front",
-          "back"
+          "back",
+          "tag"
         ]
       }
     },
     {
-      "name": "tag photo does not satisfy anything",
+      "name": "tags alone do not satisfy front/back",
       "input": {
         "garment_type": "jeans",
         "garment_category": "denim",
@@ -264,6 +276,28 @@
         "missingPhotos": [
           "front",
           "back"
+        ]
+      }
+    },
+    {
+      "name": "missing tag only",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "Levi 501",
+        "photoTypes": [
+          "front",
+          "back",
+          "detail"
+        ]
+      },
+      "expected": {
+        "blockers": [
+          "Missing required photos: tag"
+        ],
+        "warnings": [],
+        "missingPhotos": [
+          "tag"
         ]
       }
     }
