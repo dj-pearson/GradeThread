@@ -267,3 +267,92 @@ Deno.test("US-2122: a bare .updated with no transition does NOT acknowledge", ()
       "and payment-method changes are all .updated and are NOT purchases",
   );
 });
+
+// ── US-2128 AC2: the async-payment tripwire, ENFORCED rather than described ──
+//
+// AC2 says "handle the async payment-method events BEFORE enabling any non-card
+// payment method". The trigger has not fired — every checkout is created with
+// payment_method_types: ["card"] — so the handlers are correctly NOT written:
+// pre-building them for a payment method nobody has turned on is the speculative
+// work that produced this codebase's dead modules.
+//
+// But "documented tripwire" was doing a lot of work. A previous pass recorded
+// AC2 as satisfied because the async events are "gated at webhooks.ts:1105", and
+// a fresh read shows that overstates it: `checkoutFundsSettled` (US-1929) stops
+// `checkout.session.completed` GRANTING on unsettled funds, which is a different
+// and genuinely important guarantee. It does not handle the async events and it
+// does not stop anyone enabling a non-card method.
+//
+// What actually happens today if someone flips one on: the buyer pays by bank
+// debit, `completed` fires with payment_status "processing", the funds gate
+// correctly withholds entitlement — and then `async_payment_succeeded` arrives,
+// matches no case, is not on the known-ignored list, and lands in the UNEXPECTED
+// branch. So the customer has paid and received nothing, and the only trace is a
+// metric someone has to be watching.
+//
+// This case turns that into a build failure at the exact moment AC2 names. It is
+// green while checkouts stay card-only and goes red the instant they do not,
+// which is the whole point: the deferral is safe only for as long as its
+// precondition holds, and nothing was checking the precondition.
+Deno.test("US-2128 AC2: async-payment handlers are required once checkout stops being card-only", () => {
+  const payments = Deno.readTextFileSync(
+    new URL("../routes/payments.ts", import.meta.url),
+  );
+  const webhooks = Deno.readTextFileSync(
+    new URL("../routes/webhooks.ts", import.meta.url),
+  );
+
+  // Every checkout creation site, read from the source rather than assumed.
+  const declared = [...payments.matchAll(/payment_method_types:\s*(\[[^\]]*\])/g)]
+    .map((m) => m[1]!.replace(/\s+/g, ""));
+  assert(
+    declared.length > 0,
+    "no payment_method_types found in payments.ts — either checkout moved, or " +
+      "it now relies on Stripe defaults, and this guard has stopped watching " +
+      "the thing it exists to watch",
+  );
+
+  const cardOnly = declared.every((d) => d === '["card"]');
+  // `automatic_payment_methods` lets Stripe enable non-card methods from the
+  // Dashboard, with no code change here at all — the quietest way to trip this.
+  const automatic = /automatic_payment_methods/.test(payments);
+
+  if (cardOnly && !automatic) return; // precondition holds; deferral stands.
+
+  const handled = (t: string) =>
+    webhooks.includes(`case "${t}"`) || isIntentionallyIgnored(t);
+  const missing = [
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.async_payment_failed",
+  ].filter((t) => !handled(t));
+
+  assertEquals(
+    missing,
+    [],
+    "a non-card payment method is now reachable, so these events can fire. " +
+      "Until they are handled, a customer whose bank debit SETTLES has paid " +
+      "and receives nothing: the funds gate correctly withholds entitlement on " +
+      "`completed`, and the event that should grant it falls through to the " +
+      "unexpected branch. Handle them, or put them on the known-ignored list " +
+      "with the reason.",
+  );
+});
+
+Deno.test("US-2128 AC2: the funds gate that makes the deferral safe still exists", () => {
+  // The deferral rests on TWO things, and this is the other one. If
+  // checkoutFundsSettled stopped gating, an async method would grant
+  // entitlement on UNSETTLED funds — money not yet received, service given.
+  // That is worse than the missing handler and it is a silent change.
+  const webhooks = Deno.readTextFileSync(
+    new URL("../routes/webhooks.ts", import.meta.url),
+  );
+  assert(
+    /export function checkoutFundsSettled/.test(webhooks),
+    "checkoutFundsSettled is gone — entitlement no longer requires settled funds",
+  );
+  assert(
+    /checkoutFundsSettled\(/.test(webhooks.slice(webhooks.indexOf("async function handleCheckoutCompleted"))),
+    "handleCheckoutCompleted no longer calls the funds gate, so a future " +
+      "non-card method would grant on money that has not arrived",
+  );
+});
