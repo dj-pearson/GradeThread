@@ -1,6 +1,6 @@
 // US-1812: buyer grade confirm/dispute engine — the pure decision math
 // (dispute severity, guarantee eligibility, seller integrity score). No DB.
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -16,6 +16,7 @@ const {
   MIN_CONFIRMED_FOR_TIER,
   sellerIntegrityTier,
   countableSellerOutcomes,
+  withDisputeResolution,
 } = await import("../lib/buyer-grade-confirmation.ts");
 
 const NOW = Date.UTC(2026, 6, 9);
@@ -310,4 +311,169 @@ Deno.test("countableSellerOutcomes: a self-purchase DISPUTE is also excluded (no
 Deno.test("countableSellerOutcomes: null buyer_user_id is kept (can't attribute to self/linked)", () => {
   const counts = countableSellerOutcomes([row(null, "confirmed")], { sellerUserId: SELLER });
   assertEquals(counts.confirmed_count, 1);
+});
+
+// ── US-1912 AC2: an escalated dispute counts once an expert has ruled ───────
+//
+// The rule was previously approximated as `dispute_resolved = human_review_flagged
+// !== true`, which is right at the moment a dispute is raised and wrong forever
+// after. A flagged dispute is one an expert was ASKED to rule on, so that
+// expression excluded it permanently — including after the expert ruled and
+// agreed with the buyer.
+//
+// The consequence runs the wrong way for a trust score: escalating a dispute was
+// what removed it from the seller's record, so a seller with repeated
+// confirmed-material disputes kept a spotless integrity score. Benefit of the
+// doubt was correct; making it permanent was not.
+//
+// human_reviews has no status column — a ROW EXISTING is the resolution
+// (reviewed_at is NOT NULL DEFAULT now(), 00003). So the predicate is simply
+// "does a review row exist for this outcome's grade report".
+
+Deno.test("US-1912: an unreviewed escalated dispute is still pending", () => {
+  const rows = withDisputeResolution(
+    [{
+      grade_report_id: "gr-1",
+      buyer_user_id: "buyer",
+      match_status: "disputed",
+      dispute_severity: "material",
+      human_review_flagged: true,
+    }],
+    new Set<string>(),
+  );
+  assertEquals(rows[0]!.dispute_resolved, false);
+  // And it therefore does not dent the score yet.
+  const counts = countableSellerOutcomes(rows, { sellerUserId: "seller" });
+  assertEquals(counts.disputed_count, 0);
+  assertEquals(counts.total_outcomes, 0);
+});
+
+Deno.test("US-1912: the SAME dispute counts once its review exists", () => {
+  // The half the approximation could never reach. Same row, same flag — the
+  // only thing that changed is that an expert ruled.
+  const row = {
+    grade_report_id: "gr-1",
+    buyer_user_id: "buyer",
+    match_status: "disputed",
+    dispute_severity: "material",
+    human_review_flagged: true,
+  };
+  const rows = withDisputeResolution([row], new Set(["gr-1"]));
+  assertEquals(rows[0]!.dispute_resolved, true);
+  const counts = countableSellerOutcomes(rows, { sellerUserId: "seller" });
+  assertEquals(counts.disputed_count, 1);
+  assertEquals(counts.material_dispute_count, 1);
+});
+
+Deno.test("US-1912: a never-escalated dispute counts immediately", () => {
+  // Unchanged behaviour, pinned so the fix does not quietly start withholding
+  // minor disputes that never needed review.
+  const rows = withDisputeResolution(
+    [{
+      grade_report_id: "gr-2",
+      buyer_user_id: "buyer",
+      match_status: "disputed",
+      dispute_severity: "cosmetic",
+      human_review_flagged: false,
+    }],
+    new Set<string>(),
+  );
+  assertEquals(rows[0]!.dispute_resolved, true);
+  assertEquals(
+    countableSellerOutcomes(rows, { sellerUserId: "seller" }).disputed_count,
+    1,
+  );
+});
+
+Deno.test("US-1912: a review for a DIFFERENT report does not resolve this one", () => {
+  // The join has to be per-report. Matching on "any review exists" would let
+  // one resolved dispute clear every pending dispute the seller has.
+  const rows = withDisputeResolution(
+    [{
+      grade_report_id: "gr-1",
+      buyer_user_id: "buyer",
+      match_status: "disputed",
+      dispute_severity: "material",
+      human_review_flagged: true,
+    }],
+    new Set(["gr-999"]),
+  );
+  assertEquals(rows[0]!.dispute_resolved, false);
+});
+
+Deno.test("US-1912: an escalated dispute with NO report id stays pending", () => {
+  // Nothing to join on. Counting it would mean treating "we cannot tell" as
+  // "an expert ruled against the seller", which is the one reading a
+  // reputation score must never make.
+  const rows = withDisputeResolution(
+    [{
+      grade_report_id: null,
+      buyer_user_id: "buyer",
+      match_status: "disputed",
+      dispute_severity: "material",
+      human_review_flagged: true,
+    }],
+    new Set(["gr-1"]),
+  );
+  assertEquals(rows[0]!.dispute_resolved, false);
+});
+
+Deno.test("US-1912: confirmations are untouched by the resolution rule", () => {
+  // dispute_resolved is meaningless for a confirmation, and a mapper that
+  // accidentally dropped or altered them would silently change every score.
+  const rows = withDisputeResolution(
+    [
+      { grade_report_id: "gr-1", buyer_user_id: "b1", match_status: "confirmed", dispute_severity: null, human_review_flagged: false },
+      { grade_report_id: "gr-2", buyer_user_id: "b2", match_status: "confirmed", dispute_severity: null, human_review_flagged: true },
+    ],
+    new Set<string>(),
+  );
+  assertEquals(rows.length, 2);
+  const counts = countableSellerOutcomes(rows, { sellerUserId: "seller" });
+  assertEquals(counts.confirmed_count, 2);
+  assertEquals(counts.disputed_count, 0);
+});
+
+Deno.test("US-1912: the recompute reads the review table, it does not infer it", () => {
+  // The approximation lived as one expression inside an async function nobody
+  // could exercise, which is exactly why it survived. Pin that the join is
+  // actually performed and that the old inference is gone.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/buyer-grade-confirmation.ts", import.meta.url),
+  );
+  // Comments stripped: the explanation above the fix quotes the old expression
+  // verbatim, so a raw scan would find the defect in its own post-mortem.
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\s)\/\/[^\n]*/g, "$1");
+
+  assert(
+    /\.from\("human_reviews"\)/.test(code),
+    "the recompute no longer reads human_reviews, so an escalated dispute can " +
+      "never count again",
+  );
+  assert(
+    !/dispute_resolved: row\.human_review_flagged !== true/.test(code),
+    "the old inference is back — escalating a dispute again excludes it forever",
+  );
+  // And it must fail toward the seller when that read errors.
+  //
+  // Asserted on the CONSTRUCT, not on the explanation. The first version of
+  // this matched the phrase "still pending", which lives in the log message —
+  // so deleting the reasoning left it green and the case was checking prose
+  // about the behaviour rather than the behaviour. That is the same
+  // satisfied-by-its-own-comment shape this file's guards exist to avoid.
+  //
+  // The property: the reviewed set is populated ONLY on the success branch, so
+  // an errored read leaves it empty and every escalated dispute stays pending.
+  const errBranch = code.indexOf("if (revErr)");
+  const assign = code.indexOf("reviewedReportIds = new Set(");
+  assert(errBranch > -1, "the human_reviews read no longer checks for an error");
+  assert(assign > -1, "the reviewed-report set is no longer built");
+  assert(
+    assign > errBranch && /\} else \{[\s\S]{0,120}reviewedReportIds = new Set\(/.test(code),
+    "the reviewed-report set is populated outside the success branch, so a " +
+      "failed human_reviews read could start counting disputes nobody has " +
+      "confirmed — denting seller scores on a database blip",
+  );
 });

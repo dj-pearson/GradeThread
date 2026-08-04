@@ -135,6 +135,46 @@ export interface SellerOutcomeRow {
   dispute_resolved?: boolean;
 }
 
+/**
+ * Decide `dispute_resolved` from the REAL review state (US-1912 AC2).
+ *
+ * This replaces an approximation that was wrong in the seller's favour and
+ * never self-corrected: `dispute_resolved = human_review_flagged !== true`. A
+ * flagged dispute is one an expert was asked to rule on, so under that rule it
+ * stayed uncounted FOREVER — including after the expert ruled and agreed with
+ * the buyer. A seller could accumulate confirmed-material disputes and keep a
+ * spotless integrity score, permanently, because the very act of escalating a
+ * dispute is what excluded it.
+ *
+ * The benefit-of-the-doubt was right; making it permanent was not. A flagged
+ * dispute is PENDING until reviewed, then it counts.
+ *
+ * `human_reviews` carries no status column — a ROW EXISTING is the resolution
+ * (`reviewed_at` is NOT NULL DEFAULT now(), 00003). So "has a review row for
+ * this grade report" is the whole predicate, not a proxy for one.
+ *
+ * Pure so the rule is testable without a database, which is where the previous
+ * approximation hid: it was a single expression inside an async function nobody
+ * could exercise.
+ */
+export function withDisputeResolution(
+  rows: readonly (SellerOutcomeRow & {
+    grade_report_id?: string | null;
+    human_review_flagged?: boolean | null;
+  })[],
+  reviewedReportIds: ReadonlySet<string>,
+): SellerOutcomeRow[] {
+  return rows.map((r) => ({
+    buyer_user_id: r.buyer_user_id,
+    match_status: r.match_status,
+    dispute_severity: r.dispute_severity,
+    // Never escalated → nothing to wait for, it counts.
+    // Escalated → counts only once a review row exists for its report.
+    dispute_resolved: r.human_review_flagged !== true ||
+      (!!r.grade_report_id && reviewedReportIds.has(r.grade_report_id)),
+  }));
+}
+
 export interface CountableOutcomeOptions {
   /** The seller whose integrity is being computed. */
   sellerUserId: string;
@@ -342,8 +382,11 @@ export async function recomputeSellerGradeIntegrity(
     const { data, error } = await supabaseAdmin
       .from("grade_outcomes")
       // US-1912 AC2: buyer_user_id drives the self/linked-account exclusion;
-      // human_review_flagged tells us a dispute went to the review queue.
-      .select("buyer_user_id, match_status, dispute_severity, human_review_flagged")
+      // human_review_flagged tells us a dispute went to the review queue, and
+      // grade_report_id is what joins it to the review that resolves it.
+      .select(
+        "grade_report_id, buyer_user_id, match_status, dispute_severity, human_review_flagged",
+      )
       .eq("seller_user_id", sellerUserId)
       .eq("source", "buyer_arrival");
     if (error) {
@@ -351,26 +394,58 @@ export async function recomputeSellerGradeIntegrity(
       return null;
     }
     // US-1912 AC2 anti-gaming: drop self-purchase/linked-account confirmations and
-    // count a dispute only after human-review resolution. We approximate
-    // "resolved" as "was NOT flagged into the review queue" — a material dispute
-    // (human_review_flagged=true) stays PENDING (uncounted, benefit-of-the-doubt to
-    // the seller) until an expert rules; a minor dispute that never needed review
-    // counts immediately. Re-counting a flagged dispute once its human review
-    // RESOLVES still needs the grade_reports/human_reviews join (remaining AC2).
-    const outcomeRows: SellerOutcomeRow[] = (data ?? []).map((r) => {
-      const row = r as {
-        buyer_user_id: string | null;
-        match_status: string | null;
-        dispute_severity: string | null;
-        human_review_flagged: boolean | null;
-      };
-      return {
-        buyer_user_id: row.buyer_user_id,
-        match_status: row.match_status,
-        dispute_severity: row.dispute_severity,
-        dispute_resolved: row.human_review_flagged !== true,
-      };
-    });
+    // count a dispute only after human-review resolution.
+    //
+    // The resolution is now READ, not approximated. This used to infer it as
+    // "was NOT flagged into the review queue", which meant an escalated dispute
+    // never counted — not even after the expert ruled against the seller. The
+    // act of escalating was what excluded it, permanently, so a seller with
+    // repeated confirmed-material disputes kept a clean score.
+    const raw = (data ?? []) as Array<{
+      grade_report_id: string | null;
+      buyer_user_id: string | null;
+      match_status: string | null;
+      dispute_severity: string | null;
+      human_review_flagged: boolean | null;
+    }>;
+
+    // Only the escalated ones need a review lookup, and only their reports.
+    const pendingReportIds = [
+      ...new Set(
+        raw
+          .filter((r) => r.human_review_flagged === true && r.grade_report_id)
+          .map((r) => r.grade_report_id as string),
+      ),
+    ];
+    let reviewedReportIds = new Set<string>();
+    if (pendingReportIds.length > 0) {
+      const { data: reviews, error: revErr } = await supabaseAdmin
+        .from("human_reviews")
+        .select("grade_report_id")
+        .in("grade_report_id", pendingReportIds);
+      if (revErr) {
+        // FAIL TOWARD THE SELLER. An unreadable review table must not start
+        // counting disputes nobody has confirmed — that would dent scores on a
+        // database blip. Leaving the set empty reproduces the old
+        // benefit-of-the-doubt for this run only, and the next recompute fixes
+        // it, which is the safe direction for a public reputation number.
+        console.error(
+          "[BuyerGradeConfirm] human_reviews load failed; treating escalated " +
+            `disputes as still pending: ${revErr.message}`,
+        );
+      } else {
+        reviewedReportIds = new Set(
+          ((reviews ?? []) as Array<{ grade_report_id: string | null }>)
+            .map((r) => r.grade_report_id)
+            .filter((id): id is string => !!id),
+        );
+      }
+    }
+
+    const outcomeRows: SellerOutcomeRow[] = withDisputeResolution(
+      raw,
+      reviewedReportIds,
+    );
     const counts = countableSellerOutcomes(outcomeRows, { sellerUserId });
     const integrity_score = computeSellerIntegrityScore(counts);
     const { error: upErr } = await supabaseAdmin
