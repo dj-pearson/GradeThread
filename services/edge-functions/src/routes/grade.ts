@@ -31,6 +31,7 @@ import { classifyGarment, type GarmentClassification } from "../lib/ai-extract.t
 import { valueAtGrade } from "../lib/condition-value.ts";
 import { suggestCategories } from "../lib/ebay-client.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
+import { refundReservedSnap } from "../lib/grade-refund.ts";
 
 // US-614: free monthly Snap-to-Value cap per effective FlipDesk plan (-1 = unlimited).
 const SNAP_CAP: Record<string, number> = {
@@ -1113,15 +1114,11 @@ gradeRoutes.post("/snap", async (c) => {
     // database call would make a bad path slower for no benefit. What changed is
     // that a failure is now REPORTED — the user's snap balance is wrong and an
     // operator can put it right, which they cannot do if nothing was recorded.
-    const { error: refundErr } = await supabaseAdmin.rpc("refund_snap", {
-      p_user_id: ownerId,
-    });
-    if (refundErr) {
-      captureException(refundErr, {
-        route: "grade.snap.refund",
-        tags: { user: ownerId },
-      });
-    }
+    // US-2345 AC1: moved to lib/grade-refund.ts so the FAILURE branch is
+    // testable. It reached the service-role client directly here, which is why
+    // the path that matters most had no test — exercising it needed a database.
+    // Behaviour is unchanged: still non-blocking, still reports.
+    await refundReservedSnap(ownerId);
     captureException(err, { route: "grade.snap", correlationId: readCtxVar(c, "correlationId") });
     return c.json({ error: "Couldn't grade that photo. Try a clearer, well-lit shot." }, 502);
   }

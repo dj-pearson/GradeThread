@@ -96,22 +96,50 @@ Deno.test("US-2345 AC4: the two fixed phases order by the right column", () => {
 });
 
 Deno.test("US-2345 AC2: the snap refund reports a failure", () => {
-  const at = GRADE.indexOf('rpc("refund_snap"');
-  assert(at > -1, "the snap refund is gone");
-  const around = GRADE.slice(Math.max(0, at - 200), at + 400);
+  // US-2345 AC1 moved this out of grade.ts into lib/grade-refund.ts so the
+  // failure branch could be tested at all, so this guard now FOLLOWS THE
+  // INDIRECTION rather than reading the handler's catch block.
+  //
+  // Both halves are asserted, and that is the point rather than thoroughness:
+  // either one alone can hold while the property is gone — a handler that no
+  // longer calls the refund, or a refund that no longer reports. Weakening this
+  // to match the new shape (just "does grade.ts mention refundReservedSnap")
+  // would have been the easy move and would have checked nothing.
+  const REFUND = Deno.readTextFileSync(
+    new URL("../lib/grade-refund.ts", import.meta.url),
+  );
+
+  // (1) the handler still asks for the refund, in the branch that answers 502.
+  const at = GRADE.indexOf('route: "grade.snap"');
+  assert(at > -1, "the snap failure handler is gone or was renamed");
   assert(
-    !/\.then\(\(\) => \{\}, \(\) => \{\}\)/.test(around),
+    /await refundReservedSnap\(ownerId\)/.test(GRADE.slice(Math.max(0, at - 1200), at)),
+    "the failed snap no longer refunds the reserved snap",
+  );
+
+  // (2) the refund still reports BOTH failure shapes. Comments stripped: the
+  // explanation in that file quotes the old `.then(() => {}, () => {})` to say
+  // what was wrong, so a raw scan finds the defect inside its own post-mortem.
+  const code = REFUND
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\s)\/\/[^\n]*/g, "$1");
+  assert(
+    /if \(error\)[\s\S]{0,120}io\.report\(error, userId\)/.test(code),
+    "a REFUSED refund is no longer reported — supabase-js resolves with " +
+      "{ error } for a refused write, so this is the likeliest failure and the " +
+      "most invisible",
+  );
+  assert(
+    /catch \(err\)[\s\S]{0,200}io\.report\(err, userId\)/.test(code),
+    "a THROWN refund is no longer reported, so a transport failure leaves a " +
+      "silently consumed snap nobody hears about",
+  );
+  assert(
+    !/\.then\(\(\) => \{\}, \(\) => \{\}\)/.test(
+      GRADE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/[^\n]*/g, "$1"),
+    ),
     "the refund swallows both outcomes again — a refund that never happened " +
       "looks exactly like one that did",
-  );
-  assert(
-    /const \{ error: refundErr \}/.test(around),
-    "the refund result is discarded again",
-  );
-  assert(
-    /captureException\(refundErr/.test(around),
-    "a failed refund is no longer reported, so a silently consumed snap is " +
-      "invisible to everyone including the person who paid for it",
   );
 });
 

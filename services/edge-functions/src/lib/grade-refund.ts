@@ -166,3 +166,67 @@ export async function autoRefundPaidStripe(
     );
   }
 }
+
+// ── US-2345 AC1: the reserved-snap refund ───────────────────────────────────
+
+/**
+ * Give back the snap reserved for a quick-grade that then failed.
+ *
+ * WHY THIS IS A FUNCTION AND NOT FOUR LINES IN THE HANDLER. It lived inline in
+ * routes/grade.ts, and US-2345 exists because that file's money paths have no
+ * tests — not because nobody wanted them, but because everything in it reaches
+ * the service-role client directly, so the FAILURE branch could only be
+ * exercised with a database. The branch that matters most was therefore the one
+ * nothing covered. Injecting the two effects is what makes it testable, and the
+ * default `io` is exactly what the handler did before.
+ *
+ * ⚠ DELIBERATELY NON-BLOCKING AND DELIBERATELY NOT THROWING. The caller has
+ * already decided to answer 502; the grade failed either way, and holding that
+ * response on a second database call makes a bad path slower for no benefit. So
+ * this never rejects — a caller must not have to wrap it, because a wrapper
+ * someone forgets is how the original `.then(() => {}, () => {})` happened.
+ *
+ * What it does NOT do is stay quiet. That empty-callbacks version meant a refund
+ * that never happened looked exactly like one that did: the seller's balance is
+ * short and nobody can put it right, because nothing recorded that it was wrong.
+ * Every failure — an RPC error OR a thrown one — is reported.
+ */
+export interface SnapRefundIO {
+  refund: (userId: string) => Promise<{ error: { message: string } | null }>;
+  report: (err: unknown, userId: string) => void;
+}
+
+export const defaultSnapRefundIO: SnapRefundIO = {
+  refund: async (userId) => {
+    // Imported lazily, like the Stripe deps above, so this module stays
+    // import-safe in tests that never touch a database.
+    const { supabaseAdmin } = await import("./supabase.ts");
+    const { error } = await supabaseAdmin.rpc("refund_snap", { p_user_id: userId });
+    return { error: error ? { message: error.message } : null };
+  },
+  report: (err, userId) => {
+    captureException(err, { route: "grade.snap.refund", tags: { user: userId } });
+  },
+};
+
+/** Returns whether the snap was actually given back — for callers that log it. */
+export async function refundReservedSnap(
+  userId: string,
+  io: SnapRefundIO = defaultSnapRefundIO,
+): Promise<boolean> {
+  try {
+    const { error } = await io.refund(userId);
+    if (error) {
+      io.report(error, userId);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    // A THROW is reported too, and this is the half the old code lost most
+    // quietly: supabase-js resolves with { error } for a refused write, but the
+    // client can still throw on a transport failure. The empty rejection
+    // callback swallowed exactly this case.
+    io.report(err, userId);
+    return false;
+  }
+}
