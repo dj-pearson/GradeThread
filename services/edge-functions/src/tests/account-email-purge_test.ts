@@ -24,6 +24,18 @@ const SRC = await Deno.readTextFile(
   new URL("../routes/account.ts", import.meta.url),
 );
 
+// US-2005 AC3 moved the purge PLAN into lib/account-email-purge.ts so the
+// "nothing addressable survives" property could be driven against a fake store
+// instead of needing a seeded database. This guard follows the indirection
+// rather than being weakened to match the new shape.
+//
+// BOTH halves are required below, because either alone can hold while the
+// property is gone: a plan naming every table that nothing calls, or a caller
+// that calls a plan which has quietly lost a table.
+const PLAN_SRC = await Deno.readTextFile(
+  new URL("../lib/account-email-purge.ts", import.meta.url),
+);
+
 // Scope to the delete endpoint so an unrelated mention elsewhere in the file
 // (e.g. the export handler reading the same tables) cannot satisfy these.
 const DELETE_ROUTE = SRC.slice(SRC.indexOf('accountRoutes.post("/delete"'));
@@ -42,7 +54,10 @@ function routeQueries(table: string): boolean {
   // reference — `.from("x")` or membership in the literal purge lists — quotes
   // them. Simple string containment rather than a regex, because the escaping
   // needed to embed a table name in a pattern is itself a place to be wrong.
-  return DELETE_ROUTE.includes(`"${table}"`);
+  // Now satisfied by the PLAN, since that is where the table names live. The
+  // delete route is separately required (below) to invoke the plan at all, so a
+  // plan nobody runs still fails.
+  return PLAN_SRC.includes(`"${table}"`);
 }
 
 Deno.test("deletion purges every known email-keyed PII table", () => {
@@ -148,3 +163,18 @@ Deno.test(
     );
   },
 );
+
+Deno.test("US-2005: the delete route RUNS the purge plan, before the cascade", () => {
+  // The other half of following the indirection. Without this, the plan above
+  // could list every table in the schema and never execute — which is exactly
+  // the "reads as coverage" failure the original gap had.
+  const purgeAt = DELETE_ROUTE.indexOf("purgeEmailKeyedPii(");
+  const cascadeAt = DELETE_ROUTE.indexOf("auth.admin.deleteUser");
+  assert(purgeAt > -1, "the delete route no longer runs the email-keyed purge");
+  assert(cascadeAt > -1, "the auth user deletion is gone or was renamed");
+  assert(
+    purgeAt < cascadeAt,
+    "the purge runs AFTER the cascade — users.email is gone by then, so it " +
+      "silently purges nothing while the endpoint still reports {deleted:true}",
+  );
+});

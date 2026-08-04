@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { purgeEmailKeyedPii } from "../lib/account-email-purge.ts";
 import { sendAccountDeletedEmail } from "../lib/email.ts";
 import { type AuthAssuranceClaims, isAal2 } from "../lib/jwt-claims.ts";
 import {
@@ -652,53 +653,25 @@ accountRoutes.post("/delete", async (c) => {
   //     purpose only.
   const purgeEmail = (user?.email as string | null)?.trim().toLowerCase() ?? "";
   if (purgeEmail) {
-    // Column names VERIFIED against the migrations — these tables do not agree
-    // on what the address column is called, and guessing would fail silently
-    // (PostgREST 42703 on a .eq() is an error we log and move past, so a wrong
-    // name here would look exactly like a successful purge).
-    const HARD_DELETE: ReadonlyArray<readonly [string, string]> = [
-      ["email_deliveries", "recipient"], // also carries `html`: the full body
-      ["marketing_send_log", "recipient"],
-      ["email_journey_step_sends", "recipient"],
-      ["newsletter_issue_recipients", "email"],
-    ];
-    for (const [table, column] of HARD_DELETE) {
-      const { error } = await supabaseAdmin.from(table).delete().eq(column, purgeEmail);
-      if (error) {
-        console.error(
-          `[account/delete] email-keyed purge failed for ${table}.${column}:`,
-          error.message,
-        );
-      }
-    }
-
-    // waitlist_entries.email and email_subscribers.email are NOT NULL (and
-    // UNIQUE), so "anonymize by nulling" is not available — the write would just
-    // fail and leave the PII in place. Delete the rows instead: a deleted
-    // account has no waitlist position to hold and no newsletter subscription to
-    // keep. (Unsubscribe protection does NOT depend on this row — that is
-    // email_suppressions, deliberately preserved below.)
-    for (const table of ["waitlist_entries", "email_subscribers"] as const) {
-      const { error } = await supabaseAdmin.from(table).delete().eq("email", purgeEmail);
-      if (error) {
-        console.error(`[account/delete] purge failed for ${table}:`, error.message);
-      }
-    }
-
-    // email_consent_audit is nullable on both identifying columns, so it is
-    // ANONYMIZED rather than deleted: the row proves WHEN a consent action
-    // happened, which is a record we may need to defend, and that meaning
-    // survives the subject once the identifiers are gone.
-    const { error: consentErr } = await supabaseAdmin
-      .from("email_consent_audit")
-      .update({ email: null, ip: null })
-      .eq("email", purgeEmail);
-    if (consentErr) {
-      console.error(
-        "[account/delete] consent-audit anonymize failed:",
-        consentErr.message,
-      );
-    }
+    // US-2005 AC3: the plan and the sequence live in lib/account-email-purge.ts
+    // so the property this AC actually asks for — "nothing addressable
+    // survives" — can be asserted against a fake store instead of needing a
+    // seeded database. Column names are verified there against the migrations;
+    // a wrong one fails with 42703, which we log and step past, so it would
+    // otherwise look exactly like a successful purge.
+    await purgeEmailKeyedPii(purgeEmail, {
+      del: async (table, column, value) => {
+        const { error } = await supabaseAdmin.from(table).delete().eq(column, value);
+        return { error: error ? { message: error.message } : null };
+      },
+      anonymize: async (table, column, value, clear) => {
+        const patch: Record<string, null> = {};
+        for (const c of clear) patch[c] = null;
+        const { error } = await supabaseAdmin.from(table).update(patch).eq(column, value);
+        return { error: error ? { message: error.message } : null };
+      },
+      report: (message) => console.error(message),
+    });
   }
 
   // 4. Delete the auth user — cascades every public table keyed to it,
