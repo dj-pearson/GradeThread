@@ -56,7 +56,10 @@ describe("grading readiness (shared fixture)", () => {
       garment_type: "jeans",
       garment_category: "denim",
       title: "X",
-      photoTypes: ["front", "back", "defect"],
+      // US-2304: `tag` joined the required set for GRADING, so it belongs in
+      // any case whose point is something else — otherwise this asserts the
+      // missing-tag blocker instead of the defect/fabric distinction it names.
+      photoTypes: ["front", "back", "tag", "defect"],
     });
     expect(got.ready).toBe(true);
     expect(got.warnings.join(" ")).toContain("fabric close-up");
