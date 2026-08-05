@@ -8,6 +8,7 @@ import {
   verifyGooglePlayPurchase,
 } from "../lib/google-play/verify.ts";
 import type { GoogleUsersBillingUpdate } from "../lib/google-play/products.ts";
+import { captureException } from "../lib/observability.ts";
 
 // Google Play Billing verification — the Android counterpart to
 // /api/payments/appstore/verify. Pattern: verify (impure) → classify/compute
@@ -157,6 +158,30 @@ googlePlayVerifyRoutes.post("/verify", async (c) => {
       case "account_mismatch":
         // The purchase belongs to a different account (obfuscated id mismatch or
         // the token is already claimed elsewhere) — never entitle the caller.
+        return c.json({ error: "PURCHASE_NOT_OWNED_BY_ACCOUNT" }, 403);
+      case "product_mismatch":
+        // US-2285: the client asked for a tier Google's verified purchase does
+        // not include. Unlike the other refusals this one cannot happen by
+        // accident — the Play client sends back the productId it was given — so
+        // it is logged as a security signal rather than an ordinary 4xx.
+        captureException(
+          new Error("google play: client productId not in the verified purchase"),
+          {
+            route: "POST /api/payments/google/verify",
+            userId,
+            tags: {
+              claimed_product_id: productId,
+              verified_product_ids: (result.verifiedProductIds ?? []).join(","),
+            },
+          },
+        );
+        console.error(
+          `[googleplay][security] user=${userId} claimed=${productId} ` +
+            `verified=${(result.verifiedProductIds ?? []).join(",") || "none"}`,
+        );
+        // Same body as the ownership refusal on purpose: telling the caller
+        // which product Google says they own is a hint they have no use for
+        // except to try again with it.
         return c.json({ error: "PURCHASE_NOT_OWNED_BY_ACCOUNT" }, 403);
       case "invalid_purchase":
       default:

@@ -118,6 +118,7 @@ function fakeDeps(opts: {
             expiryMillis: null,
             autoRenewing: false,
             obfuscatedExternalAccountId: null,
+            productIds: [],
           },
       ),
     loadBillingUser: () =>
@@ -237,6 +238,7 @@ Deno.test("orchestration: no Stripe sub → Play subscription proceeds past the 
       expiryMillis: NOW + 86_400_000,
       autoRenewing: true,
       obfuscatedExternalAccountId: null,
+      productIds: [],
     },
   });
   const r = await processGooglePlayPurchase(
@@ -256,6 +258,7 @@ Deno.test("orchestration: invalid purchase → rejected, nothing granted", async
       expiryMillis: null,
       autoRenewing: false,
       obfuscatedExternalAccountId: null,
+      productIds: [],
     },
   });
   const r = await processGooglePlayPurchase(
@@ -276,6 +279,7 @@ Deno.test("orchestration: valid subscription → plan applied + event recorded",
       expiryMillis: NOW + 86_400_000,
       autoRenewing: true,
       obfuscatedExternalAccountId: null,
+      productIds: [],
     },
   });
   const r = await processGooglePlayPurchase(
@@ -318,6 +322,7 @@ Deno.test("binding: obfuscatedExternalAccountId for another user → account_mis
       expiryMillis: NOW + 86_400_000,
       autoRenewing: true,
       obfuscatedExternalAccountId: "someone-else",
+      productIds: [],
     },
   });
   const r = await processGooglePlayPurchase(
@@ -339,6 +344,7 @@ Deno.test("binding: matching obfuscatedExternalAccountId → entitles the caller
       expiryMillis: NOW + 86_400_000,
       autoRenewing: true,
       obfuscatedExternalAccountId: "u1",
+      productIds: [],
     },
   });
   const r = await processGooglePlayPurchase(
@@ -372,6 +378,7 @@ Deno.test("binding: same-user re-verify (owner === caller) → renews normally",
       expiryMillis: NOW + 86_400_000,
       autoRenewing: true,
       obfuscatedExternalAccountId: null,
+      productIds: [],
     },
   });
   const r = await processGooglePlayPurchase(
@@ -431,6 +438,7 @@ Deno.test("orchestration: consumable grant throws once, succeeds on retry → ex
         expiryMillis: null,
         autoRenewing: false,
         obfuscatedExternalAccountId: null,
+        productIds: [],
       }),
     loadBillingUser: () =>
       Promise.resolve({
@@ -486,4 +494,115 @@ Deno.test("orchestration: consumable grant throws once, succeeds on retry → ex
   assertEquals(granted.get("tok"), 50); // exactly one net grant
   assertEquals(r.creditsBalance, 55); // 5 + 50
   assertEquals(processed.has("tok"), true); // dedup row now recorded
+});
+
+// ── Tier comes from Google, not from the request body (US-2285) ──────
+//
+// The two verify paths are not equally safe, and the story's title understates
+// which half is broken. A consumable is fetched from
+// /purchases/products/{productId}/tokens/{token} — the productId is IN THE PATH,
+// so Google refuses a token that isn't for that product. A subscription is
+// fetched from /purchases/subscriptionsv2/tokens/{token}, TOKEN ONLY. The
+// client's productId never reached Google, and parseSubscriptionV2 threw away
+// the one field that said what was actually bought.
+//
+// So: buy flipdesk_starter_monthly, POST its purchaseToken with
+// productId=flipdesk_business_yearly. Token valid, state active, obfuscated
+// account id matches, token unclaimed — every gate passes and the server grants
+// the business tier.
+
+Deno.test("US-2285: parseSubscriptionV2 surfaces the productIds Google returned", () => {
+  const r = parseSubscriptionV2({
+    subscriptionState: "SUBSCRIPTION_STATE_ACTIVE",
+    lineItems: [
+      { productId: "flipdesk_starter_monthly", expiryTime: "2026-08-01T00:00:00Z" },
+    ],
+  });
+  assertEquals(r.productIds, ["flipdesk_starter_monthly"]);
+});
+
+Deno.test("US-2285: every line item is surfaced, not just the first", () => {
+  // A multi-line subscription genuinely entitles all of them; checking only
+  // lineItems[0] would refuse a purchase the buyer really made.
+  const r = parseSubscriptionV2({
+    subscriptionState: "SUBSCRIPTION_STATE_ACTIVE",
+    lineItems: [
+      { productId: "flipdesk_starter_monthly" },
+      { productId: "flipdesk_pro_monthly" },
+    ],
+  });
+  assertEquals(r.productIds, ["flipdesk_starter_monthly", "flipdesk_pro_monthly"]);
+});
+
+Deno.test("US-2285: a consumable response has no productIds (the URL already bound it)", () => {
+  assertEquals(parseProductPurchase({ purchaseState: 0, orderId: "GPA.2" }).productIds, []);
+});
+
+Deno.test("US-2285: THE ATTACK — cheap sub token replayed as the business tier is refused", async () => {
+  const { deps, rec } = fakeDeps({
+    info: {
+      valid: true,
+      orderId: "GPA.s",
+      expiryMillis: NOW + 86_400_000,
+      autoRenewing: true,
+      obfuscatedExternalAccountId: "u1", // binding passes: it IS their purchase
+      productIds: ["flipdesk_starter_monthly"], // ...of the cheapest plan
+    },
+  });
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "flipdesk_business_yearly", purchaseToken: "tok" },
+    deps,
+    NOW,
+  );
+  assert(!r.ok);
+  assertEquals(r.reason, "product_mismatch");
+  assertEquals(r.verifiedProductIds, ["flipdesk_starter_monthly"]);
+  // Nothing was written: no plan applied, no event, no credits.
+  assertEquals(rec.applied.length, 0);
+  assertEquals(rec.events, 0);
+  assertEquals(rec.grants.length, 0);
+});
+
+Deno.test("US-2285: the honest purchase still grants", async () => {
+  const { deps, rec } = fakeDeps({
+    info: {
+      valid: true,
+      orderId: "GPA.s",
+      expiryMillis: NOW + 86_400_000,
+      autoRenewing: true,
+      obfuscatedExternalAccountId: null,
+      productIds: ["flipdesk_business_yearly"],
+    },
+  });
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "flipdesk_business_yearly", purchaseToken: "tok" },
+    deps,
+    NOW,
+  );
+  assert(r.ok);
+  assertEquals(r.plan, "business");
+  assertEquals(rec.applied.length, 1);
+});
+
+Deno.test("US-2285: an empty productIds list is not a mismatch", async () => {
+  // Consumables (URL-bound) and any response without lineItems land here.
+  // Refusing on empty would break real purchases to defend a path Google
+  // already defends — so the check is skipped, deliberately, not silently.
+  const { deps, rec } = fakeDeps({
+    info: {
+      valid: true,
+      orderId: "GPA.c",
+      expiryMillis: null,
+      autoRenewing: false,
+      obfuscatedExternalAccountId: null,
+      productIds: [],
+    },
+  });
+  const r = await processGooglePlayPurchase(
+    { userId: "u1", productId: "credits_10", purchaseToken: "tok-c" },
+    deps,
+    NOW,
+  );
+  assert(r.ok);
+  assertEquals(rec.grants.length, 1);
 });

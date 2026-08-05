@@ -60,6 +60,22 @@ export interface PlayPurchaseInfo {
    * per-token uniqueness claim on users.google_purchase_token.
    */
   obfuscatedExternalAccountId: string | null;
+  /**
+   * US-2285: the product(s) Google says were ACTUALLY bought, off the verified
+   * response — `lineItems[].productId` on subscriptionsv2.
+   *
+   * This exists because the two verify paths are not equally safe. A consumable
+   * is fetched at /purchases/products/{productId}/tokens/{token}: the productId
+   * is IN THE PATH, so Google itself refuses a token that doesn't belong to it.
+   * A subscription is fetched at /purchases/subscriptionsv2/tokens/{token} —
+   * TOKEN ONLY. The client's productId never reaches Google on that path, so
+   * the tier has to be checked against what comes back instead.
+   *
+   * Empty for consumables (the path already bound it) and for a response with
+   * no lineItems, which is why the caller treats empty as "nothing to check"
+   * rather than as a mismatch.
+   */
+  productIds: string[];
 }
 
 // ── Response parsing (pure, exported for tests) ─────────────────────
@@ -76,6 +92,7 @@ export function parseSubscriptionV2(json: unknown): PlayPurchaseInfo {
     latestOrderId?: string;
     externalAccountIdentifiers?: { obfuscatedExternalAccountId?: string };
     lineItems?: Array<{
+      productId?: string;
       expiryTime?: string;
       autoRenewingPlan?: { autoRenewEnabled?: boolean };
     }>;
@@ -90,6 +107,12 @@ export function parseSubscriptionV2(json: unknown): PlayPurchaseInfo {
     autoRenewing: line?.autoRenewingPlan?.autoRenewEnabled === true,
     obfuscatedExternalAccountId:
       o.externalAccountIdentifiers?.obfuscatedExternalAccountId?.trim() || null,
+    // EVERY line item, not lineItems[0]: a multi-line subscription genuinely
+    // entitles all of them, so checking only the first would refuse a purchase
+    // the buyer really made.
+    productIds: (o.lineItems ?? [])
+      .map((l) => l.productId?.trim())
+      .filter((p): p is string => Boolean(p)),
   };
 }
 
@@ -107,6 +130,9 @@ export function parseProductPurchase(json: unknown): PlayPurchaseInfo {
     expiryMillis: null,
     autoRenewing: false,
     obfuscatedExternalAccountId: o.obfuscatedExternalAccountId?.trim() || null,
+    // Empty by design: this response is fetched from a URL with the productId in
+    // the path, so Google has already bound the token to the product.
+    productIds: [],
   };
 }
 
@@ -183,7 +209,18 @@ export interface GooglePlayResult {
     // The purchase is bound to a different account — either its
     // obfuscatedExternalAccountId names another user, or the token is already
     // claimed on another user's row. Never entitles the caller (US-1614).
-    | "account_mismatch";
+    | "account_mismatch"
+    // US-2285: the client asked to be granted a product Google's verified
+    // response does not list. Buy the cheapest subscription, replay the token
+    // claiming the business tier — every other check passed, because the tier
+    // was the one thing never checked against Google.
+    | "product_mismatch";
+  /**
+   * US-2285: on `product_mismatch`, what Google actually said was bought. The
+   * caller logs it; it never reaches the client, which already knows what it
+   * claimed and does not need telling what it does not own.
+   */
+  verifiedProductIds?: string[];
 }
 
 export interface GooglePlayDeps {
@@ -270,6 +307,23 @@ export async function processGooglePlayPurchase(
     info.obfuscatedExternalAccountId !== ctx.userId
   ) {
     return { ok: false, kind: mapping.kind, reason: "account_mismatch" };
+  }
+
+  // US-2285: the TIER must come from Google, not from the request body. The
+  // subscriptionsv2 endpoint is keyed on the token alone, so ctx.productId has
+  // never been checked against anything up to this point — a valid token for
+  // the cheapest plan, replayed with the business productId, satisfies every
+  // gate above it. Empty productIds means there was nothing to check (a
+  // consumable, whose URL already bound the product, or a response with no
+  // lineItems) and is deliberately not a mismatch: refusing there would break
+  // real purchases to defend a path Google already defends.
+  if (info.productIds.length > 0 && !info.productIds.includes(ctx.productId)) {
+    return {
+      ok: false,
+      kind: mapping.kind,
+      reason: "product_mismatch",
+      verifiedProductIds: info.productIds,
+    };
   }
 
   if (mapping.kind === "subscription") {
