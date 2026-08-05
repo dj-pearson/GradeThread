@@ -19,6 +19,7 @@ import { History, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { GRADE_FACTORS, SCORE_STOP } from "@/lib/constants";
 import { safeEmbedUrl } from "@/lib/return-to";
+import { AiDisclosure } from "@/components/grade/ai-disclosure";
 import type { PublicGradeReportRow, SubmissionRow } from "@/types/database";
 
 const BRAND_NAVY = "#0F3460";
@@ -205,6 +206,12 @@ export function EmbedGradePage() {
               View Garment Passport — full history
             </a>
           )}
+
+          {/* US-2399: AI disclosure. The embed is the surface a BUYER meets on a
+              partner's own site, furthest from our Terms — so the disclosure has
+              to travel with the grade rather than live a click away. Same shared
+              copy as the certificate page. */}
+          <AiDisclosure humanReviewed={report.human_reviewed} variant="inline" />
 
           {/* Attribution — keeps the result independently trustworthy even when
               branded. Links to the full GradeThread certificate. */}

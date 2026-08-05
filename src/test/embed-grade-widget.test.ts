@@ -9,6 +9,8 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  aiDisclosureBody,
+  aiDisclosureTitle,
   gradeEmbedCardHtml,
   gradeEmbedWidgetJs,
   readEmbedBranding,
@@ -125,6 +127,44 @@ describe("gradeEmbedCardHtml", () => {
     const html = gradeEmbedCardHtml(CERT, PLAIN, CERT_URL);
     expect(html).toContain("Verified Condition Grade");
     expect(html).not.toContain(">Support<");
+  });
+
+  // US-2399: the widget is the buyer-facing surface furthest from our Terms, so
+  // the AI disclosure has to be IN the card, and it has to describe what actually
+  // happened to THIS grade.
+  it("carries the AI disclosure inside the card", () => {
+    const html = gradeEmbedCardHtml(CERT, PLAIN, CERT_URL);
+    expect(html).toContain("automated AI system");
+    expect(html).toContain("not a certified appraisal");
+  });
+
+  it("says human-finalized only when the grade actually was", () => {
+    const reviewed = gradeEmbedCardHtml({ ...CERT, human_reviewed: true }, PLAIN, CERT_URL);
+    expect(reviewed).toContain("finalized by a human reviewer");
+    expect(reviewed).toContain("A GradeThread reviewer checked this grade");
+
+    const aiOnly = gradeEmbedCardHtml({ ...CERT, human_reviewed: false }, PLAIN, CERT_URL);
+    expect(aiOnly).toContain("AI-generated condition estimate");
+    expect(aiOnly).not.toContain("human reviewer");
+  });
+
+  it("degrades to the AI-only wording when human_reviewed is absent or null", () => {
+    // A partial/legacy payload must never be upgraded into a human-review claim.
+    for (const cert of [CERT, { ...CERT, human_reviewed: null }]) {
+      const html = gradeEmbedCardHtml(cert, PLAIN, CERT_URL);
+      expect(html).toContain("AI-generated condition estimate");
+      expect(html).not.toContain("human reviewer");
+    }
+  });
+
+  it("keeps the widget disclosure copy identical to the React component", async () => {
+    // The worker can't import from src/, so the strings are duplicated. This is
+    // the guard that stops them drifting.
+    const shared = await import("../lib/ai-disclosure-copy");
+    for (const reviewed of [true, false]) {
+      expect(aiDisclosureTitle(reviewed)).toBe(shared.aiDisclosureTitle(reviewed));
+      expect(aiDisclosureBody(reviewed)).toBe(shared.aiDisclosureBody(reviewed));
+    }
   });
 
   it("escapes hostile branding + cert text so the host page can't be XSS'd", () => {

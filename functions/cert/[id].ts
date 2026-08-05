@@ -27,6 +27,7 @@ import {
   type PagesEnv,
 } from "../_shared/blog-render";
 import { certNotFoundResponse } from "./cert-not-found";
+import { aiDisclosureBody, aiDisclosureTitle } from "../_shared/ai-disclosure";
 
 interface PublicCertificate {
   id: string;
@@ -61,6 +62,10 @@ interface PublicCertificate {
   live_capture_verified?: boolean;
   // US-1281: true when the submission earned the premium 360-Verified badge.
   verified_360_badge?: boolean;
+  // US-2399: drives the AI-disclosure variant. Optional so a partial payload
+  // degrades to the stricter AI-only wording rather than silently claiming a
+  // human reviewed the grade.
+  human_reviewed?: boolean | null;
 }
 
 interface CertResponse {
@@ -228,6 +233,17 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     { name: "Grade Certificate", url: canonical },
   ];
 
+  // US-2399: the SSR page renders the full grade to anyone whose SPA bundle
+  // hasn't mounted yet (and to every crawler), so the AI disclosure has to be in
+  // these bytes too — not only in the React certificate page that replaces them.
+  // Same shared copy, so the two can't say different things about one grade.
+  const humanReviewed = cert.human_reviewed === true;
+  const aiDisclosureHtml = `<aside class="cert-ai-disclosure" style="margin-top:20px;padding:12px 16px;border:1px solid #fcd34d;border-radius:12px;background:#fffbeb;color:#78350f;font-size:13px;line-height:1.55">
+    <strong>${escape(aiDisclosureTitle(humanReviewed))}.</strong>
+    ${escape(aiDisclosureBody(humanReviewed))}
+    <a href="/terms" style="color:#78350f">See our Terms</a> (section 5) for details.
+  </aside>`;
+
   const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, base)}
   <main class="container container--wide">
   <p class="cert-eyebrow">Verified Grade Certificate${certNoSuffix}</p>
@@ -249,6 +265,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   ${factorsHtml}
   <h2>${cert.buyer_writeup ? "Condition Report" : "AI Analysis Summary"}</h2>
   <div class="cert-report">${escape(cert.buyer_writeup || cert.ai_summary)}</div>
+  ${aiDisclosureHtml}
   <p class="cert-eyebrow" style="margin-top:24px">Graded on ${escape(gradedOn)}${certNoSuffix}</p>
   <a class="cta" href="/?utm_source=certificate&utm_medium=organic">Grade your own garment with GradeThread &rarr;</a>
   <!--

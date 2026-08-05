@@ -11,7 +11,6 @@ import {
   BadgeCheck,
   Gauge,
   UserCheck,
-  Info,
   History,
   ArrowRight,
   Camera,
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
+import { AiDisclosure } from "@/components/grade/ai-disclosure";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -1018,9 +1018,16 @@ export function CertificatePage() {
                 <p className="text-sm font-medium">
                   Grade confidence: {confidenceLabel(gradeReport.confidence_label)}
                 </p>
+                {/* US-2399: this used to read "low-confidence grades are routed
+                    to a human reviewer", which implied review is the EXCEPTION.
+                    Since 00312 review is mandatory for every certified grade, so
+                    that wording both understated the process and contradicted the
+                    AI disclosure lower down the page. Describe confidence itself
+                    and let the Human-reviewed row below make the review claim,
+                    per-grade. */}
                 <p className="text-xs text-muted-foreground">
-                  Low-confidence grades are routed to a human reviewer before
-                  they&apos;re finalized.
+                  How strongly the seller&apos;s photos supported the automated
+                  assessment.
                 </p>
               </div>
             </div>
@@ -1186,29 +1193,13 @@ export function CertificatePage() {
           </CardContent>
         </Card>
 
-        {/* US-514: AI-transparency disclosure. Buyers must be clearly told the
-            grade is an AI-generated estimate, not a professional appraisal or
-            guarantee. Wording mirrors Terms §5. */}
-        <Card className="border-amber-300 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-950/60">
-          <CardContent className="flex items-start gap-3 pt-6">
-            <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
-                AI-generated condition estimate — not a professional appraisal or
-                guarantee
-              </p>
-              <p className="text-xs text-amber-800 dark:text-amber-300">
-                This grade is produced by an automated AI system from the seller's
-                photos. It is an estimate of condition, not a certified appraisal,
-                authentication, or warranty of value. Confidence is shown above;
-                lower-confidence grades are routed to a human reviewer. Always
-                review the photos and item description before purchasing. See our{" "}
-                <a href="/terms" className="underline">Terms</a> (section 5) for
-                details.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        {/* US-514: AI-transparency disclosure. Buyers must be clearly told how
+            the grade was produced. US-2399 moved the wording into the shared
+            <AiDisclosure> so the certificate, the embed page and the partner
+            widget can never drift apart, and made it per-grade: a mandatory-review
+            grade (00312) is described as human-finalized, a legacy AI-only grade
+            is not. Wording mirrors Terms §5. */}
+        <AiDisclosure humanReviewed={gradeReport.human_reviewed} />
 
         {/* Intentional design features — buyers see distressing was assessed
             as styling, not counted against the condition grade. */}

@@ -9,6 +9,7 @@
 // iframe) and the public-endpoint privacy guard.
 
 import { escape } from "../../_shared/blog-render";
+import { aiDisclosureBody, aiDisclosureTitle } from "../../_shared/ai-disclosure";
 
 export interface PublicCertificate {
   id: string;
@@ -21,6 +22,11 @@ export interface PublicCertificate {
   cosmetic_appearance_score: number;
   functional_elements_score: number;
   odor_cleanliness_score: number;
+  // US-2399: drives the AI disclosure variant. Served by the public cert endpoint
+  // (content-public.ts spreads the whole public_grade_reports row). Optional so a
+  // legacy/partial payload degrades to the stricter AI-only wording rather than
+  // silently claiming a human reviewed the grade.
+  human_reviewed?: boolean | null;
 }
 
 // Factor labels mirror src/lib/constants.ts GRADE_FACTORS + the /cert SSR
@@ -35,6 +41,11 @@ const FACTORS: Array<{ key: keyof PublicCertificate; label: string }> = [
 ];
 
 const BRAND_NAVY = "#0F3460";
+
+// US-2399: the widget is the surface a buyer actually meets on a PARTNER's site,
+// furthest from our Terms — so it carries the same AI disclosure the certificate
+// page does, from the one copy shared across the Pages Functions.
+export { aiDisclosureBody, aiDisclosureTitle };
 
 // Grade → accent colour. Mirrors src/pages/embed-grade.tsx scoreColor so the
 // widget card matches the standalone SPA embed page.
@@ -119,6 +130,14 @@ export function gradeEmbedCardHtml(
     ? `<a href="${escape(branding.support)}" target="_blank" rel="noopener noreferrer" style="color:#64748b;text-decoration:none">Support</a>`
     : "";
 
+  // Sits directly under the factor bars, above the attribution row — inside the
+  // card, so it can't be cropped off the way a footnote below the card could be.
+  const humanReviewed = cert.human_reviewed === true;
+  const disclosureHtml = `<div style="margin-top:16px;padding-top:12px;border-top:1px solid #f1f5f9;font-size:11px;line-height:1.5;color:#475569">
+      <span style="font-weight:600;color:#334155">${escape(aiDisclosureTitle(humanReviewed))}.</span>
+      ${escape(aiDisclosureBody(humanReviewed))}
+    </div>`;
+
   const titleHtml = cert.title
     ? `<p style="margin:4px 0 0;font-size:14px;font-weight:500;color:#0f172a">${escape(cert.title)}${
         cert.brand ? ` <span style="color:#64748b">&mdash; ${escape(cert.brand)}</span>` : ""
@@ -147,6 +166,7 @@ export function gradeEmbedCardHtml(
         </div>
       </div>
       ${factorsHtml}
+      ${disclosureHtml}
       <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #f1f5f9;padding-top:12px;margin-top:16px;font-size:11px;color:#64748b">
         <a href="${escape(certUrl)}" target="_blank" rel="noopener noreferrer" style="color:#64748b;text-decoration:none">&#10003; Verified by GradeThread</a>
         ${supportHtml}
