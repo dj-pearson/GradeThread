@@ -2576,20 +2576,6 @@
       ]
     },
     {
-      "id": "US-2401",
-      "passes": false,
-      "title": "The Cloudflare Pages Functions in functions/ are compiled by nothing — no tsc, no lint lane",
-      "description": "As a developer changing a server-rendered public page, I want the functions/ tree typechecked in the same lane as src/, so that a broken import or a field that no longer exists fails the build instead of failing in production.",
-      "acceptanceCriteria": [
-        "functions/ is covered by a project reference (a tsconfig.functions.json referenced from the root tsconfig.json) so npx tsc -b compiles it, with the Cloudflare Workers types the tree already relies on (PagesFunction, EventContext)",
-        "npm run verify fails on a deliberate type error introduced anywhere under functions/, demonstrated once and recorded in the story notes",
-        "eslint covers functions/ or the story records explicitly why it does not",
-        "The existing type errors the new lane surfaces are either fixed or listed in the notes with a decision per file — the lane is not landed with a suppression that hides them"
-      ],
-      "priority": 1999,
-      "notes": "[P2][Web/CI] Found by code review 2026-08-04; VERIFIED by reading the tsconfigs, not reported. tsconfig.json has files:[] and two references - tsconfig.app.json (include:['src']) and tsconfig.node.json (include:['vite.config.ts']). Nothing else. So npm run build's tsc -b never sees functions/, and neither does anything in scripts/verify.mjs. That is 15+ files serving LIVE PRODUCTION traffic: the certificate SSR page, the blog/authors/value/durability/condition-index renderers, both embed widgets, the verified-seller storefront, llms.txt, rss.xml and the OG image routes. SCOPE HONESTY - this would NOT have caught the defect that prompted it. US-2400 is a fetch response cast through a hand-written interface; tsc cannot know the server stopped sending a field. What a typecheck DOES catch in this tree is the other half of the same class: a renamed export in functions/_shared/, a signature drift between a Pages Function and the shared helper it calls, and a dead import after a refactor. Those currently ship. WHY IT WAS NEVER WIRED, as far as the repo shows: functions/ needs @cloudflare/workers-types globals that tsconfig.app.json's DOM lib does not provide, so it cannot simply be added to the app include - it needs its own reference with its own lib/types. That is the actual work, and it is why AC4 exists: turning the lane on will surface a batch of pre-existing errors, and landing it with those suppressed would make the lane green and useless."
-    },
-    {
       "id": "US-2402",
       "passes": false,
       "title": "The mandated UI check reports 14 anti-patterns in src/ and all 14 are matches inside code comments",

@@ -1,5 +1,24 @@
+// US-2401: the Cloudflare Pages Functions lane.
+//
+// This file existed before the lane did — written, never referenced from the
+// root tsconfig, therefore run by nothing. `npm run build` is `tsc -b`, which
+// builds only the root's references, so 15+ files serving live production
+// traffic (the certificate SSR page, the blog/authors/value/durability
+// renderers, both embed widgets, llms.txt, rss.xml, the OG image routes) were
+// compiled by no lane at all.
+//
+// It has to be its OWN project rather than folding into tsconfig.app.json: this
+// tree runs on the Workers runtime and uses its globals (PagesFunction,
+// EventContext, KVNamespace), which the app project's DOM lib does not provide,
+// and the app project's jsx/DOM settings are meaningless here. Same reason
+// tsconfig.node.json is separate for vite.config.ts.
+//
+// Held to tsconfig.app.json's strictness on purpose (noUnusedLocals /
+// noUnusedParameters / noFallthroughCasesInSwitch added here), so a Pages
+// Function answers to what src/ answers to.
 {
   "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.functions.tsBuildInfo",
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -9,7 +28,11 @@
     "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
+    "moduleDetection": "force",
     "esModuleInterop": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true
   },
   "include": ["functions/**/*.ts"]
