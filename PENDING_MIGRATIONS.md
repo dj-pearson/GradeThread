@@ -1,6 +1,66 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing pending.** 00524, 00525 and 00526 were applied to prod on
+## ⏳ HELD: 00528_best_offer_thresholds_manual_only.sql (US-2405 manual Best Offer thresholds, 2026-08-05)
+
+**Apply order.** After 00526. **00527 does not exist as a `.sql` file** — it is
+`00527_revoke_public_function_execute.sql.BLOCKED` (US-2403), invisible to the
+`*.sql` glob, and its number stays reserved. `EXPECTED_SCHEMA_VERSION` therefore
+jumps 00526 → 00528, the same deliberate skip already recorded for 00479.
+
+**What it does.** One `UPDATE` over `public.listings` setting
+`best_offer_auto_accept_cents` and `best_offer_auto_decline_cents` to NULL
+wherever either is set, plus two `COMMENT ON COLUMN` statements. No table,
+column, index, policy or function changes. Idempotent — the second run matches
+zero rows.
+
+**Why.** Blank Best Offer boxes used to fall back to the listing's comp band
+(p75 → accept, p25 → decline), and the composer wrote that resolved default
+into the columns on save. So sellers who never touched the fields still had
+fixed numbers stored, and nothing refreshed them when the price moved. A shirt
+repriced from $24 to $298 kept a $27.50 auto-accept and a $16 auto-decline: a
+$28 offer on a ~$300 item would have auto-accepted. The code in this commit
+removes the comp fallback on both sides (edge `best-offer.ts` and the web
+mirror), so NULL now means "no threshold, the offer waits for you". This
+backfill makes the stored data match that meaning.
+
+**It clears hand-typed values too.** Nothing recorded which numbers were typed
+and which were auto-filled, so they cannot be told apart. Re-entering a real one
+is a single field; leaving an auto-filled one is a sale at the wrong price.
+
+**Risk: LOW to apply, and the direction of failure is safe.** With the columns
+NULL, no auto-accept or auto-decline is sent to eBay and every offer waits for
+the seller. Nothing errors if it stays unapplied either: the new code simply
+reads whatever is in the columns, so an unapplied database keeps honouring the
+stale numbers — which is the bug, not a break.
+
+**CLIENT reads/writes.** No NEW column is read or written. The SPA already reads
+and writes both columns (composer, AutoLister bulk edit) and iOS reads them in
+`ListingDraftService`. A frontend deploy ahead of the SQL is safe: the new
+composer stops back-filling blanks immediately, so no fresh comp defaults are
+created; the old stored values simply survive until this runs.
+
+**⚠️ eBay still holds the old terms on LIVE listings.** This clears
+GradeThread's copy only. A published listing keeps its old auto-accept on eBay
+until FlipDesk revises it, and the revise sends the cleared (absent) terms. So
+after applying: re-save / update any live Best Offer listing whose price has
+changed. Verify with
+`select count(*) from listings where best_offer_auto_accept_cents is not null or best_offer_auto_decline_cents is not null;`
+— it should be 0 right after the apply.
+
+**Apply:**
+
+1. Run `supabase/migrations/00528_best_offer_thresholds_manual_only.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — column comments changed; harmless to run.
+3. Redeploy the edge (boot guard expects 00528).
+4. Then push.
+
+**NOT exercised against a live database** (the `verify:db` lane needs Docker).
+It is one guarded UPDATE and two comments, and the `raise notice` reports how
+many rows it cleared.
+
+---
+
+**Previously:** 00524, 00525 and 00526 were applied to prod on
 2026-08-04 (owner-confirmed, all three together). 00515 through 00523 were
 applied on 2026-08-03.
 

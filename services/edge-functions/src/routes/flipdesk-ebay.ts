@@ -5583,87 +5583,59 @@ async function persistReviseFailure(
 // CANNOT be edited on eBay's own site ("Inventory-based listing management is
 // not currently supported by this tool"). This endpoint is the supported way
 // to push edits back — including a photo reorder with no other change.
-flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
-  if (!isEbayConfigured()) {
-    return c.json({ error: "eBay is not configured on this server." }, 503);
-  }
-  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const listingId = c.req.param("id");
+// US-2404: the per-listing revise, extracted from POST /listings/:id/revise so
+// the bulk route can run the SAME code rather than a second copy of it. A bulk
+// action whose refusals drift from the single-item ones is how a seller ends up
+// told 40 listings were pushed when eBay refused 12.
+//
+// It returns a { status, body } pair instead of a Response because it is called
+// once per row by the bulk handler; the single-listing route hands the pair
+// straight to c.json and is otherwise unchanged.
+// US-2404: the per-request cap on a bulk resubmit. Lower than the 100 that
+// /bulk-price allows, because a revise is several eBay API calls per listing
+// rather than one, and the request has to finish inside a gateway timeout. The
+// client chunks a larger selection into requests of this size and shows progress.
+const MAX_BULK_REVISE_ITEMS = 25;
 
-  let body: {
-    title?: unknown;
-    description?: unknown;
-    listing_price?: unknown;
-    quantity?: unknown;
-    photos?: unknown;
-    resync_ebay_fields?: unknown;
-  };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
+interface ReviseOnePatch {
+  title?: string;
+  description?: string;
+  listingPrice?: number;
+  quantity?: number;
+  syncPhotos?: boolean;
+  resyncFields?: boolean;
+}
 
-  const nextTitle =
-    typeof body.title === "string" ? body.title.trim() : undefined;
-  const nextDesc =
-    typeof body.description === "string" ? body.description.trim() : undefined;
-  const nextPrice =
-    body.listing_price !== undefined && body.listing_price !== null
-      ? Number(body.listing_price)
-      : undefined;
-  // US-1079: full eBay-owned field coverage — quantity pushes up too, not just
-  // price. A non-negative integer (0 ends availability without withdrawing).
-  const nextQty =
-    body.quantity !== undefined && body.quantity !== null
-      ? Number(body.quantity)
-      : undefined;
+interface ReviseOneResult {
+  status: 200 | 400 | 403 | 404 | 409 | 422 | 502 | 503;
+  body: Record<string, unknown>;
+}
 
+function jsonResult(
+  body: Record<string, unknown>,
+  status: ReviseOneResult["status"] = 200,
+): ReviseOneResult {
+  return { body, status };
+}
+
+async function reviseOneListing(
+  listingId: string,
+  userId: string,
+  patch: ReviseOnePatch,
+): Promise<ReviseOneResult> {
+  const nextTitle = patch.title;
+  const nextDesc = patch.description;
+  const nextPrice = patch.listingPrice;
+  const nextQty = patch.quantity;
   const hasTitle = nextTitle !== undefined;
   const hasDesc = nextDesc !== undefined;
   const hasPrice = nextPrice !== undefined;
   const hasQty = nextQty !== undefined;
-  // `photos: true` forces the inventory_item re-PUT so the current photo set
-  // and sort order reach eBay even when no text field changed.
-  const syncPhotos = body.photos === true;
-  // US-1490: `resync_ebay_fields: true` re-asserts the eBay-owned STRUCTURED
-  // fields the seller edited post-publish — category, condition, and item
-  // specifics — which the inventory re-PUT (aspects + condition) and the offer
-  // category push below already source from the DB. It forces both pushes even
-  // when no title/description/photo changed (a specifics/condition/category-only
-  // edit), so "Save & resubmit" on the web composer reaches a live listing.
-  const resyncFields = body.resync_ebay_fields === true;
-
-  if (!hasTitle && !hasDesc && !hasPrice && !hasQty && !syncPhotos && !resyncFields) {
-    return c.json(
-      {
-        error:
-          "Provide at least one of: title, description, listing_price, quantity, photos, resync_ebay_fields",
-      },
-      400
-    );
-  }
-  if (hasTitle && !nextTitle) {
-    return c.json({ error: "title cannot be empty" }, 400);
-  }
-  if (
-    hasPrice &&
-    (!Number.isFinite(nextPrice) || (nextPrice as number) <= 0)
-  ) {
-    return c.json({ error: "listing_price must be a positive number" }, 400);
-  }
-  if (
-    hasQty &&
-    (!Number.isInteger(nextQty) || (nextQty as number) < 0)
-  ) {
-    return c.json(
-      { error: "quantity must be a non-negative integer" },
-      400
-    );
-  }
+  const syncPhotos = patch.syncPhotos === true;
+  const resyncFields = patch.resyncFields === true;
 
   const row = await loadListingOwned(listingId, userId);
-  if (!row.ok) return c.json(row.error, row.status);
+  if (!row.ok) return jsonResult(row.error, row.status);
 
   // US-2166 DECISION (owner's call, 2026-07-31): revise is an eBay OPERATOR, not
   // a platform-agnostic lifecycle step, so it deliberately stays here rather
@@ -5680,7 +5652,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   // this it would have gone on to call eBay's inventory/offer APIs with that
   // row's ids. Refuse it plainly and point at the route that does handle it.
   if ((row.listing.platform ?? "ebay") !== "ebay") {
-    return c.json(
+    return jsonResult(
       {
         error:
           `This is a ${row.listing.platform} listing, and revise is an eBay-only operation. ` +
@@ -5723,7 +5695,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
         syncPhotos ? "photos" : null,
         resyncFields ? "specifics" : null,
       ].filter((f): f is string => f !== null);
-      return c.json(
+      return jsonResult(
         {
           error:
             "This listing was created on eBay, so eBay owns its title, price, description, and photos. Edit it on eBay — changes here would be overwritten on the next sync.",
@@ -5740,7 +5712,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   // than doing nothing. Until the group-revise branch lands (US-2395 AC1/AC3),
   // say what is actually true.
   if (!row.listing.platform_offer_id && row.listing.variations) {
-    return c.json(
+    return jsonResult(
       {
         error:
           "Editing a multi-variation listing on eBay isn't supported yet. eBay " +
@@ -5754,7 +5726,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   }
 
   if (!row.listing.platform_offer_id) {
-    return c.json(
+    return jsonResult(
       {
         error:
           "This listing has no eBay offer id. Sync from eBay or republish to enable edits.",
@@ -5802,7 +5774,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       .eq("id", itemId)
       .maybeSingle();
     if (!itemRow || (itemRow as { user_id: string }).user_id !== userId) {
-      return c.json({ error: "Item not found" }, 404);
+      return jsonResult({ error: "Item not found" }, 404);
     }
     const item = itemRow as {
       id: string;
@@ -6135,7 +6107,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
           listingId,
           new Error(`Required eBay specifics missing: ${missing.join(", ")}`),
         );
-        return c.json(
+        return jsonResult(
           {
             error: "Required eBay item specifics are missing.",
             detail:
@@ -6186,7 +6158,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       // gateway failure. A 5xx gets intercepted by the Traefik/Coolify error page
       // (which strips CORS headers — see main.ts), so the browser sees a bare
       // "CORS blocked" instead of this detail. 422 passes through with the body.
-      return c.json(
+      return jsonResult(
         {
           error: "eBay rejected the revision.",
           // US-1511: mapped/human detail only (mirrors the publish path's
@@ -6224,7 +6196,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       await persistReviseFailure(listingId, err);
       // 422 (not 502): see the inventory_item branch above — an eBay rejection is
       // a data problem; a 5xx loses its CORS headers to the proxy error page.
-      return c.json(
+      return jsonResult(
         {
           error: "eBay rejected the offer revision.",
           // US-1511: mapped/human detail only — raw blob stays in the log above.
@@ -6262,13 +6234,204 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       .eq("id", listingId);
   }
 
-  return c.json({
+  return jsonResult({
     ok: true,
     listing_id: listingId,
     updated: localUpdates,
     photos_synced: syncPhotos || hasTitle || hasDesc || resyncFields,
   });
+}
+
+flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+
+  let body: {
+    title?: unknown;
+    description?: unknown;
+    listing_price?: unknown;
+    quantity?: unknown;
+    photos?: unknown;
+    resync_ebay_fields?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const nextTitle =
+    typeof body.title === "string" ? body.title.trim() : undefined;
+  const nextDesc =
+    typeof body.description === "string" ? body.description.trim() : undefined;
+  const nextPrice =
+    body.listing_price !== undefined && body.listing_price !== null
+      ? Number(body.listing_price)
+      : undefined;
+  // US-1079: full eBay-owned field coverage — quantity pushes up too, not just
+  // price. A non-negative integer (0 ends availability without withdrawing).
+  const nextQty =
+    body.quantity !== undefined && body.quantity !== null
+      ? Number(body.quantity)
+      : undefined;
+
+  const hasTitle = nextTitle !== undefined;
+  const hasDesc = nextDesc !== undefined;
+  const hasPrice = nextPrice !== undefined;
+  const hasQty = nextQty !== undefined;
+  // `photos: true` forces the inventory_item re-PUT so the current photo set
+  // and sort order reach eBay even when no text field changed.
+  const syncPhotos = body.photos === true;
+  // US-1490: `resync_ebay_fields: true` re-asserts the eBay-owned STRUCTURED
+  // fields the seller edited post-publish — category, condition, and item
+  // specifics — which the inventory re-PUT (aspects + condition) and the offer
+  // category push below already source from the DB. It forces both pushes even
+  // when no title/description/photo changed (a specifics/condition/category-only
+  // edit), so "Save & resubmit" on the web composer reaches a live listing.
+  const resyncFields = body.resync_ebay_fields === true;
+
+  if (!hasTitle && !hasDesc && !hasPrice && !hasQty && !syncPhotos && !resyncFields) {
+    return c.json(
+      {
+        error:
+          "Provide at least one of: title, description, listing_price, quantity, photos, resync_ebay_fields",
+      },
+      400
+    );
+  }
+  if (hasTitle && !nextTitle) {
+    return c.json({ error: "title cannot be empty" }, 400);
+  }
+  if (
+    hasPrice &&
+    (!Number.isFinite(nextPrice) || (nextPrice as number) <= 0)
+  ) {
+    return c.json({ error: "listing_price must be a positive number" }, 400);
+  }
+  if (
+    hasQty &&
+    (!Number.isInteger(nextQty) || (nextQty as number) < 0)
+  ) {
+    return c.json(
+      { error: "quantity must be a non-negative integer" },
+      400
+    );
+  }
+
+  const outcome = await reviseOneListing(listingId, userId, {
+    title: nextTitle,
+    description: nextDesc,
+    listingPrice: nextPrice,
+    quantity: nextQty,
+    syncPhotos,
+    resyncFields,
+  });
+  return c.json(outcome.body, outcome.status);
 });
+
+// ── Bulk resubmit (US-2404) ─────────────────────────────────────────
+// POST /listings/bulk-revise — body { listing_ids: string[] }.
+//
+// The Active tab's bulk-bar equivalent of the composer's "Save & resubmit to
+// eBay": for each selected listing, re-assert what is already SAVED in
+// GradeThread — item specifics, category, condition (resync_ebay_fields) and the
+// photo set (photos) — against the live eBay listing. It sends no new field
+// values of its own, so there is nothing here for a stale render to get wrong.
+//
+// IT CALLS reviseOneListing, THE SAME FUNCTION THE SINGLE ROUTE CALLS. That is
+// the whole point of the extraction above: every refusal the one-at-a-time path
+// makes — a non-eBay platform row, an eBay-originated mirror listing (US-1080),
+// a row the caller does not own — is made here identically, because it is the
+// same code. A bulk action whose refusals drift from the single-item ones is how
+// a seller gets told 40 listings were pushed when eBay refused 12.
+//
+// SEQUENTIAL, not parallel: a revise is several eBay API calls per listing
+// (inventory PUT + offer update), and firing 25 of those at once is how you meet
+// a rate limit. The client chunks the selection so each request stays short.
+//
+// PER-ROW RESULTS, never a bare success count. bulk-price's own header records
+// what the shape before it did: it "quietly wrote the local price for every
+// non-eBay row and reported it as updated locally only". A row eBay refused
+// comes back ok:false with its reason, and reviseOneListing has already left
+// that row's local state alone.
+flipdeskEbayRoutes.post("/listings/bulk-revise", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  // Bulk multi-listing actions are a Pro+ feature (US-208), same gate as
+  // /bulk-price and /listings/bulk-price-quantity.
+  const gate = await requireFlipdesk(c, { feature: "bulkActions", userId });
+  if (gate) return gate;
+
+  let body: { listing_ids?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const ids = Array.isArray(body.listing_ids)
+    ? [...new Set(body.listing_ids.filter((x): x is string => typeof x === "string" && !!x))]
+    : [];
+  if (ids.length === 0) {
+    return c.json({ error: "listing_ids is required." }, 400);
+  }
+  if (ids.length > MAX_BULK_REVISE_ITEMS) {
+    return c.json(
+      { error: `Too many listings (max ${MAX_BULK_REVISE_ITEMS}).` },
+      400,
+    );
+  }
+
+  const results: Array<{
+    listing_id: string;
+    ok: boolean;
+    status: number;
+    error?: string;
+    code?: string;
+  }> = [];
+  for (const listingId of ids) {
+    let outcome: ReviseOneResult;
+    try {
+      outcome = await reviseOneListing(listingId, userId, {
+        syncPhotos: true,
+        resyncFields: true,
+      });
+    } catch (err) {
+      // One row throwing must not abandon the rest of the selection — the seller
+      // would have no way to tell which of the remaining ids ran.
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[flipdesk-ebay] bulk-revise ${listingId} threw:`, message);
+      results.push({ listing_id: listingId, ok: false, status: 500, error: message });
+      continue;
+    }
+    const ok = outcome.status === 200 && outcome.body.ok === true;
+    results.push({
+      listing_id: listingId,
+      ok,
+      status: outcome.status,
+      ...(ok ? {} : {
+        error: typeof outcome.body.error === "string"
+          ? outcome.body.error
+          : "eBay refused the update.",
+        ...(typeof outcome.body.code === "string" ? { code: outcome.body.code } : {}),
+      }),
+    });
+  }
+
+  const pushed = results.filter((r) => r.ok).length;
+  return c.json({
+    ok: true,
+    requested: ids.length,
+    pushed,
+    failed: ids.length - pushed,
+    results,
+  });
+});
+
 
 // US-1039: mark an eBay sale shipped + push the tracking number/carrier to eBay
 // (Sell Fulfillment API). Without this, FlipDesk only recorded shipping locally
@@ -9185,8 +9348,8 @@ interface PublishListing {
   ebay_condition_description: string | null;
   quantity: number | null;
   best_offer_enabled: boolean | null;
-  // US-562: per-listing best-offer auto-clear thresholds (cents). Null falls
-  // back to the comp-derived default (p75 → accept, p25 → decline).
+  // US-562 / US-2405: per-listing best-offer auto-clear thresholds (cents), set
+  // by the seller by hand. Null means no threshold — the offer waits for them.
   best_offer_auto_accept_cents: number | null;
   best_offer_auto_decline_cents: number | null;
   // US-542 comp range used to derive best-offer thresholds when no override.
@@ -10433,20 +10596,20 @@ export async function assemblePublishContext(
   const quantity = listing?.quantity && listing.quantity > 0 ? listing.quantity : 1;
   const bestOfferEnabled = listing?.best_offer_enabled === true;
 
-  // US-562: derive best-offer auto-accept/decline thresholds from the comp
-  // range (p25 floor → decline, p75 → accept), letting any per-item override
-  // win. Only computed when Best Offer is on; the helper clamps to eBay's
-  // constraints (decline < accept < price) and nulls anything invalid.
+  // US-562 / US-2405: the best-offer auto-accept/decline thresholds are the
+  // seller's own numbers, read straight off the listing. NOTHING is derived
+  // from the comp band any more — a NULL column means the seller left the box
+  // blank, so no threshold is sent and every offer waits for them. The helper
+  // clamps to eBay's constraints (decline < accept < price) and nulls anything
+  // invalid.
   let bestOfferAutoAccept: string | null = null;
   let bestOfferAutoDecline: string | null = null;
   if (bestOfferEnabled) {
     const priceCents = priceNumber ? Math.round(priceNumber * 100) : 0;
     const thresholds = resolveBestOfferThresholds({
       priceCents,
-      p25Cents: listing?.price_range_low_cents ?? null,
-      p75Cents: listing?.price_range_high_cents ?? null,
-      acceptOverrideCents: listing?.best_offer_auto_accept_cents ?? null,
-      declineOverrideCents: listing?.best_offer_auto_decline_cents ?? null,
+      acceptCents: listing?.best_offer_auto_accept_cents ?? null,
+      declineCents: listing?.best_offer_auto_decline_cents ?? null,
     });
     bestOfferAutoAccept =
       thresholds.autoAcceptCents != null

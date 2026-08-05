@@ -1,8 +1,9 @@
 // US-2019 — WEB half of the shared Best Offer threshold guard.
 //
 // The clamp exists twice: the edge (best-offer.ts) is authoritative AT PUBLISH,
-// and this mirror runs in the composer to prefill from the comp band and clamp
-// the seller's edits BEFORE they are persisted to the best_offer_* columns.
+// and this mirror runs in the composer to clamp the seller's edits BEFORE they
+// are persisted to the best_offer_* columns. US-2405: both take ONLY the two
+// numbers the seller typed — the comp-band fallback is gone.
 //
 // The constraints are EBAY'S, not ours — autoAcceptPrice strictly below the
 // listing price, autoDeclinePrice strictly below autoAcceptPrice. Violating
@@ -30,16 +31,14 @@ describe("best offer thresholds (shared fixture)", () => {
     // eBay rejects the publish outright, so this is the invariant that matters
     // most — asserted independently of the fixture in case a future case table
     // is trimmed.
-    for (const p75 of [9999, 10000, 10001, 50000]) {
+    for (const accept of [9999, 10000, 10001, 50000]) {
       const got = resolveBestOfferThresholds({
         priceCents: 10000,
-        p25Cents: null,
-        p75Cents: p75,
-        acceptOverrideCents: null,
-        declineOverrideCents: null,
+        acceptCents: accept,
+        declineCents: null,
       });
       if (got.autoAcceptCents != null) {
-        expect(got.autoAcceptCents, `p75=${p75}`).toBeLessThan(10000);
+        expect(got.autoAcceptCents, `accept=${accept}`).toBeLessThan(10000);
       }
     }
   });
@@ -49,12 +48,23 @@ describe("best offer thresholds (shared fixture)", () => {
     // satisfy eBay would change a number they chose without telling them.
     const got = resolveBestOfferThresholds({
       priceCents: 10000,
-      p25Cents: null,
-      p75Cents: null,
-      acceptOverrideCents: 7000,
-      declineOverrideCents: 9000,
+      acceptCents: 7000,
+      declineCents: 9000,
     });
     expect(got.autoAcceptCents).toBe(7000);
     expect(got.autoDeclineCents).toBeNull();
+  });
+
+  // US-2405: the regression that made these manual. A blank box must NEVER be
+  // filled in for the seller — the value gets persisted and then outlives the
+  // price it came from.
+  it("leaves blank thresholds blank", () => {
+    expect(
+      resolveBestOfferThresholds({
+        priceCents: 29800,
+        acceptCents: null,
+        declineCents: null,
+      }),
+    ).toEqual({ autoAcceptCents: null, autoDeclineCents: null });
   });
 });

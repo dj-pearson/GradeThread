@@ -1,27 +1,26 @@
 // US-1898: client mirror of the publish-time Best Offer threshold clamp
 // (services/edge-functions/src/lib/best-offer.ts, US-562). The single-item
-// composer uses it to prefill auto-accept/auto-decline from the listing's comp
-// band and clamp the seller's edits to eBay's constraints BEFORE persisting to
-// the best_offer_* columns. The edge remains the authoritative clamp at publish;
-// keep the two in lockstep (the constraints below are eBay's, not ours).
+// composer uses it to validate the seller's auto-accept/auto-decline edits
+// against eBay's constraints BEFORE persisting to the best_offer_* columns. The
+// edge remains the authoritative clamp at publish; keep the two in lockstep
+// (the constraints below are eBay's, not ours).
 //
 // eBay Inventory API constraints:
 //   - autoAcceptPrice  must be strictly LESS THAN the listing price
 //   - autoDeclinePrice must be strictly LESS THAN autoAcceptPrice (when both set)
 //   - both must be greater than 0
-// Comp-derived defaults: p75 (price_range_high) → accept, p25 (low) → decline.
+//
+// US-2405: THERE IS NO COMP-DERIVED DEFAULT ANY MORE. A blank box means no
+// threshold — the offer waits for the seller. See the edge file header for the
+// $24 → $298 reprice that a persisted comp default turned into a $28 auto-accept.
 
 export interface BestOfferThresholdInput {
   /** Listing (Buy It Now) price, in whole cents. */
   priceCents: number;
-  /** Comp 25th percentile (floor) in cents, or null. */
-  p25Cents: number | null;
-  /** Comp 75th percentile in cents, or null. */
-  p75Cents: number | null;
-  /** Seller override for auto-accept, in cents, or null. */
-  acceptOverrideCents: number | null;
-  /** Seller override for auto-decline, in cents, or null. */
-  declineOverrideCents: number | null;
+  /** The seller's auto-accept threshold in cents, or null when blank. */
+  acceptCents: number | null;
+  /** The seller's auto-decline threshold in cents, or null when blank. */
+  declineCents: number | null;
 }
 
 export interface BestOfferThresholds {
@@ -29,17 +28,16 @@ export interface BestOfferThresholds {
   autoDeclineCents: number | null;
 }
 
-function pickPositive(a: number | null, b: number | null): number | null {
-  if (a != null && Number.isFinite(a) && a > 0) return Math.round(a);
-  if (b != null && Number.isFinite(b) && b > 0) return Math.round(b);
+function positive(v: number | null): number | null {
+  if (v != null && Number.isFinite(v) && v > 0) return Math.round(v);
   return null;
 }
 
 /**
- * Resolve auto-accept / auto-decline: override wins over the comp-derived
- * default, then the result is clamped to eBay's constraints (accept < price;
- * decline < accept). A value that can't be made valid is dropped (null) rather
- * than silently rewritten. Mirrors resolveBestOfferThresholds in the edge lib.
+ * Validate the seller's auto-accept / auto-decline numbers against eBay's
+ * constraints (accept < price; decline < accept). A value that can't be made
+ * valid is dropped (null) rather than silently rewritten. Mirrors
+ * resolveBestOfferThresholds in the edge lib.
  */
 export function resolveBestOfferThresholds(
   input: BestOfferThresholdInput,
@@ -49,8 +47,8 @@ export function resolveBestOfferThresholds(
       ? Math.round(input.priceCents)
       : 0;
 
-  let accept = pickPositive(input.acceptOverrideCents, input.p75Cents);
-  let decline = pickPositive(input.declineOverrideCents, input.p25Cents);
+  let accept = positive(input.acceptCents);
+  let decline = positive(input.declineCents);
 
   // accept must be strictly below the listing price; nudge to one cent under,
   // or drop if there's no room.
@@ -70,6 +68,33 @@ export function resolveBestOfferThresholds(
     autoAcceptCents: accept != null && accept > 0 ? accept : null,
     autoDeclineCents: decline != null && decline > 0 ? decline : null,
   };
+}
+
+// US-2405: an auto-accept far below the asking price is almost always a number
+// left over from an older, lower price — the exact shape of the bug that made
+// these manual. eBay accepts it happily (it only checks accept < price), so the
+// only place it can be caught is in front of the seller, before they save.
+export const LOW_ACCEPT_RATIO = 0.7;
+
+/**
+ * A non-blocking warning when the auto-accept sits below LOW_ACCEPT_RATIO of the
+ * listing price, or null when there's nothing to say. Deliberately a warning and
+ * not a validation error: a seller may genuinely want to clear stock at half
+ * price, and we don't refuse their number — we make sure they see it.
+ */
+export function lowAcceptWarning(
+  priceCents: number,
+  acceptCents: number | null,
+): string | null {
+  if (acceptCents == null || acceptCents <= 0) return null;
+  if (!Number.isFinite(priceCents) || priceCents <= 0) return null;
+  if (acceptCents >= priceCents * LOW_ACCEPT_RATIO) return null;
+  const pct = Math.round((acceptCents / priceCents) * 100);
+  return (
+    `Auto-accept is ${pct}% of your price — any offer at or above ` +
+    `${centsToDollarInput(acceptCents)} sells this item instantly. ` +
+    `Check it still matches your price.`
+  );
 }
 
 /** Whole cents → an editable dollar string ("24.99"), or "" for null/≤0. */

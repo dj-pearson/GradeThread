@@ -3,32 +3,32 @@
 // eBay's Sell Inventory API accepts a per-offer `bestOfferTerms` with optional
 // `autoAcceptPrice` / `autoDeclinePrice`. An incoming offer at or above
 // autoAcceptPrice is auto-accepted; an offer at or below autoDeclinePrice is
-// auto-declined; anything in between waits for the seller. So best offers clear
-// within the seller's limits without babysitting.
+// auto-declined; anything in between waits for the seller.
 //
 // eBay enforces these constraints (Inventory API offer.listingPolicies):
 //   - autoAcceptPrice  must be LESS THAN the listing (Buy It Now) price
 //   - autoDeclinePrice must be LESS THAN autoAcceptPrice (when both are set)
 //   - both must be greater than 0
 //
-// We derive defaults from the comp stats already stored on the listing
-// (price_range_low_cents = p25 floor → decline; price_range_high_cents = p75 →
-// accept) and let the seller override either per item. Whatever we end up with
-// is clamped/validated to satisfy the constraints above; a value that cannot be
-// made valid is dropped (Best Offer stays enabled, just without that one
-// threshold) rather than failing the publish with an eBay 400.
+// US-2405 — THE THRESHOLDS ARE THE SELLER'S OWN NUMBERS. NOTHING IS DERIVED.
+// This used to fall back to the comp band (price_range_low_cents = p25 →
+// decline, price_range_high_cents = p75 → accept) whenever the seller left a
+// box blank. That default was persisted into the best_offer_* columns by the
+// composer save, so it became a FIXED number that no longer tracked anything —
+// and it survived a later price edit. A shirt repriced from $24 to $298 kept a
+// $27.50 auto-accept, meaning a $28 offer on a $298 item would have been
+// accepted automatically. Blank now means blank: no threshold is sent, the
+// offer waits for the seller, which is the safe direction. The only work left
+// here is validating what the seller typed against eBay's rules; a value that
+// cannot be made valid is dropped rather than silently rewritten.
 
 export interface BestOfferThresholdInput {
   /** The listing (Buy It Now) price, in whole cents. */
   priceCents: number;
-  /** Comp 25th percentile (the floor), in cents, or null when unknown. */
-  p25Cents: number | null;
-  /** Comp 75th percentile, in cents, or null when unknown. */
-  p75Cents: number | null;
-  /** Per-item seller override for auto-accept, in cents, or null. */
-  acceptOverrideCents: number | null;
-  /** Per-item seller override for auto-decline, in cents, or null. */
-  declineOverrideCents: number | null;
+  /** The seller's auto-accept threshold in cents, or null when they left it blank. */
+  acceptCents: number | null;
+  /** The seller's auto-decline threshold in cents, or null when they left it blank. */
+  declineCents: number | null;
 }
 
 export interface BestOfferThresholds {
@@ -38,16 +38,15 @@ export interface BestOfferThresholds {
   autoDeclineCents: number | null;
 }
 
-function pickPositive(a: number | null, b: number | null): number | null {
-  if (a != null && Number.isFinite(a) && a > 0) return Math.round(a);
-  if (b != null && Number.isFinite(b) && b > 0) return Math.round(b);
+function positive(v: number | null): number | null {
+  if (v != null && Number.isFinite(v) && v > 0) return Math.round(v);
   return null;
 }
 
 /**
- * Resolves the auto-accept / auto-decline thresholds to send on a best-offer
- * enabled offer. Override wins over the comp-derived default; the result is
- * always clamped to eBay's constraints (see file header).
+ * Validates the auto-accept / auto-decline thresholds to send on a best-offer
+ * enabled offer. Input is the seller's own numbers only; the result is always
+ * clamped to eBay's constraints (see file header).
  */
 export function resolveBestOfferThresholds(
   input: BestOfferThresholdInput,
@@ -57,21 +56,19 @@ export function resolveBestOfferThresholds(
       ? Math.round(input.priceCents)
       : 0;
 
-  // Override wins; else derive from comp stats (p75 → accept, p25 → decline).
-  let accept = pickPositive(input.acceptOverrideCents, input.p75Cents);
-  let decline = pickPositive(input.declineOverrideCents, input.p25Cents);
+  let accept = positive(input.acceptCents);
+  let decline = positive(input.declineCents);
 
   // Constraint 1: autoAcceptPrice must be strictly below the listing price.
-  // When the candidate sits at/above list (e.g. p75 exceeds an aggressively
-  // priced item), nudge it to one cent under list. If list is ≤ 1 cent there's
-  // no room for a valid accept threshold, so drop it.
+  // When the seller's number sits at/above list, nudge it to one cent under.
+  // If list is ≤ 1 cent there's no room for a valid accept threshold, so drop it.
   if (accept != null && price > 0 && accept >= price) {
     accept = price > 1 ? price - 1 : null;
   }
 
   // Constraint 2: autoDeclinePrice must be strictly below autoAcceptPrice when
-  // both are present. A seller override (or odd comp data) can invert them; we
-  // drop the decline rather than silently rewriting the seller's number.
+  // both are present. We drop the decline rather than silently rewriting the
+  // seller's number.
   if (accept != null && decline != null && decline >= accept) {
     decline = null;
   }

@@ -37,14 +37,19 @@ import { edgeEnv } from "./env.ts";
 import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00509_ebay_shipping_labels.sql)
+// supabase/migrations/. (00528_best_offer_thresholds_manual_only.sql)
+//
+// ⚠ 00527 IS SKIPPED HERE ON PURPOSE. 00527_revoke_public_function_execute.sql
+// carries a .BLOCKED suffix (US-2403: denying a function to a supautils hint
+// role segfaults Postgres), so it is invisible to the *.sql glob the manifest
+// and the apply script use. Its number stays reserved for when it unblocks.
 //
 // ⚠ 00479 IS DELIBERATELY SKIPPED. On 2026-07-19 /health/ready reported
 // applied="00479" while no 00479 file has ever existed in this repo (no file, no
 // git history, no branch). Reusing that number would let the boot guard read
 // "match" off prod's pre-existing row even if this migration never applied —
 // exactly the failure the guard exists to catch. See PENDING_MIGRATIONS.md.
-export const EXPECTED_SCHEMA_VERSION = "00526";
+export const EXPECTED_SCHEMA_VERSION = "00528";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

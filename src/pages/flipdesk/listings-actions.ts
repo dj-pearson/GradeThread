@@ -50,6 +50,8 @@ import type { ListingPageResult } from "@/pages/flipdesk/listings-page-queries";
 import {
   type BulkPriceResponse,
   type BulkEndResponse,
+  type BulkReviseResponse,
+  describeBulkRevise,
   chunkForBulkPrice,
   mergeBulkPriceResponses,
   undoableFrom,
@@ -102,6 +104,8 @@ export interface ListingsActionDeps {
   dropCancelled: { current: boolean };
   bulkDropPct: string;
   setBulkPublishProgress: (v: { done: number; total: number } | null) => void;
+  /** US-2404: live counter while a chunked bulk resubmit runs. */
+  setBulkReviseProgress: (v: { done: number; total: number } | null) => void;
   setBulkDeleteProgress: (v: { done: number; total: number } | null) => void;
   setBulkDeleteOpen: (v: boolean) => void;
   setBulkStatusOpen: (v: boolean) => void;
@@ -128,6 +132,10 @@ export interface ListingsActionDeps {
     BulkPriceResponse
   >;
   bulkEnd: MutationLike<{ listingIds: string[] }, BulkEndResponse>;
+  bulkRevise: MutationLike<
+    { listingIds: string[]; onProgress?: (done: number, total: number) => void },
+    BulkReviseResponse
+  >;
   deleteItemApi: MutationLike<{ itemId: string }, unknown>;
   publishApi: MutationLike<{ itemId: string }, unknown>;
 }
@@ -151,6 +159,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     dropCancelled,
     bulkDropPct,
     setBulkPublishProgress,
+    setBulkReviseProgress,
     setBulkDeleteProgress,
     setBulkDeleteOpen,
     setBulkStatusOpen,
@@ -160,6 +169,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     endListingApi,
     bulkPrice,
     bulkEnd,
+    bulkRevise,
     deleteItemApi,
     publishApi,
   } = d;
@@ -799,6 +809,52 @@ export function makeListingsActions(d: ListingsActionDeps) {
       setBusy(false);
     }
   }
+  // US-2404: resubmit a SELECTION of live eBay listings — re-assert the saved
+  // item specifics, category, condition and photos against each live listing.
+  // The bulk-bar equivalent of the composer's "Save & resubmit to eBay".
+  //
+  // It sends NO new field values. Everything pushed is what is already stored,
+  // so a stale row on screen cannot send a wrong price or title.
+  async function bulkResubmitToEbay() {
+    if (selected.size === 0) return;
+    const listingIds = Array.from(selected)
+      .map((id) => items.find((i) => i.id === id)?.listing_id)
+      .filter((id): id is string => Boolean(id));
+    if (listingIds.length === 0) {
+      toast.error("None of the selected items have a live listing to resubmit.");
+      return;
+    }
+
+    setBusy(true);
+    setBulkReviseProgress({ done: 0, total: listingIds.length });
+    try {
+      const res = await bulkRevise.mutateAsync({
+        listingIds,
+        onProgress: (done, total) => setBulkReviseProgress({ done, total }),
+      });
+      setSelected(new Set());
+      // A refused row was NOT pushed and its local state is untouched, so the
+      // summary must never round it up into the success count — a seller who
+      // believes eBay has their edits stops checking.
+      if (res.failed === 0) {
+        toast.success(describeBulkRevise(res));
+      } else {
+        const firstError = res.results.find((r) => !r.ok)?.error;
+        toast.warning(
+          `${describeBulkRevise(res)}${firstError ? ` First: ${firstError}` : ""}`,
+          { duration: 14_000 },
+        );
+      }
+    } catch (err) {
+      toast.error(
+        `Bulk resubmit failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setBulkReviseProgress(null);
+      setBusy(false);
+    }
+  }
+
 
   // US-2172: put a bulk status change back.
   //
@@ -989,6 +1045,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     bulkPublishToEbay,
     bulkDeleteItems,
     bulkEndListings,
+    bulkResubmitToEbay,
     undoBulkStatus,
     bulkSetStatus,
   };

@@ -1,4 +1,5 @@
-// US-562: best-offer threshold derivation + eBay-constraint clamping. Pure math
+// US-562 / US-2405: best-offer threshold validation + eBay-constraint clamping.
+// The thresholds are the seller's own numbers; nothing is derived. Pure math
 // (no env / I/O), so a direct import is fine.
 import { assert, assertEquals } from "@std/assert";
 import {
@@ -6,25 +7,21 @@ import {
   resolveBestOfferThresholds,
 } from "../lib/best-offer.ts";
 
-Deno.test("derives accept=p75, decline=p25 from comp stats when both below list", () => {
+Deno.test("keeps the seller's thresholds when both sit below list", () => {
   const r = resolveBestOfferThresholds({
     priceCents: 5000, // $50 list
-    p25Cents: 3000, // $30 floor
-    p75Cents: 4500, // $45
-    acceptOverrideCents: null,
-    declineOverrideCents: null,
+    acceptCents: 4500, // $45
+    declineCents: 3000, // $30
   });
   assertEquals(r.autoAcceptCents, 4500);
   assertEquals(r.autoDeclineCents, 3000);
 });
 
-Deno.test("clamps accept to one cent under list when p75 exceeds the price", () => {
+Deno.test("clamps accept to one cent under list when it exceeds the price", () => {
   const r = resolveBestOfferThresholds({
     priceCents: 4000, // $40 list
-    p25Cents: 2500,
-    p75Cents: 6000, // p75 above list → must be nudged below list
-    acceptOverrideCents: null,
-    declineOverrideCents: null,
+    acceptCents: 6000, // above list → must be nudged below list
+    declineCents: 2500,
   });
   assertEquals(r.autoAcceptCents, 3999);
   assertEquals(r.autoDeclineCents, 2500);
@@ -32,61 +29,45 @@ Deno.test("clamps accept to one cent under list when p75 exceeds the price", () 
   assert(r.autoDeclineCents! < r.autoAcceptCents!);
 });
 
-Deno.test("per-item overrides win over comp-derived defaults", () => {
+// US-2405 is exactly this test. It used to read "no comp stats and no overrides
+// → both null", which meant the opposite: WITH comp stats, blank boxes were
+// filled in from them, saved to the columns, and left behind by the next
+// reprice. A $298 shirt kept auto-accepting at $27.50.
+Deno.test("blank thresholds stay blank — never derived from anything", () => {
   const r = resolveBestOfferThresholds({
-    priceCents: 10000,
-    p25Cents: 4000,
-    p75Cents: 8000,
-    acceptOverrideCents: 9000,
-    declineOverrideCents: 5000,
+    priceCents: 29800,
+    acceptCents: null,
+    declineCents: null,
   });
-  assertEquals(r.autoAcceptCents, 9000);
-  assertEquals(r.autoDeclineCents, 5000);
-});
-
-Deno.test("drops decline when it is not strictly below accept (inverted override)", () => {
-  const r = resolveBestOfferThresholds({
-    priceCents: 10000,
-    p25Cents: null,
-    p75Cents: null,
-    acceptOverrideCents: 6000,
-    declineOverrideCents: 7000, // decline >= accept → invalid, drop it
-  });
-  assertEquals(r.autoAcceptCents, 6000);
+  assertEquals(r.autoAcceptCents, null);
   assertEquals(r.autoDeclineCents, null);
 });
 
-Deno.test("no comp stats and no overrides → both null", () => {
+Deno.test("drops decline when it is not strictly below accept", () => {
   const r = resolveBestOfferThresholds({
-    priceCents: 5000,
-    p25Cents: null,
-    p75Cents: null,
-    acceptOverrideCents: null,
-    declineOverrideCents: null,
+    priceCents: 10000,
+    acceptCents: 6000,
+    declineCents: 7000, // decline >= accept → invalid, drop it
   });
-  assertEquals(r.autoAcceptCents, null);
+  assertEquals(r.autoAcceptCents, 6000);
   assertEquals(r.autoDeclineCents, null);
 });
 
 Deno.test("decline-only must still sit below list price", () => {
   const r = resolveBestOfferThresholds({
     priceCents: 3000,
-    p25Cents: null,
-    p75Cents: null,
-    acceptOverrideCents: null,
-    declineOverrideCents: 3500, // above list, no accept set → drop
+    acceptCents: null,
+    declineCents: 3500, // above list, no accept set → drop
   });
   assertEquals(r.autoAcceptCents, null);
   assertEquals(r.autoDeclineCents, null);
 });
 
-Deno.test("ignores non-positive / non-finite candidates", () => {
+Deno.test("ignores non-positive / non-finite values", () => {
   const r = resolveBestOfferThresholds({
     priceCents: 5000,
-    p25Cents: 0,
-    p75Cents: -100,
-    acceptOverrideCents: Number.NaN,
-    declineOverrideCents: null,
+    acceptCents: Number.NaN,
+    declineCents: -100,
   });
   assertEquals(r.autoAcceptCents, null);
   assertEquals(r.autoDeclineCents, null);

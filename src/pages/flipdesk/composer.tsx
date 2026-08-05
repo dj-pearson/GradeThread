@@ -336,8 +336,9 @@ export function FlipdeskComposerPage({
   const [listingFormat, setListingFormat] = useState<ListingFormatValue>(
     DEFAULT_LISTING_FORMAT_VALUE,
   );
-  // US-1898: Best Offer toggle + auto-accept/auto-decline (dollar strings; blank
-  // falls back to the comp-derived default at save). Persisted to best_offer_*.
+  // US-1898/US-2405: Best Offer toggle + auto-accept/auto-decline (dollar
+  // strings, typed by the seller; blank saves NULL = no threshold at all).
+  // Persisted to best_offer_*.
   const [bestOfferEnabled, setBestOfferEnabled] = useState(false);
   const [bestOfferAccept, setBestOfferAccept] = useState("");
   const [bestOfferDecline, setBestOfferDecline] = useState("");
@@ -657,8 +658,9 @@ export function FlipdeskComposerPage({
       auctionDuration: listing?.auction_duration ?? "DAYS_7",
       variations: listing?.variations ?? null,
     });
-    // US-1898: seed Best Offer from the saved listing; leave the inputs blank
-    // so they show the comp-derived default (filled in on enable / at save).
+    // US-1898/US-2405: seed Best Offer from the saved listing and nothing else.
+    // An empty column stays an empty box — no comp band is consulted here or at
+    // save, which is what stops a stale threshold outliving the price.
     setBestOfferEnabled(listing?.best_offer_enabled ?? false);
     setBestOfferAccept(centsToDollarInput(listing?.best_offer_auto_accept_cents));
     setBestOfferDecline(centsToDollarInput(listing?.best_offer_auto_decline_cents));
@@ -1183,16 +1185,16 @@ export function FlipdeskComposerPage({
   function composerListingState(): ComposerListingState {
     const { resolvedPrice, resolvedAspects, resolvedSources } =
       resolveListingFields();
-    // US-1898: seller overrides win over the comp-derived default, then clamp to
-    // eBay's constraints (decline < accept < price). Same math the edge
+    // US-1898 / US-2405: ONLY what the seller typed, clamped to eBay's
+    // constraints (decline < accept < price). A blank box saves NULL — it must
+    // never be back-filled from the comp band, because the saved number stops
+    // tracking the price the moment either one moves. Same math the edge
     // re-applies at publish (best-offer.ts).
     const bestOffer = bestOfferEnabled
       ? resolveBestOfferThresholds({
           priceCents: resolvedPrice > 0 ? Math.round(resolvedPrice * 100) : 0,
-          p25Cents: listing?.price_range_low_cents ?? null,
-          p75Cents: listing?.price_range_high_cents ?? null,
-          acceptOverrideCents: dollarInputToCents(bestOfferAccept),
-          declineOverrideCents: dollarInputToCents(bestOfferDecline),
+          acceptCents: dollarInputToCents(bestOfferAccept),
+          declineCents: dollarInputToCents(bestOfferDecline),
         })
       : { autoAcceptCents: null, autoDeclineCents: null };
     return {
@@ -2435,7 +2437,6 @@ export function FlipdeskComposerPage({
             setBestOfferAccept={setBestOfferAccept}
             bestOfferDecline={bestOfferDecline}
             setBestOfferDecline={setBestOfferDecline}
-            listing={listing}
             aiSnapshot={aiSnapshot}
             isEbayOrigin={isEbayOrigin}
             ebayOwnedHint={ebayOwnedHint}

@@ -128,6 +128,7 @@ import {
 // non-eBay row fell into a local-only write that left the marketplace untouched.
 import {
   useBulkEndListings,
+  useBulkReviseListings,
   useBulkListingPrice,
   useEndListing,
   useUpdateListingPrice,
@@ -253,9 +254,16 @@ export function FlipdeskListingsPage() {
   const endListingApi = useEndListing();
   const bulkPrice = useBulkListingPrice();
   const bulkEnd = useBulkEndListings();
+  // US-2404: bulk resubmit of the selected live eBay listings.
+  const bulkRevise = useBulkReviseListings();
   const deleteItemApi = useDeleteItem();
   const publishApi = usePublishToEbay();
   const [bulkPublishProgress, setBulkPublishProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  // US-2404: live counter while a chunked bulk resubmit runs.
+  const [bulkReviseProgress, setBulkReviseProgress] = useState<{
     done: number;
     total: number;
   } | null>(null);
@@ -668,6 +676,7 @@ export function FlipdeskListingsPage() {
     bulkPublishToEbay,
     bulkDeleteItems,
     bulkEndListings,
+    bulkResubmitToEbay,
     bulkSetStatus,
   } = makeListingsActions({
     qc,
@@ -687,6 +696,7 @@ export function FlipdeskListingsPage() {
     dropCancelled,
     bulkDropPct,
     setBulkPublishProgress,
+    setBulkReviseProgress,
     setBulkDeleteProgress,
     setBulkDeleteOpen,
     setBulkStatusOpen,
@@ -696,6 +706,7 @@ export function FlipdeskListingsPage() {
     endListingApi,
     bulkPrice,
     bulkEnd,
+    bulkRevise,
     deleteItemApi,
     publishApi,
   });
@@ -1486,6 +1497,27 @@ export function FlipdeskListingsPage() {
                       Drop price
                     </Button>
                   )}
+                  {/* US-2404: push the saved edits (specifics, category,
+                      condition, photos) of every selected live listing back to
+                      eBay — the bulk-bar form of the composer's "Save &
+                      resubmit". Active tab only: there is nothing live to
+                      resubmit on a draft. */}
+                  {ebayConnection ? (
+                    <Button
+                      variant="outline"
+                      onClick={bulkResubmitToEbay}
+                      disabled={busy}
+                    >
+                      {bulkReviseProgress ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                      )}
+                      {bulkReviseProgress
+                        ? `Resubmitting ${bulkReviseProgress.done}/${bulkReviseProgress.total}…`
+                        : `Resubmit ${selected.size} to eBay`}
+                    </Button>
+                  ) : null}
                   <Button
                     variant="destructive"
                     onClick={bulkEndListings}

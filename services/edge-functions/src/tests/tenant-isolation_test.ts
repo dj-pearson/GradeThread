@@ -1879,6 +1879,43 @@ Deno.test({
   },
 });
 
+// US-2404: bulk-revise takes ids in the BODY rather than the path, which is
+// exactly the shape US-268 warns about — an id from the request body acted on
+// without an ownership check. It runs each id through reviseOneListing, the same
+// function the single route uses, so the tenant scope is loadListingOwned again;
+// this proves that rather than assuming the shared call site kept it.
+//
+// A 200 here is NOT automatically a pass: the route answers 200 carrying per-row
+// results, so the assertion has to read the row and confirm it was refused.
+Deno.test({
+  name: "B cannot bulk-revise A's eBay listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/listings/bulk-revise`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [id] }),
+    });
+    const status = res.status;
+    if (DENIED_OR_UNCONFIGURED.has(status)) {
+      await res.body?.cancel();
+      return; // refused outright (plan gate, unconfigured eBay, or auth)
+    }
+    assert(status === 200, `unexpected status ${status}`);
+    const json = await res.json() as {
+      results?: Array<{ listing_id: string; ok: boolean; status: number }>;
+    };
+    const row = (json.results ?? []).find((r) => r.listing_id === id);
+    assert(row, "expected a per-row result for the requested id");
+    assert(
+      row.ok === false && DENIED_OR_UNCONFIGURED.has(row.status),
+      `bulk-revise reported ok=${row.ok} status=${row.status} for another ` +
+        `tenant's listing — it must be refused per row, not pushed`,
+    );
+  },
+});
+
 // category-check (GET /listings/:id/category-check) loads the listing joined to
 // its inventory_item and 404s when item.user_id != caller. B must not read A's
 // category context.

@@ -6,12 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { centsToDollarInput } from "@/lib/best-offer-thresholds";
+import { dollarInputToCents, lowAcceptWarning } from "@/lib/best-offer-thresholds";
 
 import { aiPriceInput, conditionLabel, formatAiPrice, priceChanged, textChanged } from "@/lib/listing-ai-diff";
 import { cn } from "@/lib/utils";
 import { CONDITION_DESC_MAX } from "@/lib/composer-save";
-import type { ListingAiSnapshot, ListingRow } from "@/types/database";
+import type { ListingAiSnapshot } from "@/types/database";
 import type { ListingFormatValue } from "@/components/flipdesk/listing-format-controls";
 import type { useEbayCategoryConditions } from "@/hooks/use-ebay";
 
@@ -45,8 +45,6 @@ export interface PriceCardProps {
   setBestOfferAccept: (next: string) => void;
   bestOfferDecline: string;
   setBestOfferDecline: (next: string) => void;
-  /** Read for the comp band that seeds the Best Offer placeholders. */
-  listing: ListingRow | null;
   aiSnapshot: ListingAiSnapshot | null;
   isEbayOrigin: boolean;
   ebayOwnedHint: string | undefined;
@@ -79,11 +77,18 @@ export function PriceCard({
   setBestOfferAccept,
   bestOfferDecline,
   setBestOfferDecline,
-  listing,
   aiSnapshot,
   isEbayOrigin,
   ebayOwnedHint,
 }: PriceCardProps) {
+  // US-2405: warn (never block) when auto-accept sits far under the asking
+  // price — the shape a threshold takes once the price has moved past it.
+  const lowAccept = bestOfferEnabled
+    ? lowAcceptWarning(
+        dollarInputToCents(price) ?? 0,
+        dollarInputToCents(bestOfferAccept),
+      )
+    : null;
   return (
     <Card>
       <CardHeader>
@@ -316,9 +321,7 @@ export function PriceCard({
                     step="0.01"
                     value={bestOfferAccept}
                     onChange={(e) => setBestOfferAccept(e.target.value)}
-                    placeholder={
-                      centsToDollarInput(listing?.price_range_high_cents) || "auto"
-                    }
+                    placeholder="Leave blank"
                     className="h-8"
                   />
                 </div>
@@ -334,16 +337,23 @@ export function PriceCard({
                     step="0.01"
                     value={bestOfferDecline}
                     onChange={(e) => setBestOfferDecline(e.target.value)}
-                    placeholder={
-                      centsToDollarInput(listing?.price_range_low_cents) || "auto"
-                    }
+                    placeholder="Leave blank"
                     className="h-8"
                   />
                 </div>
+                {/* US-2405: blank means blank. These used to fall back to the
+                    comp band, and the fallback got SAVED — so a listing repriced
+                    later kept auto-accepting at the old band. */}
                 <p className="col-span-2 text-[11px] text-muted-foreground">
-                  Blank uses your comp band (p75 accept / p25 decline). Clamped to
-                  eBay&apos;s rule: decline &lt; accept &lt; price.
+                  Leave both blank to review every offer yourself. Type a number
+                  only if you want offers cleared without you. eBay&apos;s rule:
+                  decline &lt; accept &lt; price.
                 </p>
+                {lowAccept && (
+                  <p className="col-span-2 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                    {lowAccept}
+                  </p>
+                )}
               </div>
             )}
           </div>

@@ -7,11 +7,13 @@ import Supabase
 /// the validate summary's *resolved* values.
 ///
 /// The distinction matters: `summary.bestOfferAutoAccept` is what the server
-/// resolved for this publish — often derived from the comp p25/p75 columns.
-/// Seeding a threshold box with it and then saving would silently PIN that
-/// dynamic suggestion into the override column. So the boxes seed from these
-/// override columns (blank = "use the suggestion") and show the resolved value
-/// as a placeholder instead.
+/// resolved for this publish. Seeding a threshold box with it and then saving
+/// would PIN a value the seller never typed into the column. So the boxes seed
+/// from these columns and show the resolved value as a placeholder instead.
+///
+/// US-2405: the server no longer derives these from the comp band at all, so a
+/// blank column means "no threshold, every offer waits for the seller" and the
+/// placeholder is empty unless they set one.
 ///
 /// A plain value type at file scope (not nested in the `@MainActor`
 /// ``ListingDraftService``) so the composer can hold it as `@State` and pass it
@@ -378,7 +380,8 @@ struct ListingDraftService {
                     }
                     // US-1970: same reasoning as promo — when the control was
                     // shown, write all three explicitly so clearing a threshold
-                    // actually returns it to the comp-derived default.
+                    // actually clears it (US-2405: cleared means no auto-accept
+                    // or auto-decline at all, not "pick one from the comps").
                     if let bestOffer = best_offer_enabled {
                         try c.encode(bestOffer, forKey: .best_offer_enabled)
                         try c.encode(best_offer_auto_accept_cents, forKey: .best_offer_auto_accept_cents)

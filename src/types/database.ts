@@ -1142,8 +1142,8 @@ export interface ListingRow {
   payment_policy_id: string | null;
   quantity: number;
   best_offer_enabled: boolean;
-  // US-562: per-listing best-offer auto-clear thresholds (cents). NULL → derive
-  // from the comp range (p75 → accept, p25 → decline) at publish.
+  // US-562 / US-2405: per-listing best-offer auto-clear thresholds (cents), set
+  // by the seller by hand. NULL → no threshold; the offer waits for them.
   best_offer_auto_accept_cents: number | null;
   best_offer_auto_decline_cents: number | null;
   synced_to_ebay_at: string | null;

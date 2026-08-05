@@ -2,7 +2,8 @@
 //
 // resolveBestOfferThresholds here is AUTHORITATIVE: it clamps immediately before
 // the eBay publish call. src/lib/best-offer-thresholds.ts mirrors it so the
-// composer can prefill and clamp a seller's edits up front.
+// composer can clamp a seller's edits up front. US-2405: both take ONLY the
+// seller's own two numbers — there is no comp-derived default to drift on.
 //
 // The two projects cannot import each other, so one fixture asserted by both
 // suites is the only thing keeping them aligned. See
@@ -24,10 +25,8 @@ const fixture = JSON.parse(
     name: string;
     input: {
       priceCents: number;
-      p25Cents: number | null;
-      p75Cents: number | null;
-      acceptOverrideCents: number | null;
-      declineOverrideCents: number | null;
+      acceptCents: number | null;
+      declineCents: number | null;
     };
     expected: { autoAcceptCents: number | null; autoDeclineCents: number | null };
   }>;
@@ -51,16 +50,28 @@ Deno.test("edge best-offer clamp matches the cross-project fixture", () => {
 Deno.test("edge: accept is never at or above the listing price", () => {
   // eBay rejects the publish outright when this is violated — the single most
   // consequential of the two constraints.
-  for (const p75 of [9999, 10000, 10001, 50000]) {
+  for (const accept of [9999, 10000, 10001, 50000]) {
     const got = resolveBestOfferThresholds({
       priceCents: 10000,
-      p25Cents: null,
-      p75Cents: p75,
-      acceptOverrideCents: null,
-      declineOverrideCents: null,
+      acceptCents: accept,
+      declineCents: null,
     });
     if (got.autoAcceptCents != null) {
-      assertEquals(got.autoAcceptCents < 10000, true, `p75=${p75}`);
+      assertEquals(got.autoAcceptCents < 10000, true, `accept=${accept}`);
     }
   }
+});
+
+// US-2405: the regression that made these manual. A blank box must NEVER be
+// filled in from the listing's comp band — the value would be persisted and then
+// outlive the price it was derived from.
+Deno.test("edge: blank thresholds stay blank", () => {
+  assertEquals(
+    resolveBestOfferThresholds({
+      priceCents: 29800,
+      acceptCents: null,
+      declineCents: null,
+    }),
+    { autoAcceptCents: null, autoDeclineCents: null },
+  );
 });

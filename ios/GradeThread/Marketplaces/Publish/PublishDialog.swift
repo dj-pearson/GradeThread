@@ -764,9 +764,9 @@ private struct ComposerForm: View {
     /// Seeded from `summary.promotedAdRate` (nil = previously opted out).
     @State private var promoteEnabled: Bool
     @State private var promoRateText: String
-    /// US-1970: Best Offer toggle + the two auto-clear threshold boxes. Blank
-    /// boxes mean "use eBay's/the comp-derived suggestion" — the resolved value
-    /// rides along as the field's placeholder.
+    /// US-1970: Best Offer toggle + the two auto-clear threshold boxes.
+    /// US-2405: a blank box means NO threshold — the offer waits for the seller.
+    /// Nothing is suggested or derived on their behalf.
     @State private var bestOffer: ComposerBestOffer
     /// US-1971: scheduled publish. Off = publish immediately on Push.
     @State private var scheduleEnabled: Bool

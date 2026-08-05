@@ -76,8 +76,8 @@ interface DraftRow {
   ebay_condition: string | null;
   quantity: number | null;
   best_offer_enabled: boolean | null;
-  // US-562: per-listing best-offer auto-clear thresholds (cents). Null → the
-  // comp-derived default is used at publish.
+  // US-562 / US-2405: per-listing best-offer auto-clear thresholds (cents), set
+  // by hand. Null → no threshold at publish.
   best_offer_auto_accept_cents: number | null;
   best_offer_auto_decline_cents: number | null;
   scheduled_publish_at: string | null;
@@ -129,9 +129,8 @@ interface EditRow {
   condition: string;
   quantity: string;
   bestOffer: boolean;
-  // US-562: per-item best-offer threshold overrides (dollars, as typed). Empty
-  // string → fall back to the comp-derived default (p75 accept / p25 decline)
-  // computed server-side at publish.
+  // US-562 / US-2405: per-item best-offer thresholds (dollars, as typed). Empty
+  // string → NULL → no threshold is sent and every offer waits for the seller.
   bestOfferAccept: string;
   bestOfferDecline: string;
   scheduledAt: string;
@@ -840,8 +839,8 @@ export function FlipdeskAutolisterBulkEditPage() {
         ebay_condition: r.condition || null,
         quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
         best_offer_enabled: r.bestOffer,
-        // US-562: persist threshold overrides as cents; a blank field clears the
-        // override (null) so the comp-derived default applies at publish.
+        // US-562 / US-2405: persist thresholds as cents; a blank field stores
+        // NULL, which means "no auto-clear" rather than "pick one for me".
         best_offer_auto_accept_cents: dollarsToCentsOrNull(r.bestOfferAccept),
         best_offer_auto_decline_cents: dollarsToCentsOrNull(r.bestOfferDecline),
         scheduled_publish_at: localInputToIso(r.scheduledAt),
@@ -1910,9 +1909,10 @@ export function FlipdeskAutolisterBulkEditPage() {
                       className="h-8"
                     />
                   </td>
-                  {/* US-562: Best Offer toggle + per-item auto-accept/decline
-                      overrides. Blank fields fall back to the comp-derived
-                      default (p75 accept / p25 decline) at publish. */}
+                  {/* US-562 / US-2405: Best Offer toggle + per-item
+                      auto-accept/decline thresholds. Blank means NO threshold —
+                      the offer waits for the seller. There is no comp-derived
+                      default any more; see best-offer.ts for why. */}
                   <td className="p-2 text-center align-top">
                     <input
                       type="checkbox"
@@ -1931,7 +1931,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                             patchRow(r.id, { bestOfferAccept: e.target.value })
                           }
                           placeholder="Auto-accept ≥"
-                          title="Auto-accept offers at or above this price. Blank = comp p75."
+                          title="Auto-accept offers at or above this price. Blank = review every offer yourself."
                           aria-label="Best offer auto-accept price"
                           className="h-7 w-24 text-xs"
                         />
@@ -1944,7 +1944,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                             patchRow(r.id, { bestOfferDecline: e.target.value })
                           }
                           placeholder="Auto-decline ≤"
-                          title="Auto-decline offers at or below this price. Blank = comp p25."
+                          title="Auto-decline offers at or below this price. Blank = review every offer yourself."
                           aria-label="Best offer auto-decline price"
                           className="h-7 w-24 text-xs"
                         />

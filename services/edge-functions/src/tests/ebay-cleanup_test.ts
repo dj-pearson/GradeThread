@@ -324,19 +324,39 @@ Deno.test("US-2166: revise refuses a non-eBay listing rather than guessing", () 
     ebayRoute.includes('code: "not_an_ebay_listing"'),
     "revise must reject a non-eBay row with a machine-readable code",
   );
-  // Sliced to the END of the handler — the next route registration — rather
-  // than to a fixed character count. A 4000-char window used to stand in for
-  // "inside the handler" and broke the moment someone wrote a paragraph of
-  // comment above the guard: the guard was 4024 chars in, still first in the
-  // handler, and the test called it missing.
-  const start = ebayRoute.indexOf('flipdeskEbayRoutes.post("/listings/:id/revise"');
-  assert(start >= 0, "the revise route is missing");
+  // US-2404 MOVED THIS GUARD, AND THE ASSERTION HAD TO FOLLOW IT. The check used
+  // to sit inside the route handler, so this sliced the handler and looked for it
+  // there. Bulk resubmit needed the same refusal, and the way to guarantee "the
+  // same" is one function rather than two copies — so the per-listing work now
+  // lives in reviseOneListing and BOTH routes call it.
+  //
+  // The property is unchanged and is arguably stronger: the guard runs on every
+  // revise, single or bulk, because there is only one place it could run. What
+  // changed is where to look for it, which is why this slices the function.
+  const start = ebayRoute.indexOf("async function reviseOneListing(");
+  assert(start >= 0, "reviseOneListing is gone — both revise routes ran through it");
   const rest = ebayRoute.slice(start + 1);
-  const end = rest.search(/\nflipdeskEbayRoutes\.(get|post|put|patch|delete)\(/);
+  // Bounded by the next top-level declaration, not a character count. A 4000-char
+  // window used to stand in for "inside the handler" and broke the moment someone
+  // wrote a paragraph of comment above the guard.
+  const end = rest.search(/\n(flipdeskEbayRoutes\.|async function |function |const )/);
   const revise = end === -1 ? rest : rest.slice(0, end);
   assert(
     revise.includes('!== "ebay"'),
-    "the platform guard must run inside the revise handler",
+    "the platform guard must run inside reviseOneListing, which is the code " +
+      "path BOTH the single and the bulk revise routes take",
+  );
+  // And both routes must actually go through it, or the sharing is notional.
+  assert(
+    ebayRoute.includes("await reviseOneListing(listingId, userId, {"),
+    "the single-listing revise route no longer calls reviseOneListing",
+  );
+  const bulk = ebayRoute.indexOf('flipdeskEbayRoutes.post("/listings/bulk-revise"');
+  assert(bulk >= 0, "the bulk revise route is gone (US-2404)");
+  assert(
+    /reviseOneListing\(\s*listingId,\s*userId,/.test(ebayRoute.slice(bulk)),
+    "the bulk revise route no longer calls reviseOneListing — its refusals will " +
+      "drift from the single-listing ones",
   );
 });
 

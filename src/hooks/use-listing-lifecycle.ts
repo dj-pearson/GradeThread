@@ -276,3 +276,113 @@ export function useBulkEndListings() {
     onSuccess: invalidate,
   });
 }
+
+// ── Bulk resubmit (US-2404) ─────────────────────────────────────────
+
+export interface BulkReviseRowResult {
+  listing_id: string;
+  ok: boolean;
+  status: number;
+  error?: string;
+  /** e.g. "not_an_ebay_listing" — set when the server named a reason code. */
+  code?: string;
+}
+
+export interface BulkReviseResponse {
+  ok: true;
+  requested: number;
+  pushed: number;
+  failed: number;
+  results: BulkReviseRowResult[];
+}
+
+/**
+ * Per-request cap. Mirrors MAX_BULK_REVISE_ITEMS on the server, which is lower
+ * than the bulk-price cap because a revise is several eBay API calls per
+ * listing. A larger selection is split into this many ids per request, which is
+ * also what gives the seller a progress tick and a chance to stop.
+ */
+export const BULK_REVISE_CHUNK_SIZE = 25;
+
+/** Split ids into BULK_REVISE_CHUNK_SIZE-sized chunks. Pure, so it is testable. */
+export function chunkForBulkRevise<T>(
+  items: readonly T[],
+  size = BULK_REVISE_CHUNK_SIZE,
+): T[][] {
+  if (size < 1) return items.length > 0 ? [[...items]] : [];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
+/** Merge chunked responses into one, preserving every per-row result. */
+export function mergeBulkReviseResponses(
+  parts: readonly BulkReviseResponse[],
+): BulkReviseResponse {
+  const results = parts.flatMap((p) => p.results ?? []);
+  const pushed = results.filter((r) => r.ok).length;
+  return {
+    ok: true,
+    requested: results.length,
+    pushed,
+    failed: results.length - pushed,
+    results,
+  };
+}
+
+/**
+ * One line of plain English for the toast. Deliberately does NOT say "pushed"
+ * unless a row actually was: reporting a refusal as a success is the defect
+ * US-2163 removed from bulk price, and the same shape would be worse here —
+ * a seller would believe eBay is showing edits it never received.
+ */
+export function describeBulkRevise(res: BulkReviseResponse): string {
+  const { pushed, failed } = res;
+  if (failed === 0) {
+    return pushed === 1
+      ? "1 listing resubmitted to eBay."
+      : `${pushed} listings resubmitted to eBay.`;
+  }
+  if (pushed === 0) {
+    return failed === 1
+      ? "eBay refused the update. Nothing was changed."
+      : `eBay refused all ${failed} updates. Nothing was changed.`;
+  }
+  return `${pushed} resubmitted, ${failed} refused by eBay — open those to see why.`;
+}
+
+/**
+ * Resubmit a SELECTION of live eBay listings: re-assert what is already saved
+ * in GradeThread (item specifics, category, condition, photos) against each live
+ * listing. The bulk-bar equivalent of the composer's "Save & resubmit to eBay".
+ *
+ * Chunked, and the chunks run in SEQUENCE — a revise is several eBay API calls
+ * per listing, so overlapping them is how you meet a rate limit.
+ */
+export function useBulkReviseListings() {
+  const invalidate = useLifecycleInvalidation();
+  return useMutation<
+    BulkReviseResponse,
+    Error & { status?: number },
+    { listingIds: string[]; onProgress?: (done: number, total: number) => void }
+  >({
+    mutationFn: async ({ listingIds, onProgress }) => {
+      const chunks = chunkForBulkRevise(listingIds);
+      const parts: BulkReviseResponse[] = [];
+      let done = 0;
+      for (const chunk of chunks) {
+        const res = await edgeFetch("/api/flipdesk/ebay/listings/bulk-revise", {
+          method: "POST",
+          json: { listing_ids: chunk },
+        });
+        parts.push(await readOrThrow<BulkReviseResponse>(res, "Bulk resubmit failed."));
+        done += chunk.length;
+        onProgress?.(done, listingIds.length);
+      }
+      return mergeBulkReviseResponses(parts);
+    },
+    onSuccess: invalidate,
+  });
+}
