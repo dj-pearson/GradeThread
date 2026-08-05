@@ -1,64 +1,14 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Three pending: 00524, 00525 and 00526.** 00515 through 00523 were all applied
-to prod on 2026-08-03 (owner-confirmed).
+**Nothing pending.** 00524, 00525 and 00526 were applied to prod on
+2026-08-04 (owner-confirmed, all three together). 00515 through 00523 were
+applied on 2026-08-03.
 
-## 00526 — users self-update becomes deny-by-default (US-2283) — **P0 SECURITY**
-
-**Risk: MEDIUM, and it is the only one of the three that can break a client.**
-One `CREATE OR REPLACE FUNCTION` plus a re-created trigger. No table, column or
-data change. Safe to re-run.
-
-**What it closes.** `guard_users_protected_columns` froze a HAND-LISTED set of
-columns on `public.users`. The table has ~100 and six were missed — including
-`included_grades_this_period` and `ai_actions_used_this_month`. The RLS policy
-permits any-column self-update, so a logged-in customer could run
-`supabase.from("users").update({ included_grades_this_period: 100000 })` on
-their own row and get unlimited Claude Vision grading billed to Pearson Media.
-The guard now enumerates what a user MAY change and refuses everything else, so
-a column added next month is closed the day it is added.
-
-**Apply this one FIRST of the three** — it is the security fix, and 00524/00525
-do not depend on it.
-
-**Why MEDIUM and not LOW.** Deny-by-default moves the risk: a client write to a
-column that is not on the allowlist now RAISES instead of silently succeeding.
-The allowlist was derived from the actual write paths in `src/` and `ios/`, and
-`src/test/users-self-update-allowlist.test.ts` fails the build if any client
-path targets a column the database will refuse — so a regression is caught in
-CI, not on a user. Watch for `users: column(s) … cannot be modified` in Sentry
-for a day after apply; if one appears, the fix is to move that write to the edge
-(service-role) or add the column to the allowlist in a follow-up migration.
-
-**No `NOTIFY pgrst` strictly needed** (no table/column/RPC signature change),
-but harmless to run.
-
-## 00525 — admin metrics read flipdesk_plan (US-2398)
-
-**Risk: LOW. Read-path only, and it CORRECTS numbers rather than changing
-behaviour.** Two `CREATE OR REPLACE FUNCTION` statements
-(`admin_system_metrics`, `admin_platform_analytics`) and nothing else — no
-table, column, index or data change. Safe to re-run.
-
-**What it fixes.** `users.plan` has not been written since the 00039 backfill:
-no update in the edge service, no `SET` in any migration. It is `NOT NULL
-DEFAULT 'free'`, so every account created since carries the default. SIX
-metrics read it, two of which an operator acts on — the paid-user count and the
-churn numerator. Both errors run the same direction (fewer paying users, more
-churn), so the dashboard has been telling a consistent story about a business
-doing worse than it is. MRR was never affected; it already priced off
-`flipdesk_plan`, which is why nobody noticed.
-
-**Expect the numbers to MOVE on apply.** Paid users up, churn down, and the
-plan mix relabelled: `professional`/`enterprise` disappear because those were
-the frozen vocabulary — the live tiers are `pro`/`business`. Nothing is being
-recalculated retroactively; the dashboard simply starts reading the column the
-rest of the system uses.
-
-**Apply order:** after 00524. No `NOTIFY pgrst` needed for the functions
-themselves, but harmless to run.
-
-
+After applying 00526, watch Sentry for one day for `users: column(s) … cannot
+be modified` — that string means a client write path targets a column the new
+deny-by-default guard refuses, and the fix is to move that write to the edge or
+add the column to the allowlist in a follow-up migration. Nothing has been seen
+as of the apply.
 
 > [!warning] 00522 reached origin/main BEFORE it was applied — the second time
 > A concurrent agent pushed the branch while 00522 was still marked held, the
@@ -68,7 +18,7 @@ themselves, but harmless to run.
 > breaks. Twice is a pattern, not a coincidence — the hold rule cannot be
 > enforced by an agent that does not own the push.
 
-`EXPECTED_SCHEMA_VERSION` is **00525**, matching the highest migration in the
+`EXPECTED_SCHEMA_VERSION` is **00526**, matching the highest migration in the
 tree. The edge needs a redeploy to pick that up: until it does, the database
 is AHEAD of the running image, which the boot guard treats as a warning and
 serves through. The reverse — an edge that expects a version the database does
@@ -123,7 +73,54 @@ apply a migration, flip its marker in the same sitting.**
 
 ---
 
-## ⏳ HELD: 00524_marketplace_sync_quarantine.sql (US-2324 AC3 sync quarantine, 2026-08-03)
+## ✅ APPLIED: 00526_users_self_update_allowlist.sql (US-2283 [P0] self-update deny-by-default, applied 2026-08-04 — owner-confirmed)
+
+**Risk: MEDIUM — the only one of the three that could break a client.** One
+`CREATE OR REPLACE FUNCTION` plus a re-created trigger. No table, column or data
+change. Safe to re-run.
+
+**What it closes, demonstrated rather than argued.** `guard_users_protected_columns`
+froze a HAND-LISTED set of columns on `public.users`. The table has ~100 and six
+were missed. On a throwaway stack, as `role=authenticated` with a JWT matching the
+row, the OLD function ACCEPTED
+`update({ included_grades_this_period: 100000, ai_actions_used_this_month: 0 })`
+and the row kept both values — unlimited Claude Vision grading billed to us. With
+00526 the same statement raises, naming the column.
+
+The guard now enumerates the 21 columns a user MAY change and refuses everything
+else, so a column added next month is closed the day it is added.
+
+**WATCH FOR ONE DAY:** `users: column(s) … cannot be modified` in Sentry. That
+string means a client write path targets a column the new guard refuses. The fix
+is to move that write to the edge (service-role) or add the column to the
+allowlist in a follow-up migration — not to widen the guard blindly.
+`src/test/users-self-update-allowlist.test.ts` fails the build if any `src/` or
+`ios/` write path targets a refused column, so a regression should be caught in
+CI rather than by a user.
+
+**Still open on the same attack path:** US-2282 — SECURITY DEFINER functions that
+PUBLIC can still EXECUTE. Either one alone gives free credits.
+
+## ✅ APPLIED: 00525_admin_metrics_flipdesk_plan.sql (US-2398 admin metrics read flipdesk_plan, applied 2026-08-04 — owner-confirmed)
+
+**Risk: LOW. Read-path only, and it CORRECTS numbers rather than changing
+behaviour.** Two `CREATE OR REPLACE FUNCTION` statements (`admin_system_metrics`,
+`admin_platform_analytics`) and nothing else. Safe to re-run.
+
+**What it fixes.** `users.plan` has not been written since the 00039 backfill. It
+is `NOT NULL DEFAULT 'free'`, so every account created since carries the default.
+SIX metrics read it, two of which an operator acts on — the paid-user count and
+the churn numerator. Both errors run the same direction, so the dashboard has
+been telling a consistent story about a business doing worse than it is. MRR was
+never affected; it already priced off `flipdesk_plan`, which is why nobody noticed.
+
+**Expect the numbers to have MOVED on apply.** Paid users up, churn down, and the
+plan mix relabelled: `professional`/`enterprise` disappear because those were the
+frozen vocabulary — the live tiers are `pro`/`business`. Nothing was recalculated
+retroactively; the dashboard simply started reading the column the rest of the
+system uses.
+
+## ✅ APPLIED: 00524_marketplace_sync_quarantine.sql (US-2324 AC3 sync quarantine, applied 2026-08-04 — owner-confirmed)
 
 **Risk: VERY LOW.** One NEW table, nothing existing is touched. Both connectors
 that use it are behind env kill-switches defaulting to FALSE, so on prod today
