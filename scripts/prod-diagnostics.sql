@@ -35,6 +35,7 @@
 --   §15 US-2347 AC3 — golden-set size and which prompt versions are live.
 --   §16 US-2347 AC4 — does the billing-source check still exclude Play?
 --   §17 US-2398 AC3 — how far off were the admin paid/churn counts?
+--   §18 US-2406 AC5 — has any feature flag been targeted at a plan?
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -625,6 +626,44 @@ SELECT
 FROM public.users
 GROUP BY 1, 2
 ORDER BY count(*) DESC;
+
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§18  US-2406 AC5 — has any feature flag been targeted at a plan?'
+\echo '════════════════════════════════════════════════════════════════'
+\echo 'plan_targets never applied at runtime: resolveFlagRule only checked it'
+\echo 'when the caller supplied a plan, and no caller did. So any rule listed'
+\echo 'with a non-empty plan_targets has been LIVE FOR EVERYONE the rollout'
+\echo 'percentage admits, not just the tiers named — fail-OPEN, silent, and'
+\echo 'contradicted by the admin preview, which was the only code that passed a'
+\echo 'plan.'
+\echo ''
+\echo 'EXPECTED: zero rows. Any row here is a flag whose audience was wider than'
+\echo 'the operator who set it believes, for as long as it has been set.'
+\echo ''
+SELECT
+  key,
+  enabled,
+  rollout_percentage,
+  plan_targets,
+  cardinality(user_allow) AS allow_count,
+  cardinality(user_deny)  AS deny_count,
+  starts_at,
+  ends_at,
+  updated_at,
+  -- The legacy spellings cannot match a live account at all (US-2398): the
+  -- tiers are free/starter/pro/business.
+  (plan_targets && ARRAY['professional', 'enterprise']) AS names_dead_tiers
+FROM public.feature_flags
+WHERE cardinality(plan_targets) > 0
+ORDER BY updated_at DESC;
+
+\echo ''
+\echo '-- Every flag row, for orientation — which exist and which are off.'
+SELECT key, enabled, rollout_percentage, cardinality(plan_targets) AS plan_targets, updated_at
+FROM public.feature_flags
+ORDER BY key;
 
 
 \echo ''

@@ -15,9 +15,18 @@
 //
 // PRECEDENCE (resolveFlagRule): a global kill (enabled=false) ALWAYS wins, then
 // the schedule window, then the deny list, then the allow list, then plan
-// targeting, then the percentage bucket. Percentage + plan only gate a call that
-// SUPPLIES the matching input (userId / plan) — so existing kill-switch callers
-// that pass no userId behave EXACTLY as before (global enabled + schedule only).
+// targeting, then the percentage bucket. Percentage only gates a call that
+// SUPPLIES a userId — so existing kill-switch callers that pass no userId behave
+// EXACTLY as before (global enabled + schedule only).
+//
+// PLAN TARGETING IS RESOLVED BY isFeatureEnabled, NOT BY THE CALLER (US-2406).
+// resolveFlagRule stays pure and still only applies plan_targets when a plan is
+// supplied; that used to mean the caller had to supply one, and none ever did,
+// so every plan-targeted rule was live for everyone. isFeatureEnabled now looks
+// the plan up from userId when — and only when — a rule actually targets plans,
+// and FAILS CLOSED if it cannot resolve one. That is the single exception to
+// fail-open below, and it is deliberate: fail-open on a restriction serves the
+// people the operator excluded.
 //
 // FAIL-OPEN for availability: a missing flag row OR a DB read error defaults to
 // ENABLED — a kill-switch should only ever turn something OFF when an operator
@@ -26,6 +35,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { logEvent } from "./observability.ts";
+import { effectivePlanFor } from "./grade-pricing.ts";
 
 export type FeatureKey =
   | "grading"
@@ -74,7 +84,12 @@ export interface FeatureFlagRule {
 export interface FeatureFlagOpts {
   /** Stable user id — required for percentage rollout + allow/deny overrides. */
   userId?: string;
-  /** User plan (users.plan value) — required for plan targeting. */
+  /**
+   * The caller's EFFECTIVE plan. Optional: US-2406 made isFeatureEnabled resolve
+   * it from `userId` when a rule actually targets plans, because leaving it to
+   * the caller meant it was never supplied and plan targeting never applied.
+   * Pass it only to skip that lookup when you already hold the value.
+   */
   plan?: string;
   /**
    * Fail behaviour for a MISSING row or a DB read error. Defaults to true
@@ -88,6 +103,68 @@ export interface FeatureFlagOpts {
 }
 
 const CACHE_TTL_MS = 30_000;
+
+// US-2406: the effective plan per user, same TTL as the rule cache.
+//
+// Only consulted when a rule ACTUALLY targets plans, so the common case — every
+// kill-switch call in the fleet — still does zero extra reads. A flag with plan
+// targeting costs one bounded lookup per user per 30s.
+const planCache = new Map<string, { plan: string | null; expires: number }>();
+
+const PLAN_SELECT =
+  "flipdesk_plan, subscription_status, trial_ends_at, past_due_since";
+
+/**
+ * The plan a targeting rule is matched against: EFFECTIVE, not raw.
+ *
+ * A lapsed Pro whose caps have already dropped to Free must not be targeted as
+ * Pro — the flag would hand them a feature the plan gate then refuses, which is
+ * a worse experience than never offering it. This is the same resolution
+ * entitlements use (effectivePlanFor), so a targeted flag and the gate behind it
+ * can never disagree about what tier someone is on.
+ *
+ * Returns null when the user cannot be resolved. The caller treats that as
+ * fail-CLOSED, deliberately: an operator who restricted a flag to paying tiers
+ * gets "nobody" rather than "everybody" when we cannot tell who is asking.
+ */
+export async function resolveEffectivePlan(userId: string): Promise<string | null> {
+  const now = Date.now();
+  const hit = planCache.get(userId);
+  if (hit && hit.expires > now) return hit.plan;
+
+  let plan: string | null = null;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("users")
+      .select(PLAN_SELECT)
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) {
+      logEvent("warn", "feature_flag.plan_read_error", { userId });
+    } else if (data) {
+      const u = data as {
+        flipdesk_plan: string | null;
+        subscription_status: string | null;
+        trial_ends_at: string | null;
+        past_due_since: string | null;
+      };
+      plan = effectivePlanFor(
+        u.flipdesk_plan ?? "free",
+        u.subscription_status,
+        u.trial_ends_at,
+        new Date(now),
+        u.past_due_since,
+      );
+    }
+  } catch {
+    logEvent("warn", "feature_flag.plan_read_error", { userId });
+  }
+
+  // A failed read is NOT cached — otherwise one blip locks a user out of every
+  // targeted flag for the full TTL.
+  if (plan !== null) planCache.set(userId, { plan, expires: now + CACHE_TTL_MS });
+  return plan;
+}
 // Cache the raw RULE per key (not a resolved boolean) so per-user resolution can
 // run on each call without an extra DB read. `rule === null` = missing row / read
 // error (the caller's defaultEnabled then applies).
@@ -193,18 +270,65 @@ async function loadRule(key: string): Promise<FeatureFlagRule | null> {
   return rule;
 }
 
+/**
+ * Injection seam, mirroring plan-gate.ts's PlanGateDeps.
+ *
+ * Both halves are here on purpose. Before US-2406 the only tests that could run
+ * against isFeatureEnabled were the ones where the DB read FAILED — a dead
+ * connection yields a null rule and the function returns the caller's default
+ * before any targeting runs. So every targeting test had to go through the pure
+ * resolveFlagRule instead, which is exactly why a suite full of green
+ * plan-targeting assertions sat on top of a production path that never applied
+ * plan targeting at all.
+ */
+export interface FeatureFlagDeps {
+  loadPlan: (userId: string) => Promise<string | null>;
+  loadRule?: (key: FeatureKey) => Promise<FeatureFlagRule | null>;
+}
+
+const defaultDeps: FeatureFlagDeps = { loadPlan: resolveEffectivePlan };
+
 export async function isFeatureEnabled(
   key: FeatureKey,
   opts: FeatureFlagOpts = {},
+  deps: FeatureFlagDeps = defaultDeps,
 ): Promise<boolean> {
   const failDefault = opts.defaultEnabled ?? true;
-  const rule = await loadRule(key);
+  const rule = await (deps.loadRule ?? loadRule)(key);
   if (rule === null) {
     // Missing row / read error → fail to the caller's default.
     if (!failDefault) logEvent("info", "feature_flag.disabled_hit", { key });
     return failDefault;
   }
-  const enabled = resolveFlagRule(key, rule, opts);
+
+  // US-2406: resolve the plan HERE rather than requiring every call site to.
+  //
+  // resolveFlagRule only applies plan_targets when a plan is supplied, and no
+  // runtime caller ever supplied one — so a rule restricted to a paying tier
+  // fell straight through to the percentage rollout and was live for everyone.
+  // The failure was silent, fail-OPEN, and looked correct in the admin preview,
+  // which was the only code that passed a plan.
+  //
+  // The lookup runs ONLY when a rule actually targets plans, so the fleet's
+  // kill-switch calls are unchanged.
+  let resolved = opts;
+  if (rule.plan_targets.length > 0 && opts.plan === undefined) {
+    const plan = opts.userId ? await deps.loadPlan(opts.userId) : null;
+    if (plan === null) {
+      // FAIL CLOSED (AC2). An operator restricted this flag to specific tiers;
+      // serving a caller we cannot place is the one outcome they did not ask
+      // for. Logged with a reason so it is distinguishable from a normal miss —
+      // "off for everyone" with no explanation is how the original bug hid.
+      logEvent("info", "feature_flag.plan_unresolved", {
+        key,
+        hasUserId: Boolean(opts.userId),
+      });
+      return false;
+    }
+    resolved = { ...opts, plan };
+  }
+
+  const enabled = resolveFlagRule(key, rule, resolved);
   if (!enabled) logEvent("info", "feature_flag.disabled_hit", { key });
   return enabled;
 }
@@ -213,6 +337,9 @@ export async function isFeatureEnabled(
 // replica that handled the toggle; other replicas pick it up within the TTL).
 export function clearFeatureFlagCache(): void {
   cache.clear();
+  // US-2406: the plan cache too. An admin toggling a rule's plan targets is the
+  // exact moment a stale per-user plan would resolve against the new list.
+  planCache.clear();
 }
 
 // Standard 503 body for a disabled flow.

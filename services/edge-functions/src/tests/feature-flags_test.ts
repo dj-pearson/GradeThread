@@ -129,3 +129,119 @@ Deno.test("US-886: stableBucket is in range and deterministic", () => {
   assert(monotonic);
   assert(onAt90 > onAt10);
 });
+
+// ── US-2406: plan targeting through the REAL entry point ─────────────────────
+//
+// Every assertion below deliberately goes through isFeatureEnabled, not through
+// resolveFlagRule. The pure helper was already green on all of this and stayed
+// green for the whole life of the bug: production never supplied a plan, so the
+// branch those tests exercised was never reached. Testing the pure function
+// proved the rule was correct; it could not prove anyone applied it.
+
+const targeted = rule({ plan_targets: ["pro", "business"] });
+const stubRule = () => Promise.resolve(targeted);
+
+Deno.test("US-2406: a plan-targeted rule EXCLUDES a non-matching user", async () => {
+  clearFeatureFlagCache();
+  const enabled = await isFeatureEnabled("grading", { userId: "u-free" }, {
+    loadPlan: () => Promise.resolve("free"),
+    loadRule: stubRule,
+  });
+  assertEquals(enabled, false);
+});
+
+Deno.test("US-2406: a plan-targeted rule INCLUDES a matching user", async () => {
+  clearFeatureFlagCache();
+  const enabled = await isFeatureEnabled("grading", { userId: "u-pro" }, {
+    loadPlan: () => Promise.resolve("pro"),
+    loadRule: stubRule,
+  });
+  assertEquals(enabled, true);
+});
+
+Deno.test("US-2406: the caller does NOT have to supply a plan", async () => {
+  // The whole defect in one assertion. Every runtime call site passes at most a
+  // userId; if resolution still depended on the caller, this would resolve TRUE
+  // for a free user because the plan check would be skipped entirely.
+  clearFeatureFlagCache();
+  let lookedUp: string | null = null;
+  const enabled = await isFeatureEnabled("autolister", { userId: "u-free" }, {
+    loadPlan: (id) => {
+      lookedUp = id;
+      return Promise.resolve("free");
+    },
+    loadRule: stubRule,
+  });
+  assertEquals(enabled, false);
+  assertEquals(lookedUp, "u-free");
+});
+
+Deno.test("US-2406: an unresolvable plan FAILS CLOSED, both ways", async () => {
+  clearFeatureFlagCache();
+  // (a) no userId at all — a kill-switch-style call against a targeted rule.
+  assertEquals(
+    await isFeatureEnabled("grading", {}, {
+      loadPlan: () => Promise.resolve("pro"),
+      loadRule: stubRule,
+    }),
+    false,
+  );
+  // (b) a userId we cannot resolve (missing row / read error).
+  assertEquals(
+    await isFeatureEnabled("grading", { userId: "u-ghost" }, {
+      loadPlan: () => Promise.resolve(null),
+      loadRule: stubRule,
+    }),
+    false,
+  );
+});
+
+Deno.test("US-2406: an UNtargeted rule costs no plan lookup", async () => {
+  // The fleet's kill-switch calls must not acquire a per-call DB read. If this
+  // ever fails, every isFeatureEnabled() in the codebase just got more expensive.
+  clearFeatureFlagCache();
+  let lookups = 0;
+  const enabled = await isFeatureEnabled("repricing", { userId: "u1" }, {
+    loadPlan: () => {
+      lookups++;
+      return Promise.resolve("free");
+    },
+    loadRule: () => Promise.resolve(rule()),
+  });
+  assertEquals(enabled, true);
+  assertEquals(lookups, 0);
+});
+
+Deno.test("US-2406: an explicit plan still wins and skips the lookup", async () => {
+  clearFeatureFlagCache();
+  let lookups = 0;
+  const enabled = await isFeatureEnabled("grading", { userId: "u1", plan: "business" }, {
+    loadPlan: () => {
+      lookups++;
+      return Promise.resolve("free");
+    },
+    loadRule: stubRule,
+  });
+  assertEquals(enabled, true);
+  assertEquals(lookups, 0);
+});
+
+Deno.test("US-2406: a user_allow override still beats plan targeting", async () => {
+  // Precedence is unchanged — the allow list is checked before the plan check,
+  // so resolving a plan must not quietly reorder it.
+  clearFeatureFlagCache();
+  const enabled = await isFeatureEnabled("grading", { userId: "vip" }, {
+    loadPlan: () => Promise.resolve("free"),
+    loadRule: () => Promise.resolve(rule({ plan_targets: ["pro"], user_allow: ["vip"] })),
+  });
+  assertEquals(enabled, true);
+});
+
+Deno.test("US-2406: a global kill still beats a matching plan", async () => {
+  clearFeatureFlagCache();
+  const enabled = await isFeatureEnabled("grading", { userId: "u-pro" }, {
+    loadPlan: () => Promise.resolve("pro"),
+    loadRule: () => Promise.resolve(rule({ enabled: false, plan_targets: ["pro"] })),
+  });
+  assertEquals(enabled, false);
+});

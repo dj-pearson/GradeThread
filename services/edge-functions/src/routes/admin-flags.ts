@@ -27,6 +27,7 @@ import {
   type FeatureFlagRule,
   resolveFlagRule,
 } from "../lib/feature-flags.ts";
+import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { jsonError } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireFreshStepUp, requireStepUp } from "../lib/step-up.ts";
@@ -319,19 +320,36 @@ adminFlagsRoutes.post("/preview", async (c) => {
   if (countErr) return jsonError(c, 500, "Failed to count users");
   const totalUsers = total ?? 0;
 
-  // Pull a bounded sample of (id, flipdesk_plan) and resolve each. US-2398: the
-  // preview must sample the same column the rule targets, or it reports a reach
-  // for a tier nobody is recorded as holding.
+  // Pull a bounded sample and resolve each. US-2398: sample the same column the
+  // rule targets, or the preview reports a reach for a tier nobody is recorded
+  // as holding. US-2406: resolve it the same WAY runtime does — effectivePlanFor
+  // over the billing columns, not the raw tier. A preview that disagrees with
+  // the behaviour is what let the runtime gap go unnoticed for as long as it
+  // did, so the two now run the identical function over the identical inputs.
+  const now = new Date();
   const { data: rows, error: rowsErr } = await supabaseAdmin
     .from("users")
-    .select("id, flipdesk_plan")
+    .select("id, flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
     .limit(PREVIEW_SAMPLE_CAP);
   if (rowsErr) return jsonError(c, 500, "Failed to load users for preview");
 
-  const sample = (rows ?? []) as Array<{ id: string; flipdesk_plan: string | null }>;
+  const sample = (rows ?? []) as Array<{
+    id: string;
+    flipdesk_plan: string | null;
+    subscription_status: string | null;
+    trial_ends_at: string | null;
+    past_due_since: string | null;
+  }>;
   let enabledInSample = 0;
   for (const u of sample) {
-    if (resolveFlagRule(key, rule, { userId: u.id, plan: u.flipdesk_plan ?? undefined })) {
+    const plan = effectivePlanFor(
+      u.flipdesk_plan ?? "free",
+      u.subscription_status,
+      u.trial_ends_at,
+      now,
+      u.past_due_since,
+    );
+    if (resolveFlagRule(key, rule, { userId: u.id, plan })) {
       enabledInSample++;
     }
   }

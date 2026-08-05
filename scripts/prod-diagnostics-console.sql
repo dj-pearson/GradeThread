@@ -52,6 +52,8 @@
 --   §14 US-2347 AC1 — SECURITY DEFINER functions callable by PUBLIC.
 --   §15 US-2347 AC3 — golden-set size and which prompt versions are live.
 --   §16 US-2347 AC4 — does the billing-source check still exclude Play?
+--   §17 US-2398 AC3 — how far off were the admin paid/churn counts?
+--   §18 US-2406 AC5 — has any feature flag been targeted at a plan?
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -544,6 +546,82 @@ SELECT
 FROM public.users
 GROUP BY 1
 ORDER BY count(*) DESC;
+
+-- ════════════════════════════════════════════════════════════════
+-- §17  US-2398 AC3 — how wrong were the admin counts, and since when?
+-- ════════════════════════════════════════════════════════════════
+-- The before/after is still measurable AFTER the 00525 apply, because the
+-- legacy column is FROZEN: users.plan still holds exactly what the dashboard
+-- was reading, and users.flipdesk_plan holds what it reads now.
+--
+-- DO NOT DROP users.plan BEFORE RUNNING THIS. Dropping it destroys the only
+-- record of what the dashboard used to say (US-2398 AC4).
+SELECT
+  count(*) FILTER (WHERE plan <> 'free')                      AS paid_before,
+  count(*) FILTER (WHERE flipdesk_plan <> 'free')             AS paid_after,
+  count(*) FILTER (WHERE flipdesk_plan <> 'free'
+                     AND plan = 'free')                       AS undercounted,
+  count(*) FILTER (WHERE plan <> 'free'
+                     AND flipdesk_plan = 'free')              AS overcounted,
+  count(*)                                                    AS total_users
+FROM public.users;
+
+-- -- The churn numerator used the SAME frozen column, so both errors ran the
+-- -- same direction. This is the overlap.
+SELECT
+  count(*) AS counted_as_churned_but_actually_paying
+FROM public.users
+WHERE plan = 'free'
+  AND flipdesk_plan <> 'free';
+
+-- -- SINCE WHEN. The monthly shape says whether the drift is still growing.
+SELECT
+  date_trunc('month', created_at)::date          AS signup_month,
+  count(*)                                       AS accounts,
+  count(*) FILTER (WHERE flipdesk_plan <> 'free'
+                     AND plan = 'free')          AS diverged
+FROM public.users
+GROUP BY 1
+ORDER BY 1;
+
+-- -- The plan mix, both vocabularies side by side.
+SELECT
+  COALESCE(plan::text, '(null)')          AS legacy_plan,
+  COALESCE(flipdesk_plan::text, '(null)') AS live_plan,
+  count(*)                                AS users
+FROM public.users
+GROUP BY 1, 2
+ORDER BY count(*) DESC;
+
+-- ════════════════════════════════════════════════════════════════
+-- §18  US-2406 AC5 — has any feature flag been targeted at a plan?
+-- ════════════════════════════════════════════════════════════════
+-- plan_targets never applied at runtime: resolveFlagRule only checked it when
+-- the caller supplied a plan, and no caller did. So any rule listed with a
+-- non-empty plan_targets has been LIVE FOR EVERYONE the rollout percentage
+-- admits, not just the tiers named.
+--
+-- EXPECTED: zero rows. Any row here is a flag whose audience was wider than the
+-- operator who set it believes, for as long as it has been set.
+SELECT
+  key,
+  enabled,
+  rollout_percentage,
+  plan_targets,
+  cardinality(user_allow) AS allow_count,
+  cardinality(user_deny)  AS deny_count,
+  starts_at,
+  ends_at,
+  updated_at,
+  (plan_targets && ARRAY['professional', 'enterprise']) AS names_dead_tiers
+FROM public.feature_flags
+WHERE cardinality(plan_targets) > 0
+ORDER BY updated_at DESC;
+
+-- -- Every flag row, for orientation — which exist and which are off.
+SELECT key, enabled, rollout_percentage, cardinality(plan_targets) AS plan_targets, updated_at
+FROM public.feature_flags
+ORDER BY key;
 
 -- ════════════════════════════════════════════════════════════════
 -- Done. Paste the whole output back — nothing above is a secret.

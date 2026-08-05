@@ -41,17 +41,32 @@ Deno.test("US-2376: POST /users/:id/plan carries billing:write, a step-up and an
   assertStringIncludes(body, "if (stepUp) return stepUp;");
   assertStringIncludes(body, 'action: "admin.change_plan"');
   // before/after, not just "a plan changed" — the prior value is what makes the
-  // row reviewable.
-  assertStringIncludes(body, "before: { plan: previous }");
-  assertStringIncludes(body, "after: { plan }");
+  // row reviewable. US-2398 widened both to carry the subscription status too,
+  // because the grant now moves that as well and a comp is the thing a reviewer
+  // most needs to see recorded.
+  assertStringIncludes(body, "before: { plan: previous, subscription_status:");
+  assertStringIncludes(body, "after: { plan, subscription_status:");
 });
 
-Deno.test("US-2376: the plan route rejects anything outside the user_plan enum", () => {
-  // The values must match public.user_plan (00001). A typo'd extra value here
-  // would be a 500 from Postgres, not a 400 from us.
+Deno.test("US-2398: the plan route grants the LIVE tier, and stamps a comp", () => {
+  // The values must match public.flipdesk_plan (00037) — the column every
+  // entitlement reads. They used to be public.user_plan
+  // (free/starter/professional/enterprise), a different vocabulary for a column
+  // nothing gates on, so every grant this route made was inert.
   const decl = adminUsersSrc.slice(adminUsersSrc.indexOf("const ASSIGNABLE_PLANS"));
   const listed = [...decl.slice(0, decl.indexOf("]")).matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
-  assertEquals(listed, ["free", "starter", "professional", "enterprise"]);
+  assertEquals(listed, ["free", "starter", "pro", "business"]);
+
+  const body = routeBody(adminUsersSrc, `adminUsersRoutes.post("/:id/plan"`);
+  // Writing flipdesk_plan alone would still have been a no-op: effectivePlanFor
+  // demotes a paid plan to Free on a 'none'/'canceled' status, which is exactly
+  // what a cardless account carries. The 'comp' status (00529) is what makes the
+  // grant real, so both halves are pinned together.
+  assertStringIncludes(body, "flipdesk_plan: plan");
+  assertStringIncludes(body, '"comp"');
+  // And it must refuse an account somebody else's billing system owns, rather
+  // than writing a value the next webhook overwrites.
+  assertStringIncludes(body, "EXTERNALLY_BILLED");
 });
 
 Deno.test("US-2376: mark-failed reuses the sweep's fail+refund, not a partial copy", () => {
