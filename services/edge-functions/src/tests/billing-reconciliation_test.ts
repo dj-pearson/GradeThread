@@ -54,6 +54,30 @@ Deno.test("detectDivergence: matching cached state is not divergent", () => {
   assertEquals(r.reasons.length, 0);
 });
 
+Deno.test("US-2398: a comped account is not a divergence", () => {
+  // The realistic comp: a seller whose subscription was canceled, then granted
+  // a tier by hand. The last event on file is the cancellation, so every check
+  // below would fire — cached 'comp' vs expected 'canceled', cached 'pro' vs
+  // expected 'free' — and the account would sit in the reconciliation queue
+  // permanently with nothing to reconcile. A queue of already-correct rows is a
+  // queue that stops getting read.
+  const r = detectDivergence(
+    { status: "comp", plan: "pro" },
+    { eventType: "customer.subscription.deleted", toPlan: "pro", rawStatus: "canceled" },
+  );
+  assert(!r.diverged);
+  assert(!r.statusDiverged);
+  assert(!r.planDiverged);
+  assertEquals(r.reasons.length, 0);
+
+  // A comp on an account that never had Stripe at all, for the same reason.
+  const fresh = detectDivergence(
+    { status: "comp", plan: "business" },
+    { eventType: "customer.subscription.updated", toPlan: "free", rawStatus: "canceled" },
+  );
+  assert(!fresh.diverged);
+});
+
 Deno.test("detectDivergence: a deleted event but still-active cache is flagged (missed webhook)", () => {
   const r = detectDivergence(
     { status: "active", plan: "pro" },

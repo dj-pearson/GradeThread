@@ -150,12 +150,16 @@ export function resolveIncludedCap(
 // never added a card. So an expired trial reads as Free here immediately,
 // independent of the job. `now` is injectable for tests.
 // US-392: subscription statuses that must NOT entitle paid plan caps. A paid
-// flipdesk_plan only ever comes from a real Stripe subscription — admins cannot
-// grant one cardless (admin-billing.ts refuses free→paid without a card) — so a
-// paid plan paired with any of these is an unpaid/lapsed sub (notably the
+// A paid plan paired with any of these is an unpaid/lapsed sub (notably the
 // `incomplete` state, mapped to 'none') and drops to Free until a verified-paid
 // signal (invoice.payment_succeeded → 'active') arrives. `null` is treated as
 // entitling for backward-compatibility (the column is NOT NULL in practice).
+//
+// US-2398 CORRECTION: this used to open "flipdesk_plan only ever comes from a
+// real Stripe subscription — admins cannot grant one cardless". That is no
+// longer true. POST /api/admin/users/:id/plan grants a cardless tier and stamps
+// subscription_status='comp', which is handled above precisely so a comp never
+// reaches this set and gets silently demoted to Free.
 const NON_ENTITLING_STATUSES = new Set(["none", "canceled", "incomplete"]);
 
 // US-395: dunning grace. When a renewal payment fails the subscription goes
@@ -175,6 +179,17 @@ export function effectivePlanFor(
   now: Date = new Date(),
   pastDueSince?: string | null,
 ): string {
+  // US-2398 AC4: an admin comp grant. Explicit rather than left to fall through
+  // the checks below, because falling through is how it would break: any future
+  // status rule ("no period_end → free", "no subscription id → free") would
+  // silently un-grant every comped account, and the symptom — caps quietly back
+  // at Free — is the exact failure this branch exists to end.
+  //
+  // It is checked FIRST for the same reason. A comp is not paused, not trialing
+  // and not in dunning; none of those states can apply to an account with no
+  // billing behind it.
+  if (subscriptionStatus === "comp") return plan;
+
   if (subscriptionStatus === "paused") return "free";
   if (subscriptionStatus === "trialing") {
     // Expired trial → Free; an in-window trial keeps its trial plan.

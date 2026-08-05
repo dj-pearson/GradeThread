@@ -137,16 +137,41 @@ function scanCode(): string[] {
 /**
  * Application code that still queries the column, each with why.
  *
- * SHRINK-ONLY. Adding an entry here is a decision to read a column nothing
- * writes; if you are doing that, say why in the string.
+ * EMPTY, and that is the point (US-2398 AC4). The last entry was
+ * admin-users.ts's POST /:id/plan — the column's only writer as well as a
+ * reader — and rewiring it to flipdesk_plan + a 'comp' status left users.plan
+ * unread by every line of application code. Adding an entry back is a decision
+ * to read a column nothing writes; if you are doing that, say why in the string.
  */
-const KNOWN_CODE: Record<string, string> = {
-  "services/edge-functions/src/routes/admin-users.ts":
-    "POST /:id/plan — the last WRITER as well as a reader. US-2398 AC4 decides " +
-    "whether it is rewired to flipdesk_plan or removed with the column; until " +
-    "then it is the one place the legacy value legitimately moves. See the " +
-    "correction comment above the route: the grant it makes is inert.",
-};
+const KNOWN_CODE: Record<string, string> = {};
+
+/**
+ * The scan run against a fixture instead of the tree.
+ *
+ * Needed because the tree is now clean: an all-clear from a matcher that
+ * silently stopped matching looks exactly like an all-clear from a codebase
+ * that stopped reading the column, and only one of those is worth anything.
+ * The old "not vacuously green" case leaned on a real offender existing, which
+ * stopped being true the moment the fix landed.
+ */
+function matchesFixture(src: string): boolean {
+  let matched = false;
+  UPDATE_BODY.lastIndex = 0;
+  let u: RegExpExecArray | null;
+  while ((u = UPDATE_BODY.exec(src)) !== null) {
+    if (PLAN_AS_KEY.test(u[1] ?? "")) matched = true;
+  }
+  if (!matched) {
+    STRING_LITERAL.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = STRING_LITERAL.exec(src)) !== null) {
+      const parts = m[0].slice(1, -1).split(",").map((s) => s.trim());
+      if (parts.length > 1 && parts.includes("plan")) matched = true;
+    }
+  }
+  if (!matched && /\.(?:eq|neq|in|not)\(\s*"plan"/.test(src)) matched = true;
+  return matched;
+}
 
 describe("US-2398: the frozen users.plan column", () => {
   const offenders: string[] = [];
@@ -255,15 +280,20 @@ describe("US-2398: the frozen users.plan column", () => {
   });
 
   it("US-2398 AC5: the code guard is not vacuously green", () => {
-    // Same reasoning as the migration scan: a pattern that stopped matching
-    // would report a clean tree forever. When the last entry in KNOWN_CODE goes
-    // (which is what AC4 decides), delete this case WITH the column.
-    expect(
-      scanCode().length,
-      "the code scan found no query against users.plan at all — either the " +
-        "column is now unread (drop it, and this guard with it) or the " +
-        "pattern is broken",
-    ).toBeGreaterThan(0);
+    // Each shape the scan claims to catch, proved against a fixture. The tree
+    // is clean now, so this is the only thing standing between "no code reads
+    // the column" and "the matcher broke and nobody noticed".
+    expect(matchesFixture('.select("id, plan, role")')).toBe(true);
+    expect(matchesFixture(".update({ plan })")).toBe(true);
+    expect(matchesFixture('.update({ plan: "free" })')).toBe(true);
+    expect(matchesFixture('.neq("plan", "free")')).toBe(true);
+
+    // And the near-misses it must NOT report, which are the reason it took two
+    // passes to get right.
+    expect(matchesFixture('.update({ flipdesk_plan: plan })')).toBe(false);
+    expect(matchesFixture('case "plan":')).toBe(false);
+    expect(matchesFixture('.select("id, flipdesk_plan, role")')).toBe(false);
+    expect(matchesFixture('.eq("flipdesk_plan", "pro")')).toBe(false);
   });
 
   it("MRR is NOT one of the readers", () => {

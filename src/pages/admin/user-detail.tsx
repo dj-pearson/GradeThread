@@ -7,10 +7,10 @@ import type {
   UserRow,
   SubmissionRow,
   GradeReportRow,
-  UserPlan,
   UserRole,
 } from "@/types/database";
-import { getPlanBadgeClasses, getRoleBadgeClasses, legacyPlanConfig } from "@/lib/constants";
+import type { FlipdeskPlanKey } from "@/lib/constants";
+import { FLIPDESK_PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -132,7 +132,7 @@ export function AdminUserDetailPage() {
   const { profile: adminProfile } = useAuth();
 
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
-  const [pendingPlan, setPendingPlan] = useState<UserPlan | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<FlipdeskPlanKey | null>(null);
   const [planStepUpOpen, setPlanStepUpOpen] = useState(false);
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
@@ -268,7 +268,7 @@ export function AdminUserDetailPage() {
       toast.success(
         body?.changed === false
           ? "Plan unchanged — the user is already on that plan."
-          : `Plan changed to ${legacyPlanConfig(pendingPlan)?.name ?? pendingPlan}`,
+          : `Plan changed to ${FLIPDESK_PLANS[pendingPlan]?.name ?? pendingPlan}`,
       );
       queryClient.invalidateQueries({ queryKey: ["admin-user-detail", id] });
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
@@ -550,8 +550,8 @@ export function AdminUserDetailPage() {
               <div className="flex items-center gap-2 text-sm">
                 <CreditCard className="h-4 w-4 text-muted-foreground" />
                 <span className="text-muted-foreground">Plan:</span>
-                <Badge variant="secondary" className={getPlanBadgeClasses(targetUser.plan)}>
-                  {legacyPlanConfig(targetUser.plan)?.name ?? targetUser.plan}
+                <Badge variant="secondary" className={getPlanBadgeClasses(targetUser.flipdesk_plan)}>
+                  {FLIPDESK_PLANS[targetUser.flipdesk_plan]?.name ?? targetUser.flipdesk_plan}
                 </Badge>
                 {isSuspended && (
                   <Badge variant="destructive" className="ml-1">Suspended</Badge>
@@ -635,10 +635,10 @@ export function AdminUserDetailPage() {
                     Change Plan
                   </label>
                   <Select
-                    value={targetUser.plan}
+                    value={targetUser.flipdesk_plan}
                     onValueChange={(v) => {
-                      if (v !== targetUser.plan) {
-                        setPendingPlan(v as UserPlan);
+                      if (v !== targetUser.flipdesk_plan) {
+                        setPendingPlan(v as FlipdeskPlanKey);
                         setPlanDialogOpen(true);
                       }
                     }}
@@ -649,8 +649,8 @@ export function AdminUserDetailPage() {
                     <SelectContent>
                       <SelectItem value="free">Free</SelectItem>
                       <SelectItem value="starter">Starter</SelectItem>
-                      <SelectItem value="professional">Professional</SelectItem>
-                      <SelectItem value="enterprise">Enterprise</SelectItem>
+                      <SelectItem value="pro">Pro</SelectItem>
+                      <SelectItem value="business">Business</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -722,22 +722,28 @@ export function AdminUserDetailPage() {
             <div className="rounded-lg border p-3">
               <p className="text-xs text-muted-foreground">Current Plan</p>
               <p className="mt-1 text-lg font-semibold">
-                {legacyPlanConfig(targetUser.plan)?.name ?? targetUser.plan}
+                {FLIPDESK_PLANS[targetUser.flipdesk_plan]?.name ?? targetUser.flipdesk_plan}
               </p>
-              {legacyPlanConfig(targetUser.plan)?.priceMonthlyCents !==
-                  undefined && (
+              {targetUser.subscription_status === "comp"
+                ? (
                   <p className="text-sm text-muted-foreground">
-                    ${legacyPlanConfig(targetUser.plan)!.priceMonthlyCents / 100}/mo
+                    Comped — granted, not billed
+                  </p>
+                )
+                : FLIPDESK_PLANS[targetUser.flipdesk_plan]?.priceMonthlyCents !==
+                    undefined && (
+                  <p className="text-sm text-muted-foreground">
+                    ${FLIPDESK_PLANS[targetUser.flipdesk_plan]!.priceMonthlyCents / 100}/mo
                   </p>
                 )}
             </div>
             <div className="rounded-lg border p-3">
               <p className="text-xs text-muted-foreground">Grade Limit</p>
               <p className="mt-1 text-lg font-semibold">
-                {legacyPlanConfig(targetUser.plan)?.includedStandardGradesPerMonth ===
+                {FLIPDESK_PLANS[targetUser.flipdesk_plan]?.includedStandardGradesPerMonth ===
                     -1
                   ? "Unlimited"
-                  : `${legacyPlanConfig(targetUser.plan)?.includedStandardGradesPerMonth}/mo`}
+                  : `${FLIPDESK_PLANS[targetUser.flipdesk_plan]?.includedStandardGradesPerMonth}/mo`}
               </p>
               <p className="text-sm text-muted-foreground">
                 {targetUser.grades_used_this_month} used this month
@@ -852,8 +858,8 @@ export function AdminUserDetailPage() {
             <AlertDialogDescription>
               Are you sure you want to change{" "}
               <strong>{targetUser.full_name || targetUser.email}</strong>'s plan
-              from <strong>{legacyPlanConfig(targetUser.plan)?.name}</strong> to{" "}
-              <strong>{pendingPlan ? (legacyPlanConfig(pendingPlan)?.name ?? pendingPlan) : ""}</strong>?
+              from <strong>{FLIPDESK_PLANS[targetUser.flipdesk_plan]?.name}</strong> to{" "}
+              <strong>{pendingPlan ? (FLIPDESK_PLANS[pendingPlan]?.name ?? pendingPlan) : ""}</strong>?
               This will take effect immediately.
             </AlertDialogDescription>
           </AlertDialogHeader>

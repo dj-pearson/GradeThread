@@ -13,7 +13,10 @@ export type SubscriptionStatus =
   | "active"
   | "past_due"
   | "paused"
-  | "canceled";
+  | "canceled"
+  // US-2398 (migration 00529): an admin grant with no billing behind it. It
+  // entitles like a paid status and is excluded from MRR.
+  | "comp";
 export type BillingInterval = "monthly" | "yearly";
 export type GradeCreditReason =
   | "pack_purchase"

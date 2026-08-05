@@ -1,5 +1,61 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00529_subscription_status_comp.sql (US-2398 AC4 admin comp grant, 2026-08-05)
+
+**Apply order.** After 00528. Two held migrations are now stacked; run 00528
+first.
+
+**What it does.** One `ALTER TYPE public.subscription_status ADD VALUE IF NOT
+EXISTS 'comp'` and one `COMMENT ON COLUMN`. No table, column, index, policy or
+function changes. Nothing is backfilled and no existing row changes.
+
+**Why.** `POST /api/admin/users/:id/plan` — the admin "Change Plan" control,
+billing:write + MFA step-up + audit row — wrote the frozen `users.plan` column,
+which nothing reads for entitlement. Every comp an operator issued reported
+success and moved nothing. Rewiring it to `flipdesk_plan` alone would NOT have
+fixed it: `effectivePlanFor()` demotes a paid plan to Free whenever
+`subscription_status` is `none` or `canceled`, which is exactly what a cardless
+account carries. `comp` is the status that entitles without inventing revenue —
+MRR counts only `active` and `past_due`, so a comp grants caps and bills nobody.
+
+**⚠️ THE EDGE WRITES THE NEW ENUM VALUE, so order matters more than usual.** A
+new enum value cannot be USED in the same transaction that adds it, and an edge
+container running ahead of this migration will fail the grant with a 22P02
+(`invalid input value for enum subscription_status: "comp"`). The boot guard
+already blocks that ordering; do not bypass it. Nothing else reads or writes
+`comp`, so an unapplied database simply keeps the grant broken exactly as it is
+today — the failure direction is safe.
+
+**Risk: LOW.** An enum value nothing has yet written cannot affect an existing
+row. `ADD VALUE IF NOT EXISTS` is safe to re-run.
+
+**CLIENT reads/writes.** The SPA reads `subscription_status` and now renders
+"Comped — granted, not billed" when it sees `comp`; it never writes the value
+(only the edge route does). A frontend deploy ahead of the SQL is safe: no
+account can be carrying `comp` yet, so the branch is unreachable. **The admin
+user-detail page now sends `flipdesk_plan` tier names** (`pro`/`business`) to
+that route instead of the legacy `professional`/`enterprise` — that half needs
+the edge deploy, not this migration.
+
+**iOS is unchanged and does not need a release.** `entitlingStatuses`
+(`PlanStore`, `PaywallStore`) is used only to answer "who owns this
+subscription" for the manage-billing routing — never to gate a feature — so a
+comped account shows its granted tier from `flipdesk_plan` as usual.
+
+**Apply:**
+
+1. Run `supabase/migrations/00529_subscription_status_comp.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — the enum changed.
+3. Redeploy the edge (boot guard expects 00529).
+4. Then push.
+
+**Verify after applying:** issue a comp from the admin user detail page, then
+`select flipdesk_plan, subscription_status from users where id = '<id>';` —
+expect the granted tier and `comp`. The user's caps should move immediately; MRR
+should not.
+
+**NOT exercised against a live database** (the `verify:db` lane needs Docker).
+
 ## ⏳ HELD: 00528_best_offer_thresholds_manual_only.sql (US-2405 manual Best Offer thresholds, 2026-08-05)
 
 **Apply order.** After 00526. **00527 does not exist as a `.sql` file** — it is

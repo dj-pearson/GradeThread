@@ -51,8 +51,14 @@ import {
 } from "@/lib/constants";
 import type { ImageType } from "@/types/database";
 
-// Plans permitted to use bulk upload (PRD: gate behind Professional/Enterprise).
-const ALLOWED_PLANS = ["professional", "enterprise"];
+// Plans permitted to use bulk upload (PRD: gate behind the top two tiers).
+//
+// US-2398: these were the LEGACY user_plan names, checked against the frozen
+// users.plan column. Nothing has written that column since the 2024 backfill,
+// so it reads 'free' for every account created since — meaning bulk upload was
+// locked for every customer who has ever paid for it. Now the live tiers,
+// checked against the column entitlements actually use.
+const ALLOWED_PLANS = ["pro", "business"];
 
 // Turnaround tiers a CSV `tier` column / the default-tier selector may name.
 // Mirrors GRADETHREAD_TIERS (and the edge GRADE_TIERS allowlist in grade.ts).
@@ -157,7 +163,7 @@ export function BulkSubmissionPage() {
   // Default turnaround tier applied to any row that omits a CSV `tier` value.
   const [defaultTier, setDefaultTier] = useState<GradeTierKey>("standard");
 
-  const plan = profile?.plan ?? "free";
+  const plan = profile?.flipdesk_plan ?? "free";
   const planAllowed = ALLOWED_PLANS.includes(plan);
 
   const validRows = rows.filter((r) => r.errors.length === 0);

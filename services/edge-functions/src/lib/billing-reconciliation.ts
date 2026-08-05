@@ -13,7 +13,11 @@ export type SubscriptionStatus =
   | "active"
   | "past_due"
   | "paused"
-  | "canceled";
+  | "canceled"
+  // US-2398 (migration 00529): an admin comp grant. It never comes from Stripe,
+  // so mapRawStripeStatus can never return it — but it CAN be the cached value,
+  // which is why detectDivergence has to know about it.
+  | "comp";
 
 /** The user's cached subscription columns. */
 export interface CachedSubscriptionState {
@@ -112,6 +116,21 @@ export function detectDivergence(
   cached: CachedSubscriptionState,
   ev: LatestSubscriptionEvent,
 ): DivergenceResult {
+  // US-2398: a comped account is not diverged, it is deliberately off Stripe's
+  // ledger. Its last recorded event is whatever ended the old subscription, so
+  // every comp would otherwise show up here forever as "cached 'comp' vs
+  // expected 'canceled'" — an ops queue that fills with resolved cases is one
+  // that stops being read.
+  if (cached.status === "comp") {
+    return {
+      diverged: false,
+      statusDiverged: false,
+      planDiverged: false,
+      expected: deriveExpectedState(ev),
+      reasons: [],
+    };
+  }
+
   const expected = deriveExpectedState(ev);
   const reasons: string[] = [];
 

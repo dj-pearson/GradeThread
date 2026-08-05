@@ -58,6 +58,31 @@ Deno.test("effectivePlanFor drops paused subs to Free caps", () => {
   assertEquals(effectivePlanFor("pro", "paused"), "free");
 });
 
+Deno.test("US-2398: a comp grant entitles, and nothing else demotes it", () => {
+  // The whole point of the 'comp' status (migration 00529). An admin grant is
+  // cardless, so the account carries none of the states that mean "paid": it
+  // would land on 'none' or keep a stale 'canceled', and BOTH of those demote
+  // to Free. Writing flipdesk_plan alone would have looked like a fix and
+  // changed nothing the seller could see.
+  assertEquals(effectivePlanFor("pro", "comp"), "pro");
+  assertEquals(effectivePlanFor("business", "comp"), "business");
+  assertEquals(effectivePlanFor("starter", "comp"), "starter");
+  // A comped account on Free is just Free — the status grants no tier by itself.
+  assertEquals(effectivePlanFor("free", "comp"), "free");
+
+  // The comp check runs FIRST, so the states that demote a real subscription
+  // cannot reach it. A stale trial_ends_at is the realistic one: comp a user who
+  // trialed months ago and the expired-trial rule would otherwise take the plan
+  // straight back off them.
+  const now = new Date("2026-08-05T00:00:00Z");
+  const expiredTrial = new Date("2026-05-20T00:00:00Z").toISOString();
+  assertEquals(effectivePlanFor("pro", "comp", expiredTrial, now), "pro");
+  // Likewise a past_due anchor left over from the subscription that lapsed
+  // before the comp was issued.
+  const oldAnchor = new Date("2026-01-01T00:00:00Z").toISOString();
+  assertEquals(effectivePlanFor("pro", "comp", null, now, oldAnchor), "pro");
+});
+
 Deno.test("effectivePlanFor caps an EXPIRED trial at Free (US-383)", () => {
   const now = new Date("2026-06-03T00:00:00Z");
   const past = new Date("2026-05-20T00:00:00Z").toISOString(); // trial lapsed

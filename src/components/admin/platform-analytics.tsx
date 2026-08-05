@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { AiEnrichmentLogRow, UserPlan } from "@/types/database";
-import { FLIPDESK_PLANS, flipdeskPlanForLegacy } from "@/lib/constants";
+import type { AiEnrichmentLogRow } from "@/types/database";
+import type { FlipdeskPlanKey } from "@/lib/constants";
+import { FLIPDESK_PLANS } from "@/lib/constants";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   Card,
@@ -41,12 +42,17 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
-const PLAN_ORDER: UserPlan[] = ["free", "starter", "professional", "enterprise"];
-const PLAN_COLORS: Record<UserPlan, string> = {
+// US-2398: the LIVE flipdesk_plan tiers. These used to be the legacy user_plan
+// vocabulary, and 00525 switched the RPC to report the real one — so every
+// lookup below was keyed 'professional' against a payload saying 'pro' and
+// silently resolved to 0 / undefined. The plan-distribution bars read zero and
+// the revenue slices lost their fill.
+const PLAN_ORDER: FlipdeskPlanKey[] = ["free", "starter", "pro", "business"];
+const PLAN_COLORS: Record<FlipdeskPlanKey, string> = {
   free: "#94a3b8",
   starter: "#3b82f6",
-  professional: "#0F3460",
-  enterprise: "#E94560",
+  pro: "#0F3460",
+  business: "#E94560",
 };
 const RETENTION_COLUMNS = 6;
 
@@ -122,13 +128,13 @@ export function PlatformAnalytics({
     ];
 
     // ── Plan distribution ──
-    const planCounts = new Map<UserPlan, number>();
+    const planCounts = new Map<FlipdeskPlanKey, number>();
     for (const plan of PLAN_ORDER) {
       planCounts.set(plan, data?.planDistribution[plan] ?? 0);
     }
     const planDistribution = PLAN_ORDER.map((plan) => ({
       plan,
-      label: FLIPDESK_PLANS[flipdeskPlanForLegacy(plan)].name,
+      label: FLIPDESK_PLANS[plan].name,
       count: planCounts.get(plan) ?? 0,
     }));
 
@@ -138,7 +144,7 @@ export function PlatformAnalytics({
         // US-2365: cents on the current source; the legacy shim divided by 100
         // for us. Doing it here keeps the one conversion visible instead of
         // buried in a deprecated derivation.
-        const flip = FLIPDESK_PLANS[flipdeskPlanForLegacy(plan)];
+        const flip = FLIPDESK_PLANS[plan];
         const price = flip.priceMonthlyCents / 100;
         return {
           name: flip.name,

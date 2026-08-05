@@ -23,10 +23,21 @@ export const adminUsersRoutes = new Hono<AdminEnv>();
 
 const ASSIGNABLE_ROLES = new Set(["user", "admin", "super_admin"]);
 
-// The public.user_plan enum (00001). This is the GRADING plan on users.plan —
-// NOT flipdesk_plan, which POST /api/admin/users/:id/change-plan drives through
-// Stripe.
-const ASSIGNABLE_PLANS = new Set(["free", "starter", "professional", "enterprise"]);
+// The public.flipdesk_plan enum (00037) — the tier every entitlement reads.
+// US-2398: this was the legacy public.user_plan vocabulary
+// (free/starter/professional/enterprise), which is a different set of words for
+// a column nothing gates on.
+const ASSIGNABLE_PLANS = new Set(["free", "starter", "pro", "business"]);
+
+// Statuses that mean somebody else's system owns this account's tier: Stripe,
+// the App Store or Play will write flipdesk_plan on its next event. 'comp' is
+// deliberately absent — re-granting or revoking a comp is this route's job.
+const EXTERNALLY_BILLED_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+  "paused",
+]);
 
 // A v4 UUID — used to recognise an id paste (user / submission / cert id are all
 // UUIDs) so we know which tables are worth probing.
@@ -581,27 +592,30 @@ adminUsersRoutes.post("/:id/suspend", requireScope("moderation:write"), async (c
 // POST /:id/plan — set a user's GRADING plan (users.plan) by hand: a comp, a
 // support goodwill grant, a manual downgrade (US-2376).
 //
-// ⚠️ US-2398 CORRECTION — READ BEFORE USING THIS ROUTE. The paragraph that used
-// to sit here said `users.plan` is "the entitlement column the monthly grade
-// allowance and every plan gate read". It is NOT, and was not when that was
-// written. Verified across the whole repo: the grade allowance, the plan gates,
-// MRR and the AI-action caps all read `users.flipdesk_plan`
-// (payments.ts:1168, flipdesk-grading.ts:230, 00215_revenue_dashboard.sql).
-// After US-2398 moved the admin metrics, the drip branch and the fraud / safety
-// / feature-flag consoles off it, `users.plan` is read by NOTHING that grants
-// anything — this route and the admin user-detail badge are its last readers.
+// US-2398 AC4: this route now grants the tier the platform ACTUALLY reads.
 //
-// So a grant made here is inert: the operator gets ok/changed:true and an audit
-// row, and the account's entitlements do not move. Keeping the scope, step-up
-// and audit posture regardless, because the fix (rewire to flipdesk_plan, or
-// delete the route with the column) is US-2398 AC4 and is the owner's call.
+// It used to write `users.plan`, and the comment here claimed that column was
+// "the entitlement column the monthly grade allowance and every plan gate read".
+// It was not, and was not when that was written: the allowance, the plan gates,
+// MRR and the AI-action caps all read `users.flipdesk_plan` (payments.ts:1168,
+// flipdesk-grading.ts:230, 00215_revenue_dashboard.sql). So every comp an
+// operator issued returned ok/changed:true, wrote an audit row, and moved
+// nothing.
 //
-// It is NOT the same route. POST /api/admin/users/:id/change-plan (admin-billing)
-// drives `flipdesk_plan` through a Stripe subscription and lets the webhook write
-// the row; nothing there touches `users.plan`. This one writes `users.plan`
-// directly and deliberately does NOT touch Stripe — so if the account has a live
-// subscription, its billing is unchanged and this grant sits on top of it until
-// the next webhook. The audit row records whether that was the case.
+// WRITING flipdesk_plan ALONE WOULD NOT HAVE FIXED IT EITHER, which is the part
+// worth keeping: effectivePlanFor() demotes a paid plan to Free whenever
+// subscription_status is 'none' or 'canceled' — exactly what a cardless account
+// carries. The grant needs a status that entitles without inventing revenue, so
+// it stamps `comp` (migration 00529). MRR counts only 'active' and 'past_due',
+// so a comp grants caps and bills nobody.
+//
+// It is NOT the same route as POST /api/admin/users/:id/change-plan
+// (admin-billing), which drives a real Stripe subscription and refuses free→paid
+// because we hold no card. That refusal is the gap this route fills: a comp, a
+// support goodwill grant, a manual downgrade. It therefore REFUSES the inverse
+// case — an account with live external billing — rather than writing a value the
+// next webhook would overwrite. Same posture as before: billing:write, a fresh
+// MFA step-up, an audit row.
 //
 // Replaces a browser-side `supabase.from("users").update({ plan })`, which had
 // no scope check and no step-up — and which also never worked: there is no admin
@@ -623,37 +637,75 @@ adminUsersRoutes.post("/:id/plan", requireScope("billing:write"), async (c: Cont
 
   const { data: target, error: lookupErr } = await supabaseAdmin
     .from("users")
-    .select("id, plan, stripe_customer_id, subscription_status")
+    .select(
+      "id, flipdesk_plan, subscription_status, billing_source, stripe_customer_id",
+    )
     .eq("id", targetId)
     .maybeSingle();
   if (lookupErr) return failSafe(c, 500, "Couldn't look up the user.", lookupErr, "admin.users.plan.lookup");
   if (!target) return c.json({ error: "User not found" }, 404);
 
-  const previous = (target as { plan: string }).plan;
+  const current = target as {
+    flipdesk_plan: string;
+    subscription_status: string | null;
+    billing_source: string | null;
+    stripe_customer_id: string | null;
+  };
+
+  // An account with live external billing is off limits. A direct write here
+  // would hold until the next webhook or app-store notification and then be
+  // silently overwritten, which is worse than refusing: the operator would see
+  // the grant land and the user would lose it later with nothing to point at.
+  if (EXTERNALLY_BILLED_STATUSES.has(current.subscription_status ?? "")) {
+    return c.json(
+      {
+        error:
+          "This account has a live subscription. Use Change plan (Stripe) so the " +
+          "billing follows the tier — a manual grant here would be overwritten by " +
+          "the next billing event.",
+        code: "EXTERNALLY_BILLED",
+        subscription_status: current.subscription_status,
+        billing_source: current.billing_source,
+      },
+      409,
+    );
+  }
+
+  const previous = current.flipdesk_plan;
   if (previous === plan) {
     // Nothing to do — but say so rather than reporting a change that wasn't one.
     return c.json({ ok: true, plan, changed: false });
   }
 
+  // Granting a paid tier stamps 'comp'; revoking one back to free clears it.
+  // The status is only touched when this route owns it — an account sitting at
+  // 'none' that goes to free is left exactly as it was.
+  const nextStatus = plan === "free"
+    ? (current.subscription_status === "comp" ? "none" : null)
+    : "comp";
+
   const { error: updateErr } = await supabaseAdmin
     .from("users")
-    .update({ plan })
+    .update({
+      flipdesk_plan: plan,
+      ...(nextStatus ? { subscription_status: nextStatus } : {}),
+    })
     .eq("id", targetId);
   if (updateErr) return failSafe(c, 500, "Couldn't change the plan.", updateErr, "admin.users.plan.update");
 
-  const billing = target as { stripe_customer_id: string | null; subscription_status: string | null };
   await writeAuditLog(c, {
     action: "admin.change_plan",
     targetType: "user",
     targetId,
-    before: { plan: previous },
-    after: { plan },
+    before: { plan: previous, subscription_status: current.subscription_status },
+    after: { plan, subscription_status: nextStatus ?? current.subscription_status },
     details: {
       reason,
-      // A manual grant on top of a live subscription is the case that later
-      // looks like a billing discrepancy — record it at the moment it happens.
-      had_stripe_customer: Boolean(billing.stripe_customer_id),
-      subscription_status: billing.subscription_status,
+      // A comp on an account that has paid before is the case that later looks
+      // like a billing discrepancy — record it at the moment it happens.
+      had_stripe_customer: Boolean(current.stripe_customer_id),
+      billing_source: current.billing_source,
+      comped: plan !== "free",
       stripe_synced: false,
     },
   });
