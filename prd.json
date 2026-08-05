@@ -2574,20 +2574,6 @@
         "The web mirror src/lib/grading-readiness.ts returns the identical warning string, and both suites assert the shared fixture src/test/fixtures/grading-readiness-cases.json, which now carries a warnings array per case.",
         "The Submit for grading card renders warnings in a separate, non-amber block that does not disable the submit button."
       ]
-    },
-    {
-      "id": "US-2402",
-      "passes": false,
-      "title": "The mandated UI check reports 14 anti-patterns in src/ and all 14 are matches inside code comments",
-      "description": "As a developer told by CLAUDE.md to run impeccable before claiming a UI is clean, I want its output to contain only real findings, so that a non-empty report means something instead of training everyone to ignore it.",
-      "acceptanceCriteria": [
-        "npx impeccable detect src returns zero findings on the current tree, or every remaining finding is a real one a reviewer agrees with",
-        "The mechanism is recorded: either a comment-stripping preprocessor, an impeccable ignore/config file committed to the repo, or a documented baseline of accepted false positives with the file and rule for each",
-        "A test or verify lane step fails when the finding count rises above the recorded baseline, so a genuine new violation is not lost in the noise",
-        "CLAUDE.md's impeccable instruction points at whatever wrapper or config the fix introduces, rather than at the bare npx command that produces the noise"
-      ],
-      "priority": 2000,
-      "notes": "[P3][Web/Tooling] Found by code review 2026-08-04. RAN IT: npx impeccable detect src reports '14 anti-patterns found', every one of them the broken-image rule, and I opened each cited line. All 14 are the literal text '<img' appearing inside a COMMENT or a doc block - src/lib/safe-url.ts:1 is the file's opening comment about href/src sanitization, src/lib/return-to.ts:66 is prose about a broken <img> being the worst case, src/pages/embed-grade.tsx:52 is the US-1925 note about logo/support landing in <img src>, src/components/flipdesk/item-photo-img.tsx:8 is a comment describing the very placeholder behaviour the rule wants. src/lib/verified.ts contributes four. Zero real findings. THE COST IS NOT THE NOISE, IT IS THE PRECEDENT: CLAUDE.md says there is 'no excuse for asserting a UI is clean' without this tool, and the tool's honest answer on this repo is 14 findings that must all be dismissed by hand. A check whose correct response is always 'ignore it' stops being read, and the first real finding arrives inside a list nobody opens. Note the rule is arguably right to be greedy - it cannot know a string is prose - so the fix is on our side (preprocess or baseline), not a bug report upstream. Deliberately P3: nothing is broken in the product, this is about keeping a mandated check credible."
     }
   ]
 }

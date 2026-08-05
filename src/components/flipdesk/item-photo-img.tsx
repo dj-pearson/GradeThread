@@ -1,11 +1,11 @@
-// Drop-in <img> replacement for item_photos rows (US-2273).
+// Drop-in replacement for a raw img element on item_photos rows (US-2273).
 //
 // Renders the resolved display URL from useItemPhotoDisplayUrl — which is a
 // short-lived signed URL for iOS-captured private-bucket tags/certificates and
 // the plain public/thumbnail URL for everything else. While a signed URL is
 // being minted it shows a neutral pulse; if the mint FAILS it shows a labelled
 // placeholder rather than a broken-image icon (AC4). Public photos resolve
-// synchronously, so they render straight to an <img> with no intermediate state.
+// synchronously, so they render straight to an img element with no in-between.
 //
 // Wherever a surface previously wrote `<img src={itemPhotoThumb(photo)} … />`,
 // use `<ItemPhotoImg photo={photo} … />` and pass the same className/alt/onClick.

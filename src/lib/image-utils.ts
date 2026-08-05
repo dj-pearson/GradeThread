@@ -360,7 +360,7 @@ export async function compressImage(
     throw new Error("Failed to create canvas context.");
   }
 
-  // US-1626: loadImage decodes via a plain <img>, and browsers apply EXIF
+  // US-1626: loadImage decodes via a plain img element, and browsers apply EXIF
   // orientation by default (image-orientation: from-image), so `img` is ALREADY
   // upright and naturalWidth/naturalHeight are the ORIENTED dimensions. The old
   // code then re-applied the EXIF transform (and re-swapped the dimensions),

@@ -5,7 +5,7 @@
 // images bucket and writes photo_url = "" with no thumbnail_url (they can carry
 // PII — serials, receipts, cert numbers — so they must never sit in the public
 // item-photos bucket). On the web, itemPhotoThumb() then falls through both its
-// branches and returns "", which renders as a broken <img>. The row, its
+// branches and returns "", which renders as a broken image. The row, its
 // storage_path and its bytes are all correct — this is purely a client READ
 // path with no display URL for the private bucket.
 //

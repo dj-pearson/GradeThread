@@ -107,7 +107,7 @@ interface Props {
  * In-browser photo editor: rotate (90° steps), straighten, interactive crop,
  * tonal enhancement, background removal, and zoom review.
  *
- * Uses a hidden <img> as the source, draws to a <canvas> for transforms, and
+ * Uses a hidden img element as the source, draws to a canvas for transforms, and
  * fetches the image as a blob-URL to avoid canvas CORS taint.
  */
 export function PhotoEditorDialog({

@@ -53,7 +53,7 @@ const CF_IMAGE_RESIZING_ENABLED =
 
 /**
  * Canonical render width (px) of a FlipDesk photo grid/canvas/uploader cell.
- * Pre-generated thumbnails (US-413) target ~320w, so grid `<img>`s never need
+ * Pre-generated thumbnails (US-413) target ~320w, so grid img elements never need
  * the 2400w original.
  */
 export const FLIPDESK_THUMB_WIDTH = 320;

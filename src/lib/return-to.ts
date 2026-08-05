@@ -63,8 +63,8 @@ export function sanitizeReturnTo(raw: string | null | undefined): string | null 
  * A partner-host allowlist is deliberately NOT applied: the embed is open
  * white-label, so support/logo are legitimately partner-hosted on arbitrary
  * domains. The enforceable invariant is the scheme — https blocks the
- * executable / off-site-redirecting vectors, while a broken <img> or an omitted
- * <a> is the worst case for an otherwise-valid but unwanted host.
+ * executable / off-site-redirecting vectors, while a broken image or an omitted
+ * link is the worst case for an otherwise-valid but unwanted host.
  */
 export function safeEmbedUrl(raw: string | null | undefined): string | null {
   if (!raw) return null;

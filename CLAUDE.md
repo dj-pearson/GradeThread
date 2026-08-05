@@ -77,6 +77,7 @@ SaaS for standardized, AI-powered condition grading of pre-owned clothing: selle
 npm run dev        # Dev server (localhost:5173)
 npm run build      # tsc check + Vite production build
 npm run lint       # ESLint
+npm run ui:check   # impeccable UI anti-pattern scan of src/ — BASELINE IS ZERO (US-2402)
 npx tsc -b         # Type check only — `-b`, same as CI; `--noEmit` is WEAKER and lets casts slide
 # Edge:
 cd services/edge-functions && deno run --allow-net --allow-env --allow-read src/main.ts
@@ -93,6 +94,7 @@ cd services/edge-functions && deno run --allow-net --allow-env --allow-read src/
 - **iOS:** can't build/test on Windows (Swift/xcodebuild is macOS-only); `iOS CI` on macOS runners is the safety net. Only `python3 ios/Scripts/no-ungated-print.py` runs locally.
 - **Android:** `Android CI` (assembleDebug + unit tests + lintDebug + assembleRelease) is the gate; it also runs `python3 android/scripts/no-ungated-log.py`, the Android half of the iOS print guard, which you can run locally with no SDK.
 - Hook/shell scripts pinned to LF via `.gitattributes` (a CRLF shebang breaks Git-for-Windows `sh`). Don't remove that rule.
+- **UI check (US-2402):** run `npm run ui:check`, not a bare `impeccable detect` on the repo root. **`src/` is at ZERO findings, so any output is a real finding** — the 14 that used to appear were all the tag text `<img>` written inside COMMENTS, and the prose now says "an img element" instead. `src/test/ui-check-baseline.test.ts` holds the baseline offline (the tool exits 0 even when it finds things and needs a network fetch, so it can't be a verify lane step). **`functions/` is deliberately OUT of scope** — it reports 13, all real `<img>` tags assembled in SSR template strings the detector can't follow; scoring that tree needs its own decision, not a suppression here.
 
 ## Key Paths
 

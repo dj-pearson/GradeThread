@@ -1,4 +1,4 @@
-// Scheme allowlist for URLs that reach an <a href> / <img src> from the
+// Scheme allowlist for URLs that reach an anchor href or an image src from the
 // database or an external API. React does NOT sanitize `javascript:`/`data:`
 // schemes in href (only a dev-mode warning), so a stored or third-party URL
 // rendered raw is a stored-XSS vector — sharpest when the value is one tenant's

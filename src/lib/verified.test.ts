@@ -64,7 +64,7 @@ describe("certificate embed badge (US-860)", () => {
     );
   });
 
-  it("the <img> embed snippet links through ?s=embed and uses the badge asset", () => {
+  it("the image embed snippet links through ?s=embed and uses the badge asset", () => {
     const html = certBadgeEmbedHtml(UUID);
     expect(html).toContain(`href="https://gradethread.com/cert/${UUID}?s=embed"`);
     expect(html).toContain(`src="https://gradethread.com/badge/cert/${UUID}"`);

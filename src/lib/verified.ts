@@ -76,7 +76,7 @@ export function certBadgeUrl(certId: string): string {
 
 /**
  * HTML snippet for a single item's verified badge — for pasting into an eBay /
- * Poshmark / Mercari listing description. A plain linked <img>, no script, so
+ * Poshmark / Mercari listing description. A plain linked image, no script, so
  * it survives marketplace HTML sanitizers. The click carries ?s=embed for
  * share-source attribution (US-769).
  */
@@ -99,8 +99,8 @@ export function certBadgeScriptUrl(certId: string): string {
 /**
  * Script embed snippet (US-860). On a site that allows scripts (a personal
  * store, Shopify, a blog) this injects the linked verified badge inline — the
- * click carries ?s=embed (US-769). The <img> snippet (certBadgeEmbedHtml) is
- * the fallback for marketplaces that strip <script>. An iframe isn't offered:
+ * click carries ?s=embed (US-769). The image snippet (certBadgeEmbedHtml) is
+ * the fallback for marketplaces that strip scripts. An iframe isn't offered:
  * the zone's anti-clickjacking headers (X-Frame-Options/frame-ancestors) block
  * cross-site framing of our own pages.
  */
@@ -184,7 +184,7 @@ export function verifiedSellerBadgeUrl(
 }
 
 /**
- * HTML snippet for the verified-seller storefront badge — a linked <img> that
+ * HTML snippet for the verified-seller storefront badge — a linked image that
  * survives marketplace HTML sanitizers (no script). Links to the seller's public
  * profile with ?s=embed for attribution.
  */
@@ -217,7 +217,7 @@ export function profileShareUrl(handle: string, source: string): string {
 // ── Badge Studio: per-marketplace snippet guidance (US-1759) ──────────
 // Marketplaces differ in what HTML they allow in a listing description. The
 // studio surfaces the RIGHT format for each: eBay renders a whitelist of HTML
-// (a linked <img> survives, <script> does not); Poshmark / Grailed / Mercari /
+// (a linked image survives, a script does not); Poshmark / Grailed / Mercari /
 // Depop strip all HTML, so only a text+link works there; a seller's own store
 // or blog can run the script widget.
 

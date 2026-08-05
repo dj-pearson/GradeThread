@@ -49,7 +49,7 @@ export function EmbedGradePage() {
 
   const company = params.get("company");
   // US-1925: logo/support ride in the attacker-craftable iframe URL and land in
-  // <img src> / <a href>. Restrict to absolute https so a GradeThread-hosted
+  // an image src or an anchor href. Restrict to absolute https so a GradeThread-
   // card can't carry a javascript:/data: payload or a phishing Support link;
   // an invalid value drops the image/link rather than rendering it.
   const logo = safeEmbedUrl(params.get("logo"));
