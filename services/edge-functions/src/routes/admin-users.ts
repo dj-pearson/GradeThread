@@ -581,10 +581,20 @@ adminUsersRoutes.post("/:id/suspend", requireScope("moderation:write"), async (c
 // POST /:id/plan — set a user's GRADING plan (users.plan) by hand: a comp, a
 // support goodwill grant, a manual downgrade (US-2376).
 //
-// This is the entitlement column the monthly grade allowance and every plan gate
-// read, so granting it is granting revenue. It therefore carries the same
-// posture as the Stripe-driven change-plan route: the billing:write scope, a
-// fresh MFA step-up, and an audit row.
+// ⚠️ US-2398 CORRECTION — READ BEFORE USING THIS ROUTE. The paragraph that used
+// to sit here said `users.plan` is "the entitlement column the monthly grade
+// allowance and every plan gate read". It is NOT, and was not when that was
+// written. Verified across the whole repo: the grade allowance, the plan gates,
+// MRR and the AI-action caps all read `users.flipdesk_plan`
+// (payments.ts:1168, flipdesk-grading.ts:230, 00215_revenue_dashboard.sql).
+// After US-2398 moved the admin metrics, the drip branch and the fraud / safety
+// / feature-flag consoles off it, `users.plan` is read by NOTHING that grants
+// anything — this route and the admin user-detail badge are its last readers.
+//
+// So a grant made here is inert: the operator gets ok/changed:true and an audit
+// row, and the account's entitlements do not move. Keeping the scope, step-up
+// and audit posture regardless, because the fix (rewire to flipdesk_plan, or
+// delete the route with the column) is US-2398 AC4 and is the owner's call.
 //
 // It is NOT the same route. POST /api/admin/users/:id/change-plan (admin-billing)
 // drives `flipdesk_plan` through a Stripe subscription and lets the webhook write

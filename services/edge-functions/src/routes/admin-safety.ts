@@ -92,20 +92,24 @@ async function loadUsers(ids: string[]): Promise<Map<string, UserLite>> {
   if (unique.length === 0) return map;
   const { data } = await supabaseAdmin
     .from("users")
-    .select("id, email, full_name, plan, suspended")
+    // US-2398: flipdesk_plan is the tier the account actually holds. The legacy
+    // users.plan reads 'free' for everyone who signed up after the 00039
+    // backfill, so a safety console sourced from it told the reviewer that the
+    // subscriber in front of them was a free account.
+    .select("id, email, full_name, flipdesk_plan, suspended")
     .in("id", unique);
   for (const u of (data ?? []) as Array<{
     id: string;
     email: string | null;
     full_name: string | null;
-    plan: string | null;
+    flipdesk_plan: string | null;
     suspended: boolean | null;
   }>) {
     map.set(u.id, {
       userId: u.id,
       email: u.email,
       fullName: u.full_name,
-      plan: u.plan,
+      plan: u.flipdesk_plan,
       suspended: !!u.suspended,
     });
   }

@@ -41,8 +41,22 @@ export const adminFlagsRoutes = new Hono<AdminEnv>();
 // US-1560: whole-router scope guard (see lib/admin-scope-map.ts).
 adminFlagsRoutes.use("*", requireScope("ops:write"));
 
-// Plans the flag can target — the users.plan enum (migration 00001).
-const VALID_PLANS = new Set(["free", "starter", "professional", "enterprise"]);
+// Plans a flag can target — the LIVE `users.flipdesk_plan` tiers (US-2398).
+//
+// It used to be the `users.plan` enum from 00001, which is a different
+// vocabulary AND a frozen column: nothing has written it since the 00039
+// backfill, so a rule targeting 'professional' could never match a real account
+// and one targeting 'free' matched everyone. Both spellings of the same tier
+// were on offer and only the dead one was accepted.
+const VALID_PLANS = new Set(["free", "starter", "pro", "business"]);
+
+// The two tiers that were renamed. Applied on write so an existing rule saved
+// through the admin UI is corrected in place rather than rejected — a validation
+// error on a flag someone is mid-edit is how a stale target survives.
+const LEGACY_PLAN_ALIASES: Record<string, string> = {
+  professional: "pro",
+  enterprise: "business",
+};
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Bound the per-user override lists so a paste can't bloat a row.
@@ -175,8 +189,12 @@ export function validateRuleBody(
       return { ok: false, error: "plan_targets must be an array" };
     }
     const plans: string[] = [];
-    for (const p of body.plan_targets) {
-      if (typeof p !== "string" || !VALID_PLANS.has(p)) {
+    for (const raw of body.plan_targets) {
+      if (typeof raw !== "string") {
+        return { ok: false, error: `Unknown plan target. Valid: ${[...VALID_PLANS].join(", ")}` };
+      }
+      const p = LEGACY_PLAN_ALIASES[raw] ?? raw;
+      if (!VALID_PLANS.has(p)) {
         return { ok: false, error: `Unknown plan target. Valid: ${[...VALID_PLANS].join(", ")}` };
       }
       if (!plans.includes(p)) plans.push(p);
@@ -301,17 +319,19 @@ adminFlagsRoutes.post("/preview", async (c) => {
   if (countErr) return jsonError(c, 500, "Failed to count users");
   const totalUsers = total ?? 0;
 
-  // Pull a bounded sample of (id, plan) and resolve each.
+  // Pull a bounded sample of (id, flipdesk_plan) and resolve each. US-2398: the
+  // preview must sample the same column the rule targets, or it reports a reach
+  // for a tier nobody is recorded as holding.
   const { data: rows, error: rowsErr } = await supabaseAdmin
     .from("users")
-    .select("id, plan")
+    .select("id, flipdesk_plan")
     .limit(PREVIEW_SAMPLE_CAP);
   if (rowsErr) return jsonError(c, 500, "Failed to load users for preview");
 
-  const sample = (rows ?? []) as Array<{ id: string; plan: string | null }>;
+  const sample = (rows ?? []) as Array<{ id: string; flipdesk_plan: string | null }>;
   let enabledInSample = 0;
   for (const u of sample) {
-    if (resolveFlagRule(key, rule, { userId: u.id, plan: u.plan ?? undefined })) {
+    if (resolveFlagRule(key, rule, { userId: u.id, plan: u.flipdesk_plan ?? undefined })) {
       enabledInSample++;
     }
   }

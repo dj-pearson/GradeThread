@@ -34,6 +34,7 @@
 --   §14 US-2347 AC1 — SECURITY DEFINER functions callable by PUBLIC.
 --   §15 US-2347 AC3 — golden-set size and which prompt versions are live.
 --   §16 US-2347 AC4 — does the billing-source check still exclude Play?
+--   §17 US-2398 AC3 — how far off were the admin paid/churn counts?
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -566,6 +567,63 @@ SELECT
   count(*)                           AS users
 FROM public.users
 GROUP BY 1
+ORDER BY count(*) DESC;
+
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§17  US-2398 AC3 — how wrong were the admin counts, and since when?'
+\echo '════════════════════════════════════════════════════════════════'
+\echo 'The before/after is still measurable AFTER the 00525 apply, because the'
+\echo 'legacy column is FROZEN: users.plan still holds exactly what the dashboard'
+\echo 'was reading, and users.flipdesk_plan holds what it reads now. The first'
+\echo 'query is literally the old number beside the new one.'
+\echo ''
+\echo 'DO NOT DROP users.plan BEFORE RUNNING THIS. Dropping it destroys the only'
+\echo 'record of what the dashboard used to say (US-2398 AC4).'
+\echo ''
+SELECT
+  count(*) FILTER (WHERE plan <> 'free')                      AS paid_before,
+  count(*) FILTER (WHERE flipdesk_plan <> 'free')             AS paid_after,
+  count(*) FILTER (WHERE flipdesk_plan <> 'free'
+                     AND plan = 'free')                       AS undercounted,
+  count(*) FILTER (WHERE plan <> 'free'
+                     AND flipdesk_plan = 'free')              AS overcounted,
+  count(*)                                                    AS total_users
+FROM public.users;
+
+\echo ''
+\echo '-- The churn numerator used the SAME frozen column, so both errors ran the'
+\echo '-- same direction: users the paid count was missing, the churn count was'
+\echo '-- adding. This is the overlap.'
+SELECT
+  count(*) AS counted_as_churned_but_actually_paying
+FROM public.users
+WHERE plan = 'free'
+  AND flipdesk_plan <> 'free';
+
+\echo ''
+\echo '-- SINCE WHEN. The first paying account whose legacy value never caught up'
+\echo '-- dates the drift; the monthly shape says whether it is still growing.'
+SELECT
+  date_trunc('month', created_at)::date          AS signup_month,
+  count(*)                                       AS accounts,
+  count(*) FILTER (WHERE flipdesk_plan <> 'free'
+                     AND plan = 'free')          AS diverged
+FROM public.users
+GROUP BY 1
+ORDER BY 1;
+
+\echo ''
+\echo '-- The plan mix, both vocabularies side by side. professional/enterprise'
+\echo '-- are the frozen spellings of pro/business — the dashboard used to label'
+\echo '-- the mix with tiers nobody can currently be on.'
+SELECT
+  COALESCE(plan::text, '(null)')          AS legacy_plan,
+  COALESCE(flipdesk_plan::text, '(null)') AS live_plan,
+  count(*)                                AS users
+FROM public.users
+GROUP BY 1, 2
 ORDER BY count(*) DESC;
 
 

@@ -218,7 +218,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
   });
 
   it("still answers every question it claims to", () => {
-    // The header advertises sixteen sections. A future edit that drops one leaves
+    // The header advertises seventeen sections. A future edit that drops one leaves
     // the header lying about what the operator gets back, and they will not
     // re-read the SQL to notice.
     for (const section of [
@@ -238,6 +238,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       "§14",
       "§15",
       "§16",
+      "§17",
     ]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }

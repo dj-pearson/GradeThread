@@ -147,11 +147,16 @@ interface CampaignDef {
 // predicate — a recipient who opted out of marketing email must not enter or
 // receive the drip. Used at enrollment (entry filter, US-941) and dispatch (exit).
 
+// US-2398: the plan a drip step branches on is `flipdesk_plan`, NOT the legacy
+// `users.plan`. That column has not been written by the subscription path since
+// the 00039 backfill, so it reads 'free' for every account created since — a
+// `plan` condition on a campaign graph was evaluating against a fossil and
+// taking the free-tier branch for paying sellers.
 interface UserRow {
   id: string;
   email: string | null;
   full_name: string | null;
-  plan: string | null;
+  flipdesk_plan: string | null;
   subscription_status: string | null;
   trial_ends_at: string | null;
   grades_used_this_month: number | null;
@@ -185,7 +190,7 @@ function buildUserState(
     firstName: (user.full_name ?? "").trim().split(/\s+/)[0] || null,
     trialEndsAt: user.trial_ends_at,
     converted,
-    plan: user.plan,
+    plan: user.flipdesk_plan,
     subscriptionStatus: user.subscription_status,
     gradesUsed: user.grades_used_this_month ?? 0,
     trialDaysRemaining: trialEndMs ? Math.ceil((trialEndMs - nowMs) / DAY_MS) : 0,
@@ -674,7 +679,7 @@ async function processEnrollment(
   const { data: u } = await supabaseAdmin
     .from("users")
     .select(
-      "id, email, full_name, plan, subscription_status, trial_ends_at, " +
+      "id, email, full_name, flipdesk_plan, subscription_status, trial_ends_at, " +
         "grades_used_this_month, created_at, notification_preferences",
     )
     .eq("id", enrollment.user_id)

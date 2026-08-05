@@ -4,7 +4,7 @@ import { useNavigate } from "react-router";
 import { supabase } from "@/lib/supabase";
 import type { UserRow } from "@/types/database";
 import { fetchAdminUserListStats } from "@/lib/admin-aggregates";
-import { getPlanBadgeClasses, getRoleBadgeClasses, legacyPlanConfig } from "@/lib/constants";
+import { FLIPDESK_PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -73,7 +73,7 @@ const MATCHED_ON_LABEL: Record<LookupMatch["matched_on"], string> = {
 
 type UserListColumns = Pick<
   UserRow,
-  "id" | "email" | "full_name" | "plan" | "role" | "grades_used_this_month" | "created_at"
+  "id" | "email" | "full_name" | "flipdesk_plan" | "role" | "grades_used_this_month" | "created_at"
 >;
 
 interface UserListRow extends UserListColumns {
@@ -151,7 +151,7 @@ export function AdminUsersPage() {
       let query = supabase
         .from("users")
         .select(
-          "id, email, full_name, plan, role, grades_used_this_month, created_at",
+          "id, email, full_name, flipdesk_plan, role, grades_used_this_month, created_at",
           { count: "exact" },
         );
 
@@ -159,7 +159,7 @@ export function AdminUsersPage() {
       if (term) {
         query = query.or(`full_name.ilike.%${term}%,email.ilike.%${term}%`);
       }
-      if (planFilter !== "all") query = query.eq("plan", planFilter);
+      if (planFilter !== "all") query = query.eq("flipdesk_plan", planFilter);
       if (roleFilter !== "all") query = query.eq("role", roleFilter);
       if (dateFrom) query = query.gte("created_at", dateFrom);
       if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999Z`);
@@ -298,8 +298,8 @@ export function AdminUsersPage() {
                 <SelectItem value="all">All Plans</SelectItem>
                 <SelectItem value="free">Free</SelectItem>
                 <SelectItem value="starter">Starter</SelectItem>
-                <SelectItem value="professional">Professional</SelectItem>
-                <SelectItem value="enterprise">Enterprise</SelectItem>
+                <SelectItem value="pro">Pro</SelectItem>
+                <SelectItem value="business">Business</SelectItem>
               </SelectContent>
             </Select>
 
@@ -454,9 +454,9 @@ export function AdminUsersPage() {
                       <TableCell>
                         <Badge
                           variant="secondary"
-                          className={getPlanBadgeClasses(user.plan)}
+                          className={getPlanBadgeClasses(user.flipdesk_plan)}
                         >
-                          {legacyPlanConfig(user.plan)?.name ?? user.plan}
+                          {FLIPDESK_PLANS[user.flipdesk_plan]?.name ?? user.flipdesk_plan}
                         </Badge>
                       </TableCell>
                       <TableCell>

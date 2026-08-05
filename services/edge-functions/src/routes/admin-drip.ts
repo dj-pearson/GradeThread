@@ -160,7 +160,12 @@ async function loadUserState(
 ): Promise<(DripUserState & { userId: string; enrolledAtMs: number; email: string | null }) | null> {
   const { data: u } = await supabaseAdmin
     .from("users")
-    .select("id, email, full_name, plan, subscription_status, trial_ends_at, grades_used_this_month, created_at")
+    // US-2398: flipdesk_plan, matching the LIVE tick (drip.ts). Reading the
+    // legacy users.plan here would make the dry run disagree with the campaign
+    // it is previewing — the one thing a dry run must not do.
+    .select(
+      "id, email, full_name, flipdesk_plan, subscription_status, trial_ends_at, grades_used_this_month, created_at",
+    )
     .eq("id", userId)
     .maybeSingle();
   if (!u) return null;
@@ -169,7 +174,7 @@ async function loadUserState(
     id: string;
     email: string | null;
     full_name: string | null;
-    plan: string | null;
+    flipdesk_plan: string | null;
     subscription_status: string | null;
     trial_ends_at: string | null;
     grades_used_this_month: number | null;
@@ -199,7 +204,7 @@ async function loadUserState(
     firstName: (user.full_name ?? "").trim().split(/\s+/)[0] || null,
     trialEndsAt: user.trial_ends_at,
     converted,
-    plan: user.plan,
+    plan: user.flipdesk_plan,
     subscriptionStatus: user.subscription_status,
     gradesUsed: user.grades_used_this_month ?? 0,
     trialDaysRemaining: trialEndMs ? Math.ceil((trialEndMs - now) / DAY_MS) : 0,

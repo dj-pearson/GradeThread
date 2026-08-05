@@ -15,8 +15,8 @@
 // and the fix will legitimately touch these very lines. A new reader has to be
 // added here, which is the moment someone reads why they should not.
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 
 const MIGRATIONS = resolve(process.cwd(), "supabase/migrations");
 
@@ -49,6 +49,103 @@ const KNOWN: Record<string, string> = {
   "00147_admin_aggregates.sql":
     "superseded revision of the 00514 aggregate; kept because migrations are " +
     "immutable, and it no longer defines the live function",
+};
+
+// ── The TypeScript half of the guard (US-2398 AC5) ───────────────────────────
+
+const CODE_ROOTS = ["services/edge-functions/src", "src", "functions"];
+
+/** A double-quoted literal, the form every PostgREST column list is written in. */
+const STRING_LITERAL = /"(?:[^"\\\n]|\\.)*"/g;
+/** The object body of a `.update({ … })`. */
+const UPDATE_BODY = /\.update\(\s*\{([^}]*)\}/g;
+/**
+ * `plan` as a KEY inside that body — `{ plan }`, `{ plan: x }`, `…, plan, …`.
+ *
+ * The leading `^|,` is what makes it a key rather than a value, and it is not
+ * pedantry: `.update({ flipdesk_plan: plan })` is the single most common write
+ * in this codebase, and a pattern that allows whitespace before `plan` flags
+ * every one of them. Five files failed that way before this was tightened.
+ */
+const PLAN_AS_KEY = /(^|,)\s*plan\s*(:|,|$)/;
+
+/**
+ * Every file that names `plan` as a COLUMN — in a select list or an update —
+ * rather than as a variable or a field on an already-fetched object.
+ *
+ * Deliberately scoped to the query, not to `.plan` property access: the access
+ * is downstream of a query this scan already sees, and matching it would flag
+ * `opts.plan`, `slice.plan` and every chart row, which is how a guard earns the
+ * reputation that gets it deleted.
+ */
+function scanCode(): string[] {
+  const hits: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      const p = join(dir, entry);
+      if (statSync(p).isDirectory()) {
+        if (entry === "node_modules" || entry === "dist") continue;
+        walk(p);
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry)) continue;
+      // Tests name the column while pinning this very behaviour.
+      if (/\.test\.tsx?$|_test\.ts$/.test(entry)) continue;
+
+      const src = readFileSync(p, "utf8")
+        .replace(/\/\/[^\n]*/g, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+
+      let matched = false;
+      UPDATE_BODY.lastIndex = 0;
+      let u: RegExpExecArray | null;
+      while ((u = UPDATE_BODY.exec(src)) !== null) {
+        if (PLAN_AS_KEY.test(u[1] ?? "")) {
+          matched = true;
+          break;
+        }
+      }
+
+      // A column list: `"id, plan, role"`. The comma is required — a lone
+      // `"plan"` is a chart dataKey, a switch case or a CSV header far more
+      // often than it is a query, and those cost more in noise than the
+      // single-column select they would catch (which no file does today).
+      if (!matched) {
+        STRING_LITERAL.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = STRING_LITERAL.exec(src)) !== null) {
+          const parts = m[0].slice(1, -1).split(",").map((s) => s.trim());
+          if (parts.length > 1 && parts.includes("plan")) {
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      // `.eq("plan", …)` / `.neq("plan", …)` — a filter names the column just as
+      // surely as a select does, and this is the shape the admin dashboard's
+      // subscriber count and the user-list plan filter were both hiding in.
+      if (!matched && /\.(?:eq|neq|in|not)\(\s*"plan"/.test(src)) matched = true;
+
+      if (matched) hits.push(relative(process.cwd(), p).replace(/\\/g, "/"));
+    }
+  };
+  for (const root of CODE_ROOTS) walk(resolve(process.cwd(), root));
+  return hits;
+}
+
+/**
+ * Application code that still queries the column, each with why.
+ *
+ * SHRINK-ONLY. Adding an entry here is a decision to read a column nothing
+ * writes; if you are doing that, say why in the string.
+ */
+const KNOWN_CODE: Record<string, string> = {
+  "services/edge-functions/src/routes/admin-users.ts":
+    "POST /:id/plan — the last WRITER as well as a reader. US-2398 AC4 decides " +
+    "whether it is rewired to flipdesk_plan or removed with the column; until " +
+    "then it is the one place the legacy value legitimately moves. See the " +
+    "correction comment above the route: the grant it makes is inert.",
 };
 
 describe("US-2398: the frozen users.plan column", () => {
@@ -118,6 +215,55 @@ describe("US-2398: the frozen users.plan column", () => {
     ).toBe(false);
     // And it must actually read the live column, not merely avoid the dead one.
     expect(sql).toMatch(/flipdesk_plan/);
+  });
+
+  it("US-2398 AC5: no application code queries the column outside the list", () => {
+    // WHY THIS EXISTS, and it is the correction that matters most in this file:
+    // the original guard scanned MIGRATIONS ONLY. The story counted four SQL
+    // readers, a later pass found six — and NONE of the counts included the
+    // TypeScript layer, which had SEVEN more. Two of them were not cosmetic:
+    //
+    //   • drip.ts fed `users.plan` into the drip campaign branch field, so a
+    //     `plan` condition took the free-tier path for every paying seller.
+    //   • admin-flags.ts sampled it to preview a flag's reach AND offered the
+    //     frozen vocabulary ('professional'/'enterprise') as the targets, so a
+    //     plan-targeted rule could not match a live account.
+    //
+    // A guard that watches one language while the column is read from two is
+    // not a guard; it is the reason the count kept being wrong.
+    const offenders = scanCode();
+    const unknown = offenders.filter((f) => !(f in KNOWN_CODE));
+    expect(
+      unknown,
+      "this file queries users.plan. It is frozen — nothing has written it " +
+        "through the subscription path since the 00039 backfill, so it reads " +
+        "'free' for every account created since. Entitlements, MRR, the grade " +
+        "allowance and the AI-action caps all live on users.flipdesk_plan. " +
+        "Use that, or add an entry to KNOWN_CODE saying why not.",
+    ).toEqual([]);
+  });
+
+  it("US-2398 AC5: the code guard carries no stale exemption", () => {
+    const offenders = scanCode();
+    const stale = Object.keys(KNOWN_CODE).filter((f) => !offenders.includes(f));
+    expect(
+      stale,
+      "these files are exempted but no longer query users.plan — delete the " +
+        "entry, or the exemption is documenting a decision about code that " +
+        "does not exist",
+    ).toEqual([]);
+  });
+
+  it("US-2398 AC5: the code guard is not vacuously green", () => {
+    // Same reasoning as the migration scan: a pattern that stopped matching
+    // would report a clean tree forever. When the last entry in KNOWN_CODE goes
+    // (which is what AC4 decides), delete this case WITH the column.
+    expect(
+      scanCode().length,
+      "the code scan found no query against users.plan at all — either the " +
+        "column is now unread (drop it, and this guard with it) or the " +
+        "pattern is broken",
+    ).toBeGreaterThan(0);
   });
 
   it("MRR is NOT one of the readers", () => {

@@ -38,11 +38,15 @@ const RATE_LIMIT_THRESHOLD = 30;
 // A single account creating this many submissions in 24h is a velocity signal.
 const SUBMISSION_BURST_THRESHOLD = 8;
 
+// US-2398: the tier shown beside a fraud signal is `flipdesk_plan`. The legacy
+// `users.plan` has not moved since the 00039 backfill, so a console sourced from
+// it labelled every account created since as 'free' — which is the single field
+// a reviewer uses to judge whether a suspension costs us a paying customer.
 interface UserLite {
   id: string;
   email: string | null;
   full_name: string | null;
-  plan: string | null;
+  flipdesk_plan: string | null;
   suspended: boolean | null;
   stripe_customer_id: string | null;
   created_at: string | null;
@@ -55,7 +59,7 @@ async function loadUsers(ids: string[]): Promise<Map<string, UserLite>> {
   if (unique.length === 0) return map;
   const { data } = await supabaseAdmin
     .from("users")
-    .select("id, email, full_name, plan, suspended, stripe_customer_id, created_at")
+    .select("id, email, full_name, flipdesk_plan, suspended, stripe_customer_id, created_at")
     .in("id", unique);
   for (const u of (data ?? []) as UserLite[]) map.set(u.id, u);
   return map;
@@ -190,7 +194,7 @@ adminFraudRoutes.get("/overview", async (c: Context<AdminEnv>) => {
   // shared-payment / sock-puppet signal we can derive without IP history.
   const { data: payingUsersRaw } = await supabaseAdmin
     .from("users")
-    .select("id, email, full_name, plan, suspended, stripe_customer_id, created_at")
+    .select("id, email, full_name, flipdesk_plan, suspended, stripe_customer_id, created_at")
     .not("stripe_customer_id", "is", null)
     .limit(PAYMENT_USERS_CAP);
   const payingUsers = (payingUsersRaw ?? []) as UserLite[];
@@ -234,7 +238,7 @@ adminFraudRoutes.get("/overview", async (c: Context<AdminEnv>) => {
       userId,
       email: u?.email ?? null,
       fullName: u?.full_name ?? null,
-      plan: u?.plan ?? null,
+      plan: u?.flipdesk_plan ?? null,
       suspended: !!u?.suspended,
     };
   }

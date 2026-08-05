@@ -142,8 +142,12 @@ adminDashboardRoutes.get("/summary", async (c) => {
     pendingRes,
   ] = await Promise.all([
     supabaseAdmin.from("users").select("id", { count: "exact", head: true }),
+    // US-2398: the active-subscription count is `flipdesk_plan`. 00525 moved the
+    // SQL metrics off the frozen `users.plan`; this one is a PostgREST count in
+    // TypeScript, so that migration never saw it and it kept undercounting every
+    // subscriber acquired since the 00039 backfill.
     supabaseAdmin.from("users").select("id", { count: "exact", head: true })
-      .neq("plan", "free"),
+      .neq("flipdesk_plan", "free"),
     supabaseAdmin.from("submissions").select("id", { count: "exact", head: true })
       .gte("created_at", todayStart.toISOString()),
     supabaseAdmin.from("submissions").select("id", { count: "exact", head: true })

@@ -565,7 +565,10 @@ export function AdminFeatureFlagsPage() {
       {isSuperAdmin && (
         <RuleEditorDialog
           flag={editFlag}
-          plans={flags.data?.plans ?? ["free", "starter", "professional", "enterprise"]}
+          // US-2398: the fallback list is the LIVE flipdesk_plan vocabulary. It
+          // used to be the frozen users.plan enum, so on a failed flag load the
+          // editor offered tiers the server would then reject.
+          plans={flags.data?.plans ?? ["free", "starter", "pro", "business"]}
           onOpenChange={(o) => {
             if (!o) setEditFlag(null);
           }}
