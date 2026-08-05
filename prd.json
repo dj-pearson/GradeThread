@@ -2120,21 +2120,6 @@
       "notes": "[P0][Security/DB] [Audit 2026-07-30 module/platform sweep] VERIFIED directly against the code in this session. Pairs with the guard_users_protected_columns gap — either one alone gives free grading. Fix both together."
     },
     {
-      "id": "US-2283",
-      "passes": false,
-      "title": "guard_users_protected_columns leaves entitlement columns writable by the account owner",
-      "description": "The users self-update guard (latest definition supabase/migrations/00402_buyer_subscription.sql:41-88) freezes 24 columns covering role, suspension, plan and billing. It omits included_grades_this_period, ai_actions_used_this_month, ai_actions_reset_at, past_due_since, billing_source and google_purchase_token. The RLS policy at 00076:22 permits any-column self-update and no migration revokes column privileges. A logged-in customer can run supabase.from('users').update({ included_grades_this_period: 100000, ai_actions_used_this_month: 0 }) on their own row and get unlimited free Claude Vision grading and unlimited AI actions, billed to Pearson Media.",
-      "acceptanceCriteria": [
-        "Confirmed present on public.users: ai_actions_used_this_month (00024_ai_enrichment.sql:10), billing_source (00104_appstore_billing.sql:13), included_grades_this_period (00209_pricing_config.sql:107). Confirm ai_actions_reset_at, past_due_since, google_purchase_token before writing the migration.",
-        "All usage, entitlement and billing-provenance columns are added to the guard's protected list.",
-        "The guard is restructured so protection is deny-by-default: enumerate the columns a user MAY change, not the ones they may not.",
-        "A regression test attempts each newly protected column as an authenticated non-owner-of-privilege and asserts the exception.",
-        "Migration triple honoured.",
-        "Audit prod for rows already tampered with: users where ai_actions_used_this_month or grades_used_this_month is implausibly low against grade_reports counts."
-      ],
-      "notes": "[P0][Security/DB] [Audit 2026-07-30 module/platform sweep] VERIFIED directly against the code in this session. Guard body confirmed at 00402_buyer_subscription.sql:41-88 (NOT 00402_buyer_account_roles.sql as first reported). Column existence confirmed for 3 of 6."
-    },
-    {
       "id": "US-2284",
       "passes": false,
       "title": "extension.pem private key is committed to the repository",

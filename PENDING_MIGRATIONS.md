@@ -1,7 +1,37 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Two pending: 00524 and 00525.** 00515 through 00523 were all applied to prod
-on 2026-08-03 (owner-confirmed).
+**Three pending: 00524, 00525 and 00526.** 00515 through 00523 were all applied
+to prod on 2026-08-03 (owner-confirmed).
+
+## 00526 — users self-update becomes deny-by-default (US-2283) — **P0 SECURITY**
+
+**Risk: MEDIUM, and it is the only one of the three that can break a client.**
+One `CREATE OR REPLACE FUNCTION` plus a re-created trigger. No table, column or
+data change. Safe to re-run.
+
+**What it closes.** `guard_users_protected_columns` froze a HAND-LISTED set of
+columns on `public.users`. The table has ~100 and six were missed — including
+`included_grades_this_period` and `ai_actions_used_this_month`. The RLS policy
+permits any-column self-update, so a logged-in customer could run
+`supabase.from("users").update({ included_grades_this_period: 100000 })` on
+their own row and get unlimited Claude Vision grading billed to Pearson Media.
+The guard now enumerates what a user MAY change and refuses everything else, so
+a column added next month is closed the day it is added.
+
+**Apply this one FIRST of the three** — it is the security fix, and 00524/00525
+do not depend on it.
+
+**Why MEDIUM and not LOW.** Deny-by-default moves the risk: a client write to a
+column that is not on the allowlist now RAISES instead of silently succeeding.
+The allowlist was derived from the actual write paths in `src/` and `ios/`, and
+`src/test/users-self-update-allowlist.test.ts` fails the build if any client
+path targets a column the database will refuse — so a regression is caught in
+CI, not on a user. Watch for `users: column(s) … cannot be modified` in Sentry
+for a day after apply; if one appears, the fix is to move that write to the edge
+(service-role) or add the column to the allowlist in a follow-up migration.
+
+**No `NOTIFY pgrst` strictly needed** (no table/column/RPC signature change),
+but harmless to run.
 
 ## 00525 — admin metrics read flipdesk_plan (US-2398)
 
