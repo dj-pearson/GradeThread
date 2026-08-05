@@ -249,6 +249,11 @@ interface CertReportRow {
   // US-1281: structured Verified 360 result; only the earned badge tier is
   // exposed publicly (the raw capture metrics stay server-side).
   verified_360: { badge?: string } | null;
+  // US-2400: whether a human reviewer finalized this grade. Passed straight
+  // through to the payload (NOT stripped like the structured signals above) —
+  // it is the AI-disclosure variant the /cert SSR page and the partner widget
+  // render, and it is already public via the public_grade_reports view.
+  human_reviewed?: boolean | null;
 }
 
 /**
@@ -707,10 +712,20 @@ const CERT_REPORT_GENESIS_COLUMNS =
 // NULL on every unrevised certificate, which is the truthful answer rather than
 // a missing one. Kept in the EXTRA set so the 42703 genesis fallback still serves
 // certificates if 00522 is unapplied.
+//
+// US-2400: human_reviewed drives the AI-disclosure variant on the /cert SSR page
+// and the white-label partner widget (US-2399). Both read this endpoint, so
+// without it here the flag was always undefined on those two surfaces and they
+// always printed the stricter AI-only wording — while the SPA certificate page,
+// which reads the public_grade_reports VIEW directly, printed the human-finalized
+// one over the top of them in the same page load. Two provenance claims about one
+// grade. Not private: the view has exposed it to anon since 00082. In the EXTRA
+// set for the same US-1945 drift reason (it has existed since 00061, so the
+// fallback risk is theoretical, but the rule is the rule).
 const CERT_REPORT_EXTRA_COLUMNS =
   "buyer_writeup, certificate_number, verified_capture, original_photos, " +
   "live_capture, verified_360, factor_scores, rubric_key, " +
-  "certified_content_updated_at";
+  "certified_content_updated_at, human_reviewed";
 
 const CERT_REPORT_COLUMNS = `${CERT_REPORT_GENESIS_COLUMNS}, ${CERT_REPORT_EXTRA_COLUMNS}`;
 

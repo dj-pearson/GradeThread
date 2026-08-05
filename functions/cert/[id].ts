@@ -27,7 +27,7 @@ import {
   type PagesEnv,
 } from "../_shared/blog-render";
 import { certNotFoundResponse } from "./cert-not-found";
-import { aiDisclosureBody, aiDisclosureTitle } from "../_shared/ai-disclosure";
+import { aiDisclosureNoticeHtml } from "../_shared/ai-disclosure";
 
 interface PublicCertificate {
   id: string;
@@ -237,12 +237,12 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   // hasn't mounted yet (and to every crawler), so the AI disclosure has to be in
   // these bytes too — not only in the React certificate page that replaces them.
   // Same shared copy, so the two can't say different things about one grade.
-  const humanReviewed = cert.human_reviewed === true;
-  const aiDisclosureHtml = `<aside class="cert-ai-disclosure" style="margin-top:20px;padding:12px 16px;border:1px solid #fcd34d;border-radius:12px;background:#fffbeb;color:#78350f;font-size:13px;line-height:1.55">
-    <strong>${escape(aiDisclosureTitle(humanReviewed))}.</strong>
-    ${escape(aiDisclosureBody(humanReviewed))}
-    <a href="/terms" style="color:#78350f">See our Terms</a> (section 5) for details.
-  </aside>`;
+  //
+  // US-2400: the block itself is built in _shared/ai-disclosure.ts. This file
+  // can't be imported from a Vitest test (it uses the worker globals), so an
+  // inline template here was wording nothing could assert — which is how the
+  // variant shipped unrenderable in the first place.
+  const aiDisclosureHtml = aiDisclosureNoticeHtml(cert.human_reviewed === true);
 
   const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, base)}
   <main class="container container--wide">

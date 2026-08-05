@@ -22,10 +22,16 @@ export interface PublicCertificate {
   cosmetic_appearance_score: number;
   functional_elements_score: number;
   odor_cleanliness_score: number;
-  // US-2399: drives the AI disclosure variant. Served by the public cert endpoint
-  // (content-public.ts spreads the whole public_grade_reports row). Optional so a
-  // legacy/partial payload degrades to the stricter AI-only wording rather than
-  // silently claiming a human reviewed the grade.
+  // US-2399: drives the AI disclosure variant. Optional so a legacy/partial
+  // payload degrades to the stricter AI-only wording rather than silently
+  // claiming a human reviewed the grade.
+  //
+  // US-2400 corrects what this comment used to say. It claimed content-public.ts
+  // "spreads the whole public_grade_reports row" — it does not read that view at
+  // all. It selects an EXPLICIT ALLOWLIST (CERT_REPORT_COLUMNS) off grade_reports,
+  // and human_reviewed was not in it, so this field was ALWAYS undefined here and
+  // the widget could never render the human-finalized variant. A field is served
+  // only if it is named in that allowlist; assuming otherwise is the bug.
   human_reviewed?: boolean | null;
 }
 

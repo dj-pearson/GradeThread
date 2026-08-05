@@ -14,6 +14,8 @@
 // human_reviewed, so those legacy certificates are genuinely AI-only and must
 // keep saying so. Absent/null degrades to the AI-only wording.
 
+import { escape } from "./blog-render";
+
 /** Headline shown above the disclosure body. */
 export function aiDisclosureTitle(humanReviewed: boolean): string {
   return humanReviewed
@@ -27,4 +29,22 @@ export function aiDisclosureBody(humanReviewed: boolean): string {
     ? "A GradeThread reviewer checked this grade before it was published and either approved it as-is or adjusted the scores. The underlying condition assessment is produced by an automated AI system from the seller's photos."
     : "This grade is produced by an automated AI system from the seller's photos.";
   return `${provenance} It is an estimate of condition, not a certified appraisal, authentication, or warranty of value. Always review the photos and item description before purchasing.`;
+}
+
+// US-2400: the /cert SSR page's disclosure block, as a pure builder.
+//
+// It lives here rather than inline in functions/cert/[id].ts for the same reason
+// widget.ts exists: [id].ts uses the Cloudflare worker globals (PagesFunction /
+// EventContext), which the Vitest `src` tsconfig does not load — so nothing under
+// src/test can import it, and the rendered wording was untestable. Extracting the
+// block makes the SSR bytes assertable without a worker runtime, and [id].ts
+// splices this exact string into its body.
+
+/** The `<aside>` the /cert SSR page renders under the condition report. */
+export function aiDisclosureNoticeHtml(humanReviewed: boolean): string {
+  return `<aside class="cert-ai-disclosure" style="margin-top:20px;padding:12px 16px;border:1px solid #fcd34d;border-radius:12px;background:#fffbeb;color:#78350f;font-size:13px;line-height:1.55">
+    <strong>${escape(aiDisclosureTitle(humanReviewed))}.</strong>
+    ${escape(aiDisclosureBody(humanReviewed))}
+    <a href="/terms" style="color:#78350f">See our Terms</a> (section 5) for details.
+  </aside>`;
 }
