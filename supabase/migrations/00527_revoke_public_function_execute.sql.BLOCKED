@@ -1,0 +1,149 @@
+-- ⛔ BLOCKED — DO NOT APPLY, AND DO NOT RENAME BACK TO .sql YET.
+--
+-- The .BLOCKED suffix is deliberate: scripts/apply-prod-migrations.sh and the
+-- manifest generator both glob *.sql, so this file is invisible to them. That is
+-- the only thing standing between this SQL and a prod apply.
+--
+-- WHY: verifying this migration surfaced a Postgres CRASH that has nothing to do
+-- with the migration itself. On the Supabase image (PG 17.6, supautils loaded),
+-- ANY function-permission denial for a role listed in supautils.hint_roles
+-- (= anon, authenticated, service_role) SEGFAULTS the backend and restarts the
+-- whole database. Isolated: a role NOT in hint_roles gets a clean
+-- "permission denied for function"; a denied TABLE read gets a clean error plus
+-- a hint; only the FUNCTION hint path crashes.
+--
+-- IT IS ALREADY REACHABLE, WITHOUT THIS FILE. public.refund_grade has been
+-- revoked from anon since 00048, and calling it as anon crashes the database the
+-- same way. So this is a pre-existing exposure, not one this migration creates —
+-- but applying this would take the crashable surface from a handful of functions
+-- to ~80, every one of them reachable through PostgREST with the public anon key.
+--
+-- UNBLOCK WHEN: the prod Postgres image is confirmed not to reproduce it, or
+-- supautils.hint_roles is cleared / the image is upgraded. See US-2403.
+--
+-- The SQL below is VERIFIED CORRECT on a throwaway stack: all 527 migrations
+-- apply from zero, no client-callable RPC loses access, every credit-mutating
+-- function ends up service_role-only, and pg_trgm is untouched.
+-- US-2282 [P0]: close EXECUTE on the SECURITY DEFINER functions nobody granted.
+--
+-- These functions run as the owner and bypass RLS, and PostgREST exposes them as
+-- RPCs. Anyone holding the anon key could call grant_grade_credits (mint
+-- credits), debit_grade_credits (drain another user's balance) or
+-- revenue_dashboard (read the customer roster) — without an account.
+--
+-- ⚠ THE STORY'S DIAGNOSIS WAS HALF WRONG, AND IT MATTERS FOR THIS FILE. It said
+-- the grant comes from Postgres's default EXECUTE-to-PUBLIC. Reading proacl on a
+-- real stack says otherwise: grant_grade_credits carries
+-- {anon=X/postgres, authenticated=X/postgres} — DIRECT grants to those two roles,
+-- from Supabase's own ALTER DEFAULT PRIVILEGES bootstrap, not from PUBLIC. So
+-- `REVOKE … FROM PUBLIC` alone is a NO-OP on exactly the functions the story
+-- names. This revokes from anon and authenticated as well, and closes the
+-- default privilege that keeps re-granting them.
+--
+-- Pairs with 00526: that closed the column-write path to free grading, this
+-- closes the function-call path. Either one alone still gave free credits.
+--
+-- THE RE-GRANT LIST IS PARSED, NOT AUTHORED. Revoking from authenticated also
+-- strips the functions whose own migration deliberately granted them, so they
+-- have to be restored. That set was extracted from every
+-- `GRANT EXECUTE ON FUNCTION public.… TO authenticated|anon` in the corpus, minus
+-- any later explicit REVOKE — 43 for authenticated, 4 for anon. It is not a
+-- judgement about what SHOULD be callable; it is a faithful replay of the
+-- decisions already recorded in migrations, so this file changes access only for
+-- functions nobody ever decided about.
+--
+-- Two things are added on top of that replay:
+--   • RLS POLICY HELPERS (is_admin, is_super_admin, is_reviewer_or_admin). A
+--     function called inside a policy runs as the QUERYING role. is_admin alone
+--     appears in 29 migrations' policies and has NEVER had a grant — it worked
+--     only on the default this file removes. Without these, every admin policy
+--     fails with "permission denied for function".
+--   • service_role keeps everything; the edge calls 48 of these.
+--
+-- EXTENSION FUNCTIONS ARE LEFT ALONE. pg_trgm installs into public (00224), and
+-- a blanket revoke would strip its operators too. The loop filters on pg_depend
+-- deptype 'e'.
+
+-- ── 1. Close every function we own, for every untrusted role ──────
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT p.oid::regprocedure AS sig
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND p.prokind = 'f'          -- plain functions; not aggregates/procedures
+       AND NOT EXISTS (             -- not owned by an extension
+             SELECT 1 FROM pg_depend d
+              WHERE d.objid = p.oid AND d.deptype = 'e'
+           )
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated', r.sig);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', r.sig);
+  END LOOP;
+END
+$$;
+
+-- ── 2. Close the default, so a future function is shut on arrival ─
+-- Without this the next CREATE FUNCTION is handed straight back to anon and
+-- authenticated by Supabase's bootstrap defaults, and nobody notices.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
+
+-- ── 3. Restore the grants migrations actually made ───────────────
+-- By NAME rather than by signature, deliberately: several of these have been
+-- replaced with a wider signature since their grant was written, and a
+-- signature-exact replay would silently miss the live overload. Every name here
+-- appears in a GRANT statement in this repo's own migration history.
+DO $$
+DECLARE
+  r record;
+  authed constant text[] := ARRAY[
+    'accept_workspace_invitation','admin_audit_log_filter_options','admin_audit_log_search',
+    'admin_dashboard_aggregates','admin_dashboard_daily_series','admin_platform_analytics',
+    'admin_revenue_metrics','admin_system_metrics','admin_user_list_stats',
+    'ai_budget_status','ai_profitability','ai_spend','community_benchmarks',
+    'create_listing_template','delete_account','finances_dashboard','finances_export',
+    'flipdesk_filter_matches','flipdesk_grading_roi','flipdesk_grading_roi_summary',
+    'flipdesk_listability_score','flipdesk_listing_page','flipdesk_max_comp_price',
+    'flipdesk_return_reduction','flipdesk_search','flipdesk_sell_through','funnel_metrics',
+    'get_or_create_source','inventory_distinct_brands','inventory_status_counts',
+    'is_workspace_member','is_workspace_member_with_role','merge_inventory_items',
+    'peek_workspace_invitation','recent_searches','reconciliation_candidates','record_search',
+    'referral_analytics','retention_cohorts','revenue_dashboard','system_health',
+    'update_listing_template','workspace_role_rank',
+    -- Policy helpers: no migration ever granted these, and every admin policy
+    -- calls them as the querying role.
+    'is_admin','is_super_admin','is_reviewer_or_admin'
+  ];
+  anons constant text[] := ARRAY[
+    'is_workspace_member','is_workspace_member_with_role','peek_workspace_invitation',
+    'workspace_role_rank','is_admin','is_super_admin','is_reviewer_or_admin'
+  ];
+BEGIN
+  FOR r IN
+    SELECT p.oid::regprocedure AS sig, p.proname
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.prokind = 'f'
+       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+  LOOP
+    IF r.proname = ANY (authed) THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', r.sig);
+    END IF;
+    IF r.proname = ANY (anons) THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon', r.sig);
+    END IF;
+  END LOOP;
+END
+$$;
+
+COMMENT ON FUNCTION public.is_admin() IS
+  'US-2282: RLS policy helper. EXECUTE is granted to authenticated + anon deliberately — a function called inside a policy runs as the QUERYING role, so revoking it breaks every policy that uses it. It answers a question about the caller and leaks nothing.';
+
+-- US-1108: self-record this migration's version so the edge schema-version
+-- guard (US-778) stays in sync regardless of apply method.
+INSERT INTO public.applied_migrations (version) VALUES ('00527')
+ON CONFLICT (version) DO NOTHING;
