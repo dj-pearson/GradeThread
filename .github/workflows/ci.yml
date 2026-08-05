@@ -157,6 +157,14 @@ jobs:
       - name: Doc path refs
         if: ${{ !cancelled() }}
         run: node scripts/doc-refs.mjs
+      # US-2402: same gap again. The UI anti-pattern gate (US-2336) was a verify
+      # lane only, so the hook was stricter than CI and a --no-verify push shed
+      # it entirely — for a gate whose ENFORCED rules block on the tells the
+      # project's own UI guidance rules out. Its noise baseline is now 0, so any
+      # finding at all is real.
+      - name: UI anti-patterns
+        if: ${{ !cancelled() }}
+        run: node scripts/check-ui-antipatterns.mjs
       # US-417: guard the eager (landing/cold-load) chunk graph — fail the build
       # if the entry/eager gz size regresses past budget, or if a heavy primitive
       # (radix Dialog/Select/Popover, TipTap) stops being code-split and rides

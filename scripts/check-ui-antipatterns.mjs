@@ -42,12 +42,19 @@ export const ENFORCED = new Set([
 
 /**
  * Findings that are reported but do not fail. The number is not a budget to
- * spend — it is a description of known tool noise, verified by hand on
- * 2026-08-03:
- *   14 broken-image — every one is `<img` inside a comment or inside the
- *   verified.ts embed-snippet string. Zero real broken tags.
+ * spend — it is a description of known tool noise.
+ *
+ * IT IS NOW ZERO (US-2402, 2026-08-04). It was 14, and all 14 were the
+ * broken-image rule matching `<img` inside PROSE — comments like "a drop-in
+ * <img> replacement". Those comments now say "an img element", so the tool
+ * reports nothing and the baseline describes the truth again.
+ *
+ * WHY LOWERING IT MATTERED MORE THAN THE COMMENTS DID: at 14, fourteen real
+ * findings could have arrived without this gate saying a word. A baseline that
+ * outlives the noise it describes is a budget, which is exactly what the
+ * paragraph above says it must not become. Lower it whenever the noise goes.
  */
-export const NOISE_BASELINE = 14;
+export const NOISE_BASELINE = 0;
 
 export function partition(findings) {
   const enforced = findings.filter((f) => ENFORCED.has(f.antipattern));

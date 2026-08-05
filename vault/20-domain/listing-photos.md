@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/photo-profiles.ts
   - src/components/flipdesk/photo-manager.tsx
   - src/lib/images.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-04
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---

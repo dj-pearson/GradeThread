@@ -14,7 +14,7 @@
     "og:image": "node scripts/generate-og-image.mjs",
     "sync:aspects": "node scripts/sync-aspect-registry.mjs",
     "lint": "eslint .",
-    "ui:check": "npx impeccable detect src",
+    "ui:check": "node scripts/check-ui-antipatterns.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
