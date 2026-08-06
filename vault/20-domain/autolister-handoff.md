@@ -8,7 +8,7 @@ code_refs:
   - supabase/migrations/00507_autolister_handoff_sessions.sql
   - ios/GradeThread/AutoLister/AutoListerReviewModel.swift
   - src/hooks/use-autolister.ts
-reviewed: 2026-08-02
+reviewed: 2026-08-05
 tags: [flipdesk, autolister, mobile, contract]
 summary: What crosses from the phone to the desktop AutoLister before any AI runs, and the rules that keep the crossing safe.
 ---

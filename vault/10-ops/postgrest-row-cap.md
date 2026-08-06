@@ -9,9 +9,9 @@ code_refs:
   - src/hooks/use-items-full.ts
   - services/edge-functions/src/routes/admin-dashboard.ts
   - services/edge-functions/src/tests/admin-dashboard-kpi-provenance_test.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-05
 tags: [postgrest, supabase, perf, correctness, flipdesk, admin]
-summary: Every read must page until empty, count without rows, aggregate in SQL, or declare its cap out loud, because PostgREST truncates silently and supabase-js does not surface it.
+summary: There is NO row cap in prod (db-max-rows is unset, read from pg_roles) — the bound that actually bites is an 8s statement_timeout, 3s for anonymous; every read must still page until empty, count without rows, or aggregate in SQL.
 ---
 
 # PostgREST row cap (db-max-rows)
@@ -40,26 +40,70 @@ reachable under RLS (`item_photos` 1055, `inventory_items` 840, `listings` 751,
 `submission_images` 266, `sales` 176, `submissions` 38); every one came back
 complete.
 
-Read that for exactly what it is:
+**Measured again 2026-08-05, this time from the server side, and it settles it:
+`db-max-rows` is UNSET. There is no row cap.**
 
-- **Answered:** nothing is being silently truncated at current volumes, and the
-  1000 the code assumes is either correct or conservative — both are safe,
-  because `fetchAllPages` advances by rows *returned*.
-- **Still unknown:** the literal `db-max-rows` value. It cannot be proven from
-  the client without a table larger than the cap, and the largest one available
-  is 1055 rows. PostgREST's own default is *unset*, and nothing in this repo sets
-  it — not `supabase/config.toml` (which configures only the throwaway local
-  verify stack, see [[blocked-work-gates]]) and not `docker-compose.coolify.yml`
-  (the edge service, not Kong or PostgREST — see [[dns-and-routing]]). Unset is
-  therefore the most likely answer.
+The 2026-08-01 probe could only ever prove a *bound* — you cannot detect a
+ceiling you never reach, and the largest reachable table was 1055 rows. Reading
+the configuration directly answers the question the probe could not:
+
+```sql
+SELECT rolname, rolconfig FROM pg_roles WHERE rolconfig IS NOT NULL;
+```
+
+PostgREST connects as `authenticator` and, with `db-config` on (the default
+since v10), reads its settings from that role. On prod the role carries
+`session_preload_libraries=safeupdate`, `statement_timeout=8s` and
+`lock_timeout=8s` — **no `pgrst.db_max_rows`**. Nothing sets it in this repo
+either: not `supabase/config.toml` (the throwaway local verify stack, see
+[[blocked-work-gates]]) and not `docker-compose.coolify.yml` (the edge service,
+not Kong or PostgREST — see [[dns-and-routing]]).
+
+So three independent channels agree, and each rules out something the others
+cannot: the empirical probe rules out any cap **≤ 1055**, the role config rules
+out an **in-database** setting, and the repo rules out a **committed** one. The
+one channel not read from here is a `PGRST_DB_MAX_ROWS` env var on the PostgREST
+container itself — but a value from that channel at or below 1055 would have
+shown up as a clip in the probe, so the only survivor is a cap *above* 1055,
+which the code is deliberately built not to depend on (`fetchAllPages` advances
+by rows **returned**).
+
+## The real bound is a clock, not a row count
+
+The same query turned up the constraint that *does* bite, and it is easy to miss
+while looking for a row cap:
+
+| Role | `statement_timeout` |
+|---|---|
+| `anon` | **3s** |
+| `authenticated` | **8s** |
+| `authenticator` | **8s** |
+
+A read is not cut off after N rows; it is **killed after N seconds**. That
+inverts the intuition this note is otherwise about — and it is why "page until
+empty" is the right shape for a second reason nobody wrote down. Many bounded
+round trips each finish well inside 8s. One unbounded query over a growing table
+does not: it works, works, works, and then starts failing outright once the
+table is big enough. That failure is at least *loud* (an error, not a short
+array), which makes it the better failure of the two — but the fix is the same
+paging, so there is no separate remedy to build.
+
+Anonymous reads get **3s**, so the public surfaces (certificates, passports, the
+sitemap feeds) have less than half the budget an authed one does. Weigh that
+before adding a join to a public endpoint.
 
 The assumption is named once, as `ASSUMED_DB_MAX_ROWS` in
 `src/lib/paged-read.ts`, and asserted by `src/test/row-cap-contract.test.ts` —
 not repeated in prose here.
 
-**Re-measure when any single table passes ~1000 rows for one tenant.** That is
-the point at which this measurement stops covering the question, and it is a
-cheaper trigger than a calendar reminder.
+**Re-measure the ROW cap only if someone sets one** — re-run the `pg_roles`
+query above after any PostgREST reconfiguration. The 2026-08-01 volume trigger
+("re-measure when a table passes ~1000 rows") is now retired: it existed because
+the answer was a bound, and a bound expires as data grows. A read of the
+configuration does not.
+
+**The TIMEOUT is the one to watch as volume grows.** 8s (3s anonymous) is a
+budget an unbounded query spends faster every month.
 
 ## The contract
 
