@@ -89,12 +89,18 @@ Deno.test("US-886: deny overrides allow + percentage; allow overrides plan + per
   assertEquals(resolveFlagRule("k", r, { userId: "a", plan: "free" }), true);
 });
 
-Deno.test("US-886: plan targeting gates only when a plan is supplied", () => {
-  const r = rule({ plan_targets: ["professional", "enterprise"] });
+Deno.test("US-886: plan targeting matches the supplied plan", () => {
+  const r = rule({ plan_targets: ["pro", "business"] });
   assertEquals(resolveFlagRule("k", r, { userId: "u", plan: "free" }), false);
-  assertEquals(resolveFlagRule("k", r, { userId: "u", plan: "professional" }), true);
-  // No plan supplied → plan targeting is skipped (kill-switch caller unchanged).
-  assertEquals(resolveFlagRule("k", r, { userId: "u" }), true);
+  assertEquals(resolveFlagRule("k", r, { userId: "u", plan: "pro" }), true);
+  // US-2406: no plan supplied → FAIL CLOSED. This assertion used to read
+  // `true` — "plan targeting is skipped (kill-switch caller unchanged)" — and
+  // it was the bug written down as a passing test: production never supplied a
+  // plan, so every plan-targeted rule took this branch and served everyone.
+  assertEquals(resolveFlagRule("k", r, { userId: "u" }), false);
+  assertEquals(resolveFlagRule("k", r, {}), false);
+  // An untargeted rule is untouched by the change.
+  assertEquals(resolveFlagRule("k", rule(), { userId: "u" }), true);
 });
 
 Deno.test("US-886: percentage rollout is deterministic + stable per user", () => {

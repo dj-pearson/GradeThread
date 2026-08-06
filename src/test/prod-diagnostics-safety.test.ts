@@ -63,9 +63,19 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     // questions from an older version of the script and reporting the answers
     // against the current one. Checked by table rather than by diff, because the
     // two files legitimately differ in their banners.
-    for (const section of ["§1", "§10", "§13", "§16"]) {
-      expect(CONSOLE_SQL, `${section} is missing from the console copy`)
-        .toContain(section);
+    //
+    // US-2406: this used to spot-check four hand-listed section numbers, and
+    // that is how §17 went missing. It was added without regenerating, and the
+    // only other check — every `FROM public.<table>` — passed because §17 reads
+    // users, a table five other sections already read. A section that adds no
+    // NEW table was invisible. So the list is now derived from the source.
+    const sections = new Set(
+      [...SQL.matchAll(/§(\d+)\s+\S/g)].map((m) => `§${m[1]}`),
+    );
+    expect(sections.size).toBeGreaterThan(10);
+    for (const section of sections) {
+      expect(CONSOLE_SQL, `${section} is missing from the console copy — run ` +
+        "`node scripts/gen-console-diagnostics.mjs`").toContain(section);
     }
     const tables = new Set(
       [...SQL.matchAll(/FROM public\.([a-z_]+)/g)].map((m) => m[1]),
@@ -158,6 +168,8 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       ["marketplace_connections", ["is_active", "refresh_error", "marketplace", "last_refresh_attempt_at"]],
       ["grading_eval_cases", ["is_active", "deleted_at"]],
       ["ai_prompt_versions", ["version_name", "stage", "is_active", "eval_passed", "qualified_model", "rollout_percentage"]],
+      // §18, added 2026-08-05 for US-2406.
+      ["feature_flags", ["key", "enabled", "rollout_percentage", "plan_targets", "user_allow", "user_deny", "starts_at", "ends_at", "updated_at"]],
     ];
 
     const missing: string[] = [];
@@ -218,7 +230,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
   });
 
   it("still answers every question it claims to", () => {
-    // The header advertises seventeen sections. A future edit that drops one leaves
+    // The header advertises eighteen sections. A future edit that drops one leaves
     // the header lying about what the operator gets back, and they will not
     // re-read the SQL to notice.
     for (const section of [
@@ -239,6 +251,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       "§15",
       "§16",
       "§17",
+      "§18",
     ]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }
@@ -258,6 +271,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     // no migration creates, so it is deliberately not in this list.
     expect(SQL).toContain("public.grading_eval_cases");
     expect(SQL).toContain("public.ai_prompt_versions");
+    expect(SQL).toContain("public.feature_flags");
   });
 
   it("§10 is the only scan, and the header admits it", () => {

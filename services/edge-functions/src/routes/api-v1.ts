@@ -123,17 +123,22 @@ apiV1Routes.post("/grades", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "submit")) {
     return c.json(scopeDenied("submit"), 403);
   }
+  const userId = c.get("userId");
   // Honor the grading kill-switch + inline AI budget breach on the public API
   // too (this path charges before grading, so block before any charge). Without
   // this, the API would be a way to keep spending after the budget tripped.
-  if (!(await isFeatureEnabled("grading")) || (await isAiBudgetExhausted("grading"))) {
+  // US-2406: the key's owner is passed so plan targeting / rollout applies here
+  // as it does in the app — the public API is not a way around a targeted flag.
+  if (
+    !(await isFeatureEnabled("grading", { userId })) ||
+    (await isAiBudgetExhausted("grading"))
+  ) {
     return c.json({
       data: null,
       error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
       meta: null,
     }, 503);
   }
-  const userId = c.get("userId");
 
   let body: {
     title?: string;
@@ -497,15 +502,19 @@ apiV1Routes.post("/grades/batch", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "submit")) {
     return c.json(scopeDenied("submit"), 403);
   }
-  if (!(await isFeatureEnabled("grading")) || (await isAiBudgetExhausted("grading"))) {
+  const userId = c.get("userId");
+  const apiKeyId = c.get("apiKeyId") ?? null;
+  // US-2406: owner-scoped, same as the single-grade endpoint above.
+  if (
+    !(await isFeatureEnabled("grading", { userId })) ||
+    (await isAiBudgetExhausted("grading"))
+  ) {
     return c.json({
       data: null,
       error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
       meta: null,
     }, 503);
   }
-  const userId = c.get("userId");
-  const apiKeyId = c.get("apiKeyId") ?? null;
 
   let body: { garments?: GradeGarmentInput[] };
   try {

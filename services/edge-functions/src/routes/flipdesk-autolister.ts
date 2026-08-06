@@ -1275,11 +1275,12 @@ flipdeskAutolisterRoutes.delete("/sessions/:id", async (c) => {
 
 // POST /batch  Body: { item_ids: string[], use_comps?: boolean }
 flipdeskAutolisterRoutes.post("/batch", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   // US-507: AutoLister kill-switch (heavy per-item AI cost).
-  if (!(await isFeatureEnabled("autolister"))) {
+  // US-2406: owner-scoped so plan targeting / rollout is honoured.
+  if (!(await isFeatureEnabled("autolister", { userId: ownerId }))) {
     return c.json(featureDisabledBody("autolister"), 503);
   }
-  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   let body: {
     item_ids?: unknown;

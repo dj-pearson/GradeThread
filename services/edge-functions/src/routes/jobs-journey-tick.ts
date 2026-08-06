@@ -295,7 +295,9 @@ async function dispatchStep(
 
   // Optional AI personalization — best-effort, gated by the content_ai
   // kill-switch; any failure leaves {{aiIntro}} empty (static template).
-  if (step.aiPersonalize && (await isFeatureEnabled("content_ai"))) {
+  // US-2406: scoped to the recipient, so a plan-targeted or partially rolled-out
+  // content_ai rule is honoured here as it is on the interactive routes.
+  if (step.aiPersonalize && (await isFeatureEnabled("content_ai", { userId: user.id }))) {
     const intro = await personalizeJourneyIntro({
       journeyKey: journey.journey_key,
       stepOrder: step.stepOrder,

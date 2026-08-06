@@ -35,6 +35,7 @@
 --   §15 US-2347 AC3 — golden-set size and which prompt versions are live.
 --   §16 US-2347 AC4 — does the billing-source check still exclude Play?
 --   §17 US-2398 AC3 — how far off were the admin paid/churn counts?
+--   §18 US-2406 AC5 — has any feature flag been targeted at a plan?
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -625,6 +626,40 @@ SELECT
 FROM public.users
 GROUP BY 1, 2
 ORDER BY count(*) DESC;
+
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§18  US-2406 AC5 — has any flag been targeted at a plan?'
+\echo '════════════════════════════════════════════════════════════════'
+\echo 'Plan targeting was NEVER APPLIED at runtime before US-2406: the resolver'
+\echo 'only checked plan_targets when the caller supplied a plan, and no caller'
+\echo 'did. So any flag listed below has been serving EVERY tier, not the tier'
+\echo 'it names, for as long as the target has been set. Whoever set it should'
+\echo 'be told before the fix ships and the limit starts biting.'
+\echo ''
+\echo 'rollout_percentage is here for the same reason: it too was skipped at the'
+\echo 'call sites that passed no user id, and those sites now pass one.'
+\echo ''
+SELECT
+  key,
+  enabled,
+  rollout_percentage,
+  plan_targets,
+  cardinality(user_allow) AS allow_count,
+  cardinality(user_deny)  AS deny_count,
+  starts_at,
+  ends_at,
+  updated_at
+FROM public.feature_flags
+WHERE cardinality(plan_targets) > 0
+   OR rollout_percentage < 100
+ORDER BY key;
+
+\echo ''
+\echo '-- Empty above = nothing was ever targeted, and the fix changes no live'
+\echo '-- behaviour. That is the expected result; the query exists to prove it'
+\echo '-- rather than assume it.'
 
 
 \echo ''

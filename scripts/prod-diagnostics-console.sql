@@ -52,6 +52,8 @@
 --   §14 US-2347 AC1 — SECURITY DEFINER functions callable by PUBLIC.
 --   §15 US-2347 AC3 — golden-set size and which prompt versions are live.
 --   §16 US-2347 AC4 — does the billing-source check still exclude Play?
+--   §17 US-2398 AC3 — how far off were the admin paid/churn counts?
+--   §18 US-2406 AC5 — has any feature flag been targeted at a plan?
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -544,6 +546,89 @@ SELECT
 FROM public.users
 GROUP BY 1
 ORDER BY count(*) DESC;
+
+-- ════════════════════════════════════════════════════════════════
+-- §17  US-2398 AC3 — how wrong were the admin counts, and since when?
+-- ════════════════════════════════════════════════════════════════
+-- The before/after is still measurable AFTER the 00525 apply, because the
+-- legacy column is FROZEN: users.plan still holds exactly what the dashboard
+-- was reading, and users.flipdesk_plan holds what it reads now. The first
+-- query is literally the old number beside the new one.
+
+-- DO NOT DROP users.plan BEFORE RUNNING THIS. Dropping it destroys the only
+-- record of what the dashboard used to say (US-2398 AC4).
+
+SELECT
+  count(*) FILTER (WHERE plan <> 'free')                      AS paid_before,
+  count(*) FILTER (WHERE flipdesk_plan <> 'free')             AS paid_after,
+  count(*) FILTER (WHERE flipdesk_plan <> 'free'
+                     AND plan = 'free')                       AS undercounted,
+  count(*) FILTER (WHERE plan <> 'free'
+                     AND flipdesk_plan = 'free')              AS overcounted,
+  count(*)                                                    AS total_users
+FROM public.users;
+
+-- -- The churn numerator used the SAME frozen column, so both errors ran the
+-- -- same direction: users the paid count was missing, the churn count was
+-- -- adding. This is the overlap.
+SELECT
+  count(*) AS counted_as_churned_but_actually_paying
+FROM public.users
+WHERE plan = 'free'
+  AND flipdesk_plan <> 'free';
+
+-- -- SINCE WHEN. The first paying account whose legacy value never caught up
+-- -- dates the drift; the monthly shape says whether it is still growing.
+SELECT
+  date_trunc('month', created_at)::date          AS signup_month,
+  count(*)                                       AS accounts,
+  count(*) FILTER (WHERE flipdesk_plan <> 'free'
+                     AND plan = 'free')          AS diverged
+FROM public.users
+GROUP BY 1
+ORDER BY 1;
+
+-- -- The plan mix, both vocabularies side by side. professional/enterprise
+-- -- are the frozen spellings of pro/business — the dashboard used to label
+-- -- the mix with tiers nobody can currently be on.
+SELECT
+  COALESCE(plan::text, '(null)')          AS legacy_plan,
+  COALESCE(flipdesk_plan::text, '(null)') AS live_plan,
+  count(*)                                AS users
+FROM public.users
+GROUP BY 1, 2
+ORDER BY count(*) DESC;
+
+-- ════════════════════════════════════════════════════════════════
+-- §18  US-2406 AC5 — has any flag been targeted at a plan?
+-- ════════════════════════════════════════════════════════════════
+-- Plan targeting was NEVER APPLIED at runtime before US-2406: the resolver
+-- only checked plan_targets when the caller supplied a plan, and no caller
+-- did. So any flag listed below has been serving EVERY tier, not the tier
+-- it names, for as long as the target has been set. Whoever set it should
+-- be told before the fix ships and the limit starts biting.
+
+-- rollout_percentage is here for the same reason: it too was skipped at the
+-- call sites that passed no user id, and those sites now pass one.
+
+SELECT
+  key,
+  enabled,
+  rollout_percentage,
+  plan_targets,
+  cardinality(user_allow) AS allow_count,
+  cardinality(user_deny)  AS deny_count,
+  starts_at,
+  ends_at,
+  updated_at
+FROM public.feature_flags
+WHERE cardinality(plan_targets) > 0
+   OR rollout_percentage < 100
+ORDER BY key;
+
+-- -- Empty above = nothing was ever targeted, and the fix changes no live
+-- -- behaviour. That is the expected result; the query exists to prove it
+-- -- rather than assume it.
 
 -- ════════════════════════════════════════════════════════════════
 -- Done. Paste the whole output back — nothing above is a secret.

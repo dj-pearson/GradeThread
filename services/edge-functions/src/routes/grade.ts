@@ -214,9 +214,16 @@ function kickPipeline(submissionId: string, correlationId?: string) {
 
 // ── POST /submit ─────────────────────────────────────────────────
 gradeRoutes.post("/submit", async (c) => {
+  const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
+  const role = c.get("workspaceRole") ?? "owner";
+
   // US-507: grading kill-switch — disable the (expensive, Anthropic-dependent)
   // pipeline during an outage/cost spike without a redeploy.
-  if (!(await isFeatureEnabled("grading"))) {
+  // US-2406: pass the WORKSPACE OWNER — the billed party, whose plan every other
+  // entitlement here reads — so a plan-targeted or partially-rolled-out rule is
+  // actually applied instead of falling through.
+  if (!(await isFeatureEnabled("grading", { userId: ownerId }))) {
     return c.json(featureDisabledBody("grading"), 503);
   }
   // Inline AI budget kill-switch: pause grading within seconds (not at the cron
@@ -225,9 +232,6 @@ gradeRoutes.post("/submit", async (c) => {
   if (await isAiBudgetExhausted("grading")) {
     return c.json(aiBudgetExceededBody("grading"), 503);
   }
-  const userId = c.get("userId");
-  const ownerId = c.get("workspaceOwnerId") ?? userId;
-  const role = c.get("workspaceRole") ?? "owner";
 
   // Member must have at least 'member' role in the workspace to submit a grade.
   // Owner/admin/listing_manager all qualify; viewer does not.
@@ -448,7 +452,7 @@ gradeRoutes.post("/submit", async (c) => {
   const authenticityAddon =
     authenticityAddonOptIn &&
     tierSupportsAuthenticityAddon(tier) &&
-    (await isFeatureEnabled("authenticity_addon"));
+    (await isFeatureEnabled("authenticity_addon", { userId: ownerId }));
 
   // US-1296: honor the Forensic Grade add-on only on a paid Premium/Express tier,
   // when its kill-switch flag is on, AND when this submission's originals are
@@ -458,7 +462,7 @@ gradeRoutes.post("/submit", async (c) => {
     optIn: forensicAddonOptIn,
     tier,
     retainOriginals,
-    featureEnabled: await isFeatureEnabled("forensic_grade"),
+    featureEnabled: await isFeatureEnabled("forensic_grade", { userId: ownerId }),
   });
 
   // US-949: validate the retake target BEFORE creating the new submission, so a
@@ -769,8 +773,12 @@ gradeRoutes.post("/submit", async (c) => {
 // calls this after a credit-pack purchase completes (Stripe returns to a
 // success URL) so the new balance is consumed without a second click.
 gradeRoutes.post("/pay/:id", async (c) => {
-  // US-507: same grading kill-switch as /submit (this path also kicks the pipeline).
-  if (!(await isFeatureEnabled("grading"))) {
+  const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
+
+  // US-507: same grading kill-switch as /submit (this path also kicks the
+  // pipeline). US-2406: scoped to the workspace owner, same as /submit.
+  if (!(await isFeatureEnabled("grading", { userId: ownerId }))) {
     return c.json(featureDisabledBody("grading"), 503);
   }
   // Inline AI budget kill-switch (see /submit) — block before charging for the
@@ -778,8 +786,6 @@ gradeRoutes.post("/pay/:id", async (c) => {
   if (await isAiBudgetExhausted("grading")) {
     return c.json(aiBudgetExceededBody("grading"), 503);
   }
-  const userId = c.get("userId");
-  const ownerId = c.get("workspaceOwnerId") ?? userId;
   // US-1616 / C3: a read-only viewer must not spend the owner's grade credits.
   // Mirrors the /submit gate — owner/admin/listing_manager/member qualify.
   if ((c.get("workspaceRole") ?? "owner") === "viewer") {
@@ -982,8 +988,10 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 gradeRoutes.post("/snap", async (c) => {
+  const snapOwnerId = c.get("workspaceOwnerId") ?? c.get("userId");
   // US-507: Snap rides the grading vision, so it honors the grading kill-switch.
-  if (!(await isFeatureEnabled("grading"))) {
+  // US-2406: owner-scoped so targeting applies (see /submit).
+  if (!(await isFeatureEnabled("grading", { userId: snapOwnerId }))) {
     return c.json(featureDisabledBody("grading"), 503);
   }
   // Inline AI budget kill-switch (see /submit) — snap rides grading vision too.

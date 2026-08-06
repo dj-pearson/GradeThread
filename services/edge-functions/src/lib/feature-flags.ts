@@ -15,17 +15,44 @@
 //
 // PRECEDENCE (resolveFlagRule): a global kill (enabled=false) ALWAYS wins, then
 // the schedule window, then the deny list, then the allow list, then plan
-// targeting, then the percentage bucket. Percentage + plan only gate a call that
-// SUPPLIES the matching input (userId / plan) — so existing kill-switch callers
-// that pass no userId behave EXACTLY as before (global enabled + schedule only).
+// targeting, then the percentage bucket.
 //
 // FAIL-OPEN for availability: a missing flag row OR a DB read error defaults to
 // ENABLED — a kill-switch should only ever turn something OFF when an operator
 // explicitly sets enabled=false, never because of a transient DB blip or a
 // fresh deploy that hasn't seeded the row.
+//
+// ── US-2406: plan targeting is resolved HERE, not by the caller ──
+//
+// v2 shipped plan_targets as `if (opts.plan && …)` — it applied only when the
+// CALLER supplied a plan, and no runtime caller ever did. Every isFeatureEnabled
+// call site passed nothing or `{ userId }`, so `opts.plan` was always undefined,
+// the plan check was skipped, and a rule an operator had limited to Pro fell
+// straight through to the percentage rollout. The failure was fail-OPEN and
+// silent: the admin "who does this reach" preview was the only code that passed
+// a plan, so the control looked like it worked while production ignored it.
+//
+// The shape chosen (AC1): isFeatureEnabled RESOLVES the plan itself from
+// opts.userId — one cached lookup, so a call site only has to know who it is
+// acting for, never what they pay. Two rules keep it honest:
+//
+//   • FAIL CLOSED (AC2). A rule that names plans is not satisfied by a caller
+//     who cannot present one. No userId, an unreadable users row, or a missing
+//     user all resolve OFF and log `feature_flag.plan_unresolved` — never the
+//     old silent fall-through.
+//   • PLAN_TARGETABLE_FLAGS (below) is the list of keys whose call sites can
+//     ALL resolve a user. The admin rule editor refuses plan_targets on any
+//     other key, so a cron-only flag can't be given targeting that would only
+//     ever switch it off. The runtime fail-closed is the backstop for a direct
+//     SQL write.
+//
+// The plan resolved is the EFFECTIVE plan (effectivePlanFor) — the same one the
+// caps, gates and MRR read — so a canceled Pro targets as Free, and a US-2398
+// comp targets as the tier it was granted.
 
 import { supabaseAdmin } from "./supabase.ts";
 import { logEvent } from "./observability.ts";
+import { effectivePlanFor } from "./grade-pricing.ts";
 
 export type FeatureKey =
   | "grading"
@@ -60,6 +87,36 @@ export type FeatureKey =
   // route can be disabled platform-wide without a redeploy.
   | "inventory_equity";
 
+// US-2406: the flags whose EVERY call site can name the user it is acting for,
+// and therefore the only ones where plan targeting can mean anything.
+//
+// Membership is a property of the call sites, not of the feature. A key belongs
+// here when no caller evaluates it platform-wide; add one only after checking
+// that every `isFeatureEnabled("<key>")` in routes/ passes a userId.
+//
+// Excluded, and why — each has at least one caller with no user in hand:
+//   • repricing          — handleRepriceScanCron scans every owner in one call.
+//   • inventory_equity   — handleEquitySnapshotCron, same shape.
+//   • newsletter,
+//     lifecycle_journeys,
+//     trial_conversion_drip — cron senders; the whole program is the unit.
+//   • support_assistant  — isSupportAssistantLaunched() is a launch check.
+// For those, targeting is refused at the admin layer instead of failing closed
+// at 3am inside a cron.
+export const PLAN_TARGETABLE_FLAGS: ReadonlySet<FeatureKey> = new Set<FeatureKey>([
+  "grading",
+  "autolister",
+  "content_ai",
+  "authenticity_addon",
+  "forensic_grade",
+  "passport_forecast",
+]);
+
+/** True when plan targeting on `key` can be honoured by all of its callers. */
+export function isPlanTargetable(key: string): boolean {
+  return PLAN_TARGETABLE_FLAGS.has(key as FeatureKey);
+}
+
 // The full targeting rule for one flag (one feature_flags row).
 export interface FeatureFlagRule {
   enabled: boolean;
@@ -72,9 +129,18 @@ export interface FeatureFlagRule {
 }
 
 export interface FeatureFlagOpts {
-  /** Stable user id — required for percentage rollout + allow/deny overrides. */
+  /**
+   * Stable user id — required for percentage rollout, allow/deny overrides AND
+   * (US-2406) plan targeting, which is resolved from it. Pass it wherever the
+   * call is made on behalf of one user.
+   */
   userId?: string;
-  /** User plan (users.plan value) — required for plan targeting. */
+  /**
+   * The caller's EFFECTIVE plan. Normally left unset: isFeatureEnabled resolves
+   * it from `userId` when the rule needs one (US-2406). Supply it only when the
+   * plan is already known and no lookup should happen — the admin preview does,
+   * so it can score a whole sample of users without a query each.
+   */
   plan?: string;
   /**
    * Fail behaviour for a MISSING row or a DB read error. Defaults to true
@@ -151,8 +217,13 @@ export function resolveFlagRule(
   // 4. Per-user allow overrides plan + percentage.
   if (userId && rule.user_allow.includes(userId)) return true;
 
-  // 5. Plan targeting — only when a plan is supplied. Empty list = all plans.
-  if (opts.plan && rule.plan_targets.length > 0 && !rule.plan_targets.includes(opts.plan)) {
+  // 5. Plan targeting. Empty list = all plans, so an untargeted rule is
+  // unaffected. A rule that DOES name plans applies to every caller: US-2406
+  // made the missing-plan case FAIL CLOSED rather than skip the check, because
+  // skipping it is what let a Pro-only flag serve the whole user base. Callers
+  // reach this with no plan only when isFeatureEnabled could not resolve one —
+  // it logs `feature_flag.plan_unresolved` there, so an off here is traceable.
+  if (rule.plan_targets.length > 0 && !(opts.plan && rule.plan_targets.includes(opts.plan))) {
     return false;
   }
 
@@ -167,7 +238,7 @@ export function resolveFlagRule(
 
 // Load + cache the raw rule for a key. Returns null on a missing row or read
 // error (the caller's defaultEnabled then applies).
-async function loadRule(key: string): Promise<FeatureFlagRule | null> {
+async function dbLoadRule(key: string): Promise<FeatureFlagRule | null> {
   const now = Date.now();
   const hit = cache.get(key);
   if (hit && hit.expires > now) return hit.rule;
@@ -193,26 +264,137 @@ async function loadRule(key: string): Promise<FeatureFlagRule | null> {
   return rule;
 }
 
+// ── US-2406: effective-plan resolution for plan-targeted rules ──
+//
+// Cached on the same 30s clock as the rule itself, so a targeted flag costs at
+// most one extra users read per user per TTL — and zero for the overwhelmingly
+// common untargeted rule, which never asks. Bounded because this process is
+// long-lived and the key space is "every user who hit a targeted flag": past
+// the cap the whole map is dropped rather than evicted one by one, which costs
+// a re-read and cannot leak.
+const PLAN_CACHE_MAX = 5_000;
+// `plan === null` = not resolvable (missing user / read error). Cached like any
+// other answer so a hot loop against a broken read doesn't hammer the DB; the
+// consequence is bounded by the TTL.
+const planCache = new Map<string, { plan: string | null; expires: number }>();
+
+async function dbLoadEffectivePlan(userId: string): Promise<string | null> {
+  const now = Date.now();
+  const hit = planCache.get(userId);
+  if (hit && hit.expires > now) return hit.plan;
+
+  let plan: string | null = null;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("users")
+      .select("flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) {
+      logEvent("warn", "feature_flag.plan_read_error", { userId });
+    } else if (data) {
+      const u = data as {
+        flipdesk_plan: string | null;
+        subscription_status: string | null;
+        trial_ends_at: string | null;
+        past_due_since: string | null;
+      };
+      // The same resolution the caps and gates use — a lapsed Pro targets as
+      // Free, a comp targets as its granted tier.
+      plan = effectivePlanFor(
+        u.flipdesk_plan ?? "free",
+        u.subscription_status,
+        u.trial_ends_at,
+        new Date(now),
+        u.past_due_since,
+      );
+    }
+  } catch {
+    logEvent("warn", "feature_flag.plan_read_error", { userId });
+  }
+
+  if (planCache.size >= PLAN_CACHE_MAX) planCache.clear();
+  planCache.set(userId, { plan, expires: now + CACHE_TTL_MS });
+  return plan;
+}
+
+/**
+ * The two DB reads isFeatureEnabled depends on. Swappable so US-2406's
+ * behaviour can be pinned through the REAL entry point rather than only through
+ * the pure resolveFlagRule helper — testing the helper is exactly what let the
+ * defect ship, since the helper was correct and production never fed it a plan.
+ * Mirrors the injectable-deps pattern in lib/plan-gate.ts.
+ */
+export interface FeatureFlagDeps {
+  loadRule(key: string): Promise<FeatureFlagRule | null>;
+  loadEffectivePlan(userId: string): Promise<string | null>;
+}
+
+const defaultDeps: FeatureFlagDeps = {
+  loadRule: dbLoadRule,
+  loadEffectivePlan: dbLoadEffectivePlan,
+};
+let deps: FeatureFlagDeps = defaultDeps;
+
+export const __testing = {
+  /** Replace one or both readers. Returns a restore function. */
+  setDeps(partial: Partial<FeatureFlagDeps>): () => void {
+    const previous = deps;
+    deps = { ...deps, ...partial };
+    clearFeatureFlagCache();
+    return () => {
+      deps = previous;
+      clearFeatureFlagCache();
+    };
+  },
+  resetDeps(): void {
+    deps = defaultDeps;
+    clearFeatureFlagCache();
+  },
+};
+
 export async function isFeatureEnabled(
   key: FeatureKey,
   opts: FeatureFlagOpts = {},
 ): Promise<boolean> {
   const failDefault = opts.defaultEnabled ?? true;
-  const rule = await loadRule(key);
+  const rule = await deps.loadRule(key);
   if (rule === null) {
     // Missing row / read error → fail to the caller's default.
     if (!failDefault) logEvent("info", "feature_flag.disabled_hit", { key });
     return failDefault;
   }
-  const enabled = resolveFlagRule(key, rule, opts);
+
+  // US-2406: resolve the plan the rule is about to be judged against. Only when
+  // the rule actually names plans — an untargeted flag stays a single cached
+  // read, exactly as before.
+  let resolved = opts;
+  if (rule.plan_targets.length > 0 && opts.plan === undefined) {
+    const plan = opts.userId ? await deps.loadEffectivePlan(opts.userId) : null;
+    if (plan === null) {
+      // The rule WILL now fail closed. Say why, loudly enough to find: either
+      // the call site is platform-wide (the key should not be plan-targetable —
+      // see PLAN_TARGETABLE_FLAGS) or the users read failed.
+      logEvent("warn", "feature_flag.plan_unresolved", {
+        key,
+        reason: opts.userId ? "lookup_failed" : "no_user_id",
+      });
+    }
+    resolved = { ...opts, plan: plan ?? undefined };
+  }
+
+  const enabled = resolveFlagRule(key, rule, resolved);
   if (!enabled) logEvent("info", "feature_flag.disabled_hit", { key });
   return enabled;
 }
 
 // Clear the cache (used after an admin toggle so the change is instant for the
 // replica that handled the toggle; other replicas pick it up within the TTL).
+// Drops the resolved-plan cache too: a rule edit can turn an untargeted flag
+// into a targeted one, and a stale plan would decide the first TTL of it.
 export function clearFeatureFlagCache(): void {
   cache.clear();
+  planCache.clear();
 }
 
 // Standard 503 body for a disabled flow.
@@ -225,12 +407,21 @@ export function featureDisabledBody(key: FeatureKey): { error: string; code: str
 
 // Hono middleware that 503s a whole route group when its flag is off. Use for
 // flows with many endpoints (e.g. content AI) instead of gating each handler.
+//
+// US-2406: forwards the request's userId when the auth middleware has set one,
+// so a route group gated this way honours plan targeting and percentage rollout
+// like any hand-written call site. Read defensively — the middleware is also
+// mounted ahead of unauthenticated paths, and a missing userId simply means the
+// rule is evaluated without one.
 export function featureGate(key: FeatureKey) {
   return async (
     c: { json: (body: unknown, status?: number) => Response },
     next: () => Promise<void>,
   ): Promise<Response | void> => {
-    if (!(await isFeatureEnabled(key))) {
+    const ctx = c as { get?: (k: string) => unknown };
+    const raw = typeof ctx.get === "function" ? ctx.get("userId") : undefined;
+    const userId = typeof raw === "string" && raw ? raw : undefined;
+    if (!(await isFeatureEnabled(key, { userId }))) {
       return c.json(featureDisabledBody(key), 503);
     }
     await next();

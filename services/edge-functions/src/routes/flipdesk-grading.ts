@@ -484,7 +484,11 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
 
   // Grading kill-switch + inline AI budget breach — block before any charge so
   // the FlipDesk grading entry can't keep spending after the budget tripped.
-  if (!(await isFeatureEnabled("grading")) || (await isAiBudgetExhausted("grading"))) {
+  // US-2406: owner-scoped so plan targeting / rollout is honoured.
+  if (
+    !(await isFeatureEnabled("grading", { userId: ownerId })) ||
+    (await isAiBudgetExhausted("grading"))
+  ) {
     return c.json(featureDisabledBody("grading"), 503);
   }
 

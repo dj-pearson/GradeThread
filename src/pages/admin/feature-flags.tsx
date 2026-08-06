@@ -52,6 +52,11 @@ interface FlagRow {
   starts_at: string | null;
   ends_at: string | null;
   updated_at: string;
+  // US-2406: false when this flag has a platform-wide caller (a scheduled job
+  // that runs it with no user), so no plan can be resolved for it. The server
+  // refuses plan_targets on those; the editor greys the control out to match.
+  // Optional so a cached response from before this field shipped still renders.
+  plan_targetable?: boolean;
 }
 
 interface FlagsResponse {
@@ -181,6 +186,10 @@ function RuleEditorDialog({
   const scheduleInvalid = Boolean(
     startsLocal && endsLocal && new Date(endsLocal) <= new Date(startsLocal),
   );
+  // US-2406: default TRUE when the field is absent, so an older cached list
+  // doesn't lock the control for a flag that can in fact be targeted — the
+  // server still refuses the save either way.
+  const planTargetable = flag?.plan_targetable !== false;
 
   return (
     <Dialog open={flag != null} onOpenChange={onOpenChange}>
@@ -260,8 +269,10 @@ function RuleEditorDialog({
                   <Badge
                     key={p}
                     variant={on ? "default" : "outline"}
-                    className="cursor-pointer capitalize"
-                    onClick={() => enabled && togglePlan(p)}
+                    className={planTargetable
+                      ? "cursor-pointer capitalize"
+                      : "cursor-not-allowed capitalize opacity-50"}
+                    onClick={() => enabled && planTargetable && togglePlan(p)}
                   >
                     {p}
                   </Badge>
@@ -269,9 +280,11 @@ function RuleEditorDialog({
               })}
             </div>
             <p className="text-xs text-muted-foreground">
-              {planTargets.length === 0
+              {!planTargetable
+                ? "This flag is checked by a scheduled job that runs for everyone at once, so there is no one plan to match. Use rollout percentage, the allow list, or the schedule instead."
+                : planTargets.length === 0
                 ? "No plans selected = all plans."
-                : `Limited to: ${planTargets.join(", ")}.`}
+                : `Limited to: ${planTargets.join(", ")}. Matched against the plan the account is actually entitled to, so a lapsed subscription counts as Free.`}
             </p>
           </div>
 

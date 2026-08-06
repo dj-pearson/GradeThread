@@ -25,8 +25,10 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   clearFeatureFlagCache,
   type FeatureFlagRule,
+  isPlanTargetable,
   resolveFlagRule,
 } from "../lib/feature-flags.ts";
+import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import { jsonError } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireFreshStepUp, requireStepUp } from "../lib/step-up.ts";
@@ -75,7 +77,15 @@ adminFlagsRoutes.get("/", async (c) => {
     .select(FLAG_SELECT)
     .order("key");
   if (error) return jsonError(c, 500, "Failed to load feature flags");
-  return c.json({ flags: data ?? [], plans: [...VALID_PLANS] });
+  // US-2406: `plan_targetable` tells the editor whether the plan control can do
+  // anything for this flag. A flag with a platform-wide caller (a cron) cannot
+  // resolve a plan, so targeting it would only ever switch it off — the PUT
+  // below refuses it, and this lets the UI grey the control out first.
+  const flags = ((data ?? []) as unknown as Array<Record<string, unknown>>).map((f) => ({
+    ...f,
+    plan_targetable: isPlanTargetable(String(f.key ?? "")),
+  }));
+  return c.json({ flags, plans: [...VALID_PLANS] });
 });
 
 // ── Fast kill-switch toggle (enabled only). Body: { key, enabled } ──
@@ -254,6 +264,20 @@ adminFlagsRoutes.put("/:key/rule", async (c) => {
     return jsonError(c, 400, "No editable fields provided");
   }
 
+  // US-2406: refuse targeting a flag whose callers cannot resolve a plan.
+  // Saving it would look like a limit and behave like an off-switch (the runtime
+  // fails closed on an unresolvable plan), so the mistake is stopped here — at
+  // the moment it is made, where the operator can read why.
+  if ((valid.value.plan_targets?.length ?? 0) > 0 && !isPlanTargetable(key)) {
+    return jsonError(
+      c,
+      400,
+      `The "${key}" flag is evaluated platform-wide (a scheduled job runs it with ` +
+        `no user), so it cannot be limited to a plan. Use rollout percentage, the ` +
+        `per-user allow list, or the schedule window instead.`,
+    );
+  }
+
   const { data: before } = await supabaseAdmin
     .from("feature_flags")
     .select(FLAG_SELECT)
@@ -319,19 +343,39 @@ adminFlagsRoutes.post("/preview", async (c) => {
   if (countErr) return jsonError(c, 500, "Failed to count users");
   const totalUsers = total ?? 0;
 
-  // Pull a bounded sample of (id, flipdesk_plan) and resolve each. US-2398: the
-  // preview must sample the same column the rule targets, or it reports a reach
-  // for a tier nobody is recorded as holding.
+  // Pull a bounded sample and resolve each. US-2398: the preview must sample the
+  // same column the rule targets, or it reports a reach for a tier nobody is
+  // recorded as holding.
+  //
+  // US-2406 AC3: it must also resolve the plan the same WAY the runtime does, or
+  // the preview and the behaviour disagree — which is precisely what hid the
+  // original defect. isFeatureEnabled resolves through effectivePlanFor, so a
+  // lapsed Pro is Free and a comp is its granted tier; the raw column would
+  // over-count both. Same four inputs, same function.
   const { data: rows, error: rowsErr } = await supabaseAdmin
     .from("users")
-    .select("id, flipdesk_plan")
+    .select("id, flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
     .limit(PREVIEW_SAMPLE_CAP);
   if (rowsErr) return jsonError(c, 500, "Failed to load users for preview");
 
-  const sample = (rows ?? []) as Array<{ id: string; flipdesk_plan: string | null }>;
+  const sample = (rows ?? []) as Array<{
+    id: string;
+    flipdesk_plan: string | null;
+    subscription_status: string | null;
+    trial_ends_at: string | null;
+    past_due_since: string | null;
+  }>;
+  const previewNow = new Date();
   let enabledInSample = 0;
   for (const u of sample) {
-    if (resolveFlagRule(key, rule, { userId: u.id, plan: u.flipdesk_plan ?? undefined })) {
+    const plan = effectivePlanFor(
+      u.flipdesk_plan ?? "free",
+      u.subscription_status,
+      u.trial_ends_at,
+      previewNow,
+      u.past_due_since,
+    );
+    if (resolveFlagRule(key, rule, { userId: u.id, plan })) {
       enabledInSample++;
     }
   }
