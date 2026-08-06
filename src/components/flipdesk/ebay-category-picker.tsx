@@ -87,6 +87,42 @@ interface Props {
   needsReviewAspects?: string[] | null;
 }
 
+/**
+ * The next value array for an aspect, given what the CONTROL meant.
+ *
+ * `intent` is not the aspect's cardinality, and conflating the two is the bug
+ * this exists to prevent. Toggling is only right for the chip row
+ * (SELECTION_ONLY + MULTI); a text box and a dropdown always REPLACE.
+ *
+ * Deciding on cardinality alone silently broke every MULTI **free-text** aspect
+ * — on Women's Tops that is Material, Occasion, Accents, Theme, Features,
+ * Character and MPN, each of which renders as a plain text box. Every keystroke
+ * appended instead of replacing: clearing "Jersey" appended "" and left
+ * `["Jersey", ""]`, and typing "Silk" gave `["Jersey", "S", "Si", …]`. The box
+ * redisplays the stored value once the focus draft is dropped, so the seller
+ * watched the field snap straight back — reported as "Material and Occasion
+ * won't let me change or null out".
+ */
+export function nextAspectValues(
+  existing: string[],
+  value: string,
+  opts: { intent: "toggle" | "set"; multi: boolean },
+): string[] {
+  if (opts.intent === "toggle") {
+    return existing.includes(value)
+      ? existing.filter((v) => v !== value)
+      : [...existing, value];
+  }
+  if (opts.multi) {
+    // eBay's own convention for a multi-value specific typed as text.
+    return value
+      .split(",")
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+  }
+  return value ? [value] : [];
+}
+
 // 250ms debounce — eBay's Taxonomy quota is generous but not free.
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -467,18 +503,14 @@ export function EbayCategoryPicker({
     onCategoryChange?.(null, null);
   }
 
-  function setAspect(name: string, value: string, cardinality: string) {
+  function setAspect(
+    name: string,
+    value: string,
+    opts: { intent: "toggle" | "set"; multi: boolean },
+  ) {
     // Compute the resulting value array so provenance can track whether the
     // aspect is now filled (manual) or cleared (drop the source entry).
-    const existing = aspectValues[name] ?? [];
-    const nextArr =
-      cardinality === "MULTI"
-        ? existing.includes(value)
-          ? existing.filter((v) => v !== value)
-          : [...existing, value]
-        : value
-          ? [value]
-          : [];
+    const nextArr = nextAspectValues(aspectValues[name] ?? [], value, opts);
     setAspectValues((prev) => ({ ...prev, [name]: nextArr }));
     // US-825: a manual edit is `manual` provenance; a cleared field drops out.
     setSources((prev) => {
@@ -835,7 +867,11 @@ function AspectGroup({
   rewrites: Record<string, AspectRewrite>;
   isNeedsReview: (name: string) => boolean;
   itemCategory: string | null;
-  onChange: (name: string, value: string, cardinality: string) => void;
+  onChange: (
+    name: string,
+    value: string,
+    opts: { intent: "toggle" | "set"; multi: boolean },
+  ) => void;
 }) {
   return (
     <div>
@@ -874,12 +910,13 @@ function AspectGroup({
                 needsReview={isNeedsReview(a.localizedAspectName)}
                 syncedField={syncedField}
                 measurementSynced={!!measKey}
-                onChange={(v) =>
-                  onChange(
-                    a.localizedAspectName,
-                    v,
-                    a.aspectConstraint.itemToAspectCardinality ?? "SINGLE"
-                  )
+                onChange={(v, intent) =>
+                  onChange(a.localizedAspectName, v, {
+                    intent,
+                    multi:
+                      (a.aspectConstraint.itemToAspectCardinality ?? "SINGLE") ===
+                      "MULTI",
+                  })
                 }
               />
             );
@@ -910,7 +947,8 @@ function AspectField({
   syncedField?: string | null;
   /** True when syncedField is a Measurements section key (live mirror). */
   measurementSynced?: boolean;
-  onChange: (v: string) => void;
+  /** `toggle` = the chip row added/removed one value; `set` = replace the lot. */
+  onChange: (v: string, intent: "toggle" | "set") => void;
 }) {
   const cardinality = aspect.aspectConstraint.itemToAspectCardinality ?? "SINGLE";
   const mode = aspect.aspectConstraint.aspectMode ?? "FREE_TEXT";
@@ -995,7 +1033,7 @@ function AspectField({
                 <button
                   key={v.localizedValue}
                   type="button"
-                  onClick={() => onChange(v.localizedValue)}
+                  onClick={() => onChange(v.localizedValue, "toggle")}
                   className={cn(
                     "rounded-full border px-2 py-0.5 text-xs transition-colors",
                     selected
@@ -1013,7 +1051,7 @@ function AspectField({
             id={fieldId}
             className="w-full rounded-md border bg-background px-2 py-1.5 text-xs"
             value={value[0] ?? ""}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => onChange(e.target.value, "set")}
           >
             <option value="">— Choose —</option>
             {allowedValues.map((v) => (
@@ -1026,10 +1064,13 @@ function AspectField({
       ) : (
         <Input
           id={fieldId}
-          value={draft ?? value[0] ?? ""}
+          // A MULTI aspect typed as text holds several values; show them all,
+          // comma-separated, the way eBay renders them. Showing value[0] alone
+          // hid every value past the first and made an edit look discarded.
+          value={draft ?? (cardinality === "MULTI" ? value.join(", ") : value[0] ?? "")}
           onChange={(e) => {
             setDraft(e.target.value);
-            onChange(e.target.value);
+            onChange(e.target.value, "set");
           }}
           onBlur={(e) => {
             // Picking a <datalist> suggestion by mouse fires only a `change`
@@ -1041,7 +1082,9 @@ function AspectField({
             // datalist selection sticks. A no-op for plain typing (the value is
             // already committed via onChange).
             const committed = e.currentTarget.value;
-            if (committed !== (value[0] ?? "")) onChange(committed);
+            const shown =
+              cardinality === "MULTI" ? value.join(", ") : (value[0] ?? "");
+            if (committed !== shown) onChange(committed, "set");
             setDraft(null);
           }}
           className="h-8 text-xs"
