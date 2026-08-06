@@ -155,14 +155,17 @@ final class PhotoUploadTests: XCTestCase {
     /// manually: until it fires the store still holds the (now-cancelled)
     /// tasks; once it fires every trace is gone. A sign-out → sign-in can
     /// therefore never surface a previous user's residual upload progress.
-    func test_cancelAll_resetsStoreDeterministicallyAfterCancellation() {
+    func test_cancelAll_resetsStoreDeterministicallyAfterCancellation() throws {
         let store = PhotoUploadStore()
         var seeded = makeTask(slot: .front, itemId: "item-A")
         seeded.phase = .uploading(progress: 0.4)
         store.upsert(seeded)
 
+        // US-2338: the container is a required init parameter now — this test
+        // used to omit it, which is the same omission the app itself made.
         let service = PhotoUploadService(
             store: store,
+            modelContainer: try makeContainer(),
             sessionIdentifier: "test-cancel-\(UUID().uuidString)"
         )
 
@@ -348,6 +351,69 @@ final class PhotoUploadTests: XCTestCase {
 
     // MARK: - Helpers
 
+    // MARK: - US-2338 the container is wired, and both directions of it work
+
+    /// The write half. `enqueuePendingMutation` sat behind
+    /// `guard let container = modelContainer else { return }`, and the app's one
+    /// service was built without a container — so on the real device this row was
+    /// never written and the failed upload was never replayed. The assertion is
+    /// the row's presence in the container the service was CONSTRUCTED with,
+    /// which is the wiring the app used to get wrong.
+    func test_queuedUploadMutation_isPersistedInTheServicesOwnContainer() throws {
+        let container = try makeContainer()
+        let service = PhotoUploadService(
+            store: PhotoUploadStore(),
+            modelContainer: container,
+            sessionIdentifier: "test-wiring-\(UUID().uuidString)"
+        )
+        let task = makeTask(slot: .front, itemId: "item-W")
+
+        service.handlePhotoLinkFailure(task: task, message: "token expired")
+
+        let rows = try ModelContext(container).fetch(FetchDescriptor<LocalPendingMutation>())
+        XCTAssertEqual(rows.count, 1, "a failed link must leave a durable replay row")
+        XCTAssertEqual(rows.first?.kindEnum, .uploadPhoto)
+    }
+
+    /// The read half, which is the part no test covered and the reason a missing
+    /// container was worse than "the retry is lost". `pendingUploadFilenames`
+    /// returned `[]` behind its own guard, so the stale-temp sweeper saw NOTHING
+    /// referenced and would delete the staged JPEG a queued upload replays from —
+    /// turning a recoverable failure into `missingLocalFile`. Here the referenced
+    /// file must survive a sweep that removes an unreferenced one of the same age.
+    func test_staleTempSweep_keepsFileAQueuedUploadStillNeeds() throws {
+        let container = try makeContainer()
+        let service = PhotoUploadService(
+            store: PhotoUploadStore(),
+            modelContainer: container,
+            sessionIdentifier: "test-sweep-\(UUID().uuidString)"
+        )
+
+        let staging = PhotoUploadService.stagingDirectory()
+        let referenced = staging.appendingPathComponent("photo-upload-keep-\(UUID().uuidString).jpg")
+        let orphan = staging.appendingPathComponent("photo-upload-drop-\(UUID().uuidString).jpg")
+        try Data([0xFF, 0xD8]).write(to: referenced)
+        try Data([0xFF, 0xD8]).write(to: orphan)
+        defer {
+            try? FileManager.default.removeItem(at: referenced)
+            try? FileManager.default.removeItem(at: orphan)
+        }
+
+        let task = makeTask(slot: .front, itemId: "item-S", localFileURL: referenced)
+        service.handlePhotoLinkFailure(task: task, message: "token expired")
+
+        // Both files are "old" from the sweep's point of view (clock pushed an
+        // hour forward against a 60s threshold), so only the reference saves one.
+        service.cleanupStaleTempFiles(olderThan: 60, now: Date().addingTimeInterval(3_600))
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: referenced.path),
+            "a staged JPEG a queued upload replays from must survive the sweep")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: orphan.path),
+            "an unreferenced staged JPEG of the same age should still be swept")
+    }
+
     private func makeContainer() throws -> ModelContainer {
         let schema = Schema([
             LocalInventoryItem.self,
@@ -363,14 +429,15 @@ final class PhotoUploadTests: XCTestCase {
 
     private func makeTask(
         slot: PhotoSlotType = .front,
-        itemId: String = "item-A"
+        itemId: String = "item-A",
+        localFileURL: URL? = nil
     ) -> PhotoUploadTask {
         PhotoUploadTask(
             inventoryItemId: itemId,
             userId: "user-1",
             slot: slot,
             storagePath: "user-1/\(itemId)/\(slot.serverPhotoType)_0.jpg",
-            localFileURL: URL(fileURLWithPath: "/tmp/nope-\(UUID()).jpg"),
+            localFileURL: localFileURL ?? URL(fileURLWithPath: "/tmp/nope-\(UUID()).jpg"),
             bytes: 1024
         )
     }

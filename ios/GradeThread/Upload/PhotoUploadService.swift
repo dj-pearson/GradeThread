@@ -38,7 +38,16 @@ public final class PhotoUploadService {
 
     private let store: PhotoUploadStore
     private let supabaseClient: SupabaseClient
-    private let modelContainer: ModelContainer?
+    /// US-2338: NON-OPTIONAL, and that is the fix rather than a detail of it.
+    /// This was `ModelContainer?` with a `nil` default, and the app's one
+    /// instance was constructed without it for the whole life of the class —
+    /// three `guard let container = modelContainer else { return }` sites then
+    /// swallowed every pending-mutation write AND the read that lists them, so a
+    /// failed upload was neither queued for replay nor visible in the
+    /// pending-changes inspector. An optional the caller may forget is a wiring
+    /// mistake the compiler cannot see; a required parameter is one it cannot
+    /// miss, which is a stronger guarantee than making the guards loud.
+    private let modelContainer: ModelContainer
 
     private var session: URLSession!
     private let sessionDelegate: SessionDelegate
@@ -106,7 +115,7 @@ public final class PhotoUploadService {
     public init(
         store: PhotoUploadStore,
         supabaseClient: SupabaseClient = SupabaseShared.client,
-        modelContainer: ModelContainer? = nil,
+        modelContainer: ModelContainer,
         // Defaults to the stable production identifier; tests pass a unique one
         // so each constructed service claims its own background session.
         sessionIdentifier: String = PhotoUploadService.backgroundSessionIdentifier
@@ -737,9 +746,8 @@ public final class PhotoUploadService {
     /// missed delete self-heals because the SyncEngine replay upserts the same
     /// deterministic id.
     private func deletePendingUploadMutation(photoId: String, targetId: String) {
-        guard let container = modelContainer else { return }
         let kindRaw = MutationKind.uploadPhoto.rawValue
-        let context = ModelContext(container)
+        let context = ModelContext(modelContainer)
         let descriptor = FetchDescriptor<LocalPendingMutation>(
             predicate: #Predicate { $0.kind == kindRaw && $0.targetId == targetId }
         )
@@ -760,8 +768,7 @@ public final class PhotoUploadService {
     /// offline-queued upload still needs. Handles both the new relative-filename
     /// payloads and pre-fix absolute paths (takes the last path component).
     private func pendingUploadFilenames() -> Set<String> {
-        guard let container = modelContainer else { return [] }
-        let context = ModelContext(container)
+        let context = ModelContext(modelContainer)
         let kindRaw = MutationKind.uploadPhoto.rawValue
         let rows = (try? context.fetch(FetchDescriptor<LocalPendingMutation>(
             predicate: #Predicate { $0.kind == kindRaw }))) ?? []
@@ -778,7 +785,6 @@ public final class PhotoUploadService {
     /// pass on a healthy network picks it back up. Mutation payload carries
     /// enough metadata for a clean re-upload.
     private func enqueuePendingMutation(for task: PhotoUploadTask, sortOrder: Int, message: String) {
-        guard let container = modelContainer else { return }
         struct Payload: Codable {
             let inventory_item_id: String
             let user_id: String
@@ -826,7 +832,7 @@ public final class PhotoUploadService {
             )
             return
         }
-        let context = ModelContext(container)
+        let context = ModelContext(modelContainer)
         // US-1621: idempotent — the same photo can be persisted at enqueue AND
         // again on a later failure; keep exactly ONE pending mutation per
         // deterministic photo_id so a re-queue never duplicates the row.

@@ -13,7 +13,13 @@ struct GradeThreadApp: App {
     /// (delete + recreate, falling back to in-memory) instead of `fatalError`-ing
     /// the app into an unrecoverable relaunch loop. The outcome carries whether
     /// the local cache had to be reset so we can show a one-time notice.
-    private let storeOutcome: ModelStoreProvider.LoadOutcome = ModelStoreProvider.load()
+    ///
+    /// US-2338: the load itself now happens in ``AppDelegate`` and is read back
+    /// through the adaptor. A stored property here could not be passed to the
+    /// delegate's `photoUploadService`, which is why that service spent its whole
+    /// life without a container; a computed property CAN reach `appDelegate`, so
+    /// the delegate owning the store is what lets the service be built with one.
+    private var storeOutcome: ModelStoreProvider.LoadOutcome { appDelegate.storeOutcome }
 
     private var container: ModelContainer { storeOutcome.container }
 

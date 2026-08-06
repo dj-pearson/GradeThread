@@ -546,12 +546,17 @@ actor SyncMergeActor {
     /// id is in `protectedIds` are never pruned — those are offline creates /
     /// staged photo uploads whose server row legitimately doesn't exist yet.
     /// - Parameters:
+    ///   - scopeOwnerId: the tenant the id sets were fetched under (US-2337).
+    ///     Non-optional on purpose: pruning is only sound against a scan that
+    ///     was scoped to a known owner, and the caller passing "I don't know"
+    ///     is the exact bug this parameter exists to make unrepresentable.
     ///   - itemIds: surviving `inventory_items` id set (US-1495). A `nil` means
     ///     the fetch failed → items are left untouched.
     ///   - protectedItemIds: ids the inventory-item prune must never remove —
     ///     pending creates PLUS rows with a genuinely-pending local edit
     ///     (`hasLocalChanges`), so an offline edit isn't dropped mid-flush.
     func reconcileDeletes(
+        scopeOwnerId: String,
         itemIds: Set<String>? = nil,
         saleIds: Set<String>?,
         expenseIds: Set<String>?,
@@ -560,6 +565,19 @@ actor SyncMergeActor {
         protectedIds: Set<String>,
         protectedItemIds: Set<String>? = nil
     ) {
+        // US-2337 (second guard, at the destructive site). ``SyncEngine`` already
+        // refuses to run the id-scans without a resolved owner; this repeats the
+        // check where the deletes actually happen, because every other caller of
+        // this function — a future one, a test, a refactor — gets the same floor
+        // for free. A blank id means the scan carried `.eq("user_id", "")`, which
+        // matches nothing, so its empty result says nothing about the server.
+        guard !scopeOwnerId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            Telemetry.backgroundBreadcrumb(
+                "Sync reconcile refused: prune requested under an unresolved tenant scope",
+                category: "sync")
+            return
+        }
+
         var pruned = 0
         if let itemIds {
             // US-1495: items deleted on the web (or another device) previously
