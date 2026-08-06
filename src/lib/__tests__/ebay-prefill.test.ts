@@ -425,3 +425,115 @@ describe("syncedItemFieldFor", () => {
     expect(syncedItemFieldFor("Occasion", "clothing")).toBeNull();
   });
 });
+
+// A category can expose TWO names for one canonical field. Women's Tops (53159)
+// has "Style" and "Type" (both style-column candidates) and "Material" and
+// "Fabric Type" (both material). Binding the column to every match made the
+// second row of each pair dead: it rendered as an editable specific, but the
+// column overwrote it on every save, so Type could not say Blouse while Style
+// said Sheath. The registry's `aspects` list is a PRIORITY order — first name
+// the category has wins, the rest are free.
+describe("one field owns ONE aspect per category", () => {
+  const spec = [free("Type"), free("Style"), free("Material"), free("Fabric Type")];
+  const item: ItemAspectSource = {
+    ...base,
+    style: "Sheath",
+    material: "Jersey",
+  };
+
+  it("gap-fills only the owned name", () => {
+    expect(deriveAspectsFromItem(item, spec, {})).toEqual({
+      Style: ["Sheath"],
+      Material: ["Jersey"],
+    });
+  });
+
+  it("projects onto the owned name and leaves the neighbour alone", () => {
+    const { aspects } = projectColumnAspectsForSpec(
+      item,
+      spec,
+      { Type: ["Blouse"], "Fabric Type": ["Rayon"] },
+      { Type: "manual", "Fabric Type": "manual" },
+    );
+    expect(aspects).toEqual({
+      Type: ["Blouse"],
+      "Fabric Type": ["Rayon"],
+      Style: ["Sheath"],
+      Material: ["Jersey"],
+    });
+  });
+
+  it("does not treat an edit to the free neighbour as a column rename", () => {
+    expect(
+      reverseProjectAspectColumns(
+        item,
+        { Type: ["Blouse"], Style: ["Sheath"] },
+        { Type: "manual", Style: "inventory_derived" },
+        null,
+        spec,
+      ).columns,
+    ).toEqual({});
+  });
+
+  it("still writes back an edit to the owned name", () => {
+    expect(
+      reverseProjectAspectColumns(
+        item,
+        { Type: ["Blouse"], Style: ["Wrap"] },
+        { Type: "manual", Style: "manual" },
+        null,
+        spec,
+      ).columns,
+    ).toEqual({ style: "Wrap" });
+  });
+});
+
+// Emptying a column-backed specific used to be impossible: the reverse pass
+// ignored empty aspects so the column kept its value, and the forward
+// projection re-asserted it on the same save. Brand/Size/Color/Material all
+// snapped back. `baseline` (the last-saved map) is the evidence that separates
+// a deliberate clear from a category that never had the field.
+describe("clearing a specific reaches its backing field", () => {
+  const spec = [free("Material"), free("Pattern")];
+  const item: ItemAspectSource = {
+    ...base,
+    material: "Jersey",
+    attributes: { pattern: "Solid" },
+  };
+  const saved = { Material: ["Jersey"], Pattern: ["Solid"] };
+
+  it("clears the column and the attribute when the seller empties the row", () => {
+    const wb = reverseProjectAspectColumns(
+      item,
+      { Material: [], Pattern: [] },
+      {},
+      saved,
+      spec,
+    );
+    expect(wb.columns).toEqual({ material: null });
+    expect(wb.attributes).toEqual({ pattern: null });
+  });
+
+  it("a cleared column then stops the forward projection re-asserting it", () => {
+    const { aspects } = projectColumnAspectsForSpec(
+      { ...item, material: null },
+      spec,
+      { Material: [] },
+      {},
+    );
+    expect(aspects.Material).toEqual([]);
+  });
+
+  it("clears nothing without a baseline (the pre-existing contract)", () => {
+    const wb = reverseProjectAspectColumns(item, { Material: [] }, {}, null, spec);
+    expect(wb.columns).toEqual({});
+    expect(wb.attributes).toEqual({});
+  });
+
+  it("re-categorising to a spec WITHOUT the aspect never clears the column", () => {
+    // The dangerous direction: a category that simply lacks "Material" must not
+    // read as "the seller emptied Material".
+    const wb = reverseProjectAspectColumns(item, {}, {}, saved, [free("Pattern")]);
+    expect(wb.columns).toEqual({});
+  });
+});

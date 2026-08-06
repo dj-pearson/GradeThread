@@ -276,10 +276,52 @@ function fillAspect(aspect: RegistryAspect, values: string[], entryMulti: boolea
 }
 
 /**
+ * The ONE aspect in this category that a registry entry owns, or null when the
+ * category exposes none of its names.
+ *
+ * An entry lists several names because different leaves name the same field
+ * differently — and some leaves expose MORE THAN ONE of them at once. Women's
+ * Tops has both "Material" and "Fabric Type" (the material entry) and both
+ * "Style" and "Type" (the style entry). Treating every match as backed by the
+ * column made those rows unusable: the column overwrote both on each save, so
+ * "Type" could not be set to Blouse while "Style" said Sheath, and the second
+ * row of each pair looked editable while being incapable of holding an edit.
+ *
+ * `aspects` in the registry is a PRIORITY list, so the first candidate the
+ * category actually has wins and every other name is left alone — free for the
+ * seller, the AI, or an inbound sync to fill independently. Byonly ever binding
+ * one name, the column stays single-entry without swallowing its neighbours.
+ */
+export function ownedAspectName(
+  entry: { source: string; column?: string; attribute?: string; aspects: string[]; byCategory?: Record<string, string[]> },
+  category: string | null,
+  aspects: RegistryAspect[],
+): string | null {
+  const byLower = new Map<string, string>();
+  for (const aspect of aspects) {
+    const name = (aspect.name ?? "").trim();
+    const l = name.toLowerCase();
+    if (name && !byLower.has(l)) byLower.set(l, name);
+  }
+  for (const cand of effectiveCandidates(
+    entry as Parameters<typeof effectiveCandidates>[0],
+    category,
+  )) {
+    const hit = byLower.get(cand);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
  * Map an item's canonical fields onto a category's aspects via the registry.
  * Returns ONLY aspects not already set in `existing` (user-set values win, per
  * AC4). The single resolve function the edge consumes directly and the web
  * mirrors (driven by the same vendored registry data).
+ *
+ * Iterates ENTRIES (not the spec) so each canonical field fills exactly the one
+ * aspect it owns — see ownedAspectName. Filling every matching name is what let
+ * a cleared "Type" come straight back from the style column on the next revise.
  */
 export function resolveItemAspects(
   item: RegistryItem,
@@ -287,17 +329,19 @@ export function resolveItemAspects(
   existing: Record<string, string[]>,
 ): Record<string, string[]> {
   const category = item.item_category ?? null;
-  const out: Record<string, string[]> = {};
+  const byName = new Map<string, RegistryAspect>();
   for (const aspect of aspects) {
     const name = (aspect.name ?? "").trim();
+    if (name && !byName.has(name)) byName.set(name, aspect);
+  }
+  const out: Record<string, string[]> = {};
+  for (const entry of ASPECT_REGISTRY.entries) {
+    const name = ownedAspectName(entry, category, aspects);
     if (!name) continue;
     if ((existing[name]?.length ?? 0) > 0) continue; // never overwrite user-set
     if (out[name]) continue;
-    const lname = name.toLowerCase();
-    const entry = ASPECT_REGISTRY.entries.find((e) =>
-      effectiveCandidates(e, category).includes(lname),
-    );
-    if (!entry) continue;
+    const aspect = byName.get(name);
+    if (!aspect) continue;
     const values = canonicalValues(entry, item);
     if (!values || values.length === 0) continue;
     const filled = fillAspect(aspect, values, entry.multi);
@@ -327,18 +371,22 @@ export function columnAspectProjection(
   aspects: RegistryAspect[],
 ): { set: Record<string, string[]>; clear: string[] } {
   const category = item.item_category ?? null;
-  const set: Record<string, string[]> = {};
-  const clear: string[] = [];
+  const byName = new Map<string, RegistryAspect>();
   for (const aspect of aspects) {
     const name = (aspect.name ?? "").trim();
+    if (name && !byName.has(name)) byName.set(name, aspect);
+  }
+  const set: Record<string, string[]> = {};
+  const clear: string[] = [];
+  // One aspect per column — see ownedAspectName. Forcing the column onto every
+  // name it could match is what pinned "Fabric Type" to "Material" and "Type"
+  // to "Style" on this seller's Women's Tops listing.
+  for (const entry of ASPECT_REGISTRY.entries) {
+    if (entry.source !== "column") continue;
+    const name = ownedAspectName(entry, category, aspects);
     if (!name || set[name]) continue;
-    const lname = name.toLowerCase();
-    const entry = ASPECT_REGISTRY.entries.find(
-      (e) =>
-        e.source === "column" &&
-        effectiveCandidates(e, category).includes(lname),
-    );
-    if (!entry) continue;
+    const aspect = byName.get(name);
+    if (!aspect) continue;
     const values = canonicalValues(entry, item);
     if (!values || values.length === 0) {
       clear.push(name); // column blanked → drop the stale aspect
@@ -387,28 +435,30 @@ export function applyColumnAspects(
  * "why am I typing this in two places" confusion. Purely structural — no item
  * needed — so a client can ask for it as soon as it knows the category.
  *
- * Every candidate is considered, INCLUDING the per-vertical extras (shoes →
- * "US Shoe Size"). Over-matching is the safe direction here: if a category
- * really exposes "US Shoe Size" then the Size column does own it, whatever the
- * item's item_category happens to say.
+ * Every VERTICAL is considered, including the per-vertical extras (shoes → "US
+ * Shoe Size"), because the caller may not know the item's item_category. But
+ * only the ONE name each column owns in this category is returned — the same
+ * name columnAspectProjection writes (see ownedAspectName). Returning every
+ * candidate told clients to hide "Type" and "Fabric Type" as column-backed when
+ * the column actually writes "Style" and "Material"; those rows are ordinary
+ * editable specifics and hiding them removed the only way to set them.
  */
 export function columnBackedAspectNames(aspects: RegistryAspect[]): string[] {
-  const candidates = new Set<string>();
-  for (const entry of ASPECT_REGISTRY.entries) {
-    if (entry.source !== "column" || !entry.column) continue;
-    for (const name of entry.aspects) candidates.add(name.toLowerCase());
-    for (const extras of Object.values(entry.byCategory ?? {})) {
-      for (const name of extras) candidates.add(name.toLowerCase());
-    }
-  }
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const aspect of aspects) {
-    const name = (aspect.name ?? "").trim();
-    const l = name.toLowerCase();
-    if (!name || seen.has(l) || !candidates.has(l)) continue;
-    seen.add(l);
-    out.push(name);
+  for (const entry of ASPECT_REGISTRY.entries) {
+    if (entry.source !== "column" || !entry.column) continue;
+    // null category = the entry's own list; then each vertical's extras, since
+    // the caller may know the category only as an eBay leaf.
+    const verticals = [null, ...Object.keys(entry.byCategory ?? {})];
+    for (const vertical of verticals) {
+      const name = ownedAspectName(entry, vertical, aspects);
+      if (!name) continue;
+      const l = name.toLowerCase();
+      if (seen.has(l)) continue;
+      seen.add(l);
+      out.push(name);
+    }
   }
   return out;
 }
@@ -441,6 +491,11 @@ export function reverseColumnAspects(
   item: RegistryItem,
   aspects: Record<string, string[]>,
   sources: Record<string, string | undefined> | null | undefined,
+  // The category spec, when the caller has it. With it, each column reads back
+  // from the ONE aspect it owns (ownedAspectName) — the same name the forward
+  // projection writes. Without it we fall back to scanning the entry's
+  // candidates, which is all a spec-less caller can do.
+  spec?: RegistryAspect[] | null,
 ): Partial<Record<ColumnAspectField, string>> {
   const src = sources ?? {};
   const byLower = new Map<string, string>();
@@ -452,11 +507,25 @@ export function reverseColumnAspects(
   for (const entry of ASPECT_REGISTRY.entries) {
     if (entry.source !== "column" || !entry.column) continue;
     let matchedKey: string | undefined;
-    for (const cand of effectiveCandidates(entry, item.item_category ?? null)) {
-      const key = byLower.get(cand);
-      if (key && (aspects[key]?.length ?? 0) > 0) {
-        matchedKey = key;
-        break;
+    if (spec && spec.length > 0) {
+      const owned = ownedAspectName(entry, item.item_category ?? null, spec);
+      const key = owned ? byLower.get(owned.toLowerCase()) : undefined;
+      if (key && (aspects[key]?.length ?? 0) > 0) matchedKey = key;
+    } else {
+      // Spec-less fallback: prefer the aspect the SELLER touched over whichever
+      // candidate happens to come first, so an edit to a secondary name isn't
+      // discarded because a stale primary still holds a derived value.
+      let matchedRank = 3;
+      for (const cand of effectiveCandidates(entry, item.item_category ?? null)) {
+        const key = byLower.get(cand);
+        if (!key || (aspects[key]?.length ?? 0) === 0) continue;
+        const p = src[key];
+        const rank = p === "manual" ? 0 : p === "ai_extracted" ? 1 : 2;
+        if (rank < matchedRank) {
+          matchedKey = key;
+          matchedRank = rank;
+        }
+        if (rank === 0) break;
       }
     }
     if (!matchedKey) continue;

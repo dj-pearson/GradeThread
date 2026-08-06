@@ -1336,14 +1336,34 @@ export function FlipdeskComposerPage({
       listing?.item_specifics_sources ??
       ebayMapping?.ebay_aspect_sources ??
       {};
-    return reverseProjectAspectColumns(itemAspectSource, liveAspects, liveSources);
+    // `savedAspects` is the baseline that lets an emptied specific read as a
+    // deliberate clear rather than as a category that never had the field — the
+    // difference between "Material can finally be blanked" and "re-categorising
+    // wipes your columns".
+    return reverseProjectAspectColumns(
+      itemAspectSource,
+      liveAspects,
+      liveSources,
+      savedAspects,
+      specAspects,
+    );
   }
 
   function aspectWriteBackPatch(): Record<string, unknown> {
     const wb = columnWriteBack();
     const patch: Record<string, unknown> = { ...wb.columns };
     if (Object.keys(wb.attributes).length > 0) {
-      patch.attributes = { ...(ebayMapping?.attributes ?? {}), ...wb.attributes };
+      // A null attribute is a clear: DELETE the key rather than storing null,
+      // so the jsonb stays a map of real values and every fill-if-blank reader
+      // (deriveAspectsFromItem here and on the edge) treats it as absent.
+      const next: Record<string, string | string[]> = {
+        ...(ebayMapping?.attributes ?? {}),
+      };
+      for (const [key, value] of Object.entries(wb.attributes)) {
+        if (value == null) delete next[key];
+        else next[key] = value;
+      }
+      patch.attributes = next;
     }
     return patch;
   }

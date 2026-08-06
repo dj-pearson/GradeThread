@@ -93,8 +93,6 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
   - **Must not clear** (overwrite-only): the edge publish/revise path
     (`applyColumnAspects`, no `clearEmpty`) and the web composer's
     `projectColumnAspectsForSpec`. Neither has a column input on screen.
-  - Clearing a specific from the picker still works everywhere — the picker drops the key and
-    its provenance entry, so there is nothing left for a projection to preserve.
   - **Why the composer's projection stopped clearing (2026-08-02).** `projectColumnAspectsForSpec`
     did clear, on the reasoning that the reverse pass runs first, so a still-blank column must
     mean a deliberate clear. That holds only while the write-back LANDS. The composer saves the
@@ -105,16 +103,43 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
     subsequent save. Reported symptom: Brand plainly visible in the specifics editor, publish
     refusing with "Fill required eBay specifics in the composer: Brand". Pinned by
     `src/lib/__tests__/ebay-prefill.test.ts`.
+  - **The CLEAR itself moved to the reverse pass (2026-08-05), where the evidence is.** Keeping
+    the projection overwrite-only was right, but it left column-backed specifics impossible to
+    empty at all: the reverse pass ignored empty aspects, so the column kept its value and the
+    projection re-asserted it on the same save. Brand, Size, Color, Material and Type all
+    snapped back, and on the next revise the edge re-derived them too. The missing evidence was
+    a **baseline** — the last-saved aspect map. `reverseProjectAspectColumns(item, aspects,
+    sources, baseline, spec)` writes `null` to the column (and `null` → key deleted for a
+    US-821 attribute) only when the aspect is **present in this category's spec** and **held a
+    value in the baseline**. A category that simply lacks the aspect never matches, so
+    re-categorising still cannot wipe a column, and the partial-save case above still cannot
+    either (the projection is untouched, and the item row is written first). The composer
+    passes `savedAspects` as the baseline; every other caller omits it and keeps the old
+    fill-and-overwrite-only behaviour.
   - **Save order is part of the contract: item row FIRST, listing row second.** The listing row
     records the aspects as column-derived, which is a claim about the item row — so it must not
     be written until the write that fills the columns has succeeded. Both composer save paths
     (`saveDraft`, `saveLiveListing`) do it in that order.
   - **On web the forward projection is SPEC-AWARE** (`projectColumnAspectsForSpec`, US-2381).
-    It resolves each column's aspect name from the **loaded category spec** rather than from
-    the registry's first candidate, because the two differ per category — `Colour`,
+    It resolves each column's aspect name from the **loaded category spec** rather than
+    assuming the registry's first name exists, because the two differ per category — `Colour`,
     `US Shoe Size`, `Fabric Type`. Using a spec-less projection where a spec IS loaded would
     write a second key beside the picker's for the same field — a duplicate specific, not a
     sync.
+  - **ONE field owns ONE aspect per category** (`ownedAspectName`, both sides, 2026-08-05).
+    A category can expose several of an entry's candidate names AT ONCE: Women's Tops (53159)
+    has `Style` **and** `Type` (both style-column candidates) and `Material` **and**
+    `Fabric Type` (both material). The registry's `aspects` array is a **priority list**, so
+    the first candidate the category exposes is bound and every other name is left free for
+    the seller, the AI, or an inbound sync. Both older rules were wrong in opposite
+    directions: the edge's `columnAspectProjection` forced the column onto *every* match, and
+    the web's projection picked whichever matched first in **spec order** (which on Tops bound
+    the style column to `Type`, not `Style`). Either way the unowned twin rendered as an
+    editable row that silently reverted on save — reported as "Type and Fabric Type won't
+    change". The same rule governs the gap-fill (`resolveItemAspects` /
+    `deriveAspectsFromItem`, which now iterate ENTRIES rather than the spec), the reverse pass
+    when it is given a spec, and `columnBackedAspectNames` — so a client no longer hides a
+    free row as column-backed.
   - **The spec-less web projection is gone** (`projectColumnAspects` /
     `projectAttributeAspects`, deleted 2026-08-01). iOS `InventoryAspectSync.swift` and Android
     `AspectSync.kt` still carry that shape and are **correct to**, because their item forms have
@@ -140,7 +165,14 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
   - `ai_extracted` — **fill-if-blank only**, same rule as the inbound eBay/CSV merges.
   - `inventory_derived` / unattributed — never written back (it either came *from* the field,
     possibly normalized e.g. "M" → "Medium", or can't be attributed).
-  - An absent/blank aspect never clears a field — a category spec without the aspect is
+  - **Which aspect it reads back from.** Given a spec, only the ONE name the field owns
+    (`ownedAspectName`) — so an edit to a free neighbour like `Type` is not mistaken for a
+    rename of the `style` column. Without a spec, it scans the entry's candidates and prefers
+    whichever the SELLER touched (`manual`, then `ai_extracted`); taking the first candidate
+    that merely held a value picked the stale twin, failed the provenance test, and dropped
+    the edit on the floor.
+  - A blank aspect clears its field only under the baseline rule above; with no baseline, an
+    absent/blank aspect never clears anything — a category spec without the aspect is
     indistinguishable from an intentional clear.
 - **US-821 canonical attributes** (`department`, `pattern`, `fit`, …) get the same reverse
   treatment on web saves, keyed by `inventory_items.attributes`.

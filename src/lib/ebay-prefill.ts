@@ -105,6 +105,34 @@ function effectiveCandidates(
   return out;
 }
 
+// The ONE aspect in this category that a registry entry owns, or null when the
+// category exposes none of its names. Mirrors the edge's ownedAspectName.
+//
+// An entry lists several names because leaves name the same field differently —
+// and some leaves expose more than one AT ONCE. Women's Tops has "Material" AND
+// "Fabric Type" (material entry) and "Type" AND "Style" (style entry). Binding
+// the column to every match made the extra rows dead: the column re-asserted
+// both on every save, so "Type" could not be set independently of "Style".
+// `aspects` is a PRIORITY list, so the first name the category has wins and the
+// rest stay free for the seller / AI / an inbound sync to fill.
+function ownedAspectName(
+  entry: AspectMappingEntry,
+  category: string | null,
+  aspectList: EbayAspect[],
+): string | null {
+  const byLower = new Map<string, string>();
+  for (const a of aspectList) {
+    const name = (a.localizedAspectName ?? "").trim();
+    const l = name.toLowerCase();
+    if (name && !byLower.has(l)) byLower.set(l, name);
+  }
+  for (const cand of effectiveCandidates(entry, category)) {
+    const hit = byLower.get(cand);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 // The value(s) an entry contributes for this item, or null when absent.
 function canonicalValues(
   entry: AspectMappingEntry,
@@ -191,17 +219,22 @@ export function deriveAspectsFromItem(
   rewritesOut?: Record<string, AspectRewrite>,
 ): Record<string, string[]> {
   const category = item.item_category ?? null;
-  const out: Record<string, string[]> = {};
+  const byName = new Map<string, EbayAspect>();
   for (const aspect of aspectList) {
     const name = (aspect.localizedAspectName ?? "").trim();
+    if (name && !byName.has(name)) byName.set(name, aspect);
+  }
+  const out: Record<string, string[]> = {};
+  // Iterate ENTRIES, so each field fills only the aspect it owns. Filling every
+  // matching name is how a cleared "Type" came straight back from the style
+  // column on the next remap.
+  for (const entry of ASPECT_REGISTRY.entries) {
+    const name = ownedAspectName(entry, category, aspectList);
     if (!name) continue;
     if ((existing[name]?.length ?? 0) > 0) continue;
     if (out[name]) continue;
-    const lname = name.toLowerCase();
-    const entry = ASPECT_REGISTRY.entries.find((e) =>
-      effectiveCandidates(e, category).includes(lname),
-    );
-    if (!entry) continue;
+    const aspect = byName.get(name);
+    if (!aspect) continue;
     const values = canonicalValues(entry, item);
     if (!values || values.length === 0) continue;
     const filled = fillAspect(aspect, values, entry.multi);
@@ -454,13 +487,17 @@ export function projectColumnAspectsForSpec(
   const category = item.item_category ?? null;
   for (const entry of ASPECT_REGISTRY.entries) {
     if (entry.source !== "column" || !entry.column) continue;
-    const candidates = effectiveCandidates(entry, category);
-    const aspect = aspectList.find((a) =>
-      candidates.includes((a.localizedAspectName ?? "").trim().toLowerCase()),
+    // The ONE aspect this column owns here — the registry's priority order, not
+    // whatever the spec happens to list first. `aspectList.find` picked by SPEC
+    // order, which on Women's Tops bound the style column to "Type" (listed
+    // ahead of "Style"): every edit to Type was overwritten by Style's value,
+    // and Style itself looked free while being the thing doing the overwriting.
+    const name = ownedAspectName(entry, category, aspectList);
+    if (!name) continue; // this category has no such specific
+    const aspect = aspectList.find(
+      (a) => (a.localizedAspectName ?? "").trim() === name,
     );
-    if (!aspect) continue; // this category has no such specific
-    const name = (aspect.localizedAspectName ?? "").trim();
-    if (!name) continue;
+    if (!aspect) continue;
     const raw = (item as unknown as Record<string, unknown>)[entry.column];
     const val = typeof raw === "string" ? raw.trim() : "";
     if (!val) continue; // blank column — overwrite-only, see the header
@@ -496,11 +533,13 @@ export function syncedItemFieldFor(
 // The write-back a specifics-editor save owes the item: column patches +
 // changed canonical-attribute keys (caller merges the latter over the item's
 // existing `attributes` jsonb before persisting).
+// `null` = an explicit CLEAR (the seller emptied a specific that was filled).
+// The caller writes null to the column and DELETES the attribute key.
 export interface AspectWriteBack {
   columns: Partial<
-    Record<"brand" | "size" | "color" | "material" | "style", string>
+    Record<"brand" | "size" | "color" | "material" | "style", string | null>
   >;
-  attributes: Record<string, string | string[]>;
+  attributes: Record<string, string | string[] | null>;
 }
 
 // REVERSE projection — the other half of projectColumnAspectsForSpec, so shared
@@ -521,33 +560,95 @@ export interface AspectWriteBack {
 // Covers BOTH registry sources: column entries (brand/size/color/material/
 // style) and US-821 attribute entries (Department, Pattern, Fit, …), so a
 // manually-picked Department finally persists to attributes.department and
-// survives category changes / relists. Absent or blank aspects never clear a
-// field — a category spec without the aspect is indistinguishable from an
-// intentional clear; blanking stays a main-listing-page action.
+// survives category changes / relists.
+//
+// CLEARING (only when `baseline` is supplied). Emptying a column-backed specific
+// used to be impossible: the reverse pass ignored empty aspects, so the column
+// kept its value, and projectColumnAspectsForSpec re-asserted it on the very
+// same save. Brand, Size, Color, Material and Type all snapped straight back.
+// The reason for ignoring them was real — a category spec that simply lacks the
+// aspect is indistinguishable from a seller who cleared it, and clearing the
+// first case destroys good data. `baseline` (the last-saved map) is the missing
+// evidence: a clear is written back only when the aspect is PRESENT in this
+// category's map and HELD a value in the baseline. A category the field doesn't
+// exist in never matches, so re-categorising still can't wipe a column.
 export function reverseProjectAspectColumns(
   item: ItemAspectSource,
   aspects: Record<string, string[]>,
   // Loosely typed: DB-loaded provenance maps arrive as Record<string, string>.
   sources: Record<string, string | undefined>,
+  // The LAST-SAVED aspect map. Supplying it turns "this specific used to have a
+  // value and is now empty" into an explicit clear of the backing field; without
+  // it the function behaves exactly as before (fills and overwrites only).
+  baseline?: Record<string, string[]> | null,
+  // The category spec, when the caller has it. With it, each field reads back
+  // from the ONE aspect it owns (ownedAspectName) — the same name the forward
+  // projection writes — instead of scanning every candidate.
+  aspectList?: EbayAspect[] | null,
 ): AspectWriteBack {
   const byLower = new Map<string, string>();
   for (const key of Object.keys(aspects)) {
     const l = key.trim().toLowerCase();
     if (l && !byLower.has(l)) byLower.set(l, key);
   }
+  const baselineByLower = new Map<string, string[]>();
+  for (const [key, values] of Object.entries(baseline ?? {})) {
+    const l = key.trim().toLowerCase();
+    if (l && (values?.length ?? 0) > 0) baselineByLower.set(l, values);
+  }
   const columns: AspectWriteBack["columns"] = {};
   const attributes: AspectWriteBack["attributes"] = {};
   const category = item.item_category ?? null;
   for (const entry of ASPECT_REGISTRY.entries) {
+    // With a spec, only the owned name counts, so an edit to a free neighbour
+    // ("Type" next to "Style") never rewrites someone else's column. Without
+    // one, fall back to preferring whichever candidate the SELLER touched — a
+    // spec-less caller can't do better, and taking the first candidate that
+    // merely HAS a value picked the stale twin and dropped the edit.
+    const owned = aspectList?.length
+      ? ownedAspectName(entry, category, aspectList)
+      : null;
+    const candidates = owned
+      ? [owned.toLowerCase()]
+      : effectiveCandidates(entry, category);
     let matchedKey: string | undefined;
-    for (const cand of effectiveCandidates(entry, category)) {
+    let matchedRank = 3;
+    for (const cand of candidates) {
       const key = byLower.get(cand);
-      if (key && (aspects[key]?.length ?? 0) > 0) {
+      if (!key || (aspects[key]?.length ?? 0) === 0) continue;
+      const p = sources[key];
+      const rank = p === "manual" ? 0 : p === "ai_extracted" ? 1 : 2;
+      if (rank < matchedRank) {
         matchedKey = key;
-        break;
+        matchedRank = rank;
       }
+      if (rank === 0) break;
     }
-    if (!matchedKey) continue;
+
+    // Nothing holds a value. That is an intentional CLEAR only when the field
+    // held one in the baseline — otherwise it is the ordinary "this category
+    // never exposed the field" case, which must not touch anything.
+    if (!matchedKey) {
+      if (!baseline) continue;
+      // With a spec, `owned` being null already means the category has no such
+      // specific, so there is nothing to have cleared.
+      if (aspectList?.length && !owned) continue;
+      const wasFilled = candidates.some((c) => baselineByLower.has(c));
+      const present = candidates.some((c) => byLower.has(c));
+      if (!wasFilled || !present) continue;
+      if (entry.source === "column" && entry.column) {
+        const raw = (item as unknown as Record<string, unknown>)[entry.column];
+        if (typeof raw === "string" && raw.trim() !== "") {
+          columns[entry.column as keyof AspectWriteBack["columns"]] = null;
+        }
+      } else if (entry.source === "attribute" && entry.attribute) {
+        if (item.attributes?.[entry.attribute] != null) {
+          attributes[entry.attribute] = null;
+        }
+      }
+      continue;
+    }
+
     const values = aspects[matchedKey]!
       .map((v) => v.trim())
       .filter((v) => v.length > 0);

@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-03
+reviewed: 2026-08-05
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
@@ -86,6 +86,35 @@ Cropped Pants"* carries none, so `Department` must come from
 specifics editor and the item fields have to live in the same editor
 (`src/pages/flipdesk/composer.tsx` is the only item editor) — a seller told
 "Department is missing" needs one obvious place to supply it.
+
+## Re-categorising a LIVE listing is a three-step swap, not a two-step one
+
+Changing the eBay leaf on a listing that is already published cannot be pushed
+as "new specifics, then new category" — the obvious order, and the one the
+revise route did until 2026-08-05. eBay judges each call against the state it
+holds *right now*, and neither end of the swap is legal alone:
+
+- **Specifics first** are judged by the **OLD** category. A Dresses → Women's
+  Tops correction sends a map with no `Dress Length`, so eBay answers *"The item
+  specific Dress Length is missing"* — about an aspect the new category does not
+  have. The route returns on that error **before** the offer PUT that carries the
+  category, so the listing can never leave the wrong category from here. Every
+  retry fails identically.
+- **Category first** is judged by the **OLD** specifics. The live item has no
+  `Type` (required on Tops), so eBay answers *"The item specific Type is
+  missing"*.
+
+The bridge: PUT the **union** of what eBay already holds
+(`getInventoryItemAspects`) and what we are about to send — that satisfies both
+categories' required aspects at once — then move the offer's `categoryId`, then
+let the normal re-PUT drop the leftovers under the new category. It runs only
+when the live offer's category actually differs, and it is best-effort: any
+failure falls through to the unchanged path and its error handling.
+
+Symptom to recognise: the GradeThread row and the composer both show the new
+category, the seller has already fixed the title, and eBay's public listing page
+still shows the **old** breadcrumb and the old required specific. Check the live
+page, not the database — the database was never the thing that was wrong.
 
 ## Related
 

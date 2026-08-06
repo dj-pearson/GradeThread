@@ -2368,6 +2368,39 @@ export async function createOrReplaceInventoryItem(
   );
 }
 
+// The item specifics eBay CURRENTLY holds for a SKU, or null when the record
+// isn't there (never published, or published under a different SKU).
+//
+// Needed for a category correction on a live listing: eBay judges an
+// inventory_item PUT against the category the listing is in RIGHT NOW, so the
+// caller has to know what is already on eBay before it can build a payload both
+// the old and the new category accept. See the category-migration block in the
+// revise route (flipdesk-ebay.ts).
+export async function getInventoryItemAspects(
+  userId: string,
+  sku: string,
+  connectionId?: string,
+): Promise<Record<string, string[]> | null> {
+  const res = await fetchAuthed<{
+    product?: { aspects?: Record<string, unknown> | null } | null;
+  }>(
+    userId,
+    `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+    undefined,
+    connectionId,
+  );
+  const raw = res?.product?.aspects;
+  if (!raw || typeof raw !== "object") return null;
+  const out: Record<string, string[]> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    const values = (Array.isArray(value) ? value : [value])
+      .map((v) => (typeof v === "string" ? v.trim() : ""))
+      .filter((v) => v.length > 0);
+    if (values.length > 0) out[name] = values;
+  }
+  return out;
+}
+
 // US-321/US-562: Best Offer is set per-offer via listingPolicies.bestOfferTerms.
 // autoAcceptPrice/autoDeclinePrice are optional auto-clear thresholds (an offer
 // >= autoAcceptPrice auto-accepts; <= autoDeclinePrice auto-declines). eBay

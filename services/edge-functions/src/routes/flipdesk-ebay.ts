@@ -76,6 +76,7 @@ import {
   listAllOffers,
   listOffersForSku,
   getOffer,
+  getInventoryItemAspects,
   listRecentOrders,
   listRecentTransactions,
   publishOrAdoptOffer,
@@ -5851,6 +5852,7 @@ async function reviseOneListing(
         item as unknown as RegistryItem,
         baseAspects,
         aspectSources,
+        reviseAspectList ? toRegistryAspects(reviseAspectList) : null,
       );
       if (Object.keys(writeBack).length > 0) {
         Object.assign(item, writeBack);
@@ -6119,6 +6121,85 @@ async function reviseOneListing(
             missing_aspects: missing,
           },
           422,
+        );
+      }
+    }
+
+    // Move the live listing's CATEGORY before the specifics that only fit the
+    // new one. eBay judges an inventory_item PUT against the category the
+    // listing is in right now, and judges an offer category change against the
+    // aspects the inventory item holds right now — so the obvious order
+    // (specifics, then category, which is what the offer PUT further down does)
+    // deadlocks on a re-categorisation:
+    //
+    //   • specifics first → judged by the OLD category → "The item specific
+    //     Dress Length is missing" (a Dresses aspect our Tops map correctly
+    //     dropped), and the route returns before the category ever moves. Every
+    //     retry fails identically, so the listing can never leave the wrong
+    //     category from here.
+    //   • category first  → judged by the OLD aspects → "The item specific Type
+    //     is missing" (a Tops aspect the Dresses map never had).
+    //
+    // Neither end of the swap is legal on its own, so bridge it: PUT the UNION
+    // of what eBay already holds and what we're about to send (satisfies BOTH
+    // categories' required aspects), move the offer's category, and let the
+    // normal PUT below drop the leftovers under the new category. Best-effort
+    // throughout — if any step fails we fall through to the existing path and
+    // its error handling, which is no worse than before this existed.
+    if (resyncFields && reviseCategoryId) {
+      try {
+        const liveOffer = await getOffer(
+          userId,
+          offerId,
+          row.listing.marketplace_connection_id ?? undefined,
+        );
+        const liveCategoryId =
+          typeof liveOffer.categoryId === "string" ? liveOffer.categoryId : null;
+        if (liveCategoryId && liveCategoryId !== reviseCategoryId) {
+          console.warn(
+            `[flipdesk-ebay] listing ${listingId}: eBay category ` +
+              `${liveCategoryId} → ${reviseCategoryId}; bridging via a union PUT`,
+          );
+          const liveAspects = await getInventoryItemAspects(
+            userId,
+            sku,
+            row.listing.marketplace_connection_id ?? undefined,
+          );
+          if (liveAspects && Object.keys(liveAspects).length > 0) {
+            await createOrReplaceInventoryItem(
+              userId,
+              sku,
+              {
+                product: {
+                  title: finalTitle,
+                  description: reviseDesc,
+                  aspects: { ...liveAspects, ...reviseWireAspects },
+                  imageUrls,
+                  brand:
+                    typeof item.brand === "string" && item.brand.trim()
+                      ? item.brand.trim()
+                      : "Unbranded",
+                  mpn: "Does Not Apply",
+                },
+                condition: reviseCondition,
+                conditionDescription: reviseConditionDescription,
+                availability: { shipToLocationAvailability: { quantity: 1 } },
+              },
+              row.listing.marketplace_connection_id ?? undefined,
+            );
+          }
+          await updateOfferFields(
+            userId,
+            offerId,
+            { categoryId: reviseCategoryId },
+            row.listing.marketplace_connection_id ?? undefined,
+          );
+        }
+      } catch (err) {
+        console.error(
+          `[flipdesk-ebay] category bridge failed for listing ${listingId} ` +
+            `(falling through to the normal re-PUT):`,
+          err,
         );
       }
     }

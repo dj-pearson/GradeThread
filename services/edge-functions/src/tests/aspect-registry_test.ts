@@ -53,14 +53,69 @@ Deno.test("legacy: brand/size/color/material/style fill from columns (FREE_TEXT)
   });
 });
 
-Deno.test("legacy: color/material synonyms (Colour, Fabric Type, Outer Shell Material)", () => {
+Deno.test("legacy: color/material synonyms resolve to the highest-priority name present", () => {
   const item: RegistryItem = { item_category: "clothing", color: "Red", material: "Wool" };
   const aspects = [free("Colour"), free("Fabric Type"), free("Outer Shell Material")];
+  // A field fills the ONE aspect it owns — the first of its registry candidates
+  // this category exposes. "Material" is absent, so "Fabric Type" wins and
+  // "Outer Shell Material" is left free. Filling every synonym (the old
+  // behaviour) is what made a coat's shell material and its fabric type one
+  // inseparable value, and what pinned Women's Tops "Fabric Type" to "Material".
   assertEquals(resolveItemAspects(item, aspects, {}), {
     Colour: ["Red"],
     "Fabric Type": ["Wool"],
-    "Outer Shell Material": ["Wool"],
   });
+});
+
+Deno.test("a category exposing two names for one field binds only the first", () => {
+  // Women's Tops (53159) exposes BOTH "Style" and "Type" for the style column,
+  // and BOTH "Material" and "Fabric Type" for the material column. The seller
+  // could not set Type=Blouse while Style=Sheath: whichever name the column did
+  // not own was overwritten from the column on every save, so the row looked
+  // editable and silently reverted.
+  const item: RegistryItem = {
+    item_category: "clothing",
+    style: "Sheath",
+    material: "Jersey",
+  };
+  const aspects = [free("Type"), free("Style"), free("Material"), free("Fabric Type")];
+  assertEquals(resolveItemAspects(item, aspects, {}), {
+    Style: ["Sheath"],
+    Material: ["Jersey"],
+  });
+  // The forward projection agrees: it must not touch the free neighbours.
+  const projected = applyColumnAspects(
+    { Type: ["Blouse"], "Fabric Type": ["Rayon"] },
+    item,
+    aspects,
+  );
+  assertEquals(projected, {
+    Type: ["Blouse"],
+    "Fabric Type": ["Rayon"],
+    Style: ["Sheath"],
+    Material: ["Jersey"],
+  });
+  // …and so does the reverse pass, given the spec: an edit to the free "Type"
+  // row is NOT a rename of the style column.
+  assertEquals(
+    reverseColumnAspects(
+      item,
+      { Type: ["Blouse"], Style: ["Sheath"] },
+      { Type: "manual", Style: "inventory_derived" },
+      aspects,
+    ),
+    {},
+  );
+  // An edit to the OWNED row still writes back.
+  assertEquals(
+    reverseColumnAspects(
+      item,
+      { Type: ["Blouse"], Style: ["Wrap"] },
+      { Type: "manual", Style: "manual" },
+      aspects,
+    ),
+    { style: "Wrap" },
+  );
 });
 
 // ── US-1088+: columns OWN their aspects (overwrite on main-listing edit) ─────
