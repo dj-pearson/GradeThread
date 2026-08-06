@@ -41,17 +41,22 @@ Deno.test("US-2376: POST /users/:id/plan carries billing:write, a step-up and an
   assertStringIncludes(body, "if (stepUp) return stepUp;");
   assertStringIncludes(body, 'action: "admin.change_plan"');
   // before/after, not just "a plan changed" — the prior value is what makes the
-  // row reviewable.
-  assertStringIncludes(body, "before: { plan: previous }");
-  assertStringIncludes(body, "after: { plan }");
+  // row reviewable. Matched as a PREFIX: US-2398 AC4 added subscription_status
+  // to both sides (a comp grant moves the status too, and an audit row that
+  // recorded only the tier would not explain why entitlement changed), and an
+  // exact-object assertion turned that correct addition into a red suite.
+  assertStringIncludes(body, "before: { plan: previous,");
+  assertStringIncludes(body, "after: { plan,");
 });
 
-Deno.test("US-2376: the plan route rejects anything outside the user_plan enum", () => {
-  // The values must match public.user_plan (00001). A typo'd extra value here
-  // would be a 500 from Postgres, not a 400 from us.
+Deno.test("US-2376: the plan route rejects anything outside the live plan vocabulary", () => {
+  // These used to be public.user_plan (00001) — 'professional' / 'enterprise'.
+  // US-2398 repointed the route at users.flipdesk_plan, whose vocabulary is
+  // 'pro' / 'business'; the old spellings name tiers no live account can hold.
+  // A value outside the set would be a 500 from Postgres, not a 400 from us.
   const decl = adminUsersSrc.slice(adminUsersSrc.indexOf("const ASSIGNABLE_PLANS"));
   const listed = [...decl.slice(0, decl.indexOf("]")).matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
-  assertEquals(listed, ["free", "starter", "professional", "enterprise"]);
+  assertEquals(listed, ["free", "starter", "pro", "business"]);
 });
 
 Deno.test("US-2376: mark-failed reuses the sweep's fail+refund, not a partial copy", () => {
