@@ -365,7 +365,26 @@ actor SyncEngine {
         // ids. Re-check the epoch before pruning and bail if it moved.
         let startEpoch = scopeEpoch
         let selfId = try? await SupabaseShared.client.auth.session.user.id.uuidString
-        let ownerId = WorkspaceScope.activeOwnerId ?? selfId
+
+        // US-2337: abort rather than scan unscoped. `try?` above swallows a
+        // transient session-read failure into nil, and nil used to fall straight
+        // through to `fetchServerIds(scopeUserId: nil)` — an UNFILTERED id-scan.
+        // A request whose session failed to load goes out unauthenticated, RLS
+        // returns zero rows, and zero rows is exactly what the short-page rule
+        // below reads as "a complete set" — so `reconcileDeletes` prunes the
+        // user's whole offline mirror against an empty server view. Skipping the
+        // pass costs one reconcile interval; running it unscoped costs the data.
+        // The throttle is NOT burned (`lastReconcileAt` is set at the end), so
+        // the next pass retries immediately once the session is readable.
+        guard let ownerId = Self.resolveScopeOwnerId(
+            workspaceOwnerId: WorkspaceScope.activeOwnerId,
+            sessionUserId: selfId
+        ) else {
+            Telemetry.backgroundBreadcrumb(
+                "Sync reconcile aborted: tenant scope unresolved (session read failed)",
+                category: "sync")
+            return
+        }
 
         // Never prune a row whose server copy doesn't exist yet: offline creates
         // (the create is still queued) and staged photo uploads (the item_photos
@@ -383,11 +402,11 @@ actor SyncEngine {
         // US-1520: the five id-scans are independent reads — run them
         // concurrently instead of stacking five sequential paginated RTTs onto
         // the pull they follow.
-        async let itemIdsTask = fetchServerIds(table: "inventory_items", scopeUserId: ownerId)
-        async let saleIdsTask = fetchServerIds(table: "sales", scopeUserId: ownerId)
-        async let expenseIdsTask = fetchServerIds(table: "flipdesk_expenses", scopeUserId: ownerId)
-        async let listingIdsTask = fetchServerIds(table: "listings", scopeUserId: nil)
-        async let photoIdsTask = fetchServerIds(table: "item_photos", scopeUserId: nil)
+        async let itemIdsTask = fetchServerIds(table: "inventory_items", scope: .owner(ownerId))
+        async let saleIdsTask = fetchServerIds(table: "sales", scope: .owner(ownerId))
+        async let expenseIdsTask = fetchServerIds(table: "flipdesk_expenses", scope: .owner(ownerId))
+        async let listingIdsTask = fetchServerIds(table: "listings", scope: .parentRLS)
+        async let photoIdsTask = fetchServerIds(table: "item_photos", scope: .parentRLS)
         let itemIds = await itemIdsTask
         let saleIds = await saleIdsTask
         let expenseIds = await expenseIdsTask
@@ -404,6 +423,7 @@ actor SyncEngine {
         guard Self.pullResultApplies(startEpoch: startEpoch, currentEpoch: scopeEpoch) else { return }
 
         await mergeActor.reconcileDeletes(
+            scopeOwnerId: ownerId,
             itemIds: itemIds,
             saleIds: saleIds,
             expenseIds: expenseIds,
@@ -415,19 +435,75 @@ actor SyncEngine {
         lastReconcileAt = now
     }
 
+    /// US-2337: how a reconcile id-scan is tenant-scoped.
+    ///
+    /// `fetchServerIds` used to take `scopeUserId: String?`, where nil meant
+    /// "no `user_id` filter". Two unrelated situations collapsed onto that one
+    /// nil: `listings` / `item_photos` genuinely have no `user_id` column, and
+    /// an owner id that failed to resolve. The second one wipes the local
+    /// database (see the guard in ``reconcileDeletesIfDue()``). Splitting them
+    /// into two named cases means the dangerous one can no longer be spelled by
+    /// accident — a caller with no id has nothing valid to pass.
+    private enum ReadScope {
+        /// The table has a `user_id` column and the scan MUST carry this filter.
+        case owner(String)
+        /// The table has no `user_id` column — `listings` and `item_photos` are
+        /// scoped by RLS through their parent `inventory_items` row.
+        case parentRLS
+    }
+
+    /// US-2337: raised when a sync pass cannot name the tenant it is reading for.
+    /// Surfaces through the normal pull-failure path (banner + `lastPullError`)
+    /// rather than being swallowed, because a sync that silently reads nothing
+    /// looks identical to an account with nothing in it.
+    enum SyncScopeError: LocalizedError {
+        case unresolvedTenantScope
+
+        var errorDescription: String? {
+            "Couldn't confirm your account for this sync. It'll retry shortly."
+        }
+    }
+
+    /// US-2337: the tenant id every user-scoped sync read must carry, or nil when
+    /// the whole pass has to be abandoned.
+    ///
+    /// Both inputs matter and a workspace id alone is not enough:
+    ///
+    /// - `sessionUserId` nil means the session read threw, so the requests would
+    ///   go out UNAUTHENTICATED. Under RLS that returns zero rows from every
+    ///   table — and an empty id-scan is indistinguishable from "the server has
+    ///   nothing left", which is what prunes the mirror. So nil here abandons the
+    ///   pass even when a workspace is selected.
+    /// - a blank id counts as absent: `.eq("user_id", "")` is a filter that
+    ///   matches nothing, which is the same empty result by a different route.
+    ///
+    /// Static and pure so the decision is testable without a session or a network.
+    static func resolveScopeOwnerId(workspaceOwnerId: String?, sessionUserId: String?) -> String? {
+        guard let sessionUserId = nonBlank(sessionUserId) else { return nil }
+        return nonBlank(workspaceOwnerId) ?? sessionUserId
+    }
+
+    private static func nonBlank(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
     /// Fetches the surviving server `id` set for `table` (id column only, so the
     /// payload stays tiny even for thousands of rows), paginated + bounded by
     /// `maxRowsPerPass`. Returns nil when the set cannot be trusted as complete —
     /// on any error, OR when the scan hits the `maxRowsPerPass` cap with rows still
     /// remaining — so the caller SKIPS pruning that table rather than pruning
     /// against a partial view (which would delete every local row above the cap).
-    private func fetchServerIds(table: String, scopeUserId: String?) async -> Set<String>? {
+    private func fetchServerIds(table: String, scope: ReadScope) async -> Set<String>? {
         var ids = Set<String>()
         var offset = 0
         do {
             while true {
                 var query = SupabaseShared.client.from(table).select("id")
-                if let scopeUserId { query = query.eq("user_id", value: scopeUserId) }
+                if case .owner(let scopeUserId) = scope {
+                    query = query.eq("user_id", value: scopeUserId)
+                }
                 let response = try await query
                     .order("id", ascending: true)
                     .range(from: offset, to: offset + Self.pageSize - 1)
@@ -776,7 +852,20 @@ actor SyncEngine {
             // so without this filter a member's cache would mix every workspace
             // they belong to. Resolve once: the selected workspace, else self.
             let selfId = try? await SupabaseShared.client.auth.session.user.id.uuidString
-            let ownerId = WorkspaceScope.activeOwnerId ?? selfId
+
+            // US-2337: same abort as the reconcile. An unresolved owner id used
+            // to leave every user-scoped fetch below unfiltered; the pull isn't
+            // destructive on its own (RLS returns nothing to an unauthenticated
+            // request, and empty pages advance no cursor), but a pull that can't
+            // name its tenant has nothing to fetch, and finishing "successfully"
+            // with zero rows is the state the reconcile then acts on. Fail the
+            // pull so the banner reports it and the next pass retries.
+            guard let ownerId = Self.resolveScopeOwnerId(
+                workspaceOwnerId: WorkspaceScope.activeOwnerId,
+                sessionUserId: selfId
+            ) else {
+                return .failure(SyncScopeError.unresolvedTenantScope)
+            }
 
             // Read every watermark up front, before any fetch starts (US-1520) —
             // cursor semantics are unchanged from the serial pull.

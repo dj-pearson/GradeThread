@@ -577,6 +577,7 @@ final class SyncTests: XCTestCase {
 
         // Server no longer has p1 → reconcile prunes it → cover cleared.
         await actor.reconcileDeletes(
+            scopeOwnerId: "u1",
             saleIds: nil, expenseIds: nil, listingIds: nil, photoIds: [], protectedIds: []
         )
         let item = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first
@@ -1112,6 +1113,7 @@ final class SyncTests: XCTestCase {
         // s1 survives server-side; s2 was deleted; s3 is an offline create still
         // pending push (protected) so it must NOT be pruned.
         await actor.reconcileDeletes(
+            scopeOwnerId: "u1",
             saleIds: ["s1"], expenseIds: nil, listingIds: nil, photoIds: nil,
             protectedIds: ["s3"]
         )
@@ -1133,6 +1135,7 @@ final class SyncTests: XCTestCase {
         // listingIds nil → that table's id fetch failed; never prune on a
         // partial view, even though other sets are present.
         await actor.reconcileDeletes(
+            scopeOwnerId: "u1",
             saleIds: [], expenseIds: nil, listingIds: nil, photoIds: nil, protectedIds: []
         )
         XCTAssertEqual(try ModelContext(container).fetch(FetchDescriptor<LocalListing>()).count, 1)
@@ -1250,6 +1253,7 @@ final class SyncTests: XCTestCase {
         // Server still has only "keep". "creating" is a pending create (protected);
         // "dirty" has an unflushed local edit (protected via hasLocalChanges).
         await actor.reconcileDeletes(
+            scopeOwnerId: "u1",
             itemIds: ["keep"],
             saleIds: nil, expenseIds: nil, listingIds: nil, photoIds: nil,
             protectedIds: ["creating"],
@@ -1270,11 +1274,89 @@ final class SyncTests: XCTestCase {
 
         let actor = SyncMergeActor(modelContainer: container)
         await actor.reconcileDeletes(
+            scopeOwnerId: "u1",
             itemIds: nil,
             saleIds: [], expenseIds: nil, listingIds: nil, photoIds: nil,
             protectedIds: []
         )
         XCTAssertEqual(try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).count, 1)
+    }
+
+    // MARK: - US-2337 unresolved tenant scope never prunes
+
+    /// The bug, stated as a test: a transient session read failure left the owner
+    /// id nil, the id-scans ran unfiltered, RLS handed back zero rows to an
+    /// unauthenticated request, and an EMPTY surviving-id set pruned every local
+    /// row. Empty is a legitimate answer for a genuinely empty account, so the
+    /// thing that has to stop the prune is the missing scope, not the empty set.
+    func test_reconcileDeletes_unresolvedScopeLeavesEveryTableIntact() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalInventoryItem(id: "i1", userId: "u1", title: "Tee", status: "cataloged"))
+        ctx.insert(LocalSale(id: "s1", inventoryItemId: "i1", salePrice: 10, saleDate: .now))
+        ctx.insert(LocalListing(
+            id: "l1", inventoryItemId: "i1", platform: "ebay",
+            listingPrice: 10, listingStatus: "active"
+        ))
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        // Every set is EMPTY — "the server has nothing" — but the scope is blank,
+        // so the sets prove nothing and nothing may be pruned.
+        await actor.reconcileDeletes(
+            scopeOwnerId: "   ",
+            itemIds: [], saleIds: [], expenseIds: [], listingIds: [], photoIds: [],
+            protectedIds: []
+        )
+        let read = ModelContext(container)
+        XCTAssertEqual(try read.fetch(FetchDescriptor<LocalInventoryItem>()).count, 1)
+        XCTAssertEqual(try read.fetch(FetchDescriptor<LocalSale>()).count, 1)
+        XCTAssertEqual(try read.fetch(FetchDescriptor<LocalListing>()).count, 1)
+    }
+
+    /// Control for the test above: with a resolved scope the same empty sets DO
+    /// prune, so the guard is refusing the unscoped case specifically rather than
+    /// disabling reconciliation.
+    func test_reconcileDeletes_resolvedScopeStillPrunesOnEmptySets() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalInventoryItem(id: "i1", userId: "u1", title: "Tee", status: "cataloged"))
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        await actor.reconcileDeletes(
+            scopeOwnerId: "u1",
+            itemIds: [], saleIds: nil, expenseIds: nil, listingIds: nil, photoIds: nil,
+            protectedIds: []
+        )
+        XCTAssertTrue(try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).isEmpty)
+    }
+
+    /// A failed session read (nil `sessionUserId`) abandons the pass even when a
+    /// workspace is selected: the request goes out unauthenticated either way, so
+    /// a workspace id would scope a query that returns nothing regardless.
+    func test_resolveScopeOwnerId_failedSessionAbandonsPassEvenWithWorkspace() {
+        XCTAssertNil(SyncEngine.resolveScopeOwnerId(
+            workspaceOwnerId: "workspace-owner", sessionUserId: nil))
+        XCTAssertNil(SyncEngine.resolveScopeOwnerId(
+            workspaceOwnerId: nil, sessionUserId: nil))
+        // Blank is absent, not present: `.eq("user_id", "")` matches nothing.
+        XCTAssertNil(SyncEngine.resolveScopeOwnerId(
+            workspaceOwnerId: "workspace-owner", sessionUserId: "  "))
+    }
+
+    func test_resolveScopeOwnerId_prefersWorkspaceThenSelf() {
+        XCTAssertEqual(
+            SyncEngine.resolveScopeOwnerId(workspaceOwnerId: "owner", sessionUserId: "self"),
+            "owner")
+        XCTAssertEqual(
+            SyncEngine.resolveScopeOwnerId(workspaceOwnerId: nil, sessionUserId: "self"),
+            "self")
+        // A blank workspace id falls through to the session id rather than
+        // becoming an empty filter.
+        XCTAssertEqual(
+            SyncEngine.resolveScopeOwnerId(workspaceOwnerId: "", sessionUserId: "self"),
+            "self")
     }
 
     // MARK: - PendingMutationActor off-main queue (US-1165)
