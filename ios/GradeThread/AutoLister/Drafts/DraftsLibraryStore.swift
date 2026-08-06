@@ -71,11 +71,54 @@ final class DraftsLibraryStore {
         return "Untitled draft"
     }
 
-    /// Drafts whose resolved title contains `query` (case-insensitive); all when blank.
+    /// US-1897 (AC5): row order. Newest-first is the default the library has
+    /// always had; quality-first is the triage order the score exists to enable.
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case newest
+        case qualityLowFirst
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .newest: return "Newest first"
+            case .qualityLowFirst: return "Quality: low first"
+            }
+        }
+    }
+
+    /// Current row order. Not persisted — it is a per-visit triage choice, and
+    /// a sticky one would silently change what the seller sees next session.
+    var sortOrder: SortOrder = .newest
+
+    /// Drafts whose resolved title contains `query` (case-insensitive); all when
+    /// blank, in the current ``sortOrder``.
     func filtered(matching query: String) -> [DraftListing] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return drafts }
-        return drafts.filter { title(for: $0).lowercased().contains(q) }
+        let matches = q.isEmpty ? drafts : drafts.filter { title(for: $0).lowercased().contains(q) }
+        return Self.sorted(matches, by: sortOrder)
+    }
+
+    /// Pure so the ordering rule is testable without a store or a fetch.
+    ///
+    /// The server already returns rows newest-first, so `.newest` re-sorts by
+    /// the parsed date rather than trusting the arrival order — the two agree
+    /// today, and a future fetch-order change should not silently reorder rows.
+    static func sorted(_ rows: [DraftListing], by order: SortOrder) -> [DraftListing] {
+        switch order {
+        case .newest:
+            return rows.sorted { $0.created > $1.created }
+        case .qualityLowFirst:
+            // Ties (including the whole unscored tail, which all rank Int.max)
+            // fall back to newest so the order is total and stable rather than
+            // depending on the sort's implementation.
+            return rows.sorted { a, b in
+                let ra = QualityScoreSummary.rank(a.quality)
+                let rb = QualityScoreSummary.rank(b.quality)
+                if ra != rb { return ra < rb }
+                return a.created > b.created
+            }
+        }
     }
 
     var totalValue: Double { drafts.reduce(0) { $0 + ($1.listingPrice ?? 0) } }

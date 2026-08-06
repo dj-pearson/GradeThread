@@ -47,7 +47,14 @@ struct DraftsService: DraftsProviding {
         "id, inventory_item_id, listing_title, listing_price, ebay_condition, " +
         "quantity, best_offer_enabled, platform_category_id, return_policy_id, " +
         "shipping_policy_id, payment_policy_id, batch_id, price_is_estimated, " +
-        "listing_origin, publish_error, created_at"
+        "listing_origin, publish_error, created_at, " +
+        // US-1897 (AC5): the persisted Listing Quality Score. Safe to read in
+        // the main select — migration 00476 is APPLIED in prod (verified via
+        // /health/ready), so unlike the web's deploy-race there is no window
+        // where this 42703s. If that ever stops being true, split it into a
+        // fail-soft second query the way autolister-drafts.tsx does: a missing
+        // column here would take the whole drafts library down, not just the chips.
+        "quality_score, quality_blocked"
 
     func fetchDrafts() async throws -> [DraftListing] {
         // RLS scopes SELECT to the caller via the parent item. We filter to

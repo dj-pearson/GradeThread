@@ -22,6 +22,12 @@ struct ValidateResponse: Decodable, Equatable {
     /// fills. Advisory (required specifics are a blocker); filling them lifts
     /// findability. Optional for the same back-compat reason as `warnings`.
     let recommendedCoverage: AspectCoverage?
+    /// US-1897 (AC5): the 0–100 Listing Quality Score and its component
+    /// breakdown, computed server-side from every verified ranking lever. The
+    /// app renders it; it never recomputes the weights. Optional for the same
+    /// back-compat reason as `warnings` — an older edge omits the field, which
+    /// decodes as "not scored" and hides the block rather than showing a zero.
+    let qualityScore: ListingQualityScore?
 
     /// Explicit memberwise init so the advisory fields (US-1974) default to nil —
     /// tests/previews that build a bare validated response keep compiling, and a
@@ -32,7 +38,8 @@ struct ValidateResponse: Decodable, Equatable {
         summary: PublishSummary?,
         aspectDiagnostics: [AspectDiagnostic]? = nil,
         warnings: [String]? = nil,
-        recommendedCoverage: AspectCoverage? = nil
+        recommendedCoverage: AspectCoverage? = nil,
+        qualityScore: ListingQualityScore? = nil
     ) {
         self.ok = ok
         self.blockers = blockers
@@ -40,6 +47,7 @@ struct ValidateResponse: Decodable, Equatable {
         self.aspectDiagnostics = aspectDiagnostics
         self.warnings = warnings
         self.recommendedCoverage = recommendedCoverage
+        self.qualityScore = qualityScore
     }
 }
 

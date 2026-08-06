@@ -46,6 +46,10 @@ struct PublishDialog: View {
     @State private var qualityWarnings: [String] = []
     /// US-1895/US-1974: recommended-aspect coverage for the composer meter.
     @State private var recommendedCoverage: AspectCoverage?
+    /// US-1897 (AC5): the server-computed Listing Quality Score + breakdown from
+    /// the same pre-flight. Advisory — it never gates the push; a blocked score
+    /// only ever reflects a blocker the `blockers` array already reports.
+    @State private var qualityScore: ListingQualityScore?
     /// US-1513: the composer reported edits that differ from the validated
     /// summary. Ratchets up only (a revert-to-original stays true) and resets on
     /// a fresh validate — conservative on purpose, so a resumed composer that
@@ -232,6 +236,7 @@ struct PublishDialog: View {
                 aspectWarnings: aspectWarnings,
                 qualityWarnings: qualityWarnings,
                 recommendedCoverage: recommendedCoverage,
+                qualityScore: qualityScore,
                 draftSettings: draftSettings,
                 isSaving: isSaving,
                 saveError: saveError,
@@ -332,6 +337,13 @@ struct PublishDialog: View {
                     .font(.subheadline)
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
+            }
+            // US-1897 (AC5): the breakdown belongs here most of all — a blocked
+            // listing is capped at 40, and this is the only place that says
+            // WHICH surface fixes each thing costing it points.
+            if let score = qualityScore {
+                Divider().padding(.vertical, 2)
+                QualityScoreCard(score: score)
             }
             Button("Close") { dismiss() }
                 .font(.subheadline.weight(.semibold))
@@ -486,6 +498,10 @@ struct PublishDialog: View {
             // has always sent them; iOS dropped them in the decoder.
             qualityWarnings = response.warnings ?? []
             recommendedCoverage = response.recommendedCoverage
+            // US-1897 (AC5): the score rides the same response. Set BEFORE the
+            // branch below so it is available on the blocked path too — a
+            // blocked listing is exactly the one whose breakdown names the fix.
+            qualityScore = response.qualityScore
             if response.blockers.isEmpty, let summary = response.summary {
                 phase = .readyToPush(summary)
             } else {
@@ -724,6 +740,10 @@ private struct ComposerForm: View {
     /// `total == 0`) when the server couldn't resolve the category spec, in
     /// which case the meter stays hidden rather than reading a misleading 0/0.
     var recommendedCoverage: AspectCoverage?
+    /// US-1897 (AC5): the 0–100 Listing Quality Score + component breakdown from
+    /// the pre-flight. Nil when an older edge omitted it, in which case the card
+    /// stays hidden rather than rendering a confident zero.
+    var qualityScore: ListingQualityScore?
     /// US-1970/US-1971: the draft's saved Best Offer + schedule, used to seed
     /// those controls from the seller's own choices rather than the server's
     /// resolved suggestion (see ``ListingDraftSettings``).
@@ -904,6 +924,7 @@ private struct ComposerForm: View {
         aspectWarnings: [String] = [],
         qualityWarnings: [String] = [],
         recommendedCoverage: AspectCoverage? = nil,
+        qualityScore: ListingQualityScore? = nil,
         draftSettings: ListingDraftSettings = .none,
         isSaving: Bool = false,
         saveError: String? = nil,
@@ -920,6 +941,7 @@ private struct ComposerForm: View {
         self.aspectWarnings = aspectWarnings
         self.qualityWarnings = qualityWarnings
         self.recommendedCoverage = recommendedCoverage
+        self.qualityScore = qualityScore
         self.draftSettings = draftSettings
         self.isSaving = isSaving
         self.saveError = saveError
@@ -1206,6 +1228,13 @@ private struct ComposerForm: View {
                 }
 
                 recommendedCoverageMeter
+
+                // US-1897 (AC5): the score sits under the findability meters it
+                // summarises, above the fields — a seller reads "72, and photos
+                // are costing you 14" before they start editing, not after.
+                if let qualityScore {
+                    QualityScoreCard(score: qualityScore)
+                }
 
                 fieldGroup("Condition") {
                     Picker("Condition", selection: $condition) {

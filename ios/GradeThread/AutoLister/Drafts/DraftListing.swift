@@ -27,6 +27,20 @@ struct DraftListing: Identifiable, Decodable, Equatable {
     /// A scheduled/AutoLister publish that failed lands back in `draft` status
     /// carrying this — without it the failure was invisible on iOS.
     let publishError: String?
+    /// US-1897 (AC5): the persisted Listing Quality Score (migration 00476).
+    /// NULL until the listing has been through a publish pre-flight — which is
+    /// NOT the same as zero, so it stays optional all the way to the chip.
+    let qualityScore: Int?
+    /// US-1897: whether a publish blocker capped that score. Stored rather than
+    /// derived, because the cap is a policy constant that may move and old rows
+    /// should stay honest if it does.
+    let qualityBlocked: Bool?
+
+    /// US-1897: the row's score in the shape both the chip and the sort read.
+    /// Nil when never scored.
+    var quality: QualityScoreSummary? {
+        QualityScoreSummary(score: qualityScore, blocked: qualityBlocked)
+    }
 
     /// Parsed `created_at` for sorting/display; distantPast on miss. Handles
     /// ISO 8601 with or without fractional seconds (PostgREST emits both).
@@ -55,6 +69,8 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         case createdAt = "created_at"
         case listingOrigin = "listing_origin"
         case publishError = "publish_error"
+        case qualityScore = "quality_score"
+        case qualityBlocked = "quality_blocked"
     }
 
     init(from decoder: Decoder) throws {
@@ -76,6 +92,8 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
         listingOrigin = try c.decodeIfPresent(String.self, forKey: .listingOrigin)
         publishError = try c.decodeIfPresent(String.self, forKey: .publishError)
+        qualityScore = try c.decodeIfPresent(Int.self, forKey: .qualityScore)
+        qualityBlocked = try c.decodeIfPresent(Bool.self, forKey: .qualityBlocked)
     }
 
     /// Memberwise initializer for tests/previews.
@@ -95,7 +113,9 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         priceIsEstimated: Bool? = nil,
         createdAt: String? = nil,
         listingOrigin: String? = nil,
-        publishError: String? = nil
+        publishError: String? = nil,
+        qualityScore: Int? = nil,
+        qualityBlocked: Bool? = nil
     ) {
         self.id = id
         self.inventoryItemId = inventoryItemId
@@ -113,6 +133,8 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         self.createdAt = createdAt
         self.listingOrigin = listingOrigin
         self.publishError = publishError
+        self.qualityScore = qualityScore
+        self.qualityBlocked = qualityBlocked
     }
 
     private static func lenientDouble(

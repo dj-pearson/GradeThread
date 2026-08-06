@@ -167,6 +167,25 @@ struct DraftsLibraryView: View {
                 EditButton()
             }
         }
+        // US-1897 (AC5): sort by Listing Quality Score, worst first — the
+        // triage order the score exists to enable. Hidden while multi-selecting
+        // so reordering can't shuffle rows out from under a selection.
+        ToolbarItem(placement: .topBarTrailing) {
+            if store.phase == .ready && !store.isEmpty && editMode != .active {
+                Menu {
+                    Picker("Sort", selection: Binding(
+                        get: { store.sortOrder },
+                        set: { store.sortOrder = $0 }
+                    )) {
+                        ForEach(DraftsLibraryStore.SortOrder.allCases) { order in
+                            Text(order.label).tag(order)
+                        }
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                }
+            }
+        }
     }
 
     /// US-820: the multi-select bulk action bar (matches the Inventory
@@ -426,6 +445,10 @@ private struct DraftLibraryRow: View {
                         .clipShape(Capsule())
                 }
                 categoryBadge
+                // US-1897 (AC5): the persisted score, straight from the column.
+                // Nothing is recomputed here — the same number the composer
+                // shows and the sort uses.
+                QualityScoreChip(summary: draft.quality)
                 Spacer()
                 Text(draft.created, format: .dateTime.month().day())
                     .font(.caption2)
