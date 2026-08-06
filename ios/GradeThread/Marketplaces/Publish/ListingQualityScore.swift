@@ -225,15 +225,23 @@ struct QualityScoreSummary: Equatable {
         self.blocked = blocked
     }
 
-    /// Build from the persisted columns.
+    /// Build from the persisted columns (migration 00476), either of which may
+    /// be NULL.
     ///
     /// A NULL `quality_score` yields nil rather than a zero. "Never scored" and
     /// "scored zero" are different facts, and a 0 would both render a confident
     /// chip and sort an unscored draft in with the genuinely worst listings.
-    init?(score: Int?, blocked: Bool?) {
+    ///
+    /// Deliberately a NAMED FACTORY rather than a failable `init?(score:blocked:)`
+    /// overload. That overload compiled but was a trap: with non-optional
+    /// arguments Swift silently preferred the memberwise init, so
+    /// `QualityScoreSummary(score: 0, blocked: false)` returned a NON-optional
+    /// and the nil-handling this type exists for was quietly bypassed. The two
+    /// spellings differed only in optionality, which is not a difference a
+    /// reader notices at the call site.
+    static func fromColumns(score: Int?, blocked: Bool?) -> QualityScoreSummary? {
         guard let score else { return nil }
-        self.score = score
-        self.blocked = blocked == true
+        return QualityScoreSummary(score: score, blocked: blocked == true)
     }
 
     /// Sort rank for a worst-first ordering.

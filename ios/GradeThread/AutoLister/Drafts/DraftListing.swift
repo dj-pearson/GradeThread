@@ -39,7 +39,7 @@ struct DraftListing: Identifiable, Decodable, Equatable {
     /// US-1897: the row's score in the shape both the chip and the sort read.
     /// Nil when never scored.
     var quality: QualityScoreSummary? {
-        QualityScoreSummary(score: qualityScore, blocked: qualityBlocked)
+        QualityScoreSummary.fromColumns(score: qualityScore, blocked: qualityBlocked)
     }
 
     /// Parsed `created_at` for sorting/display; distantPast on miss. Handles

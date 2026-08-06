@@ -151,21 +151,23 @@ final class ListingQualityScoreTests: XCTestCase {
     // MARK: - Summary: never-scored is not zero
 
     func testNilScoreYieldsNoSummary() {
-        XCTAssertNil(QualityScoreSummary(score: nil, blocked: nil))
-        XCTAssertNil(QualityScoreSummary(score: nil, blocked: true))
+        XCTAssertNil(QualityScoreSummary.fromColumns(score: nil, blocked: nil))
+        XCTAssertNil(QualityScoreSummary.fromColumns(score: nil, blocked: true))
     }
 
     func testZeroScoreIsARealSummary() {
         // "Never scored" and "scored zero" are different facts. A zero must
         // render a real chip; only a NULL renders the em dash.
-        let summary = QualityScoreSummary(score: 0, blocked: false)
+        let summary = QualityScoreSummary.fromColumns(score: 0, blocked: false)
         XCTAssertNotNil(summary)
         XCTAssertEqual(summary?.score, 0)
         XCTAssertEqual(summary?.band, .poor)
     }
 
     func testNullBlockedFlagIsNotBlocked() {
-        XCTAssertEqual(QualityScoreSummary(score: 70, blocked: nil)?.blocked, false)
+        XCTAssertEqual(
+            QualityScoreSummary.fromColumns(score: 70, blocked: nil)?.blocked, false
+        )
     }
 
     // MARK: - Sort ranking

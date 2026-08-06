@@ -1,9 +1,23 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ⏳ HELD: 00529_subscription_status_comp.sql (US-2398 AC4 admin comp grant, 2026-08-05)
+**Nothing is currently held.** The two entries below were applied to prod and
+this file did not learn about it for a day. See the note under 00528 for how
+that was measured and why the measurement, not the file, is the authority.
 
-**Apply order.** After 00528. Two held migrations are now stacked; run 00528
-first.
+## ✅ APPLIED: 00529_subscription_status_comp.sql (US-2398 AC4 admin comp grant, applied 2026-08-06 00:57 UTC — measured)
+
+**Applied.** Confirmed 2026-08-05 by reading `public.applied_migrations`
+directly on prod: `00529` recorded at `2026-08-06 00:57:56Z`. Prod
+`/health/ready` reports `expected 00529 / applied 00529 / match`.
+
+⚠️ `/health/ready` alone could NOT have established this. Its `applied` value is
+`max(version)` (`compareSchemaVersion` in `lib/schema-version.ts`), so a
+00529 present with 00528 missing would still read "match" — the same shape as
+the 00479 phantom this repo already got caught by. Both rows were listed
+explicitly before either heading was changed.
+
+**Apply order (historical).** After 00528. The two were stacked and ran in
+order: 00528 at `2026-08-05 13:01Z`, 00529 at `2026-08-06 00:57Z`.
 
 **What it does.** One `ALTER TYPE public.subscription_status ADD VALUE IF NOT
 EXISTS 'comp'` and one `COMMENT ON COLUMN`. No table, column, index, policy or
@@ -56,9 +70,30 @@ should not.
 
 **NOT exercised against a live database** (the `verify:db` lane needs Docker).
 
-## ⏳ HELD: 00528_best_offer_thresholds_manual_only.sql (US-2405 manual Best Offer thresholds, 2026-08-05)
+## ✅ APPLIED: 00528_best_offer_thresholds_manual_only.sql (US-2405 manual Best Offer thresholds, applied 2026-08-05 13:01 UTC — measured)
 
-**Apply order.** After 00526. **00527 does not exist as a `.sql` file** — it is
+**Applied.** `public.applied_migrations` on prod records `00528` at
+`2026-08-05 13:01:10Z`. The sequence around it is intact: 00524, 00525, 00526,
+00528, 00529 — with 00527 correctly absent (see the apply-order note below).
+
+**HOW THIS FILE WENT STALE, because it is the second time the same class of
+mistake has cost a session here.** Both 00528 and 00529 were applied by the
+owner and this file still said HELD, so the session-start hook announced "2
+migrations HELD (not yet applied to prod)" and an agent planned around a frozen
+branch that was not frozen. The previous instance of this ran the other way —
+US-1897's notes claimed 00475/00476 were "genuinely pending" when prod had them.
+Both times the file was trusted and prod was not asked.
+
+The rule that falls out: **this file records intent; only the database records
+state.** Before acting on a HELD heading, read `applied_migrations` — one query,
+and it is the answer:
+
+```sql
+SELECT version, applied_at FROM public.applied_migrations
+WHERE version >= '00520' ORDER BY version;
+```
+
+**Apply order (historical).** After 00526. **00527 does not exist as a `.sql` file** — it is
 `00527_revoke_public_function_execute.sql.BLOCKED` (US-2403), invisible to the
 `*.sql` glob, and its number stays reserved. `EXPECTED_SCHEMA_VERSION` therefore
 jumps 00526 → 00528, the same deliberate skip already recorded for 00479.
