@@ -9,7 +9,9 @@ code_refs:
   - services/edge-functions/src/lib/photo-profiles.ts
   - src/components/flipdesk/photo-manager.tsx
   - src/lib/images.ts
-reviewed: 2026-08-04
+  - src/lib/item-photo-url.ts
+  - services/edge-functions/src/lib/item-photo-storage.ts
+reviewed: 2026-08-06
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -98,6 +100,49 @@ best-effort deletes the orphaned object, so the thumb falls back to the
 cache-busted full image. The trade is that edited photos load full-res in
 galleries — acceptable because it only affects edited photos. Regenerating the
 thumbnail from the rotated blob is the better fix if that ever matters.
+
+## Which bucket a photo is in is a fact about the bytes, not about its type
+
+Item photos live in two buckets. Sensitive close-ups (`tag`, `tag_2`,
+`certificate` — they can carry names, addresses, serials) go to the PRIVATE
+`submission-images`; everything else to the public `item-photos`. The **type**
+picks the bucket **at upload time only**, when there are no bytes yet.
+
+Afterwards, the only trustworthy signal is the row's shape:
+
+> **Empty `photo_url` + a `storage_path` ⇒ the bytes are in the private bucket.**
+> A populated `photo_url` ⇒ they are public, whatever the type says.
+
+It holds because every writer that puts an object in `item-photos` stores its
+public URL on the row in the same insert — web uploader, iOS `PhotoUploadService`,
+remove-bg, defect annotations, disclosure, measure overlays, reconcile. Only the
+private uploads store `""`. The reverse (a public object with no stored URL) is
+not a shape this codebase produces.
+
+Three implementations mirror the rule and must stay in step:
+`needsSignedDisplayUrl` / `bucketForItemPhotoRow` (web),
+`readBucketForItemPhoto` (edge), `PhotoStorageBucket.readBucket` (iOS).
+
+**Consulting the type instead is the recurring bug (US-2407).** The photo-type
+dropdown is the seller's, and a retag rewrites `photo_type` alone — no object
+moves. While the readers keyed on the type, retagging a phone-captured Garment
+Tag to "Front" made every one of them look in the public bucket for bytes that
+had never been there: the tile blanked out mid-edit, AI passes silently dropped
+the most informative photo of the garment, and the marketplace resolver handed
+eBay a URL that 404s. The seller was only retagging because the pencil was
+greyed out — the block and the breakage were the same root cause.
+
+Consequences worth knowing:
+
+- **A private photo is editable**, and the edit is written back to the bucket it
+  came from, leaving `photo_url` `""`. That empty column is what keeps it out of
+  every marketplace and export payload, so nothing is republished. iOS has done
+  this since US-979 (`PhotoRotateService`); the web caught up in US-2407.
+- **A private photo never publishes**, however it is tagged. Retagging one to
+  "Front" does not promote it — the UI says so once, at the retag.
+- **A same-path overwrite needs an explicit client-side bust** (`bumpItemPhotoUrl`)
+  because nothing on the row changes: no new `photo_url`, no new path. Public
+  photos get this free from their `?v=` cache-buster.
 
 ## Related
 
