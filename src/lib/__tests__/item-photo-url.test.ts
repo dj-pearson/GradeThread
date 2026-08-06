@@ -9,7 +9,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _clearItemPhotoUrlCache,
+  bumpItemPhotoUrl,
   itemPhotoPublishUrl,
+  itemPhotoUrlToken,
   needsSignedDisplayUrl,
   resolveItemPhotoDisplayUrl,
   resolveItemPhotoOriginalUrl,
@@ -75,6 +77,7 @@ describe("resolveItemPhotoDisplayUrl (AC5)", () => {
     const front: PhotoLike = {
       photo_type: "front",
       photo_url: "https://cdn.example.com/item-photos/front.jpg",
+      storage_path: "user-a/item-1/front_1.jpg",
     };
     const url = await resolveItemPhotoDisplayUrl(front, { sign });
     expect(url).toBe("https://cdn.example.com/item-photos/front.jpg");
@@ -87,6 +90,23 @@ describe("resolveItemPhotoDisplayUrl (AC5)", () => {
     const url = await resolveItemPhotoDisplayUrl({}, { sign });
     expect(url).toBe("");
     expect(sign).not.toHaveBeenCalled();
+  });
+
+  // US-2407: the report was "change the tag to anything else and the image
+  // disappears". Retagging writes photo_type and nothing else — the bytes never
+  // move — but the resolver keyed the private branch on the TYPE, so a tag
+  // relabelled "Front" fell through to the public branch, where photo_url is ""
+  // for a private upload. The tile went blank on a row that was entirely intact.
+  it("keeps signing after the seller retags a private photo to a listing type", async () => {
+    const sign = fakeSigner();
+    for (const photo_type of ["front", "back", "detail", "flatlay"]) {
+      _clearItemPhotoUrlCache();
+      const url = await resolveItemPhotoDisplayUrl(
+        { ...iosTag, photo_type },
+        { sign },
+      );
+      expect(url, `retagged to ${photo_type}`).toContain("/object/sign/");
+    }
   });
 
   it("makes no request for a sensitive row with no storage_path to sign", async () => {
@@ -106,6 +126,26 @@ describe("resolveItemPhotoDisplayUrl (AC5)", () => {
     const b = await resolveItemPhotoDisplayUrl(iosTag, { sign, now });
     expect(a).toBe(b);
     expect(sign).toHaveBeenCalledTimes(1);
+  });
+
+  // US-2407: a private edit overwrites the bytes at an unchanged path, so
+  // without an explicit bust the cached URL keeps resolving and the browser
+  // keeps serving the pre-edit image from its own cache — the seller's crop
+  // saves correctly and appears not to have happened.
+  it("bumpItemPhotoUrl forces a re-sign and moves the display key", async () => {
+    const sign = fakeSigner();
+    const now = () => 1_000_000;
+    await resolveItemPhotoDisplayUrl(iosTag, { sign, now });
+    expect(sign).toHaveBeenCalledTimes(1);
+    const before = itemPhotoUrlToken(iosTag.storage_path);
+
+    bumpItemPhotoUrl(iosTag.storage_path);
+    await resolveItemPhotoDisplayUrl(iosTag, { sign, now });
+
+    expect(sign).toHaveBeenCalledTimes(2);
+    expect(itemPhotoUrlToken(iosTag.storage_path)).toBe(before + 1);
+    // Untouched objects keep their cache.
+    expect(itemPhotoUrlToken("user-a/sub-1/other.jpg")).toBe(0);
   });
 
   it("degrades to '' (labelled-placeholder signal) when the mint fails", async () => {
@@ -150,11 +190,21 @@ describe("private photos never reach a public destination (AC6)", () => {
     ).toBe("https://cdn.example.com/item-photos/front.jpg");
   });
 
-  it("needsSignedDisplayUrl only matches the iOS private-upload shape", () => {
+  it("needsSignedDisplayUrl matches the private-upload SHAPE, not the type", () => {
     expect(needsSignedDisplayUrl(iosTag)).toBe(true);
+    // A stored public URL means the bytes are public, whatever the type says.
     expect(needsSignedDisplayUrl({ ...iosTag, photo_url: "https://x" })).toBe(false);
-    expect(needsSignedDisplayUrl({ photo_type: "front", storage_path: "p" })).toBe(false);
+    expect(
+      needsSignedDisplayUrl({
+        photo_type: "front",
+        photo_url: "https://x",
+        storage_path: "p",
+      }),
+    ).toBe(false);
+    // Nothing to sign.
     expect(needsSignedDisplayUrl({ photo_type: "tag", storage_path: null })).toBe(false);
+    // US-2407: the retagged private photo. Type says "front", bytes say private.
+    expect(needsSignedDisplayUrl({ ...iosTag, photo_type: "front" })).toBe(true);
   });
 });
 

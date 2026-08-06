@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  itemPhotoUrlToken,
   needsSignedDisplayUrl,
   resolveItemPhotoDisplayUrl,
   resolveItemPhotoOriginalUrl,
@@ -44,9 +45,13 @@ export function useItemPhotoDisplayUrl(
   // Re-run whenever the identity of the underlying object or its display inputs
   // change. storage_path/photo_url/thumbnail_url/photo_type fully determine the
   // resolved URL, so keying on them avoids re-signing on unrelated re-renders.
+  // The bust token covers the one case they DON'T: a private-bucket edit
+  // overwrites the bytes at an unchanged path (US-2407).
   const key = `${photo.storage_path ?? ""}|${photo.photo_url ?? ""}|${
     photo.thumbnail_url ?? ""
-  }|${photo.photo_type ?? ""}|${width ?? ""}|${full ? "full" : ""}`;
+  }|${photo.photo_type ?? ""}|${width ?? ""}|${full ? "full" : ""}|${
+    itemPhotoUrlToken(photo.storage_path)
+  }`;
   const latest = useRef(key);
   latest.current = key;
 
@@ -86,7 +91,7 @@ export function useItemPhotoOriginalUrl(photo: PhotoLike | null): string | null 
   const [url, setUrl] = useState<string | null>(null);
   const key = `${photo?.original_storage_path ?? ""}|${photo?.photo_type ?? ""}|${
     photo?.photo_url ?? ""
-  }|${photo?.storage_path ?? ""}`;
+  }|${photo?.storage_path ?? ""}|${itemPhotoUrlToken(photo?.original_storage_path)}`;
   const latest = useRef(key);
   latest.current = key;
 

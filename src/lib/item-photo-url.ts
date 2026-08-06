@@ -22,8 +22,12 @@
 // returns a signed URL.
 
 import { getImageUrl, SIGNED_URL_TTL_SECONDS } from "./storage";
-import { isSensitivePhotoType } from "./constants";
 import { itemPhotoThumb } from "./images";
+
+/** The only PUBLIC bucket: seller listing imagery, permanent public URLs. */
+export const PUBLIC_BUCKET = "item-photos";
+/** PII / grading close-ups. Read (and written back) via signed URLs only. */
+export const PRIVATE_BUCKET = "submission-images";
 
 // Re-sign this many ms BEFORE the URL actually expires, so a render never hands
 // out a URL that dies mid-request. Mirrors iOS PhotoSignedURLProvider.refreshSkew.
@@ -39,17 +43,35 @@ export interface PhotoLike {
 }
 
 /**
- * True when the row can only be displayed via a signed private-bucket URL: a
- * sensitive type, no public photo_url, and a storage_path to sign. This is the
- * iOS private-upload shape; a web-uploaded tag that carries a photo_url does not
- * match and keeps its existing (public) display path.
+ * True when the row can only be displayed via a signed private-bucket URL: no
+ * public photo_url, and a storage_path to sign. A web-uploaded tag that carries
+ * a photo_url does not match and keeps its existing (public) display path.
+ *
+ * DELIBERATELY NOT KEYED ON photo_type (US-2407). It used to also require
+ * `isSensitivePhotoType`, and that made the answer change when the seller
+ * changed the dropdown: retagging an iOS Garment Tag to "Front" flipped this to
+ * false, the resolver took the public branch, and photo_url is "" for a private
+ * upload — so the image vanished the moment the type changed, while the bytes
+ * sat untouched in the private bucket. Where the bytes ARE cannot depend on what
+ * the row is called.
+ *
+ * Empty photo_url + a storage_path is a sound signal for "the bytes are in the
+ * private bucket": every writer that puts an object in the PUBLIC bucket — the
+ * web uploader, iOS `PhotoUploadService`, remove-bg, defect annotations,
+ * disclosure, measure overlays, reconcile — stores the public URL on the row in
+ * the same insert. Only the private uploads store "".
  */
 export function needsSignedDisplayUrl(photo: PhotoLike): boolean {
-  return (
-    isSensitivePhotoType(photo.photo_type) &&
-    !(photo.photo_url ?? "") &&
-    !!(photo.storage_path ?? "")
-  );
+  return !(photo.photo_url ?? "") && !!(photo.storage_path ?? "");
+}
+
+/**
+ * The bucket a stored item photo must be READ from and WRITTEN BACK to. Mirror
+ * of the edge's `readBucketForItemPhoto` and iOS `PhotoStorageBucket.readBucket`
+ * — all three answer from the row's shape, never from its type.
+ */
+export function bucketForItemPhotoRow(photo: PhotoLike): string {
+  return needsSignedDisplayUrl(photo) ? PRIVATE_BUCKET : PUBLIC_BUCKET;
 }
 
 /**
@@ -77,6 +99,31 @@ const signedUrlCache = new Map<string, CacheEntry>();
 /** Test seam: drop the cache so cases don't leak signed URLs into each other. */
 export function _clearItemPhotoUrlCache(): void {
   signedUrlCache.clear();
+  bustTokens.clear();
+}
+
+// US-2407: a private-bucket edit writes NEW bytes over the SAME storage_path,
+// so nothing on the row changes — not photo_url (stays ""), not the path. The
+// cached signed URL would keep resolving, the browser would keep serving the
+// pre-edit bytes from its own HTTP cache, and the crop the seller just saved
+// would silently not appear. Bumping the token both drops the cache entry (so
+// the next resolve mints a URL with a fresh token — a different string, which
+// the browser cannot serve from cache) and changes the display hook's key so it
+// re-resolves at all. Public photos don't need this: their `?v=` cache-buster
+// already lands on the row.
+const bustTokens = new Map<string, number>();
+
+/** Invalidate a stored object's display URL after its bytes were overwritten. */
+export function bumpItemPhotoUrl(path?: string | null): void {
+  const key = (path ?? "").trim();
+  if (!key) return;
+  signedUrlCache.delete(key);
+  bustTokens.set(key, (bustTokens.get(key) ?? 0) + 1);
+}
+
+/** The current bust token for a path — part of the display hook's cache key. */
+export function itemPhotoUrlToken(path?: string | null): number {
+  return bustTokens.get((path ?? "").trim()) ?? 0;
 }
 
 // Returns a signed submission-images URL, or "" on failure. Reuses storage.ts's

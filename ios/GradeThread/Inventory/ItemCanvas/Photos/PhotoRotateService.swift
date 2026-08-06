@@ -66,7 +66,7 @@ struct PhotoRotateService {
         // sensitive-typed-but-public legacy/reclassified row is downloaded AND
         // re-uploaded to the bucket its bytes actually occupy, instead of signing
         // / writing the private bucket where the object isn't (the HTTP 400).
-        let bucket = PhotoStorageBucket.readBucket(forServerType: photo.photoType, photoURL: photo.photoURL)
+        let bucket = PhotoStorageBucket.readBucket(photoURL: photo.photoURL)
         let sourceURL: URL?
         if bucket == PhotoStorageBucket.publicBucket {
             sourceURL = URL(string: photo.photoURL)

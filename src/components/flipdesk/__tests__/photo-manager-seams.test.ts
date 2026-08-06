@@ -71,16 +71,35 @@ describe("PhotoManager mutation seams (US-1567)", () => {
 
   it("delete removes the storage object THEN the row", async () => {
     const { client, calls } = mockClient();
-    await persistDelete(client, { id: "p2", storage_path: "u/i/back_1.jpg" });
+    await persistDelete(client, {
+      id: "p2",
+      storage_path: "u/i/back_1.jpg",
+      photo_url: "https://cdn.test/u/i/back_1.jpg",
+    });
     expect(calls).toEqual([
       { kind: "storage-remove", table: "item-photos", paths: ["u/i/back_1.jpg"] },
       { kind: "delete", table: "item_photos", id: "p2" },
     ]);
   });
 
+  it("delete removes a private photo's object from the private bucket", async () => {
+    // US-2407: a phone-captured tag carries photo_url "" and lives in
+    // submission-images. Removing it from item-photos deleted nothing.
+    const { client, calls } = mockClient();
+    await persistDelete(client, {
+      id: "p4",
+      storage_path: "u/i/tag_1.jpg",
+      photo_url: "",
+    });
+    expect(calls).toEqual([
+      { kind: "storage-remove", table: "submission-images", paths: ["u/i/tag_1.jpg"] },
+      { kind: "delete", table: "item_photos", id: "p4" },
+    ]);
+  });
+
   it("delete skips storage for rows without a path and still deletes the row", async () => {
     const { client, calls } = mockClient();
-    await persistDelete(client, { id: "p3", storage_path: null });
+    await persistDelete(client, { id: "p3", storage_path: null, photo_url: "" });
     expect(calls).toEqual([{ kind: "delete", table: "item_photos", id: "p3" }]);
   });
 });

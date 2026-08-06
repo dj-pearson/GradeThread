@@ -35,6 +35,8 @@ function makeClient(
     download: [] as string[],
     update: [] as Record<string, unknown>[],
     deleted: [] as string[],
+    // US-2407: which bucket each storage call was routed to.
+    buckets: [] as string[],
   };
   const store = {
     copy: vi.fn((from: string, to: string) => {
@@ -78,7 +80,12 @@ function makeClient(
         },
       }),
     }),
-    storage: { from: () => store },
+    storage: {
+      from: (bucket: string) => {
+        calls.buckets.push(bucket);
+        return store;
+      },
+    },
   } as unknown as PhotoEditClient;
   return { client, calls, store };
 }
@@ -88,6 +95,16 @@ const PHOTO = {
   storage_path: "user-1/item-1/front_1.jpg",
   thumbnail_storage_path: "user-1/item-1/thumbs/front_1.jpg",
   original_storage_path: null,
+  photo_url: "https://cdn.test/user-1/item-1/front_1.jpg",
+};
+
+// A phone-captured Garment Tag: bytes in the PRIVATE bucket, photo_url "".
+const PRIVATE_TAG = {
+  id: "photo-9",
+  storage_path: "user-1/item-1/tag_1.jpg",
+  thumbnail_storage_path: null,
+  original_storage_path: null,
+  photo_url: "",
 };
 
 describe("persistPhotoEdit", () => {
@@ -164,6 +181,44 @@ describe("persistPhotoEdit", () => {
     expect(calls.update[0]!.edit_recipe).toEqual(RECIPE);
   });
 
+  // US-2407: the report was "in Composer the Garment Tags all can't be edited —
+  // the pencil is greyed out". The block was real, but the reason underneath it
+  // was that this function wrote every edit to the PUBLIC bucket, so a private
+  // photo's preserve-the-original copy() could only 404. It now writes back to
+  // the bucket the bytes came from, which makes the edit safe rather than banned.
+  describe("a private-bucket photo (phone-captured tag)", () => {
+    it("reads and writes the private bucket, never item-photos", async () => {
+      const { client, calls } = makeClient();
+      await persistPhotoEdit(client, PRIVATE_TAG, new Blob(["e"]), RECIPE);
+      expect(new Set(calls.buckets)).toEqual(new Set(["submission-images"]));
+      expect(calls.copy).toEqual([
+        ["user-1/item-1/tag_1.jpg", "user-1/item-1/originals/tag_1.jpg"],
+      ]);
+      expect(calls.upload[0]![0]).toBe("user-1/item-1/tag_1.jpg");
+    });
+
+    it("leaves photo_url empty — the edit publishes nothing", async () => {
+      // An edited private photo that acquired a public URL would be pushed to
+      // eBay by every downstream resolver. Not writing the column is what keeps
+      // the PII the private bucket exists to hold out of the listing.
+      const { client, calls } = makeClient();
+      await persistPhotoEdit(client, PRIVATE_TAG, new Blob(["e"]), RECIPE, 4242);
+      expect(calls.update[0]).not.toHaveProperty("photo_url");
+      expect(calls.update[0]!.edit_recipe).toEqual(RECIPE);
+    });
+
+    it("reverts within the private bucket too", async () => {
+      const { client, calls } = makeClient();
+      await revertPhotoEdit(
+        client,
+        { ...PRIVATE_TAG, original_storage_path: "user-1/item-1/originals/tag_1.jpg" },
+        77,
+      );
+      expect(new Set(calls.buckets)).toEqual(new Set(["submission-images"]));
+      expect(calls.update[0]).not.toHaveProperty("photo_url");
+    });
+  });
+
   it("rejects a photo with no storage path", async () => {
     const { client } = makeClient();
     await expect(
@@ -238,11 +293,13 @@ describe("persistDelete", () => {
       id: "photo-1",
       storage_path: "user-1/item-1/front_1.jpg",
       original_storage_path: "user-1/item-1/originals/front_1.jpg",
+      photo_url: "https://cdn.test/user-1/item-1/front_1.jpg",
     });
     expect(calls.remove[0]).toEqual([
       "user-1/item-1/front_1.jpg",
       "user-1/item-1/originals/front_1.jpg",
     ]);
+    expect(calls.buckets).toEqual(["item-photos"]);
     expect(calls.deleted).toEqual(["photo-1"]);
   });
 
@@ -252,13 +309,34 @@ describe("persistDelete", () => {
       id: "photo-2",
       storage_path: "user-1/item-1/back_1.jpg",
       original_storage_path: null,
+      photo_url: "https://cdn.test/user-1/item-1/back_1.jpg",
     });
     expect(calls.remove[0]).toEqual(["user-1/item-1/back_1.jpg"]);
   });
 
+  it("deletes a private photo's object from the private bucket", async () => {
+    // US-2407: this used to say `.from("item-photos")` unconditionally, so
+    // deleting a phone-captured tag removed the ROW and left the object behind —
+    // orphaned in the private bucket, unreachable from the UI, still holding the
+    // names and addresses a care label can carry.
+    const { client, calls } = makeClient();
+    await persistDelete(client, {
+      id: "photo-9",
+      storage_path: "user-1/item-1/tag_1.jpg",
+      original_storage_path: null,
+      photo_url: "",
+    });
+    expect(calls.buckets).toEqual(["submission-images"]);
+    expect(calls.remove[0]).toEqual(["user-1/item-1/tag_1.jpg"]);
+  });
+
   it("deletes the row even when there is no file to remove", async () => {
     const { client, calls } = makeClient();
-    await persistDelete(client, { id: "photo-3", storage_path: null });
+    await persistDelete(client, {
+      id: "photo-3",
+      storage_path: null,
+      photo_url: "",
+    });
     expect(calls.remove).toEqual([]);
     expect(calls.deleted).toEqual(["photo-3"]);
   });

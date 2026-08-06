@@ -68,13 +68,20 @@ export function bucketForItemPhoto(photoType?: string | null): string {
  * public bucket even for a nominally-sensitive type: the web uploads every type
  * to `item-photos`, and so did pre-US-979 iOS builds. Keying on the stored URL
  * costs no round trip and is right for both clients.
+ *
+ * US-2407: the photo TYPE no longer takes part. It used to decide the
+ * empty-photo_url case, which meant a seller changing the type dropdown changed
+ * where the edge looked for bytes that had not moved: retag a phone-captured
+ * Garment Tag to "Front" and every reader started resolving it against the
+ * public bucket, where it has never been. Empty photo_url ⇒ private is sound in
+ * the other direction too — every writer that puts an object in `item-photos`
+ * stores its public URL on the row in the same insert — and `itemPhotoAiUrl`'s
+ * public fallback still covers a legacy row that guesses wrong.
+ * (`bucketForItemPhoto` remains the WRITE-time router, keyed on the type.)
  */
-export function readBucketForItemPhoto(
-  photoType?: string | null,
-  photoUrl?: string | null,
-): string {
+export function readBucketForItemPhoto(photoUrl?: string | null): string {
   return (photoUrl ?? "").trim() === ""
-    ? bucketForItemPhoto(photoType)
+    ? SUBMISSION_IMAGES_BUCKET
     : ITEM_PHOTOS_BUCKET;
 }
 
@@ -161,7 +168,7 @@ export async function itemPhotoAiUrl(
   const path = (row.storage_path ?? "").trim();
   if (!path) return null;
 
-  if (readBucketForItemPhoto(row.photo_type, row.photo_url) === ITEM_PHOTOS_BUCKET) {
+  if (readBucketForItemPhoto(row.photo_url) === ITEM_PHOTOS_BUCKET) {
     return storage.publicUrl(ITEM_PHOTOS_BUCKET, path);
   }
 
@@ -197,16 +204,18 @@ export async function itemPhotoAiUrl(
 export function publicItemPhotoUrl(p: ItemPhotoUrlRow): string | null {
   const stored = (p.photo_url ?? "").trim();
   if (stored !== "") return stored;
-  const path = (p.storage_path ?? "").trim();
-  if (!path) return null;
-  // Empty photo_url + a sensitive type means the bytes are in the PRIVATE
-  // bucket (an iOS capture). Never publish those, and never mint a public URL
-  // that would 404 anyway.
-  if (SENSITIVE_ITEM_PHOTO_TYPES.has(p.photo_type ?? "")) return null;
-  // item-photo-url-ok: the sanctioned public-destination resolver — it reached
-  // here only for a non-sensitive row whose bytes are in the public bucket.
-  return supabaseAdmin.storage.from(ITEM_PHOTOS_BUCKET).getPublicUrl(path)
-    .data.publicUrl;
+  // US-2407: an empty photo_url means the bytes are in the PRIVATE bucket, full
+  // stop — the type is not consulted, because a seller can change the type and
+  // cannot change where the bytes are. This used to refuse only the SENSITIVE
+  // types, so retagging a phone-captured Garment Tag to "Front" turned it into a
+  // public item-photos URL for an object that has never been in that bucket:
+  // pushed to eBay it is a 404 in the buyer's gallery, and the retag that
+  // produced it was itself a workaround for the photo being uneditable.
+  //
+  // Nothing legitimate is lost: every writer that puts an object in the public
+  // bucket stores its URL on the row in the same insert, so "empty photo_url +
+  // public bytes" is not a shape this codebase produces.
+  return null;
 }
 
 /**

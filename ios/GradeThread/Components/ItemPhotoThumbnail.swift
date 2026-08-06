@@ -36,7 +36,7 @@ struct ItemPhotoThumbnail<Placeholder: View>: View {
         // (legacy / reclassified rows), so we don't mint a doomed private signed
         // URL for an object that isn't there — the cause of tag/tag_2 photos
         // showing blank until they're reclassified to a non-sensitive type.
-        let bucket = PhotoStorageBucket.readBucket(forServerType: photo.photoType, photoURL: photo.photoURL)
+        let bucket = PhotoStorageBucket.readBucket(photoURL: photo.photoURL)
         if bucket == PhotoStorageBucket.publicBucket {
             // Public photos carry their own `?v=` cache-buster on the URL after a
             // rotate, so no extra busting is needed here.

@@ -9,6 +9,11 @@ import {
   originalPathFor,
   type PhotoEditRecipe,
 } from "@/lib/photo-edit-recipe";
+import {
+  bucketForItemPhotoRow,
+  bumpItemPhotoUrl,
+  needsSignedDisplayUrl,
+} from "@/lib/item-photo-url";
 
 export interface PhotoMutationClient {
   // PromiseLike, not Promise: supabase-js query builders are thenables.
@@ -40,12 +45,20 @@ export interface PhotoEditClient extends PhotoMutationClient {
   };
 }
 
-const BUCKET = "item-photos";
-
-/** Photo fields the edit round-trip reads. */
+/**
+ * Photo fields the edit round-trip reads.
+ *
+ * `photo_url` is in here because it decides the BUCKET (US-2407): an empty one
+ * means the bytes are in the private `submission-images` bucket, and an edit has
+ * to be written back to the bucket it came from.
+ */
 export type EditablePhoto = Pick<
   ItemPhotoRow,
-  "id" | "storage_path" | "thumbnail_storage_path" | "original_storage_path"
+  | "id"
+  | "storage_path"
+  | "thumbnail_storage_path"
+  | "original_storage_path"
+  | "photo_url"
 >;
 
 /**
@@ -61,6 +74,14 @@ export type EditablePhoto = Pick<
  * covers would keep showing the stale image while zoom and eBay (which read
  * photo_url) showed the new one. The thumbnail is dropped so those surfaces
  * fall back to the cache-busted photo_url.
+ *
+ * US-2407: the edit is written back to the bucket the bytes CAME from. A photo
+ * captured on the phone (Garment Tag, second tag, certificate) lives in the
+ * private bucket, and this used to hardcode `item-photos` — so the preserve-the-
+ * original copy() failed and every such photo was uneditable on desktop. Writing
+ * it back privately keeps the seller's crop and republishes nothing: photo_url
+ * stays "", which is what every public destination reads. Same round trip iOS
+ * has always made for a private rotate (`PhotoRotateService`).
  */
 export async function persistPhotoEdit(
   client: PhotoEditClient,
@@ -72,7 +93,8 @@ export async function persistPhotoEdit(
   const path = photo.storage_path;
   if (!path) throw new Error("This photo has no storage path.");
 
-  const store = client.storage.from(BUCKET);
+  const isPrivate = needsSignedDisplayUrl(photo);
+  const store = client.storage.from(bucketForItemPhotoRow(photo));
 
   let originalPath = photo.original_storage_path;
   if (!originalPath) {
@@ -101,11 +123,15 @@ export async function persistPhotoEdit(
     void store.remove([photo.thumbnail_storage_path]);
   }
 
-  const publicUrl = store.getPublicUrl(path).data.publicUrl;
+  // A private photo has no public URL to bust and must not acquire one — an
+  // empty photo_url is exactly what keeps it out of every eBay/export payload.
+  // Its display URL is invalidated client-side instead.
   const { error: dbErr } = await client
     .from("item_photos")
     .update({
-      photo_url: `${publicUrl}?v=${now}`,
+      ...(isPrivate
+        ? {}
+        : { photo_url: `${store.getPublicUrl(path).data.publicUrl}?v=${now}` }),
       thumbnail_url: null,
       thumbnail_storage_path: null,
       original_storage_path: originalPath,
@@ -113,6 +139,7 @@ export async function persistPhotoEdit(
     } as never)
     .eq("id", photo.id);
   if (dbErr) throw dbErr;
+  if (isPrivate) bumpItemPhotoUrl(path);
 }
 
 /**
@@ -133,7 +160,8 @@ export async function revertPhotoEdit(
   if (!path) throw new Error("This photo has no storage path.");
   if (!originalPath) throw new Error("This photo has no preserved original.");
 
-  const store = client.storage.from(BUCKET);
+  const isPrivate = needsSignedDisplayUrl(photo);
+  const store = client.storage.from(bucketForItemPhotoRow(photo));
   const { data: original, error: dlErr } = await store.download(originalPath);
   if (dlErr || !original) {
     throw new Error("Couldn't read the original photo, so nothing was changed.");
@@ -149,17 +177,21 @@ export async function revertPhotoEdit(
     void store.remove([photo.thumbnail_storage_path]);
   }
 
-  const publicUrl = store.getPublicUrl(path).data.publicUrl;
+  // Same private-bucket split as the save path: no public URL is minted for a
+  // photo whose bytes are private.
   const { error: dbErr } = await client
     .from("item_photos")
     .update({
-      photo_url: `${publicUrl}?v=${now}`,
+      ...(isPrivate
+        ? {}
+        : { photo_url: `${store.getPublicUrl(path).data.publicUrl}?v=${now}` }),
       thumbnail_url: null,
       thumbnail_storage_path: null,
       edit_recipe: null,
     } as never)
     .eq("id", photo.id);
   if (dbErr) throw dbErr;
+  if (isPrivate) bumpItemPhotoUrl(path);
 }
 
 export async function persistRetag(
@@ -176,7 +208,10 @@ export async function persistRetag(
 
 export async function persistDelete(
   client: PhotoMutationClient,
-  photo: Pick<ItemPhotoRow, "id" | "storage_path"> &
+  // photo_url is REQUIRED, not optional: it decides the bucket, and an omitted
+  // one reads as "" — i.e. private — which would send a public photo's delete to
+  // the wrong bucket. Let the type force every caller to hand it over.
+  photo: Pick<ItemPhotoRow, "id" | "storage_path" | "photo_url"> &
     Partial<Pick<ItemPhotoRow, "original_storage_path">>,
 ): Promise<void> {
   // US-2208: the preserved original is invisible to every listing surface, so
@@ -186,7 +221,11 @@ export async function persistDelete(
     (p): p is string => typeof p === "string" && p.length > 0,
   );
   if (paths.length > 0) {
-    await client.storage.from("item-photos").remove(paths);
+    // US-2407: from the bucket the bytes are actually in. Hardcoding the public
+    // one deleted the ROW and left every phone-captured tag's object orphaned in
+    // the private bucket — invisible, unreclaimable, and still holding the PII
+    // the delete was meant to remove.
+    await client.storage.from(bucketForItemPhotoRow(photo)).remove(paths);
   }
   const { error } = await client.from("item_photos").delete().eq("id", photo.id);
   if (error) throw error;

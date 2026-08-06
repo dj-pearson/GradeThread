@@ -3,7 +3,9 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import {
   downloadItemPhoto,
+  readBucketForItemPhoto,
   SENSITIVE_ITEM_PHOTO_TYPES,
+  SUBMISSION_IMAGES_BUCKET,
 } from "../lib/item-photo-storage.ts";
 import {
   headR2Object,
@@ -108,7 +110,15 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
   // PRIVATE bucket, but the background-removed derivative is written to the
   // PUBLIC item-photos bucket with a public URL — which would expose PII
   // (serials, receipts, certificate numbers) that must never be public.
-  if (SENSITIVE_ITEM_PHOTO_TYPES.has(photo.photo_type ?? "")) {
+  //
+  // US-2407: the same refusal by BUCKET, not only by type. The type is the
+  // seller's dropdown; retagging a phone-captured tag to "Front" cleared the
+  // check above while the bytes stayed private, and this handler would then have
+  // published a derivative of them. Where the bytes are is what matters.
+  if (
+    SENSITIVE_ITEM_PHOTO_TYPES.has(photo.photo_type ?? "") ||
+    readBucketForItemPhoto(photo.photo_url) === SUBMISSION_IMAGES_BUCKET
+  ) {
     return c.json(
       {
         error:

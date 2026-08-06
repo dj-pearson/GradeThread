@@ -67,6 +67,22 @@ const SRC = resolve(process.cwd(), "src");
 const UPLOAD_CALL =
   /\.storage\s*\r?\n?\s*\.from\(\s*["'`]submission-images["'`]\s*\)[\s\S]{0,120}?\.(upload|remove)\(/;
 
+/**
+ * The COMPUTED form of the same write (US-2407). `bucketForItemPhotoRow(row)`
+ * resolves to `submission-images` for a private-bucket photo, so a `.from()`
+ * given that expression is a private-bucket write with no literal to match — the
+ * regex above would wave it through, which would make this guard a formality
+ * anyone can sidestep with a variable. Deliberately coarse: a module that both
+ * names the private-bucket resolver and calls a storage write verb has to appear
+ * in DECLARED, whether or not the two are adjacent.
+ */
+const COMPUTED_PRIVATE_WRITE = (src: string) =>
+  /\bbucketForItemPhotoRow\b|\bPRIVATE_BUCKET\b/.test(src) &&
+  /\.(upload|remove|copy)\(/.test(src);
+
+const writesPrivateStorage = (src: string) =>
+  UPLOAD_CALL.test(src) || COMPUTED_PRIVATE_WRITE(src);
+
 interface Declared {
   file: string;
   why: string;
@@ -76,7 +92,28 @@ interface Declared {
  * Client-side storage writes that are deliberate. Empty is the correct state —
  * an entry here is a decision someone made and can be argued with.
  */
-const DECLARED: readonly Declared[] = [];
+const DECLARED: readonly Declared[] = [
+  {
+    file: "src/lib/photo-mutations.ts",
+    why:
+      "US-2407: the photo editor's save/revert/delete round-trip, writing back " +
+      "to the bucket the photo's bytes already occupy. For a phone-captured tag " +
+      "that is submission-images, and the alternative was worse in both " +
+      "directions: hardcoding item-photos made every such photo uneditable on " +
+      "desktop (the preserve-the-original copy() 404s) and left its object " +
+      "orphaned in the private bucket on delete, PII and all. The US-276 " +
+      "concerns do not bite here — the bytes are a canvas re-encode the browser " +
+      "just produced, so there is no camera EXIF/GPS to strip and no " +
+      "attacker-supplied MIME string being trusted; the write is an upsert over " +
+      "an object the user already owns, inside their own RLS-scoped folder " +
+      "((storage.foldername(name))[1] = auth.uid()), so it can neither create " +
+      "new objects elsewhere nor widen who can read this one; and photo_url " +
+      "stays empty, which is what keeps the photo out of every marketplace and " +
+      "export payload. iOS has made this exact round trip since US-979 " +
+      "(PhotoRotateService uploads a rotated tag straight to submission-images " +
+      "with the user's own token) — the web was the odd one out.",
+  },
+];
 
 // US-2383: memoized, and the scanning test carries the shared budget. A guard
 // that walks the whole tree is not a unit test.
@@ -98,7 +135,7 @@ describe("US-2360: the browser never writes to Supabase Storage directly", () =>
   it("has no undeclared client-side storage upload or remove", () => {
     const declared = new Set(DECLARED.map((d) => d.file));
     const offenders = sourceFiles()
-      .filter((f) => UPLOAD_CALL.test(read(f)))
+      .filter((f) => writesPrivateStorage(read(f)))
       .filter((f) => !declared.has(f))
       .sort();
 
@@ -115,7 +152,7 @@ describe("US-2360: the browser never writes to Supabase Storage directly", () =>
     // The other direction: a fixed call site left on the list makes the list
     // stop meaning anything.
     const stale = DECLARED
-      .filter((d) => !UPLOAD_CALL.test(read(d.file)))
+      .filter((d) => !writesPrivateStorage(read(d.file)))
       .map((d) => d.file);
     expect(stale, "these client-side writes are gone — delete their entries").toEqual([]);
   }, SCAN_TIMEOUT_MS);

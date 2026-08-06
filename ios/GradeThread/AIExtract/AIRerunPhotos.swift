@@ -58,10 +58,7 @@ enum AIRerunPhotos {
             // Trust where the bytes ACTUALLY are: a populated photoURL means the
             // object is in the public bucket even for a nominally-sensitive type
             // (web uploads every type there, and so did pre-US-979 iOS builds).
-            let bucket = PhotoStorageBucket.readBucket(
-                forServerType: ref.photoType,
-                photoURL: stored
-            )
+            let bucket = PhotoStorageBucket.readBucket(photoURL: stored)
             if bucket == PhotoStorageBucket.publicBucket {
                 if !stored.isEmpty {
                     out.append(ExtractPhoto(url: stored, type: ref.photoType))

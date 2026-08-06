@@ -40,19 +40,26 @@ enum PhotoStorageBucket {
     }
 
     /// The bucket to READ a persisted photo from — trusting where the bytes
-    /// ACTUALLY are, not just the type. A populated public `photoURL` means the
+    /// ACTUALLY are, not the type. A populated public `photoURL` means the
     /// object lives in the PUBLIC bucket even for a nominally-sensitive type:
     /// legacy uploads (pre-US-979, when every slot went to `item-photos`) and
     /// slots reclassified to tag/tag_2/certificate AFTER capture leave a
     /// sensitive-typed row pointing at a public object. Routing those through
     /// the private signed-URL path mints a token for an object that isn't in the
-    /// private bucket, so the photo silently fails to load (and rotate fails) —
-    /// while reclassifying it to a non-sensitive type makes it appear instantly.
-    /// True private photos are stored with an EMPTY `photoURL`, so they still
-    /// route to the private bucket here. (`bucket(forServerType:)` remains the
-    /// WRITE-time router, keyed only on the slot's sensitivity.)
-    static func readBucket(forServerType serverType: String, photoURL: String) -> String {
-        photoURL.isEmpty ? bucket(forServerType: serverType) : publicBucket
+    /// private bucket, so the photo silently fails to load (and rotate fails).
+    /// An EMPTY `photoURL` is the private-upload shape, so it routes private.
+    ///
+    /// US-2407: the server type is no longer consulted for the empty case
+    /// either — it used to be, and that made the answer flip when the seller
+    /// changed the type dropdown: retagging a phone-captured Garment Tag to
+    /// "Front" sent every reader to the public bucket for bytes that had not
+    /// moved, and the photo blanked out. Where an object lives cannot depend on
+    /// what it is called, so the type is gone from the signature rather than
+    /// left in it to be re-used by mistake. (`bucket(forServerType:)` remains
+    /// the WRITE-time router, keyed on the slot's sensitivity — that one runs
+    /// before any bytes exist.)
+    static func readBucket(photoURL: String) -> String {
+        photoURL.isEmpty ? privateBucket : publicBucket
     }
 
     /// Maximum signed-URL lifetime, in seconds. Per CLAUDE.md the private

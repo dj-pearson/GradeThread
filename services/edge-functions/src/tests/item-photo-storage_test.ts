@@ -142,25 +142,50 @@ Deno.test("US-2265: no edge code builds an item-photo AI URL from a hardcoded pu
   );
 });
 
-Deno.test("US-2265: readBucketForItemPhoto trusts the stored photo_url over the type", () => {
+Deno.test("US-2265: readBucketForItemPhoto reads the stored photo_url, nothing else", () => {
   // iOS writes photo_url as "" for exactly its private-bucket uploads.
-  for (const t of SENSITIVE_ITEM_PHOTO_TYPES) {
-    assertEquals(readBucketForItemPhoto(t, ""), SUBMISSION_IMAGES_BUCKET);
-    assertEquals(readBucketForItemPhoto(t, "   "), SUBMISSION_IMAGES_BUCKET);
-    assertEquals(readBucketForItemPhoto(t, null), SUBMISSION_IMAGES_BUCKET);
-    assertEquals(readBucketForItemPhoto(t, undefined), SUBMISSION_IMAGES_BUCKET);
-    // A populated URL means the bytes ARE public: web uploads every type to
-    // item-photos, and so did pre-US-979 iOS builds. Signing the private bucket
-    // for those mints a token for an object that isn't there.
+  assertEquals(readBucketForItemPhoto(""), SUBMISSION_IMAGES_BUCKET);
+  assertEquals(readBucketForItemPhoto("   "), SUBMISSION_IMAGES_BUCKET);
+  assertEquals(readBucketForItemPhoto(null), SUBMISSION_IMAGES_BUCKET);
+  assertEquals(readBucketForItemPhoto(undefined), SUBMISSION_IMAGES_BUCKET);
+  // A populated URL means the bytes ARE public: web uploads every type to
+  // item-photos, and so did pre-US-979 iOS builds. Signing the private bucket
+  // for those mints a token for an object that isn't there.
+  assertEquals(
+    readBucketForItemPhoto(
+      "https://api.gradethread.com/storage/v1/object/public/item-photos/u/i/tag_1.jpg",
+    ),
+    ITEM_PHOTOS_BUCKET,
+  );
+});
+
+// US-2407: the answer must not move when the seller changes the type dropdown.
+// It used to: the empty-photo_url case was routed by TYPE, so retagging a
+// phone-captured Garment Tag to "Front" pointed every edge reader at the public
+// bucket for bytes that had never been there — an AI pass that silently skipped
+// the photo, and a marketplace payload carrying a URL that 404s. A retag
+// relabels a row; it does not move an object.
+Deno.test("US-2407: a retagged private photo stays private to every edge reader", async () => {
+  const path = "owner/item/tag_1.jpg";
+  const store = fakeStorage({ "submission-images": [path] });
+
+  for (const retaggedTo of ["front", "back", "detail", "flatlay"]) {
+    const row = { storage_path: path, photo_type: retaggedTo, photo_url: "" };
+
+    // The AI passes still reach the bytes...
+    const aiUrl = await itemPhotoAiUrl(row, store.api);
+    assert(
+      aiUrl?.includes(`/object/sign/${SUBMISSION_IMAGES_BUCKET}/`),
+      `retagged to ${retaggedTo}: expected a signed private URL, got ${aiUrl}`,
+    );
+
+    // ...and no marketplace gets a public URL for an object that isn't public.
     assertEquals(
-      readBucketForItemPhoto(t, "https://api.gradethread.com/storage/v1/object/public/item-photos/u/i/tag_1.jpg"),
-      ITEM_PHOTOS_BUCKET,
+      publicItemPhotoUrl(row),
+      null,
+      `retagged to ${retaggedTo}: a private photo must never publish`,
     );
   }
-  // Listing imagery is public either way.
-  assertEquals(readBucketForItemPhoto("front", ""), ITEM_PHOTOS_BUCKET);
-  assertEquals(readBucketForItemPhoto("front", null), ITEM_PHOTOS_BUCKET);
-  assertEquals(readBucketForItemPhoto(null, null), ITEM_PHOTOS_BUCKET);
 });
 
 Deno.test("US-2265: the AI signed-URL TTL stays inside the 900s storage rule", () => {
@@ -301,15 +326,20 @@ Deno.test("US-2271: publicItemPhotoUrl refuses a private-bucket sensitive photo"
     );
   }
 
-  // Listing imagery with no stored URL resolves from the public bucket.
-  const front = publicItemPhotoUrl({
-    storage_path: "o/i/front_1.jpg",
-    photo_type: "front",
-    photo_url: "",
-  });
-  assert(
-    front?.includes(`/object/public/${ITEM_PHOTOS_BUCKET}/o/i/front_1.jpg`),
-    `expected a public item-photos URL, got ${front}`,
+  // US-2407: listing imagery with NO stored URL is refused too. It used to be
+  // minted from the public bucket, on the theory that a non-sensitive type means
+  // public bytes — but the type is the seller's dropdown, and retagging a
+  // private photo to "Front" walked straight through that door and put a 404 URL
+  // in an eBay gallery. Nothing legitimate is lost: every writer that puts an
+  // object in item-photos stores its URL on the row in the same insert, so
+  // "empty photo_url + public bytes" is not a shape this codebase produces.
+  assertEquals(
+    publicItemPhotoUrl({
+      storage_path: "o/i/front_1.jpg",
+      photo_type: "front",
+      photo_url: "",
+    }),
+    null,
   );
 
   // Nothing to resolve at all.

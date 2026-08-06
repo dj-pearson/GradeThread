@@ -270,8 +270,9 @@ export function PhotoManager({
 
   // Photos eligible for bulk tone matching. Grading evidence is excluded so a
   // tone pass can't quietly re-expose a photo the grade was read from; sensitive
-  // close-ups are excluded because they can't be written back at all; and a photo
-  // with no storage_path has nowhere to save to.
+  // close-ups are excluded because a tone sweep is a LISTING-imagery pass and a
+  // label is not listing imagery (a single edit on one is fine now — US-2407);
+  // and a photo with no storage_path has nowhere to save to.
   //
   // Memoized because this array is a PROP of BulkToneDialog and one of its load
   // effect's dependencies. A fresh identity on every parent render would restart
@@ -298,17 +299,10 @@ export function PhotoManager({
     blob: Blob,
     recipe: PhotoEditRecipe | null,
   ) {
-    // Defence in depth — the editor is not offered for a private original. This
-    // path writes to the PUBLIC bucket, so editing one would republish exactly
-    // the PII the private bucket exists to hold. Tested on where the file
-    // actually lives rather than on its type, for the reason spelled out beside
-    // `editBlockedReason`: a tag that was always public is not the hazard, and
-    // blocking it taught sellers a retag-rotate-retag workaround that IS.
-    if (needsSignedDisplayUrl(photo)) {
-      throw new Error(
-        "Tag and certificate photos captured on the phone are stored privately and can't be edited here.",
-      );
-    }
+    // US-2407: no longer refused for a private original. persistPhotoEdit writes
+    // the edit back to the bucket the bytes came from, so a phone-captured tag
+    // is cropped IN the private bucket and photo_url stays "" — nothing is
+    // republished, which was the whole reason the old block existed.
     await persistPhotoEdit(supabase, photo, blob, recipe);
     photosDirtyRef.current = true;
   }
@@ -345,6 +339,16 @@ export function PhotoManager({
     try {
       await persistRetag(supabase, photo, photoType);
       await invalidatePhotos();
+      // US-2407: retagging changes the LABEL, never where the bytes live. A
+      // phone-captured close-up called "Front" is still in the private bucket
+      // and still won't be sent to a marketplace, so say so once rather than
+      // let the seller discover it as a missing listing photo.
+      if (needsSignedDisplayUrl(photo) && !isSensitivePhotoType(photoType)) {
+        toast.info(
+          "This photo was captured on the phone and stays private, so it won't be sent to eBay. Re-take it here if you want it in the listing.",
+          { duration: 10_000 },
+        );
+      }
     } catch {
       toast.error("Failed to change the photo type.");
     }
@@ -545,26 +549,20 @@ function SortablePhoto({
 
   // A photo sent for grading can't be deleted while a grade is in flight.
   const deleteBlocked = photo.used_for_grading && gradingInFlight;
-  // Blocked because the ORIGINAL IS PRIVATE, not because of what it is tagged.
-  //
-  // The rule being protected is "never republish a private-bucket image to the
-  // public one". `isSensitivePhotoType` tested the TYPE, which is a proxy for
-  // that and a leaky one: a Garment Tag uploaded here on the web is already in
-  // the public bucket with a public photo_url, so editing it republishes
-  // nothing — yet it was blocked, and sellers learned to retag it to "Front",
-  // rotate, and retag back. That workaround is strictly worse than the thing
-  // the guard forbids: run it on an iOS tag and it DOES copy a private image
-  // into the public bucket, which is the exact leak this exists to stop.
-  //
-  // `needsSignedDisplayUrl` is the real test — sensitive type AND no public
-  // photo_url AND a private storage_path. iOS-captured tags stay blocked; ones
-  // that were always public become editable in place.
+  // The bytes live in the PRIVATE bucket (phone-captured tag / certificate).
+  // Read off the row's shape, never its type — see needsSignedDisplayUrl.
   const privateOriginal = needsSignedDisplayUrl(photo);
-  // US-2278: why editing is unavailable, or null when it's available. Both cases
-  // were previously expressed by hiding the button, which looks like a bug.
-  const editBlockedReason = privateOriginal
-    ? "This tag or certificate photo was captured on the phone and is stored privately, because it can show names and addresses. Editing it would have to save a public copy, so it's locked."
-    : photo.storage_path == null
+  // US-2278: why editing is unavailable, or null when it's available.
+  //
+  // US-2407 removed the private-original case. The rule being protected is
+  // "never republish a private-bucket image to the public one", and the editor
+  // now writes each edit back to the bucket it read from — so a phone-captured
+  // tag is croppable without a public copy existing at any point. Blocking it
+  // was also self-defeating: sellers learned to retag the photo to "Front" to
+  // unlock the pencil, which broke its display and taught a habit that would
+  // have leaked PII the moment the old code did publish it.
+  const editBlockedReason =
+    photo.storage_path == null
       ? "This photo is still uploading, or its file is missing, so there's nothing to edit yet."
       : null;
 

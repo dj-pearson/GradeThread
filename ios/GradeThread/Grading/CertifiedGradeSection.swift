@@ -267,7 +267,7 @@ struct ItemGradeReportSheet: View {
             // Read from where the bytes actually live (populated public photoURL
             // ⇒ public bucket) so a sensitive-typed-but-public legacy/reclassified
             // row renders instead of failing a private signed-URL mint.
-            let bucket = PhotoStorageBucket.readBucket(forServerType: photo.photoType, photoURL: photo.photoURL)
+            let bucket = PhotoStorageBucket.readBucket(photoURL: photo.photoURL)
             let resolved: URL?
             if bucket == PhotoStorageBucket.publicBucket {
                 resolved = URL(string: photo.thumbnailURL ?? photo.photoURL)
