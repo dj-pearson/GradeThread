@@ -57,4 +57,15 @@ class AppLocaleTest {
     fun `the picker hides itself while there is nothing to choose`() {
         assertEquals(AppLocale.SUPPORTED.size > 1, AppLocale.hasChoice)
     }
+
+    @Test
+    fun `Spanish is offered and the picker is visible`() {
+        // US-2368 shipped values-es, which is what turns the picker on. If this
+        // fails because the translation was dropped, locales_config.xml and
+        // SUPPORTED have to come out with it — android/scripts/check-string-formats.py
+        // fails the build when those three stop agreeing.
+        assertTrue(AppLocale.isSupported("es"))
+        assertEquals("Español", AppLocale.label("es"))
+        assertTrue(AppLocale.hasChoice)
+    }
 }

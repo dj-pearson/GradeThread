@@ -28,6 +28,7 @@ object AppLocale {
      */
     val SUPPORTED: List<Option> = listOf(
         Option("en", "English", "English"),
+        Option("es", "Spanish", "Español"),
     )
 
     /** What "use my phone's language" is stored as. */

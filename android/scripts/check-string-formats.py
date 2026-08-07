@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """US-2368 — fail CI if a stringResource call's argument count does not match
-the resource's positional placeholders.
+the resource's positional placeholders, and if a translation drifts from the
+default language.
 
 A mismatch is not a compile error. `stringResource(R.string.x, a)` against a
 resource holding `%1$s %2$s` compiles perfectly and throws
@@ -12,6 +13,13 @@ it can be `.format(...)`ed later, which is how a per-row string is built inside 
 `joinToString` lambda (not a composable scope, so `stringResource` cannot be
 called there).
 
+Since Spanish landed there is a second job here: every `values-<tag>/strings.xml`
+must hold the same names as `values/` with the same placeholders, and the three
+places that decide which languages exist — the `values-<tag>/` directories,
+`res/xml/locales_config.xml`, and `AppLocale.SUPPORTED` — must agree. A language
+listed in only two of the three either shows up in the picker and changes
+nothing, or ships strings nobody can reach.
+
 Run locally:  python3 android/scripts/check-string-formats.py
 """
 import os
@@ -21,7 +29,13 @@ import xml.etree.ElementTree as ET
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "app", "src", "main", "java")
-STRINGS = os.path.join(ROOT, "app", "src", "main", "res", "values", "strings.xml")
+RESOURCES = os.path.join(ROOT, "app", "src", "main", "res")
+STRINGS = os.path.join(RESOURCES, "values", "strings.xml")
+LOCALES_CONFIG = os.path.join(RESOURCES, "xml", "locales_config.xml")
+APP_LOCALE = os.path.join(
+    SOURCE, "com", "gradethread", "app", "platform", "locale", "AppLocale.kt"
+)
+DEFAULT_TAG = "en"
 
 CALL = re.compile(r"\b(pluralStringResource|stringResource)\s*\(")
 RESOURCE_ID = re.compile(r"R\.(string|plurals)\.([a-z0-9_]+)")
@@ -32,9 +46,9 @@ def placeholders(text):
     return {int(index) for index in PLACEHOLDER.findall(text or "")}
 
 
-def load_spec():
+def load_spec(path=STRINGS):
     spec, seen, ragged = {}, [], []
-    for element in ET.parse(STRINGS).getroot():
+    for element in ET.parse(path).getroot():
         seen.append(element.get("name"))
         if element.tag == "string":
             spec[("string", element.get("name"))] = placeholders(element.text)
@@ -51,6 +65,73 @@ def load_spec():
             spec[("plurals", element.get("name"))] = found
     duplicates = sorted({name for name in seen if seen.count(name) > 1})
     return spec, duplicates, ragged
+
+
+def translated_tags():
+    """The languages that actually have a strings.xml, `en` for the default."""
+    tags = {DEFAULT_TAG}
+    for name in sorted(os.listdir(RESOURCES)):
+        if not name.startswith("values-"):
+            continue
+        if not os.path.exists(os.path.join(RESOURCES, name, "strings.xml")):
+            continue
+        qualifier = name[len("values-"):]
+        # Skip non-language qualifiers (values-night, values-v31, values-sw600dp).
+        if re.fullmatch(r"[a-z]{2,3}(-r[A-Z]{2})?", qualifier):
+            tags.add(qualifier.replace("-r", "-"))
+    return tags
+
+
+def check_translations(spec):
+    """Every translation carries the same names and placeholders as `values/`."""
+    failures = []
+    for tag in sorted(translated_tags() - {DEFAULT_TAG}):
+        directory = "values-" + tag.replace("-", "-r")
+        path = os.path.join(RESOURCES, directory, "strings.xml")
+        translated, duplicates, ragged = load_spec(path)
+        for name in duplicates:
+            failures.append(f"{directory}: duplicate resource name {name}")
+        for name, per_quantity in ragged:
+            failures.append(f"{directory}: plural {name} forms disagree on arguments")
+        for key in sorted(set(spec) - set(translated)):
+            failures.append(f"{directory}: missing {key[0]} {key[1]}")
+        for key in sorted(set(translated) - set(spec)):
+            # aapt's ExtraTranslation: a name that no longer exists in the
+            # default file is dead weight nothing can ever read.
+            failures.append(f"{directory}: {key[1]} is not in values/strings.xml")
+        for key in sorted(set(spec) & set(translated)):
+            if spec[key] != translated[key]:
+                mine = ", ".join(f"%{i}$" for i in sorted(translated[key])) or "none"
+                theirs = ", ".join(f"%{i}$" for i in sorted(spec[key])) or "none"
+                failures.append(
+                    f"{directory}: {key[1]} has {mine}, values/ has {theirs}"
+                )
+    return failures
+
+
+def check_language_list():
+    """`values-<tag>/`, locales_config.xml and AppLocale.SUPPORTED name the same
+    languages. Any two of the three agreeing is not enough: a locale in the
+    config with no strings gives a picker entry that changes nothing, and a
+    translation nobody lists is never reachable."""
+    shipped = translated_tags()
+    configured = set(
+        re.findall(
+            r'<locale\s+android:name="([^"]+)"',
+            open(LOCALES_CONFIG, "r", encoding="utf-8").read(),
+        )
+    )
+    source = open(APP_LOCALE, "r", encoding="utf-8").read()
+    block = re.search(r"val SUPPORTED[^=]*=\s*listOf\((.*?)\n    \)", source, re.S)
+    offered = set(re.findall(r'Option\("([^"]+)"', block.group(1) if block else ""))
+
+    failures = []
+    for label, found in (("locales_config.xml", configured), ("AppLocale.SUPPORTED", offered)):
+        for tag in sorted(found - shipped):
+            failures.append(f"{label} offers {tag}, but there is no values-{tag}/strings.xml")
+        for tag in sorted(shipped - found):
+            failures.append(f"values-{tag}/strings.xml exists, but {label} does not list it")
+    return failures
 
 
 def split_args(text):
@@ -125,6 +206,13 @@ def main():
             print(f"  {name}", file=sys.stderr)
         return 1
 
+    drift = check_language_list() + check_translations(spec)
+    if drift:
+        print("check-string-formats: translations have drifted\n", file=sys.stderr)
+        for message in drift:
+            print(f"  {message}", file=sys.stderr)
+        return 1
+
     failures = []
     for directory, _, names in os.walk(SOURCE):
         for name in names:
@@ -135,7 +223,8 @@ def main():
                 failures.append((os.path.relpath(path, ROOT), line_no, message))
 
     if not failures:
-        print(f"check-string-formats: OK ({len(spec)} resources)")
+        languages = ", ".join(sorted(translated_tags()))
+        print(f"check-string-formats: OK ({len(spec)} resources, {languages})")
         return 0
 
     print("check-string-formats: argument count does not match the resource\n", file=sys.stderr)
