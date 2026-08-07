@@ -82,6 +82,11 @@ export interface AchievementBadgeData {
   description: string;
   tier: string; // bronze | silver | gold
   earnedLabel?: string | null;
+  /** US-1857: the level card reuses this renderer with its own wording + glyph
+   *  rather than a second Satori template, so the two share cards stay visually
+   *  one family and only ever drift together. */
+  eyebrow?: string | null;
+  glyph?: string | null;
 }
 
 /** Render an earned achievement badge (US-1850 AC3) to shareable PNG bytes. */
@@ -96,6 +101,8 @@ export function renderAchievementBadge(d: AchievementBadgeData): Promise<Uint8Ar
       description: d.description,
       tier: d.tier,
       earnedLabel: d.earnedLabel ?? null,
+      eyebrow: d.eyebrow ?? null,
+      glyph: d.glyph ?? null,
     }),
     width,
     height,

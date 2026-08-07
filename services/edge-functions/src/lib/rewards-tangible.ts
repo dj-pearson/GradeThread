@@ -856,6 +856,148 @@ export async function grantTangibleRewards(
   }
 }
 
+// ─── The owner's view of the ladder (US-1857) ───────────────────────────────
+//
+// There is NO "claim" button here and there never will be, because there is
+// nothing for a user to claim: crossing a milestone grants it (grantTangibleRewards
+// runs off the back of the action that earned it), and XP is never debited. So
+// this read is a RECEIPT plus a horizon — what has already landed, and what the
+// next rung costs in XP. A button labelled "claim" beside an automatic grant
+// would invent a step the user can fail to take.
+
+/** One grant as its owner sees it. */
+export interface MilestoneGrantView {
+  milestone_key: string;
+  label: string;
+  reward_type: string;
+  reward_value: number;
+  status: string;
+  granted_at: string | null;
+  expires_at: string | null;
+}
+
+/** The next XP rung, with progress from the rung below it. */
+export interface NextMilestoneView {
+  key: string;
+  label: string;
+  reward_type: string;
+  value: number;
+  xp_threshold: number;
+  /** The rung below (or 0), so the bar measures the CURRENT step, not lifetime. */
+  xp_from: number;
+  xp_remaining: number;
+  percent: number;
+}
+
+export interface MilestoneProgressView {
+  /** The kill-switch. False = the ladder is paused; past grants still stand. */
+  enabled: boolean;
+  granted: MilestoneGrantView[];
+  next: NextMilestoneView | null;
+}
+
+/**
+ * Pure: where an XP total sits on the XP-threshold ladder.
+ *
+ * The bar spans the CURRENT step (previous rung → next rung), not 0 → next: a
+ * user at 6,000 of 6,400 XP has all but arrived, and a lifetime-anchored bar
+ * would show them at 94% forever as the ladder stretches. Non-XP milestones
+ * (badge / season-goal triggers) have no numeric distance and are deliberately
+ * absent — a progress bar toward "earn a specific badge" would be a lie.
+ */
+export function xpLadderProgress(
+  xpTotal: number,
+  catalog: readonly MilestoneReward[],
+): NextMilestoneView | null {
+  const rungs = catalog
+    .filter((m) => m.triggerType === "xp_threshold")
+    .sort((a, b) => a.xpThreshold - b.xpThreshold);
+  const next = rungs.find((m) => xpTotal < m.xpThreshold);
+  if (!next) return null;
+
+  const below = rungs.filter((m) => m.xpThreshold <= xpTotal);
+  const from = below.length > 0 ? below[below.length - 1]!.xpThreshold : 0;
+  const span = Math.max(1, next.xpThreshold - from);
+  const percent = Math.min(100, Math.max(0, Math.round(((xpTotal - from) / span) * 100)));
+
+  return {
+    key: next.key,
+    label: next.label,
+    reward_type: next.rewardType,
+    value: next.value,
+    xp_threshold: next.xpThreshold,
+    xp_from: from,
+    xp_remaining: Math.max(0, next.xpThreshold - xpTotal),
+    percent,
+  };
+}
+
+/**
+ * The caller's grants + their next rung. Tenant-scoped by userId; best-effort,
+ * because this hangs off the rewards screen and a ladder problem must not take
+ * the level card down with it.
+ */
+export async function loadMilestoneProgress(
+  userId: string,
+  xpTotal: number,
+): Promise<MilestoneProgressView> {
+  const empty: MilestoneProgressView = { enabled: false, granted: [], next: null };
+  try {
+    const [enabled, catalog, grantsRes] = await Promise.all([
+      isFeatureEnabled("rewards_tangible", { userId, defaultEnabled: false }),
+      loadMilestoneCatalog(),
+      supabaseAdmin
+        .from("reward_tangible_grants")
+        .select("milestone_key, reward_type, reward_value, status, granted_at, expires_at")
+        .eq("user_id", userId)
+        .order("granted_at", { ascending: false }),
+    ]);
+
+    if (grantsRes.error) {
+      console.error("[rewards-tangible] grant view load failed:", grantsRes.error.message);
+      return { ...empty, enabled };
+    }
+
+    const labels = new Map(catalog.map((m) => [m.key, m.label]));
+    const rows = (grantsRes.data ?? []) as Array<{
+      milestone_key: string;
+      reward_type: string;
+      reward_value: number | string;
+      status: string;
+      granted_at: string | null;
+      expires_at: string | null;
+    }>;
+
+    // 'claimed' is an internal reservation, not a delivered reward — showing it
+    // would promise value that has not moved (and may yet be released on a
+    // fulfilment failure). Only 'granted' rows are the user's to see.
+    const granted: MilestoneGrantView[] = rows
+      .filter((r) => r.status === "granted")
+      .map((r) => ({
+        milestone_key: r.milestone_key,
+        label: labels.get(r.milestone_key) ?? r.milestone_key,
+        reward_type: r.reward_type,
+        reward_value: Number(r.reward_value) || 0,
+        status: r.status,
+        granted_at: r.granted_at,
+        expires_at: r.expires_at,
+      }));
+
+    // A milestone with a row of ANY status is spoken for, so the horizon skips
+    // it — pointing someone at a rung they are already standing on.
+    const taken = new Set(rows.map((r) => r.milestone_key));
+    const ahead = catalog.filter((m) => !taken.has(m.key) && isFulfillable(m.rewardType));
+
+    return { enabled, granted, next: xpLadderProgress(xpTotal, ahead) };
+  } catch (err) {
+    console.error(
+      "[rewards-tangible] milestone progress threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return empty;
+  }
+}
+
 /** What the unlock notification says. Pure — the copy has to match the trigger,
  *  or a badge reward reads as an XP one. */
 export function rewardNotificationMessage(reward: MilestoneReward): string {

@@ -17,6 +17,7 @@ code_refs:
   - services/edge-functions/src/lib/leaderboards-data.ts
   - services/edge-functions/src/lib/badge-analytics.ts
   - src/lib/buyer-rewards-summary.ts
+  - src/lib/reward-celebrations.ts
 reviewed: 2026-08-07
 tags: [rewards, gamification, buyer, seller, contract]
 summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award goes through grantReward with a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid.
@@ -403,6 +404,52 @@ read 3/5 while their weekly board read 4 on the same morning. Every response als
 carries `current_week`, which is what the sitemap uses for a derived `lastmod`
 (US-2100 forbids stamping `today()`, and a ranking has no row whose timestamp
 means "this changed").
+
+## Celebrations are tiered, and the tiers are closed (US-1857)
+
+A reward event is not automatically a *moment*. `src/lib/reward-celebrations.ts`
+owns the policy and it has exactly **two** tiers:
+
+- **celebrate** — animated (CSS-only confetti) plus a one-tap share card.
+  Reserved for: a **level up**, an **integrity-tier change** (US-1912), a
+  **season sweep**, a **first-ever** event (first badge, and every gold badge),
+  and a **tangible milestone grant** — which is first-ever by construction,
+  because `UNIQUE (user_id, milestone_key)` means each one is granted once,
+  forever.
+- **quiet** — a plain toast. Routine XP and the steady middle of the badge
+  shelf. XP is **aggregated across the whole gap between two reads**; there is no
+  per-event XP toast, and adding one would be a burst of toasts, because XP
+  arrives from the ledger in bursts.
+
+Three constraints hold, and a new reward type inherits all of them:
+
+1. **A new event defaults to quiet.** Promoting one to `celebrate` means arguing
+   it belongs in the list above. GradeThread sells verified condition to people
+   running a business; confetti on everything is the fastest way to make a
+   grading service read as a mobile game, and the audience most likely to see it
+   — a FlipDesk user bulk-processing hundreds of items — is the least willing to
+   forgive it.
+2. **Frequency is capped, and a suppressed moment is marked SEEN, not deferred.**
+   A celebration replayed twenty minutes after the thing it celebrates is worse
+   than one that never fired, and nothing is lost either way: the level, the
+   badge and the grant all sit permanently on `/dashboard/rewards`. The toast was
+   always the smaller half of the reward.
+3. **The first read is a BASELINE, never an achievement.** A null previous
+   snapshot yields no events. Without that, shipping any change to the snapshot
+   shape throws every existing user a party for something they earned months ago.
+
+The engine is a **snapshot diff** against `GET /api/rewards/state`, persisted per
+user in `localStorage` — no new event stream, and a user who was away while ten
+things happened comes back to one summary rather than ten replays. It is mounted
+only on the two surfaces that already make that read (the dashboard widget and
+the rewards page), so it costs no extra request and never interrupts work.
+
+**Reduced motion removes the animation, never the news**: the same words and the
+same share button land as a plain toast. Note that the global
+`prefers-reduced-motion` rule in `src/index.css` collapses durations to 0.01ms,
+which for a *falling* animation is a flash at the destination rather than an
+absence — so the confetti layer carries its own `display: none` rule. Any new
+entrance/exit keyframe needs the same treatment.
 
 ## Wiring a new source
 

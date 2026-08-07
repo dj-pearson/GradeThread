@@ -7,8 +7,14 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { BADGE_CATALOG, badgeByKey, countViralFinds, evaluateBadges, publicAchievements } =
-  await import("../lib/rewards-badges.ts");
+const {
+  BADGE_CATALOG,
+  badgeByKey,
+  badgeShelf,
+  countViralFinds,
+  evaluateBadges,
+  publicAchievements,
+} = await import("../lib/rewards-badges.ts");
 type BadgeContext = Parameters<typeof evaluateBadges>[0];
 
 const ctx = (over: Partial<BadgeContext> = {}): BadgeContext => ({
@@ -147,4 +153,48 @@ Deno.test("countViralFinds ignores lower rungs and foreign keys", () => {
     ]),
     0,
   );
+});
+
+// ── US-1857: the owner's shelf ───────────────────────────────────────────────
+
+Deno.test("badgeShelf splits earned from still-to-earn", () => {
+  const shelf = badgeShelf([
+    { badge_key: "first_grade", earned_at: "2026-07-01T00:00:00Z" },
+    { badge_key: "grades_10", earned_at: "2026-07-20T00:00:00Z" },
+  ]);
+  assertEquals(shelf.earned.map((b) => b.key).sort(), ["first_grade", "grades_10"]);
+  assertEquals(shelf.earned_count, 2);
+  assert(shelf.upcoming.length > 0);
+  // Nothing appears on both halves.
+  const earned = new Set(shelf.earned.map((b) => b.key));
+  assert(shelf.upcoming.every((b) => !earned.has(b.key)));
+  assertEquals(shelf.total, shelf.earned.length + shelf.upcoming.length);
+});
+
+Deno.test("badgeShelf never advertises an UNEARNED hidden badge, in the list or the count", () => {
+  // `hidden` exists so the medal is a surprise. A denominator that counts it
+  // ("2 of 12" beside eleven visible entries) leaks that a twelfth exists,
+  // which is the one thing the flag is for.
+  const hidden = BADGE_CATALOG.filter((b) => b.hidden).map((b) => b.key);
+  assert(hidden.length > 0, "this test needs at least one hidden badge to be meaningful");
+
+  const shelf = badgeShelf([]);
+  assert(shelf.upcoming.every((b) => !hidden.includes(b.key)));
+  assertEquals(shelf.total, shelf.upcoming.length);
+  assertEquals(shelf.total, BADGE_CATALOG.filter((b) => !b.hidden).length);
+});
+
+Deno.test("badgeShelf DOES show a hidden badge once it is earned", () => {
+  const hiddenKey = BADGE_CATALOG.find((b) => b.hidden)!.key;
+  const shelf = badgeShelf([{ badge_key: hiddenKey, earned_at: "2026-07-01T00:00:00Z" }]);
+  assertEquals(shelf.earned.map((b) => b.key), [hiddenKey]);
+  assertEquals(shelf.total, BADGE_CATALOG.filter((b) => !b.hidden).length + 1);
+});
+
+Deno.test("badgeShelf drops a retired key rather than rendering a nameless medal", () => {
+  const shelf = badgeShelf([
+    { badge_key: "a_badge_we_removed", earned_at: "2026-07-01T00:00:00Z" },
+  ]);
+  assertEquals(shelf.earned, []);
+  assertEquals(shelf.earned_count, 0);
 });

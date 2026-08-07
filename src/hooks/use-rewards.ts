@@ -80,11 +80,69 @@ export interface CosmeticPerk {
   minLevel: number;
 }
 
+// US-1857: the badge shelf. `earned_at` null = a medal still to earn. Hidden
+// badges only ever appear once earned, so the shelf never spoils a surprise.
+export interface RewardBadge {
+  key: string;
+  name: string;
+  description: string;
+  tier: "bronze" | "silver" | "gold";
+  icon: string;
+  earned_at: string | null;
+}
+
+export interface RewardBadgeShelf {
+  earned: RewardBadge[];
+  upcoming: RewardBadge[];
+  earned_count: number;
+  total: number;
+}
+
+/** A tangible reward that has already landed. Nothing here is claimable — the
+ *  grant happens automatically on crossing the milestone (US-1853). */
+export interface MilestoneGrant {
+  milestone_key: string;
+  label: string;
+  reward_type: string;
+  reward_value: number;
+  status: string;
+  granted_at: string | null;
+  expires_at: string | null;
+}
+
+export interface NextMilestone {
+  key: string;
+  label: string;
+  reward_type: string;
+  value: number;
+  xp_threshold: number;
+  xp_from: number;
+  xp_remaining: number;
+  percent: number;
+}
+
+export interface MilestoneProgress {
+  enabled: boolean;
+  granted: MilestoneGrant[];
+  next: NextMilestone | null;
+}
+
+const EMPTY_BADGES: RewardBadgeShelf = {
+  earned: [],
+  upcoming: [],
+  earned_count: 0,
+  total: 0,
+};
+
+const EMPTY_MILESTONES: MilestoneProgress = { enabled: false, granted: [], next: null };
+
 export interface RewardsState {
   level: RewardLevel;
   season: RewardSeason;
   recaps: SeasonRecap[];
   perks: { unlocked: CosmeticPerk[]; locked: CosmeticPerk[] };
+  badges: RewardBadgeShelf;
+  milestones: MilestoneProgress;
   season_timezone: string;
 }
 
@@ -97,7 +155,15 @@ export function useRewards() {
       const res = await edgeFetch("/api/rewards/state", { skipWorkspaceHeader: true });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Couldn't load your rewards.");
-      return json as RewardsState;
+      // An edge that predates US-1857 sends no badges/milestones block. Defaults
+      // here rather than `?.` at forty call sites — the shelf renders empty, the
+      // ladder renders as off, and nothing crashes mid-deploy.
+      const state = json as RewardsState;
+      return {
+        ...state,
+        badges: state.badges ?? EMPTY_BADGES,
+        milestones: state.milestones ?? EMPTY_MILESTONES,
+      };
     },
     enabled: !!user?.id,
     staleTime: 60 * 1000,

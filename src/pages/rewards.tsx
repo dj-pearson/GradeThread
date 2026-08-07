@@ -27,6 +27,11 @@ import { Progress } from "@/components/ui/progress";
 import { useRewards, type SeasonRecap } from "@/hooks/use-rewards";
 import { QuestsPanel } from "@/components/rewards/quests-panel";
 import { LeaderboardPanel } from "@/components/rewards/leaderboard-panel";
+import { BadgeShelf } from "@/components/rewards/badge-shelf";
+import { MilestoneRewards } from "@/components/rewards/milestone-rewards";
+import { RewardCelebrations } from "@/components/rewards/reward-celebrations";
+import { shareRewardCard } from "@/lib/reward-share";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 // US-1851: the seller's rewards home — level, season track, cosmetic perks and
@@ -121,12 +126,18 @@ export function RewardsPage() {
     );
   }
 
-  const { level, season, perks, recaps } = rewards;
+  const { level, season, perks, recaps, badges, milestones } = rewards;
   const TierIcon = ICONS[level.tier.icon] ?? Trophy;
   const remaining = daysLeft(season.ends_at);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
+      {/* US-1857: the tiered celebration runner. Mounted here as well as in the
+          dashboard widget because both surfaces already hold this exact read —
+          neither mount costs a request, and whichever the seller opens first is
+          where the moment lands. */}
+      <RewardCelebrations />
+
       <PageHeader
         title="Rewards"
         subtitle="Your level is yours to keep. Seasons give you something to chase each quarter."
@@ -162,15 +173,44 @@ export function RewardsPage() {
             </div>
           </div>
 
-          {level.next_tier && (
-            <p className="text-sm text-muted-foreground">
-              {nf(level.xp_to_next_tier ?? 0)} XP to{" "}
-              <span className="font-medium text-foreground">{level.next_tier.name}</span>{" "}
-              (level {level.next_tier.minLevel}).
-            </p>
-          )}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {level.next_tier ? (
+              <p className="text-sm text-muted-foreground">
+                {nf(level.xp_to_next_tier ?? 0)} XP to{" "}
+                <span className="font-medium text-foreground">{level.next_tier.name}</span>{" "}
+                (level {level.next_tier.minLevel}).
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Top of the ladder.</p>
+            )}
+            {/* US-1857: the same one-tap share the level-up celebration offers,
+                available whenever — the card is public and describes the RUNG,
+                so sharing it publishes the achievement, never the account. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void shareRewardCard({
+                  kind: "level",
+                  key: String(level.level),
+                  title: `GradeThread level ${level.level}`,
+                  text: `Level ${level.level} — ${level.tier.name} — grading condition on GradeThread.`,
+                });
+              }}
+            >
+              <Share2 className="mr-1.5 h-3.5 w-3.5" />
+              Share level card
+            </Button>
+          </div>
         </CardContent>
       </Card>
+
+      {/* US-1857: the badge gallery — earned medals plus what's still to earn. */}
+      <BadgeShelf shelf={badges} />
+
+      {/* US-1857 over the US-1853 grant model: tangible rewards. No claim
+          button — crossing the milestone grants it, and XP is never spent. */}
+      <MilestoneRewards milestones={milestones} />
 
       {/* Quests — the week. Renders nothing when the program is off or empty. */}
       <QuestsPanel />

@@ -142,6 +142,80 @@ export function evaluateBadges(ctx: BadgeContext): string[] {
   return BADGE_CATALOG.filter((b) => b.criteria(ctx)).map((b) => b.key);
 }
 
+// ─── The owner's shelf (US-1857) ─────────────────────────────────────────────
+//
+// The PUBLIC projection above shows only what a seller has earned. The shelf is
+// the private one: earned medals PLUS the ones still to earn, because a gallery
+// with nothing to aim at is a trophy case, not a shelf.
+
+/** One catalog badge as the shelf renders it. `earned_at` null = not earned. */
+export interface BadgeShelfEntry {
+  key: string;
+  name: string;
+  description: string;
+  tier: BadgeTier;
+  icon: string;
+  earned_at: string | null;
+}
+
+export interface BadgeShelf {
+  earned: BadgeShelfEntry[];
+  upcoming: BadgeShelfEntry[];
+  earned_count: number;
+  /**
+   * The shelf's denominator: the ADVERTISED catalog plus any hidden badge this
+   * user has already earned. A hidden badge nobody has earned stays out of the
+   * count — "3 of 12" when the visible list holds 11 is a leak that a surprise
+   * exists, which is the one thing `hidden` is for.
+   */
+  total: number;
+}
+
+/** Pure: earned rows + the catalog → the shelf. */
+export function badgeShelf(
+  rows: ReadonlyArray<{ badge_key: string; earned_at: string }>,
+): BadgeShelf {
+  const earned: BadgeShelfEntry[] = publicAchievements(rows).map((a) => ({
+    key: a.key,
+    name: a.name,
+    description: a.description,
+    tier: a.tier,
+    icon: a.icon,
+    earned_at: a.earned_at,
+  }));
+  const earnedKeys = new Set(earned.map((e) => e.key));
+  const upcoming: BadgeShelfEntry[] = BADGE_CATALOG
+    .filter((b) => !b.hidden && !earnedKeys.has(b.key))
+    .map((b) => ({
+      key: b.key,
+      name: b.name,
+      description: b.description,
+      tier: b.tier,
+      icon: b.icon,
+      earned_at: null,
+    }));
+  return {
+    earned,
+    upcoming,
+    earned_count: earned.length,
+    total: earned.length + upcoming.length,
+  };
+}
+
+/** The caller's own shelf. Tenant-scoped by userId; best-effort — a failed read
+ *  renders an empty shelf rather than taking down the rewards screen. */
+export async function loadBadgeShelf(userId: string): Promise<BadgeShelf> {
+  const { data, error } = await supabaseAdmin
+    .from("user_badges")
+    .select("badge_key, earned_at")
+    .eq("user_id", userId);
+  if (error) {
+    console.error("[rewards-badges] shelf load failed:", error.message);
+    return badgeShelf([]);
+  }
+  return badgeShelf((data ?? []) as Array<{ badge_key: string; earned_at: string }>);
+}
+
 // ─── Award engine (service-role; scoped by user_id — US-268) ─────────────────
 
 const EMPTY_CONTEXT: BadgeContext = {

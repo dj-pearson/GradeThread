@@ -36,6 +36,8 @@ import {
   loadSeasonTimezone,
 } from "../lib/rewards-seasons.ts";
 import { loadQuestsState } from "../lib/rewards-quests.ts";
+import { loadBadgeShelf } from "../lib/rewards-badges.ts";
+import { loadMilestoneProgress } from "../lib/rewards-tangible.ts";
 import {
   isLeaderboardPeriod,
   LEADERBOARD_METRICS,
@@ -76,7 +78,19 @@ rewardsRoutes.get("/state", async (c) => {
     // Thrifter, not an error — everyone starts on the ladder.
     const progress = levelProgress(state?.xpPeak ?? 0, state?.xpTotal ?? 0);
 
+    // US-1857: the badge shelf and the tangible ladder ride along on this read
+    // rather than getting endpoints of their own. Both are cheap, both derive
+    // from the same XP total the level card shows, and splitting them would let
+    // the widget render a level the "next reward" bar disagrees with. Both are
+    // internally best-effort, so neither can take the screen down.
+    const [badges, milestones] = await Promise.all([
+      loadBadgeShelf(userId),
+      loadMilestoneProgress(userId, progress.xpTotal),
+    ]);
+
     return c.json({
+      badges,
+      milestones,
       level: {
         level: progress.level,
         xp_total: progress.xpTotal,

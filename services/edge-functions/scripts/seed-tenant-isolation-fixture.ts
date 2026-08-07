@@ -244,6 +244,18 @@ async function main(): Promise<void> {
     { inventory_item_id: itemId },
   );
 
+  // US-1855's Showcase-consent case gates on a real `submissions` row owned by
+  // A. It shipped unseeded, so the one case proving B cannot publish A's private
+  // find skipped on every CI run while the suite reported green. A plain
+  // uncertified row is enough: the denial comes from the `.eq("user_id", userId)`
+  // filter on the consent UPDATE, which does not care about grade state.
+  out.TEST_USER_A_GRADE_SUBMISSION_ID = await insert("submissions", {
+    user_id: aId,
+    garment_type: "tops",
+    garment_category: "t-shirt",
+    title: "Tenant-A fixture grading submission",
+  });
+
   // US-600: consignment mode.
   out.TEST_USER_A_CONSIGNOR_ID = await insert("consignors", {
     user_id: aId,

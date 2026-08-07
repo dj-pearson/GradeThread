@@ -189,6 +189,12 @@ export interface AchievementBadgeInput {
   tier: string; // bronze | silver | gold (unknown → navy medal)
   /** e.g. "Earned Jul 2026", or null to omit. */
   earnedLabel?: string | null;
+  /** Line above the name. Defaults to the achievement wording; the LEVEL card
+   *  (US-1857) passes its own so a level share doesn't claim to be a medal. */
+  eyebrow?: string | null;
+  /** What sits in the medal. Defaults to a star; the level card puts the level
+   *  number there, which is the only number that matters on it. */
+  glyph?: string | null;
 }
 
 export function buildAchievementBadgeHtml(input: AchievementBadgeInput): string {
@@ -198,16 +204,18 @@ export function buildAchievementBadgeHtml(input: AchievementBadgeInput): string 
   const tierColor = TIER_COLOR[input.tier.toLowerCase()] ?? BRAND_NAVY;
   const tierLabel = input.tier ? input.tier.toUpperCase() : "";
   const earned = input.earnedLabel ? ` · ${escapeHtml(input.earnedLabel)}` : "";
+  const eyebrow = escapeHtml(input.eyebrow?.trim() || "GradeThread Achievement");
+  const glyph = escapeHtml(input.glyph?.trim() || "★");
 
   return `<div style="display:flex;align-items:center;height:${input.height}px;width:${input.width}px;background:${BRAND_NAVY};color:${TEXT_LIGHT};font-family:${FONT};border-radius:${px(16)}px;padding:0 ${px(36)}px;">
   <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:${medal}px;height:${medal}px;border-radius:50%;background:${tierColor};margin-right:${px(32)}px;">
-    <div style="display:flex;font-size:${px(46)}px;font-weight:700;line-height:1;color:#fff;">★</div>
+    <div style="display:flex;font-size:${px(46)}px;font-weight:700;line-height:1;color:#fff;">${glyph}</div>
     <div style="display:flex;font-size:${px(13)}px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,0.9);">${escapeHtml(tierLabel)}</div>
   </div>
   <div style="display:flex;flex-direction:column;flex:1;">
     <div style="display:flex;align-items:center;gap:${px(10)}px;font-size:${px(20)}px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:${px(6)}px;">
       <div style="width:${px(26)}px;height:${px(26)}px;border-radius:${px(7)}px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${px(15)}px;color:#fff;">G</div>
-      GradeThread Achievement
+      ${eyebrow}
     </div>
     <div style="display:flex;font-size:${px(36)}px;font-weight:700;line-height:1.1;">${escapeHtml(truncate(input.name, 28))}</div>
     <div style="display:flex;font-size:${px(16)}px;color:rgba(255,255,255,0.6);margin-top:${px(6)}px;">${escapeHtml(truncate(input.description, 60))}${earned}</div>

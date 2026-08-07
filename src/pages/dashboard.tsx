@@ -62,6 +62,7 @@ import { ActivationChecklist } from "@/components/onboarding/activation-checklis
 import { FlipdeskPromoCard } from "@/components/flipdesk/flipdesk-promo-card";
 import { InviteFriendCard } from "@/components/referral/invite-friend-card";
 import { ImpactTile } from "@/components/impact/impact-tile";
+import { RewardsWidget } from "@/components/rewards/rewards-widget";
 import { UsageMeters } from "@/components/billing/usage-meter";
 
 // US-2204: the recent-submissions list renders four columns. Typing the rows as
@@ -509,6 +510,13 @@ export function DashboardPage() {
           );
         })}
       </div>
+
+      {/* US-1857: rewards at a glance — level, season, badges, quests and how
+          far the next real reward is. Self-hides for a seller with nothing
+          earned yet (the activation checklist above is their surface), but the
+          celebration runner inside it still mounts so their first badge has a
+          baseline to diff against. */}
+      <RewardsWidget />
 
       {/* Plan usage meters (US-214) */}
       <div className="space-y-3">

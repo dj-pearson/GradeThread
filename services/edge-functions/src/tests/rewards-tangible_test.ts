@@ -31,6 +31,7 @@ const {
   normalizeRewardBudget,
   rewardNotificationMessage,
   unlockedMilestones,
+  xpLadderProgress,
 } = await import("../lib/rewards-tangible.ts");
 const { hasFullGradeCoverage } = await import("../lib/rewards-engine.ts");
 
@@ -488,4 +489,54 @@ Deno.test("the unlock notification matches the trigger that fired", () => {
     rewardNotificationMessage(badge),
     "You hit a rewards milestone — 20% off your next 3 months is ready to use.",
   );
+});
+
+// ── US-1857: the owner-facing "next reward" bar ──────────────────────────────
+
+Deno.test("xpLadderProgress measures the CURRENT step, not lifetime XP", () => {
+  // Anchoring the bar at 0 would park a long-serving user near 100% forever as
+  // the ladder stretches above them; the honest question is "how far through
+  // THIS step am I".
+  const ladder = [
+    milestone({ key: "a", xpThreshold: 900 }),
+    milestone({ key: "b", xpThreshold: 2_500 }),
+    milestone({ key: "c", xpThreshold: 6_400 }),
+  ];
+  const at1700 = xpLadderProgress(1_700, ladder)!;
+  assertEquals(at1700.key, "b");
+  assertEquals(at1700.xp_from, 900);
+  assertEquals(at1700.xp_remaining, 800);
+  assertEquals(at1700.percent, 50);
+});
+
+Deno.test("xpLadderProgress starts from zero below the first rung", () => {
+  const p = xpLadderProgress(450, [milestone({ key: "a", xpThreshold: 900 })])!;
+  assertEquals(p.xp_from, 0);
+  assertEquals(p.percent, 50);
+  assertEquals(p.xp_remaining, 450);
+});
+
+Deno.test("xpLadderProgress returns null once the ladder is exhausted", () => {
+  assertEquals(xpLadderProgress(99_999, [milestone({ xpThreshold: 900 })]), null);
+  assertEquals(xpLadderProgress(0, []), null);
+});
+
+Deno.test("xpLadderProgress ignores badge and season-goal milestones", () => {
+  // Those have no numeric distance. A progress bar toward "earn a specific
+  // badge" would be an invented number, so they are absent by construction.
+  const p = xpLadderProgress(100, [
+    milestone({ key: "badge", triggerType: "badge", triggerKey: "perfect_10", xpThreshold: 0 }),
+    milestone({ key: "season", triggerType: "season_goal", triggerKey: "g", xpThreshold: 0 }),
+  ]);
+  assertEquals(p, null);
+});
+
+Deno.test("xpLadderProgress clamps the bar rather than reporting past 100%", () => {
+  const p = xpLadderProgress(900, [
+    milestone({ key: "a", xpThreshold: 900 }),
+    milestone({ key: "b", xpThreshold: 901 }),
+  ])!;
+  assertEquals(p.key, "b");
+  assertEquals(p.percent, 0);
+  assertEquals(p.xp_remaining, 1);
 });

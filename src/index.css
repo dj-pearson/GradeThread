@@ -284,6 +284,57 @@
   }
 }
 
+/* US-1857: reward celebration confetti. CSS-only — no animation library and no
+   canvas; <ConfettiBurst> just places the pieces and clears itself after ~1.8s.
+   Reserved for the rare moments (level up, integrity tier, season sweep, a
+   first-ever event), never for routine XP.
+
+   The layer is decorative, so it is aria-hidden in the DOM and inert here.
+   Reduced motion hides it OUTRIGHT rather than inheriting the global 0.01ms
+   collapse above: for a falling piece, a near-zero duration is a FLASH at the
+   destination, which is worse than no confetti at all. */
+.gt-confetti-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  pointer-events: none;
+}
+.gt-confetti-piece {
+  position: absolute;
+  top: -6vh;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  animation-name: gtConfettiFall;
+  /* Decelerating, not elastic — a bounce reads as a toy. */
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+  animation-fill-mode: both;
+}
+@keyframes gtConfettiFall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  8% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--gt-confetti-drift, 0px), 108vh, 0)
+      rotate(var(--gt-confetti-spin, 360deg));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gt-confetti-layer {
+    display: none !important;
+  }
+}
+
 /* Glassmorphism card utility */
 .glass-card {
   background: rgba(12, 30, 54, 0.35);

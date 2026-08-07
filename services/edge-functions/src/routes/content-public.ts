@@ -36,7 +36,7 @@ import {
   publicAchievements,
 } from "../lib/rewards-badges.ts";
 import { grantReward, isOffPlatformEmbedReferer } from "../lib/rewards-engine.ts";
-import { isFrameUnlocked, publicLevelFlair } from "../lib/rewards-levels.ts";
+import { isFrameUnlocked, publicLevelFlair, tierForLevel } from "../lib/rewards-levels.ts";
 import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
 import {
   brandFacets,
@@ -1303,6 +1303,44 @@ contentPublicRoutes.get("/achievement-badge/:key", async (c) => {
     return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
   } catch (err) {
     captureException(err, { route: "achievement-badge", tags: { key } });
+    return serveFallback();
+  }
+});
+
+// ── GET /level-badge/:level ───────────────────────────────────────
+// US-1857: the share card for a reward LEVEL, the other half of the one-tap
+// share on a celebration. Same render path and same public-by-construction rule
+// as /achievement-badge/:key — the card describes a RUNG on the public ladder
+// (level number + its tier name and blurb), never who is standing on it, so it
+// stays anonymous, cacheable and safe to hand to a Pages Function proxy.
+//
+// A level card is not a medal, so it says "GradeThread Level" and puts the level
+// number in the medal. It carries no tier colour either: bronze/silver/gold
+// belong to badges, and borrowing them here would imply a rarity the level
+// ladder does not have.
+contentPublicRoutes.on("HEAD", "/level-badge/:level", () =>
+  new Response(null, { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) }));
+
+contentPublicRoutes.get("/level-badge/:level", async (c) => {
+  const serveFallback = () =>
+    new Response(fallbackPng(), { status: 200, headers: certImageHeaders("public, max-age=300") });
+  const level = Number.parseInt(c.req.param("level"), 10);
+  // A level is a small non-negative integer. Anything else is a crawler probing
+  // the path, not a share — serve the transparent pixel rather than a card.
+  if (!Number.isInteger(level) || level < 0 || level > 999) return serveFallback();
+
+  try {
+    const tier = tierForLevel(level);
+    const png = await renderAchievementBadge({
+      name: `Level ${level} · ${tier.name}`,
+      description: tier.blurb,
+      tier: "",
+      eyebrow: "GradeThread Level",
+      glyph: String(level),
+    });
+    return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
+  } catch (err) {
+    captureException(err, { route: "level-badge", tags: { level: String(level) } });
     return serveFallback();
   }
 });

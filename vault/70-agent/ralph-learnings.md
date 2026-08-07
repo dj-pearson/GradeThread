@@ -249,6 +249,13 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `AUTH_OR_FLOW_EXACT` in `seo/__tests__/public-routes.test.ts` with the reason.
   `/cert/:id` and `/verified/:handle` escape the guard only because they carry a
   param — that is an accident of shape, not a rule.
+- A NEW keyframe animation cannot just inherit the global reduced-motion rule in
+  `src/index.css` — that rule collapses `animation-duration` to 0.01ms, which is
+  right for a spinner (it stays a visible static ring) but WRONG for anything
+  that travels: a falling/entering element jumps to its destination and flashes
+  there, which is more jarring than the motion it replaced. Give the layer its
+  own `display:none` (or `animation:none`) under `prefers-reduced-motion`, and
+  gate the render in JS too. Rule + the celebration tiers: [[reward-ledger]].
 - The `garments` table (Garment Passports, 00256) is now in the frontend
   `Database` type (`GarmentRow`, US-1118). Client reads are RLS-scoped to
   `created_by = auth.uid()` (no client writes), so `supabase.from("garments")`
