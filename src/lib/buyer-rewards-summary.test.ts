@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { computeBuyerRewardsSummary } from "@/lib/buyer-rewards-summary";
+import { STREAK_FREEZES_PER_QUARTER } from "@/lib/buyer-streak";
 
 // Fixed reference "now": Wednesday, 2026-06-10 (a midweek day → this week is
 // active from Monday 2026-06-08).
@@ -24,6 +25,16 @@ describe("computeBuyerRewardsSummary", () => {
       caughtOverGraded: 0,
       currentStreakWeeks: 0,
       longestStreakWeeks: 0,
+      // US-1851 moved the streak walk into buyer-streak.ts and exposes its
+      // grace/freeze detail here. Its own rules are covered in
+      // src/test/buyer-streak.test.ts; this just pins the summary's shape.
+      streak: {
+        current: 0,
+        longest: 0,
+        freezesUsed: 0,
+        freezesRemaining: STREAK_FREEZES_PER_QUARTER,
+        atRisk: false,
+      },
     });
   });
 

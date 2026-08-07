@@ -354,7 +354,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     file: "admin-growth.ts",
     scope: "growth:write",
     mode: "router",
-    rationale: "Segments, broadcast campaigns, announcements, push sends.",
+    rationale: "Segments, broadcast campaigns, announcements, push sends, quest definitions.",
   },
   {
     file: "admin-drip.ts",

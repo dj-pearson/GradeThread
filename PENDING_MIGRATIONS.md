@@ -1,9 +1,53 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nine migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537 and 00538.** The entries below them were applied to prod and this file did
-not learn about it for a day. See the note under 00528 for how that was measured
-and why the measurement, not the file, is the authority.
+**Ten migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538 and 00539.** The entries below them were applied to prod and this
+file did not learn about it for a day. See the note under 00528 for how that was
+measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00539_quest_definitions.sql (US-1852 — quests & challenges)
+
+**Apply order.** Last, in numeric order. It must go AFTER 00443 (which owns the
+current `reputation_events` CHECK it rewrites) — long applied — and has no other
+dependency.
+
+**Risk: LOW, with one thing to read twice.** It creates one new table and
+**re-writes the `reputation_events_event_type_check` constraint**: drop, then
+re-add with the eleven existing values plus `quest_completed`. The re-added list
+is a strict superset, so no existing row can violate it and no backfill runs.
+
+`apply-prod-migrations.sh` runs each file with `-v ON_ERROR_STOP=1` and **no
+`--single-transaction`**, so the two `ALTER`s autocommit separately and there is
+a sub-second window where the column carries no CHECK. That window is safe here
+(only the service role writes the table, and a superset re-add cannot fail on
+existing data) — but if the `ADD` ever did fail, the script halts and the column
+stays unconstrained until the file is re-run. Re-running is safe and idempotent.
+00443 has exactly this shape; the same caveat applies to it.
+
+**What it does.** Adds `quest_definitions` — the operator's list of which quests
+and time-boxed challenges are running, how hard they are, when, and what they
+pay. Deliberately NOT added: any per-user progress table. Progress is derived
+from `reputation_events` over the quest's window, the same way season progress is
+(US-1851), so there is one log and no rollover job.
+
+**The safety rails:**
+- `quest_definitions.enabled` defaults **false**, so a half-configured row cannot
+  start paying.
+- `feature_flags.rewards_quests` is read with `defaultEnabled: false` — the whole
+  surface is off until an operator turns it on, and an outage suspends it rather
+  than opening it. **No flag row is seeded**, so nothing needs to be un-set.
+- The payout is clamped to 200 XP in code, both when written and every time it is
+  re-scored — a row written past the ceiling still cannot pay past it.
+
+**Nothing breaks if the frontend deploys first.** The only client surface is the
+admin page at `/admin/growth/quests`, which reads the table through the edge
+(`/api/admin/growth/quests`). Before the migration applies that call returns a
+500 and the page shows its error state; no seller-facing route touches quests at
+all. The edge boot guard will expect `00539`, so apply this before the next
+Coolify deploy as usual.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a new table AND a changed
+constraint, so PostgREST needs to learn about both.
 
 ## ⏳ HELD: 00538_reward_tangible_grants.sql (US-1848 — tangible reward rail)
 

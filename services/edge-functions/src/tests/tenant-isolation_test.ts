@@ -3363,11 +3363,22 @@ Deno.test({
 // app.use("/api/rewards/*", authMiddleware), and if that line were ever dropped
 // the handler would run with no userId and the service-role client would happily
 // read the whole table. An unauthenticated 401 is what proves the guard is on.
+// US-1852: GET /api/rewards/quests joins the same self-scoped surface. It takes
+// no id at all — the quest DEFINITIONS are product config (deny-all RLS, read
+// only through the service-role client) and the progress counted against them
+// comes from the caller's own reputation_events. The quest board is not a place
+// a foreign id can be smuggled in, so the mount guard below is the whole test.
 Deno.test({
   name: "rewards read surface is not reachable without a token",
   ignore: !CONFIGURED,
   fn: async () => {
-    for (const path of ["/api/rewards/me", "/api/rewards/seasons/2026-Q3/recap"]) {
+    for (
+      const path of [
+        "/api/rewards/me",
+        "/api/rewards/seasons/2026-Q3/recap",
+        "/api/rewards/quests",
+      ]
+    ) {
       const res = await fetch(`${BASE}${path}`);
       await res.body?.cancel();
       assert(res.status === 401, `unauthenticated GET ${path} should 401, got ${res.status}`);

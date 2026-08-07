@@ -11,13 +11,13 @@
 
 import { Hono } from "hono";
 import {
-  monotonicLevel,
-  type RewardEventInput,
-  type RewardEventType,
-  REWARD_XP_CATALOG,
   computeRewardState,
+  loadRewardEvents,
+  monotonicLevel,
 } from "../lib/rewards-engine.ts";
 import { levelProgress, perksForLevel } from "../lib/rewards-levels.ts";
+import { computeQuestBoard } from "../lib/rewards-quests.ts";
+import { loadQuestDefinitions, questsEnabled } from "../lib/rewards-quests-award.ts";
 import {
   computeSeasonProgress,
   earnedSeasonFrames,
@@ -29,38 +29,6 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 type RewardsEnv = { Variables: { userId: string } };
 
 export const rewardsRoutes = new Hono<RewardsEnv>();
-
-const REWARD_TYPES = new Set(Object.keys(REWARD_XP_CATALOG) as RewardEventType[]);
-
-/** Load one user's XP-scoring events. Tenant-scoped by user_id (US-268). */
-async function loadRewardEvents(userId: string): Promise<RewardEventInput[] | null> {
-  const { data, error } = await supabaseAdmin
-    .from("reputation_events")
-    .select("event_type, occurred_at, verified, metadata")
-    .eq("user_id", userId)
-    .order("occurred_at", { ascending: true });
-  if (error) {
-    console.error("[rewards] event load failed:", error.message);
-    return null;
-  }
-  const events: RewardEventInput[] = [];
-  for (const r of data ?? []) {
-    const row = r as {
-      event_type: string;
-      occurred_at: string;
-      verified: boolean;
-      metadata: Record<string, unknown> | null;
-    };
-    if (!REWARD_TYPES.has(row.event_type as RewardEventType)) continue;
-    events.push({
-      eventType: row.event_type as RewardEventType,
-      occurredAt: row.occurred_at,
-      verified: row.verified,
-      paid: row.metadata?.paid === true,
-    });
-  }
-  return events;
-}
 
 /**
  * GET /api/rewards/me — the caller's progression.
@@ -126,4 +94,24 @@ rewardsRoutes.get("/seasons/:key/recap", async (c) => {
   const recap = seasonRecap(events, key);
   if (!recap) return c.json({ error: "Unknown season." }, 400);
   return c.json({ recap, isCurrent: key === seasonKeyAt(Date.now()) });
+});
+
+/**
+ * GET /api/rewards/quests — the caller's live quest board (US-1852).
+ *
+ * Read-only. Completion is PAID on the pass that advances a quest (grantReward →
+ * evaluateQuests), never here, so refreshing this page can neither award nor
+ * re-award anything. A switched-off surface returns an empty board rather than a
+ * 404, because "no quests running" and "quests disabled" look the same to a user
+ * and should not need two client states.
+ */
+rewardsRoutes.get("/quests", async (c) => {
+  const userId = c.get("userId");
+  if (!(await questsEnabled())) return c.json({ enabled: false, quests: [] });
+
+  const events = await loadRewardEvents(userId);
+  if (!events) return c.json({ error: "Couldn't load your rewards." }, 500);
+
+  const defs = await loadQuestDefinitions();
+  return c.json({ enabled: true, quests: computeQuestBoard(defs, events, Date.now()) });
 });

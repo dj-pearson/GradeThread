@@ -12,6 +12,7 @@
 import { emitReputationEvent } from "./buyer-trust-score.ts";
 import { awardBadges } from "./rewards-badges.ts";
 import { grantTangibleRewards } from "./rewards-tangible.ts";
+import { evaluateQuests } from "./rewards-quests-award.ts";
 import { supabaseAdmin } from "./supabase.ts";
 
 // Reward-only event types (added to the reputation_events CHECK in 00443). The
@@ -25,7 +26,10 @@ export type RewardEventType =
   // Shared with the trust track — these ALSO carry XP (a paid grade / confirmed
   // arrival is both a trust signal and a rewardable action).
   | "verified_purchase"
-  | "grade_confirmed";
+  | "grade_confirmed"
+  // US-1852: a completed quest. Its payout is operator-set per quest, so unlike
+  // every other type it reads its XP from the event's own metadata — see below.
+  | "quest_completed";
 
 /**
  * Per-event XP, weighted by BUSINESS / MOAT contribution rather than raw effort
@@ -42,7 +46,18 @@ export const REWARD_XP_CATALOG: Record<RewardEventType, number> = {
   verified_share: 20, // verified share-click — viral loop
   verified_purchase: 15, // a paid, grade-linked purchase (paid only)
   aspects_filled: 10, // listing quality / SEO surface
+  quest_completed: 0, // operator-set per quest — the catalog value is the FLOOR
 };
+
+/**
+ * The ceiling on a quest payout (US-1852). A quest's XP is set by an operator in
+ * `quest_definitions`, so it is the one number in the reward system that is not
+ * code-reviewed — and a config typo that pays 500,000 XP looks exactly like a
+ * compromised admin account. The clamp is applied both when the event is written
+ * and when it is re-scored from the log, so an already-written bad row cannot
+ * inflate a recompute either.
+ */
+export const QUEST_XP_CEILING = 200;
 
 // Events that consume real AI grading spend. Per US-1849 AC4 these award XP ONLY
 // when the action was PAID or credit-consuming, so free/junk submissions earn
@@ -59,12 +74,20 @@ const GRADING_SPEND_EVENTS = new Set<RewardEventType>([
  */
 export function xpForEvent(
   eventType: RewardEventType,
-  opts: { paid?: boolean; verified?: boolean } = {},
+  opts: { paid?: boolean; verified?: boolean; magnitude?: number } = {},
 ): number {
   if (opts.verified === false) return 0;
   const base = REWARD_XP_CATALOG[eventType];
   if (base === undefined) return 0;
   if (GRADING_SPEND_EVENTS.has(eventType) && !opts.paid) return 0;
+  // US-1852: `quest_completed` is the ONLY type whose payout varies, and the
+  // magnitude is honoured for it alone. Reading a magnitude on any other type
+  // would turn a metadata field an attacker might influence into an XP dial.
+  if (eventType === "quest_completed") {
+    const m = opts.magnitude;
+    if (!Number.isFinite(m as number)) return base;
+    return Math.min(QUEST_XP_CEILING, Math.max(0, Math.floor(m as number)));
+  }
   return base;
 }
 
@@ -131,6 +154,8 @@ export interface RewardEventInput {
   verified: boolean;
   /** Whether the underlying action was paid/credit-consuming (grading-spend gate). */
   paid?: boolean;
+  /** US-1852: the per-quest payout. Read for `quest_completed` and nothing else. */
+  magnitude?: number;
 }
 
 export interface RewardState {
@@ -167,7 +192,11 @@ export function computeRewardState(events: RewardEventInput[]): RewardState {
   let xpTotal = 0;
   const activeDays = new Set<number>();
   for (const ev of events) {
-    const xp = xpForEvent(ev.eventType, { paid: ev.paid, verified: ev.verified });
+    const xp = xpForEvent(ev.eventType, {
+      paid: ev.paid,
+      verified: ev.verified,
+      magnitude: ev.magnitude,
+    });
     if (xp <= 0) continue;
     xpTotal += xp;
     const d = dayKey(ev.occurredAt);
@@ -297,6 +326,31 @@ export async function grantReward(
   if (state) {
     await grantTangibleRewards(userId, state.xpTotal);
   }
+  // US-1852: a quest is scored on the same pass as the act that advanced it, so
+  // there is no "claim" step a user can forget. The recursion guard is the type
+  // check, not a flag: a quest payout is itself a grantReward call, and letting
+  // it re-enter the evaluator would loop forever.
+  if (eventType !== "quest_completed") {
+    try {
+      const events = await loadRewardEvents(userId);
+      if (events) {
+        await evaluateQuests(userId, events, Date.now(), async (uid, instanceKey, xp, quest) => {
+          await grantReward(uid, "quest_completed", {
+            referenceId: instanceKey,
+            // The payout is per-quest, so it rides in metadata; xpForEvent
+            // re-clamps it on every read.
+            metadata: { xp, quest_key: quest.questKey, scope: quest.scope },
+            source: "quests",
+          });
+        });
+      }
+    } catch (err) {
+      console.error(
+        "[rewards] quest evaluation failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
   return state;
 }
 
@@ -381,13 +435,17 @@ const REWARD_TYPES = new Set<RewardEventType>(
 );
 
 /**
- * Recompute `userId`'s XP/level/streaks from the reputation_events log and upsert
- * user_reward_state. Idempotent + reconstructable. Best-effort: logs + returns
- * null on a DB error rather than throwing. Scoped by user_id (US-268).
+ * The caller's own reward events, oldest first, already mapped to the reducer's
+ * shape. Scoped by user_id (US-268) — the service-role client bypasses RLS, so
+ * this filter is the whole isolation guarantee. Returns null (not []) on a DB
+ * error so a caller can tell "no events" from "could not read", which matters:
+ * treating a failed read as an empty log would recompute a user's XP to zero.
+ *
+ * Exported because three surfaces need the same list — the state recompute, the
+ * quest evaluator, and the /api/rewards read route — and three copies of this
+ * mapping is three places for the `paid` gate to be forgotten.
  */
-export async function recomputeRewardState(
-  userId: string,
-): Promise<RewardState | null> {
+export async function loadRewardEvents(userId: string): Promise<RewardEventInput[] | null> {
   const { data, error } = await supabaseAdmin
     .from("reputation_events")
     .select("event_type, occurred_at, verified, metadata")
@@ -412,8 +470,25 @@ export async function recomputeRewardState(
       occurredAt: row.occurred_at,
       verified: row.verified,
       paid: row.metadata?.paid === true,
+      // US-1852: a quest's payout was operator-set, so it rides in metadata
+      // rather than the catalog. xpForEvent re-clamps it on the way out, so an
+      // already-written oversized row cannot inflate a recompute.
+      magnitude: typeof row.metadata?.xp === "number" ? row.metadata.xp : undefined,
     });
   }
+  return events;
+}
+
+/**
+ * Recompute `userId`'s XP/level/streaks from the reputation_events log and upsert
+ * user_reward_state. Idempotent + reconstructable. Best-effort: logs + returns
+ * null on a DB error rather than throwing. Scoped by user_id (US-268).
+ */
+export async function recomputeRewardState(
+  userId: string,
+): Promise<RewardState | null> {
+  const events = await loadRewardEvents(userId);
+  if (events === null) return null;
 
   const computed = computeRewardState(events);
   // US-1851: never write a level below the one already banked. The recompute is

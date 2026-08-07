@@ -11,6 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/rewards-tangible.ts
   - services/edge-functions/src/lib/rewards-levels.ts
   - services/edge-functions/src/lib/rewards-seasons.ts
+  - services/edge-functions/src/lib/rewards-quests.ts
 reviewed: 2026-08-07
 tags: [rewards, gamification, buyer, seller, contract]
 summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award goes through grantReward with a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid.
@@ -155,6 +156,37 @@ The one calendar streak shown to a human is the **buyer** confirmation streak
 (`src/lib/buyer-streak.ts`), because receiving parcels genuinely is weekly. It
 carries an automatic grace week and a small per-quarter freeze allowance —
 granted, never bought.
+
+### Quests: the one number an operator sets
+
+US-1852 added `quest_definitions` (00539), and it is the first reward config a
+human edits at runtime rather than in a reviewed constant. The split is drawn
+carefully:
+
+- **An operator sets** which quests run, how hard (`target`), when
+  (`window_kind` + optional bounds), what they pay (`xp_reward`), and an on/off
+  switch. New rows are `enabled = false`, and the whole surface sits behind the
+  `rewards_quests` flag read fail-**closed**, same posture as the tangible rail.
+- **Only a code review sets** what a quest MEANS. `criteria_key` names a
+  predicate in `rewards-quests.ts`; an unknown key is ignored rather than
+  thrown, so rolling the code back below a quest cannot take the board down. A
+  rule expression stored in a text column would be an untypecheckable
+  mini-language, and the first bad row would be a silent payout bug.
+
+Because the payout is operator-set, `quest_completed` is the ONLY event type
+whose XP is read from `metadata` instead of `REWARD_XP_CATALOG` — and it is
+clamped to a code ceiling both when written and every time it is re-scored, so a
+row written past the ceiling still cannot pay past it. `xpForEvent` deliberately
+ignores a magnitude on every other type; honouring one would turn a metadata
+field into an XP dial.
+
+There is no `user_quest_progress` table either. Progress is a window over the
+same log, and the window's start is baked into the dedupe reference
+(`<quest_key>:<window-start>`), which is what makes "pays once per run, again
+next week" true without any reset job. Completion is evaluated on the pass that
+grants the underlying reward, so there is no claim step to forget — and
+`grantReward` skips that evaluation when the event IS a `quest_completed`, or it
+would recurse forever.
 
 ### No perk is ever plan-gated
 

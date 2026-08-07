@@ -96,7 +96,12 @@ export type FeatureKey =
   // (defaultEnabled: false) — the one flag here that must not fail open, because
   // failing open would pay out real value during an outage. Cosmetic rewards
   // (XP, levels, badges, streaks) are unaffected by it.
-  | "rewards_tangible";
+  | "rewards_tangible"
+  // US-1852: master switch for the quest surface (personal quests + time-boxed
+  // community challenges). Also read fail-CLOSED, for the same reason as
+  // rewards_tangible: a quest pays XP an operator configured, so failing open
+  // during an outage would run an unsupervised payout rule.
+  | "rewards_quests";
 
 // US-2406: the flags whose EVERY call site can name the user it is acting for,
 // and therefore the only ones where plan targeting can mean anything.
@@ -127,6 +132,9 @@ export const PLAN_TARGETABLE_FLAGS: ReadonlySet<FeatureKey> = new Set<FeatureKey
   // US-1848: grantTangibleRewards is always acting for one named user, so a
   // staged rollout (or a per-plan restriction) on reward payouts is honourable.
   "rewards_tangible",
+  // US-1852: evaluateQuests always acts for one named user, so a staged rollout
+  // of the quest surface is honourable.
+  "rewards_quests",
 ]);
 
 /** True when plan targeting on `key` can be honoured by all of its callers. */

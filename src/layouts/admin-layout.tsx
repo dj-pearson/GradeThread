@@ -28,6 +28,7 @@ import {
   Bot,
   SlidersHorizontal,
   Megaphone,
+  Target,
   Layers,
   Filter,
   Send,
@@ -150,6 +151,8 @@ const growthNavItems = [
   { to: "/admin/growth/campaigns", icon: Send, label: "Campaigns", end: false },
   { to: "/admin/growth/announcements", icon: Bell, label: "Announcements", end: false },
   { to: "/admin/growth/referrals", icon: Gift, label: "Referrals", end: false },
+  // US-1852 quest / challenge definitions (criteria, window, payout, on-off).
+  { to: "/admin/growth/quests", icon: Target, label: "Quests", end: false },
   // US-1845 buyer funnel, plan mix, feature adoption + the two-sided flywheel.
   { to: "/admin/growth/buyer", icon: Users, label: "Buyer Growth", end: false },
   // US-946 trial-conversion drip funnel/ROI analytics.

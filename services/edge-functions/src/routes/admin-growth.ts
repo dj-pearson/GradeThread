@@ -3,6 +3,7 @@
 //   /api/admin/growth/segments*       audience segment CRUD + live preview
 //   /api/admin/growth/campaigns*      broadcast composer + multi-channel send
 //   /api/admin/growth/announcements*  in-app banner CRUD
+//   /api/admin/growth/quests*         quest / challenge definition CRUD
 //   /api/admin/growth/summary         growth analytics aggregate
 //
 // PLATFORM-level (not tenant-scoped) — gated by the /api/admin/* auth+admin
@@ -61,6 +62,7 @@ import {
 } from "../lib/email-warmup.ts";
 import { type ConfirmedSubscriber, partitionExtraSubscribers } from "../lib/broadcast-audience.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { clampQuestXp, QUEST_CRITERIA, QUEST_XP_MAX } from "../lib/rewards-quests.ts";
 
 type AdminEnv = {
   Variables: {
@@ -1488,6 +1490,182 @@ adminGrowthRoutes.delete("/campaign-codes/:id", async (c) => {
   await writeAuditLog(c, {
     action: "growth.campaign_code.delete",
     targetType: "referral_campaign_code",
+    targetId: id,
+  });
+  return c.json({ ok: true });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// QUESTS & CHALLENGES (US-1852)
+// ════════════════════════════════════════════════════════════════════
+//
+// An operator configures WHICH quests run, how hard they are, when, and what
+// they pay. What a quest MEANS stays in code: `criteria_key` must name a
+// predicate in rewards-quests.ts, so a typo is a 400 here rather than a quest
+// that silently counts nothing forever. The payout is clamped to QUEST_XP_MAX on
+// the way in AND re-clamped every time it is scored, because a row written
+// before a clamp existed must not be able to pay more than the ceiling.
+//
+// These rows are the input to a payout rule, so every write is audit-logged.
+
+const QUEST_SCOPES = new Set(["personal", "community"]);
+const QUEST_WINDOW_KINDS = new Set(["weekly", "monthly", "fixed"]);
+
+/** Shared validation for create and update. Returns an error message or null. */
+function questFieldError(body: Record<string, unknown>, isCreate: boolean): string | null {
+  if (isCreate) {
+    if (typeof body.quest_key !== "string" || !body.quest_key.trim()) {
+      return "quest_key is required";
+    }
+    if (!/^[a-z0-9_]{3,64}$/.test(body.quest_key.trim())) {
+      // The key is the dedupe reference a payout is written against, so it has
+      // to be stable and URL-safe rather than free text.
+      return "quest_key must be 3-64 chars of a-z, 0-9 or _";
+    }
+    if (typeof body.title !== "string" || !body.title.trim()) return "title is required";
+    if (typeof body.criteria_key !== "string") return "criteria_key is required";
+  }
+  if (body.criteria_key !== undefined && !QUEST_CRITERIA[String(body.criteria_key)]) {
+    return `Unknown criteria_key. Valid: ${Object.keys(QUEST_CRITERIA).join(", ")}`;
+  }
+  if (body.scope !== undefined && !QUEST_SCOPES.has(String(body.scope))) {
+    return "scope must be personal or community";
+  }
+  if (body.window_kind !== undefined && !QUEST_WINDOW_KINDS.has(String(body.window_kind))) {
+    return "window_kind must be weekly, monthly or fixed";
+  }
+  if (body.target !== undefined && !(Number(body.target) > 0)) {
+    return "target must be a positive number";
+  }
+  if (String(body.window_kind) === "fixed" && !(body.starts_at && body.ends_at)) {
+    return "a fixed-window quest needs both starts_at and ends_at";
+  }
+  return null;
+}
+
+adminGrowthRoutes.get("/quests", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("quest_definitions")
+    .select("*")
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: false });
+  if (error) return failSafe(c, 500, "Couldn't load quests.", error, "admin.growth.quests.list");
+  // The criteria catalog rides along so the admin form offers exactly the keys
+  // this build understands, rather than a hardcoded list that can drift.
+  return c.json({
+    quests: data ?? [],
+    criteria: Object.entries(QUEST_CRITERIA).map(([key, v]) => ({ key, label: v.label })),
+    xpMax: QUEST_XP_MAX,
+  });
+});
+
+adminGrowthRoutes.post("/quests", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const bad = questFieldError(body, true);
+  if (bad) return c.json({ error: bad }, 400);
+
+  const insert: Record<string, unknown> = {
+    quest_key: String(body.quest_key).trim(),
+    title: String(body.title).trim(),
+    description: typeof body.description === "string" ? body.description.trim() : "",
+    criteria_key: String(body.criteria_key),
+    target: Math.max(1, Math.floor(Number(body.target) || 1)),
+    xp_reward: clampQuestXp(Number(body.xp_reward)),
+    scope: QUEST_SCOPES.has(String(body.scope)) ? String(body.scope) : "personal",
+    window_kind: QUEST_WINDOW_KINDS.has(String(body.window_kind))
+      ? String(body.window_kind)
+      : "weekly",
+    starts_at: body.starts_at ? new Date(String(body.starts_at)).toISOString() : null,
+    ends_at: body.ends_at ? new Date(String(body.ends_at)).toISOString() : null,
+    // Fail-closed on create: a new quest is off until someone reads it back and
+    // turns it on, so a half-filled form never starts paying.
+    enabled: false,
+    sort_order: Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0,
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("quest_definitions")
+    .insert(insert)
+    .select("*")
+    .single();
+  if (error) {
+    if (error.code === "23505") return c.json({ error: "That quest_key is already used." }, 409);
+    return failSafe(c, 500, "Couldn't create the quest.", error, "admin.growth.quests.create");
+  }
+
+  await writeAuditLog(c, {
+    action: "growth.quest.create",
+    targetType: "quest_definition",
+    targetId: data.id,
+    details: { quest_key: insert.quest_key, criteria_key: insert.criteria_key },
+  });
+  return c.json({ quest: data });
+});
+
+adminGrowthRoutes.patch("/quests/:id", async (c) => {
+  const id = c.req.param("id");
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const bad = questFieldError(body, false);
+  if (bad) return c.json({ error: bad }, 400);
+
+  const patch: Record<string, unknown> = {};
+  if (typeof body.title === "string") patch.title = body.title.trim();
+  if (typeof body.description === "string") patch.description = body.description.trim();
+  if (typeof body.criteria_key === "string") patch.criteria_key = body.criteria_key;
+  if (body.target !== undefined) patch.target = Math.max(1, Math.floor(Number(body.target)));
+  if (body.xp_reward !== undefined) patch.xp_reward = clampQuestXp(Number(body.xp_reward));
+  if (typeof body.scope === "string") patch.scope = body.scope;
+  if (typeof body.window_kind === "string") patch.window_kind = body.window_kind;
+  if (body.starts_at !== undefined) {
+    patch.starts_at = body.starts_at ? new Date(String(body.starts_at)).toISOString() : null;
+  }
+  if (body.ends_at !== undefined) {
+    patch.ends_at = body.ends_at ? new Date(String(body.ends_at)).toISOString() : null;
+  }
+  if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+  if (Number.isFinite(Number(body.sort_order))) patch.sort_order = Number(body.sort_order);
+  // quest_key is deliberately NOT patchable: it is the dedupe reference a
+  // completion was written against, so renaming a live quest would re-pay
+  // everybody who already finished it.
+  if (Object.keys(patch).length === 0) return c.json({ error: "Nothing to update" }, 400);
+
+  const { data, error } = await supabaseAdmin
+    .from("quest_definitions")
+    .update(patch)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) return failSafe(c, 500, "Couldn't update the quest.", error, "admin.growth.quests.update");
+  if (!data) return c.json({ error: "Quest not found." }, 404);
+
+  await writeAuditLog(c, {
+    action: "growth.quest.update",
+    targetType: "quest_definition",
+    targetId: id,
+    details: patch,
+  });
+  return c.json({ quest: data });
+});
+
+adminGrowthRoutes.delete("/quests/:id", async (c) => {
+  const id = c.req.param("id");
+  const { error } = await supabaseAdmin.from("quest_definitions").delete().eq("id", id);
+  if (error) return failSafe(c, 500, "Couldn't delete the quest.", error, "admin.growth.quests.delete");
+  // Deleting a definition does NOT claw back XP already paid — a completion is
+  // an event in the append-only ledger, and unpaying it would rewrite history.
+  await writeAuditLog(c, {
+    action: "growth.quest.delete",
+    targetType: "quest_definition",
     targetId: id,
   });
   return c.json({ ok: true });
