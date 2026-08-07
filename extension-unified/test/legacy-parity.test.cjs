@@ -5,10 +5,11 @@
 // Three MV3 extensions ship today: extension/ (Lister, seller), extension-condition/
 // (Condition Check, buyer) and extension-unified/ (both, role-gated). The founder
 // decision of 2026-07-09 deprecated the first two in favour of the third, and
-// US-1872 AC5 owns deleting them — but only "once the unified extension reaches
-// parity", and parity is not reached (US-1880/1881/1882/1883 are open). So all
-// three are still packaged for the stores by scripts/package-extensions.mjs, and
-// every fix has to be applied by hand in two places.
+// US-1872 AC5 owns deleting them — gated on scripts/lib/extension-retirement-gate.cjs,
+// which is still SHUT on its operator half (the legacy store listings are live;
+// US-1757 AC1). So all three are still packaged for the stores by
+// scripts/package-extensions.mjs, and every fix has to be applied by hand in two
+// places.
 //
 // That hand-sync ALREADY FAILED ONCE, silently, in the most expensive way:
 //

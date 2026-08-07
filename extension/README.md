@@ -6,11 +6,14 @@
 > merges this extension with its counterpart behind one role-aware manifest.
 > Founder decision **2026-07-09**; see `extension-unified/README.md`.
 >
-> **Why this folder still exists.** Deleting it is **US-1872 AC5**, which is
-> correctly gated on the unified extension reaching parity — and it has not
-> (US-1880/1881/1882/1883 are open). So `scripts/package-extensions.mjs` still
-> builds a store zip from here, real users still have it installed, and it still
-> has to be kept correct.
+> **Why this folder still exists.** Deleting it is **US-1872 AC5**, gated on the
+> retirement gate in **`scripts/lib/extension-retirement-gate.cjs`** — the one
+> place that condition is now computed, rather than restated here. Code parity is
+> already met; what is still open is the operator half: the "GradeThread Lister"
+> store listing is live, real users have it installed, and until it is unpublished
+> a deleted folder means a fix we cannot ship them. So
+> `scripts/package-extensions.mjs` still builds a store zip from here, and this
+> still has to be kept correct.
 >
 > **The rule until then (US-2020):** bug fixes only, and **apply every fix to
 > `extension-unified/` in the same commit**. New features go to the unified

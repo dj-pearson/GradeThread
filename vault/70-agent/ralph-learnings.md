@@ -738,6 +738,21 @@ a learning that only matters to ONE surface, put it in that surface's file.
   comments (which it strips), the pass is the literal's — confirm that with a
   one-character mutation rather than assuming it.
 
+- A CONDITIONAL AC ("delete X once Y reaches parity") is a gate, and a gate
+  written as prose rots in every copy at once. US-1872 AC5's gate lived as the
+  same sentence in five files — "parity is not reached (US-1880/1881/1882/1883
+  are open)" — and stayed there long after three of those shipped; nothing went
+  red, and the next reader re-derives the whole question. Fix: COMPUTE the half
+  that is a property of the code (`scripts/lib/extension-retirement-gate.cjs`
+  reads both manifests and diffs permissions/hosts/reach/files/icons), leave the
+  half no code can close as ONE operator flag, and guard BOTH DIRECTIONS — the
+  usual "not done early" assert plus "gate satisfied and the work still not
+  done" fails the build. Also: "which child stories are open" is a proxy, not
+  the gate — a story that makes the replacement BETTER than the thing it
+  replaces was never a parity blocker. Beware an assert message that calls
+  `regex.exec(src)[0]`: it is built even when the assertion passes, so it throws
+  on every file that is clean.
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault

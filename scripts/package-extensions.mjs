@@ -44,9 +44,11 @@ const outDir = resolve(root, args[(args.indexOf("--out") + 1) || -1] || "dist-ex
 // extension/ and extension-condition/ are DEPRECATED (founder decision
 // 2026-07-09) in favour of extension-unified/, which merges both behind one
 // role-aware manifest. They are still built here because deleting them is
-// US-1872 AC5, gated on the unified extension reaching parity, and parity is not
-// reached (US-1880/1881/1882/1883 open). Users have the legacy ones installed, so
-// they must keep working until their store listings are retired.
+// US-1872 AC5, and that gate is computed in scripts/lib/extension-retirement-gate.cjs
+// — read it there, not here. Short version: CODE parity is met; the STORE half is
+// not (US-1757 AC1, operator-gated). Users have the legacy ones installed from
+// live listings, so those builds must keep working until the listings are
+// unpublished — an extension we stop building is one we cannot patch.
 //
 // The cost is real and is the reason this comment exists rather than a shrug:
 // three store listings means three review cycles, and every selector fix has to
@@ -55,9 +57,10 @@ const outDir = resolve(root, args[(args.indexOf("--out") + 1) || -1] || "dist-ex
 // Lister shipped a Poshmark delist that failed every run. Guarded now by
 // extension-unified/test/legacy-parity.test.cjs.
 //
-// WHEN US-1872 AC5 LANDS: drop the first two entries below, and the legacy-parity
+// WHEN THE GATE OPENS: drop the first two entries below, and the legacy-parity
 // guard along with them — it exists only to make the overlap survivable, not to
-// make it permanent.
+// make it permanent. You will not have to remember: legacy-retirement-gate.test.cjs
+// fails the build the moment the gate is satisfied and they are still here.
 const EXTENSIONS = [
   {
     dir: "extension-condition",

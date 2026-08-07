@@ -158,6 +158,22 @@ Chrome, Edge, **and Firefox**. The packager emits both a Chrome zip
 
 ## Status vs the two legacy folders
 
-`extension/` and `extension-condition/` remain until this reaches store parity
-(US-1872 AC5), then they're removed and US-1757 store distribution targets this
-folder only. The reliability/coverage fixes (US-1874..1884) land **here**.
+`extension/` and `extension-condition/` are deleted when the retirement gate in
+**`scripts/lib/extension-retirement-gate.cjs`** opens — that is **US-1872 AC5**,
+and the gate is computed there rather than described here, because five separate
+copies of this paragraph all went stale at once. It has two halves:
+
+1. **Code parity** — computed from the manifests and files: every permission,
+   host, content-script reach, source file and icon size the legacy folders have,
+   this folder has too. **Met today.** A child story that makes this extension
+   *better* than the legacy ones was never a parity blocker.
+2. **Store retirement** — the unified extension published on the Chrome Web Store
+   and AMO, and both legacy listings unpublished (**US-1757 AC1**, operator-gated:
+   store developer accounts + a browser for screenshots). **Still open**, and the
+   real reason the folders are still here — their listings are the only shipped
+   distribution, so deleting the source strands installed users on a build we
+   cannot patch.
+
+`extension-unified/test/legacy-retirement-gate.test.cjs` enforces both directions:
+the folders may not be deleted early, and once the gate opens they may not be
+kept. All reliability/coverage fixes land **here**.
