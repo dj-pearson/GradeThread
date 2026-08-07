@@ -217,7 +217,7 @@
         "Certificates from video capture carry a 'video-verified' provenance badge"
       ],
       "priority": 1762,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][VIDEO-GRADE][EPIC][NEW] BASELINE: images only today (IMAGE_TYPES, one Vision call/image; grade.ts /submit multipart). A 360-still-capture + verified-capture provenance concept already exists. Grading = analyzeImage per image (ai-grading.ts) then compositeGrade. TECH/3P (opensource): ffmpeg (bundle static binary into the edge Docker image, or ffmpeg.wasm) for server-side frame extraction/keyframe selection; validateImageUpload needs a video branch. TIES: grade.ts pipeline, upload-validation.ts, verified-capture.ts, certificate badges, AI metering (ai_usage_events/ai_budgets). BUYER: richer proof of condition. SELLER: faster capture. RISK: cost (more frames = more Vision calls); storage; HEIC-style format handling. Child stories: upload+validation, frame extraction, cost control, capture UX+provenance."
     },
     {

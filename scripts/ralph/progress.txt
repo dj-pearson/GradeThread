@@ -4288,3 +4288,8 @@ Branch: ralph/gradethread-build
 - Reason: Create Chrome Web Store + Firefox AMO developer accounts, capture extension screenshots in a real browser, and submit the listings using extension-unified/SUBMISSION.md.
 - Cost: $11.3820 over 119 turns
 ---
+## US-1762: EPIC: Walk-around video grading — grade from a short clip
+- Status: COMPLETE
+- Timestamp: 2026-08-07T07:56:58.525Z
+- Cost: $5.3955 over 16 turns
+---
