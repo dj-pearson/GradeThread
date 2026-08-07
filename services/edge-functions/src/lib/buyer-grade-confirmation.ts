@@ -30,7 +30,8 @@ import {
   mapClaimIssuesToFactorDeltas,
   normalizeClaimIssues,
 } from "./claim-accuracy.ts";
-import { emitReputationEvent, recomputeTrustScore } from "./buyer-trust-score.ts";
+import { recomputeTrustScore } from "./buyer-trust-score.ts";
+import { grantReward } from "./rewards-engine.ts";
 import { updatePromptVersionAccuracy } from "./accuracy-tracking.ts";
 import { issueConfirmationReward } from "./buyer-rewards.ts";
 import { trackBuyerFeature } from "./buyer-analytics.ts";
@@ -605,9 +606,19 @@ export async function recordBuyerGradeOutcome(input: {
   let rewardCreditsIssued = 0;
   if (verdict.matchStatus === "confirmed") {
     try {
-      await emitReputationEvent(userId, {
-        eventType: "grade_confirmed",
+      // US-1849 AC5: ONE ledger. This goes through grantReward rather than a bare
+      // emit so the same row feeds BOTH tracks — the buyer Trust Score reads it
+      // as `grade_confirmed`, and the XP scorer scores it and refreshes
+      // user_reward_state in the same beat. A bare emit still landed the trust
+      // row but left XP stale until some unrelated action recomputed it.
+      //
+      // `paid: true` is the truth for AC4's grading-spend gate: this confirmation
+      // is against a FINALIZED public certificate, which only exists on a grade
+      // that was charged for and never reversed. Idempotent on the purchase id,
+      // so a re-confirm never double-awards.
+      await grantReward(userId, "grade_confirmed", {
         verified: true,
+        paid: true,
         source: "buyer_arrival",
         referenceId: purchase.id,
         occurredAt: new Date(nowMs).toISOString(),

@@ -31,6 +31,7 @@ import {
 } from "../lib/item-photo-storage.ts";
 import { getCategoryAspects, suggestCategories } from "../lib/ebay-client.ts";
 import { buildEbayPrepUpdate } from "../lib/ebay-prep.ts";
+import { grantReward } from "../lib/rewards-engine.ts";
 import { verifyIdentificationAgainstMarket } from "../lib/identification-verify.ts";
 import {
   classifyPhotoTypes,
@@ -989,6 +990,23 @@ async function runEbayAspectsPhase(args: {
     )
     .eq("id", itemId)
     .eq("user_id", userId);
+
+  // US-1849 AC3: `aspects_filled` — the listing-quality/SEO act. Awarded ONLY on
+  // the `filled` outcome; a partial prep (budget exhausted / extraction failed)
+  // returns above and earns nothing, so the XP tracks the finished surface, not
+  // the attempt. It reached here through reserveAiAction, so the action was
+  // credit-consuming by construction (AC4's spirit — a free retry can't farm it).
+  // Idempotent on the item, so re-running prep on the same item never re-earns.
+  void grantReward(userId, "aspects_filled", {
+    referenceId: `item:${itemId}`,
+    source: "ebay_prep",
+    metadata: { category_id: categoryId, aspect_count: Object.keys(merged).length },
+  }).catch((err) =>
+    console.error(
+      "[flipdesk-ai] aspects_filled reward grant failed:",
+      err instanceof Error ? err.message : String(err)
+    )
+  );
 
   // Telemetry log row, mirroring POST /extract-aspects.
   const costUsd = estimateCost(

@@ -43,6 +43,7 @@ import {
 } from "./token-refresh-race.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
 import { fetchWithTimeout } from "./circuit-breaker.ts";
+import { grantMarketplaceConnectedReward } from "./rewards-engine.ts";
 
 const DEPOP_TIMEOUT_MS = 20_000;
 
@@ -315,6 +316,14 @@ export async function upsertDepopConnection(args: {
   if (error) {
     throw new Error(`Failed to insert Depop connection: ${error.message}`);
   }
+
+  // US-1849 AC3: the platform-stickiness moat act. NEW connections only — the
+  // reconnect path returned above. Idempotent on marketplace+account.
+  await grantMarketplaceConnectedReward(
+    args.userId,
+    "depop",
+    handle ?? args.externalAccountId,
+  );
 }
 
 export interface DepopConnection {

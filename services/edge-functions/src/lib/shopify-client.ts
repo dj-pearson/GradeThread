@@ -31,6 +31,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { normalizeSaleCurrency } from "./consignor-payout-math.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
 import { fetchWithTimeout } from "./circuit-breaker.ts";
+import { grantMarketplaceConnectedReward } from "./rewards-engine.ts";
 
 // Pin the Admin API version — Shopify supports each for ~12 months. Bump
 // deliberately (the payload shapes below are stable across recent versions).
@@ -316,6 +317,10 @@ export async function upsertShopifyConnection(args: {
   if (error) {
     throw new Error(`Failed to insert Shopify connection: ${error.message}`);
   }
+
+  // US-1849 AC3: the platform-stickiness moat act. NEW connections only — the
+  // reconnect path returned above. Idempotent on marketplace+account.
+  await grantMarketplaceConnectedReward(args.userId, "shopify", args.shop);
 }
 
 export interface ShopifyConnection {

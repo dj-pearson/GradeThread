@@ -93,6 +93,7 @@ fetch, a daily bound) is in [[buyer-platform]].
 
 ## Related
 
+- [[reward-ledger]] — the other reward system: XP and Trust Score, one shared event log
 - [[buyer-platform]] — the account and entitlement layer this economy sits on top of
 - [[grade-accuracy-guarantee]] — coverage gating, and the reputation perks that compose in
 - [[garment-passport-privacy]] — the other place a visibility decision was made deliberately

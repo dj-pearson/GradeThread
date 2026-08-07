@@ -29,6 +29,7 @@ import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
 import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
 import { badgeByKey } from "../lib/rewards-badges.ts";
+import { grantReward, isOffPlatformEmbedReferer } from "../lib/rewards-engine.ts";
 import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 
@@ -961,13 +962,31 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
 
     const { data: submission } = await supabaseAdmin
       .from("submissions")
-      .select("title, brand, flagged, moderation_status, status")
+      .select("title, brand, flagged, moderation_status, status, user_id")
       .eq("id", rep.submission_id)
       .maybeSingle();
     const sub = submission as
-      | { title?: string | null; brand?: string | null; flagged?: boolean | null; moderation_status?: string | null; status?: string | null }
+      | { title?: string | null; brand?: string | null; flagged?: boolean | null; moderation_status?: string | null; status?: string | null; user_id?: string | null }
       | null;
     if (isCertificateWithheld(sub)) return serveFallback();
+
+    // US-1849 AC3: `badge_embedded` — the catalog's highest-XP moat act. This is
+    // the only server-observable proof that a grade badge is living on somebody
+    // else's page: the badge PNG was requested BY a page we don't own. A missing
+    // or same-origin referer earns nothing (isOffPlatformEmbedReferer defaults
+    // to "no"), and the award is idempotent on the certificate — so one badge
+    // earns once ever, no matter how many impressions it serves, which is why
+    // there is nothing here to farm. Best-effort and non-blocking: this is a
+    // public image endpoint and a reward problem must never delay or break it.
+    if (kind === "badge" && sub?.user_id && isOffPlatformEmbedReferer(c.req.header("referer"))) {
+      void grantReward(sub.user_id, "badge_embedded", {
+        referenceId: `cert:${certId}`,
+        source: "badge_embed",
+        metadata: { target_type: "cert" },
+      }).catch((err) =>
+        captureException(err, { level: "warn", route: "cert-image.badge-reward" })
+      );
+    }
 
     // Cache: render once, then serve the stored PNG. Path keyed by certificate_id
     // (its stable public identity); invalidated by deleteCertImages on re-grade.

@@ -17,12 +17,21 @@ const BADGE_CACHE_CONTROL =
   "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
 
 export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
-  const { params, env } = context;
+  const { params, env, request } = context;
   const id = String(params.id ?? "").trim();
   if (!id) return fallbackImage();
   const upstreamUrl = `${edgeApi(env)}/api/content/public/cert-image/${encodeURIComponent(id)}?kind=badge`;
   try {
-    const upstream = await fetch(upstreamUrl);
+    // Forward the embedding page's Referer (US-1849): upstream reads it as the
+    // `badge_embedded` signal — proof the badge is rendering somewhere we don't
+    // own. It is the ONLY header we pass on; everything else about the visitor
+    // stays here. Absent header → nothing forwarded → no award, which is the
+    // safe default.
+    const referer = request.headers.get("referer");
+    const upstream = await fetch(
+      upstreamUrl,
+      referer ? { headers: { referer } } : undefined,
+    );
     if (!upstream.ok || !upstream.body) return fallbackImage();
     return new Response(upstream.body, {
       status: 200,

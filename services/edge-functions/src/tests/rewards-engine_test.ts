@@ -9,6 +9,7 @@ Deno.env.set(
 
 const {
   computeRewardState,
+  isOffPlatformEmbedReferer,
   LEVEL_BASE,
   levelForXp,
   REWARD_XP_CATALOG,
@@ -107,4 +108,71 @@ Deno.test("empty log is a zeroed state", () => {
     currentStreak: 0,
     longestStreak: 0,
   });
+});
+
+// ── badge_embedded gate (AC3) ─────────────────────────────────────
+// This predicate stands between the catalog's HIGHEST award and a public,
+// unauthenticated image endpoint, so its failure mode has to be "earn nothing".
+
+Deno.test("an off-platform referer is the badge_embedded signal", () => {
+  assert(isOffPlatformEmbedReferer("https://www.ebay.com/itm/12345"));
+  assert(isOffPlatformEmbedReferer("https://poshmark.com/listing/abc"));
+  assert(isOffPlatformEmbedReferer("http://someones-blog.example/post"));
+});
+
+Deno.test("our own surfaces are not an embed", () => {
+  assert(!isOffPlatformEmbedReferer("https://gradethread.com/cert/abc"));
+  assert(!isOffPlatformEmbedReferer("https://www.gradethread.com/dashboard"));
+  assert(!isOffPlatformEmbedReferer("https://functions.gradethread.com/api/x"));
+  assert(!isOffPlatformEmbedReferer("http://localhost:5173/cert/abc"));
+  // A lookalike host is NOT ours — endsWith on the dotted suffix, not a substring.
+  assert(isOffPlatformEmbedReferer("https://notgradethread.com/x"));
+  assert(isOffPlatformEmbedReferer("https://gradethread.com.evil.test/x"));
+});
+
+// ── AC3 source wiring ─────────────────────────────────────────────
+// The catalog is only a policy until something calls grantReward. These scan the
+// source because the alternative — a live OAuth callback per marketplace — is not
+// testable here, and a provider silently missing its grant is exactly the drift
+// the shared helper exists to prevent.
+
+Deno.test("every marketplace provider grants marketplace_connected", async () => {
+  for (const provider of ["ebay", "depop", "etsy", "shopify", "whatnot"]) {
+    const src = await Deno.readTextFile(
+      new URL(`../lib/${provider}-client.ts`, import.meta.url),
+    );
+    assert(
+      src.includes("grantMarketplaceConnectedReward("),
+      `${provider}-client.ts does not grant marketplace_connected`,
+    );
+    assert(
+      src.includes(`"${provider}"`),
+      `${provider}-client.ts does not name its own marketplace`,
+    );
+  }
+});
+
+Deno.test("the remaining catalog events are wired at a source", async () => {
+  const wiring: Array<[string, string]> = [
+    ["../lib/grading-pipeline.ts", "coverage_completed"],
+    ["../lib/badge-analytics.ts", "verified_share"],
+    ["../lib/buyer-grade-confirmation.ts", "grade_confirmed"],
+    ["../routes/flipdesk-ai.ts", "aspects_filled"],
+    ["../routes/content-public.ts", "badge_embedded"],
+  ];
+  for (const [path, eventType] of wiring) {
+    const src = await Deno.readTextFile(new URL(path, import.meta.url));
+    assert(
+      src.includes(`grantReward(`) && src.includes(`"${eventType}"`),
+      `${path} does not grant ${eventType}`,
+    );
+  }
+});
+
+Deno.test("no usable referer earns nothing (safe default)", () => {
+  assert(!isOffPlatformEmbedReferer(null));
+  assert(!isOffPlatformEmbedReferer(undefined));
+  assert(!isOffPlatformEmbedReferer(""));
+  assert(!isOffPlatformEmbedReferer("not a url"));
+  assert(!isOffPlatformEmbedReferer("/cert/abc")); // relative — unparseable
 });

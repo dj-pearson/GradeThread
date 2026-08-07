@@ -163,6 +163,42 @@ export function computeRewardState(events: RewardEventInput[]): RewardState {
   return { xpTotal, level: levelForXp(xpTotal), currentStreak: current, longestStreak: longest };
 }
 
+// ─── Off-platform embed gate ─────────────────────────────────────────────────
+
+/** Hosts that are US, not somebody else's page. A badge served to one of these
+ *  is our own surface rendering it — not an embed that spread our authority. */
+const OWN_HOSTS = new Set([
+  "gradethread.com",
+  "www.gradethread.com",
+  "localhost",
+  "127.0.0.1",
+]);
+
+/**
+ * True when a `Referer` proves the badge image was rendered on a page we do NOT
+ * own — the `badge_embedded` signal (AC3's strongest moat act: grade authority
+ * spread off-platform).
+ *
+ * Deliberately conservative: a MISSING or unparseable referer is NOT an embed.
+ * A direct hit on the badge URL, a privacy-stripped referer, or a hotlink check
+ * proves nothing, and this event carries the catalog's highest XP — so the
+ * default has to be "no". Pure, so the policy is testable without a request.
+ */
+export function isOffPlatformEmbedReferer(referer: string | null | undefined): boolean {
+  if (!referer) return false;
+  let host: string;
+  try {
+    host = new URL(referer).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!host) return false;
+  if (OWN_HOSTS.has(host)) return false;
+  // Any gradethread subdomain (functions., api., staging., …) is still us.
+  if (host === "gradethread.com" || host.endsWith(".gradethread.com")) return false;
+  return true;
+}
+
 // ─── DB helpers (service-role; scope every query by user_id — US-268) ─────────
 
 export interface GrantRewardOptions {
@@ -190,6 +226,19 @@ export async function grantReward(
   eventType: RewardEventType,
   opts: GrantRewardOptions = {},
 ): Promise<RewardState | null> {
+  // Replay short-circuit. The emit below is already idempotent, but everything
+  // AFTER it (full event reload, badge re-award, tangible-reward evaluation) is
+  // not free — and some sources replay hard: a badge image is re-served on every
+  // cache miss across every PoP. When the dedupe key already has a row, nothing
+  // about the ledger changed, so return the cached state instead of redoing the
+  // work. Falls THROUGH to the full path when no state row exists yet, so an
+  // earlier emit whose recompute failed still gets repaired.
+  const alreadyGranted = await hasRewardEvent(userId, eventType, opts.referenceId);
+  if (alreadyGranted) {
+    const cached = await readRewardState(userId);
+    if (cached) return cached;
+  }
+
   await emitReputationEvent(userId, {
     eventType,
     verified: opts.verified ?? true,
@@ -219,6 +268,81 @@ export async function grantReward(
     await grantTangibleRewards(userId, state.xpTotal);
   }
   return state;
+}
+
+/**
+ * Has this exact (user, type, referenceId) reward already landed? Only meaningful
+ * for a source that supplies a dedupe key — a keyless grant can't be replayed
+ * against, so it always reports false. Best-effort: a DB error reports false and
+ * the caller falls through to the (idempotent) full path.
+ */
+async function hasRewardEvent(
+  userId: string,
+  eventType: RewardEventType,
+  referenceId: string | undefined,
+): Promise<boolean> {
+  if (!referenceId) return false;
+  const { data, error } = await supabaseAdmin
+    .from("reputation_events")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("event_type", eventType)
+    .eq("reference_id", referenceId)
+    .limit(1)
+    .maybeSingle();
+  if (error) return false;
+  return !!data;
+}
+
+/** Read the cached reward state, or null when there is none / on error. */
+async function readRewardState(userId: string): Promise<RewardState | null> {
+  const { data, error } = await supabaseAdmin
+    .from("user_reward_state")
+    .select("xp_total, level, current_streak, longest_streak")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const row = data as unknown as {
+    xp_total: number;
+    level: number;
+    current_streak: number;
+    longest_streak: number;
+  };
+  return {
+    xpTotal: row.xp_total,
+    level: row.level,
+    currentStreak: row.current_streak,
+    longestStreak: row.longest_streak,
+  };
+}
+
+/**
+ * Award the `marketplace_connected` moat act (AC3) — the shared wiring every
+ * provider's connect path calls, so the five of them can't drift apart.
+ *
+ * Call it ONLY from the first-connect branch: the dedupe key is the marketplace
+ * plus the account, so a disconnect/reconnect of the SAME shop never re-earns,
+ * while genuinely connecting a second marketplace does. Best-effort by
+ * construction — a reward problem must never fail an OAuth callback the seller
+ * is mid-way through.
+ */
+export async function grantMarketplaceConnectedReward(
+  userId: string,
+  marketplace: string,
+  account: string | null | undefined,
+): Promise<void> {
+  try {
+    await grantReward(userId, "marketplace_connected", {
+      referenceId: `${marketplace}:${account ?? "primary"}`,
+      source: marketplace,
+      metadata: { marketplace },
+    });
+  } catch (err) {
+    console.error(
+      `[rewards] marketplace_connected grant failed (${marketplace}):`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 /** The reward event types the XP scorer reads (the trust-only types are skipped). */
