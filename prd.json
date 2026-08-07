@@ -312,7 +312,7 @@
         "Ingestion is tenant-scoped to the submitting buyer"
       ],
       "priority": 1808,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][ALERTS][EXTENSION][NEW] Reuse public-grading.ts hardening (gradeCheckRateLimited + safeFetch SSRF guard + quickGrade). This is the bridge between the extension (1833) and alerts. Quota via entitlements (1800). RISK: marketplace image-scraping ToS — constrain to buyer-initiated, per-listing, no crawling. Load tenant-isolation skill."
     },
     {

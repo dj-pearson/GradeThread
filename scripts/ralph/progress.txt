@@ -4319,3 +4319,8 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T09:13:04.021Z
 - Cost: $6.4669 over 74 turns
 ---
+## US-1808: Alerts: extension-fed marketplace listing ingestion
+- Status: COMPLETE
+- Timestamp: 2026-08-07T09:39:11.866Z
+- Cost: $15.5765 over 127 turns
+---
