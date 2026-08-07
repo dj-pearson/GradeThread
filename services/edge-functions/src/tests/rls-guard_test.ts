@@ -511,6 +511,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // and a client-readable one exposes candidate cells that have not cleared the
   // k-anonymity floor, which is the floor's whole point.
   "radar_venues",
+  // US-1863: the served Radar aggregates (00549) and the retention archive.
+  // No owner column on either — an aggregate belongs to the map — so the same
+  // double registration is what holds their RLS on. Deny-all matters MOST here:
+  // the aggregates endpoint re-applies the k-anonymity floor on read, and a
+  // client-readable table would be the way around it.
+  "radar_venue_aggregates",
+  "radar_scan_history",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -525,6 +532,8 @@ const SERVICE_ONLY_FORCED = [
   "reward_budget_breaches",
   "radar_scan_events",
   "radar_venues",
+  "radar_venue_aggregates",
+  "radar_scan_history",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

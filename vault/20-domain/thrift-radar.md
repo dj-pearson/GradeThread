@@ -10,8 +10,13 @@ code_refs:
   - services/edge-functions/src/lib/radar-events.ts
   - services/edge-functions/src/lib/radar-venues.ts
   - services/edge-functions/src/lib/radar-venue-registry.ts
+  - services/edge-functions/src/lib/radar-aggregates.ts
+  - services/edge-functions/src/lib/radar-aggregate-engine.ts
+  - services/edge-functions/src/routes/flipdesk-radar.ts
+  - services/edge-functions/src/routes/jobs-radar-aggregate.ts
   - supabase/migrations/00547_radar_scan_events.sql
   - supabase/migrations/00548_radar_venues.sql
+  - supabase/migrations/00549_radar_aggregates.sql
   - src/components/settings/radar-contribution-card.tsx
   - ios/GradeThread/Prospect/RadarConsent.swift
   - src/pages/flipdesk/scout.tsx
@@ -152,6 +157,55 @@ two writes leaves observations on a live venue.
 Every scout route is already tenant-scoped the standard way
 (`c.get("workspaceOwnerId") ?? c.get("userId")`, US-268) — the personal layer
 inherits that and needs its own `tenant-isolation_test.ts` cases.
+
+### US-1863: the floor, and what it costs to keep
+
+The aggregation layer is `radar_venue_aggregates` (00549) — venue × window ×
+brand, recomputed hourly by `/api/jobs/radar-aggregate` — and it holds **only
+rows that clear the k-anonymity floor**. Four layers, deliberately, because a
+privacy guarantee held in one place is held by whoever last remembered it:
+
+1. `servableAggregates()` sits between the computation and the upsert, and is
+   the only path to the table.
+2. `contributor_count` carries a **CHECK of >= 2**, so the table cannot hold a
+   single-contributor aggregate even if something else writes to it. The
+   configured `radar_privacy.k_anonymity_floor` (default 3) is a minimum an
+   operator may RAISE; `clampKFloor` refuses to go below the CHECK.
+3. The read endpoint re-applies the floor on every row it serves.
+4. A below-floor group produces **no row at all** — never a suppressed marker,
+   because "hidden here" is itself the disclosure that somebody scanned there.
+   The same reason `GET /venues/:id` returns an identical 404 for a below-floor
+   venue and an unknown id, and why a below-floor venue is omitted from the
+   bounding-box list rather than returned with an empty payload.
+
+Three consequences that are easy to get wrong later:
+
+- **A venue total is computed from the events, never by summing brand rows.**
+  One person scanning two brands would otherwise count as two contributors and
+  clear a floor of 2. Each brand row clears the floor on its own, so a venue can
+  be servable while its long-tail brands are not.
+- **The sweep is half the guarantee.** Every run stamps `computed_at` and then
+  deletes what it did not rewrite, so a venue that FALLS below the floor loses
+  its row. Without it the endpoint keeps serving an aggregate that no longer
+  clears the floor — the same disclosure, a week late.
+- **`avg_grade` is band-resolution.** The event store holds a band, never a
+  numeric grade (00547's minimization, not undone), so the average is derived
+  from band midpoints and can only land between 5.0 and 9.0.
+
+Retention is the other half of rule 4 over time. `retentionCutoff` snaps to the
+start of a whole expired **month**, and only then are raw events archived into
+`radar_scan_history` (month resolution, venue OR cell) and deleted — the exact
+ids that were rolled up, never a `WHERE scanned_at < cutoff` delete that could
+remove a row the rollup never saw. The month snap is what makes the archive
+idempotent: a partial prune re-runs against fewer events and produces a smaller
+total, which `mergeHistoryRow` refuses to accept over the larger one it already
+stored. `clampRetentionDays` will not let retention fall inside the widest
+window — an aggregate whose raw events are already gone is a number nothing can
+recompute or correct.
+
+The network layer is Pro+, gated at the endpoint on the same `compPulls` flag
+the Prospect scan that feeds it uses (rule 7). The personal layer is a separate,
+free surface and is not served here.
 
 ## Two traps specific to these tables
 

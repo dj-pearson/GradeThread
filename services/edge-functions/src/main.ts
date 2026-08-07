@@ -38,6 +38,7 @@ import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.t
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
+import { flipdeskRadarRoutes } from "./routes/flipdesk-radar.ts";
 import { flipdeskMeasureRoutes } from "./routes/flipdesk-measure.ts";
 import { flipdeskForecastRoutes } from "./routes/flipdesk-forecast.ts";
 import { flipdeskEquityRoutes } from "./routes/flipdesk-equity.ts";
@@ -146,6 +147,7 @@ import { handleGooglePlayExpirySweepCron } from "./lib/google-play/expiry-sweep.
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { handleThumbnailBackfillCron } from "./routes/jobs-thumbnail-backfill.ts";
 import { handleDurabilityAggregateCron } from "./routes/jobs-durability-aggregate.ts";
+import { handleRadarAggregateCron } from "./routes/jobs-radar-aggregate.ts";
 import { handleConsignorPayoutsCron } from "./routes/jobs-consignor-payouts.ts";
 import { handleAffiliatePayoutsCron } from "./routes/jobs-affiliate-payouts.ts";
 import { handleAgentTickCron } from "./routes/jobs-agent-tick.ts";
@@ -515,6 +517,9 @@ app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
 app.use("/api/flipdesk/scout/*", authMiddleware);
+// US-1863: Thrift Radar network layer (read-only aggregates). Authed like
+// scout — it is the same surface, one layer up.
+app.use("/api/flipdesk/radar/*", authMiddleware);
 app.use("/api/flipdesk/measure/*", authMiddleware);
 app.use("/api/flipdesk/product/*", authMiddleware);
 app.use("/api/flipdesk/templates/*", authMiddleware);
@@ -652,6 +657,7 @@ app.use("/api/flipdesk/listings/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/scout/*", workspaceMiddleware);
+app.use("/api/flipdesk/radar/*", workspaceMiddleware);
 app.use("/api/flipdesk/measure/*", workspaceMiddleware);
 app.use("/api/flipdesk/product/*", workspaceMiddleware);
 app.use("/api/passport/garments/*", workspaceMiddleware);
@@ -1142,6 +1148,9 @@ app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
+// US-1863: Thrift Radar aggregates — venue list by bounding box + venue detail.
+// Read-only, Pro+ (compPulls), k-anonymity floor enforced server-side.
+app.route("/api/flipdesk/radar", flipdeskRadarRoutes);
 app.route("/api/flipdesk/measure", flipdeskMeasureRoutes);
 // US-1104 Garment Passport resale-value & depreciation forecast — list price,
 // days-to-sell, 12-month resale projection + CI from the owner's SKU-class sale
@@ -1193,6 +1202,8 @@ app.post("/api/jobs/grading-batch-reclaim", (c) => handleGradingBatchReclaimCron
 // one (existing photos + new iOS uploads); drain-to-zero scheduler. Same gate.
 app.post("/api/jobs/thumbnail-backfill", (c) => handleThumbnailBackfillCron(c));
 app.post("/api/jobs/durability-aggregate", (c) => handleDurabilityAggregateCron(c));
+// US-1863: Thrift Radar aggregation + retention prune.
+app.post("/api/jobs/radar-aggregate", (c) => handleRadarAggregateCron(c));
 app.route("/api/admin", adminBillingRoutes);
 // US-507 admin kill-switch management (admin JWT + MFA via /api/admin/* group).
 app.route("/api/admin/feature-flags", adminFlagsRoutes);

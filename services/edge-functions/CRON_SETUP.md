@@ -486,56 +486,63 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/push-token-prune
 ```
 
-### 67. reconciliation-sweep
+### 67. radar-aggregate
+**Frequency:** `20 * * * *`  ·  _200 with {ok:true, events, venues, aggregates, suppressed, removed, kFloor, pruned}; suppressed > 0 is NORMAL and means the k-anonymity floor withheld those venues_
+
+```bash
+curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/radar-aggregate
+```
+
+### 68. reconciliation-sweep
 **Frequency:** `0 5 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/reconciliation/run
 ```
 
-### 68. reprice-rules
+### 69. reprice-rules
 **Frequency:** `0 */6 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/reprice-rules
 ```
 
-### 69. reprice-scan
+### 70. reprice-scan
 **Frequency:** `0 */6 * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/reprice-scan
 ```
 
-### 70. reward-nudges
+### 71. reward-nudges
 **Frequency:** `0 15 * * *`  ·  _200 with {ok:true, evaluated, sent, holdout, skipped, scanned, converted}; sent can be 0 — most evaluated users are frequency-capped or have no true candidate_
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/reward-nudges
 ```
 
-### 71. stuck-submissions
+### 72. stuck-submissions
 **Frequency:** `*/10 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/stuck-submissions
 ```
 
-### 72. sync-reaper
+### 73. sync-reaper
 **Frequency:** `*/15 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/sync-reaper
 ```
 
-### 73. thumbnail-backfill
+### 74. thumbnail-backfill
 **Frequency:** `*/5 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/thumbnail-backfill
 ```
 
-### 74. trial-expiry
+### 75. trial-expiry
 **Frequency:** `15 0 * * *`
 
 ```bash

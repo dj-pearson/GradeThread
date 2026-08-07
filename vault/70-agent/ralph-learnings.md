@@ -653,6 +653,13 @@ a learning that only matters to ONE surface, put it in that surface's file.
   record of where anyone stood. Pair it with a `centroid_source` column
   (`cell`|`user`|`places`) so a later precise value has to declare itself, and
   the guarantee stays checkable instead of remembered. Rules: [[thrift-radar]].
+- A table whose natural key is a GENERATED column (US-1863's
+  `radar_scan_history.place_key`) cannot be written with supabase-js
+  `.upsert(rows, { onConflict: "place_key,month_start" })` — the conflict target
+  has to be in the payload and a generated column may not be. Read the existing
+  rows for the keys you are about to write, then split into `.insert()` and
+  per-id `.update()`. Safe under a job lock (single runner); do NOT reach for the
+  generated column in an upsert and assume PostgREST will infer it.
 - Adding a SECTION to `src/pages/legal/privacy.tsx` means renumbering every later
   `<h2>` AND every `<a href="#anchor">Section N</a>` in the body: two cases in
   `privacy-extension.test.tsx` pin sequential numbering and anchor-to-number

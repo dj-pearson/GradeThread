@@ -180,6 +180,12 @@ export const CRON_REGISTRY: CronDef[] = [
   // own per-user frequency cap, so a busier schedule would only re-derive the
   // same refusals.
   { name: "reward-nudges", label: "Reward re-engagement nudges", schedule: "0 15 * * *", category: "growth", endpoint: "/api/jobs/reward-nudges", recorded: true, healthy: "200 with {ok:true, evaluated, sent, holdout, skipped, scanned, converted}; sent can be 0 — most evaluated users are frequency-capped or have no true candidate" },
+  // US-1863: Thrift Radar — recompute venue x window x brand aggregates from the
+  // de-identified scan events, publish only what clears the k-anonymity floor,
+  // then retire raw events past the retention window into the month archive.
+  // Hourly: the whole aggregate set is rebuilt each run (idempotent), and the
+  // freshness signal the map sells is only as good as the last recompute.
+  { name: "radar-aggregate", label: "Thrift Radar aggregation", schedule: "20 * * * *", category: "maintenance", endpoint: "/api/jobs/radar-aggregate", recorded: true, healthy: "200 with {ok:true, events, venues, aggregates, suppressed, removed, kFloor, pruned}; suppressed > 0 is NORMAL and means the k-anonymity floor withheld those venues" },
   // Seals legacy certificates into the integrity chain. ONE-OFF at launch;
   // idempotent, safe to re-run; disable once the backlog reads zero.
   { name: "cert-integrity-backfill", label: "Cert-integrity backfill", schedule: "0 6 * * *", category: "maintenance", endpoint: "/api/jobs/cert-integrity-backfill", recorded: true, oneOff: true },

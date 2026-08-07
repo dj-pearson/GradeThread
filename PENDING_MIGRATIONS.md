@@ -1,9 +1,58 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nineteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547 and 00548.** The entries below them
+**Twenty migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547, 00548 and 00549.** The entries below them
 were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00549_radar_aggregates.sql (US-1863 — Thrift Radar aggregates + retention archive)
+
+**Apply order.** After 00548 — `radar_venue_aggregates.venue_id` is a foreign key
+to `radar_venues`, so applying this first fails on a missing relation.
+
+**Risk: LOW.** Two new tables, one new config row. Nothing existing is modified
+or dropped, and both new tables start empty.
+
+**No client reads or writes anything new.** Both tables are service-role only
+(deny-all RLS, `REVOKE ALL` from anon/authenticated) and are reached solely
+through the new `/api/flipdesk/radar/*` endpoints. The web SPA and iOS are
+untouched by this story, so pushing before the apply is safe from the
+frontend's point of view.
+
+**What breaks if it stays unapplied.**
+- `/api/jobs/radar-aggregate` (new hourly cron) returns 500 on every run and
+  records an error in `cron_runs`. Nothing else depends on it, and there is
+  nothing to lose: the aggregates are recomputed from scratch on the first run
+  after the apply. If the noise is unwanted, leave the Coolify scheduled task
+  switched off until the SQL is applied.
+- `GET /api/flipdesk/radar/venues*` returns 500 ("Failed to load Radar
+  aggregates"). Nothing in the SPA calls it yet — the map surface is a later
+  story — so no user-facing screen breaks.
+- `radar_scan_events` simply keeps accumulating; retention pruning is what this
+  migration enables, not something it interrupts.
+
+**What it does.**
+- Adds `radar_venue_aggregates` — venue × window (`7d`/`30d`/`90d`) × brand
+  (`'*'` = the venue total). Scan count, DISTINCT contributor count, band-derived
+  `avg_grade` plus the band mix, buy-verdict rate, `last_activity_at`, and a
+  `computed_at` stamp the job sweeps stale rows by. Unique on
+  `(venue_id, window_key, brand_key)`.
+- **`contributor_count` carries a CHECK of `>= 2`** — the schema-level half of
+  the k-anonymity floor. The table cannot hold a single-contributor aggregate.
+  `radar_privacy.k_anonymity_floor` (default 3) may raise the effective floor
+  above it, never below.
+- Adds `radar_scan_history` — month-resolution archive of pruned scan events,
+  keyed by a generated `place_key` (the venue id, or `cell:<geohash>` when the
+  event never resolved to a venue) plus `month_start`. Deliberately has NO
+  foreign key to `radar_venues`, so the archive outlives a venue row.
+- Seeds `system_settings.radar_aggregation` (job tuning only — the floor and the
+  retention window stay in `radar_privacy`, because lowering either is a policy
+  change rather than tuning).
+
+**`NOTIFY pgrst, 'reload schema';`** — required. Two new tables.
+
+**Exercised** against a throwaway local stack via `npm run verify:db` (Docker),
+not against prod.
 
 ## ⏳ HELD: 00548_radar_venues.sql (US-1862 — Thrift Radar venue registry)
 
