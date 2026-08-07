@@ -6,11 +6,12 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
+  - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/aspect-registry.ts
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-05
+reviewed: 2026-08-07
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
@@ -74,6 +75,36 @@ because the two projects cannot import across each other.
 > Both are now asserted against `src/test/fixtures/required-aspects-cases.json`
 > and both are registered in the lockstep registry. Same remedy as the
 > weighted-overall mirrors ([[weighted-overall-lockstep]]).
+
+## Generation is now a third path (US-2423)
+
+Publish and revise were the only two callers of `resolveItemAspects`. That meant
+the attribute-backed specifics the extract pass had already read — pattern, fit,
+neckline, and after US-2421 another two dozen — reached eBay but never reached
+the **draft**. A seller opening a fresh AutoLister draft saw blank fields the
+system already knew the answer to, and retyped them.
+
+`generateListing` (`ai-listing.ts`, step 6c-bis) now runs the same resolver after
+the aspect refine pass and before `reconcileGeneratedAspects`. Same contract as
+the other two paths: fill-only, never overwrites, and whatever it fills is
+recorded as `inventory_derived` so a later manual edit still wins.
+
+The point to hold on to: **there are three paths now, and any fourth must fill
+the same way.** The reason revise broke in the first place was that it did not.
+
+## `requiredMissingAspects` has two more callers (US-2424, US-2425)
+
+It is no longer only the publish blocker. Both new uses are read-only — neither
+sends anything to eBay — but both now depend on it being right:
+
+- **Category choice.** `generateListing` scores the top few Taxonomy suggestions
+  by how many of each leaf's required aspects the item can already fill, and
+  takes the best instead of `suggestions[0]`. eBay's own suggestion order is the
+  tie-break, so a single candidate behaves exactly as it did before.
+- **The coverage metric.** Every generated draft records `listings.aspect_coverage`
+  — required and recommended tiers scored separately, because a required gap
+  blocks the publish and a recommended one only costs search placement. The
+  operator view is `/admin/listing-coverage`.
 
 ## Inference has a floor
 

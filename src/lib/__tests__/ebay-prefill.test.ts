@@ -421,8 +421,19 @@ describe("syncedItemFieldFor", () => {
     expect(syncedItemFieldFor("Care Instructions", "clothing")).toBe("garment_care");
   });
 
-  it("returns null for unknown aspects", () => {
-    expect(syncedItemFieldFor("Occasion", "clothing")).toBeNull();
+  it("maps the US-2422 widened aspects, including per-vertical names", () => {
+    expect(syncedItemFieldFor("Occasion", "clothing")).toBe("occasion");
+    expect(syncedItemFieldFor("Accents", "clothing")).toBe("accents");
+    expect(syncedItemFieldFor("Collection", "clothing")).toBe("product_line");
+    // shoes-only spellings stay inside the shoes vertical
+    expect(syncedItemFieldFor("Heel Style", "shoes")).toBe("heel_type");
+    expect(syncedItemFieldFor("Heel Style", "clothing")).toBeNull();
+  });
+
+  it("returns null for aspects no canonical field owns", () => {
+    expect(syncedItemFieldFor("Unit Quantity", "clothing")).toBeNull();
+    expect(syncedItemFieldFor("California Prop 65 Warning", "clothing")).toBeNull();
+    expect(syncedItemFieldFor("  ", "clothing")).toBeNull();
   });
 });
 

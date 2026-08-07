@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "entries": [
     {
       "key": "brand",
@@ -187,6 +187,285 @@
         "MPN",
         "Manufacturer Part Number"
       ]
+    },
+    {
+      "key": "accents",
+      "source": "attribute",
+      "attribute": "accents",
+      "multi": true,
+      "aspects": [
+        "Accents",
+        "Embellishment",
+        "Embellishments"
+      ]
+    },
+    {
+      "key": "sleeve_style",
+      "source": "attribute",
+      "attribute": "sleeve_style",
+      "multi": false,
+      "aspects": [
+        "Sleeve Style",
+        "Sleeve Type"
+      ]
+    },
+    {
+      "key": "rise",
+      "source": "attribute",
+      "attribute": "rise",
+      "multi": false,
+      "aspects": [
+        "Rise"
+      ]
+    },
+    {
+      "key": "leg_style",
+      "source": "attribute",
+      "attribute": "leg_style",
+      "multi": false,
+      "aspects": [
+        "Leg Style",
+        "Leg Type"
+      ]
+    },
+    {
+      "key": "dress_length",
+      "source": "attribute",
+      "attribute": "dress_length",
+      "multi": false,
+      "aspects": [
+        "Dress Length",
+        "Skirt Length"
+      ]
+    },
+    {
+      "key": "garment_length",
+      "source": "attribute",
+      "attribute": "garment_length",
+      "multi": false,
+      "aspects": [
+        "Garment Length",
+        "Coat/Jacket Length",
+        "Top Length"
+      ]
+    },
+    {
+      "key": "lining",
+      "source": "attribute",
+      "attribute": "lining",
+      "multi": false,
+      "aspects": [
+        "Lining",
+        "Lining Material"
+      ]
+    },
+    {
+      "key": "fabric_type",
+      "source": "attribute",
+      "attribute": "fabric_type",
+      "multi": false,
+      "aspects": [
+        "Fabric Type",
+        "Fabric",
+        "Material"
+      ]
+    },
+    {
+      "key": "fabric_weight",
+      "source": "attribute",
+      "attribute": "fabric_weight",
+      "multi": false,
+      "aspects": [
+        "Fabric Weight"
+      ]
+    },
+    {
+      "key": "product_line",
+      "source": "attribute",
+      "attribute": "product_line",
+      "multi": false,
+      "aspects": [
+        "Product Line",
+        "Collection",
+        "Series"
+      ]
+    },
+    {
+      "key": "model",
+      "source": "attribute",
+      "attribute": "model",
+      "multi": false,
+      "aspects": [
+        "Model"
+      ]
+    },
+    {
+      "key": "collaboration",
+      "source": "attribute",
+      "attribute": "collaboration",
+      "multi": false,
+      "aspects": [
+        "Collaboration"
+      ]
+    },
+    {
+      "key": "character",
+      "source": "attribute",
+      "attribute": "character",
+      "multi": false,
+      "aspects": [
+        "Character",
+        "Character Family"
+      ]
+    },
+    {
+      "key": "occasion",
+      "source": "attribute",
+      "attribute": "occasion",
+      "multi": false,
+      "aspects": [
+        "Occasion"
+      ]
+    },
+    {
+      "key": "activity",
+      "source": "attribute",
+      "attribute": "activity",
+      "multi": false,
+      "aspects": [
+        "Activity",
+        "Sport",
+        "Sport/Activity"
+      ]
+    },
+    {
+      "key": "season",
+      "source": "attribute",
+      "attribute": "season",
+      "multi": false,
+      "aspects": [
+        "Season"
+      ]
+    },
+    {
+      "key": "era",
+      "source": "attribute",
+      "attribute": "era",
+      "multi": false,
+      "aspects": [
+        "Era",
+        "Decade"
+      ]
+    },
+    {
+      "key": "heel_type",
+      "source": "attribute",
+      "attribute": "heel_type",
+      "multi": false,
+      "aspects": [
+        "Heel Type"
+      ],
+      "byCategory": {
+        "shoes": [
+          "Heel Style"
+        ]
+      }
+    },
+    {
+      "key": "heel_height",
+      "source": "attribute",
+      "attribute": "heel_height",
+      "multi": false,
+      "aspects": [
+        "Heel Height"
+      ]
+    },
+    {
+      "key": "toe_shape",
+      "source": "attribute",
+      "attribute": "toe_shape",
+      "multi": false,
+      "aspects": [
+        "Toe Shape"
+      ],
+      "byCategory": {
+        "shoes": [
+          "Toe Type",
+          "Toe Style"
+        ]
+      }
+    },
+    {
+      "key": "shoe_width",
+      "source": "attribute",
+      "attribute": "shoe_width",
+      "multi": false,
+      "aspects": [
+        "Shoe Width",
+        "US Shoe Width"
+      ],
+      "byCategory": {
+        "shoes": [
+          "Shoe Width",
+          "US Shoe Width",
+          "Width"
+        ]
+      }
+    },
+    {
+      "key": "shoe_shaft_height",
+      "source": "attribute",
+      "attribute": "shoe_shaft_height",
+      "multi": false,
+      "aspects": [
+        "Shaft Height"
+      ],
+      "byCategory": {
+        "shoes": [
+          "Shaft Height",
+          "Boot Height"
+        ]
+      }
+    },
+    {
+      "key": "strap_type",
+      "source": "attribute",
+      "attribute": "strap_type",
+      "multi": false,
+      "aspects": [
+        "Strap Type"
+      ],
+      "byCategory": {
+        "bags": [
+          "Handle/Strap Type",
+          "Handle Type",
+          "Strap Type"
+        ],
+        "accessories": [
+          "Strap Type",
+          "Band Type"
+        ]
+      }
+    },
+    {
+      "key": "hardware_color",
+      "source": "attribute",
+      "attribute": "hardware_color",
+      "multi": false,
+      "aspects": [
+        "Hardware Color"
+      ],
+      "byCategory": {
+        "bags": [
+          "Hardware Color",
+          "Hardware Material",
+          "Metal Color"
+        ],
+        "accessories": [
+          "Metal Color",
+          "Hardware Color"
+        ]
+      }
     }
   ]
 }

@@ -2801,7 +2801,7 @@
     },
     {
       "id": "US-2421",
-      "passes": false,
+      "passes": true,
       "title": "The category-free attribute record holds only 16 keys, so accents, product line, fabric weight and occasion have nowhere to live",
       "description": "As a reseller, I want one AI pass to capture every listing attribute the photos support, so that changing category later refills specifics with no new AI spend.",
       "acceptanceCriteria": [
@@ -2812,11 +2812,12 @@
         "The web (src/hooks/use-ai-extract.ts) and iOS (ios/GradeThread/AIExtract/AIExtractTypes.swift) attribute types stay generic keyed maps and need no per-key change; a test or a note in the story confirms this was verified",
         "npm run verify:edge is green"
       ],
-      "priority": 2389
+      "priority": 2389,
+      "notes": "Done 2026-08-07. services/edge-functions/src/lib/ai-extract.ts CANONICAL_ATTRIBUTES grows 16 -> 40 named keys + the 'observations' multi catch-all: accents(multi), sleeve_style, rise, leg_style, dress_length, garment_length, lining, fabric_type, fabric_weight, product_line, model, collaboration, character, occasion, activity, season, era, heel_type, heel_height, toe_shape, shoe_width, shoe_shaft_height, strap_type, hardware_color. SYSTEM_PROMPT gains the four-vertical guidance, the easy-to-blur distinctions (sleeve_length vs sleeve_style, material vs fabric_type vs fabric_weight, theme vs character, style vs product_line vs model) and the observations no-repeat/no-invent rule. Still ONE extract tool call; max_tokens 2500 -> 4096 because a truncated tool call never closes its JSON and nothing decodes. decodeExtraction/attributesToColumn are key-driven so every new key persists to inventory_items.attributes with no per-key code. Verified: src/tests/canonical-attributes_test.ts adds a fullFillRaw() canary that fills EVERY slot and asserts decode and column-mapping lose nothing, plus per-key registration, the 40+catch-all count, observations blank/placeholder dropping, and single-vs-multi truncation; 21 tests green. Web src/hooks/use-ai-extract.ts:58 (Record<string, AiAttributeSuggestion>) and iOS ios/GradeThread/AIExtract/AIExtractTypes.swift:139 ([String: AttributeSuggestion]) confirmed generic keyed maps - no per-key change needed on either client. deno lint clean over 1381 files; deno check clean on the changed files. NOTE: the full 'deno test' could not be run natively in this sandbox (deno.land and esm.sh are blocked by the network policy), so the suite was run against an npm-specifier import map with a local @std/assert shim - 5709 edge tests pass, the only 25 failures are image-codec tests stubbed out by that harness (imagescript / jsquash-webp). CI runs the real lane."
     },
     {
       "id": "US-2422",
-      "passes": false,
+      "passes": true,
       "title": "ASPECT_REGISTRY maps only 18 canonical keys, so a widened capture still cannot reach the new eBay aspects",
       "description": "As a reseller, I want every captured attribute to have a named eBay aspect it fills, so that switching category re-projects my specifics with zero AI.",
       "acceptanceCriteria": [
@@ -2829,11 +2830,12 @@
       "priority": 2390,
       "dependsOn": [
         "US-2421"
-      ]
+      ],
+      "notes": "Done 2026-08-07. services/edge-functions/src/lib/aspect-registry.ts gains one entry per new US-2421 canonical key (24 entries, version 1 -> 2) with ordered eBay name candidates incl. real synonyms: accents -> Accents/Embellishment, product_line -> Product Line/Collection/Series, fabric_weight -> Fabric Weight, activity -> Activity/Sport/Sport-Activity, era -> Era/Decade. Per-vertical byCategory extras where the name differs: shoes heel_type -> Heel Style, toe_shape -> Toe Type/Toe Style, shoe_width -> Width (offered ONLY inside shoes, since Width is a numeric dimension on bags), shoe_shaft_height -> Boot Height; bags strap_type -> Handle/Strap Type, hardware_color -> Hardware Material/Metal Color. Entries that share a name with an older field (fabric_type vs the material column, character vs theme) are placed AFTER it so ownedAspectName gives the older field first claim and the new key picks up the second name on a leaf exposing both. 'observations' is the one canonical key with no entry - a catch-all has no aspect by definition. src/lib/ebay-aspect-registry.json regenerated via scripts/sync-aspect-registry.deno.ts in the same commit; aspect-registry-drift_test.ts green. Verified: src/tests/aspect-registry_test.ts adds 9 US-2422 cases - a coverage test asserting every canonical key is mapped bar four documented exceptions (observations/style_code/rn_number/upc), SELECTION_ONLY fill with an allowed value and drop without one, FREE_TEXT fill incl. the Collection synonym, accents MULTI vs SINGLE cardinality, the shoes/bags vertical names, fabric_type taking the second name behind the material column, character behind theme, and never-overwrite; 42 tests green. Web: src/lib/__tests__/ebay-prefill.test.ts updated - syncedItemFieldFor now resolves Occasion/Accents/Collection/Heel Style, so the old 'unknown aspect' case was rewritten around aspects no canonical field owns. npm run lint, npx tsc -b, npm run ui:check and 3486 vitest tests green (the one remaining vitest failure, prd-archive-integrity, is the pre-existing re-archive backlog). Also fixed a real defect this widening exposed: aspectCarryOver in ai-listing.ts scanned every candidate name per entry with no claim tracking, so one 'Material: Wool' aspect would have been written onto BOTH the material column and the fabric_type attribute; it now claims a name per entry the way ownedAspectName does, covered by two new cases in listing-confidence_test.ts. Same sandbox caveat as US-2421: deno test ran under an npm-specifier import map, not deno.land."
     },
     {
       "id": "US-2423",
-      "passes": false,
+      "passes": true,
       "title": "Captured attributes are only projected onto eBay specifics at publish time, so AutoLister drafts show them blank",
       "description": "As a reseller reviewing an AutoLister draft, I want the attributes the AI already read to appear as item specifics on the draft, so that I am not looking at empty fields the system already knows the answer to.",
       "acceptanceCriteria": [
@@ -2846,11 +2848,12 @@
       "priority": 2391,
       "dependsOn": [
         "US-2422"
-      ]
+      ],
+      "notes": "Done 2026-08-07. generateListing in services/edge-functions/src/lib/ai-listing.ts gains step 6c-bis: after the extractEbayAspects refine pass and before reconcileGeneratedAspects it runs the registry projection over the item's own columns + attributes. Two new exported pure helpers carry it - registryAspectsFromSpecs (EbayAspectSpec -> RegistryAspect, cardinality MULTI -> multi) and deriveInventoryAspects (resolveItemAspects over those specs). Fill-only by construction: resolveItemAspects never returns a name already present in itemSpecifics, so a model- or refiner-set value is never overwritten. Provenance: the derived names are tracked in a Set and buildAspectSources (also new, exported) splits the source map - model output stays ai_extracted, registry-derived names become inventory_derived via sourcesFor + mergeSources, with itemSpecifics passed as the value map so a name the reconcile pass stripped cannot linger in provenance. That rung matters: reverseColumnAspects deliberately never writes an inventory_derived aspect back onto the item columns, and manual outranks it. ItemRow and the generateListing select now include item_category, without which the registry's per-vertical names (shoes Heel Style, bags Handle/Strap Type) could not resolve. Verified: new src/tests/inventory-derived-aspects_test.ts, 7 cases - an item with attributes.pattern ends up with Pattern filled and marked inventory_derived while the model's own Brand stays ai_extracted; a model-set Pattern ('Plaid') is NOT overwritten by the item's 'Striped'; SELECTION_ONLY still validates so an off-list value never lands; the US-2421 widening reaches a shoes draft; empty spec and null attributes are no-ops; MULTI cardinality carries through; and the source map drops a derived name the reconcile pass removed. All green, plus the full 5709-test edge run. Same sandbox caveat as US-2421 (deno test under an npm-specifier import map). deno lint clean; deno check clean on the changed files."
     },
     {
       "id": "US-2424",
-      "passes": false,
+      "passes": true,
       "title": "Category is picked by taking the first taxonomy hit with no check, so a wrong leaf silently costs every specific below it",
       "description": "As a reseller, I want the category chosen to be the one my item can actually fill, so that the first generation run lands the right leaf and its required specifics.",
       "acceptanceCriteria": [
@@ -2863,11 +2866,12 @@
       "priority": 2392,
       "dependsOn": [
         "US-2421"
-      ]
+      ],
+      "notes": "Done 2026-08-07. Step 5 of generateListing (services/edge-functions/src/lib/ai-listing.ts) no longer takes suggestions[0] on faith: it scores the top CATEGORY_CANDIDATE_LIMIT (5) suggestCategories hits and picks the best. Deterministic, no extra AI - three new exported pure helpers: projectedAspectsForCategory (the aspect map a leaf would START with: the generated specifics whose names that leaf has, matched case-insensitively and rewritten to eBay's own casing, plus deriveInventoryAspects over the item's canonical attributes), scoreCategoryCandidate (routes through requiredMissingAspects from aspect-provenance.ts so 'required' has exactly one definition), and rankCategoryCandidates (more requiredFilled, then fewer requiredMissing, then eBay's own suggestion order - so every tie ends deterministically and one candidate behaves exactly as before). A candidate whose spec read throws is scored zero rather than dropped, so a Taxonomy blip can never leave us with no category at all. The registryItem is hoisted above step 5 so the category choice and the US-2423 draft projection score from the identical picture of the item. Persisted: migration 00540_listing_category_candidates.sql adds listings.category_candidates jsonb (idempotent ADD COLUMN IF NOT EXISTS + self-record footer), EXPECTED_SCHEMA_VERSION bumped 00539 -> 00540 and migration-manifest.ts regenerated in the same commit; the ranked list is written on the draft (element 0 = chosen) so the composer can offer a one-click switch to the runner-up with no fresh AI run, and a category_choice summary joins the ai_enrichment_log telemetry. src/types/database.ts declares ListingCategoryCandidate + listings.category_candidates, which is what listing-row-schema-parity.test.ts requires. Verified: new src/tests/category-candidate-scoring_test.ts, 9 cases - the candidate covering strictly more required aspects wins over eBay's own top hit; a single candidate is chosen unchanged even when it leaves a required gap; ties break on eBay order; equal fill counts break on the smaller remaining gap; ranking is a pure sort; the model's specifics count case-insensitively; a leaf with no required aspects scores 0-of-0 rather than crashing. All green plus the full 5709-test edge run and 3486 vitest. Migration is HELD per the standing push rule and documented in PENDING_MIGRATIONS.md. Same sandbox caveat as US-2421."
     },
     {
       "id": "US-2425",
-      "passes": false,
+      "passes": true,
       "title": "There is no number for how complete a generated listing is, so specifics work cannot be proved to help",
       "description": "As GradeThread, we want every generated draft to record its eBay recommended-aspect coverage, so that changes to the specifics pipeline can be measured instead of guessed at.",
       "acceptanceCriteria": [
@@ -2878,7 +2882,8 @@
         "Any new edge route reading this data is tenant-scoped per US-268 and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts",
         "npm run verify is green"
       ],
-      "priority": 2393
+      "priority": 2393,
+      "notes": "Done 2026-08-07. Every AutoLister generation now records its eBay-aspect coverage. services/edge-functions/src/lib/ai-listing.ts step 6e calls the new exported buildAspectCoverage over rankedAspectSpecs(rawAspectsResponse) - the RAW Taxonomy payload is now lifted out of step 6 because the flattened EbayAspectSpec drops the two fields the metric needs (aspectConstraint.aspectUsage and relevanceIndicator.searchCount). Recommended coverage comes from recommendedAspectCoverage (aspect-provenance.ts:78) - filled, total and the missing names ranked by eBay's own 30-day buyer search volume. REQUIRED coverage is computed SEPARATELY from requiredMissingAspects, because a required gap blocks the publish and a recommended one only costs search placement; blending them would hide the one that stops a seller shipping. The result lands on listings.aspect_coverage AND alongside the existing generation telemetry in ai_enrichment_log.suggested_fields.listing_gen.aspect_coverage, so a run's cost and its completeness read off one row. Migration 00541_listing_aspect_coverage.sql adds the nullable jsonb plus a partial index on (updated_at DESC) WHERE aspect_coverage IS NOT NULL - idempotent, self-record footer, EXPECTED_SCHEMA_VERSION bumped 00540 -> 00541 and migration-manifest.ts regenerated in the same commit. Admin surface: new edge route services/edge-functions/src/routes/admin-listing-coverage.ts mounted at /api/admin/listing-coverage (behind the /api/admin/* auth + adminAuthMiddleware, registered in admin-scope-map.ts under marketplace:write - there is no marketplace:read scope key), returning median coverage over the last N (default 200, max 1000) scored drafts broken out by eBay leaf, worst first, with the most-missed recommended aspects per leaf; leaves under MIN_DRAFTS_PER_CATEGORY=3 stay out of the breakdown but still count in the totals, and a tier with zero aspects reports null rather than a fake 0%. Web page src/pages/admin/listing-coverage.tsx (route + admin nav registered) renders it. US-268: the route is a deliberately cross-tenant OPERATOR read that returns no listing/item/user ids, and src/tests/tenant-isolation_test.ts gains 'B (non-admin) cannot read the AutoLister draft-coverage console' covering both the bare path and ?limit=1000. Verified: new src/tests/aspect-coverage-metric_test.ts, 11 cases - the two tiers score separately with OPTIONAL counted in neither, a blank value is not filled, rankedAspectSpecs survives malformed payloads, median is a median not a mean, a per-leaf regression is visible with blocked-draft counts, top-missing ranks by frequency, an under-count leaf is excluded from the breakdown but not the totals, an unmeasurable tier is null, and the ?limit window clamps. npm run lint, npx tsc -b, npm run ui:check green and 3486 vitest tests pass; full edge run 5709 green. Migration HELD per the standing push rule, documented in PENDING_MIGRATIONS.md with the client-read warning (the admin page reads the column, and Cloudflare Pages auto-deploys on push). Same sandbox caveat as US-2421 - the real deno lane runs in CI."
     }
   ]
 }

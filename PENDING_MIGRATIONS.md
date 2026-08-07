@@ -1,9 +1,47 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Ten migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538 and 00539.** The entries below them were applied to prod and this
-file did not learn about it for a day. See the note under 00528 for how that was
-measured and why the measurement, not the file, is the authority.
+**Twelve migrations are held: 00530 through 00541.** The entries below them were
+applied to prod and this file did not learn about it for a day. See the note
+under 00528 for how that was measured and why the measurement, not the file, is
+the authority.
+
+## ⏳ HELD: 00541_listing_aspect_coverage.sql (US-2425 — draft coverage metric)
+
+**Apply order.** Last, after 00540. No dependency beyond `public.listings`
+existing.
+
+**Risk: LOW.** One nullable `jsonb` column on `listings` plus one partial index
+on `updated_at` where the column is not null. No backfill, no constraint change,
+no default — every existing row keeps `NULL` and reads as "not scored yet".
+
+**Client-side read — this one matters for push order.** `src/types/database.ts`
+declares `listings.aspect_coverage`, and the new admin page
+`/admin/listing-coverage` reads it through the edge route
+`/api/admin/listing-coverage`. Cloudflare Pages auto-deploys the frontend on
+push, so if the SQL has not been applied the route's `select` fails and the page
+shows its error card. Apply first.
+
+**What it does.** Records how complete each generated draft's eBay item
+specifics were at the moment AutoLister produced it. Required and recommended
+tiers are stored separately on purpose — a required gap blocks the publish, a
+recommended gap only costs search placement.
+
+## ⏳ HELD: 00540_listing_category_candidates.sql (US-2424 — category choice)
+
+**Apply order.** Before 00541, after 00539. No dependency beyond
+`public.listings` existing.
+
+**Risk: LOW.** One nullable `jsonb` column on `listings`. No backfill, no index,
+no constraint change.
+
+**Client-side read.** `src/types/database.ts` declares
+`listings.category_candidates`. Nothing renders it yet, but the type is shipped,
+so apply before the push for the same reason as 00541.
+
+**What it does.** Stores the ranked eBay leaf candidates AutoLister weighed when
+choosing a draft's category, with the required-aspect score behind each. Element
+0 is the chosen leaf. Lets the composer offer a one-click switch to the runner-up
+without a fresh AI run.
 
 ## ⏳ HELD: 00539_quest_definitions.sql (US-1852 — quests & challenges)
 

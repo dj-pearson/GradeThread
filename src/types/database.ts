@@ -1164,6 +1164,16 @@ export interface ListingRow {
   // reconciliation — aspects whose name or value couldn't be matched to the eBay
   // category spec (and were kept, not dropped). NULL = nothing flagged.
   aspect_review: AspectReviewEntry[] | null;
+  // US-2424 (migration 00540): the eBay leaf categories AutoLister weighed when
+  // it picked this draft's category, best-first (element 0 is the chosen one),
+  // with the required-aspect score behind each. Lets the composer offer a
+  // one-click switch to the runner-up without a fresh AI run. NULL when the item
+  // already had a category, so nothing was chosen.
+  category_candidates: ListingCategoryCandidate[] | null;
+  // US-2425 (migration 00541): how complete this draft's item specifics were at
+  // generation time. Required and recommended are kept SEPARATE — a required
+  // gap blocks the publish, a recommended one only costs search placement.
+  aspect_coverage: ListingAspectCoverage | null;
   return_policy_id: string | null;
   shipping_policy_id: string | null;
   payment_policy_id: string | null;
@@ -1319,6 +1329,40 @@ export interface AspectReviewEntry {
   aspect: string;
   values: string[];
   reason: "unknown_aspect" | "unmatched_value";
+}
+
+// US-2424: one eBay leaf AutoLister weighed before choosing this draft's
+// category. `rank` is eBay's own suggestion position, kept so a re-rank is
+// explainable; the requiredFilled/requiredTotal pair is the deterministic score
+// that decided it (how much of the leaf's REQUIRED specifics the item can
+// already satisfy). Mirrors CategoryCandidateScore on the edge.
+export interface ListingCategoryCandidate {
+  categoryId: string;
+  categoryPath: string | null;
+  rank: number;
+  requiredFilled: number;
+  requiredTotal: number;
+  requiredMissing: string[];
+}
+
+// US-2425: one tier of eBay-aspect coverage for a generated draft.
+export interface ListingAspectCoverageTier {
+  filled: number;
+  total: number;
+  /** The unfilled aspect names — ranked by buyer search volume for the
+   *  recommended tier, in category-spec order for the required one. */
+  missing: string[];
+}
+
+// US-2425: the draft's item-specifics completeness at generation time. Mirrors
+// DraftAspectCoverage on the edge. The two tiers stay separate because they
+// mean different things: a required gap BLOCKS the publish, a recommended gap
+// only costs search placement.
+export interface ListingAspectCoverage {
+  categoryId: string | null;
+  required: ListingAspectCoverageTier;
+  recommended: ListingAspectCoverageTier;
+  computedAt: string;
 }
 
 // US-1077: listing provenance. Mirrors the listings.listing_origin enum.
