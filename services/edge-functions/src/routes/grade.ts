@@ -18,6 +18,11 @@ import {
   parseVideoSlotMarks,
   type VideoSlotMarks,
 } from "../lib/video-frames.ts";
+import {
+  VIDEO_GRADING_FEATURE,
+  videoGradingPlanAllowed,
+  videoPhotoConflict,
+} from "../lib/video-grading-cost.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import {
   GRADE_TIERS,
@@ -102,12 +107,6 @@ const MAX_IMAGES_PER_SUBMISSION = IMAGE_TYPES.length;
 // the same private submission bucket + owner folder as the photos.
 const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60 MB
 const MAX_VIDEO_DURATION_SECONDS = 45;
-
-// US-1765: which effective FlipDesk plans may GRADE FROM a clip. Video costs
-// several Vision calls against a single grade's revenue, so it is a paid-plan
-// capability. Operator-overridable via the `video_grading_plans` setting (00532);
-// this is the fallback when the setting is missing or malformed.
-const DEFAULT_VIDEO_GRADING_PLANS = ["starter", "pro", "business"];
 
 // Optional seller-declared intentional design features. Passed to the grader
 // as a hint so factory distressing isn't read as damage. Allowlist keeps the
@@ -514,6 +513,14 @@ gradeRoutes.post("/submit", async (c) => {
         "That clip's length could not be read, so it can't be graded. Re-record it, or switch to photo mode.",
       );
     }
+    // US-1765: frames are inserted as ordinary submission_images ALONGSIDE any
+    // uploaded photos, and the pipeline makes one Vision call per image — so
+    // accepting both stacks the 14-slot photo cap on top of the 8-frame cap for
+    // ONE grade's revenue and neither cap bounds the request. It also voids the
+    // "every graded view came from one take" claim. Refused here, before a
+    // submission row or a charge exists.
+    const photoConflict = videoPhotoConflict(imageFiles.length);
+    if (photoConflict) errors.push(photoConflict);
   }
 
   if (errors.length > 0) {
@@ -527,13 +534,13 @@ gradeRoutes.post("/submit", async (c) => {
   let videoSlotMarks: VideoSlotMarks = {};
   if (videoGradingOptIn) {
     // 1. Kill-switch (also what the monthly ai_budgets 'kill' action flips).
-    if (!(await isFeatureEnabled("video_grading", { userId: ownerId }))) {
-      return c.json(featureDisabledBody("video_grading"), 503);
+    if (!(await isFeatureEnabled(VIDEO_GRADING_FEATURE, { userId: ownerId }))) {
+      return c.json(featureDisabledBody(VIDEO_GRADING_FEATURE), 503);
     }
     // 2. Hard AI budget. Frames are Vision calls, so a breached video budget
     //    must stop the clip path specifically — the photo path is unaffected.
-    if (await isAiBudgetExhausted("video_grading")) {
-      return c.json(aiBudgetExceededBody("video_grading"), 429);
+    if (await isAiBudgetExhausted(VIDEO_GRADING_FEATURE)) {
+      return c.json(aiBudgetExceededBody(VIDEO_GRADING_FEATURE), 429);
     }
     // 3. Plan gate. A free-plan seller gets the photo path and a clear upgrade
     //    prompt, never a silent downgrade into a worse grade.
@@ -549,20 +556,14 @@ gradeRoutes.post("/submit", async (c) => {
       new Date(),
       (planRow?.past_due_since as string | null) ?? null,
     );
-    const allowedPlansRaw = getSettingSync<unknown>(
-      "video_grading_plans",
-      DEFAULT_VIDEO_GRADING_PLANS,
-    );
-    const allowedPlans = Array.isArray(allowedPlansRaw) && allowedPlansRaw.length > 0
-      ? allowedPlansRaw.filter((p): p is string => typeof p === "string")
-      : DEFAULT_VIDEO_GRADING_PLANS;
-    if (!allowedPlans.includes(effPlan)) {
+    const allowedPlansRaw = getSettingSync<unknown>("video_grading_plans", null);
+    if (!videoGradingPlanAllowed(effPlan, allowedPlansRaw)) {
       return c.json({
         error:
           "Grading from a video is available on a paid plan. Upgrade, or grade this item from photos.",
         code: "UPGRADE_REQUIRED",
         action: "upgrade",
-        feature: "video_grading",
+        feature: VIDEO_GRADING_FEATURE,
         plan: effPlan,
       }, 402);
     }

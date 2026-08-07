@@ -420,6 +420,19 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `src/test/public-grade-report-view-parity.test.ts`. Rule:
   [[public-certificate-read-paths]].
 
+## A new AI feature needs BOTH economics config surfaces
+- Metering a new `ai_usage_events.feature` reaches the admin dashboards through
+  TWO `system_settings` rows, not one: `ai_feature_economics` (the OBSERVED
+  per-feature table + margin) and `ai_usage_scenarios` (the modeled PROJECTIONS).
+  `ai_profitability()` projects only features a scenario lists volumes for, so
+  adding the first and stopping leaves every scenario projecting as if the
+  feature did not exist — silently, since the observed table looks complete.
+  US-1762 did exactly that for `video_grading`; US-1765 added the volumes.
+  Model a feature that REPLACES another (video grade vs photo grade) by moving
+  volume between them, never by adding on top — additive invents spend against
+  revenue the scenario doesn't have. Also add the slug to `FEATURE_LABELS`
+  (src/pages/admin/ai-spend.tsx) or it renders as the raw slug.
+
 ## Telemetry consent
 - Adding a new kind of telemetry NEVER reuses an existing opt-in toggle, even
   when a story's own notes suggest it (US-1757 did). Each toggle's copy states

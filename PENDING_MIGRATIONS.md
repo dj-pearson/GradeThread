@@ -1,9 +1,40 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Three migrations are held: 00530, 00531 and 00532.** The entries below them
-were applied to prod and this file did not learn about it for a day. See the note
-under 00528 for how that was measured and why the measurement, not the file, is
-the authority.
+**Four migrations are held: 00530, 00531, 00532 and 00533.** The entries below
+them were applied to prod and this file did not learn about it for a day. See the
+note under 00528 for how that was measured and why the measurement, not the file,
+is the authority.
+
+## ⏳ HELD: 00533_video_grading_scenarios.sql (US-1765 — model video grading in the AI scenarios)
+
+**Apply order.** After 00532 — it patches a setting 00532 also patches, and its
+guard assumes 00532 ran first.
+
+**Risk: LOW.** Two `UPDATE`s against `system_settings` rows. No table, column,
+view, index, policy or function is touched. Both are guarded so they are no-ops
+on re-run, and both no-op entirely if the target row is missing or the wrong
+jsonb shape. Nothing outside the two admin AI dashboards reads either row.
+
+**What it does.**
+- `ai_usage_scenarios`: gives every modeled scenario a `video_grading` volume of
+  15% of its grading volume, **subtracted from** the grading volume rather than
+  added on top. Same grade count, same modeled revenue, different cost mix.
+- `ai_feature_economics`: ensures the `video_grading` entry exists. 00532 already
+  adds it; this repeats the insert only when the key is absent, so a
+  hand-edited row between the two migrations can't leave the scenarios pointing
+  at a feature priced at zero.
+
+**Why.** 00532 broke video_grading out in the OBSERVED per-feature table. The
+projection half of the profitability report reads `ai_usage_scenarios` instead,
+and video_grading was in none of them — so every modeled scenario projected
+platform spend as if no seller ever graded from a clip.
+
+**Apply order vs the push is not tight.** No frontend or edge code reads either
+row directly; `ai_profitability()` reads them at query time, so applying late
+just means the projection keeps ignoring video grading until it lands. The same
+commit bumps `EXPECTED_SCHEMA_VERSION` to `00533`, so the edge still needs the
+row recorded before it boots — apply the SQL, `NOTIFY pgrst, 'reload schema';`,
+redeploy the edge, then push, exactly as for 00532.
 
 ## ⏳ HELD: 00532_video_grading.sql (US-1762 — grade from a walk-around clip)
 

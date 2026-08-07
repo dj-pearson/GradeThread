@@ -127,6 +127,12 @@ const num = (n: number) => (n ?? 0).toLocaleString();
 // Friendlier labels for the known feature slugs.
 const FEATURE_LABELS: Record<string, string> = {
   grading: "Grading",
+  // US-1765: video grades meter under their OWN feature, never folded into
+  // 'grading' — one clip is several frames' worth of Vision calls against a
+  // single grade's revenue. Without a label here the row still appears, but as
+  // the raw slug, which reads like an unattributed leak rather than the feature
+  // whose unit economics are the point of the split.
+  video_grading: "Video grading",
   autolister: "AutoLister / Listings",
   content: "Content",
   reconcile: "Photo reconcile",

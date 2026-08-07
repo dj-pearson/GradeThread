@@ -33,6 +33,7 @@ import {
   type PeerNormConfig,
 } from "./peer-norm.ts";
 import { reconcileNeedsReview } from "./ai-config.ts";
+import { gradingUsageFeature } from "./video-grading-cost.ts";
 import { getSetting } from "./system-settings.ts";
 import {
   assessAuthenticity,
@@ -2903,7 +2904,7 @@ export async function processSubmission(submissionId: string) {
       // so folding it into 'grading' would hide the only number that decides
       // whether video grading pays for itself. The ai_budgets rows and the
       // admin AI-spend / profitability breakout key off this exact string.
-      feature: videoGraded ? "video_grading" : "grading",
+      feature: gradingUsageFeature(videoGraded),
       usages: [
         // US-1066: when the grade escalated, the cheap first-pass calls are
         // recorded under *_firstpass phases so the cascade's extra cost — and,
