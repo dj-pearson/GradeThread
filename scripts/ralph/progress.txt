@@ -4350,3 +4350,8 @@ Branch: ralph/gradethread-build
 - Reason: Add `dependsOn` for US-1849..US-1859 to US-1848 in prd.json (and the same for US-1794) so the harness stops selecting umbrella epics ahead of their own children.
 - Cost: $9.2090 over 100 turns
 ---
+## US-1849: Rewards: event-sourced XP/points engine
+- Status: COMPLETE
+- Timestamp: 2026-08-07T12:05:09.196Z
+- Cost: $6.9204 over 84 turns
+---
