@@ -1,9 +1,52 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Eighteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546 and 00547.** The entries below them
+**Nineteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547 and 00548.** The entries below them
 were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00548_radar_venues.sql (US-1862 — Thrift Radar venue registry)
+
+**Apply order.** After 00547, which created `radar_scan_events` — this migration
+adds the foreign key from that table's `venue_id` column to the new
+`radar_venues`, so applying it first fails on a missing relation.
+
+**Risk: LOW.** One new table, one new FK on a column that already exists and is
+empty in prod, one config row. Nothing existing is modified or dropped.
+
+**No client reads or writes anything new.** `radar_venues` is service-role only
+(deny-all RLS, `REVOKE ALL` from anon/authenticated). The web SPA and iOS are
+untouched by this story, so pushing before the apply is safe from the frontend's
+point of view.
+
+**What breaks if it stays unapplied.** Nothing user-facing. `resolveScanVenue`
+selects from `radar_venues`, gets a PostgREST "relation does not exist" error,
+logs it at warn and returns null — the contribution still lands with its geohash
+cell, which is the state `radar_scan_events_located` was written to allow. That
+is the pre-US-1862 behaviour, so the scan the user is waiting on is unaffected
+(rule 8, fire-and-forget).
+
+**What it does.**
+- Adds `radar_venues` — display name, chain tag (goodwill / savers /
+  salvation_army / value_village / other), centroid `lat`/`lng` plus a
+  `centroid_source` saying whether that centroid came from a geohash cell centre
+  (the only thing scan data may produce), a person, or a future Places
+  enrichment. Status candidate / confirmed / merged, with `merged_into_id`
+  naming the survivor so a merged id never dangles.
+- Partial unique index on `(geohash, chain) WHERE status <> 'merged'` — this is
+  what makes later scans converge onto one candidate instead of each minting
+  their own, and what makes two concurrent scans safe.
+- Adds the FK `radar_scan_events.venue_id → radar_venues(id) ON DELETE SET NULL`
+  (guarded by a `pg_constraint` existence check, so re-running is safe).
+- Adds the `radar_venues` config row (resolution kill-switch, match radius, merge
+  radius, confirm threshold). Separate from `radar_privacy` on purpose: those are
+  privacy parameters, these are tuning, and the k-anonymity floor must not sit in
+  a row people feel free to edit.
+
+**`NOTIFY pgrst, 'reload schema';`** — a new table and a new constraint.
+
+**Rollback.** Safe to leave in place. Nothing reads the table except the edge's
+resolver, which degrades to "unresolved" without it.
 
 ## ⏳ HELD: 00547_radar_scan_events.sql (US-1861 — Thrift Radar consent + events)
 

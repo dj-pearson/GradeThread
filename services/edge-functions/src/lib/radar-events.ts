@@ -22,11 +22,13 @@ import { getSetting } from "./system-settings.ts";
 import { bandForGrade } from "./resale-condition.ts";
 import {
   buildRadarEventRow,
+  coarseCell,
   DEFAULT_GEOHASH_PRECISION,
   DEFAULT_KEY_ROTATION_DAYS,
   type RadarGradeBand,
   type RadarVerdict,
 } from "./radar-privacy.ts";
+import { resolveScanVenue } from "./radar-venue-registry.ts";
 import { captureException } from "./observability.ts";
 
 export interface RadarPrivacyConfig {
@@ -95,6 +97,19 @@ export async function emitRadarScanEvent(input: RadarEmitInput): Promise<boolean
     const salt = Deno.env.get("RADAR_CONTRIBUTOR_SALT") ??
       Deno.env.get("PASSPORT_LINKAGE_SALT") ?? "";
 
+    // US-1862: resolve the fix to a named venue BEFORE the row is built, so the
+    // coordinate's whole life is contained in this function. It arrives as an
+    // argument, it picks a cell and a venue, and it is gone — the row that comes
+    // out of buildRadarEventRow has no field it could have landed in.
+    //
+    // A failure here is not a failure of the contribution: resolveScanVenue
+    // returns null and the event keeps its cell, which is the state the
+    // `radar_scan_events_located` CHECK was written to allow.
+    const cell = coarseCell(input.lat, input.lng, config.geohash_precision);
+    const venueId = cell
+      ? await resolveScanVenue({ lat: input.lat, lng: input.lng }, cell)
+      : null;
+
     const row = await buildRadarEventRow({
       accountId: input.accountId,
       lat: input.lat,
@@ -107,6 +122,7 @@ export async function emitRadarScanEvent(input: RadarEmitInput): Promise<boolean
       salt,
       precision: config.geohash_precision,
       rotationDays: config.key_rotation_days,
+      venueId,
     });
     if (!row) return false;
 

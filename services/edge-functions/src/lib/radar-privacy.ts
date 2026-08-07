@@ -16,8 +16,13 @@
 
 import { minimizeLinkageRef } from "./garment-passport.ts";
 
-/** Standard geohash base32 alphabet (no a, i, l, o). */
-const BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";
+/**
+ * Standard geohash base32 alphabet (no a, i, l, o). Exported because the venue
+ * resolver (US-1862) has to DECODE a cell back to its bounds, and a second copy
+ * of this string is a second thing that can drift.
+ */
+export const GEOHASH_BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";
+const BASE32 = GEOHASH_BASE32;
 
 /**
  * Widest cell we will ever store. The DB CHECK on `radar_scan_events.geohash`
@@ -144,12 +149,19 @@ export interface RadarEventInput {
   salt: string;
   precision?: number;
   rotationDays?: number;
+  /**
+   * US-1862: the venue the fix resolved to, when the registry could place it.
+   * Null is not a failure — an unplaced event keeps its cell and the venue layer
+   * simply has one fewer observation.
+   */
+  venueId?: string | null;
 }
 
 /** The row shape written to `radar_scan_events`. Note what is absent. */
 export interface RadarEventRow {
   contributor_key: string;
   key_epoch: number;
+  venue_id: string | null;
   geohash: string;
   brand: string | null;
   category: string | null;
@@ -175,6 +187,9 @@ export async function buildRadarEventRow(
   return {
     contributor_key: await contributorKey(input.accountId, epoch, input.salt),
     key_epoch: epoch,
+    // A venue id, or null. Note what this is NOT: the fix that chose it. The
+    // coordinate decided which venue and then stopped existing.
+    venue_id: input.venueId ?? null,
     geohash: cell,
     brand: input.brand?.trim() ? input.brand.trim().slice(0, 120) : null,
     category: input.category?.trim() ? input.category.trim().slice(0, 120) : null,

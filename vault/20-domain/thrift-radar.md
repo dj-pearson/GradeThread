@@ -8,7 +8,10 @@ code_refs:
   - services/edge-functions/src/lib/scout-decision.ts
   - services/edge-functions/src/lib/radar-privacy.ts
   - services/edge-functions/src/lib/radar-events.ts
+  - services/edge-functions/src/lib/radar-venues.ts
+  - services/edge-functions/src/lib/radar-venue-registry.ts
   - supabase/migrations/00547_radar_scan_events.sql
+  - supabase/migrations/00548_radar_venues.sql
   - src/components/settings/radar-contribution-card.tsx
   - ios/GradeThread/Prospect/RadarConsent.swift
   - src/pages/flipdesk/scout.tsx
@@ -105,16 +108,57 @@ and the discard, exactly as this note required. The shape that landed:
   the column, so rule 4 survives a config edit by someone who has not read this
   note.
 
+US-1862 filled in the `venue_id` that 00547 left pointing at nothing:
+
+- **`radar_venues` (00548) is the registry.** Display name, chain tag, centroid,
+  resolution cell, status candidate / confirmed / merged. A partial unique index
+  on `(geohash, chain) WHERE status <> 'merged'` is what makes later scans
+  converge onto one candidate rather than each minting their own, and what makes
+  two concurrent scans safe.
+- **Same pure/impure split as US-1861.** `radar-venues.ts` is pure (chain
+  normalization, cell geometry, nearest-venue matching, candidate drafting, merge
+  planning) and needs no env dance; `radar-venue-registry.ts` holds the reads,
+  the insert and the merge writes, and never throws — a failure returns
+  "unresolved" and the event keeps its cell, which is the state
+  `radar_scan_events_located` was written to allow (rule 8).
+
+### A centroid that is not an exception to rule 4
+
+An auto-created venue's `lat`/`lng` is the **centre of a geohash cell**, never a
+contributor's fix. Every scan in the cell yields the identical pair, so the
+centroid states where the cell is and nothing about where a person stood; the
+signature enforces it, because `candidateVenueDraft(cell)` has no coordinate
+parameter to pass a fix through. Precision is only ever bought from a source
+allowed to be precise — a human placing the venue, or the Places enrichment the
+`place_*` columns are reserved for — and `centroid_source` (`cell` | `user` |
+`places`) says which, so the guarantee stays checkable rather than remembered.
+
+Two thresholds that are easy to confuse, and must not be:
+`radar_venues.confirm_min_observations` promotes a candidate to confirmed and
+counts **contributions**, so one enthusiastic person can trip it;
+`radar_privacy.k_anonymity_floor` decides whether an aggregate may be **served**
+and counts **distinct contributor keys**. They live in separate `system_settings`
+rows on purpose — tuning and policy should not share an edit.
+
+Chain is a shared label on distinct places. `normalizeChain` folds "Goodwill
+Store #123" and "Goodwill Industries" to `goodwill`, and `planVenueMerges`
+refuses to merge across chains: a Goodwill and a Savers in one strip mall are two
+stores, and folding them destroys the per-venue identity the registry exists to
+create. A merged loser is tombstoned (`status='merged'`, `merged_into_id` set),
+never deleted, so an id already written to an event cannot dangle — and events
+move to the survivor **before** the loser is tombstoned, so a crash between the
+two writes leaves observations on a live venue.
+
 Every scout route is already tenant-scoped the standard way
 (`c.get("workspaceOwnerId") ?? c.get("userId")`, US-268) — the personal layer
 inherits that and needs its own `tenant-isolation_test.ts` cases.
 
 ## Two traps specific to these tables
 
-- `radar_scan_events` deliberately has **no `user_id` column**, which makes it
-  invisible to `rls-guard_test.ts`'s discovery regex. A deny-all table nothing
+- `radar_scan_events` **and `radar_venues`** deliberately have **no `user_id`
+  column**, which makes them invisible to `rls-guard_test.ts`'s discovery regex. A deny-all table nothing
   looks at passes by never being examined, and a later commit could drop its RLS
-  with nothing going red — so register it in **both** `SERVICE_ROLE_ONLY` and
+  with nothing going red — so register EACH in **both** `SERVICE_ROLE_ONLY` and
   `SERVICE_ONLY_FORCED`. Full rule: [[service-role-tables]].
 - Retention pruning and the rollup are the only things that keep rule 4 true over
   time. An aggregate that is recomputable from retained raw events is a raw event

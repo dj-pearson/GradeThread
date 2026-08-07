@@ -504,6 +504,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // of pseudonymous people, and a client-writable one is a way to poison every
   // other tenant's view of where supply is.
   "radar_scan_events",
+  // US-1862: the Thrift Radar venue registry (migration 00548). No owner column
+  // either — a venue belongs to the map, not to a tenant — so the same double
+  // registration is the only thing holding its RLS on. Deny-all both ways: a
+  // client-writable registry lets one account poison every other tenant's map,
+  // and a client-readable one exposes candidate cells that have not cleared the
+  // k-anonymity floor, which is the floor's whole point.
+  "radar_venues",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -517,6 +524,7 @@ const SERVICE_ONLY_FORCED = [
   "reward_milestones",
   "reward_budget_breaches",
   "radar_scan_events",
+  "radar_venues",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

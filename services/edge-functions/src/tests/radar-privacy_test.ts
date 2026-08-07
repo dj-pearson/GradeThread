@@ -95,11 +95,14 @@ Deno.test("buildRadarEventRow: the row has no coordinate and no account field", 
     salt: SALT,
     precision: 6,
     rotationDays: 7,
+    venueId: "99999999-9999-4999-8999-999999999999",
   });
   assert(row);
 
   // The guarantee, stated as the SET of keys rather than as an absence of one
   // field — a new coordinate column would have to be added here to pass.
+  // `venue_id` (US-1862) is the resolved place, not the fix that chose it: the
+  // coordinate decided which venue and then stopped existing.
   assertEquals(Object.keys(row!).sort(), [
     "brand",
     "category",
@@ -108,6 +111,7 @@ Deno.test("buildRadarEventRow: the row has no coordinate and no account field", 
     "grade_band",
     "key_epoch",
     "scanned_at",
+    "venue_id",
     "verdict",
   ]);
   assertEquals(row!.geohash.length, 6);
@@ -119,6 +123,26 @@ Deno.test("buildRadarEventRow: the row has no coordinate and no account field", 
     !serialized.includes("11111111-1111-4111-8111-111111111111"),
     "the account id survived into the row",
   );
+});
+
+Deno.test("buildRadarEventRow: an unresolved venue keeps the cell (US-1862)", async () => {
+  // Venue resolution is allowed to fail — the registry may be off, the cell may
+  // be new, the read may have errored. The contribution still counts, against
+  // its geohash cell, which is exactly what radar_scan_events_located allows.
+  const row = await buildRadarEventRow({
+    accountId: "11111111-1111-4111-8111-111111111111",
+    lat: 40.712776,
+    lng: -74.005974,
+    brand: null,
+    category: null,
+    gradeBand: "mid",
+    verdict: "maybe",
+    at: new Date("2026-08-07T12:00:00.000Z"),
+    salt: SALT,
+  });
+  assert(row);
+  assertEquals(row!.venue_id, null);
+  assertEquals(row!.geohash.length, DEFAULT_GEOHASH_PRECISION);
 });
 
 Deno.test("buildRadarEventRow: an unusable fix produces no contribution", async () => {

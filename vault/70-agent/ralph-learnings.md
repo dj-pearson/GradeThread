@@ -645,6 +645,14 @@ a learning that only matters to ONE surface, put it in that surface's file.
   someone adds the column back, unlike `assert(!row.lat)` which passes forever.
   (2) Split the pure transforms (geohash, rotation, row builder) into a module
   that imports NOTHING touching `lib/supabase.ts`, so its test needs no env dance.
+- The way to keep "no precise coordinate is stored" true while STILL storing a
+  place is to make the privacy property a consequence of the FUNCTION SIGNATURE,
+  not of discipline at the call site: US-1862's `candidateVenueDraft(cell)` takes
+  a geohash cell and has no coordinate parameter, so a venue centroid can only
+  ever be a cell centre — identical for everyone in the cell, therefore not a
+  record of where anyone stood. Pair it with a `centroid_source` column
+  (`cell`|`user`|`places`) so a later precise value has to declare itself, and
+  the guarantee stays checkable instead of remembered. Rules: [[thrift-radar]].
 - Adding a SECTION to `src/pages/legal/privacy.tsx` means renumbering every later
   `<h2>` AND every `<a href="#anchor">Section N</a>` in the body: two cases in
   `privacy-extension.test.tsx` pin sequential numbering and anchor-to-number
