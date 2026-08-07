@@ -204,6 +204,10 @@ struct MoneyView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 kpiRow
+                // US-1871: the capital still on the racks, beside the money that
+                // already came off them. Renders nothing when the feature is off
+                // or the plan does not include it.
+                InventoryEquityCard()
                 if metrics.monthlyRevenue.contains(where: { $0.revenue > 0 }) {
                     revenueChart
                 }

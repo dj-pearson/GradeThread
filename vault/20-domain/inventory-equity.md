@@ -7,6 +7,7 @@ code_refs:
   - src/lib/inventory-equity-disclosure.ts
   - src/test/inventory-equity-scope-fence.test.ts
   - src/components/flipdesk/inventory-equity-card.tsx
+  - ios/GradeThread/Money/InventoryEquityCard.swift
   - services/edge-functions/src/lib/inventory-equity.ts
   - services/edge-functions/src/routes/flipdesk-equity.ts
   - services/edge-functions/src/routes/jobs-equity-snapshot.ts
@@ -67,8 +68,15 @@ that drew it — so the fence has to be checkable from inside the build.
 `functions/`, `ios/` or `android/` whose path matches `equity`) rather than from
 a list, for the same reason [[buyer-legal-and-privacy|the buyer PII export]]
 iterates a register: a hand-written list of surfaces omits the surface that
-breaks the rule. It was written while US-1871 was still unbuilt, and covers it
-already.
+breaks the rule. It was written while US-1871 was still unbuilt and covered it
+on the day it landed.
+
+That has one consequence worth knowing before you add a surface. Discovery is by
+PATH, and every `.swift`/`.tsx`/`.kt` file it finds must RENDER the disclosure —
+so the iOS card keeps its read models, transport, store and views in one
+`InventoryEquityCard.swift`. Splitting them across four equity-named files would
+mean four copies of the sentence or four exemptions, and an exemption is how a
+fence stops fencing.
 
 Two things it deliberately does not do. It strips comments before scanning, so
 the header comments that *declare* the fence do not trip it. And it says nothing

@@ -727,6 +727,16 @@ a learning that only matters to ONE surface, put it in that surface's file.
   the header comment declaring the rule trips it; strip IMPORT lines too, or a
   file that imports the copy and renders nothing passes. Mutation-check both
   halves — mine passed twice while broken before that. Rules: [[inventory-equity]].
+- A PATH-discovery fence also decides your FILE LAYOUT, and noticing that after
+  you have written four files is expensive: US-1871's iOS card keeps read models,
+  transport, store and views in ONE `InventoryEquityCard.swift`, because every
+  `.swift` the fence finds must RENDER the disclosure. Two rules follow for the
+  literal itself. It must be UNBROKEN in source — the guard normalizes whitespace
+  but not Swift's `+` concatenation or a `"""` line-continuation `\`, so a wrapped
+  literal reads as a paraphrase to the only thing that checks. And since the
+  identifier the guard also accepts appears in those files only inside `///`
+  comments (which it strips), the pass is the literal's — confirm that with a
+  one-character mutation rather than assuming it.
 
 ## Related
 
