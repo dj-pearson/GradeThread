@@ -19,6 +19,7 @@ import {
   resellerGlossarySetLd,
   flawDefinedTermLd,
   flawLibrarySetLd,
+  videoObjectLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
 import {
@@ -30,9 +31,20 @@ import {
 } from "@/lib/seo/flaw-library";
 import {
   GARMENT_GUIDES_HUB_PATH,
+  guidePath,
   guideTrail,
   type GarmentGuide,
 } from "@/lib/seo/garment-guides";
+import {
+  publishedShort,
+  shortTitle,
+  shortDescription,
+  shortTranscript,
+  shortDurationIso,
+  shortEmbedUrl,
+  shortWatchUrl,
+  shortThumbnailUrl,
+} from "@/lib/seo/grading-videos";
 import { scaleDefinedTerms } from "@/lib/seo/grading-scale";
 import {
   RESELLER_TERMS,
@@ -598,9 +610,17 @@ export function guideHubBreadcrumbItems(): Array<{ name: string; url: string }> 
   ];
 }
 
-/** A garment guide page: HowTo (grade this garment) + FAQPage. */
+/**
+ * A garment guide page: HowTo (grade this garment) + FAQPage, plus a
+ * VideoObject when this guide has a PUBLISHED grading short (US-1689).
+ *
+ * The video node is appended only for a short that is actually live on
+ * YouTube. head-builder.ts calls this same function, so the prerendered head
+ * and the SPA emit the identical set — and an unfilmed short produces no
+ * markup on either path.
+ */
 export function garmentGuideJsonLd(guide: GarmentGuide): JsonLd[] {
-  return [
+  const nodes: JsonLd[] = [
     howToLd({
       name: `How to grade a used ${guide.garment.toLowerCase()}`,
       description: guide.description,
@@ -608,6 +628,23 @@ export function garmentGuideJsonLd(guide: GarmentGuide): JsonLd[] {
     }),
     faqPageLd(guide.faqs),
   ];
+  const short = publishedShort(guide.slug);
+  if (short) {
+    nodes.push(
+      videoObjectLd({
+        name: shortTitle(short),
+        description: shortDescription(short),
+        uploadDate: short.uploadDate,
+        duration: shortDurationIso(short),
+        thumbnailUrl: shortThumbnailUrl(short.youtubeId),
+        embedUrl: shortEmbedUrl(short.youtubeId),
+        contentUrl: shortWatchUrl(short.youtubeId),
+        transcript: shortTranscript(short),
+        pageUrl: `${SITE_URL}${guidePath(guide.slug)}`,
+      }),
+    );
+  }
+  return nodes;
 }
 
 export const GARMENT_HUB_FAQS = [

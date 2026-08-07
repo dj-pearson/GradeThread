@@ -13,6 +13,7 @@ import {
   guidePath,
 } from "@/lib/seo/garment-guides";
 import { getFlawBySlug, flawPath } from "@/lib/seo/flaw-library";
+import { GuideVideo } from "@/components/marketing/guide-video";
 import {
   garmentGuideJsonLd,
   guideBreadcrumbItems,
@@ -109,6 +110,10 @@ export function GarmentGuidePage({ slug: slugProp }: { slug?: string }) {
           <p className="mt-6 text-lg text-foreground">{guide.intro}</p>
         </div>
       </section>
+
+      {/* US-1689: the grading short, above the written checklist it summarises.
+          Renders nothing until the video is live (see grading-videos.ts). */}
+      <GuideVideo guideSlug={guide.slug} />
 
       {/* Photos — rendered only when the graded corpus supplies them */}
       {guide.photos?.length ? (

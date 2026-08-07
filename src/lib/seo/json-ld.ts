@@ -615,6 +615,51 @@ export function howToLd(opts: {
 }
 
 /**
+ * VideoObject for an embedded YouTube grading short (US-1689).
+ *
+ * `transcript` is the point of this node: AI answer engines increasingly cite
+ * video transcripts, so shipping the spoken text as machine-readable markup is
+ * what turns a 45-second short into a citable surface. The same text renders on
+ * the page under the embed, so this never marks up invisible content.
+ *
+ * Only ever called for a video that is actually live on YouTube — the caller
+ * gates on `isPublished()` in grading-videos.ts.
+ */
+export function videoObjectLd(opts: {
+  name: string;
+  description: string;
+  /** ISO date the video was published to YouTube. */
+  uploadDate: string;
+  /** ISO 8601 duration, e.g. "PT45S". */
+  duration: string;
+  thumbnailUrl: string;
+  embedUrl: string;
+  contentUrl: string;
+  transcript: string;
+  /** The page the video is embedded on. */
+  pageUrl: string;
+}): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    "@id": `${opts.pageUrl}#video`,
+    name: opts.name,
+    description: opts.description,
+    uploadDate: opts.uploadDate,
+    duration: opts.duration,
+    thumbnailUrl: opts.thumbnailUrl,
+    embedUrl: opts.embedUrl,
+    contentUrl: opts.contentUrl,
+    transcript: opts.transcript,
+    isFamilyFriendly: true,
+    // US-2103: reference the site-wide Organization rather than minting an
+    // anonymous publisher node, so the video accrues to the brand graph.
+    publisher: { "@id": ORG_ID },
+    mainEntityOfPage: { "@type": "WebPage", "@id": opts.pageUrl },
+  };
+}
+
+/**
  * Certificate grade descriptor. Models the graded garment as a Product and the
  * GradeThread condition grade as a single expert Review/Rating (1–10), so the
  * exact numeric grade is machine-readable and AI-citable.
