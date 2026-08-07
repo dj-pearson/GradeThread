@@ -59,6 +59,52 @@ export function badgeByKey(key: string): BadgeDef | undefined {
   return BADGE_BY_KEY[key];
 }
 
+// ─── Public projection (US-1850 AC3) ─────────────────────────────────────────
+
+/** One EARNED badge as it appears on a public surface (the verified-seller
+ *  profile). Catalog metadata + when it was earned only — never the `context`
+ *  snapshot, which holds the owner's private stats (grade counts, XP). */
+export interface PublicAchievement {
+  key: string;
+  name: string;
+  description: string;
+  tier: BadgeTier;
+  icon: string;
+  earned_at: string;
+}
+
+/** Rarest first, so the gold medals lead. */
+const TIER_RANK: Record<BadgeTier, number> = { gold: 0, silver: 1, bronze: 2 };
+
+/**
+ * Pure: earned rows → public achievement DTOs, rarest tier first and newest
+ * first within a tier. A key with no catalog entry (a badge retired from
+ * BADGE_CATALOG) drops out rather than rendering a nameless medal. `hidden`
+ * badges DO appear once earned — hidden means "not advertised before you earn
+ * it", and the reveal is the point.
+ */
+export function publicAchievements(
+  rows: ReadonlyArray<{ badge_key: string; earned_at: string }>,
+): PublicAchievement[] {
+  const out: PublicAchievement[] = [];
+  for (const row of rows) {
+    const def = badgeByKey(row.badge_key);
+    if (!def) continue;
+    out.push({
+      key: def.key,
+      name: def.name,
+      description: def.description,
+      tier: def.tier,
+      icon: def.icon,
+      earned_at: row.earned_at,
+    });
+  }
+  return out.sort((a, b) =>
+    TIER_RANK[a.tier] - TIER_RANK[b.tier] ||
+    b.earned_at.localeCompare(a.earned_at)
+  );
+}
+
 /** Pure: the catalog keys the context satisfies. Deterministic + DB-free. */
 export function evaluateBadges(ctx: BadgeContext): string[] {
   return BADGE_CATALOG.filter((b) => b.criteria(ctx)).map((b) => b.key);

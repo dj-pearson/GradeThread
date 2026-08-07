@@ -18,6 +18,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { SEO } from "@/components/seo";
+import {
+  AchievementMedals,
+  type PublicAchievement,
+} from "@/components/verified/achievement-medals";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -64,6 +68,9 @@ interface SellerProfile {
     tier_distribution: Record<string, number>;
   };
   recent_certificates: RecentCert[];
+  // US-1850: earned achievement medals. Older cached responses predate the
+  // field, so it is optional here and defaults to none.
+  achievements?: PublicAchievement[];
   show_listings: boolean;
   listings: StorefrontListing[];
 }
@@ -256,6 +263,7 @@ export function VerifiedSellerPage() {
 
   const { seller, stats, recent_certificates } = data;
   const listings = data.show_listings ? (data.listings ?? []) : [];
+  const achievements = data.achievements ?? [];
   const avg = stats.average_grade > 0 ? stats.average_grade.toFixed(1) : "—";
   const count = stats.total_is_capped
     ? `${stats.total_graded.toLocaleString()}+`
@@ -345,6 +353,21 @@ export function VerifiedSellerPage() {
                 </Badge>
               ))}
           </div>
+        )}
+
+        {/* Achievements — earned medals, each shareable as its own card */}
+        {achievements.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Achievements</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AchievementMedals
+                achievements={achievements}
+                handle={seller.handle}
+              />
+            </CardContent>
+          </Card>
         )}
 
         {/* Shop — active listings, graded items highlighted */}

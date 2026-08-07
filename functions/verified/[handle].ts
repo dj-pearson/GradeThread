@@ -49,6 +49,17 @@ interface StorefrontListing {
   listing_url?: string;
 }
 
+// US-1850: an earned achievement medal, as projected by the edge
+// (publicAchievements in rewards-badges.ts). Catalog metadata + earned_at only.
+interface Achievement {
+  key: string;
+  name: string;
+  description: string;
+  tier: string; // bronze | silver | gold
+  icon: string;
+  earned_at: string;
+}
+
 interface SellerResponse {
   seller: {
     handle: string;
@@ -56,6 +67,7 @@ interface SellerResponse {
     bio: string | null;
     verified_since: string | null;
   };
+  achievements?: Achievement[];
   stats: {
     total_graded: number;
     total_is_capped: boolean;
@@ -83,6 +95,22 @@ const PLATFORM_LABELS: Record<string, string> = {
 };
 
 const platformLabel = (p: string): string => PLATFORM_LABELS[p] ?? p;
+
+// Medal fills per tier. Inlined for the same reason as PLATFORM_LABELS — a
+// Pages Function can't import from src/. Keep in sync with TIER_FILL in
+// src/components/verified/achievement-medals.tsx and TIER_COLOR in the edge's
+// cert-og-template.ts. An unknown tier falls back to brand navy.
+const TIER_FILL: Record<string, string> = {
+  bronze: "#a97142",
+  silver: "#8d939c",
+  gold: "#b08d1f",
+};
+
+const TIER_LABEL: Record<string, string> = {
+  bronze: "Bronze",
+  silver: "Silver",
+  gold: "Gold",
+};
 
 type Ctx = EventContext<PagesEnv, "handle", Record<string, unknown>>;
 
@@ -160,6 +188,28 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
     ? `<h2>Recent verified grades</h2><div class="vt-grid">${certCards}</div>`
     : `<p style="color:var(--muted)">No public certificates yet.</p>`;
 
+  // US-1850: earned achievement medals. Each links to its own shareable card
+  // image (/badge/achievement/:key) so the medal is a real, citable artifact in
+  // the crawled HTML rather than something only the SPA knows about.
+  const achievements = data.achievements ?? [];
+  const medalChips = achievements
+    .map((a) => {
+      const fill = TIER_FILL[a.tier.toLowerCase()] ?? "var(--accent)";
+      const tier = TIER_LABEL[a.tier.toLowerCase()] ?? a.tier;
+      const when = a.earned_at ? ` · ${escape(formatDate(a.earned_at))}` : "";
+      return `<a class="ac-medal" href="/badge/achievement/${encodeURIComponent(a.key)}" title="${escape(a.description)}">
+        <span class="ac-dot" style="background:${fill}">★</span>
+        <span class="ac-txt">
+          <span class="ac-name">${escape(a.name)}</span>
+          <span class="ac-meta">${escape(tier)}${when}</span>
+        </span>
+      </a>`;
+    })
+    .join("");
+  const achievementsSection = achievements.length
+    ? `<h2>Achievements</h2><div class="ac-grid">${medalChips}</div>`
+    : "";
+
   // Storefront — active listings (only when the seller opted in). Graded items
   // link to their certificate; the rest link out to the marketplace.
   const listings = data.show_listings ? data.listings ?? [] : [];
@@ -224,6 +274,13 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
     .sf-price { font-weight:700; color:var(--accent); font-size:0.9rem; margin-top:2px; }
     .sf-sub { color:var(--muted); font-size:0.75rem; margin-top:2px; }
     .sf-graded { color:#15803d; font-weight:600; }
+    .ac-grid { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:8px; }
+    .ac-medal { display:flex; align-items:center; gap:12px; background:#f3f4f6; border-radius:16px; padding:8px 16px 8px 8px; text-decoration:none; color:inherit; }
+    .ac-medal:hover { background:#e9eaee; }
+    .ac-dot { flex:0 0 auto; width:44px; height:44px; border-radius:50%; color:#fff; font-size:1.2rem; display:flex; align-items:center; justify-content:center; }
+    .ac-txt { display:flex; flex-direction:column; }
+    .ac-name { font-weight:600; font-size:0.9rem; }
+    .ac-meta { color:var(--muted); font-size:0.75rem; }
   `;
 
   // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.
@@ -247,6 +304,7 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
     <div class="vt-stat"><div class="n">${escape(avg)}</div><div class="l">average grade · out of 10</div></div>
   </div>
   ${tierChips ? `<div class="vt-chips">${tierChips}</div>` : ""}
+  ${achievementsSection}
   ${shopSection}
   ${certsSection}
   <a class="cta" href="/for-resellers?utm_source=verified_profile&utm_medium=organic">Get your own GradeThread Verified profile &rarr;</a>
@@ -264,6 +322,10 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
       "@type": "Organization",
       name: seller.display_name,
       url: canonical,
+      // schema.org/award — real earned medals only, so nothing is fabricated.
+      ...(achievements.length
+        ? { award: achievements.map((a) => a.name) }
+        : {}),
       ...(stats.total_graded > 0 && stats.average_grade > 0
         ? {
             aggregateRating: {

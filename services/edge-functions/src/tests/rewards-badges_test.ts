@@ -7,9 +7,8 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { BADGE_CATALOG, badgeByKey, evaluateBadges } = await import(
-  "../lib/rewards-badges.ts"
-);
+const { BADGE_CATALOG, badgeByKey, evaluateBadges, publicAchievements } =
+  await import("../lib/rewards-badges.ts");
 type BadgeContext = Parameters<typeof evaluateBadges>[0];
 
 const ctx = (over: Partial<BadgeContext> = {}): BadgeContext => ({
@@ -64,4 +63,58 @@ Deno.test("badgeByKey resolves catalog entries", () => {
   assertEquals(badgeByKey("perfect_10")?.name, "Perfect 10");
   assertEquals(badgeByKey("viral_find")?.hidden, true);
   assertEquals(badgeByKey("nope"), undefined);
+});
+
+// ─── publicAchievements — the projection the verified profile renders ────────
+
+Deno.test("US-1850 AC3: earned rows project to catalog metadata, rarest first", () => {
+  const out = publicAchievements([
+    { badge_key: "first_grade", earned_at: "2026-01-01T00:00:00Z" },
+    { badge_key: "grades_1000", earned_at: "2026-03-01T00:00:00Z" },
+    { badge_key: "perfect_10", earned_at: "2026-02-01T00:00:00Z" },
+    { badge_key: "streak_7", earned_at: "2026-05-01T00:00:00Z" },
+  ]);
+  // gold, then the two silvers newest-first, then bronze.
+  assertEquals(out.map((a) => a.key), [
+    "grades_1000",
+    "streak_7",
+    "perfect_10",
+    "first_grade",
+  ]);
+  assertEquals(out[0]?.name, "Master Grader");
+  assertEquals(out[0]?.tier, "gold");
+  assertEquals(out[0]?.icon, "Trophy");
+  assertEquals(out[0]?.earned_at, "2026-03-01T00:00:00Z");
+});
+
+Deno.test("US-1850 AC3: the projection never leaks the private context snapshot", () => {
+  const row = {
+    badge_key: "perfect_10",
+    earned_at: "2026-02-01T00:00:00Z",
+    // A real user_badges row also carries `context` (the owner's stats) and
+    // user_id. Neither may reach a public profile.
+    context: { perfect10Count: 3 },
+    user_id: "11111111-1111-1111-1111-111111111111",
+  };
+  const [dto] = publicAchievements([row]);
+  assertEquals(Object.keys(dto ?? {}).sort(), [
+    "description",
+    "earned_at",
+    "icon",
+    "key",
+    "name",
+    "tier",
+  ]);
+});
+
+Deno.test("US-1850 AC3: a retired key drops out, a hidden badge shows once earned", () => {
+  const out = publicAchievements([
+    { badge_key: "retired_badge_from_an_old_catalog", earned_at: "2026-01-01T00:00:00Z" },
+    { badge_key: "viral_find", earned_at: "2026-01-02T00:00:00Z" },
+  ]);
+  assertEquals(out.map((a) => a.key), ["viral_find"]);
+});
+
+Deno.test("US-1850 AC3: no earned rows means no medals", () => {
+  assertEquals(publicAchievements([]), []);
 });

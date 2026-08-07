@@ -214,6 +214,16 @@ export function profileShareUrl(handle: string, source: string): string {
   return `${profileUrl(handle)}?s=${source}`;
 }
 
+// ── Achievement badge cards (US-1850) ────────────────────────────────
+// An earned medal renders as its own shareable card image, keyed only by the
+// catalog key — the card describes the ACHIEVEMENT, so it is public and
+// long-cacheable. Rendered on the edge, proxied by /badge/achievement/:key.
+
+/** Shareable card image URL for an achievement badge key. */
+export function achievementBadgeUrl(key: string): string {
+  return `${SITE_URL}/badge/achievement/${key}`;
+}
+
 // ── Badge Studio: per-marketplace snippet guidance (US-1759) ──────────
 // Marketplaces differ in what HTML they allow in a listing description. The
 // studio surfaces the RIGHT format for each: eBay renders a whitelist of HTML

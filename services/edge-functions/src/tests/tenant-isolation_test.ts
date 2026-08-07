@@ -1810,6 +1810,40 @@ Deno.test({
   },
 });
 
+// US-1850: the same public seller endpoint now also carries `achievements` —
+// earned medals from user_badges, read with the service-role client. The
+// boundary is (1) they belong to THAT seller (the query is scoped to the
+// handle's owner id) and (2) the payload carries only catalog metadata +
+// earned_at — never the `context` snapshot (the owner's grade counts / XP) or a
+// user_id. Shape is asserted here; the projection itself is unit-tested in
+// rewards-badges_test.ts.
+Deno.test({
+  name: "public seller achievements expose no private stats",
+  ignore: !BASE || !Deno.env.get("TEST_USER_B_HANDLE"),
+  fn: async () => {
+    const handle = Deno.env.get("TEST_USER_B_HANDLE")!;
+    const res = await fetch(
+      `${BASE}/api/content/public/sellers/${encodeURIComponent(handle)}`,
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      achievements?: Array<Record<string, unknown>>;
+    };
+    const achievements = body.achievements ?? [];
+    assert(Array.isArray(achievements), "achievements must be an array");
+    for (const a of achievements) {
+      assertEquals(
+        Object.keys(a).sort(),
+        ["description", "earned_at", "icon", "key", "name", "tier"],
+        `achievement carried unexpected keys: ${Object.keys(a).join(", ")}`,
+      );
+    }
+    const blob = JSON.stringify(achievements);
+    for (const leak of ["user_id", "context", "xpTotal", "gradeCount"]) {
+      assert(!blob.includes(leak), `achievements leaked "${leak}"`);
+    }
+  },
+});
+
 // US-151: the listing-performance sync is an internal cron endpoint gated by the
 // shared job secret — a user JWT (even a valid one) must NOT be accepted, so a
 // tenant can never trigger or scope-escape the cross-tenant batch sync.

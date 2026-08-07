@@ -28,7 +28,11 @@ import { FALLBACK_PNG_BASE64 } from "../lib/cert-og-template.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
 import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
-import { badgeByKey } from "../lib/rewards-badges.ts";
+import {
+  badgeByKey,
+  type PublicAchievement,
+  publicAchievements,
+} from "../lib/rewards-badges.ts";
 import { grantReward, isOffPlatformEmbedReferer } from "../lib/rewards-engine.ts";
 import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
@@ -1571,6 +1575,10 @@ const SELLER_RECENT_CERTS = 12;
 const SELLER_STATS_SAMPLE = 1000;
 // Cap on active listings surfaced on the storefront, newest first.
 const SELLER_MAX_LISTINGS = 60;
+// Cap on earned achievement badges surfaced on the profile (US-1850). The
+// catalog is far smaller than this today; the bound is so a future catalog
+// can't make the profile payload unbounded.
+const SELLER_MAX_ACHIEVEMENTS = 60;
 
 interface SellerCertRow {
   overall_score: number;
@@ -1790,6 +1798,27 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
     }
   }
 
+  // US-1850 AC3: earned achievement badges on the public profile. Scoped to
+  // this seller's user_id (US-268) and projected through publicAchievements, so
+  // only catalog metadata + earned_at leave — never the private `context`
+  // snapshot. Best-effort: a failure degrades to no medals rather than taking
+  // down the trust page.
+  let achievements: PublicAchievement[] = [];
+  try {
+    const { data: badgeRows, error: badgeErr } = await supabaseAdmin
+      .from("user_badges")
+      .select("badge_key, earned_at")
+      .eq("user_id", seller.id)
+      .order("earned_at", { ascending: false })
+      .limit(SELLER_MAX_ACHIEVEMENTS);
+    if (badgeErr) throw badgeErr;
+    achievements = publicAchievements(
+      (badgeRows ?? []) as Array<{ badge_key: string; earned_at: string }>,
+    );
+  } catch (err) {
+    console.error("[content-public] seller achievements failed:", err);
+  }
+
   return c.json({
     seller: {
       handle: seller.verified_handle,
@@ -1797,6 +1826,7 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
       bio: seller.verified_bio ?? null,
       verified_since: seller.verified_since ?? null,
     },
+    achievements,
     stats: {
       total_graded: total,
       // True when we hit the sample ceiling — the page can show "1,000+".
