@@ -9,6 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/buyer-trust-score.ts
   - services/edge-functions/src/lib/rewards-badges.ts
   - services/edge-functions/src/lib/rewards-tangible.ts
+  - services/edge-functions/src/lib/rewards-economics.ts
   - services/edge-functions/src/lib/rewards-levels.ts
   - services/edge-functions/src/lib/rewards-seasons.ts
   - services/edge-functions/src/lib/rewards-quests.ts
@@ -291,6 +292,48 @@ Attaching a milestone to a **season goal** is the one place this crosses into th
 cosmetic track. It is opt-in per goal and off by default — season goals stay
 cosmetic until an operator says otherwise.
 
+### The guardrails narrow the budget; they never widen it (US-1858)
+
+`rewards-economics.ts` + `rewards_economics_guardrails` (00545) sit between the
+flat ceilings and a payout. Four rules:
+
+1. **A flat cap cannot express a margin.** $15 of free grades is nothing against
+   a $99/mo Business subscriber and is the whole business case against a free
+   account. A user's effective monthly cap is `min(flat cap, margin headroom)`,
+   where headroom is `revenue × (1 − floor) − AI cost − reward cost` — the 40%
+   floor from [[subscription-unit-economics]] turned into a number. A ZERO-revenue
+   account has no margin to protect, so it falls back to its own
+   `free_tier_monthly_usd_cap`: a deliberate, separately-budgeted acquisition
+   cost rather than a margin calculation, because "no free user is ever rewarded"
+   defeats the point of the ladder. A per-user refusal that only bites because
+   the headroom narrowed the cap is recorded as a **`margin_floor`** breach, not
+   a budget one — otherwise an operator raises a cap that was never binding.
+2. **Velocity bounds the shape the dedupe key cannot see.** `UNIQUE (user_id,
+   milestone_key)` stops one rung paying twice and says nothing about walking
+   many rungs in an hour, which is what a farmed account does. Daily grant + USD
+   limits are read from the GRANT LEDGER, not a counter: a counter increments on
+   every attempt, so a user whose grants were refused for unrelated reasons would
+   burn their velocity budget. A cap of `0` means *no limit*, not *grant nothing*
+   — an operator who wants nothing paid has the kill-switch.
+3. **A refusal with no memory is one nobody can act on.** Every ceiling that
+   bites writes a `reward_budget_breaches` row, suppressed while OPEN (the
+   ai_budget_breaches rule, and it matters more here because the grant pass runs
+   off the back of every rewardable action). Only the PLATFORM scope can
+   auto-flip the kill-switch; a single account hitting its own ceiling is the
+   system working. A tripped velocity limit also raises a `reward_farming`
+   [[service-role-tables|abuse signal]] so triage happens in the ONE console at
+   `/admin/safety` — a second queue is a second thing to forget.
+4. **Reconciliation reports; it never repairs.** `/api/admin/rewards/economics/
+   reconciliation` checks each delivered grant against the grade-credit ledger
+   (matched on the shared `creditLedgerNote`, which is why that string is built by
+   a helper rather than spelled twice) and against Stripe. An UNREACHABLE Stripe
+   yields `null`, not an empty set, so an outage reports no missing coupons rather
+   than reporting every payout as never having happened.
+
+**Cosmetic rewards are exempt, structurally.** XP, levels, badges and streaks
+never reach this module. They cost nothing marginal, so metering them would buy
+no margin and would let a billing outage break the engagement loop.
+
 ## The share loop pays on the CLICK, never on the press (US-1854)
 
 `share-to-earn.ts`. Pressing share is **tracked and worth zero**. The `share_events`
@@ -472,5 +515,6 @@ The catalog is inert policy until a call site spends it — the same trap as
 
 - [[buyer-economy]] — reward *credits*, the spendable currency this is not
 - [[buyer-platform]] — the allowance-nothing-reads trap this rule generalises
+- [[subscription-unit-economics]] — the 40% floor the reward guardrails defend
 - [[grade-accuracy-guarantee]] — the reputation perks that compose onto trust
 - [[INDEX]]

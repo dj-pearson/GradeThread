@@ -13,7 +13,11 @@ export type AbuseSignalType =
   | "phash_collision"
   | "submission_velocity"
   | "shared_payment"
-  | "disposable_email";
+  | "disposable_email"
+  // US-1858. Raised by the tangible-reward engine (rewards-economics.ts), not by
+  // the abuse-scan cron — a reward velocity limit trips at grant time, and the
+  // point of routing it here is that an operator triages one queue, not two.
+  | "reward_farming";
 
 export type AbuseSignalSeverity = "low" | "medium" | "high" | "critical";
 

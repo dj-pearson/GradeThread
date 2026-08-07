@@ -479,6 +479,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // through /api/admin/rewards/milestones and by the service-role engine, so
   // deny-all is the point. Forced into the guard via SERVICE_ONLY_FORCED.
   "reward_milestones",
+  // US-1858: the record of which reward ceiling refused a grant (migration
+  // 00545). Its owner column is `subject_user_id` (the abuse_signals naming) so
+  // the tenant guard does not treat an operator table as user-owned data — which
+  // also means nothing discovers it, hence SERVICE_ONLY_FORCED below. Deny-all
+  // is the point: telling a farmer which limit stopped them is telling them
+  // which limit to work around.
+  "reward_budget_breaches",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -490,6 +497,7 @@ const SERVICE_ONLY_FORCED = [
   "job_locks",
   "reward_quests",
   "reward_milestones",
+  "reward_budget_breaches",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

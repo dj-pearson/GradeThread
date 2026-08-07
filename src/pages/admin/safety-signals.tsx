@@ -47,7 +47,12 @@ import {
 // audited endpoints: suspend = POST /api/admin/users/:id/suspend, void grade =
 // POST /api/admin/moderation/:submissionId/reject.
 
-type SignalType = "phash_collision" | "submission_velocity" | "shared_payment" | "disposable_email";
+type SignalType =
+  | "phash_collision"
+  | "submission_velocity"
+  | "shared_payment"
+  | "disposable_email"
+  | "reward_farming";
 type Severity = "low" | "medium" | "high" | "critical";
 type Status = "open" | "reviewing" | "actioned" | "dismissed";
 
@@ -98,6 +103,7 @@ const TYPE_LABEL: Record<SignalType, string> = {
   submission_velocity: "Velocity",
   shared_payment: "Shared payment",
   disposable_email: "Disposable email",
+  reward_farming: "Reward farming",
 };
 
 const SEVERITY_BADGE: Record<Severity, string> = {

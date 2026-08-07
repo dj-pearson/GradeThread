@@ -613,6 +613,18 @@ a learning that only matters to ONE surface, put it in that surface's file.
   reward type with no entry in `FULFILLERS` can never be granted. Rules:
   [[reward-ledger]].
 
+- A new edge lib that both imports `lib/supabase.ts` AND is imported by the
+  module it needs types from closes a MODULE CYCLE at boot. Break it with a
+  TYPE-only import (erased, no runtime edge) and pass the runtime value in as an
+  argument — US-1858's `loadUnitEconomics(userId, spend, monthStartIso)` rather
+  than importing `monthStartIso` back from rewards-tangible.ts. `deno check`
+  does not flag the cycle; it just becomes load-bearing.
+- Adding a value to a Postgres ENUM (`abuse_signal_type`) is only half the work:
+  the edge filters on a hand-written `Set` of the same values (`SIGNAL_TYPES` in
+  admin-safety.ts) and the SPA has its own union type + label record. Miss either
+  and the new rows are silently filtered out of the console with nothing going
+  red. Also note a rollback past the migration re-arms that silence.
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault

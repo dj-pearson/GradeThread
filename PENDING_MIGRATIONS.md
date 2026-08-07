@@ -1,9 +1,33 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Fifteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542, 00543 and 00544.** The entries below them
+**Sixteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544 and 00545.** The entries below them
 were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00545_reward_economics_guardrails.sql (US-1858 — reward budget guardrails)
+
+**Apply order.** Last, in numeric order. It references `public.users`,
+`public.system_settings` and the `abuse_signal_type` enum (00212) — all long
+applied — so it has no dependency on 00530–00544 beyond the numeric sequence.
+
+**Risk: LOW.** One new table, one new enum VALUE, one config row. No existing
+column, row, view or policy is modified or dropped, and nothing is granted on
+apply: the guardrails only narrow a budget that is already gated by the
+`rewards_tangible` kill-switch, which stays off.
+
+**What it does.**
+- Adds `reward_budget_breaches` — one row per reward ceiling that refused a
+  grant, suppressed while OPEN (two partial UNIQUE indexes: one platform-wide
+  per scope, one per scope+account). Service-role only, deny-all RLS.
+- Adds `'reward_farming'` to `abuse_signal_type`. `ALTER TYPE ... ADD VALUE` is
+  transactional in PG 12+ and the value is not USED in this migration, so it is
+  safe either way. **The edge must not be rolled back past this migration while
+  a `reward_farming` row exists** — an older build's `SIGNAL_TYPES` set does not
+  know the value and would filter those signals out of the safety console
+  (silently; nothing errors).
+- Seeds `system_settings.rewards_economics_guardrails` (margin floor, free-tier
+  allowance, daily velocity limits, auto-pause and fraud-hold switches).
 
 ## ⏳ HELD: 00544_reward_leaderboards.sql (US-1856 — public reward leaderboards)
 

@@ -31,10 +31,34 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { requireStepUp } from "../lib/step-up.ts";
 import { QUEST_METRICS, isQuestMetric } from "../lib/rewards-quests.ts";
 import { QUEST_XP_MAX } from "../lib/rewards-engine.ts";
 import { BADGE_CATALOG } from "../lib/rewards-badges.ts";
 import { SEASON_GOALS } from "../lib/rewards-seasons.ts";
+import { bustSettingCache, getSetting } from "../lib/system-settings.ts";
+import { clearFeatureFlagCache } from "../lib/feature-flags.ts";
+import { getStripe } from "../lib/stripe-client.ts";
+import {
+  DEFAULT_REWARD_BUDGET,
+  monthStartIso,
+  normalizeRewardBudget,
+  REWARD_BUDGET_SETTING_KEY,
+} from "../lib/rewards-tangible.ts";
+import type { RewardBudget } from "../lib/rewards-tangible.ts";
+import {
+  DEFAULT_REWARD_GUARDRAILS,
+  guardrailsToSetting,
+  normalizeRewardGuardrails,
+  reconcileGrants,
+  REWARD_GUARDRAILS_SETTING_KEY,
+  summarizeRoi,
+} from "../lib/rewards-economics.ts";
+import type {
+  CreditLedgerRow,
+  GrantLedgerRow,
+  RewardGuardrails,
+} from "../lib/rewards-economics.ts";
 
 type AdminRewardsEnv = { Variables: { userId: string } };
 
@@ -757,4 +781,475 @@ adminRewardsRoutes.delete("/milestones/:id", async (c) => {
     details: { key },
   });
   return c.json({ ok: true });
+});
+
+// ─── US-1858: economics guardrails, budget & anti-abuse ─────────────────────
+//
+// The catalog above decides what a milestone GIVES. This section is the other
+// half an operator needs: what the whole rail is allowed to cost, whether it is
+// currently paying at all, what refused a grant and when, whether the value that
+// left actually arrived, and whether any of it bought a signup.
+//
+// Four things it deliberately does NOT do:
+//   • meter cosmetic rewards. XP, levels, badges and streaks have no marginal
+//     cost, so a budget on them would buy no margin and would let a billing
+//     outage break the engagement loop.
+//   • let an operator raise a cap without a second factor. Every number here
+//     widens or narrows a money faucet, so the writes are step-up gated and
+//     audited.
+//   • repair anything it finds. Reconciliation REPORTS; a disagreement between
+//     the grant ledger and the credit ledger is a fact to investigate, and a
+//     console that silently "fixed" it would destroy the evidence of how it
+//     happened.
+//   • invent a second fraud queue. A tripped velocity limit raises a
+//     `reward_farming` abuse signal, which lands in /admin/safety beside every
+//     other signal an operator already triages.
+
+const BREACH_PAGE_CAP = 50;
+const RECONCILE_GRANT_CAP = 500;
+const RECONCILE_COUPON_LOOKUP_CAP = 100;
+const ROI_MAX_DAYS = 365;
+const ROI_DEFAULT_DAYS = 30;
+
+class EconomicsInputError extends Error {}
+
+function windowDays(raw: string | undefined, fallback = ROI_DEFAULT_DAYS): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(ROI_MAX_DAYS, n);
+}
+
+function sinceIso(days: number, nowMs: number): string {
+  return new Date(nowMs - days * 86_400_000).toISOString();
+}
+
+/** The `rewards_tangible` kill-switch as the console shows it. */
+async function loadKillSwitch(): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", "rewards_tangible")
+    .maybeSingle();
+  // Absent reads as OFF — the engine reads this flag fail-CLOSED, so the console
+  // must agree with it rather than show a rail that is not actually paying.
+  return !!(data as { enabled?: boolean } | null)?.enabled;
+}
+
+function sumCost(rows: Array<{ cost_usd: number | string }> | null): number {
+  return (rows ?? []).reduce((acc, r) => acc + (Number(r.cost_usd) || 0), 0);
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Reward spend + the signups it can be credited with, over one window. */
+async function loadRoi(days: number, nowMs: number) {
+  const since = sinceIso(days, nowMs);
+  const [grantsRes, referralsRes, sharesRes] = await Promise.all([
+    supabaseAdmin
+      .from("reward_tangible_grants")
+      .select("cost_usd")
+      .eq("status", "granted")
+      .gte("granted_at", since),
+    supabaseAdmin
+      .from("referral_events")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", since),
+    supabaseAdmin
+      .from("reputation_events")
+      .select("id", { count: "exact", head: true })
+      .eq("event_type", "share_milestone")
+      .like("reference_id", "%:signup")
+      .gte("created_at", since),
+  ]);
+
+  return {
+    window_days: days,
+    since,
+    ...summarizeRoi({
+      rewardSpendUsd: round2(
+        sumCost(grantsRes.data as Array<{ cost_usd: number | string }> | null),
+      ),
+      referralSignups: referralsRes.count ?? 0,
+      shareSignups: sharesRes.count ?? 0,
+    }),
+  };
+}
+
+adminRewardsRoutes.get("/economics", async (c) => {
+  const nowMs = Date.now();
+  const monthStart = monthStartIso(nowMs);
+
+  const [budgetRaw, guardrailsRaw, enabled, monthRes, lifetimeRes, breachRes, roi] = await Promise
+    .all([
+      getSetting<unknown>(REWARD_BUDGET_SETTING_KEY, DEFAULT_REWARD_BUDGET),
+      getSetting<unknown>(REWARD_GUARDRAILS_SETTING_KEY, DEFAULT_REWARD_GUARDRAILS),
+      loadKillSwitch(),
+      supabaseAdmin
+        .from("reward_tangible_grants")
+        .select("cost_usd, user_id")
+        .eq("status", "granted")
+        .gte("granted_at", monthStart),
+      supabaseAdmin
+        .from("reward_tangible_grants")
+        .select("cost_usd")
+        .eq("status", "granted"),
+      supabaseAdmin
+        .from("reward_budget_breaches")
+        .select(
+          "id, scope, subject_user_id, limit_usd, spend_usd, milestone_key, killed, detail, created_at",
+        )
+        .is("resolved_at", null)
+        .order("created_at", { ascending: false })
+        .limit(BREACH_PAGE_CAP),
+      loadRoi(ROI_DEFAULT_DAYS, nowMs),
+    ]);
+
+  if (monthRes.error || lifetimeRes.error || breachRes.error) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't load the reward economics.",
+      monthRes.error ?? lifetimeRes.error ?? breachRes.error,
+      "admin.rewards.economics.load",
+    );
+  }
+
+  const monthRows = (monthRes.data ?? []) as Array<{ cost_usd: number | string; user_id: string }>;
+
+  return c.json({
+    enabled,
+    budget: normalizeRewardBudget(budgetRaw),
+    guardrails: normalizeRewardGuardrails(guardrailsRaw),
+    spend: {
+      month_start: monthStart,
+      month_usd: round2(sumCost(monthRows)),
+      month_grants: monthRows.length,
+      month_accounts: new Set(monthRows.map((r) => r.user_id)).size,
+      lifetime_usd: round2(
+        sumCost(lifetimeRes.data as Array<{ cost_usd: number | string }> | null),
+      ),
+    },
+    open_breaches: breachRes.data ?? [],
+    roi,
+  });
+});
+
+/** Validate a budget/guardrails patch. Throws EconomicsInputError with copy. */
+function parseEconomics(
+  body: Record<string, unknown>,
+  budget: RewardBudget,
+  guardrails: RewardGuardrails,
+): { budget: RewardBudget; guardrails: RewardGuardrails } {
+  const nextBudget = { ...budget };
+  const nextGuardrails = { ...guardrails };
+
+  const money = (raw: unknown, label: string, max: number): number => {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > max) {
+      throw new EconomicsInputError(`${label} must be between 0 and ${max}.`);
+    }
+    return round2(n);
+  };
+
+  if (body.monthly_usd_cap !== undefined) {
+    nextBudget.monthlyUsdCap = money(body.monthly_usd_cap, "The platform monthly cap", 1_000_000);
+  }
+  if (body.per_user_monthly_usd_cap !== undefined) {
+    nextBudget.perUserMonthlyUsdCap = money(
+      body.per_user_monthly_usd_cap,
+      "The per-account monthly cap",
+      100_000,
+    );
+  }
+  if (body.per_user_lifetime_usd_cap !== undefined) {
+    nextBudget.perUserLifetimeUsdCap = money(
+      body.per_user_lifetime_usd_cap,
+      "The per-account lifetime cap",
+      100_000,
+    );
+  }
+  if (body.margin_floor_pct !== undefined) {
+    const n = Number(body.margin_floor_pct);
+    if (!Number.isFinite(n) || n < 0 || n > 0.95) {
+      throw new EconomicsInputError("The margin floor must be between 0 and 0.95 (0-95%).");
+    }
+    nextGuardrails.marginFloorPct = Math.round(n * 10_000) / 10_000;
+  }
+  if (body.free_tier_monthly_usd_cap !== undefined) {
+    nextGuardrails.freeTierMonthlyUsdCap = money(
+      body.free_tier_monthly_usd_cap,
+      "The free-tier monthly allowance",
+      1_000,
+    );
+  }
+  if (body.per_user_daily_grant_cap !== undefined) {
+    const n = Math.floor(Number(body.per_user_daily_grant_cap));
+    if (!Number.isFinite(n) || n < 0 || n > 1_000) {
+      throw new EconomicsInputError("The daily grant limit must be between 0 and 1000.");
+    }
+    nextGuardrails.perUserDailyGrantCap = n;
+  }
+  if (body.per_user_daily_usd_cap !== undefined) {
+    nextGuardrails.perUserDailyUsdCap = money(
+      body.per_user_daily_usd_cap,
+      "The daily spend limit",
+      10_000,
+    );
+  }
+  if (body.auto_kill_on_global_breach !== undefined) {
+    if (typeof body.auto_kill_on_global_breach !== "boolean") {
+      throw new EconomicsInputError("Auto-pause must be true/false.");
+    }
+    nextGuardrails.autoKillOnGlobalBreach = body.auto_kill_on_global_breach;
+  }
+  if (body.fraud_hold_enabled !== undefined) {
+    if (typeof body.fraud_hold_enabled !== "boolean") {
+      throw new EconomicsInputError("The fraud hold must be true/false.");
+    }
+    nextGuardrails.fraudHoldEnabled = body.fraud_hold_enabled;
+  }
+
+  // Cross-field: a per-user monthly cap above the lifetime one is a cap that can
+  // never bite, and one above the platform cap is the same mistake at the other
+  // end. Both would read as "configured" while doing nothing.
+  if (nextBudget.perUserMonthlyUsdCap > nextBudget.perUserLifetimeUsdCap) {
+    throw new EconomicsInputError(
+      "The per-account monthly cap can't be higher than the lifetime cap.",
+    );
+  }
+  if (nextBudget.perUserMonthlyUsdCap > nextBudget.monthlyUsdCap) {
+    throw new EconomicsInputError(
+      "The per-account monthly cap can't be higher than the platform monthly cap.",
+    );
+  }
+  return { budget: nextBudget, guardrails: nextGuardrails };
+}
+
+adminRewardsRoutes.patch("/economics", async (c) => {
+  const blocked = requireStepUp(c);
+  if (blocked) return blocked;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const currentBudget = normalizeRewardBudget(
+    await getSetting<unknown>(REWARD_BUDGET_SETTING_KEY, DEFAULT_REWARD_BUDGET),
+  );
+  const currentGuardrails = normalizeRewardGuardrails(
+    await getSetting<unknown>(REWARD_GUARDRAILS_SETTING_KEY, DEFAULT_REWARD_GUARDRAILS),
+  );
+
+  let next: { budget: RewardBudget; guardrails: RewardGuardrails };
+  try {
+    next = parseEconomics(body, currentBudget, currentGuardrails);
+  } catch (err) {
+    if (err instanceof EconomicsInputError) {
+      return c.json({ error: err.message }, 400); // safe-raw-error: typed validation copy
+    }
+    throw err;
+  }
+
+  const budgetValue = {
+    monthly_usd_cap: next.budget.monthlyUsdCap,
+    per_user_monthly_usd_cap: next.budget.perUserMonthlyUsdCap,
+    per_user_lifetime_usd_cap: next.budget.perUserLifetimeUsdCap,
+  };
+  const adminId = c.get("userId");
+
+  const [budgetRes, guardrailsRes] = await Promise.all([
+    supabaseAdmin
+      .from("system_settings")
+      .update({ value: budgetValue, updated_by: adminId } as never)
+      .eq("key", REWARD_BUDGET_SETTING_KEY),
+    supabaseAdmin
+      .from("system_settings")
+      .update({ value: guardrailsToSetting(next.guardrails), updated_by: adminId } as never)
+      .eq("key", REWARD_GUARDRAILS_SETTING_KEY),
+  ]);
+  if (budgetRes.error || guardrailsRes.error) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't save the reward economics.",
+      budgetRes.error ?? guardrailsRes.error,
+      "admin.rewards.economics.save",
+    );
+  }
+  bustSettingCache(REWARD_BUDGET_SETTING_KEY);
+  bustSettingCache(REWARD_GUARDRAILS_SETTING_KEY);
+
+  await writeAuditLog(c, {
+    action: "rewards.economics.update",
+    targetType: "system_setting",
+    targetId: REWARD_BUDGET_SETTING_KEY,
+    before: { budget: currentBudget, guardrails: currentGuardrails },
+    after: { budget: next.budget, guardrails: next.guardrails },
+  });
+  return c.json({ budget: next.budget, guardrails: next.guardrails });
+});
+
+adminRewardsRoutes.post("/economics/kill-switch", async (c) => {
+  const blocked = requireStepUp(c);
+  if (blocked) return blocked;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  if (typeof body.enabled !== "boolean") {
+    return c.json({ error: "Send enabled: true or false." }, 400); // safe-raw-error: typed copy
+  }
+
+  const { error } = await supabaseAdmin
+    .from("feature_flags")
+    .update({ enabled: body.enabled } as never)
+    .eq("key", "rewards_tangible");
+  if (error) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't change the payout switch.",
+      error,
+      "admin.rewards.economics.killswitch",
+    );
+  }
+  clearFeatureFlagCache();
+
+  await writeAuditLog(c, {
+    action: body.enabled ? "rewards.payouts.resume" : "rewards.payouts.pause",
+    targetType: "feature_flag",
+    targetId: "rewards_tangible",
+    details: { enabled: body.enabled },
+  });
+  return c.json({ enabled: body.enabled });
+});
+
+adminRewardsRoutes.post("/economics/breaches/:id/resolve", async (c) => {
+  const id = c.req.param("id");
+  const { data, error } = await supabaseAdmin
+    .from("reward_budget_breaches")
+    .update({ resolved_at: new Date().toISOString(), resolved_by: c.get("userId") } as never)
+    .eq("id", id)
+    .is("resolved_at", null)
+    .select("id, scope")
+    .maybeSingle();
+  if (error) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't resolve the breach.",
+      error,
+      "admin.rewards.economics.breach.resolve",
+    );
+  }
+  if (!data) return c.json({ error: "That breach is already resolved." }, 409);
+
+  await writeAuditLog(c, {
+    action: "rewards.economics.breach.resolve",
+    targetType: "reward_budget_breach",
+    targetId: id,
+    details: { scope: (data as { scope: string }).scope },
+  });
+  return c.json({ ok: true });
+});
+
+adminRewardsRoutes.get("/economics/reconciliation", async (c) => {
+  const nowMs = Date.now();
+  const days = windowDays(c.req.query("days"));
+  const since = sinceIso(days, nowMs);
+
+  const { data: grantRows, error: grantErr } = await supabaseAdmin
+    .from("reward_tangible_grants")
+    .select("id, user_id, milestone_key, reward_type, reward_value, cost_usd, granted_at, metadata")
+    .eq("status", "granted")
+    .gte("granted_at", since)
+    .order("granted_at", { ascending: false })
+    .limit(RECONCILE_GRANT_CAP);
+  if (grantErr) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't load the grants to reconcile.",
+      grantErr,
+      "admin.rewards.economics.reconcile",
+    );
+  }
+
+  const grants: GrantLedgerRow[] = ((grantRows ?? []) as unknown as GrantLedgerRow[]).map((g) => ({
+    ...g,
+    reward_value: Number(g.reward_value) || 0,
+    cost_usd: Number(g.cost_usd) || 0,
+  }));
+
+  // The credit half: the grade-credit rows the affected accounts received inside
+  // the window. `admin_grant` is the reason the milestone fulfiller writes.
+  const userIds = [...new Set(grants.map((g) => g.user_id))];
+  let creditRows: CreditLedgerRow[] = [];
+  if (userIds.length > 0) {
+    const { data } = await supabaseAdmin
+      .from("grade_credit_transactions")
+      .select("user_id, delta, notes, created_at")
+      .in("user_id", userIds)
+      .eq("reason", "admin_grant")
+      .gte("created_at", since);
+    creditRows = (data ?? []) as unknown as CreditLedgerRow[];
+  }
+
+  // The Stripe half. NULL (not an empty set) when Stripe is unreachable or the
+  // lookup budget is exhausted, so an outage reports no missing coupons rather
+  // than reporting every single one as missing.
+  const couponIds = [
+    ...new Set(
+      grants
+        .filter((g) => g.reward_type !== "free_grade_credits")
+        .map((g) =>
+          typeof g.metadata?.stripe_coupon_id === "string" ? g.metadata.stripe_coupon_id : ""
+        )
+        .filter(Boolean),
+    ),
+  ];
+  const stripe = getStripe();
+  let liveCouponIds: Set<string> | null = null;
+  let stripeChecked = false;
+  if (stripe && couponIds.length > 0 && couponIds.length <= RECONCILE_COUPON_LOOKUP_CAP) {
+    const found = new Set<string>();
+    let reachable = true;
+    for (const couponId of couponIds) {
+      try {
+        const coupon = await stripe.coupons.retrieve(couponId);
+        if (coupon && !(coupon as { deleted?: boolean }).deleted) found.add(couponId);
+      } catch (err) {
+        // A 404 is a genuine finding (the coupon is gone); anything else is an
+        // outage, and one outage invalidates the whole Stripe half.
+        const status = (err as { statusCode?: number }).statusCode;
+        if (status !== 404) {
+          reachable = false;
+          break;
+        }
+      }
+    }
+    if (reachable) {
+      liveCouponIds = found;
+      stripeChecked = true;
+    }
+  }
+
+  const result = reconcileGrants(grants, creditRows, liveCouponIds);
+  return c.json({
+    window_days: days,
+    since,
+    truncated: grants.length >= RECONCILE_GRANT_CAP,
+    stripe_checked: stripeChecked,
+    ...result,
+  });
+});
+
+adminRewardsRoutes.get("/economics/roi", async (c) => {
+  return c.json(await loadRoi(windowDays(c.req.query("days")), Date.now()));
 });

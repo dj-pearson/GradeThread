@@ -44,6 +44,19 @@ import { notifyUser } from "./notify.ts";
 import { getSetting } from "./system-settings.ts";
 import { isFeatureEnabled } from "./feature-flags.ts";
 import { getStripe } from "./stripe-client.ts";
+import {
+  creditLedgerNote,
+  effectivePerUserMonthlyCap,
+  isUnderFraudHold,
+  killTangibleRewards,
+  loadRewardGuardrails,
+  loadUnitEconomics,
+  loadVelocityUsage,
+  raiseRewardFarmingSignal,
+  recordBudgetBreach,
+  velocityDecision,
+} from "./rewards-economics.ts";
+import type { BreachScope, RewardGuardrails } from "./rewards-economics.ts";
 
 export type TangibleRewardType =
   | "free_grade_credits"
@@ -256,6 +269,18 @@ export function budgetDecision(
   }
   return { allowed: true };
 }
+
+/**
+ * Which breach scope a budget refusal is recorded under (US-1858). The two
+ * vocabularies are deliberately separate — a refusal is a decision, a scope is a
+ * durable operator record — so the mapping is stated once here rather than by
+ * string-munging the suffix off.
+ */
+export const BREACH_SCOPE_FOR_REFUSAL: Record<BudgetRefusal, BreachScope> = {
+  global_monthly_cap: "global_monthly",
+  user_monthly_cap: "user_monthly",
+  user_lifetime_cap: "user_lifetime",
+};
 
 /** Grants of ONE milestone already issued platform-wide. */
 export interface MilestoneIssueCounts {
@@ -481,7 +506,10 @@ const FULFILLERS: Partial<
       p_credits: Math.round(reward.value),
       p_reason: "admin_grant",
       p_stripe_payment_intent: null,
-      p_notes: `Rewards milestone: ${reward.label} (${reward.key})`,
+      // US-1858: the note is the reconciler's join key between this ledger and
+      // the grant row, so it is built by the shared helper rather than spelled
+      // twice — a reworded note here would silently orphan every grant.
+      p_notes: creditLedgerNote(reward.label, reward.key),
     });
     if (error) throw new Error(error.message);
   },
@@ -693,6 +721,60 @@ async function loadTriggerContext(
 }
 
 /**
+ * Record a ceiling breach and, for the PLATFORM-wide one, pause the whole rail.
+ *
+ * Best-effort and suppressed while the breach stays open (00545's partial UNIQUE
+ * indexes), which matters more here than it does for the AI budget: this runs
+ * off the back of every rewardable action, so an unsuppressed breach would alert
+ * thousands of times an hour. Only the global scope can auto-kill — a single
+ * account hitting its own ceiling is the system working, not an incident.
+ */
+async function noteBreach(
+  scope: BreachScope,
+  userId: string,
+  reward: MilestoneReward,
+  spend: RewardSpend,
+  budget: RewardBudget,
+  guardrails: RewardGuardrails,
+): Promise<void> {
+  const global = scope === "global_monthly";
+  const limitUsd = global
+    ? budget.monthlyUsdCap
+    : scope === "user_lifetime"
+    ? budget.perUserLifetimeUsdCap
+    : budget.perUserMonthlyUsdCap;
+  const spendUsd = global
+    ? spend.globalMonthUsd
+    : scope === "user_lifetime"
+    ? spend.userLifetimeUsd
+    : spend.userMonthUsd;
+
+  const breachId = await recordBudgetBreach({
+    scope,
+    subjectUserId: global ? null : userId,
+    limitUsd,
+    spendUsd,
+    milestoneKey: reward.key,
+    detail: { cost_usd: reward.costUsd, reward_type: reward.rewardType },
+  });
+  // A suppressed breach (an open row already exists) returns null, so the kill
+  // and the ops noise happen exactly once per incident.
+  if (!breachId || !global || !guardrails.autoKillOnGlobalBreach) return;
+
+  const killed = await killTangibleRewards();
+  if (killed) {
+    console.error(
+      `[rewards-tangible] platform reward budget exhausted ($${spendUsd.toFixed(2)} of ` +
+        `$${limitUsd.toFixed(2)}) — rewards_tangible switched off`,
+    );
+    await supabaseAdmin
+      .from("reward_budget_breaches")
+      .update({ killed: true } as never)
+      .eq("id", breachId);
+  }
+}
+
+/**
  * Grant every milestone `userId` has unlocked and not yet been paid.
  *
  * Best-effort by design: this runs off the back of a rewardable action, and a
@@ -744,9 +826,29 @@ export async function grantTangibleRewards(
     const spend = await loadSpend(userId, nowMs);
     if (!spend) return [];
 
+    // US-1858 guardrails. The fraud hold comes FIRST because it is the only one
+    // that is about the account rather than the money: paying a rung to an
+    // account under review and then reviewing it is the wrong order.
+    const guardrails = await loadRewardGuardrails();
+    if (guardrails.fraudHoldEnabled && (await isUnderFraudHold(userId))) {
+      console.warn(`[rewards-tangible] grants held for ${userId}: open abuse signal`);
+      return [];
+    }
+
+    // The flat per-user monthly cap, narrowed by this account's own margin
+    // headroom. Guardrails narrow a budget; they never widen one, which is why
+    // this composes as a min() rather than replacing the cap.
+    const economics = await loadUnitEconomics(userId, spend.userMonthUsd, monthStartIso(nowMs));
+    const effectiveBudget: RewardBudget = {
+      ...budget,
+      perUserMonthlyUsdCap: effectivePerUserMonthlyCap(budget, economics, guardrails),
+    };
+    const marginBound = effectiveBudget.perUserMonthlyUsdCap < budget.perUserMonthlyUsdCap;
+    const velocity = await loadVelocityUsage(userId, nowMs);
+
     const delivered: string[] = [];
     for (const reward of pending) {
-      const decision = budgetDecision(reward.costUsd, spend, budget);
+      const decision = budgetDecision(reward.costUsd, spend, effectiveBudget);
       if (!decision.allowed) {
         // Refused, not deferred — but the milestone stays unclaimed, so a later
         // pass in a fresh budget window can still honour it. The list is sorted
@@ -754,6 +856,38 @@ export async function grantTangibleRewards(
         console.warn(
           `[rewards-tangible] ${reward.key} refused for ${userId}: ${decision.refusal}`,
         );
+        // A per-user monthly refusal that only bites because the margin headroom
+        // narrowed the cap is a MARGIN breach, not a budget one — reporting it as
+        // "budget" would send an operator to raise a cap that was never the
+        // binding constraint.
+        const scope: BreachScope = decision.refusal === "user_monthly_cap" && marginBound
+          ? "margin_floor"
+          : BREACH_SCOPE_FOR_REFUSAL[decision.refusal!];
+        await noteBreach(scope, userId, reward, spend, effectiveBudget, guardrails);
+        break;
+      }
+
+      // Velocity: many rungs at once is the shape a farmed account has, and the
+      // per-milestone UNIQUE index says nothing about it.
+      const paced = velocityDecision(reward.costUsd, velocity, guardrails);
+      if (!paced.allowed) {
+        console.warn(
+          `[rewards-tangible] ${reward.key} refused for ${userId}: ${paced.refusal}`,
+        );
+        await recordBudgetBreach({
+          scope: "velocity",
+          subjectUserId: userId,
+          limitUsd: guardrails.perUserDailyUsdCap,
+          spendUsd: velocity.usdToday,
+          milestoneKey: reward.key,
+          detail: { refusal: paced.refusal, grants_today: velocity.grantsToday },
+        });
+        await raiseRewardFarmingSignal(userId, {
+          refusal: paced.refusal!,
+          milestoneKey: reward.key,
+          grantsToday: velocity.grantsToday,
+          usdToday: velocity.usdToday,
+        }, nowMs);
         break;
       }
 
@@ -836,6 +970,10 @@ export async function grantTangibleRewards(
       spend.globalMonthUsd += reward.costUsd;
       spend.userMonthUsd += reward.costUsd;
       spend.userLifetimeUsd += reward.costUsd;
+      // Same reason, for the daily window: a multi-milestone catch-up in one
+      // pass must respect the velocity limit a series of single grants would.
+      velocity.grantsToday += 1;
+      velocity.usdToday += reward.costUsd;
       delivered.push(reward.key);
 
       await notifyUser(userId, {

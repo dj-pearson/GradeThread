@@ -52,6 +52,7 @@ const SIGNAL_TYPES = new Set<AbuseSignalType>([
   "submission_velocity",
   "shared_payment",
   "disposable_email",
+  "reward_farming",
 ]);
 const SEVERITIES = new Set<AbuseSignalSeverity>(["low", "medium", "high", "critical"]);
 const STATUSES = new Set<AbuseSignalStatus>(["open", "reviewing", "actioned", "dismissed"]);
