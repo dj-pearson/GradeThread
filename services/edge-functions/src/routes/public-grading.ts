@@ -512,6 +512,115 @@ publicGradingRoutes.post("/selector-health", async (c) => {
   return c.body(null, 204);
 });
 
+// ── Extension usage telemetry (US-1757 AC2) ──────────────────────────
+// POST /usage — UNAUTHENTICATED, anonymous, opt-in-gated in the extension.
+//
+// WHAT IT ANSWERS. US-1753 tagged every outbound link, so a SIGNUP can be traced
+// to the extension, and a store dashboard reports installs. Between those two
+// numbers there was nothing, so "do installs convert to accounts" could not be
+// answered — only guessed at from the two ends.
+//
+// THE SERVER ENFORCES THE PRIVACY PROMISE, exactly as /selector-health does: a
+// modified extension must not be able to turn an anonymous tally into a usage
+// record. The vocabulary is CLOSED (two events, four surfaces), counts are
+// clamped, and there is no free-text column to write a URL or an id into. The IP
+// rate-limits and is never persisted.
+//
+// A ping carries TOTALS, not events — no timestamps, no ordering, no per-listing
+// anything (usage-telemetry.js explains why that shape). One row per counter, so
+// the query "reads per surface this week" is a plain GROUP BY.
+const USAGE_EVENTS = new Set(["read", "click_through"]);
+const USAGE_SURFACES = new Set(["popup", "overlay", "flip", "onboarding"]);
+// Mirrors GT_USAGE.MAX_COUNT. The client already saturates here; the server
+// clamps again because the client's cap is a courtesy, not a guarantee.
+const USAGE_MAX_COUNT = 999;
+// events × (surfaces + the no-surface form). A structural bound, not a policy —
+// a well-formed batch cannot exceed it, so anything longer is junk.
+const USAGE_MAX_KEYS = USAGE_EVENTS.size * (USAGE_SURFACES.size + 1);
+const USAGE_PER_IP_PER_HOUR = 12;
+const USAGE_WINDOW_MS = 60 * 60 * 1000;
+const usageHits = new Map<string, number[]>();
+
+export type UsageCounter = { event: string; surface: string | null; count: number };
+
+// Exported for the edge test: pure shape/vocabulary validation, no IO.
+export function parseUsagePing(
+  body: unknown,
+): { counters: UsageCounter[]; extVersion: string | null } | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  const counts = b.counts;
+  if (!counts || typeof counts !== "object" || Array.isArray(counts)) return null;
+
+  const entries = Object.entries(counts as Record<string, unknown>);
+  if (!entries.length || entries.length > USAGE_MAX_KEYS) return null;
+
+  const counters: UsageCounter[] = [];
+  for (const [key, raw] of entries) {
+    // "read" or "click_through:overlay" — nothing else parses. Splitting on the
+    // FIRST colon only, so a third segment makes the surface unknown and the
+    // whole counter is dropped rather than truncated into a valid-looking one.
+    const parts = key.split(":");
+    if (parts.length > 2) continue;
+    const [event, surface] = parts;
+    if (!USAGE_EVENTS.has(event)) continue;
+    if (surface !== undefined && !USAGE_SURFACES.has(surface)) continue;
+
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n) || n <= 0) continue;
+    counters.push({
+      event,
+      surface: surface === undefined ? null : surface,
+      count: Math.min(n, USAGE_MAX_COUNT),
+    });
+  }
+  // Nothing survived the vocabulary — no signal, so nothing to record.
+  if (!counters.length) return null;
+
+  // The only free-ish text on the wire; hard-capped and charset-limited so it
+  // cannot smuggle a URL or an identifier. Same rule as /selector-health.
+  const v = typeof b.extVersion === "string" ? b.extVersion.trim() : "";
+  const extVersion = v && v.length <= 32 && /^[\w.\-]+$/.test(v) ? v : null;
+
+  return { counters, extVersion };
+}
+
+publicGradingRoutes.post("/usage", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  const parsed = parseUsagePing(body);
+  // Flat 204 on a bad body as well as a good one, for the same reason
+  // /selector-health does it: an anonymous caller learns nothing about which
+  // events or surfaces the server knows about.
+  if (!parsed) return c.body(null, 204);
+
+  const ip = clientIpFor(c);
+  if (windowLimited(usageHits, ip, Date.now(), USAGE_PER_IP_PER_HOUR, USAGE_WINDOW_MS)) {
+    return c.body(null, 204);
+  }
+
+  try {
+    // No owner column, no IP, no instance id — see 00531. Telemetry must never
+    // be able to fail a shopper's page, so this is best-effort and swallows.
+    await supabaseAdmin.from("extension_usage_pings").insert(
+      parsed.counters.map((counter) => ({
+        event: counter.event,
+        surface: counter.surface,
+        event_count: counter.count,
+        ext_version: parsed.extVersion,
+      })),
+    );
+  } catch (err) {
+    console.error("public-grading /usage:", err instanceof Error ? err.message : String(err));
+  }
+  return c.body(null, 204);
+});
+
 // ── Free grade-checker tool (US-1687) ────────────────────────────────
 // POST /grade-check — UNAUTHENTICATED single-photo ROUGH grade for the
 // /tools/grade-checker landing. Reuses the real grader via quickGrade (no

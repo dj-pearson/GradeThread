@@ -35,6 +35,7 @@
 if (typeof importScripts === "function") {
   importScripts(
     "attribution.js",
+    "usage-telemetry.js",
     "lister/selectors.js",
     "lister/lister-guard.js",
     "lister/job-store.js",
@@ -63,6 +64,10 @@ const APPRAISE_ENDPOINT = "https://functions.gradethread.com/api/flipdesk/scout/
 const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/public/entitlements";
 const SELECTOR_HEALTH_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/selector-health";
+// US-1757 AC2: the opt-in usage tally (reads + click-throughs). A SEPARATE
+// endpoint from selector-health because it is a separate consent — see
+// usage-telemetry.js on why the two toggles are not merged.
+const USAGE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/usage";
 const PENDING_DELISTS_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/pending-delists";
 const CONFIG_URL = "https://gradethread.com/extension/marketplace-selectors.json";
@@ -257,6 +262,80 @@ async function reportSelectorMiss(msg) {
       keepalive: true,
     });
   } catch (_e) { /* offline / blocked — drop it */ }
+}
+
+// ── usage telemetry (US-1757 AC2) ────────────────────────────────────────
+// The funnel's missing middle: install → READ → CLICK-THROUGH → signup. The
+// outer two ends were already measured (a store dashboard reports installs,
+// US-1753's utm tags attribute the signup) and nothing measured the middle, so
+// "installs convert to accounts" could not be answered at all.
+//
+// OPT-IN, OFF BY DEFAULT, and its OWN key — deliberately not folded into
+// `selectorTelemetry`, whose copy promises a narrower thing. Consent is re-read
+// from storage on every single event rather than cached, so a revoke in the
+// popup stops the next one, not the next worker restart.
+//
+// Events are TALLIED on the device and flushed as a bag of totals hours later
+// (usage-telemetry.js explains why that shape and not an event stream). This
+// worker owns the batch because storage.local lives here and because the two
+// producers — the content script's reads and every surface's clicks — must land
+// in ONE window, not one each.
+async function usageTelemetryEnabled() {
+  try {
+    const out = await ext.storage.local.get(self.GT_USAGE.CONSENT_KEY);
+    return Boolean(out && out[self.GT_USAGE.CONSENT_KEY]);
+  } catch (_e) {
+    return false; // fail-safe: never send on a storage hiccup
+  }
+}
+
+async function flushUsage(batch) {
+  const version = (ext.runtime.getManifest && ext.runtime.getManifest().version) || null;
+  const body = self.GT_USAGE.payloadFor(batch, version, Date.now());
+  if (!body) return;
+  try {
+    await fetch(USAGE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // No instance id header, for the same reason selector-health omits it: it
+      // is a stable per-install identifier, and attaching it would turn an
+      // anonymous tally into a per-person usage record.
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
+  } catch (_e) { /* offline / blocked — the window is dropped, never retried */ }
+}
+
+/**
+ * Tally one event, and send the window when it comes due. Best-effort and
+ * silent: a shopper's read must never wait on, or fail because of, a counter.
+ */
+async function recordUsage(event, surface) {
+  const KEY = self.GT_USAGE.BATCH_KEY;
+  if (!(await usageTelemetryEnabled())) {
+    // Consent was revoked while a window was open. Drop what was tallied rather
+    // than leave it on disk to be sent by a later opt-in — that would send
+    // activity from a period the user had said no to.
+    try {
+      await ext.storage.local.remove(KEY);
+    } catch (_e) { /* nothing to clear */ }
+    return;
+  }
+  try {
+    const now = Date.now();
+    const stored = await ext.storage.local.get(KEY);
+    const next = self.GT_USAGE.record(stored && stored[KEY], event, surface, now);
+    if (self.GT_USAGE.shouldFlush(next, now)) {
+      // Clear FIRST. If the POST is what fails, the window is lost — which is
+      // the right trade: a batch that survives its own failed send is a batch
+      // that can be re-sent, and double-counting a funnel is worse than an
+      // undercount nobody can distinguish from a quiet day.
+      await ext.storage.local.set({ [KEY]: self.GT_USAGE.emptyBatch(now) });
+      await flushUsage(next);
+      return;
+    }
+    await ext.storage.local.set({ [KEY]: next });
+  } catch (_e) { /* storage unavailable — the event is simply not counted */ }
 }
 
 // ── entitlements (US-1873) ───────────────────────────────────────────────
@@ -1193,6 +1272,11 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         break;
       case "GT_CC_SAVE_READ":
         await saveRead(msg.read);
+        // US-1757 AC2: the read half of the funnel. Counted HERE rather than in
+        // the content script because this is the one message every completed
+        // read already goes through — a second call site next to it would drift
+        // the moment a new read surface is added.
+        recordUsage("read");
         // US-2241: the badge follows the read that produced it, on the tab it
         // came from. sender.tab is the authority — a tab id from the message
         // body would let any content script badge any tab.
@@ -1211,6 +1295,15 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       case "GT_CC_SELECTOR_MISS":
         sendResponse({ ok: true });
         reportSelectorMiss(msg);
+        break;
+      // US-1757 (AC2): a click-through to gradethread.com from the popup, the
+      // overlay or the onboarding page. Respond immediately — the browser is
+      // already navigating and must not wait on a counter. The EVENT and SURFACE
+      // are validated against the closed vocabulary inside recordUsage's
+      // GT_USAGE.record, so a message cannot invent a counter.
+      case "GT_CC_USAGE":
+        sendResponse({ ok: true });
+        recordUsage(msg.event, msg.surface);
         break;
       // US-1885 (AC1): the popup's pending-delist queue.
       case "GT_GET_PENDING_DELISTS":

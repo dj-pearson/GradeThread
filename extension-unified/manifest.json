@@ -35,6 +35,7 @@
     "service_worker": "background.js",
     "scripts": [
       "attribution.js",
+      "usage-telemetry.js",
       "lister/selectors.js",
       "lister/lister-guard.js",
       "lister/job-store.js",
@@ -119,6 +120,7 @@
       ],
       "js": [
         "attribution.js",
+        "usage-telemetry.js",
         "research/selectors.js",
         "research/image-utils.js",
         "research/condition-format.js",

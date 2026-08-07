@@ -28,4 +28,20 @@
     const el = document.getElementById(l.id);
     if (el) el.href = ATTR.siteUrl(l.path, l.medium, { campaign: campaign });
   }
+
+  // US-1757 (AC2): count the click-through, if — and only if — the shopper has
+  // opted into usage counts (the background checks; nothing is sent otherwise).
+  // This page is the top of the install funnel, so a click from here is the
+  // single most load-bearing number in it.
+  const ext = globalThis.browser || globalThis.chrome;
+  self.GT_USAGE.trackSiteClicks(document, "onboarding", {
+    isSiteUrl: ATTR.isSiteUrl,
+    send: (event, surface) => {
+      try {
+        Promise.resolve(
+          ext.runtime.sendMessage({ type: "GT_CC_USAGE", event, surface }),
+        ).catch(() => {});
+      } catch (_e) { /* worker asleep — the click still happens */ }
+    },
+  });
 })();

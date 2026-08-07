@@ -102,6 +102,13 @@ const EXTENSIONS = [
       // install, which is exactly what `optional` means here — declaring it
       // required would misstate it, and omitting it entirely would understate
       // what the add-on can send.
+      //
+      // US-1757 AC2 adds a SECOND opt-in under the same category: anonymous
+      // usage totals (reads + click-throughs, no timestamps, no ids). AMO's
+      // vocabulary has one bucket for both, so the declaration does not change
+      // — the DISCLOSURE does, and it lives in SUBMISSION.md and in the privacy
+      // policy's extension section, which state the two toggles separately
+      // because they are two separate consents.
       dataCollection: {
         required: ["websiteContent"],
         optional: ["technicalAndInteraction"],

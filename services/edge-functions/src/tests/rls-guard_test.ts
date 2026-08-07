@@ -101,6 +101,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // id. Deny-all is load-bearing here in BOTH directions: an anonymous endpoint
   // writes it, so a readable table would be a free public firehose.
   "selector_health_pings",
+  // US-1757 extension usage: anonymous, opt-in read/click-through TOTALS written
+  // by the public (unauthenticated) /usage endpoint. Same posture and the same
+  // two reasons as selector_health_pings above — non-tenant and unjoinable by
+  // construction (no URL, no account, no IP, no instance id, and no client
+  // timestamp), and an anonymous writer means a readable table would be a free
+  // public firehose.
+  "extension_usage_pings",
   // US-1786 impact factors: GLOBAL, NON-TENANT config (published apparel LCA
   // figures, no owner) — deny-all. Only the service-role edge reads it for the
   // impact estimate; the SPA never queries it directly.

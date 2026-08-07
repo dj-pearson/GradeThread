@@ -406,6 +406,15 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `src/test/public-grade-report-view-parity.test.ts`. Rule:
   [[public-certificate-read-paths]].
 
+## Telemetry consent
+- Adding a new kind of telemetry NEVER reuses an existing opt-in toggle, even
+  when a story's own notes suggest it (US-1757 did). Each toggle's copy states
+  what it sends; folding a second data flow under it makes a sentence someone
+  read before agreeing false, retroactively. New data ⇒ new toggle, new storage
+  key, new line in the privacy policy AND `SUBMISSION.md`. Revoking must also
+  delete any batch still on the device. Full contract:
+  [[extension-telemetry-consent]].
+
 ## Scaffolding modules
 - A module that is "shipped but not yet wired" is NOT thereby correct — nothing
   calls it, so nothing can produce a wrong answer from it, so no test has a

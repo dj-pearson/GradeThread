@@ -47,6 +47,21 @@ describe("privacy policy: browser extension disclosure", () => {
     expect(html).toMatch(/not.*send the listing, the page address/is);
   });
 
+  it("discloses the usage counters as a SEPARATE opt-in (US-1757 AC2)", () => {
+    // Two switches, disclosed as two. The diagnostics toggle's own copy promises
+    // it sends "only the marketplace name and which part failed"; if usage counts
+    // were ever folded under it, that promise would be false and this policy
+    // paragraph would be describing a switch that no longer exists on its own.
+    const html = render();
+    expect(html).toMatch(/usage counts/i);
+    expect(html).toMatch(/second, independent switch/i);
+    // The specific claim the tally-and-batch design makes, and the one a reader
+    // cannot verify for themselves: totals, not an event stream.
+    expect(html).toMatch(/not.*send when anything happened, in what order/is);
+    // And the revoke promise the popup + background both implement.
+    expect(html).toMatch(/deletes any totals still waiting on your device/i);
+  });
+
   it("states marketplace credentials are never sent", () => {
     const html = render();
     expect(html).toMatch(/passwords and cookies are never sent/i);

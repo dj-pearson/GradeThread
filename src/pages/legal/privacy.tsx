@@ -312,6 +312,21 @@ export function PrivacyPage() {
         extension&rsquo;s popup.
       </p>
       <p>
+        <strong>Usage counts are off by default, and separate.</strong> If you
+        turn on &ldquo;share anonymous usage counts&rdquo; &mdash; a second,
+        independent switch, not part of the diagnostics one above &mdash; the
+        extension keeps two running totals on your device: how many condition
+        reads you asked for, and how many times you clicked a link back to
+        gradethread.com. Every few hours it sends those <em>totals</em> and the
+        extension&rsquo;s version number, and nothing else. It does{" "}
+        <strong>not</strong> send when anything happened, in what order, which
+        listing or which page, your account, or any identifier for you or your
+        installation. Because only totals leave the device, there is no sequence
+        of events for anyone to reconstruct. We use it to tell whether people who
+        install the extension go on to use it. Turning the switch off also
+        deletes any totals still waiting on your device.
+      </p>
+      <p>
         <strong>Seller tools.</strong> If you use the cross-posting tools, the
         form filling happens entirely in your own logged-in browser tab. Your
         marketplace passwords and cookies are never sent to GradeThread, and we

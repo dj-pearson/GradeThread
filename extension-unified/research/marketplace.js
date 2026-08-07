@@ -1261,5 +1261,24 @@
     runScan();
   }, 2000);
 
+  // US-1757 (AC2): count click-throughs to gradethread.com from the overlay and
+  // the Flip panel — the "did a read produce a visit" half of the funnel.
+  //
+  // On `document`, not on the overlay node: the overlay is torn down and rebuilt
+  // on every read, every navigation and every re-render, so a listener bound to
+  // it would have to be re-bound at each of those points and would go missing at
+  // exactly one of them. This content script only ever runs on marketplaces, so
+  // the only gradethread.com links on the page are ours, and the surface comes
+  // off each link's own utm_medium (overlay vs flip) rather than being guessed.
+  //
+  // Nothing is sent unless the shopper opted in — the background is the single
+  // place that consent is checked, so this stays a no-op message otherwise.
+  self.GT_USAGE.trackSiteClicks(document, "overlay", {
+    isSiteUrl: ATTR.isSiteUrl,
+    send: function (event, surface) {
+      send({ type: "GT_CC_USAGE", event: event, surface: surface });
+    },
+  });
+
   boot();
 })();

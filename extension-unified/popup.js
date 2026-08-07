@@ -19,6 +19,10 @@ const ext = globalThis.browser || globalThis.chrome;
 // test/attribution.test.cjs fails the build on any bare one that creeps back in.
 const ATTR = self.GT_ATTRIBUTION;
 
+// US-1757 AC2: the opt-in usage tally (usage-telemetry.js). The counters live in
+// the background worker — this file only reports clicks and owns the toggle.
+const USAGE = self.GT_USAGE;
+
 // US-1885 AC3: versioned Lister consent — bump this when the Lister terms change
 // and every seller is re-prompted (an accepted older version no longer counts).
 const TOS_VERSION = "2026-07-13";
@@ -168,6 +172,18 @@ async function initResearch() {
   telemetryEl.addEventListener("change", async () => {
     if (telemetryEl.checked) await ext.storage.local.set({ selectorTelemetry: true });
     else await ext.storage.local.remove("selectorTelemetry");
+  });
+
+  // US-1757 (AC2): opt-in usage counts. Same shape as the toggle above, with one
+  // extra step on revoke — the half-finished batch is deleted too. Leaving it
+  // would let a later opt-in send activity from the period the user said no to,
+  // which is the one way an off switch can still be dishonest.
+  const usageEl = document.getElementById("usageTelemetry");
+  const usageStored = await ext.storage.local.get(USAGE.CONSENT_KEY);
+  usageEl.checked = Boolean(usageStored && usageStored[USAGE.CONSENT_KEY]);
+  usageEl.addEventListener("change", async () => {
+    if (usageEl.checked) await ext.storage.local.set({ [USAGE.CONSENT_KEY]: true });
+    else await ext.storage.local.remove([USAGE.CONSENT_KEY, USAGE.BATCH_KEY]);
   });
 
   const host = await activeHost();
@@ -642,6 +658,15 @@ function applyCapabilities(caps) {
 // ── boot ─────────────────────────────────────────────────────────────────────
 (async function () {
   initStaticLinks();
+  // US-1757 AC2: ONE delegated listener for every gradethread.com link in the
+  // popup — the footer, the upgrade CTA, the sign-in link, the recent-reads
+  // fallback, and whatever a later feature adds. Per-anchor wiring would go
+  // stale on the next render; this cannot. The surface comes off the link's own
+  // utm_medium, so the click and the signup it produces are filed alike.
+  USAGE.trackSiteClicks(document, "popup", {
+    isSiteUrl: ATTR.isSiteUrl,
+    send: (event, surface) => send({ type: "GT_CC_USAGE", event, surface }),
+  });
   wireAccount();
   wireConsent();
   wireHistoryTabs();

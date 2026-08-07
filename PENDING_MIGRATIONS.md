@@ -1,8 +1,55 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**One migration is held: 00530.** The two entries below it were applied to prod
-and this file did not learn about it for a day. See the note under 00528 for how
-that was measured and why the measurement, not the file, is the authority.
+**Two migrations are held: 00530 and 00531.** The entries below them were applied
+to prod and this file did not learn about it for a day. See the note under 00528
+for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00531_extension_usage_pings.sql (US-1757 AC2 — anonymous opt-in extension usage counters)
+
+**Apply order.** After 00530. Nothing else is queued behind it.
+
+**Risk: LOW.** One new table. No existing table, column, view, index, policy or
+function is touched, and there is no backfill and no row change anywhere else.
+Nothing in the app reads it yet, so applying it late costs only lost counters,
+never an error.
+
+**What it does.** `CREATE TABLE IF NOT EXISTS public.extension_usage_pings`
+(`event`, `surface`, `event_count`, `ext_version`, `created_at`), one index on
+`(event, created_at DESC)`, RLS enabled with **no policies** (deny-all), and a
+`REVOKE ALL … FROM anon, authenticated` in an exception-guarded `DO` block for
+bare local stacks. Registered in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`.
+
+**Why.** The extension funnel was measured only at its two ends — a store
+dashboard reports installs, and US-1753's utm tags attribute the signup. Nothing
+measured the middle, so "do installs convert to accounts" had no answer. This is
+the tally the new opt-in popup toggle feeds.
+
+**Deny-all is load-bearing in both directions.** An *anonymous, unauthenticated*
+endpoint writes here (`POST /api/grading/public/usage`), so a readable table would
+be a free public firehose; and there is no owner column to scope a read policy to
+in the first place. Same posture as `selector_health_pings` (00475).
+
+**No client-side read, so the frontend auto-deploy is safe.** Nothing in `src/`
+queries this table — the SPA does not know it exists. The only writer is the edge
+service. So the usual "the frontend deploys the moment you push" hazard does not
+apply to this migration.
+
+**Apply-order hazard is the ordinary one.** The same commit bumps
+`EXPECTED_SCHEMA_VERSION` to `00531`, so the edge container boot-guards on it:
+apply the SQL, `NOTIFY pgrst, 'reload schema';`, redeploy the edge, then push. If
+the edge deploys first it burns the ~40s grace window and then refuses to boot.
+
+**Verification after applying.**
+
+```sql
+select count(*) from public.extension_usage_pings;               -- 0, and no error
+select relrowsecurity from pg_class where relname = 'extension_usage_pings';  -- t
+select count(*) from pg_policies where tablename = 'extension_usage_pings';   -- 0
+```
+
+Then, with the extension's new "share anonymous usage counts" toggle ON, do a
+condition read and click a link back to gradethread.com; a row appears after the
+batch window closes (up to 6 hours, or immediately at 50 events).
 
 ## ⏳ HELD: 00530_public_cert_rubric_factors.sql (US-1997 — public cert view exposes rubric_key + factor_scores)
 
