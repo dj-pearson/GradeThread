@@ -80,6 +80,7 @@ opt-in post-sale training table, **not** a source for matching.
 
 ## Related
 
+- [[buyer-platform]] — the account and entitlement layer this economy sits on top of
 - [[grade-accuracy-guarantee]] — coverage gating, and the reputation perks that compose in
 - [[garment-passport-privacy]] — the other place a visibility decision was made deliberately
 - [[flipdesk-plan-gating]] — the seller-side metering this mirrors
