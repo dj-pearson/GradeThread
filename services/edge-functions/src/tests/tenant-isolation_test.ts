@@ -3311,6 +3311,14 @@ Deno.test({
 //   • GET/POST /api/buyer/profile, POST /api/buyer/profile/extension-token —
 //     act ONLY on the caller's own users row (.eq("id", userId)); the token is
 //     minted for c.get("userId"). No id is read from the body.
+//   • POST /api/grade/submit `closet_item_id` (US-1841) — a foreign closet item
+//     is FILTERED, not refused: the lookup is
+//     .eq("id", body).eq("user_id", ownerId), and an unowned id resolves to null
+//     so the grade proceeds with no closet link. There is deliberately no denial
+//     to assert (refusing would leak whether the id exists in another tenant),
+//     and the write-back (closet-grade-link.ts) repeats the same user_id scope,
+//     so a link that somehow survived still updates zero rows. Same shape as the
+//     `regrade_of` / `retake_of` ids alongside it.
 
 // US-1904: propose-groups fetches staged images by storage_path. Like its
 // verify-groups sibling, every path must live under the CALLER's own

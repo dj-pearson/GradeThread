@@ -58,6 +58,7 @@ import {
   storeGarmentFingerprint,
 } from "./passport-write.ts";
 import { appendAuthenticityEvent } from "./passport-authenticity.ts";
+import { writeGradeToClosetItem } from "./closet-grade-link.ts";
 import { notifyAuthenticityFlagged } from "./authenticity-notify.ts";
 import { authenticityGateStatus } from "./authenticity-eval.ts";
 import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
@@ -1276,7 +1277,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, verified_360_opt_in, capture_360, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id, video_graded, video_duration_seconds, video_capture_source")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, verified_360_opt_in, capture_360, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id, video_graded, video_duration_seconds, video_capture_source, closet_item_id")
       .eq("id", submissionId)
       .single();
 
@@ -2830,6 +2831,20 @@ export async function processSubmission(submissionId: string) {
     // First grade, or a re-grade whose target wasn't owned/resolvable → fresh seed.
     if (!passportGarmentId) {
       passportGarmentId = await createSingleHopPassport(seedInput);
+    }
+
+    // US-1841: a buyer-requested grade answers a question about one item in
+    // their portfolio, so land the answer there too. Best-effort and tenant-
+    // scoped; no-ops on every seller grade (closet_item_id is null).
+    const closetItemId =
+      (submission as { closet_item_id?: string | null }).closet_item_id ?? null;
+    if (closetItemId) {
+      await writeGradeToClosetItem({
+        closetItemId,
+        ownerUserId: submission.user_id,
+        certificateId: certificateId,
+        overallScore: compositeResult.overall_score,
+      });
     }
 
     // US-2145 §1a: tell the seller when their item drew a red-flag verdict. A

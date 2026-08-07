@@ -13,7 +13,11 @@ code_refs:
   - services/edge-functions/src/lib/buyer-entitlements.ts
   - services/edge-functions/src/lib/condition-alerts.ts
   - services/edge-functions/src/lib/listing-ingest.ts
+  - services/edge-functions/src/lib/video-grading-cost.ts
+  - services/edge-functions/src/lib/buyer-metering.ts
+  - services/edge-functions/src/lib/closet-grade-link.ts
   - supabase/migrations/00535_ingested_listings.sql
+  - supabase/migrations/00536_buyer_video_grading.sql
 reviewed: 2026-08-07
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
@@ -124,7 +128,7 @@ takes one of three shapes:
 | `extensionChecksPerMonth`, `authenticityCreditsPerMonth` | `withBuyerMeter` — debited per action |
 | `alertFrequency` | `effectiveDigestMode` (`buyer-notify.ts`) — floors the buyer's chosen cadence |
 | `activeAlertsCap` | `entitledSearchIds` (`condition-alerts.ts`) — the matching engine |
-| `videoGradeCreditsPerMonth` | **nothing** — see the next section |
+| `videoGradeCreditsPerMonth` | `debitBuyerMeter` at the clip gate (`routes/grade.ts`, US-1841) |
 | `portfolioItemCap` | **nothing** — US-1824 owns it |
 
 `activeAlertsCap` is the instructive one, because its binding could not be a
@@ -192,25 +196,52 @@ Rows are private to the ingesting buyer, owner READ + DELETE under RLS and
 **never owner-write** — the grade on the row is GradeThread's objective read, and
 a client-writable one would make "we graded it 9.5" a number the buyer could set.
 
-## Known gap: buyer video-grade credits are advertised but not reachable
+## Video grading has two payers, and the ordering is the contract
 
-Verified 2026-08-07. Both paid tiers advertise `videoGradeCreditsPerMonth`
-(Guard 2, Connoisseur 10), the `videoGrading` gate flag is true on both, and
-`BUYER_METER_ALLOWANCE` maps a `video_grades` meter key onto that allowance — but
-**no route calls `withBuyerMeter(…, "video_grades", …)`**. The clip path in
-`routes/grade.ts` gates on `videoGradingPlanAllowed(effectiveFlipdeskPlan, …)`
-alone, so a Guard buyer whose seller plan is free is sold two credits the server
-answers with `UPGRADE_REQUIRED`, and the usage meter on the buyer billing page can
-never move.
+Closed by US-1841 (the gap this section used to record: both paid tiers advertised
+`videoGradeCreditsPerMonth`, and no route spent it, so a Guard buyer on a free
+FlipDesk plan was answered `UPGRADE_REQUIRED` for a feature their plan had sold
+them).
 
-This is the advertised-vs-enforced class again, and the parity test cannot catch
-it: both sides agree the allowance is 2. What is missing is the *binding* — the
-call site that spends it. **US-1841** owns that; do not "fix" it by lowering the
-advertised number, which would confirm the wrong half.
+The clip path in `routes/grade.ts` now resolves a **payer** rather than a
+yes/no, through the pure `resolveVideoGradingAccess` (`lib/video-grading-cost.ts`):
 
-`authenticityAddon` is the worked example of the shape the video binding should
-take: `routes/buyer-authenticity.ts` checks the flag, then wraps the action in
-`withBuyerMeter` so the allowance is actually debited.
+| seller plan allows | buyer entitled | payer |
+|---|---|---|
+| yes | either | **seller** — the ordinary grade precedence |
+| no | yes | **buyer** — one `video_grades` credit |
+| no | no | none → 402 `UPGRADE_REQUIRED` |
+
+**Seller wins when both apply**, and that is the whole reason the resolver exists.
+A paid FlipDesk plan already covers clip grading out of its bundle, so also
+spending a buyer credit would charge one account twice for one grade and drain an
+allowance it never needed.
+
+Three consequences worth keeping straight:
+
+- **The credit is spent at the gate**, before the submission row exists, so an
+  out-of-credits buyer gets the quota answer for free and leaves nothing behind.
+  Everything after that point must be able to give the unit back.
+- **Two refund paths, one payer identity.** `failVideoGrading` refunds within the
+  request; `refund_grade` (00536) refunds a failure that happens later, and it can
+  only reach `submissions.user_id`. So the debit is taken from the **workspace
+  owner**, matching every other charge in that handler — splitting the payer
+  between the two paths would leak a credit exactly when a grade fails.
+- **`payment_status = 'buyer_credits'`**, not `'credits'`. The latter means the
+  seller's `grade_credit_balance` was debited and is what `refund_grade` would try
+  to hand back. `submissions.buyer_credit_source` records which pocket
+  (allowance vs reward credit) paid, because the US-1800 rule is that a refund
+  returns to the *same* pocket and nothing else remembers which it was.
+
+The result lands in the portfolio, not just a submissions list:
+`closet_item_id` (ownership-filtered, never refused — a foreign id is simply
+ignored) carries the buyer's closet item through, and `closet-grade-link.ts`
+writes the graded condition back onto it after the grade report commits.
+
+`authenticityAddon` remains the simpler shape of the same idea
+(`routes/buyer-authenticity.ts` → `withBuyerMeter`); video needs the two-half
+`debitBuyerMeter` / `refundBuyerMeterSource` form only because the work it pays
+for finishes in a background pipeline, long after the response.
 
 ## Related
 

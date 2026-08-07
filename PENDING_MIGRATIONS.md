@@ -1,9 +1,49 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Six migrations are held: 00530, 00531, 00532, 00533, 00534 and 00535.** The
-entries below them were applied to prod and this file did not learn about it for
-a day. See the note under 00528 for how that was measured and why the
-measurement, not the file, is the authority.
+**Seven migrations are held: 00530, 00531, 00532, 00533, 00534, 00535 and
+00536.** The entries below them were applied to prod and this file did not learn
+about it for a day. See the note under 00528 for how that was measured and why
+the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00536_buyer_video_grading.sql (US-1841 — buyer-funded walk-around grades)
+
+**Apply order.** After 00532 (it builds on the clip path) and last in numeric
+order, like the rest.
+
+**⚠️ THIS ONE IS NOT "LOW". Risk: MEDIUM**, for one specific reason: it adds an
+enum value with `ALTER TYPE public.submission_payment_status ADD VALUE IF NOT
+EXISTS 'buyer_credits'`. PG12+ permits that inside a transaction, but **the new
+value cannot be USED in the same transaction that added it**. This file therefore
+never writes or compares the literal against the enum — the `refund_grade`
+comparison is deliberately `v_payment_status::text = 'buyer_credits'`. Do not
+"tidy" that cast, and do not run any statement that inserts the new value in the
+same session before the migration's transaction commits.
+
+**What it does.**
+- `submission_payment_status` gains `'buyer_credits'` — a grade paid with a buyer
+  video-grade credit rather than the seller precedence.
+- `submissions` gains `buyer_video_grade` (bool, default false),
+  `buyer_credit_source` (`allowance` | `reward`, CHECKed, nullable) and
+  `closet_item_id` (FK → `closet_items`, `ON DELETE SET NULL`), plus a partial
+  index on the last one. Every existing row keeps its defaults; nothing is
+  rewritten.
+- `refund_grade()` is replaced with the 00093 body **plus** a `buyer_credits`
+  branch that returns the unit to the pocket that paid
+  (`refund_buyer_meter` / `refund_buyer_reward_credit`). Behaviour for
+  `included` / `credits` / `paid_stripe` / `unpaid` is byte-identical.
+
+**⚠️ THE EDGE NEEDS THIS BEFORE A BUYER CLIP GRADE CAN BE PAID FOR.**
+`POST /api/grade/submit` writes `payment_status = 'buyer_credits'` and the three
+new columns on the buyer path. If the edge rolls first, that write fails and the
+grade is left reading `unpaid` after the credit was already spent. The frontend
+does **not** read the new columns on any existing page — the new portfolio button
+queries `submissions.closet_item_id`, which returns nothing until the column
+exists (an empty result, not an error) — so a Cloudflare Pages auto-deploy on push
+degrades quietly. Still: apply first.
+
+**Apply, then `NOTIFY pgrst, 'reload schema';`, then redeploy the edge** (the
+same commit bumps `EXPECTED_SCHEMA_VERSION` to `00536`, so the boot guard needs
+the row recorded), then push.
 
 ## ⏳ HELD: 00535_ingested_listings.sql (US-1808 — extension-fed marketplace listing ingestion)
 

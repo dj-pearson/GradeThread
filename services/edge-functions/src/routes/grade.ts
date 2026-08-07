@@ -20,10 +20,19 @@ import {
   type VideoSlotMarks,
 } from "../lib/video-frames.ts";
 import {
+  resolveVideoGradingAccess,
+  VIDEO_GRADE_BUYER_METER,
   VIDEO_GRADING_FEATURE,
   videoGradingPlanAllowed,
   videoPhotoConflict,
 } from "../lib/video-grading-cost.ts";
+import { getBuyerEntitlements } from "../lib/buyer-entitlements.ts";
+import {
+  BUYER_METER_ALLOWANCE,
+  type BuyerMeterSource,
+  debitBuyerMeter,
+  refundBuyerMeterSource,
+} from "../lib/buyer-metering.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import {
   GRADE_TIERS,
@@ -235,6 +244,13 @@ function kickPipeline(submissionId: string, correlationId?: string) {
  * so a failed extraction never consumes a credit or an included grade: the
  * submission is retakeable (US-949 treats needs_photos as a retake target) and
  * the seller can re-record or switch to photos at no cost.
+ *
+ * US-1841: the BUYER path is the exception to "payment hasn't run yet" — its
+ * video-grade credit is debited at the gate, before the submission row exists,
+ * because the quota answer has to come back before we do any work. So this
+ * funnel — the ONE place a video grade gives up — hands that unit back to the
+ * pocket it came from. Every failure return in the clip path goes through here,
+ * which is why the refund lives here rather than at each call site.
  */
 async function failVideoGrading(
   c: Context<GradeEnv>,
@@ -242,7 +258,14 @@ async function failVideoGrading(
   ownerId: string,
   reason: string,
   record: Record<string, unknown>,
+  buyerDebit?: BuyerMeterSource | null,
 ) {
+  // The debit was taken from the WORKSPACE OWNER (see the gate) because that is
+  // who submissions.user_id names, and refund_grade — the other refund path —
+  // can only reach that id. One payer identity, two refund paths that agree.
+  if (buyerDebit) {
+    await refundBuyerMeterSource(ownerId, VIDEO_GRADE_BUYER_METER, buyerDebit);
+  }
   const { error } = await supabaseAdmin
     .from("submissions")
     .update({
@@ -383,6 +406,11 @@ gradeRoutes.post("/submit", async (c) => {
   // new passport. Validated for ownership below (US-268); a foreign id is ignored
   // and the grade behaves as a fresh first grade.
   const regradeOf = (formData.get("regrade_of") as string | null)?.trim() || null;
+  // US-1841: the buyer's closet item (US-1825) this grade was requested for. The
+  // finished grade is written back onto it so the result lands where the buyer
+  // asked for it rather than only in a submissions list. Ownership-verified
+  // below (US-268); a foreign/forged id is ignored, not fatal.
+  const closetItemOf = (formData.get("closet_item_id") as string | null)?.trim() || null;
 
   const errors: string[] = [];
   if (!title || title.trim().length === 0) errors.push("title is required");
@@ -540,6 +568,10 @@ gradeRoutes.post("/submit", async (c) => {
   // row exists, so a gated request costs nothing and leaves nothing behind.
   let videoMaxFrames = DEFAULT_MAX_VIDEO_FRAMES;
   let videoSlotMarks: VideoSlotMarks = {};
+  // US-1841: set when the BUYER's plan is paying for this clip grade — the pocket
+  // that was debited, so a failure returns the unit to it and the pipeline can
+  // record which one paid. Null on the seller path (ordinary grade precedence).
+  let buyerVideoDebit: BuyerMeterSource | null = null;
   if (videoGradingOptIn) {
     // 1. Kill-switch (also what the monthly ai_budgets 'kill' action flips).
     if (!(await isFeatureEnabled(VIDEO_GRADING_FEATURE, { userId: ownerId }))) {
@@ -564,8 +596,25 @@ gradeRoutes.post("/submit", async (c) => {
       new Date(),
       (planRow?.past_due_since as string | null) ?? null,
     );
+    //    US-1841: the buyer plan is the SECOND way in. Both paid buyer tiers
+    //    include video-grade credits, so an account whose FlipDesk plan can't pay
+    //    may still be entitled through the buyer product. Resolved only when the
+    //    seller plan says no — a paid seller plan already covers the clip out of
+    //    its bundle and must not also burn a buyer credit.
     const allowedPlansRaw = getSettingSync<unknown>("video_grading_plans", null);
-    if (!videoGradingPlanAllowed(effPlan, allowedPlansRaw)) {
+    const sellerPlanAllowed = videoGradingPlanAllowed(effPlan, allowedPlansRaw);
+    // Read against the WORKSPACE OWNER, like every other charge in this handler.
+    // Not because entitlements aren't personal — they are — but because the
+    // owner is who `submissions.user_id` names, and refund_grade (the refund path
+    // for a failure that happens after this request returns) can only reach that
+    // id. Splitting the payer between the two refund paths would leak a credit
+    // exactly when a grade fails. Never an id from the request body (US-268).
+    const buyerEnt = sellerPlanAllowed ? null : await getBuyerEntitlements(ownerId);
+    const access = resolveVideoGradingAccess({
+      sellerPlanAllowed,
+      buyerEntitled: buyerEnt?.gateFlags.videoGrading === true,
+    });
+    if (!access.allowed) {
       return c.json({
         error:
           "Grading from a video is available on a paid plan. Upgrade, or grade this item from photos.",
@@ -573,10 +622,15 @@ gradeRoutes.post("/submit", async (c) => {
         action: "upgrade",
         feature: VIDEO_GRADING_FEATURE,
         plan: effPlan,
+        buyerPlan: buyerEnt?.plan ?? null,
+        product: "buyer",
       }, 402);
     }
     // 4. Frame cap — the direct AI-cost multiplier. Operator-tunable, clamped in
     //    code so a bad setting can never widen it past HARD_MAX_VIDEO_FRAMES.
+    //    The buyer path shares it deliberately: one video grade costs the same
+    //    frames × per-image Vision work whoever asked for it, so a second, softer
+    //    buyer cap would be a second number to keep honest for no gain.
     videoMaxFrames = clampFrameCount(
       getSettingSync<number>("video_grading_max_frames", DEFAULT_MAX_VIDEO_FRAMES),
     );
@@ -584,6 +638,31 @@ gradeRoutes.post("/submit", async (c) => {
       videoSlotMarksRaw,
       videoUpload?.durationSeconds ?? null,
     );
+    // 5. US-1841: on the buyer path the credit IS the payment, so spend it now —
+    //    before the submission row exists, so an out-of-credits buyer gets the
+    //    quota answer for free and leaves nothing behind. Refunded by
+    //    failVideoGrading (this request) or refund_grade (a later pipeline
+    //    failure), always to the pocket recorded here.
+    if (access.payer === "buyer" && buyerEnt) {
+      buyerVideoDebit = await debitBuyerMeter(
+        ownerId,
+        VIDEO_GRADE_BUYER_METER,
+        // BUYER_METER_ALLOWANCE is what ties the meter key to the plan number;
+        // reading it through the map keeps the two from drifting apart.
+        buyerEnt.allowances[BUYER_METER_ALLOWANCE[VIDEO_GRADE_BUYER_METER]],
+      );
+      if (!buyerVideoDebit) {
+        return c.json({
+          error:
+            "You've used this month's video-grade credits. Upgrade your plan, or grade this item from photos.",
+          code: "quota_exhausted",
+          action: "upgrade",
+          product: "buyer",
+          feature: VIDEO_GRADING_FEATURE,
+          buyerPlan: buyerEnt.plan,
+        }, 402);
+      }
+    }
   }
 
   // Suspended account gate (pre-pricing). Checks the WORKSPACE OWNER's
@@ -664,6 +743,20 @@ gradeRoutes.post("/submit", async (c) => {
     }
   }
 
+  // US-1841: validate the closet link the same way, scoped to the same account
+  // the grade and the buyer credit are billed to, so a forged id can never make
+  // one tenant's grade land in another tenant's portfolio. Unowned → ignored.
+  let closetItemId: string | null = null;
+  if (closetItemOf) {
+    const { data: closetRow } = await supabaseAdmin
+      .from("closet_items")
+      .select("id")
+      .eq("id", closetItemOf)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (closetRow) closetItemId = (closetRow as { id: string }).id;
+  }
+
   // Create submission (unpaid). user_id is the workspace owner so the row
   // is visible to all workspace members via the additive RLS.
   const { data: submission, error: submissionError } = await supabaseAdmin
@@ -691,6 +784,11 @@ gradeRoutes.post("/submit", async (c) => {
       forensic_addon: forensicAddon,
       retake_of_submission_id: retakeTargetId,
       regrade_of_garment_id: regradeTargetGarmentId,
+      // US-1841: buyer-funded clip grade — which pocket paid, and the portfolio
+      // item the finished grade is written back onto.
+      buyer_video_grade: buyerVideoDebit !== null,
+      buyer_credit_source: buyerVideoDebit,
+      closet_item_id: closetItemId,
       // The requested grade-speed tier drives the review SLA + queue priority
       // (express > premium > standard) once the AI grade lands in human review.
       service_tier: tier,
@@ -702,6 +800,11 @@ gradeRoutes.post("/submit", async (c) => {
 
   if (submissionError || !submission) {
     console.error("Failed to create submission:", submissionError);
+    // US-1841: the buyer credit was spent at the gate, before this row existed —
+    // there is no submission for refund_grade to find, so hand it back here.
+    if (buyerVideoDebit) {
+      await refundBuyerMeterSource(ownerId, VIDEO_GRADE_BUYER_METER, buyerVideoDebit);
+    }
     return c.json({ error: "Failed to create submission" }, 500);
   }
 
@@ -854,6 +957,7 @@ gradeRoutes.post("/submit", async (c) => {
           ownerId,
           "The clip could not be stored, so there was nothing to grade. Try uploading it again.",
           { ok: false, stage: "upload" },
+          buyerVideoDebit,
         );
       }
     } else {
@@ -899,7 +1003,7 @@ gradeRoutes.post("/submit", async (c) => {
         planned: extraction.plan.map((p) => ({ slot: p.slot, at: p.atSeconds })),
         dropped: extraction.ok ? extraction.selection.dropped : [],
         reason,
-      });
+      }, buyerVideoDebit);
     }
 
     const frameRecords: typeof imageRecords = [];
@@ -956,6 +1060,7 @@ gradeRoutes.post("/submit", async (c) => {
         ownerId,
         "The clip's frames could not be saved, so there was nothing to grade. Try again in a moment.",
         { ok: false, stage: "store", max_frames: videoMaxFrames },
+        buyerVideoDebit,
       );
     }
 
@@ -973,6 +1078,7 @@ gradeRoutes.post("/submit", async (c) => {
         ownerId,
         "The clip's frames could not be saved, so there was nothing to grade. Try again in a moment.",
         { ok: false, stage: "insert", max_frames: videoMaxFrames },
+        buyerVideoDebit,
       );
     }
 
@@ -1032,6 +1138,37 @@ gradeRoutes.post("/submit", async (c) => {
         supersedeError,
       );
     }
+  }
+
+  // US-1841: on the buyer path the video-grade credit spent at the gate IS the
+  // payment, so the seller precedence must NOT also run — a Guard buyer with no
+  // FlipDesk plan would otherwise be asked to buy a grade they already paid for
+  // with the credit their plan includes. Recorded as its own payment_status
+  // (00536) rather than folded into 'credits', which means the seller's
+  // grade_credit_balance was debited and is what refund_grade would try to return.
+  if (buyerVideoDebit) {
+    const { error: buyerPaidError } = await supabaseAdmin
+      .from("submissions")
+      .update({ payment_status: "buyer_credits", paid_at: new Date().toISOString() })
+      .eq("id", submissionId)
+      .eq("user_id", ownerId);
+    if (buyerPaidError) {
+      // The credit is spent and the frames are stored; refusing to grade now
+      // would take the credit and give nothing back, so log and grade anyway.
+      // The row simply reads 'unpaid' until the reaper reconciles it.
+      console.error("[video-grade] buyer-credit paid flip failed:", buyerPaidError);
+    }
+    kickPipeline(submissionId, readCtxVar(c, "correlationId"));
+    return c.json({
+      submissionId,
+      status: "processing",
+      payment: {
+        paid: true,
+        method: "buyer_credits",
+        source: buyerVideoDebit,
+      },
+      closetItemId,
+    }, 201);
   }
 
   // Run payment precedence against the WORKSPACE OWNER's account — they pay,

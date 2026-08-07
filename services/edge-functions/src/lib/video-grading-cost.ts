@@ -73,6 +73,53 @@ export function videoGradingPlanAllowed(
   return resolveVideoGradingPlans(rawSetting).includes(effectivePlan);
 }
 
+// ── US-1841: who pays for a clip grade ───────────────────────────────────────
+
+/**
+ * The buyer meter (buyer-metering.ts BUYER_METER_ALLOWANCE) a buyer-funded clip
+ * grade debits. One string, exported once, for the same reason
+ * VIDEO_GRADING_FEATURE is: the reserve, the refund and the SQL refund branch in
+ * migration 00536 must all name the same meter or a debit is never returned.
+ */
+export const VIDEO_GRADE_BUYER_METER = "video_grades";
+
+/** Which pocket funds a clip grade. */
+export type VideoGradePayer = "seller" | "buyer";
+
+export interface VideoGradingAccess {
+  allowed: boolean;
+  payer: VideoGradePayer | null;
+}
+
+/**
+ * Resolve who — if anyone — may pay for this clip grade.
+ *
+ * Two independent entitlements reach the same capture path:
+ *
+ *  • the SELLER's FlipDesk plan (US-1765), where the grade is charged through the
+ *    ordinary payment precedence (included grade → grade credits → checkout), and
+ *  • the BUYER's plan (US-1841), where one `video_grades` credit IS the payment.
+ *
+ * SELLER WINS WHEN BOTH APPLY, and that ordering is the whole point of this
+ * function. A paid FlipDesk plan already covers clip grading out of its bundle,
+ * so spending a buyer credit as well would charge a Business-plan seller twice
+ * for one grade and drain an allowance they never needed. Buyer credits are the
+ * fallback for the account whose SELLER plan cannot pay — which, per the note in
+ * vault/20-domain/buyer-platform.md, is exactly the buyer who was being sold two
+ * credits and answered with UPGRADE_REQUIRED.
+ *
+ * Pure: the two booleans are resolved by the caller (plan allowlist / buyer
+ * entitlements) so the ordering rule can be asserted without a DB.
+ */
+export function resolveVideoGradingAccess(input: {
+  sellerPlanAllowed: boolean;
+  buyerEntitled: boolean;
+}): VideoGradingAccess {
+  if (input.sellerPlanAllowed) return { allowed: true, payer: "seller" };
+  if (input.buyerEntitled) return { allowed: true, payer: "buyer" };
+  return { allowed: false, payer: null };
+}
+
 /**
  * Why a video-grading request that ALSO carries staged photos is refused.
  * Returns null when there is nothing wrong.

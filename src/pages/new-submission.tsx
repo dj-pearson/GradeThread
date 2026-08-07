@@ -210,7 +210,13 @@ export function NewSubmissionPage() {
   // US-1766: staged photos or one walk-around clip. Photo mode is the default
   // and the fallback — a seller can switch back at any point, and a clip that
   // fails extraction lands the submission in needs_photos with photos offered.
-  const [captureMode, setCaptureMode] = useState<"photos" | "video">("photos");
+  // US-1841: a buyer arriving from their closet ("Video grade" on a portfolio
+  // item) asked for the clip path by name, so start there rather than making
+  // them find the toggle. Any other value — including a typo — falls back to
+  // photo mode, which always works.
+  const [captureMode, setCaptureMode] = useState<"photos" | "video">(
+    () => (searchParams.get("mode") === "video" ? "video" : "photos")
+  );
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoMarks, setVideoMarks] = useState<VideoSlotMarks>({});
   // US-1766: how the clip entered the app. Sent as provenance; the server
@@ -265,6 +271,11 @@ export function NewSubmissionPage() {
   const [linkedItemId, setLinkedItemId] = useState<string>(
     () => searchParams.get("item") ?? retakeState?.linkedItemId ?? "none"
   );
+
+  // US-1841: the buyer's closet item this grade answers a question about. Passed
+  // through to the server, which verifies the buyer owns it before linking —
+  // this is a hint, not an authorization.
+  const closetItemId = searchParams.get("closet");
 
   // US-1935: the "Link to inventory item" dropdown must reflect the workspace
   // being submitted INTO — scope to the active workspace owner (a member acting
@@ -788,6 +799,10 @@ export function NewSubmissionPage() {
         // US-1766: clip provenance. Only sent when we actually know it, so an
         // unknown source stays unknown rather than defaulting to a claim.
         if (videoSource) formData.append("video_capture_source", videoSource);
+        // US-1841: link the result back to the buyer's portfolio item. Sent only
+        // on the clip path — that is the grade a buyer requests from their
+        // closet, and a photo grade already reaches the closet by certificate.
+        if (closetItemId) formData.append("closet_item_id", closetItemId);
       }
 
       // Append images, their types, perceptual hashes, and provenance EXIF as

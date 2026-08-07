@@ -5,9 +5,13 @@ import { assertEquals, assertRejects } from "@std/assert";
 Deno.env.set("SUPABASE_URL", "https://example.test");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "dummy");
 
-const { withBuyerMeter, BuyerQuotaExhaustedError, BUYER_METER_ALLOWANCE } = await import(
-  "../lib/buyer-metering.ts"
-);
+const {
+  withBuyerMeter,
+  BuyerQuotaExhaustedError,
+  BUYER_METER_ALLOWANCE,
+  debitBuyerMeter,
+  refundBuyerMeterSource,
+} = await import("../lib/buyer-metering.ts");
 
 // All four deps with safe no-op defaults; override the leg under test.
 function deps(over: Partial<{
@@ -106,4 +110,61 @@ Deno.test("BUYER_METER_ALLOWANCE maps each meter to its allowance cap key", () =
   assertEquals(BUYER_METER_ALLOWANCE.extension_checks, "extensionChecksPerMonth");
   assertEquals(BUYER_METER_ALLOWANCE.authenticity_credits, "authenticityCreditsPerMonth");
   assertEquals(BUYER_METER_ALLOWANCE.video_grades, "videoGradeCreditsPerMonth");
+});
+
+// ── US-1841: the precedence, used directly ───────────────────────────────────
+//
+// A buyer video grade pays at the gate and the work it bought finishes in a
+// background pipeline minutes later, so it cannot sit inside withBuyerMeter's
+// try/finally. It calls the same two halves instead — which is only safe if
+// those halves ARE the precedence, not a second copy of it.
+
+Deno.test("debitBuyerMeter: reports which pocket paid, allowance first", async () => {
+  assertEquals(
+    await debitBuyerMeter("u1", "video_grades", 2, deps({ reserve: () => Promise.resolve(true) })),
+    "allowance",
+  );
+  // At the cap it falls through to a reward credit — and SAYS so, because the
+  // refund has to know. Recording "paid" without recording "from where" is how a
+  // refund launders an allowance into a permanent credit.
+  assertEquals(
+    await debitBuyerMeter("u1", "video_grades", 0, deps({
+      reserve: () => Promise.resolve(false),
+      redeemReward: () => Promise.resolve(true),
+    })),
+    "reward",
+  );
+});
+
+Deno.test("debitBuyerMeter: returns null when neither pocket can pay", async () => {
+  // Null, not a throw: the caller (the grade route) answers with its own 402
+  // carrying the upgrade action, rather than catching an exception to build one.
+  assertEquals(
+    await debitBuyerMeter("u1", "video_grades", 0, deps({
+      reserve: () => Promise.resolve(false),
+      redeemReward: () => Promise.resolve(false),
+    })),
+    null,
+  );
+});
+
+Deno.test("debitBuyerMeter: never redeems a reward credit when the allowance covered it", async () => {
+  let redeemed = 0;
+  await debitBuyerMeter("u1", "video_grades", 5, deps({
+    reserve: () => Promise.resolve(true),
+    redeemReward: () => { redeemed++; return Promise.resolve(true); },
+  }));
+  assertEquals(redeemed, 0);
+});
+
+Deno.test("refundBuyerMeterSource: returns the unit to the pocket that paid, never the other", async () => {
+  let toCounter = 0, toReward = 0;
+  const d = deps({
+    refund: () => { toCounter++; return Promise.resolve(); },
+    refundReward: () => { toReward++; return Promise.resolve(); },
+  });
+  await refundBuyerMeterSource("u1", "video_grades", "allowance", d);
+  assertEquals([toCounter, toReward], [1, 0]);
+  await refundBuyerMeterSource("u1", "video_grades", "reward", d);
+  assertEquals([toCounter, toReward], [1, 1]);
 });

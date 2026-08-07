@@ -10,15 +10,19 @@
  * True when `payment_status` means the charging chokepoint (grade-billing.ts)
  * has already taken money for this submission.
  *
- * The three paid values are the three it writes: an included-allowance grant,
- * a credit debit, and a one-off Stripe checkout. Anything else — "unpaid", a
- * NULL, a value from a future migration this code has not seen — is treated as
- * UNPAID, deliberately.
+ * The paid values are the ones the charging paths write: an included-allowance
+ * grant, a seller credit debit, a one-off Stripe checkout, and (US-1841) a buyer
+ * video-grade credit. Anything else — "unpaid", a NULL, a value from a future
+ * migration this code has not seen — is treated as UNPAID, deliberately.
  *
  * Fail CLOSED, and the asymmetry is the reason: a false negative re-creates a
  * submission nobody was charged for, which costs nothing. A false positive
  * skips a charge that never happened, or worse, resumes something we do not own.
+ *
+ * Adding a payment_status without adding it here is therefore SAFE but wasteful
+ * (the work gets redone free); adding one here that isn't really paid is not.
  */
 export function isPaidSubmissionStatus(status: string | null | undefined): boolean {
-  return status === "included" || status === "credits" || status === "paid_stripe";
+  return status === "included" || status === "credits" ||
+    status === "paid_stripe" || status === "buyer_credits";
 }

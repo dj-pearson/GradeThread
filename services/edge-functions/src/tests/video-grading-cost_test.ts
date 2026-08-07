@@ -15,11 +15,24 @@ import {
   DEFAULT_VIDEO_GRADING_PLANS,
   gradingUsageFeature,
   PHOTO_GRADING_FEATURE,
+  resolveVideoGradingAccess,
   resolveVideoGradingPlans,
+  VIDEO_GRADE_BUYER_METER,
   VIDEO_GRADING_FEATURE,
   videoGradingPlanAllowed,
   videoPhotoConflict,
 } from "../lib/video-grading-cost.ts";
+
+// buyer-metering.ts reaches lib/supabase.ts, which throws at import time without
+// these. Set them (never clobbering a real value) BEFORE the dynamic import — a
+// static top-of-file import would run first and crash this file when it is run
+// on its own, which is how a new edge test file gets smoke-tested.
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "https://example.test");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "dummy",
+);
+const { BUYER_METER_ALLOWANCE } = await import("../lib/buyer-metering.ts");
 
 Deno.test("the ledger feature for a video grade is its own, not 'grading'", () => {
   assertEquals(gradingUsageFeature(true), "video_grading");
@@ -95,4 +108,49 @@ Deno.test("the conflict message tells the seller which way out to take", () => {
   // A refusal that doesn't name the alternative reads as a bug to the seller,
   // who then re-records the clip instead of switching to the path that works.
   assertEquals(msg.includes("photo mode"), true);
+});
+
+// ── US-1841: who pays for a clip grade ───────────────────────────────────────
+
+Deno.test("a paid seller plan pays for the clip; the buyer credit is untouched", () => {
+  // The ordering rule this function exists for. A Business seller who ALSO holds
+  // Connoisseur would otherwise be charged twice for one grade — once out of the
+  // FlipDesk bundle that already covers it, once out of an allowance they never
+  // needed. Both-entitled must resolve to the seller.
+  assertEquals(
+    resolveVideoGradingAccess({ sellerPlanAllowed: true, buyerEntitled: true }),
+    { allowed: true, payer: "seller" },
+  );
+  assertEquals(
+    resolveVideoGradingAccess({ sellerPlanAllowed: true, buyerEntitled: false }),
+    { allowed: true, payer: "seller" },
+  );
+});
+
+Deno.test("a buyer entitlement is the second way in when the seller plan can't pay", () => {
+  // The gap US-1841 closes: both paid buyer tiers advertise video-grade credits,
+  // and before this a Guard buyer on a free FlipDesk plan was answered with
+  // UPGRADE_REQUIRED for a feature their plan had already sold them.
+  assertEquals(
+    resolveVideoGradingAccess({ sellerPlanAllowed: false, buyerEntitled: true }),
+    { allowed: true, payer: "buyer" },
+  );
+});
+
+Deno.test("neither entitlement means no payer at all — never a free clip grade", () => {
+  const access = resolveVideoGradingAccess({ sellerPlanAllowed: false, buyerEntitled: false });
+  assertEquals(access, { allowed: false, payer: null });
+  // `payer` must be null and not a default, or a caller reading it without
+  // checking `allowed` would silently charge the wrong pocket.
+  assertEquals(access.payer, null);
+});
+
+Deno.test("the buyer meter key is a real meter mapped to the advertised allowance", () => {
+  // A typo here is silent in both directions: nothing is debited, and the SQL
+  // refund branch (00536) hands a unit back to a meter nobody spends.
+  assertEquals(VIDEO_GRADE_BUYER_METER, "video_grades");
+  assertEquals(
+    BUYER_METER_ALLOWANCE[VIDEO_GRADE_BUYER_METER],
+    "videoGradeCreditsPerMonth",
+  );
 });

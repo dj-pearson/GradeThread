@@ -578,6 +578,12 @@ export interface SubmissionRow {
   retake_of_submission_id: string | null;
   superseded_at: string | null;
   superseded_by_submission_id: string | null;
+  // US-1841: a walk-around clip grade the BUYER asked for, paid with a
+  // video-grade credit from their buyer plan rather than the seller precedence.
+  // closet_item_id is the portfolio item it answers a question about; the
+  // finished grade is written back onto that item.
+  buyer_video_grade: boolean;
+  closet_item_id: string | null;
   created_at: string;
   updated_at: string;
 }

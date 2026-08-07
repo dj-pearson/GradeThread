@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Download, Loader2, Lock, Plus, Shirt, Store, Tag, Trash2 } from "lucide-react";
+import { Download, Loader2, Lock, Plus, Shirt, Store, Tag, Trash2, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,9 @@ import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerCloset } from "@/hooks/use-buyer-closet";
 import { useBuyerPortfolioValuation, type ItemValuation } from "@/hooks/use-buyer-portfolio-valuation";
 import { useBuyerTrustSignals } from "@/hooks/use-buyer-trust-signals";
+import { useBuyerVideoGrades } from "@/hooks/use-buyer-video-grades";
 import { TrustSignalBadges } from "@/components/buyer/trust-signals";
+import type { ClosetItemRow } from "@/types/database";
 
 const usd = (c: number) => `$${(c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
@@ -52,6 +54,13 @@ function EstimateLine({ v, showGuidance }: { v: ItemValuation | null; showGuidan
 type SortKey = "added" | "value" | "gain";
 type FilterKey = "all" | "gainers" | "losers";
 
+// US-1841: send the buyer to the capture flow already in walk-around mode, with
+// the closet item carried along so the finished grade is written back onto it.
+function videoGradeHref(item: ClosetItemRow): string {
+  const params = new URLSearchParams({ mode: "video", closet: item.id });
+  return `/dashboard/submissions/new?${params.toString()}`;
+}
+
 // US-1825: closet / wardrobe portfolio. Add items you own (by certificate number
 // or manually), see and manage your closet. Valuation + dashboard are US-1826/1827.
 // Locked behind the wardrobePortfolio entitlement.
@@ -64,6 +73,8 @@ export function BuyerPortfolioPage() {
   // US-1844: coarse public trust signals for the certified items in the closet —
   // the SAME verified badges the public cert page shows, deep-linked to it.
   const { signals: trustSignals } = useBuyerTrustSignals(items.map((it) => it.certificate_id));
+  // US-1841: walk-around grades this buyer asked for on their own closet items.
+  const { gradeFor, isPending: isGradePending } = useBuyerVideoGrades();
 
   async function onExport() {
     try {
@@ -340,6 +351,27 @@ export function BuyerPortfolioPage() {
                     <Button asChild variant="ghost" size="sm">
                       <Link to={`/cert/${item.certificate_id}`}>Grade</Link>
                     </Button>
+                  )}
+                  {/* US-1841: a richer condition read before committing to a
+                      higher-value purchase. Only shown when the plan includes
+                      video grading — a button that always 402s is worse than an
+                      upgrade line, and the pricing page already sells the tier. */}
+                  {ent.has("videoGrading") && (
+                    isGradePending(item.id)
+                      ? (
+                        <Button asChild variant="ghost" size="sm">
+                          <Link to={`/dashboard/submissions/${gradeFor(item.id)?.id}`}>
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> Grading
+                          </Link>
+                        </Button>
+                      )
+                      : (
+                        <Button asChild variant="ghost" size="sm">
+                          <Link to={videoGradeHref(item)}>
+                            <Video className="mr-1 h-3.5 w-3.5" /> Video grade
+                          </Link>
+                        </Button>
+                      )
                   )}
                   {item.promoted_item_id ? (
                     <Button asChild variant="ghost" size="sm">
