@@ -497,6 +497,11 @@ a learning that only matters to ONE surface, put it in that surface's file.
   and only excludes `[_a-z]` before `plan`, so an alias `AS plan` re-arms it.
   Alias it `AS buyer_plan`. `npm run verify:db` passes either way; the guard is a
   vitest.
+- A new RLS policy must be written `USING ((select auth.uid()) = user_id)`, not
+  `USING (auth.uid() = user_id)` — `rls-guard_test.ts` (US-1927 AC1) scans the
+  migration text and fails the bare form, because the planner re-evaluates it per
+  row instead of hoisting one InitPlan. `verify:db` passes either way (the two
+  are semantically identical); only the deno test catches it.
 - `grade_reports` has NO `user_id` column — ownership flows through
   `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A
   migration/backfill that does `grade_reports.user_id` fails with `column

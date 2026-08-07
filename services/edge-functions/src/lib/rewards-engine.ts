@@ -11,6 +11,7 @@
 
 import { emitReputationEvent } from "./buyer-trust-score.ts";
 import { awardBadges } from "./rewards-badges.ts";
+import { grantTangibleRewards } from "./rewards-tangible.ts";
 import { supabaseAdmin } from "./supabase.ts";
 
 // Reward-only event types (added to the reputation_events CHECK in 00443). The
@@ -81,6 +82,25 @@ export function levelForXp(xpTotal: number): number {
 export function xpForLevel(level: number): number {
   if (level <= 0) return 0;
   return level * level * LEVEL_BASE;
+}
+
+// ─── Coverage gate ───────────────────────────────────────────────────────────
+
+/** The photo slots a submission must carry to earn `coverage_completed`. */
+const COVERAGE_REQUIRED_TYPES = ["front", "back", "label"] as const;
+
+/**
+ * True when a submission has FULL grading coverage: the three required views
+ * plus at least one detail shot (the same set the grade API requires, US-1848).
+ *
+ * The reward is deliberately tied to coverage rather than to grading at all —
+ * XP should pull toward the photos that make a grade trustworthy, not toward
+ * volume. Pure, so the policy is testable without a submission.
+ */
+export function hasFullGradeCoverage(images: Array<{ image_type: string }>): boolean {
+  const types = new Set(images.map((i) => i.image_type));
+  if (!COVERAGE_REQUIRED_TYPES.every((t) => types.has(t))) return false;
+  return [...types].some((t) => t === "detail" || t.startsWith("detail_"));
 }
 
 // ─── Pure state reducer ──────────────────────────────────────────────────────
@@ -189,6 +209,14 @@ export async function grantReward(
       "[rewards] badge award failed:",
       err instanceof Error ? err.message : String(err),
     );
+  }
+  // US-1848: the cosmetic award above is free and unconditional; this is the
+  // TANGIBLE half, and it is gated — kill-switch (fail-closed), budget ceilings
+  // and one-claim-per-milestone idempotency all live inside. It reads the state
+  // we just recomputed, so a milestone is evaluated against the XP the action it
+  // rides on actually produced. Best-effort: never fails the reward grant.
+  if (state) {
+    await grantTangibleRewards(userId, state.xpTotal);
   }
   return state;
 }

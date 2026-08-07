@@ -9,6 +9,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException } from "./observability.ts";
+import { grantReward } from "./rewards-engine.ts";
 
 // The ?s= sources that represent a genuine badge click (as opposed to a direct
 // visit or an internal share). Kept tight so the funnel means "badge-driven".
@@ -70,7 +71,30 @@ export async function recordBadgeClick(input: {
       target_id: targetId.slice(0, 200),
       source,
     });
-    return { recorded: !error };
+    if (error) return { recorded: false };
+
+    // US-1848: this click closes the epic's core loop — a grade was shared, a
+    // real person followed it back, and the seller earns for it. It is the only
+    // share signal worth rewarding: the owner is resolved server-side from the
+    // cert (never trusted from the caller) and pressing "share" earns nothing on
+    // its own, so there is no button to mash.
+    //
+    // Anti-farming is structural rather than a rate limit: the reward is
+    // idempotent on (target, source), so ONE badge target earns ONE award ever
+    // — clicking your own link a thousand times pays exactly what clicking it
+    // once does. US-1854 layers the escalating click-threshold bonuses on top,
+    // which is where velocity and self-click detection belong.
+    try {
+      await grantReward(ownerUserId, "verified_share", {
+        referenceId: `${input.targetType}:${targetId.slice(0, 200)}:${source}`,
+        source: "badge_click",
+        metadata: { target_type: input.targetType, click_source: source },
+      });
+    } catch (err) {
+      // A reward problem must never break the public page that pinged us.
+      captureException(err, { level: "warn", route: "badge-analytics.reward" });
+    }
+    return { recorded: true };
   } catch (err) {
     captureException(err, { level: "warn", route: "badge-analytics.record" });
     return { recorded: false };

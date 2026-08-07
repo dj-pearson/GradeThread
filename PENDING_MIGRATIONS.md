@@ -1,9 +1,41 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Eight migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536 and
-00537.** The entries below them were applied to prod and this file did not learn
-about it for a day. See the note under 00528 for how that was measured and why
-the measurement, not the file, is the authority.
+**Nine migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537 and 00538.** The entries below them were applied to prod and this file did
+not learn about it for a day. See the note under 00528 for how that was measured
+and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00538_reward_tangible_grants.sql (US-1848 — tangible reward rail)
+
+**Apply order.** Last, in numeric order. It depends on nothing newer than
+`users`, `feature_flags` and `system_settings`, all of which are long applied.
+
+**Risk: LOW.** One new table, one new `feature_flags` row, one new
+`system_settings` row. No existing table, column, enum or row is touched, and
+nothing backfills.
+
+**What it does.** Adds `reward_tangible_grants` — the ledger for the half of
+GradeThread Rewards that moves real value (free grade credits today;
+subscription and per-grade discounts once US-1853 registers their fulfillers).
+`UNIQUE (user_id, milestone_key)` is the idempotency guarantee: the engine
+claims a row before moving any value, so no retry or concurrent pass can pay a
+milestone twice. RLS lets a user read their own grants; only the service role
+writes.
+
+**The two config rows are the safety rails:**
+- `feature_flags.rewards_tangible` is seeded **`false`**, and the engine reads it
+  with `defaultEnabled: false`. So payouts stay off until an operator turns them
+  on, and an outage suspends them rather than opening them.
+- `system_settings.rewards_tangible_budget` seeds the three USD ceilings
+  (global monthly 500, per-user monthly 15, per-user lifetime 60).
+
+**Nothing breaks if the frontend deploys first.** No client surface reads either
+the table or the setting — the whole rail lives in the edge service, and with the
+flag off it is inert. The edge boot guard will expect `00538`, so apply this
+before the next Coolify deploy as usual.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a new table means
+PostgREST needs to learn about it.
 
 ## ⏳ HELD: 00537_buyer_growth_metrics.sql (US-1845 — buyer analytics surface)
 

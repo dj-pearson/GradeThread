@@ -81,6 +81,7 @@ import {
   REQUIRED_IMAGE_TYPES,
 } from "./image-quality.ts";
 import { withImageBufferSlot } from "./grading-capacity.ts";
+import { grantReward, hasFullGradeCoverage } from "./rewards-engine.ts";
 import { sniffImageFormat, IMAGE_CONTENT_TYPE } from "./upload-validation.ts";
 import { captureServer } from "./posthog.ts";
 import { emitEvent, firstOccurrenceKey } from "./user-events.ts";
@@ -2870,6 +2871,31 @@ export async function processSubmission(submissionId: string) {
       const gate = await authenticityGateStatus(authenticityAssessment.prompt_version)
         .catch(() => ({ gated: false }));
       await appendAuthenticityEvent(passportGarmentId, authenticityAssessment, gate.gated);
+    }
+
+    // US-1848: the reward loop starts here. A grade that reached this point was
+    // charged for at submit and never reversed, so `paid: true` is the truth —
+    // which is the gate that makes grade-XP self-limiting: junk that abstains or
+    // fails gets its charge reversed and earns nothing.
+    //
+    // The award is `coverage_completed`, not "graded", and it requires the full
+    // front/back/label + ≥1 detail set. Rewarding coverage rather than volume
+    // points the incentive at the thing that actually improves grade quality;
+    // a three-photo minimum submission still grades, it just earns no XP for it.
+    // Idempotent on the submission id, so a re-grade of the same submission
+    // never double-awards.
+    if (hasFullGradeCoverage(images)) {
+      void grantReward(submission.user_id, "coverage_completed", {
+        referenceId: submissionId,
+        paid: true,
+        source: "grading",
+        metadata: { certificate_id: certificateId },
+      }).catch((err) =>
+        console.error(
+          `[Pipeline] reward grant failed for ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        )
+      );
     }
 
     // US-1097: store the garment's visual fingerprint (perceptual hashes of the

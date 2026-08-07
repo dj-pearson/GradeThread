@@ -8,9 +8,9 @@ code_refs:
   - services/edge-functions/src/lib/feature-flags.ts
   - services/edge-functions/src/routes/admin-flags.ts
   - supabase/migrations/00210_feature_flag_rules.sql
-reviewed: 2026-08-05
+reviewed: 2026-08-07
 tags: [ops, config, admin, contract, flags]
-summary: A flag rule is resolved against the caller's EFFECTIVE plan, resolved inside isFeatureEnabled rather than supplied by the caller — and only six flags may be plan-targeted at all.
+summary: A flag rule is resolved against the caller's EFFECTIVE plan, resolved inside isFeatureEnabled rather than supplied by the caller — and only the flags whose every call site can name a user may be plan-targeted at all.
 ---
 
 # Feature-flag targeting
@@ -36,6 +36,12 @@ Evaluated top to bottom; the first line that decides, wins.
 A missing flag row or a DB read error is **fail-OPEN** (or the caller's
 `defaultEnabled`). That is unchanged and deliberate: a kill-switch must only ever
 switch off because an operator said so.
+
+The exceptions are the flags that gate something a blip must not start: pass
+`defaultEnabled: false` and the same blip switches it **off** instead.
+`support_assistant` (US-844, a pre-launch flow) and `rewards_tangible` (US-1848,
+which pays out real value) both read that way. Availability is the reason for
+fail-open; neither of those has availability to lose.
 
 ## The plan is resolved by the callee, not the caller
 
@@ -64,11 +70,13 @@ So a rule that names plans is now **not satisfied by a caller who cannot present
 one**. No `userId`, an unreadable `users` row, or a missing user all resolve OFF
 and log `feature_flag.plan_unresolved`.
 
-## Only six flags may be plan-targeted
+## Only a few flags may be plan-targeted
 
 `PLAN_TARGETABLE_FLAGS` lists the keys whose **every** call site can name a user:
 `grading`, `autolister`, `content_ai`, `authenticity_addon`, `forensic_grade`,
-`passport_forecast`.
+`passport_forecast`, `video_grading` (US-1762 — only `/grade/submit` evaluates
+it, always with the workspace owner in hand) and `rewards_tangible` (US-1848 —
+`grantTangibleRewards` always acts for one named user).
 
 Everything else has at least one platform-wide caller — a cron that runs the flag
 once for the whole fleet, with nobody to resolve a plan for:

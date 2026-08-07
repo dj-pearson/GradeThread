@@ -90,7 +90,13 @@ export type FeatureKey =
   // Every frame is a Vision call billed against ONE grade, so this is also what
   // the video_grading ai_budgets row flips off on a hard monthly breach
   // (resolveFlagKey maps the feature 1:1 to this key). Fail-open (default on).
-  | "video_grading";
+  | "video_grading"
+  // US-1848: master switch for TANGIBLE reward payouts (free grade credits,
+  // subscription discounts, discounted grading). Read fail-CLOSED
+  // (defaultEnabled: false) — the one flag here that must not fail open, because
+  // failing open would pay out real value during an outage. Cosmetic rewards
+  // (XP, levels, badges, streaks) are unaffected by it.
+  | "rewards_tangible";
 
 // US-2406: the flags whose EVERY call site can name the user it is acting for,
 // and therefore the only ones where plan targeting can mean anything.
@@ -118,6 +124,9 @@ export const PLAN_TARGETABLE_FLAGS: ReadonlySet<FeatureKey> = new Set<FeatureKey
   // US-1762: only /grade/submit evaluates it, and it always has the workspace
   // owner in hand, so plan targeting is meaningful here.
   "video_grading",
+  // US-1848: grantTangibleRewards is always acting for one named user, so a
+  // staged rollout (or a per-plan restriction) on reward payouts is honourable.
+  "rewards_tangible",
 ]);
 
 /** True when plan targeting on `key` can be honoured by all of its callers. */
