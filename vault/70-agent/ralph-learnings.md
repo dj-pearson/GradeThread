@@ -807,9 +807,25 @@ a learning that only matters to ONE surface, put it in that surface's file.
   snippet, correct in both browsers. `scripts/transport-verify.mjs`, procedure in
   `extension-unified/TESTING.md` §5c.
 
+- An AC deferred as "needs real-browser verification" is sometimes deferred
+  because the DESIGN made verification necessary. US-1884 AC4 (overlay hardened
+  against site CSS) sat open three passes on exactly that, and the answer was not
+  to schedule a browser: it was to mount the overlay in a SHADOW ROOT, which
+  makes the property a platform guarantee instead of a claim about what some
+  marketplace's stylesheet happens to contain. Per-element `all: unset` can never
+  be finished — a site `!important` still wins, and every future child is
+  unprotected until someone remembers. Before deferring for evidence, ask whether
+  the design can be changed so the property holds by construction. Two mechanics
+  the switch forces: a content script's manifest `"css"` injects into the
+  DOCUMENT and cannot cross a shadow boundary (so the sheet ships as a generated
+  string beside the .css, with a drift guard), and the HOST element — the one
+  node the page can still select — needs its layout as inline `!important`, `all`
+  first. Rules: [[extension-injected-ui-isolation]].
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault
+- [[extension-injected-ui-isolation]] — why injected UI lives in a shadow root
 - [[extension-adapter-verification]] — proving a marketplace adapter reads a real listing
 - [[backlog-priority-contract]] — which story the loop picks next, and why
 - [[ralph-brand-kb-log]] · [[ralph-ios-log]] · [[ralph-email-marketing-log]] — the on-demand topic logs

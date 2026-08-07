@@ -21,19 +21,117 @@
   if (typeof root !== "undefined") root.GT_CC_FMT = api; // content-script world
 })(typeof self !== "undefined" ? self : this, function () {
   // ── Centralized copy (US-1884 AC5: ready for _locales) ──────────────────
+  //
+  // EVERY user-facing string the condition overlay renders lives here, including
+  // the ones that predate US-1884. That is the whole point: a _locales pass is a
+  // mechanical job only if there is exactly one place to read the copy out of.
+  // Half-centralized copy is worse than none, because the next author sees a
+  // STRINGS table, assumes it is complete, and translates a subset.
+  //
+  // `{name}` placeholders are substituted by `fmt`. Interpolate through it rather
+  // than concatenating around a string, or the word order becomes English-only
+  // and no translator can fix it.
+  //
+  // Brand nouns ("GradeThread") are deliberately absent — a brand is not copy.
   const STRINGS = {
+    // Factor breakdown + photo coverage.
     factorFabric: "Fabric",
     factorStructural: "Structural",
     factorCosmetic: "Cosmetic",
     factorFunctional: "Functional",
     factorOdor: "Odor",
     photosOne: "Graded from 1 photo",
-    // {n} is substituted by photoCountLabel.
     photosMany: "Graded from {n} photos",
     lowCoverageNudge:
       "Only a few photos to go on — ask the seller for more (a tag/label + close-up detail) for a fuller read.",
     factorsHeading: "Condition factors",
+
+    // Chrome of the overlay.
+    overlayBadge: "condition check",
+    closeLabel: "Close GradeThread condition check",
+
+    // Launcher + loading.
+    launcherLead: "Independent AI condition read on this {marketplace} listing.",
+    launcherTargetFallback: "this listing",
+    launcherCta: "Get condition read",
+    loading: "Reading the listing photos…",
+
+    // The read itself.
+    savedRead: "Saved read · {when} — same grade as before.",
+    confidence: "Confidence {pct}%",
+    lowConfidence: "Low confidence from listing photos — grade it properly for a reliable read.",
+    reread: "Re-read",
+    tryAgain: "Try again",
+    gradeProperly: "Grade it properly →",
+
+    // Claimed-vs-objective discrepancy (US-1834).
+    discOverGraded: "⚠ Seller may be over-grading",
+    discMildGap: "Slightly better than photos support",
+    discMatch: "✓ Matches the seller's stated condition",
+    discDetail: "{verdict} (photos ≈ {objective} vs claimed ≈ {claimed})",
+
+    // Price fairness (US-1835).
+    priceLow: "✓ Priced below fair value — a deal",
+    priceFair: "Priced fairly for its condition",
+    priceHigh: "⚠ Priced above fair value",
+    priceDetail: "{verdict} ({delta}% vs typical)",
+    conditionAdjustedValue: "Condition-adjusted value: ${low}–${high}",
+
+    // Point-of-purchase fraud flags (US-1836). The label itself comes from the
+    // server; this is only the risk glyph that frames it.
+    fraudFlag: "⚑ {label}",
+
+    // Coverage-gap macro + handoffs (US-1837 / US-1838 / US-1839).
+    askSellerFor: "For a confident grade, ask the seller for:",
+    copyPhotoRequest: "Copy photo request",
+    copyPhotoRequestDone: "Copied — paste it to the seller",
+    copyPhotoRequestFailed: "Couldn't copy — select the list above",
+    watchOnGradeThread: "Watch on GradeThread",
+    fitLink: "Will it fit you? →",
+    signInPrompt: "Sign in / upgrade →",
+
+    // Failure states. Each says what the shopper can do about it.
+    errNoPhotos:
+      "Couldn't find this listing's photos. The site may have changed its layout — try reloading.",
+    errInterrupted: "Something interrupted the read. Try again in a moment.",
+    errQuota: "You've hit the free read limit for now. Try again later.",
+    errCapacity: "GradeThread is at capacity right now. Try again later.",
+    errGeneric: "Couldn't grade this listing right now.",
+
+    // Surfaces the unified extension adds around the same overlay: the buyer's
+    // alert check-in, the seller Flip panel and the search-grid badge. They live
+    // in this table too because the two copies of this file are kept IDENTICAL —
+    // a translator should read one table, not two that mostly agree.
+    alertsCheck: "Check my alerts",
+    alertsChecking: "Checking…",
+    alertsChecked: "Checked",
+    alertsFailed: "Couldn't check your alerts right now.",
+    alertsNoMatch: "This one doesn't match any of your alerts.",
+    alertsMatchOne: "Matches your alert: {names}",
+    alertsMatchMany: "Matches {count} of your alerts: {names}",
+    flipPlans: "See FlipDesk plans →",
+    flipRecheck: "Re-check",
+    badgeCta: "Read condition",
+
+    // Relative times, for a recalled read.
+    justNow: "just now",
+    minutesAgo: "{n}m ago",
+    hoursAgo: "{n}h ago",
+    daysAgo: "{n}d ago",
   };
+
+  /**
+   * Substitute `{name}` placeholders. An unknown placeholder is left ALONE
+   * rather than blanked: a visible `{when}` in the UI is a bug report, an empty
+   * gap is a mystery. (US-1884 AC5)
+   */
+  function fmt(template, vars) {
+    if (typeof template !== "string") return "";
+    if (!vars) return template;
+    return template.replace(/\{(\w+)\}/g, function (whole, key) {
+      return Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : whole;
+    });
+  }
 
   // The five grade factors, in weight order (Fabric 30 / Structural 25 /
   // Cosmetic 20 / Functional 15 / Odor 10). `key` matches the endpoint's
@@ -105,7 +203,7 @@
     const whole = Math.floor(n);
     if (whole <= 0) return null;
     if (whole === 1) return STRINGS.photosOne;
-    return STRINGS.photosMany.replace("{n}", String(whole));
+    return fmt(STRINGS.photosMany, { n: whole });
   }
 
   /**
@@ -118,14 +216,35 @@
     return Math.floor(n) < LOW_COVERAGE_MAX_PHOTOS;
   }
 
+  /**
+   * A coarse "how long ago" label for a recalled read. Lives here rather than in
+   * the content script so its copy sits in STRINGS with everything else the
+   * overlay renders. `now` is injectable, so the test doesn't depend on a clock.
+   * (US-1884 AC5)
+   */
+  function timeAgo(ts, now) {
+    const then = Number(ts);
+    const ref = typeof now === "number" && isFinite(now) ? now : Date.now();
+    if (!isFinite(then)) return STRINGS.justNow;
+    const seconds = Math.max(0, Math.floor((ref - then) / 1000));
+    if (seconds < 60) return STRINGS.justNow;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return fmt(STRINGS.minutesAgo, { n: minutes });
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return fmt(STRINGS.hoursAgo, { n: hours });
+    return fmt(STRINGS.daysAgo, { n: Math.floor(hours / 24) });
+  }
+
   return {
     STRINGS,
     FACTORS,
     LOW_COVERAGE_MAX_PHOTOS,
+    fmt,
     safeScore,
     scoreClass,
     factorBars,
     photoCountLabel,
     lowCoverage,
+    timeAgo,
   };
 });

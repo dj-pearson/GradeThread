@@ -121,6 +121,9 @@ Store distribution + the install/click funnel is US-1757.
 | `selectors.js` | Bundled default adapter config (`GT_CC_CONFIG`) for all six marketplaces |
 | `content/image-utils.cjs` | Pure, testable helpers: URL upgrade, adapter resolution, detail-page detection (dual-use node/browser) |
 | `content/marketplace.js` | Generic content script: resolve adapter → detect → extract → overlay → states |
-| `overlay.css` | Injected overlay styles (reset-hardened, brand-colored) |
+| `content/condition-format.js` | Pure result formatting + the single UI-string table (`STRINGS`, ready for `_locales`) |
+| `content/overlay-host.js` | Mounts the overlay in a SHADOW ROOT so a marketplace's CSS cannot reach it (US-1884) |
+| `content/overlay-css.js` | GENERATED from `overlay.css` — `node scripts/gen-extension-overlay-css.mjs` |
+| `overlay.css` | The authored overlay styles. Not injected by the manifest: the shadow root adopts the generated copy above |
 | `popup.{html,css,js}` | Recent reads + settings + sign-in |
 | `test/image-utils.test.cjs` | `node extension-condition/test/image-utils.test.cjs` |

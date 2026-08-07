@@ -1,16 +1,30 @@
 /* GradeThread Condition Check — injected overlay styles (US-1755)
  *
- * Scoped under .gt-cc-root and reset-hardened so eBay's page styles don't bleed
- * in. Fixed bottom-right, high z-index, non-intrusive, brand-colored. */
+ * THIS FILE IS THE AUTHORED SOURCE, NOT A SHIPPED ASSET (US-1884 AC4).
+ *
+ * The overlay and the scan badges each mount inside a SHADOW ROOT
+ * (research/overlay-host.js), and a document stylesheet cannot cross that
+ * boundary — which is precisely why the shadow root hardens us against a
+ * marketplace's CSS. So this sheet is compiled into research/overlay-css.js and
+ * adopted into each shadow tree by the content script itself. Edit here, then
+ * run:
+ *
+ *     node scripts/gen-extension-overlay-css.mjs
+ *
+ * (test/overlay-shadow.test.cjs fails the build if you forget.)
+ *
+ * Everything below therefore lives inside a shadow root, where the page's CSS
+ * cannot reach it. Positioning, width and stacking are NOT here: they belong to
+ * the host element, which is the one node the page can still select, so they are
+ * inline `!important` declarations in overlay-host.js (OVERLAY_HOST_STYLE /
+ * BADGE_HOST_STYLE) — the top of the author cascade, which no page rule can
+ * outrank. */
 
 #gt-cc-overlay.gt-cc-root {
   all: initial;
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 2147483000; /* below the max so native dialogs still win */
-  width: 300px;
-  max-width: calc(100vw - 40px);
+  display: block;
+  width: 100%;
+  box-sizing: border-box; /* `all: initial` reset it; the 1px border must fit */
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: #1a1a2e;
   background: #ffffff;
@@ -201,10 +215,11 @@
 /* US-2237 — scan-mode badges on marketplace SEARCH result cards.
  *
  * These are NOT inside #gt-cc-overlay: they are appended into the marketplace's
- * own result tiles, so they sit in the middle of someone else's cascade. Hence
- * `all: initial` on the row and every property re-declared on the children —
- * the same reset-hardening the overlay root uses, applied per element because
- * there is no container of ours to scope under.
+ * own result tiles, so they sit in the middle of someone else's cascade. Since
+ * US-1884 each row is its own SHADOW ROOT (createBadgeHost), so the page's rules
+ * cannot reach these children at all; `all: initial` on the row remains because
+ * INHERITED properties (font, colour, line-height) still pass through a shadow
+ * boundary from the tile above it.
  *
  * Deliberately flat: one tint per chip, no border, no shadow. A badge that
  * competes visually with the marketplace's own price/condition text reads as an

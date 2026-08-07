@@ -128,10 +128,9 @@
         "research/flip-format.js",
         "research/seller-memory.js",
         "research/compare-tray.js",
+        "research/overlay-css.js",
+        "research/overlay-host.js",
         "research/marketplace.js"
-      ],
-      "css": [
-        "research/overlay.css"
       ],
       "run_at": "document_idle"
     },

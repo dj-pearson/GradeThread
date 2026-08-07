@@ -25,6 +25,8 @@
 
   const IMG = self.GT_CC_IMG; // pure helpers (research/image-utils.js)
   const FMT = self.GT_CC_FMT; // US-1884: pure result-formatting (condition-format.js)
+  const SHADOW = self.GT_CC_SHADOW; // US-1884 (AC4): shadow-root mounting (overlay-host.js)
+  const CSS = self.GT_CC_CSS; // US-1884 (AC4): the sheet, generated from overlay.css
   const SCAN = self.GT_CC_SCAN; // US-2237: pure scan helpers (scan-format.js)
   const FLIP = self.GT_CC_FLIP; // US-2238: pure flip-mode formatting (flip-format.js)
   const SELLER = self.GT_CC_SELLER; // US-2239: pure seller aggregation (seller-memory.js)
@@ -46,7 +48,10 @@
   // filter change) doesn't stack a second badge on the same tile.
   const SCAN_MARK = "data-gt-cc-scanned";
 
-  if (!IMG || !DEFAULT_CFG) return; // dependencies failed to load — bail quietly
+  // Bail quietly if any dependency failed to load. SHADOW/CSS are in this list
+  // because without them the overlay would mount naked in the page's DOM — the
+  // exact site-CSS bleed US-1884 closed — so no overlay is the better failure.
+  if (!IMG || !DEFAULT_CFG || !SHADOW || !CSS) return;
 
   let CFG = DEFAULT_CFG;
   let adapter = null;
@@ -129,15 +134,11 @@
     }
   }
 
-  function timeAgo(ts) {
-    const s = Math.max(0, Math.floor((Date.now() - Number(ts)) / 1000));
-    if (s < 60) return "just now";
-    const m = Math.floor(s / 60);
-    if (m < 60) return m + "m ago";
-    const h = Math.floor(m / 60);
-    if (h < 24) return h + "h ago";
-    return Math.floor(h / 24) + "d ago";
-  }
+  // US-1884 (AC5): every user-facing string is FMT.STRINGS, substituted through
+  // FMT.fmt — one table for a future _locales pass. `S`/`T` are the short aliases
+  // used throughout the render functions below.
+  const S = FMT.STRINGS;
+  const T = FMT.fmt;
 
   // ── extraction (adapter-driven) ─────────────────────────────────────────
   function firstText(selectors) {
@@ -257,13 +258,20 @@
 
   function mountRoot() {
     removeOverlay();
-    const root = el("div", "gt-cc-root");
-    root.id = OVERLAY_ID;
-    root.setAttribute("dir", "ltr");
+    // US-1884 (AC4): the overlay's nodes live in a SHADOW ROOT. A marketplace's
+    // stylesheet cannot select into a shadow tree, so the hardening is a property
+    // of WHERE these nodes are — not of a per-element reset someone has to
+    // remember on every future child. See research/overlay-host.js.
+    const mounted = SHADOW.createOverlayHost(document, OVERLAY_ID, CSS);
+    const host = mounted.host;
+    host.setAttribute("dir", "ltr");
     // US-1884 (AC3): announce loading→result/error transitions to assistive tech.
-    root.setAttribute("role", "status");
-    root.setAttribute("aria-live", "polite");
-    document.body.appendChild(root);
+    // On the HOST, in the page's own tree, so the live region is where a screen
+    // reader is already watching.
+    host.setAttribute("role", "status");
+    host.setAttribute("aria-live", "polite");
+    document.body.appendChild(host);
+    const root = mounted.root;
     // US-1884 (AC3): Escape closes the overlay. Capture phase so a site's own key
     // handlers can't swallow it; one listener per mounted overlay.
     escHandler = function (e) {
@@ -281,10 +289,10 @@
   function header() {
     const bar = el("div", "gt-cc-head");
     bar.appendChild(el("span", "gt-cc-brand", "GradeThread"));
-    bar.appendChild(el("span", "gt-cc-badge", "condition check"));
+    bar.appendChild(el("span", "gt-cc-badge", S.overlayBadge));
     const close = el("button", "gt-cc-close");
     close.setAttribute("type", "button");
-    close.setAttribute("aria-label", "Close GradeThread condition check");
+    close.setAttribute("aria-label", S.closeLabel);
     close.textContent = "×"; // ×
     // US-1878 (AC3): dismissing mid-grade must invalidate the in-flight read, or
     // the response lands a few seconds later and RESURRECTS an overlay the shopper
@@ -316,11 +324,11 @@
 
   function renderLauncher() {
     renderState((body) => {
-      const label = (adapter && adapter.label) || "this listing";
-      body.appendChild(el("p", "gt-cc-lead", "Independent AI condition read on this " + label + " listing."));
+      const label = (adapter && adapter.label) || S.launcherTargetFallback;
+      body.appendChild(el("p", "gt-cc-lead", T(S.launcherLead, { marketplace: label })));
       const btn = el("button", "gt-cc-cta");
       btn.setAttribute("type", "button");
-      btn.textContent = "Get condition read";
+      btn.textContent = S.launcherCta;
       btn.addEventListener("click", () => runGrade());
       body.appendChild(btn);
     });
@@ -331,7 +339,7 @@
       const spin = el("div", "gt-cc-spin");
       spin.setAttribute("aria-hidden", "true");
       body.appendChild(spin);
-      body.appendChild(el("p", "gt-cc-lead", "Reading the listing photos…"));
+      body.appendChild(el("p", "gt-cc-lead", S.loading));
     });
   }
 
@@ -349,7 +357,7 @@
       // not a fresh (and possibly different) roll. "Re-read" below forces a new one.
       if (savedAt) {
         body.appendChild(
-          el("p", "gt-cc-saved", "Saved read · " + timeAgo(savedAt) + " — same grade as before.")
+          el("p", "gt-cc-saved", T(S.savedRead, { when: FMT.timeAgo(savedAt) }))
         );
       }
 
@@ -370,7 +378,7 @@
 
       if (Number(data.confidence || 0) < 0.75) {
         body.appendChild(
-          el("p", "gt-cc-note", "Low confidence from listing photos — grade it properly for a reliable read.")
+          el("p", "gt-cc-note", S.lowConfidence)
         );
       }
 
@@ -380,7 +388,7 @@
       if (FMT) {
         var bars = FMT.factorBars(data.factorScores);
         if (bars.length) {
-          body.appendChild(el("p", "gt-cc-factors-h", FMT.STRINGS.factorsHeading));
+          body.appendChild(el("p", "gt-cc-factors-h", S.factorsHeading));
           var flist = el("div", "gt-cc-factors");
           for (var bi = 0; bi < bars.length; bi++) {
             var bar = bars[bi];
@@ -400,7 +408,7 @@
         var pc = FMT.photoCountLabel(data.imagesAnalyzed);
         if (pc) body.appendChild(el("p", "gt-cc-photocount", pc));
         if (FMT.lowCoverage(data.imagesAnalyzed)) {
-          body.appendChild(el("p", "gt-cc-note", FMT.STRINGS.lowCoverageNudge));
+          body.appendChild(el("p", "gt-cc-note", S.lowCoverageNudge));
         }
       }
 
@@ -418,16 +426,19 @@
       var disc = data.discrepancy;
       if (disc && disc.signal && disc.signal !== "unknown") {
         var DISC = {
-          over_graded: ["gt-cc-disc-bad", "⚠ Seller may be over-grading"],
-          mild_gap: ["gt-cc-disc-warn", "Slightly better than photos support"],
-          match: ["gt-cc-disc-ok", "✓ Matches the seller's stated condition"],
+          over_graded: ["gt-cc-disc-bad", S.discOverGraded],
+          mild_gap: ["gt-cc-disc-warn", S.discMildGap],
+          match: ["gt-cc-disc-ok", S.discMatch],
         };
         var d = DISC[disc.signal];
         if (d) {
           var node = el("p", "gt-cc-disc " + d[0], d[1]);
           if (disc.signal !== "match" && disc.claimedGrade != null) {
-            node.textContent = d[1] + " (photos ≈ " + Number(disc.objectiveGrade).toFixed(1) +
-              " vs claimed ≈ " + Number(disc.claimedGrade).toFixed(1) + ")";
+            node.textContent = T(S.discDetail, {
+              verdict: d[1],
+              objective: Number(disc.objectiveGrade).toFixed(1),
+              claimed: Number(disc.claimedGrade).toFixed(1),
+            });
           }
           body.appendChild(node);
         }
@@ -438,15 +449,18 @@
       var val = data.value;
       if (pf && pf.verdict && pf.verdict !== "unknown" && val) {
         var PF = {
-          low: ["gt-cc-disc-ok", "✓ Priced below fair value — a deal"],
-          fair: ["gt-cc-disc-ok", "Priced fairly for its condition"],
-          high: ["gt-cc-disc-bad", "⚠ Priced above fair value"],
+          low: ["gt-cc-disc-ok", S.priceLow],
+          fair: ["gt-cc-disc-ok", S.priceFair],
+          high: ["gt-cc-disc-bad", S.priceHigh],
         };
         var p = PF[pf.verdict];
         if (p) {
           var fairLine = el("p", "gt-cc-disc " + p[0], p[1]);
           if (typeof pf.deltaPct === "number") {
-            fairLine.textContent = p[1] + " (" + (pf.deltaPct > 0 ? "+" : "") + pf.deltaPct + "% vs typical)";
+            fairLine.textContent = T(S.priceDetail, {
+              verdict: p[1],
+              delta: (pf.deltaPct > 0 ? "+" : "") + pf.deltaPct,
+            });
           }
           body.appendChild(fairLine);
         }
@@ -464,14 +478,16 @@
       if (Array.isArray(data.fraudFlags) && data.fraudFlags.length) {
         for (var i = 0; i < data.fraudFlags.length; i++) {
           var ff = data.fraudFlags[i];
-          if (ff && ff.label) body.appendChild(el("p", "gt-cc-disc gt-cc-disc-bad", "⚑ " + ff.label));
+          if (ff && ff.label) {
+            body.appendChild(el("p", "gt-cc-disc gt-cc-disc-bad", T(S.fraudFlag, { label: ff.label })));
+          }
         }
       }
 
       // US-1837: coverage-gap "request the missing photos" macro + watch handoff.
       var cg = data.coverageGap;
       if (cg && Array.isArray(cg.recommendedPhotos) && cg.recommendedPhotos.length) {
-        body.appendChild(el("p", "gt-cc-note", "For a confident grade, ask the seller for:"));
+        body.appendChild(el("p", "gt-cc-note", S.askSellerFor));
         var ul = el("ul", "gt-cc-photos");
         for (var k = 0; k < cg.recommendedPhotos.length; k++) {
           ul.appendChild(el("li", null, String(cg.recommendedPhotos[k])));
@@ -480,20 +496,20 @@
         var actions = el("div", "gt-cc-actions");
         var copyBtn = el("button", "gt-cc-secondary");
         copyBtn.setAttribute("type", "button");
-        copyBtn.textContent = "Copy photo request";
+        copyBtn.textContent = S.copyPhotoRequest;
         copyBtn.addEventListener("click", function () {
           try {
             navigator.clipboard.writeText(String(cg.message || ""));
-            copyBtn.textContent = "Copied — paste it to the seller";
+            copyBtn.textContent = S.copyPhotoRequestDone;
           } catch (_e) {
-            copyBtn.textContent = "Couldn't copy — select the list above";
+            copyBtn.textContent = S.copyPhotoRequestFailed;
           }
         });
         actions.appendChild(copyBtn);
         // Auth-free watch: hand off to the logged-in buyer app, which does the
         // tenant-scoped write (US-1806). No automated messaging.
         var watch = el("a", "gt-cc-secondary");
-        watch.textContent = "Watch on GradeThread";
+        watch.textContent = S.watchOnGradeThread;
         // US-1753 AC3: this is the highest-intent click in the overlay and it
         // shipped untagged, so every account it created was filed as "direct"
         // traffic. It goes through the shared tagger now like the rest.
@@ -510,7 +526,7 @@
       // US-1839: inline "will it fit me?" (Guard+ entitlement) — deep-links to the
       // fit surface, which uses the buyer's saved body profile.
       if (data.fit && data.fit.available && data.fit.deepLink) {
-        var fitLink = el("a", "gt-cc-link", "Will it fit you? →");
+        var fitLink = el("a", "gt-cc-link", S.fitLink);
         // Server-built (public-grading.ts) and already carries its own medium;
         // decorate() fills in only what is missing — the version cohort — and
         // never overwrites the medium the server chose.
@@ -523,7 +539,7 @@
       // US-1838: anonymous → prompt sign-in to unlock the paid signals.
       if (data.signupPrompt && data.signupPrompt.url) {
         body.appendChild(el("p", "gt-cc-note", String(data.signupPrompt.message || "")));
-        var su = el("a", "gt-cc-link", "Sign in / upgrade →");
+        var su = el("a", "gt-cc-link", S.signInPrompt);
         su.href = ATTR.decorate(data.signupPrompt.url, "overlay");
         su.target = "_blank";
         su.rel = "noopener noreferrer";
@@ -533,7 +549,7 @@
       body.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || "")));
 
       if (data.deepLink) {
-        const a = el("a", "gt-cc-link", "Grade it properly →");
+        const a = el("a", "gt-cc-link", S.gradeProperly);
         a.href = ATTR.decorate(data.deepLink, "overlay");
         a.target = "_blank";
         a.rel = "noopener noreferrer";
@@ -542,7 +558,7 @@
 
       const again = el("button", "gt-cc-secondary");
       again.setAttribute("type", "button");
-      again.textContent = "Re-read";
+      again.textContent = S.reread;
       again.addEventListener("click", () => runGrade());
       body.appendChild(again);
 
@@ -634,13 +650,13 @@
     const wrap = el("div", "gt-cc-actions");
     const btn = el("button", "gt-cc-secondary");
     btn.setAttribute("type", "button");
-    btn.textContent = "Check my alerts";
+    btn.textContent = S.alertsCheck;
     const note = el("p", "gt-cc-note");
     note.hidden = true;
 
     btn.addEventListener("click", async () => {
       btn.disabled = true;
-      btn.textContent = "Checking…";
+      btn.textContent = S.alertsChecking;
       const res = await send({
         type: "GT_CC_INGEST",
         // The URL snapshotted at RENDER time, like the pin path — nothing inside
@@ -656,22 +672,22 @@
       note.hidden = false;
       if (!res || !res.ok) {
         btn.disabled = false;
-        btn.textContent = "Check my alerts";
-        note.textContent = (res && res.error) || "Couldn't check your alerts right now.";
+        btn.textContent = S.alertsCheck;
+        note.textContent = (res && res.error) || S.alertsFailed;
         return;
       }
       const matches = (res.data && res.data.matches) || [];
-      btn.textContent = "Checked";
+      btn.textContent = S.alertsChecked;
       if (!matches.length) {
         // Said plainly. "No matches" is a real, useful answer here — it means
         // the shopper can stop wondering whether they set the alert up right.
-        note.textContent = "This one doesn't match any of your alerts.";
+        note.textContent = S.alertsNoMatch;
         return;
       }
       const names = matches.map((m) => m && m.label).filter(Boolean).join(", ");
       note.textContent = matches.length === 1
-        ? `Matches your alert: ${names}`
-        : `Matches ${matches.length} of your alerts: ${names}`;
+        ? T(S.alertsMatchOne, { names: names })
+        : T(S.alertsMatchMany, { count: matches.length, names: names });
     });
 
     wrap.appendChild(btn);
@@ -728,7 +744,7 @@
     renderFlip((host) => {
       host.appendChild(el("p", "gt-cc-note", message));
       if (opts && opts.upgradeUrl) {
-        const up = el("a", "gt-cc-link", "See FlipDesk plans →");
+        const up = el("a", "gt-cc-link", S.flipPlans);
         up.href = ATTR.decorate(opts.upgradeUrl, "flip");
         up.target = "_blank";
         up.rel = "noopener noreferrer";
@@ -737,7 +753,7 @@
       if (opts && opts.retry) {
         const again = el("button", "gt-cc-secondary");
         again.setAttribute("type", "button");
-        again.textContent = "Try again";
+        again.textContent = S.tryAgain;
         again.addEventListener("click", () => runAppraise());
         host.appendChild(again);
       }
@@ -767,7 +783,7 @@
 
       const again = el("button", "gt-cc-secondary");
       again.setAttribute("type", "button");
-      again.textContent = "Re-check";
+      again.textContent = S.flipRecheck;
       again.addEventListener("click", () => runAppraise());
       host.appendChild(again);
     });
@@ -826,7 +842,7 @@
       if (canRetry) {
         const retry = el("button", "gt-cc-cta");
         retry.setAttribute("type", "button");
-        retry.textContent = "Try again";
+        retry.textContent = S.tryAgain;
         retry.addEventListener("click", () => runGrade());
         body.appendChild(retry);
       }
@@ -910,7 +926,7 @@
       // AC5 first: the honest degrade is rendered unconditionally and never
       // depends on telemetry succeeding, being consented to, or being reachable.
       renderError(
-        "Couldn't find this listing's photos. The site may have changed its layout — try reloading.",
+        S.errNoPhotos,
         true
       );
       reportSelectorMiss(title, brand);
@@ -950,7 +966,7 @@
 
     grading = false;
     if (!res) {
-      renderError("Something interrupted the read. Try again in a moment.", true);
+      renderError(S.errInterrupted, true);
       return;
     }
     if (res.ok && res.data) {
@@ -986,15 +1002,15 @@
       return;
     }
     if (res.status === 429) {
-      renderError(res.error || "You've hit the free read limit for now. Try again later.", false);
+      renderError(res.error || S.errQuota, false);
       return;
     }
     // US-1883 (AC3): 503 capacity signal → NON-retryable "at capacity" state.
     if (res.status === 503 || res.code === "at_capacity" || res.retryable === false) {
-      renderError(res.error || "GradeThread is at capacity right now. Try again later.", false);
+      renderError(res.error || S.errCapacity, false);
       return;
     }
-    renderError(res.error || "Couldn't grade this listing right now.", true);
+    renderError(res.error || S.errGeneric, true);
   }
 
   // ── scan mode: the search-results grid (US-2237) ─────────────────────────
@@ -1079,8 +1095,14 @@
     if (!badge) return; // nothing honest to say about this card
     card.node.setAttribute(SCAN_MARK, "1");
 
-    const wrap = el("div", "gt-cc-badge-row " + badge.cls);
-    wrap.setAttribute("dir", "ltr");
+    // US-1884 (AC4): a badge is the most hostile thing we render — it sits
+    // INSIDE a marketplace's own result tile, with the site's cascade all around
+    // it. So it gets its own shadow root; the tile's stylesheet cannot reach the
+    // chips at all, and every badge on the page adopts the SAME constructable
+    // sheet rather than carrying its own copy.
+    const mountedBadge = SHADOW.createBadgeHost(document, CSS, badge.cls);
+    const wrap = mountedBadge.root;
+    mountedBadge.host.setAttribute("dir", "ltr");
     for (const part of badge.parts) {
       wrap.appendChild(el("span", "gt-cc-badge-chip " + part.cls, part.text));
     }
@@ -1088,7 +1110,7 @@
     // shopper turns it into an actual condition read.
     const open = el("button", "gt-cc-badge-cta");
     open.setAttribute("type", "button");
-    open.textContent = "Read condition";
+    open.textContent = S.badgeCta;
     open.title = SCAN.STRINGS.footnote;
     open.addEventListener("click", function (e) {
       // The tile is a link on most grids; badging inside it means a click would
@@ -1100,7 +1122,7 @@
     wrap.appendChild(open);
 
     try {
-      card.node.appendChild(wrap);
+      card.node.appendChild(mountedBadge.host);
     } catch (_e) { /* detached node (the grid re-rendered) — drop this badge */ }
   }
 

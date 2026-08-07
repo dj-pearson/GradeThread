@@ -61,7 +61,14 @@ popup.html/js/css    role-aware popup (US-1885)
 onboarding.html      first-run page opened on install (US-1885 AC4)
 research/            buyer overlay  (selectors.js, image-utils.js, condition-format.js,
                      scan-format.js, flip-format.js, seller-memory.js,
-                     compare-tray.js, marketplace.js, overlay.css)
+                     compare-tray.js, overlay-host.js, overlay-css.js,
+                     marketplace.js, overlay.css)
+                     overlay-host.js mounts the overlay and each scan badge in a
+                     SHADOW ROOT, so a marketplace's stylesheet cannot reach them
+                     (US-1884). overlay.css is the authored source; overlay-css.js
+                     is GENERATED from it by
+                     `node scripts/gen-extension-overlay-css.mjs` and is what the
+                     shadow roots adopt — the manifest injects no document CSS.
 compare.html/js/css  the side-by-side view for the pinned tray (US-2240)
 lister/              seller Lister  (selectors.js, lister-guard.js, common.js, poshmark/mercari/grailed.js)
 icons/               shared icon set
