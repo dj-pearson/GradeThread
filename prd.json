@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2415",
+  "nextId": "US-2419",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2701,6 +2701,74 @@
         "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
       ],
       "priority": 2386
+    },
+    {
+      "id": "US-2415",
+      "passes": false,
+      "title": "Prod Postgres + storage host has no full-disk encryption — a pulled or reclaimed VPS disk is readable plaintext",
+      "description": "As GradeThread, we want the block device holding prod Postgres and the Supabase storage volume to be encrypted at rest, so that a decommissioned, snapshotted or physically seized Contabo disk does not hand over every grade, user address, credit ledger row and garment photo in plaintext.",
+      "acceptanceCriteria": [
+        "The prod host's Postgres data directory and the Supabase storage volume (STORAGE_DIR=/var/lib/supabase/storage, per vault/10-ops/backups.md:75) both sit on a LUKS-encrypted block device — verified by 'lsblk -o NAME,FSTYPE,MOUNTPOINT' showing crypto_LUKS under the mountpoint, not by reading a runbook.",
+        "The LUKS passphrase/keyfile is stored in the same secrets manager as the other prod secrets and is listed in vault/10-ops/key-rotation.md's rotation table with its rotation procedure, alongside EDGE_ENCRYPTION_KEY.",
+        "A documented unlock path exists for unattended reboot (keyfile on a separate volume, or clevis/tang, or an explicit 'operator must unlock manually' decision) and vault/10-ops/incident-response.md records what happens to uptime if the host reboots while nobody is available to unlock.",
+        "vault/10-ops/deploy.md gains a section stating the encryption status of the prod volumes, so a future operator rebuilding the host does not silently recreate it unencrypted.",
+        "SECURITY.md's at-rest paragraph (currently line 44, which claims only 'Marketplace OAuth tokens are encrypted at rest') is updated to state the volume-level posture accurately — either encrypted, or explicitly not."
+      ],
+      "priority": 1970
+    },
+    {
+      "id": "US-2416",
+      "passes": false,
+      "title": "Offsite backups are uploaded unencrypted — R2 credentials alone yield a full plaintext database dump",
+      "description": "As GradeThread, we want every backup artifact encrypted with a key we hold before it leaves the host, so that compromise of the Cloudflare R2 bucket or its rclone credentials does not expose the entire production database and every uploaded garment photo.",
+      "acceptanceCriteria": [
+        "scripts/ops/backup-postgres.sh encrypts the pg_dump artifact with a key held by GradeThread (age or gpg) BEFORE the 'rclone copy' at line 55, so the object landing in r2:gradethread-backups/pg is ciphertext. R2's own server-side encryption does not satisfy this AC — the threat model is a leaked R2 credential, which server-side encryption is transparent to.",
+        "The .sha256 sidecar (backup-postgres.sh:50) is computed over the ENCRYPTED artifact, so the existing 'dump plus its .sha256 in the last 24h' offsite check from vault/10-ops/backups.md:50 still verifies what is actually stored.",
+        "scripts/ops/backup-storage.sh either encrypts the storage mirror or the runbook explicitly records the decision not to, with the reason — an rclone sync of the raw storage volume today exposes every submission image, including grading label photos, to anyone with the R2 credential.",
+        "scripts/ops/restore-postgres.sh and restore-drill.sh decrypt before pg_restore, and a restore drill against an ENCRYPTED artifact passes and is recorded in the drill table at vault/10-ops/backups.md:162 — an encryption change that breaks restore is worse than no encryption.",
+        "The backup encryption key is added to vault/10-ops/key-rotation.md's rotation table with a stated procedure, and the procedure covers the window where old ciphertext in the 30-day-retention bucket was written under the previous key.",
+        "vault/10-ops/backups.md documents that losing the backup key means losing every backup, and names where the key is stored (a reference, never the value)."
+      ],
+      "priority": 1972,
+      "dependsOn": [
+        "US-2002"
+      ]
+    },
+    {
+      "id": "US-2417",
+      "passes": false,
+      "title": "Postal addresses and phone numbers are stored as plaintext columns while OAuth tokens next to them are AES-GCM encrypted",
+      "description": "As a reseller, I want my home or business street address stored encrypted the same way my marketplace tokens are, so that a single leaked database dump or a SQL-injection read does not hand an attacker a mailing list of resellers with valuable inventory at those addresses.",
+      "acceptanceCriteria": [
+        "public.users.ship_from_address (jsonb, added by 00325_user_business_shipping_profile.sql) and public.users.business_phone are stored as AES-256-GCM ciphertext produced by services/edge-functions/src/lib/crypto-aes.ts encryptToken(), with the owning user id passed as the aad option so a ciphertext copied onto another user's row fails to decrypt (US-268 tenant binding, same pattern as the marketplace token columns).",
+        "public.measure_card_requests street fields (ship_name, address_line1, address_line2, city, postal_code — added by 00351_measure_card_requests.sql) are encrypted the same way, keyed to owner_user_id. state and country stay plaintext so the fulfillment export can still filter and sort by region without decrypting every row.",
+        "A migration ships the US-1108 triple: idempotent SQL (safe to re-run on any prior state), EXPECTED_SCHEMA_VERSION bumped in services/edge-functions/src/lib/schema-version.ts in the SAME commit, and the self-record footer inserting its version into public.applied_migrations.",
+        "The migration backfills existing plaintext rows to ciphertext, and the read path tolerates both during the rollout — a row that does not parse as v1:/v2: is returned as-is rather than throwing, so a partial backfill cannot 500 the Settings page.",
+        "Every edge route that reads or writes these columns decrypts/encrypts at the boundary and stays tenant-scoped per US-268, with a case added to services/edge-functions/src/tests/tenant-isolation_test.ts.",
+        "The eBay ship-from location prefill (US-1442's original consumer) still populates correctly end to end after the change — verified against the flipdesk-ebay.ts path that consumes ship_from_address, not just by unit test.",
+        "A test asserts that decrypting a ship_from_address ciphertext with a DIFFERENT user id as aad throws, proving the tenant binding is real."
+      ],
+      "priority": 1990
+    },
+    {
+      "id": "US-2418",
+      "passes": false,
+      "title": "No single source of truth for what is encrypted at rest — enterprise security questionnaires cannot be answered without re-auditing the repo",
+      "description": "As GradeThread selling to an enterprise reseller, we want one maintained note that states exactly which data is encrypted at rest, how, and with which key, so that a security questionnaire is answered from a document instead of from a fresh code audit that risks overstating the posture.",
+      "acceptanceCriteria": [
+        "A vault note at vault/10-ops/encryption-at-rest.md follows vault/CONTRACT.md schema and passes 'npm run vault:lint --strict', and is linked from vault/00-index/moc-ops.md.",
+        "The note carries a table of every store holding customer data — Postgres volume, Supabase storage buckets submission-images and item-photos, offsite R2 backups — with its at-rest state, the mechanism, and the key reference (a pointer to where the key lives, NEVER a key value).",
+        "The note lists the application-layer encrypted columns by table and column name (marketplace_connections access_token_enc/refresh_token_enc and the other connector tables, plus whatever US-2417 adds) and separately lists the hash-only columns that are NOT reversible: api_keys.key_hash, mfa_recovery_codes.code_hash.",
+        "The note states honestly what is NOT encrypted at the column level and why that is acceptable given the volume-level control — an omission a reviewer discovers themselves costs more than a disclosed gap.",
+        "SECURITY.md links to the note rather than restating it, so the two cannot drift.",
+        "The note names the compliance posture as it actually is: no SOC 2 attestation today, DPA and subprocessor list published (US-523), no customer-managed keys (BYOK). No aspirational claims."
+      ],
+      "priority": 2050,
+      "dependsOn": [
+        "US-2415",
+        "US-2416",
+        "US-2417"
+      ]
     }
   ]
 }
