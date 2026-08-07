@@ -75,6 +75,17 @@ enum class PushCategory(
     }
 }
 
+// Mirrors android.app.NotificationManager, without importing it, so the mapping
+// stays unit-testable on a plain JVM.
+//
+// These live OUTSIDE PushChannel rather than in its companion: an enum's
+// entries are constructed before its companion is initialized, so referring to
+// a companion constant from an entry's constructor argument does not compile
+// ("Companion object of enum class 'PushChannel' is uninitialized here").
+const val IMPORTANCE_LOW = 2
+const val IMPORTANCE_DEFAULT = 3
+const val IMPORTANCE_HIGH = 4
+
 /**
  * The notification channels, in the order they appear in system settings.
  *
@@ -107,14 +118,6 @@ enum class PushChannel(
 
     /** Only the urgent channel asks to cut through Do Not Disturb. */
     val bypassDnd: Boolean get() = this == URGENT
-
-    companion object {
-        // Mirrors android.app.NotificationManager, without importing it, so the
-        // mapping is unit-testable on a plain JVM.
-        const val IMPORTANCE_LOW = 2
-        const val IMPORTANCE_DEFAULT = 3
-        const val IMPORTANCE_HIGH = 4
-    }
 }
 
 /**

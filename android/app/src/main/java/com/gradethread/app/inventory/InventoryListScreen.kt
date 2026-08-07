@@ -448,13 +448,16 @@ private fun InventoryRow(
         // the denormalized cover lags the real set, so a freshly-photographed
         // item would wrongly read as "no photos".
         if (!hasPhotos) {
+            // Resolved out here: `semantics { }` is not a composable scope, so
+            // a stringResource call inside it does not compile.
+            val spoken = stringResource(R.string.inventorylist_no_photos_yet)
             Text(
                 text = stringResource(R.string.inventorylist_no_photos),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier
                     .padding(end = Spacing.xs)
-                    .semantics { contentDescription = stringResource(R.string.inventorylist_no_photos_yet) },
+                    .semantics { contentDescription = spoken },
             )
         }
         // US-1336: the grade entry point. Offered only where it can succeed —

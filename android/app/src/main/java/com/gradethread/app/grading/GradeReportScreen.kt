@@ -160,6 +160,13 @@ fun GradeReportScreen(
 
 @Composable
 private fun Header(loaded: LoadedGradeReport) {
+    // Resolved out here: `semantics { }` is not a composable scope, so a
+    // stringResource call inside it does not compile.
+    val spoken = stringResource(
+        R.string.gradereport_overall_spoken,
+        score(loaded.report.overallScore),
+        loaded.report.gradeTier,
+    )
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             score(loaded.report.overallScore),
@@ -167,13 +174,7 @@ private fun Header(loaded: LoadedGradeReport) {
             color = gradeColor(loaded.report.overallScore),
             modifier = Modifier
                 .padding(end = Spacing.sm)
-                .semantics {
-                    contentDescription = stringResource(
-                        R.string.gradereport_overall_spoken,
-                        score(loaded.report.overallScore),
-                        loaded.report.gradeTier,
-                    )
-                },
+                .semantics { contentDescription = spoken },
         )
         Column(Modifier.weight(1f)) {
             loaded.itemTitle?.takeIf { it.isNotBlank() }?.let {
@@ -199,15 +200,15 @@ private fun FactorBreakdown(report: GradeReportDto) {
         )
         GradeFactor.entries.forEach { factor ->
             val value = factor.score(report)
+            // See Header: `semantics { }` is not a composable scope.
+            val spoken = stringResource(
+                R.string.gradereport_factor_spoken,
+                factor.label,
+                factor.weightLabel,
+                score(value),
+            )
             Column(
-                Modifier.fillMaxWidth().semantics {
-                    contentDescription = stringResource(
-                        R.string.gradereport_factor_spoken,
-                        factor.label,
-                        factor.weightLabel,
-                        score(value),
-                    )
-                },
+                Modifier.fillMaxWidth().semantics { contentDescription = spoken },
             ) {
                 Row(Modifier.fillMaxWidth()) {
                     Text(

@@ -207,14 +207,14 @@ private fun PhotoTile(
     onSetCover: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    // Resolved out here: `semantics { }` is not a composable scope, so a
+    // stringResource call inside it does not compile.
+    val spoken = stringResource(
+        if (isCover) R.string.photos_spoken_cover else R.string.photos_spoken,
+        photo.photoType,
+    )
     Column(
-        Modifier.width(120.dp).semantics {
-            contentDescription = if (isCover) {
-                stringResource(R.string.photos_spoken_cover, photo.photoType)
-            } else {
-                stringResource(R.string.photos_spoken, photo.photoType)
-            }
-        },
+        Modifier.width(120.dp).semantics { contentDescription = spoken },
     ) {
         Box {
             AsyncImage(

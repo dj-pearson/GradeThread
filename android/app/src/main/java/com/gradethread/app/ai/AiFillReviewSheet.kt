@@ -222,17 +222,18 @@ private fun AppliedRow(
         field.field,
         FieldSuggestion(field.value, field.confidence, field.source),
     )
+    // Resolved out here: `semantics { }` is not a composable scope, so a
+    // stringResource call inside it does not compile.
+    val spoken = stringResource(
+        R.string.aifill_field_spoken,
+        label.displayLabel,
+        field.value,
+        stringResource(if (checked) R.string.aifill_kept else R.string.aifill_will_undo),
+    )
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().semantics {
-                contentDescription = stringResource(
-                    R.string.aifill_field_spoken,
-                    label.displayLabel,
-                    field.value,
-                    stringResource(
-                        if (checked) R.string.aifill_kept else R.string.aifill_will_undo,
-                    ),
-                )
+                contentDescription = spoken
             },
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -269,18 +270,20 @@ private fun SuggestionRow(
     onToggle: (Boolean) -> Unit,
 ) {
     val percent = (entry.clampedConfidence * 100).roundToInt()
+    // See AppliedRow: `semantics { }` is not a composable scope.
+    val spoken = stringResource(
+        R.string.aifill_suggestion_spoken,
+        entry.displayLabel,
+        entry.suggestion.value,
+        entry.sourceLabel,
+        percent,
+        stringResource(
+            if (checked) R.string.aifill_accepted else R.string.aifill_not_accepted,
+        ),
+    )
     Row(
         modifier = Modifier.fillMaxWidth().semantics {
-            contentDescription = stringResource(
-                R.string.aifill_suggestion_spoken,
-                entry.displayLabel,
-                entry.suggestion.value,
-                entry.sourceLabel,
-                percent,
-                stringResource(
-                    if (checked) R.string.aifill_accepted else R.string.aifill_not_accepted,
-                ),
-            )
+            contentDescription = spoken
         },
         verticalAlignment = Alignment.CenterVertically,
     ) {

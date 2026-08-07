@@ -113,7 +113,7 @@ fun DisclosureScreen(
                                 state.selected?.annotations?.size ?: 0,
                                 state.selected?.annotations?.size ?: 0,
                             ),
-                            contentScale = ContentScale.FitWidth,
+                            contentScale = ContentScale.FillWidth,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

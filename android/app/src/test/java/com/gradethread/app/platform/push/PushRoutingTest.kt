@@ -67,10 +67,10 @@ class PushRoutingTest {
 
     @Test
     fun `the urgent channel is high importance`() {
-        assertEquals(PushChannel.IMPORTANCE_HIGH, PushChannel.URGENT.importance)
-        assertEquals(PushChannel.IMPORTANCE_HIGH, PushChannel.MONEY.importance)
+        assertEquals(IMPORTANCE_HIGH, PushChannel.URGENT.importance)
+        assertEquals(IMPORTANCE_HIGH, PushChannel.MONEY.importance)
         // The digest shouldn't buzz.
-        assertEquals(PushChannel.IMPORTANCE_LOW, PushChannel.UPDATES.importance)
+        assertEquals(IMPORTANCE_LOW, PushChannel.UPDATES.importance)
     }
 
     @Test

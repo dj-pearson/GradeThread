@@ -217,11 +217,19 @@ fun MoneyScreen(
         if (state.timeOnMarket.hasData) {
             item {
                 val daysToSellItem = stringResource(R.string.money_days_to_sell_spoken_item)
+                val averageDaysShown =
+                    state.timeOnMarket.averageDays?.let { Math.round(it).toInt() } ?: 0
                 Panel(stringResource(R.string.money_time_on_market_title)) {
                     Text(
+                        // The resource takes `%1$d` and averageDays is a
+                        // nullable Double, so passing it straight through is
+                        // not just a type error — it would throw
+                        // IllegalFormatConversionException when the panel is
+                        // drawn. `hasData` means soldCount > 0, so the elvis
+                        // branch is unreachable in practice.
                         stringResource(
                             R.string.money_time_on_market_summary,
-                            state.timeOnMarket.averageDays,
+                            averageDaysShown,
                             state.timeOnMarket.soldCount,
                         ),
                         style = MaterialTheme.typography.bodyMedium,
