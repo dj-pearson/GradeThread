@@ -4276,3 +4276,9 @@ Branch: ralph/gradethread-build
 - Reason: A human has to pitch the report to resale-trade press, reseller newsletters, and the reseller podcast/YouTube circuit — no agent can perform outreach.
 - Cost: $11.1786 over 102 turns
 ---
+## US-1753: EPIC: GradeThread browser extension — AI condition second-opinion at point of purchase
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-08-07T06:41:08.861Z
+- Reason: A human must create the Chrome Web Store and Firefox AMO developer accounts, supply screenshots plus a comped test-account login for the `<<ADD A TEST EMAIL>>` placeholders in `extension-unified/SUBMISSION.md`, and upload the two zips for review.
+- Cost: $9.6543 over 109 turns
+---
