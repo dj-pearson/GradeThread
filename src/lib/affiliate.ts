@@ -153,6 +153,20 @@ export function flushPendingAffiliateClick(): boolean {
   return true;
 }
 
+/**
+ * The stored, non-expired earned-link code, or null. READ-ONLY — it never
+ * clears, never pings and never redeems, so a caller can stamp attribution onto
+ * something else (US-1843 parks it on the anonymous buyer claim) without
+ * consuming the last-touch ref that redeemStoredAffiliateRef still needs at
+ * sign-in.
+ */
+export function storedAffiliateRefCode(): string | null {
+  const stored = readStored();
+  if (!stored) return null;
+  if (Date.now() - stored.ts > TTL_MS) return null;
+  return stored.code;
+}
+
 function safeReferrerHost(): string | null {
   try {
     if (!document.referrer) return null;

@@ -8,6 +8,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { BuyerConversionCtas } from "@/components/marketing/buyer-conversion-ctas";
 import {
   GRADE_CHECKER_ENDPOINT,
   GRADE_CHECKER_META,
@@ -328,6 +329,26 @@ function GradeCheckerTool() {
                 )}
               </Button>
             </div>
+
+            {/* US-1843: the buyer half of this funnel. The same free result is
+                a buying decision as often as a selling one, so it also converts
+                into a buyer account with the estimate carried across. */}
+            <BuyerConversionCtas
+              className="mt-6"
+              tool="grade_checker"
+              result={{
+                label: [brand.trim(), keyword.trim()].filter(Boolean).join(" ") || "Your item",
+                brand: brand.trim() || null,
+                keyword: keyword.trim() || null,
+                grade: result.overallScore,
+                tier: result.gradeTier,
+                medianCents: result.value?.medianCents ?? null,
+                lowCents: result.value?.lowCents ?? null,
+                highCents: result.value?.highCents ?? null,
+                currency: result.value?.currency ?? "USD",
+                sampleSize: result.value?.sampleSize ?? null,
+              }}
+            />
 
             <div className="mt-6 flex flex-wrap justify-center gap-3">
               <Link to="/how-it-works" onClick={() => onCtaClick("certify")}>

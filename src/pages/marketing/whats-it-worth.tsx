@@ -13,6 +13,7 @@ import {
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
 import { Button } from "@/components/ui/button";
+import { BuyerConversionCtas } from "@/components/marketing/buyer-conversion-ctas";
 import {
   Select,
   SelectContent,
@@ -216,6 +217,7 @@ export function WhatsItWorthPage() {
                   point={selected}
                   currency={currency}
                   label={curve?.label ?? ""}
+                  brand={curve?.brand ?? null}
                   refreshedAt={curve?.refreshedAt}
                   slug={slug}
                 />
@@ -295,12 +297,14 @@ function ResultCard({
   point,
   currency,
   label,
+  brand,
   refreshedAt,
   slug,
 }: {
   point: ConditionCurvePoint;
   currency: string;
   label: string;
+  brand: string | null;
   refreshedAt: string | undefined;
   slug: string;
 }) {
@@ -350,6 +354,25 @@ function ResultCard({
           See the full {label} Condition Index
         </a>
       </div>
+
+      {/* US-1843: the buyer half of this funnel. Same result, other side of the
+          transaction — save it, watch for it, or verify what a seller claims. */}
+      <BuyerConversionCtas
+        className="mt-5 bg-background"
+        tool="whats_it_worth"
+        result={{
+          slug,
+          label,
+          brand,
+          grade: point.grade,
+          tier: tierLabelForGrade(point.grade),
+          medianCents: point.medianCents,
+          lowCents: point.lowCents,
+          highCents: point.highCents,
+          currency,
+          sampleSize: point.sampleSize,
+        }}
+      />
     </div>
   );
 }

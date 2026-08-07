@@ -9,6 +9,7 @@ import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { useBuyerImpact } from "@/hooks/use-buyer-impact";
 import { TrustLevelCard } from "@/components/buyer/trust-level-card";
+import { ClaimedResultCard } from "@/components/buyer/claimed-result-card";
 import { BUYER_PLANS } from "@/lib/constants";
 
 // US-1842: circularity impact receipt — the environmental good of buying
@@ -132,6 +133,11 @@ export function BuyerHomePage() {
           </>
         }
       />
+
+      {/* US-1843: an estimate the buyer produced on a free public tool BEFORE
+          they had an account, waiting to become an alert or a closet entry.
+          Renders nothing when there's no parked claim. */}
+      <ClaimedResultCard />
 
       <TrustLevelCard />
 

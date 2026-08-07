@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { Rocket, Check, Sparkles } from "lucide-react";
+import { Rocket, Check, Sparkles, Bookmark } from "lucide-react";
 import {
   appleOAuthEnabled,
   signUpWithEmail,
@@ -27,6 +27,7 @@ import { USE_CASE_OPTIONS } from "@/lib/use-cases";
 import { cn } from "@/lib/utils";
 import type { UserUseCase, SignupSource } from "@/types/database";
 import { SIGNUP_SOURCE_OPTIONS } from "@/lib/constants";
+import { claimSummary, readBuyerClaim } from "@/lib/buyer-conversion-claim";
 import { toast } from "sonner";
 
 // Mirrors the constant in components/launch-banner.tsx. The signup notice
@@ -49,6 +50,11 @@ export function SignupPage() {
   // the buyer role (account_type=buyer → handle_new_user, no seller/FlipDesk
   // assumptions). AuthLayout then lands a buyer-only account in /buyer.
   const isBuyer = params.get("intent") === "buyer";
+  // US-1843: an estimate parked by a free public tool before this visitor had an
+  // account. Shown back to them here so "create an account" reads as keeping the
+  // thing they already have, not as starting over. Read once — nothing on this
+  // page consumes it; the buyer home is where it's claimed.
+  const [pendingClaim] = useState(() => (isBuyer ? readBuyerClaim() : null));
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState(invitedEmail);
   const [password, setPassword] = useState("");
@@ -298,6 +304,20 @@ export function SignupPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {pendingClaim && (
+          <div className="mb-5 flex items-start gap-3 rounded-md border bg-muted/40 p-3 text-sm">
+            <Bookmark className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
+            <div>
+              <p className="font-semibold text-brand-navy dark:text-foreground">
+                We've kept your estimate
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {claimSummary(pendingClaim)} — it'll be waiting on your buyer home,
+                ready to turn into an alert or a closet entry.
+              </p>
+            </div>
+          </div>
+        )}
         {PRE_LAUNCH && (
           <div className="mb-5 flex items-start gap-3 rounded-md border border-brand-red/30 bg-brand-red/5 p-3 text-sm">
             <Rocket className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-red-text" />

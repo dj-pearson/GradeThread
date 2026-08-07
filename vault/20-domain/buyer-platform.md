@@ -16,6 +16,8 @@ code_refs:
   - services/edge-functions/src/lib/video-grading-cost.ts
   - services/edge-functions/src/lib/buyer-metering.ts
   - services/edge-functions/src/lib/closet-grade-link.ts
+  - src/lib/buyer-conversion-claim.ts
+  - src/lib/__tests__/buyer-conversion-claim.test.ts
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
 reviewed: 2026-08-07
@@ -242,6 +244,46 @@ writes the graded condition back onto it after the grade report commits.
 (`routes/buyer-authenticity.ts` → `withBuyerMeter`); video needs the two-half
 `debitBuyerMeter` / `refundBuyerMeterSource` form only because the work it pays
 for finishes in a background pipeline, long after the response.
+
+## The way IN is a claim, not a redirect
+
+The free public value tools — `/whats-it-worth` (US-849) and
+`/tools/grade-checker` (US-1687 + the US-1751 value range) — answer "what is this
+worth", which is the buyer's question as often as the seller's. US-1843 binds
+them to buyer signup, and the shape of that binding is the contract:
+
+**The anonymous result is carried, not re-derived.** `buyer-conversion-claim.ts`
+parks the whole result — item, grade, tier, value range, sample size, currency —
+under one localStorage key, and the buyer home claims it into a saved search or a
+closet entry. Sending the visitor to `/signup?intent=buyer` and letting them
+retype the item would be a redirect, not a funnel; the number they were looking at
+is the entire reason they clicked.
+
+Three rules hold it together, and each exists because the obvious shortcut breaks
+something:
+
+- **The anonymous half touches no endpoint.** Everything before signup is
+  localStorage. A server-side "pending result" row would be an unauthenticated
+  write, which is a second anonymous surface sitting beside the free tools' rate
+  limits — those limits are the abuse control, and adding a way around them is
+  not a funnel improvement.
+- **Attribution is COPIED, never consumed.** The claim stamps the last-touch
+  affiliate code (`storedAffiliateRefCode`, read-only) so the conversion is
+  attributable end-to-end. `redeemStoredAffiliateRef` still owns the single
+  redeem, at sign-in. A claim that cleared the ref on its way past would silently
+  cost the affiliate the conversion they earned — and it would look like it
+  worked.
+- **The pressed moment leads; it does not narrow.** Save / alert / verify all
+  stay offered on the claim card, because a visitor who pressed "save" and then
+  wants the alert must not have to retype the item. That is what "without loss"
+  means here.
+
+The alert a claim builds is derived, not invented: brand → `brands`, the label
+minus the brand as **one** keyword phrase (keywords are OR-ed substring matches,
+so splitting into words widens the alert past the item that was picked), the
+chosen grade → `min_grade`, the median value → `max_price_cents`. Category stays
+empty — neither tool asks for one, and a guessed category narrows the alert to
+nothing while looking like a working feature.
 
 ## Related
 

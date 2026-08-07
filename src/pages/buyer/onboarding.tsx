@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { ChipInput } from "@/components/buyer/chip-input";
+import { readBuyerClaim } from "@/lib/buyer-conversion-claim";
 
 // US-1797: buyer-first onboarding. Collects the minimum to personalize alerts /
 // fit / recommendations (categories, brands, sizes, notification opt-in) and is
@@ -28,7 +29,13 @@ export function BuyerOnboardingPage() {
   const { save, isSaving } = useBuyerPreferences();
 
   const [categories, setCategories] = useState<string[]>([]);
-  const [brands, setBrands] = useState<string[]>([]);
+  // US-1843: a buyer who arrived from a free-tool estimate already told us one
+  // brand they care about. Seed it rather than asking again — the claim itself
+  // survives onboarding untouched and is still claimable on the buyer home.
+  const [brands, setBrands] = useState<string[]>(() => {
+    const brand = readBuyerClaim()?.result.brand;
+    return brand ? [brand] : [];
+  });
   const [sizes, setSizes] = useState<string[]>([]);
   const [notifyEmail, setNotifyEmail] = useState(true);
 

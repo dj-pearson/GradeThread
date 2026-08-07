@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
-import { newSavedSearchFromPreferences } from "@/lib/watchlist";
+import { newSavedSearchFromPreferences, type SavedSearchCriteria } from "@/lib/watchlist";
 import type { SavedSearchRow, SavedSearchUpdate } from "@/types/database";
 
 // US-1806: the buyer's saved searches — standing criteria the matching engine
@@ -15,8 +15,16 @@ export interface UseSavedSearches {
   searches: SavedSearchRow[];
   isLoading: boolean;
   isError: boolean;
-  /** Create a new search, defaulting criteria from buyer preferences. */
-  create: (label?: string) => Promise<SavedSearchRow>;
+  /**
+   * Create a new search, defaulting criteria from buyer preferences. `criteria`
+   * overrides those defaults field by field — used by the US-1843 claim, where
+   * the visitor already stated the item, the condition floor and the price, so
+   * seeding from preferences instead would throw their answer away.
+   */
+  create: (
+    label?: string,
+    criteria?: Partial<SavedSearchCriteria>,
+  ) => Promise<SavedSearchRow>;
   /** Patch a search's criteria / notify flags / active state. */
   update: (id: string, patch: SavedSearchUpdate) => Promise<SavedSearchRow>;
   remove: (id: string) => Promise<void>;
@@ -46,8 +54,14 @@ export function useSavedSearches(): UseSavedSearches {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (label?: string) => {
-      const insert = newSavedSearchFromPreferences(userId!, preferences, label ?? "Saved search");
+    mutationFn: async ({
+      label,
+      criteria,
+    }: { label?: string; criteria?: Partial<SavedSearchCriteria> }) => {
+      const insert = {
+        ...newSavedSearchFromPreferences(userId!, preferences, label ?? "Saved search"),
+        ...(criteria ?? {}),
+      };
       const { data, error } = await supabase
         .from("saved_searches")
         // `as never`: tsc -b project-reference quirk (Insert resolves to never).
@@ -97,7 +111,7 @@ export function useSavedSearches(): UseSavedSearches {
     // error prompts a retry; a false empty state prompts the user to
     // conclude their data is gone.
     isError: query.isError,
-    create: (label) => createMutation.mutateAsync(label),
+    create: (label, criteria) => createMutation.mutateAsync({ label, criteria }),
     update: (id, patch) => updateMutation.mutateAsync({ id, patch }),
     remove: (id) => removeMutation.mutateAsync(id),
     isMutating:
