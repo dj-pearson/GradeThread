@@ -4308,3 +4308,9 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T08:42:47.919Z
 - Cost: $10.4958 over 108 turns
 ---
+## US-1794: EPIC: Buyer Platform — buyer accounts, subscription, and the confidence layer
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-08-07T08:54:26.069Z
+- Reason: Add `dependsOn: [US-1805, US-1808, US-1841, US-1843, US-1845, US-1846]` to US-1794 in prd.json so the harness stops selecting the umbrella epic ahead of its own children.
+- Cost: $2.9983 over 39 turns
+---
