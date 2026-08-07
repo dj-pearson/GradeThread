@@ -103,7 +103,9 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/grading/graded-clothing-meaning": "2026-07-06",
   "/grading/vs-authentication": "2026-07-06",
   "/transparency": "2026-06-01",
-  "/resale-condition-report": "2026-06-18",
+  // US-1691 revised the asset (grading half + "by the numbers"). Keep in step
+  // with RESALE_REPORT_MODIFIED in src/pages/marketing/marketing-jsonld.ts.
+  "/resale-condition-report": "2026-08-07",
   "/state-of-durability": "2026-07-09",
   "/verify": "2026-06-12",
   "/scan": "2026-06-19",
@@ -344,7 +346,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/resale-condition-report",
     title: "State of Resale Condition Report",
     description:
-      "Original GradeThread data on how a garment's condition grade drives buyer return rate, sell-through, and resale value on the standardized 1.0–10.0 scale.",
+      "Original GradeThread data: average condition grade by garment type, the most common flaws in used clothing, and how grade drives returns and resale value.",
     changefreq: "weekly",
     priority: 0.8,
     jsonLdType: "Dataset",

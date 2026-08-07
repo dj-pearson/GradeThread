@@ -1205,7 +1205,11 @@ export function transparencyJsonLd(): JsonLd[] {
 // window render on the page. RESALE_REPORT_PUBLISHED is fixed (never the build
 // timestamp) for the same reason.
 export const RESALE_REPORT_PUBLISHED = "2026-06-18";
-export const RESALE_REPORT_MODIFIED = "2026-06-18";
+// US-1691 added the grading half of the report (average grade by garment type,
+// most common flaws) + the quotable "by the numbers" block, so the asset was
+// materially revised on this date. Bump this WITH src/lib/seo/public-routes.ts's
+// lastmod entry for the same route — they are two mirrors of one fact.
+export const RESALE_REPORT_MODIFIED = "2026-08-07";
 // Open-ended ISO 8601 interval — the coverage window starts at the platform's
 // first recorded resale data and runs to "now". The visible page states the
 // exact observed min/max dates from the live data.
@@ -1225,8 +1229,16 @@ export const RESALE_REPORT_FAQS = [
     a: "It aggregates platform-wide reseller sales and listings, bucketed by GradeThread condition-grade band. Return rate is refunded fulfilled sales divided by fulfilled sales; sell-through is sold listings divided by listed items; resale value is the median sold price. Every figure is aggregate-only — no per-seller or per-item data — and a band's rate is published only once it clears a minimum sample size, so a thinly-sampled band never prints a misleading number.",
   },
   {
+    q: "What are the most common flaws in secondhand clothing?",
+    a: "GradeThread records every genuine flaw it finds against a published defect taxonomy — stains, holes and punctures, rips and tears, seam failure, pilling, abrasion and thinning, fading, discoloration, snags and pulls, broken zippers, broken or missing buttons, missing hardware, stretched or misshapen shape, odor indicators, and set-in wrinkles. The report ranks them by how many GRADED GARMENTS carry each kind, so an item with three stains counts once toward stains rather than three times. Intentional design features such as distressing or raw hems are classified as style attributes, not damage, so they never appear as flaws.",
+  },
+  {
+    q: "What is the average condition grade of used clothing?",
+    a: "The report publishes the mean overall grade on GradeThread's standardized 1.0–10.0 condition scale, both platform-wide and broken out by garment type — tops, bottoms, outerwear, dresses, footwear, and accessories — so the types are directly comparable. Only finalized grades count, and a garment type's average is published only once enough items of that type have been graded to state it truthfully; below that bar the report shows the count and withholds the figure.",
+  },
+  {
     q: "Can I cite this data?",
-    a: "Yes. The report is published under a CC BY 4.0 license with a canonical citation and permalink, and it emits schema.org Dataset and Article structured data so it's machine-extractable. Cite it as 'GradeThread, The State of Resale Condition' with the report URL, and the page states the sample size and coverage window for the figures you reference.",
+    a: "Yes. The report is published under a CC BY 4.0 license with a canonical citation and permalink, and it emits schema.org Dataset and Article structured data so it's machine-extractable. Cite it as 'GradeThread, The State of Resale Condition' with the report URL, and the page states the sample size and coverage window for the figures you reference. The 'By the numbers' section carries each headline finding as a complete, self-contained sentence with its own sample size, ready to quote verbatim.",
   },
 ];
 

@@ -5,6 +5,8 @@ import {
   Database,
   Quote,
   RefreshCw,
+  Scissors,
+  Shirt,
   ShieldCheck,
   TrendingUp,
 } from "lucide-react";
@@ -25,6 +27,7 @@ import {
   RESALE_REPORT_PUBLISHED,
   resaleConditionReportJsonLd,
 } from "@/pages/marketing/marketing-jsonld";
+import { byTheNumbers, type ResaleConditionReport } from "@/lib/resale-report";
 
 // US-976: the public "State of Resale Condition" data report. Surfaces
 // GradeThread's PROPRIETARY aggregate stats — return rate, sell-through, and
@@ -39,39 +42,6 @@ const PENDING = "Not enough data yet";
 // US-976 (indexability): stable key for the build-time seed so the aggregate
 // figures land in the crawlable HTML (see src/lib/seo/prerender-seed.ts).
 const SEED_KEY = "resale-condition-report";
-
-interface ResaleRollup {
-  fulfilled_sales: number;
-  returns: number;
-  return_rate: number | null;
-}
-
-interface ResaleBand {
-  key: string;
-  label: string;
-  fulfilled_sales: number;
-  returns: number;
-  return_rate: number | null;
-  listed: number;
-  sold: number;
-  sell_through: number | null;
-  median_days_to_sell: number | null;
-  median_sale_price: number | null;
-}
-
-interface ResaleConditionReport {
-  generated_at: string;
-  scale: { min: number; max: number; increment: number };
-  sample: { fulfilled_sales: number; listed_items: number; priced_sales: number };
-  coverage: {
-    sales_from: string | null;
-    sales_to: string | null;
-    listings_from: string | null;
-    listings_to: string | null;
-  };
-  return_rollup: { graded: ResaleRollup; ungraded: ResaleRollup; overall: ResaleRollup };
-  bands: ResaleBand[];
-}
 
 function pct(rate: number | null, digits = 1): string {
   return rate === null || rate === undefined ? PENDING : `${(rate * 100).toFixed(digits)}%`;
@@ -89,6 +59,12 @@ function money(value: number | null): string {
 
 function days(value: number | null): string {
   return value === null || value === undefined ? PENDING : `${Math.round(value)} days`;
+}
+
+// US-1691: a mean grade on the published 1.0–10.0 scale. Always one decimal, so
+// an 8 and an 8.04 don't read as different precisions on the same table.
+function grade(value: number | null | undefined): string {
+  return value === null || value === undefined ? PENDING : value.toFixed(1);
 }
 
 function count(n: number | undefined): string {
@@ -141,7 +117,9 @@ function Bar({
   const widthPct = value !== null && max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
   const barColor = tone === "red" ? "bg-brand-red" : "bg-brand-navy";
   return (
-    <div className="grid grid-cols-[8rem_1fr_5rem] items-center gap-3 text-sm">
+    // Label column is wide enough for a full flaw name ("Seam failure and
+    // unthreading") without wrapping on a laptop; it narrows on phones.
+    <div className="grid grid-cols-[9rem_1fr_4.5rem] items-center gap-3 text-sm sm:grid-cols-[14rem_1fr_5rem]">
       <span className="text-muted-foreground">{label}</span>
       <span className="h-3 overflow-hidden rounded-full bg-muted" aria-hidden="true">
         <span
@@ -175,6 +153,17 @@ export function ResaleConditionReportPage() {
       ? highBand.median_sale_price / lowBand.median_sale_price - 1
       : null;
 
+  // US-1691: the grading half of the report. Absent when the edge predates it or
+  // the aggregation failed — the sections below simply don't render.
+  const grading = data?.grading;
+  const gradedTypes = (grading?.by_garment_type ?? []).filter((t) => t.graded_items > 0);
+  const flaws = grading?.common_flaws ?? [];
+  const maxFlawItems = Math.max(1, ...flaws.map((f) => f.items));
+  // US-1691: lift-and-quote statistics. Built by a pure function that emits an
+  // entry ONLY when the figure behind it exists, so this block can never publish
+  // a quotable sentence with a hole in it.
+  const numbers = byTheNumbers(data);
+
   const salesFrom = formatDate(data?.coverage.sales_from ?? null);
   const salesTo = formatDate(data?.coverage.sales_to ?? null);
   const coverageLine =
@@ -198,7 +187,7 @@ export function ResaleConditionReportPage() {
       )}
     <MarketingLayout
       title="State of Resale Condition Report"
-      description="Original GradeThread data on how a garment's condition grade drives buyer return rate, sell-through, and resale value on the standardized 1.0–10.0 scale."
+      description="Original GradeThread data: average condition grade by garment type, the most common flaws in used clothing, and how grade drives returns and resale value."
       canonicalPath="/resale-condition-report"
       jsonLd={resaleConditionReportJsonLd()}
     >
@@ -216,9 +205,11 @@ export function ResaleConditionReportPage() {
             How much does the <em>condition</em> of a pre-owned garment actually
             matter when it sells? Because GradeThread scores every item on one
             published 1.0–10.0 condition scale, we can answer that across the
-            whole platform — not anecdotally. This report tracks how buyer return
-            rate, sell-through, and resale value move with the condition grade, as
-            aggregate statistics anyone can cite.
+            whole platform — not anecdotally. This report covers both halves of
+            that question: what condition secondhand clothing actually arrives in
+            (average grade by garment type, and the flaws we find most often),
+            and how buyer return rate, sell-through, and resale value move with
+            the grade. All of it aggregate statistics anyone can cite.
           </p>
           {data?.generated_at ? (
             <p className="mt-3 text-xs text-muted-foreground">
@@ -228,6 +219,125 @@ export function ResaleConditionReportPage() {
           ) : null}
         </div>
       </section>
+
+      {/* By the numbers — the lift-and-quote block (US-1691) */}
+      {numbers.length > 0 ? (
+        <section className="border-t bg-card px-6 py-16">
+          <div className="mx-auto max-w-3xl">
+            <div className="flex items-center gap-2">
+              <Quote className="h-5 w-5 text-brand-navy dark:text-foreground" />
+              <h2 className="text-2xl font-bold">By the numbers</h2>
+            </div>
+            <p className="mt-3 text-muted-foreground">
+              Each line is a complete statistic with the sample behind it. Quote
+              any of them as written; the full citation is at the bottom of this
+              page. A finding appears here only once its sample is large enough
+              to state it truthfully, so this list is shorter, not vaguer, when
+              the data is thin.
+            </p>
+            <ul className="mt-8 space-y-5">
+              {numbers.map((entry) => (
+                <li key={entry.id} className="border-t pt-5 first:border-t-0 first:pt-0">
+                  <p className="text-base">{entry.stat}</p>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    GradeThread, The State of Resale Condition · {entry.sample}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      ) : null}
+
+      {/* Average condition grade by garment type (US-1691) */}
+      {gradedTypes.length > 0 ? (
+        <section className="border-t px-6 py-16">
+          <div className="mx-auto max-w-5xl">
+            <div className="flex items-center gap-2">
+              <Shirt className="h-5 w-5 text-brand-navy dark:text-foreground" />
+              <h2 className="text-2xl font-bold">Average condition grade by garment type</h2>
+            </div>
+            <p className="mt-3 max-w-3xl text-muted-foreground">
+              What shape does pre-owned clothing actually arrive in? Every item
+              GradeThread grades is scored on the same 1.0–10.0 scale, so garment
+              types are directly comparable. A type's average appears once enough
+              garments of that type have been graded to state it truthfully;
+              until then we show the count and withhold the figure.
+            </p>
+            <div className="mt-8 overflow-x-auto rounded-lg border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold">Garment type</th>
+                    <th className="px-4 py-3 text-right font-semibold">Average grade</th>
+                    <th className="px-4 py-3 text-right font-semibold">Share with a flaw</th>
+                    <th className="px-4 py-3 text-left font-semibold">Most common flaw</th>
+                    <th className="px-4 py-3 text-right font-semibold">Garments graded</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gradedTypes.map((t) => (
+                    <tr key={t.key} className="border-t">
+                      <td className="px-4 py-3 font-medium">{t.label}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{grade(t.average_grade)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{pct(t.flaw_rate, 0)}</td>
+                      <td className="px-4 py-3">{t.most_common_flaw?.label ?? PENDING}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{count(t.graded_items)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {grading ? (
+              <p className="mt-4 text-xs text-muted-foreground">
+                Sample: {count(grading.sample.graded_items)} finalized grades ·{" "}
+                {count(grading.sample.items_with_flaws)} carrying at least one
+                recorded flaw. A figure is published at{" "}
+                {count(grading.min_sample)} graded garments or more.
+              </p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Most common flaws (US-1691) */}
+      {flaws.length > 0 ? (
+        <section className="border-t bg-card px-6 py-16">
+          <div className="mx-auto max-w-5xl">
+            <div className="flex items-center gap-2">
+              <Scissors className="h-5 w-5 text-brand-navy dark:text-foreground" />
+              <h2 className="text-2xl font-bold">The most common flaws</h2>
+            </div>
+            <p className="mt-3 max-w-3xl text-muted-foreground">
+              What actually goes wrong with secondhand clothing, counted across
+              every finalized grade. Each bar is the number of garments carrying
+              at least one flaw of that kind — a shirt with three stains counts
+              once, not three times. Intentional design features (distressing,
+              raw hems) are excluded by the grading standard, so they never
+              appear here as damage.
+            </p>
+            <div className="mt-8 space-y-3">
+              {flaws.map((f) => (
+                <Bar
+                  key={f.defect_type}
+                  label={f.label}
+                  value={f.items}
+                  max={maxFlawItems}
+                  tone="red"
+                  display={f.share === null ? count(f.items) : pct(f.share, 0)}
+                />
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Shown as a share of all graded garments once the sample allows;
+              otherwise as a raw count. “Other (unclassified)” is a flaw our
+              grader recorded but the published taxonomy doesn't name — it is
+              reported rather than quietly dropped, and it is never presented as
+              a garment type's leading flaw.
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       {/* Headline: graded vs ungraded return rate */}
       <section className="border-t bg-card px-6 py-16">
@@ -441,6 +551,17 @@ export function ResaleConditionReportPage() {
               listings ÷ listed items.{" "}
               <strong className="text-foreground">Resale value</strong> = the
               median sold price in the band.
+            </li>
+            <li>
+              <strong className="text-foreground">Average grade &amp; flaws.</strong>{" "}
+              The grading figures come from finalized grades only — a
+              preliminary AI grade that could still be corrected on human review
+              is excluded, so it can't move the averages.{" "}
+              <strong className="text-foreground">Average grade</strong> is the
+              mean overall score of a garment type on the 1.0–10.0 scale.{" "}
+              <strong className="text-foreground">Flaw counts</strong> count
+              GARMENTS, not defects: an item with three stains counts once
+              toward stains. Flaw types come from our published defect taxonomy.
             </li>
             <li>
               <strong className="text-foreground">Sample gating.</strong> A band's

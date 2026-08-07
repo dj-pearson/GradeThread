@@ -38,6 +38,20 @@ const RESALE_SEED = {
     { key: "high", label: "Excellent (8.5-10)", fulfilled_sales: 300, returns: 3, return_rate: 0.01, listed: 400, sold: 320, sell_through: 0.8, median_days_to_sell: 5, median_sale_price: 60 },
     { key: "low", label: "Fair (6 or lower)", fulfilled_sales: 100, returns: 8, return_rate: 0.08, listed: 200, sold: 100, sell_through: 0.5, median_days_to_sell: 14, median_sale_price: 20 },
   ],
+  // US-1691: the grading half of the report.
+  grading: {
+    min_sample: 25,
+    sample: { graded_items: 4200, items_with_flaws: 3100, flaw_observations: 5200 },
+    average_grade: 7.8,
+    by_garment_type: [
+      { key: "tops", label: "Tops", graded_items: 2000, average_grade: 7.4, flaw_rate: 0.8, most_common_flaw: { defect_type: "pilling", label: "Pilling", items: 900, share: 0.45 } },
+      { key: "outerwear", label: "Outerwear", graded_items: 1200, average_grade: 8.6, flaw_rate: 0.5, most_common_flaw: { defect_type: "fading", label: "Fading", items: 300, share: 0.25 } },
+    ],
+    common_flaws: [
+      { defect_type: "stain", label: "Stains", items: 1200, share: 0.2857 },
+      { defect_type: "pilling", label: "Pilling", items: 900, share: 0.2143 },
+    ],
+  },
 };
 
 const DURABILITY_SEED = {
@@ -63,9 +77,28 @@ describe("resale-condition-report SSR seed", () => {
     expect(html).toContain(`id="${seedDomId("resale-condition-report")}"`);
   });
 
+  // US-1691: the grading half + the quotable block must be in the CRAWLABLE HTML
+  // too — an AI answer engine that doesn't run JS is the whole audience for them.
+  it("renders the grading half and the by-the-numbers block into SSR HTML", () => {
+    setPrerenderSeed("resale-condition-report", RESALE_SEED);
+    const text = ssr(h(ResaleConditionReportPage), "/resale-condition-report")
+      .replace(/<!-- -->/g, "");
+    // Assert on the HEADINGS, not the bare phrases — the FAQ copy mentions
+    // "By the numbers" too, so a substring match would pass without a section.
+    expect(text).toContain("Average condition grade by garment type</h2>");
+    expect(text).toContain("Outerwear");
+    expect(text).toContain("8.6"); // outerwear average grade
+    expect(text).toContain("The most common flaws</h2>");
+    expect(text).toContain("Stains");
+    expect(text).toContain("By the numbers</h2>");
+    expect(text).toContain("7.8 out of 10.0"); // quotable platform-wide average
+  });
+
   it("degrades to placeholders when unseeded", () => {
     const html = ssr(h(ResaleConditionReportPage), "/resale-condition-report");
     expect(html).not.toContain("+200%");
+    expect(html).not.toContain("By the numbers</h2>");
+    expect(html).not.toContain("Average condition grade by garment type</h2>");
     expect(html).not.toContain(`id="${seedDomId("resale-condition-report")}"`);
   });
 });

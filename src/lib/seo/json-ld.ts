@@ -224,7 +224,7 @@ export function resaleConditionDatasetLd(opts: {
     "@id": `${canonical}#dataset`,
     name: "The State of Resale Condition — GradeThread Data Report",
     description:
-      "Proprietary, platform-wide statistics on how a pre-owned garment's condition grade relates to real-world resale outcomes: buyer return rate by grade band, sell-through rate by grade band, and median resale price by grade band, on the standardized GradeThread 1.0–10.0 condition scale. Aggregate-only (no per-seller or per-item data) and sample-gated; refreshed continuously as new sales and listings are recorded. The page states the exact sample size and coverage window.",
+      "Proprietary, platform-wide statistics on the condition of pre-owned clothing and how a garment's condition grade relates to real-world resale outcomes: average condition grade by garment type, the most common flaws found in secondhand clothing, and buyer return rate, sell-through rate and median resale price by grade band, on the standardized GradeThread 1.0–10.0 condition scale. Aggregate-only (no per-seller or per-item data) and sample-gated; refreshed continuously as new grades, sales and listings are recorded. The page states the exact sample size and coverage window.",
     url: canonical,
     creator: { "@id": ORG_ID },
     publisher: { "@id": ORG_ID },
@@ -234,8 +234,11 @@ export function resaleConditionDatasetLd(opts: {
     dateModified: opts.dateModified,
     temporalCoverage: opts.temporalCoverage,
     measurementTechnique:
-      "Platform-wide aggregation of reseller sales and listings (the items_full fact view) bucketed by GradeThread condition-grade band. Return rate = refunded fulfilled sales / fulfilled sales; sell-through = sold listings / listed items; resale value = median sold price; each rate published only when its band clears a minimum sample size.",
+      "Platform-wide aggregation of reseller sales and listings (the items_full fact view) bucketed by GradeThread condition-grade band, plus aggregation of finalized grade reports by garment type and defect taxonomy. Return rate = refunded fulfilled sales / fulfilled sales; sell-through = sold listings / listed items; resale value = median sold price; average condition grade = mean overall score on the 1.0–10.0 scale; flaw prevalence = graded garments carrying at least one defect of a type / graded garments (counted once per garment, not once per defect). Each figure is published only when its cohort clears a minimum sample size.",
     variableMeasured: [
+      "Average condition grade by garment type",
+      "Prevalence of each defect type across graded garments",
+      "Share of graded garments carrying at least one flaw, by garment type",
       "Buyer return rate by condition-grade band",
       "Sell-through rate by condition-grade band",
       "Median resale price by condition-grade band",
@@ -247,6 +250,8 @@ export function resaleConditionDatasetLd(opts: {
     keywords: [
       "pre-owned clothing resale",
       "condition grading",
+      "average condition grade of used clothing",
+      "most common flaws in secondhand clothing",
       "return rate by condition",
       "sell-through by condition",
       "resale value by condition",

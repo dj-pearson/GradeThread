@@ -1,4 +1,8 @@
 import { supabaseAdmin } from "./supabase.ts";
+import {
+  computeSecondhandConditionStats,
+  type SecondhandConditionStats,
+} from "./secondhand-condition.ts";
 
 // US-976: "State of Resale Condition" — a PUBLIC, aggregate-only data report on
 // how a garment's condition grade relates to real-world resale outcomes:
@@ -79,6 +83,11 @@ export interface ResaleConditionReport {
     overall: ResaleRollup;
   };
   bands: ResaleConditionBand[];
+  // US-1691: the GRADING half of the same report — average grade by garment type
+  // and the most common flaws. Optional on the wire so a frontend deployed ahead
+  // of the edge (or reading a cached older payload) simply omits those sections
+  // rather than rendering empty ones.
+  grading?: SecondhandConditionStats;
 }
 
 // The minimal row shape we aggregate. Deliberately free of any identifying
@@ -285,8 +294,24 @@ export async function computeResaleConditionReport(): Promise<ResaleConditionRep
   }
 
   const rows = (data ?? []) as ResaleConditionRow[];
+
+  // US-1691: the grading half is a SEPARATE scan (grade_reports, not items_full)
+  // and is best-effort on purpose — a hiccup there must not take down the resale
+  // figures that have been published since US-976. Missing simply means the
+  // page hides those sections.
+  let grading: SecondhandConditionStats | undefined;
+  try {
+    grading = await computeSecondhandConditionStats();
+  } catch (err) {
+    console.error(
+      "resale-condition grading stats:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
   return {
     generated_at: new Date().toISOString(),
     ...buildResaleConditionReport(rows),
+    grading,
   };
 }
