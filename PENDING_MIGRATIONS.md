@@ -1,8 +1,50 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Two migrations are held: 00530 and 00531.** The entries below them were applied
-to prod and this file did not learn about it for a day. See the note under 00528
-for how that was measured and why the measurement, not the file, is the authority.
+**Three migrations are held: 00530, 00531 and 00532.** The entries below them
+were applied to prod and this file did not learn about it for a day. See the note
+under 00528 for how that was measured and why the measurement, not the file, is
+the authority.
+
+## ⏳ HELD: 00532_video_grading.sql (US-1762 — grade from a walk-around clip)
+
+**Apply order.** After 00531. Nothing else is queued behind it.
+
+**Risk: MEDIUM — because of the VIEW, not the columns.** Four nullable/defaulted
+columns on `submissions`, one nullable column on `grade_reports`, three seed rows
+and one `system_settings` patch are all inert. The `CREATE OR REPLACE VIEW
+public.public_grade_reports` is the part that can fail: a replace may only APPEND
+trailing columns, so the 00530 column set is reproduced VERBATIM with
+`video_capture_verified` added last. If prod's live view has drifted from 00530
+this raises 42P16 and the whole migration rolls back — which is the safe
+direction, but check that 00530 is applied FIRST.
+
+**What it does.**
+- `submissions`: `video_grading_opt_in` (bool, default false), `video_graded`
+  (bool, default false), `video_slot_marks` (jsonb), `video_frames` (jsonb).
+- `grade_reports`: `video_capture` (jsonb) — the server-side provenance result.
+- `public_grade_reports`: appends `video_capture_verified` (the positive-only
+  Video-Verified badge). Nothing else in the view changes.
+- Seeds the `video_grading` feature flag (enabled), two `ai_budgets` rows
+  (day $25 throttle / month $400 kill), and the `video_grading_max_frames` (6)
+  and `video_grading_plans` settings. Patches `ai_feature_economics` so the admin
+  AI-spend and profitability pages break the feature out on its own.
+
+**Apply BEFORE the frontend deploys — this one genuinely matters.** Unlike 00531,
+`src/` DOES read the new view column: `certificate.tsx` renders the
+Video-Verified badge off `video_capture_verified`, and the SPA reads the view with
+`.select("*")`. Cloudflare Pages deploys on push, so a frontend that ships first
+just reads `undefined` and hides the badge — degraded, not broken. The edge is the
+hard gate: the same commit bumps `EXPECTED_SCHEMA_VERSION` to `00532`, so apply
+the SQL, `NOTIFY pgrst, 'reload schema';`, redeploy the edge, then push. Edge
+first burns the ~40s grace window and then refuses to boot.
+
+**The edge image changes too, and it is bigger.** The Dockerfile now installs
+`ffmpeg` (the clip decoder) and the runtime gains `--allow-write=/tmp` +
+`--allow-run=ffmpeg`. Verified locally: the image builds and the CI Trivy gate
+(`--severity HIGH,CRITICAL --ignore-unfixed`) reports 0 vulnerabilities. If the
+redeploy somehow lands without ffmpeg, video grading does NOT error — the
+extractor probes once, reports unavailable, and every video submission falls back
+to `needs_photos` uncharged.
 
 ## ⏳ HELD: 00531_extension_usage_pings.sql (US-1757 AC2 — anonymous opt-in extension usage counters)
 

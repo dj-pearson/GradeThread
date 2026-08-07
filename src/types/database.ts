@@ -896,6 +896,11 @@ export interface PublicGradeReportRow {
   // (a passing photogrammetric/LiDAR true-geometric capture). Positive-only —
   // the raw capture metrics stay server-side.
   verified_360_badge?: boolean;
+  // US-1762: true when this grade was produced from frames the SERVER extracted
+  // from one continuous walk-around clip (no manipulation, no cross-account
+  // reuse) — the "Video-Verified" badge. Positive-only; the frame metrics and
+  // the reasons a clip fell short stay server-side.
+  video_capture_verified?: boolean;
   // Non-clothing grading (migration 00231): generic { factor_key: score } map +
   // the rubric that produced it (e.g. "sports_cards"). Null on clothing & legacy
   // certificates — the cert renders the typed factor columns instead.

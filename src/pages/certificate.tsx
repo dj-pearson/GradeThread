@@ -17,6 +17,7 @@ import {
   Store,
   Image as ImageIcon,
   Box,
+  Video,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
@@ -1090,6 +1091,28 @@ export function CertificatePage() {
                     scan that proves true geometric coverage of the garment — every
                     inspection zone is documented, so the grade and guarantee cover
                     the whole item, not just what a few flat photos show.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* US-1762: Video-Verified badge — the walk-around-clip capture
+                tier. Shown only when this grade was read off frames the SERVER
+                extracted from one continuous clip, with no suspected
+                manipulation and no cross-account reuse. Orthogonal to the badges
+                around it: it speaks to where the VIEWS came from, not to device
+                attestation or geometric coverage, so it can appear alongside
+                them. Its absence is never a negative claim. */}
+            {gradeReport.video_capture_verified && (
+              <div className="flex items-start gap-3">
+                <Video className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-brand-red-text" />
+                <div>
+                  <p className="text-sm font-medium">Video-Verified</p>
+                  <p className="text-xs text-muted-foreground">
+                    Every view below was pulled by GradeThread out of a single
+                    continuous walk-around video of this item. The angles were
+                    chosen by us, not staged one at a time, so no single shot
+                    could be swapped for a better-looking garment.
                   </p>
                 </div>
               </div>

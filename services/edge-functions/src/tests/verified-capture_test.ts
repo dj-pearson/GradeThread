@@ -9,7 +9,10 @@ import { assert, assertEquals } from "@std/assert";
 import {
   evaluateLiveCapture,
   evaluateVerifiedCapture,
+  evaluateVideoCapture,
   IN_APP_CAPTURE_SOURCE,
+  MIN_VIDEO_VERIFIED_FRAMES,
+  VIDEO_FRAME_CAPTURE_SOURCE,
   type LiveCaptureImage,
   parseExifDate,
   type VerifiedCaptureImage,
@@ -247,4 +250,110 @@ Deno.test("live: attested but provenance failed → no live_verified, drops to n
     nowMs: SUBMIT,
   });
   assertEquals(r.badge, null);
+});
+
+// ── Video Capture (US-1762) ──────────────────────────────────────────────────
+//
+// The claim is narrow on purpose: every view the buyer sees came out of ONE
+// take this server decoded itself. Each test below is one way that claim could
+// be false while the badge still rendered.
+
+function frame(image_type: string, source: string | null = VIDEO_FRAME_CAPTURE_SOURCE) {
+  return { image_type, capture_source: source };
+}
+
+const FOUR_FRAMES = ["front", "back", "label", "detail"].map((t) => frame(t));
+
+Deno.test("video: four server-extracted frames, clean signals → video_verified", () => {
+  const r = evaluateVideoCapture({
+    videoGraded: true,
+    images: FOUR_FRAMES,
+    durationSeconds: 18.4,
+    manipulationSuspected: false,
+    crossUserReuse: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, "video_verified");
+  assertEquals(r.frames_used, 4);
+  assertEquals(r.duration_seconds, 18.4);
+  assert(r.reasons[0]!.includes("one 18.4s clip"));
+});
+
+Deno.test("video: a photo submission earns nothing and claims nothing", () => {
+  const r = evaluateVideoCapture({
+    videoGraded: false,
+    images: [frame("front", null), frame("back", "in_app_camera")],
+    durationSeconds: null,
+    manipulationSuspected: false,
+    crossUserReuse: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, null);
+  assertEquals(r.video_graded, false);
+  assertEquals(r.reasons, ["not graded from a video clip"]);
+});
+
+Deno.test("video: ONE hand-picked photo mixed in breaks the one-take claim", () => {
+  // This is the whole point of the badge. A single library still among the
+  // frames means a buyer could be looking at a different garment's front.
+  const r = evaluateVideoCapture({
+    videoGraded: true,
+    images: [...FOUR_FRAMES, frame("defect", null)],
+    durationSeconds: 12,
+    manipulationSuspected: false,
+    crossUserReuse: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, null);
+  assert(r.reasons[0]!.includes("did not come from the clip"));
+});
+
+Deno.test("video: fewer frames than the required-view count earns no badge", () => {
+  const r = evaluateVideoCapture({
+    videoGraded: true,
+    images: FOUR_FRAMES.slice(0, MIN_VIDEO_VERIFIED_FRAMES - 1),
+    durationSeconds: 9,
+    manipulationSuspected: false,
+    crossUserReuse: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, null);
+  assert(r.reasons[0]!.includes(String(MIN_VIDEO_VERIFIED_FRAMES)));
+});
+
+Deno.test("video: no images at all is not a silent pass", () => {
+  const r = evaluateVideoCapture({
+    videoGraded: true,
+    images: [],
+    durationSeconds: 9,
+    manipulationSuspected: false,
+    crossUserReuse: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, null);
+  assertEquals(r.frames_used, 0);
+});
+
+Deno.test("video: suspected manipulation or cross-account reuse withholds the badge", () => {
+  const tampered = evaluateVideoCapture({
+    videoGraded: true,
+    images: FOUR_FRAMES,
+    durationSeconds: 12,
+    manipulationSuspected: true,
+    crossUserReuse: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(tampered.badge, null);
+  assertEquals(tampered.reasons, ["image manipulation suspected"]);
+
+  const reused = evaluateVideoCapture({
+    videoGraded: true,
+    images: FOUR_FRAMES,
+    durationSeconds: 12,
+    manipulationSuspected: false,
+    crossUserReuse: true,
+    nowMs: SUBMIT,
+  });
+  assertEquals(reused.badge, null);
+  assert(reused.reasons[0]!.includes("different account"));
 });

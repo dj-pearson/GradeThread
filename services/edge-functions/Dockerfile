@@ -28,11 +28,19 @@ LABEL org.opencontainers.image.source="https://github.com/dj-pearson/GradeThread
 # logs show nothing). The container healthcheck deliberately uses `deno eval`
 # instead, which masked the gap. Keep curl here or the entire background-job
 # fleet (drip, eBay sync, email-retry, trial-expiry, …) stops running.
+#
+# US-1762: `ffmpeg` decodes the walk-around clip into still frames
+# (lib/video-frames.ts). It is the ONE thing on this image that cannot be done
+# in TypeScript — a phone's H.264/HEVC clip needs a real decoder. Installed from
+# the same freshly-updated apt index as curl, so it lands on the latest patched
+# build and the Trivy gate's --ignore-unfixed stays satisfiable. If it is ever
+# removed, video grading does NOT crash: ffmpegAvailable() probes once and every
+# video submission falls back to needs_photos, uncharged.
 USER root
 RUN apt-get update \
     && apt-get install --only-upgrade -y \
         libssl3t64 openssl-provider-legacy openssl \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -59,4 +67,12 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # --no-check at runtime too: we type-check via tsc / deno check separately,
 # not on every container start.
-CMD ["deno", "run", "--no-check", "--allow-net", "--allow-env", "--allow-read", "src/main.ts"]
+# US-1762 adds two NARROW permissions for video frame extraction, and nothing
+# wider: --allow-run=ffmpeg (the decoder, by name, not blanket subprocess
+# rights) and --allow-write=/tmp (the clip has to be a SEEKABLE file for
+# ffmpeg's fast -ss seek; a piped MP4 whose moov atom trails the media, which is
+# what a phone writes, cannot be seeked at all). The temp file is always
+# removed, including on failure. Without these the extractor reports
+# "unavailable" and video submissions fall back to needs_photos rather than
+# erroring.
+CMD ["deno", "run", "--no-check", "--allow-net", "--allow-env", "--allow-read", "--allow-write=/tmp", "--allow-run=ffmpeg", "src/main.ts"]

@@ -395,6 +395,20 @@ a learning that only matters to ONE surface, put it in that surface's file.
   re-picks the story every iteration; US-1997 cost three full runs that way.
   Never emit both tokens. Full contract: `scripts/ralph/CLAUDE.md`.
 
+## Native binaries in the edge image
+- Adding an apt package to `services/edge-functions/Dockerfile` (US-1762 added
+  `ffmpeg`) is testable LOCALLY — Docker and trivy are both on this host, so run
+  the CI gate verbatim rather than guessing: `docker build -t x services/edge-functions`
+  then `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.65.0
+  image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 x`. Use the
+  **PowerShell** tool for the trivy run — Git-Bash rewrites `/var/run/...` into a
+  Windows path and docker refuses it. Install alongside the existing `curl` line
+  so it shares the fresh `apt-get update` and lands patched (ffmpeg scanned 0
+  HIGH/CRITICAL that way). Also bump `deno.json` tasks AND the Dockerfile `CMD`
+  together — the container runs an explicit permission list, so a new
+  `Deno.Command`/temp-file path is a silent `PermissionDenied` until
+  `--allow-run=<bin>` + `--allow-write=/tmp` are added to BOTH.
+
 ## Public certificate columns
 - A publicly-visible `grade_reports` column must be added to BOTH read paths in
   the same commit: the edge allowlist (`CERT_REPORT_COLUMNS`, content-public.ts,

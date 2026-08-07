@@ -1,6 +1,7 @@
 // US-1844: buyer-facing trust signals — the SINGLE public projection of the
 // verified/trust cues (Verified Capture US-340, Live-Verified US-1283,
-// 360-Verified US-1281, Original-Photos US-861, plus verified-seller US-1761
+// 360-Verified US-1281, Video-Verified US-1762, Original-Photos US-861,
+// plus verified-seller US-1761
 // and cert-integrity US-1109) that buyer surfaces render.
 //
 // It is the same positive-only projection the public certificate page uses
@@ -16,6 +17,7 @@ export interface TrustSignalSource {
   original_photos?: { verified?: boolean } | null;
   live_capture?: { badge?: string } | null;
   verified_360?: { badge?: string } | null;
+  video_capture?: { badge?: string } | null;
 }
 
 /** Signals that don't live on the grade_report row (resolved by the caller). */
@@ -31,6 +33,8 @@ export interface TrustSignals {
   verifiedCapture: boolean;
   liveCaptureVerified: boolean;
   verified360: boolean;
+  /** US-1762: graded from frames the server extracted from one walk-around clip. */
+  videoCaptureVerified: boolean;
   originalPhotos: boolean;
   verifiedSeller: boolean;
   certIntegrityOk: boolean;
@@ -49,6 +53,7 @@ export function projectTrustSignals(
     verifiedCapture: rep?.verified_capture?.verified === true,
     liveCaptureVerified: rep?.live_capture?.badge === "live_verified",
     verified360: rep?.verified_360?.badge === "verified_360",
+    videoCaptureVerified: rep?.video_capture?.badge === "video_verified",
     originalPhotos: rep?.original_photos?.verified === true,
     verifiedSeller: ctx.verifiedSeller === true,
     certIntegrityOk: ctx.certIntegrityOk === true,
@@ -66,6 +71,7 @@ export interface TrustBadge {
 const BADGE_LABELS: Array<{ key: keyof TrustSignals; label: string }> = [
   { key: "verified360", label: "360-Verified" },
   { key: "liveCaptureVerified", label: "Live-Verified" },
+  { key: "videoCaptureVerified", label: "Video-Verified" },
   { key: "verifiedCapture", label: "Verified Capture" },
   { key: "certIntegrityOk", label: "Integrity Verified" },
   { key: "verifiedSeller", label: "Verified Seller" },

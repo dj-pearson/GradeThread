@@ -15,6 +15,7 @@ Deno.test("projectTrustSignals: earned booleans only, on the exact source shapes
       original_photos: { verified: true },
       live_capture: { badge: "live_verified" },
       verified_360: { badge: "verified_360" },
+      video_capture: { badge: "video_verified" },
     },
     { verifiedSeller: true, certIntegrityOk: true },
   );
@@ -22,10 +23,24 @@ Deno.test("projectTrustSignals: earned booleans only, on the exact source shapes
     verifiedCapture: true,
     liveCaptureVerified: true,
     verified360: true,
+    videoCaptureVerified: true,
     originalPhotos: true,
     verifiedSeller: true,
     certIntegrityOk: true,
   });
+});
+
+// US-1762: the video badge is the newest member of this projection, so it gets
+// the same NON-badge-tier proof the others have — a shipped-but-unchecked
+// projection is how a "verified" boolean ends up true for a tier that never
+// earned it.
+Deno.test("projectTrustSignals: a non-'video_verified' video tier is not a badge", () => {
+  const sig = projectTrustSignals({ video_capture: { badge: "attempted" } });
+  assertEquals(sig.videoCaptureVerified, false);
+  assertEquals(hasAnyTrustSignal(sig), false);
+  const earned = projectTrustSignals({ video_capture: { badge: "video_verified" } });
+  assertEquals(earned.videoCaptureVerified, true);
+  assertEquals(trustSignalBadges(earned).map((b) => b.label), ["Video-Verified"]);
 });
 
 Deno.test("projectTrustSignals: a NON-badge tier never counts as verified", () => {
@@ -34,6 +49,7 @@ Deno.test("projectTrustSignals: a NON-badge tier never counts as verified", () =
   const sig = projectTrustSignals({
     live_capture: { badge: "recorded" },
     verified_360: { badge: "partial" },
+    video_capture: { badge: "partial" },
     verified_capture: { verified: false },
   });
   assertEquals(sig.liveCaptureVerified, false);

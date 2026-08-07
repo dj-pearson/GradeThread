@@ -62,6 +62,9 @@ interface PublicCertificate {
   live_capture_verified?: boolean;
   // US-1281: true when the submission earned the premium 360-Verified badge.
   verified_360_badge?: boolean;
+  // US-1762: true when the grade was produced from frames the server extracted
+  // from one continuous walk-around clip.
+  video_capture_verified?: boolean;
   // US-2399: drives the AI-disclosure variant. Optional so a partial payload
   // degrades to the stricter AI-only wording rather than silently claiming a
   // human reviewed the grade.
@@ -201,6 +204,9 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   }
   if (cert.verified_360_badge) {
     badges.push('<span class="cert-badge cert-badge--premium">&#10003; 360-Verified · true geometric coverage</span>');
+  }
+  if (cert.video_capture_verified) {
+    badges.push('<span class="cert-badge cert-badge--verify">&#10003; Video-Verified · frames from one clip</span>');
   }
   if (cert.original_photos_verified) {
     badges.push('<span class="cert-badge cert-badge--verify">&#10003; Original photos verified</span>');

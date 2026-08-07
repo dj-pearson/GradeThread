@@ -35,7 +35,7 @@ const REPORT_COLUMNS =
   "structural_integrity_score, cosmetic_appearance_score, functional_elements_score, " +
   "odor_cleanliness_score, ai_summary, buyer_writeup, coverage_pct, covered_zones, " +
   "content_hash, content_signature, integrity_version, submission_id, " +
-  "verified_capture, original_photos, live_capture, verified_360";
+  "verified_capture, original_photos, live_capture, verified_360, video_capture";
 
 interface ReportRow {
   certificate_id: string;
@@ -58,6 +58,11 @@ interface ReportRow {
   original_photos: { verified?: boolean } | null;
   live_capture: { badge?: string } | null;
   verified_360: { badge?: string } | null;
+  // US-1762: the walk-around-clip provenance result. Selected here for the SAME
+  // reason as the others — projectTrustSignals is the single projection, so a
+  // column it reads that this select omits would silently render the badge
+  // absent on every buyer surface while the cert page showed it.
+  video_capture: { badge?: string } | null;
 }
 
 interface SubmissionRow {

@@ -111,6 +111,9 @@ const ROUTE_ADDED = new Set([
   "verified_capture_passed",
   "live_capture_verified",
   "verified_360_badge",
+  // US-1762: same shape as the three badges above — the raw `video_capture`
+  // blob is stripped from the payload and only this earned boolean is added.
+  "video_capture_verified",
   "original_photos_verified",
 ]);
 

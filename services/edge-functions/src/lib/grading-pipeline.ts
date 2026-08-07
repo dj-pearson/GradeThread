@@ -63,6 +63,7 @@ import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
 import {
   evaluateLiveCapture,
   evaluateVerifiedCapture,
+  evaluateVideoCapture,
   liveCaptureBoost,
   verifiedCaptureBoost,
 } from "./verified-capture.ts";
@@ -1274,7 +1275,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, verified_360_opt_in, capture_360, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, verified_360_opt_in, capture_360, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id, video_graded, video_duration_seconds")
       .eq("id", submissionId)
       .single();
 
@@ -2471,6 +2472,36 @@ export async function processSubmission(submissionId: string) {
         `Live-Verified not earned — ${liveCapture.reasons.join("; ")}.`;
     }
 
+    // US-1762: Video Capture — the walk-around-clip provenance tier. Reads
+    // `video_graded` (set only once frames were actually extracted and stored),
+    // NEVER the opt-in: wanting to grade from a clip is not evidence, having
+    // done so is. The claim is narrow and checkable — every view the buyer sees
+    // came out of one continuous take this server decoded itself, so no single
+    // angle could be swapped for a better-looking garment. Positive-only: a clip
+    // that falls short simply earns no badge and grades exactly as it otherwise
+    // would, with the reason kept server-side.
+    const videoGraded =
+      (submission as { video_graded?: boolean }).video_graded === true;
+    const videoCapture = evaluateVideoCapture({
+      videoGraded,
+      images: images.map((img) => ({
+        image_type: img.image_type,
+        capture_source:
+          (img as { capture_source?: string | null }).capture_source ?? null,
+      })),
+      durationSeconds:
+        (submission as { video_duration_seconds?: number | null })
+          .video_duration_seconds ?? null,
+      manipulationSuspected,
+      crossUserReuse: reuse.cross_user === true,
+      nowMs: Date.now(),
+    });
+    if (videoGraded) {
+      detailedNotes["video_capture"] = videoCapture.badge === "video_verified"
+        ? `Video-Verified earned — ${videoCapture.reasons.join("; ")}.`
+        : `Video-Verified not earned — ${videoCapture.reasons.join("; ")}.`;
+    }
+
     // US-484: evaluate moderation flags BEFORE the certificate becomes public.
     // The grade_reports insert below carries a non-null certificate_id, which is
     // what makes /api/content/public/certificates/:id resolvable. If we only
@@ -2657,6 +2688,11 @@ export async function processSubmission(submissionId: string) {
         // Structured detail kept for admin review; the public view exposes only
         // the earned '360-Verified' badge tier.
         verified_360: verified360,
+        // US-1762: server-side Video Capture evaluation { badge, video_graded,
+        // frames_used, duration_seconds, reasons[], checked_at }. Structured
+        // detail for admin review; the public view exposes only the earned
+        // 'Video-Verified' badge tier.
+        video_capture: videoCapture,
         // US-1296: whether the paid Forensic defect-zoom re-analysis ran. Which
         // defects were zoom-refined is in per_image_analysis (zoom_refined) +
         // detailed_notes.forensic_summary.
@@ -2861,6 +2897,13 @@ export async function processSubmission(submissionId: string) {
     void recordAiUsage({
       userId: submission.user_id,
       submissionId,
+      // US-1765: a grade produced from a clip is metered under its OWN feature.
+      // The vision work is identical, but the COST SHAPE is not — one video
+      // grade is N frames' worth of Vision calls against one grade's revenue,
+      // so folding it into 'grading' would hide the only number that decides
+      // whether video grading pays for itself. The ai_budgets rows and the
+      // admin AI-spend / profitability breakout key off this exact string.
+      feature: videoGraded ? "video_grading" : "grading",
       usages: [
         // US-1066: when the grade escalated, the cheap first-pass calls are
         // recorded under *_firstpass phases so the cascade's extra cost — and,

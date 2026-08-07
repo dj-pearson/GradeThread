@@ -391,3 +391,121 @@ export function evaluateLiveCapture(opts: {
     checked_at,
   };
 }
+
+// ── Video Capture — walk-around clip provenance (US-1762) ─────────────────────
+//
+// A video submission's frames are not photos the seller handed us. The server
+// decoded them itself, out of ONE continuous clip, at timestamps IT chose. That
+// is a genuinely different provenance claim from a folder of images, and it is
+// what the "Video-Verified" certificate badge means: every view a buyer is
+// looking at came from the same take, so no single angle could be swapped for a
+// better-looking garment.
+//
+// Same house rules as every other badge here: positive-only. A clip that doesn't
+// qualify grades exactly as it otherwise would; the badge is simply not earned,
+// and the reason is kept server-side for admin review.
+
+/**
+ * The `submission_images.capture_source` marker for a frame this server
+ * extracted from a clip. Distinct from IN_APP_CAPTURE_SOURCE (a device-attested
+ * live PHOTO) and from a library upload (null).
+ */
+export const VIDEO_FRAME_CAPTURE_SOURCE = "video_frame";
+
+/**
+ * Fewest server-extracted frames that can earn the badge. Equals the number of
+ * REQUIRED_VIDEO_FRAME_SLOTS in video-frames.ts — the two are asserted equal in
+ * video-frames_test.ts rather than left to drift, because a lower floor here
+ * would badge a clip that never actually showed all four required views.
+ */
+export const MIN_VIDEO_VERIFIED_FRAMES = 4;
+
+export type VideoCaptureBadge = "video_verified" | null;
+
+export interface VideoCaptureImage {
+  image_type: string;
+  capture_source: string | null;
+}
+
+export interface VideoCaptureResult {
+  badge: VideoCaptureBadge;
+  /** The graded images came from a server-extracted clip at all. */
+  video_graded: boolean;
+  /** How many of the graded images were server-extracted frames. */
+  frames_used: number;
+  /** Clip length, when the container reported one. */
+  duration_seconds: number | null;
+  /** Human-readable detail for admin review (server-side only). */
+  reasons: string[];
+  checked_at: string;
+}
+
+/**
+ * Evaluate the Video-Verified badge. Pure (clock injected) so it's deterministic
+ * and unit-testable. It never lowers a grade — the only outcome is which (if
+ * any) badge is earned.
+ *
+ * Earned when: the submission was graded from a clip, EVERY graded image is a
+ * server-extracted frame from it (a single hand-picked photo mixed in breaks the
+ * one-take claim outright), there are at least MIN_VIDEO_VERIFIED_FRAMES of them,
+ * the vision pass suspects no manipulation, and no frame matched another
+ * account's photo.
+ */
+export function evaluateVideoCapture(opts: {
+  videoGraded: boolean;
+  images: VideoCaptureImage[];
+  durationSeconds: number | null;
+  manipulationSuspected: boolean;
+  crossUserReuse: boolean;
+  nowMs: number;
+}): VideoCaptureResult {
+  const checked_at = new Date(opts.nowMs).toISOString();
+  const total = opts.images.length;
+  const frames = opts.images.filter(
+    (i) => (i.capture_source ?? "").toLowerCase() === VIDEO_FRAME_CAPTURE_SOURCE,
+  ).length;
+  const base: VideoCaptureResult = {
+    badge: null,
+    video_graded: opts.videoGraded,
+    frames_used: frames,
+    duration_seconds: opts.durationSeconds,
+    reasons: [],
+    checked_at,
+  };
+
+  if (!opts.videoGraded) {
+    return { ...base, reasons: ["not graded from a video clip"] };
+  }
+  if (total === 0 || frames !== total) {
+    return {
+      ...base,
+      reasons: [
+        `${total - frames} of ${total} graded image(s) did not come from the clip`,
+      ],
+    };
+  }
+  if (frames < MIN_VIDEO_VERIFIED_FRAMES) {
+    return {
+      ...base,
+      reasons: [
+        `only ${frames} usable frame(s); at least ${MIN_VIDEO_VERIFIED_FRAMES} are required`,
+      ],
+    };
+  }
+  if (opts.manipulationSuspected) {
+    return { ...base, reasons: ["image manipulation suspected"] };
+  }
+  if (opts.crossUserReuse) {
+    return { ...base, reasons: ["a frame matched a photo from a different account"] };
+  }
+
+  return {
+    ...base,
+    badge: "video_verified",
+    reasons: [
+      `all ${frames} graded views were extracted server-side from one ${
+        opts.durationSeconds ? `${opts.durationSeconds.toFixed(1)}s ` : ""
+      }clip, no manipulation, no reuse`,
+    ],
+  };
+}

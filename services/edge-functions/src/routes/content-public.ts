@@ -249,6 +249,9 @@ interface CertReportRow {
   // US-1281: structured Verified 360 result; only the earned badge tier is
   // exposed publicly (the raw capture metrics stay server-side).
   verified_360: { badge?: string } | null;
+  // US-1762: structured Video Capture result; only the earned badge tier is
+  // exposed publicly (the frame metrics + shortfall reasons stay server-side).
+  video_capture: { badge?: string } | null;
   // US-2400: whether a human reviewer finalized this grade. Passed straight
   // through to the payload (NOT stripped like the structured signals above) —
   // it is the AI-disclosure variant the /cert SSR page and the partner widget
@@ -722,9 +725,14 @@ const CERT_REPORT_GENESIS_COLUMNS =
 // grade. Not private: the view has exposed it to anon since 00082. In the EXTRA
 // set for the same US-1945 drift reason (it has existed since 00061, so the
 // fallback risk is theoretical, but the rule is the rule).
+// US-1762: video_capture is the walk-around-clip provenance result. Same
+// treatment as live_capture / verified_360 — the raw blob is stripped below and
+// only the earned badge boolean crosses the boundary. In the EXTRA set for the
+// US-1945 drift reason: 00532 is recent, and a cert must still render if it has
+// not been applied yet.
 const CERT_REPORT_EXTRA_COLUMNS =
   "buyer_writeup, certificate_number, verified_capture, original_photos, " +
-  "live_capture, verified_360, factor_scores, rubric_key, " +
+  "live_capture, verified_360, video_capture, factor_scores, rubric_key, " +
   "certified_content_updated_at, human_reviewed";
 
 const CERT_REPORT_COLUMNS = `${CERT_REPORT_GENESIS_COLUMNS}, ${CERT_REPORT_EXTRA_COLUMNS}`;
@@ -847,6 +855,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   delete publicReport.original_photos;
   delete publicReport.live_capture;
   delete publicReport.verified_360;
+  delete publicReport.video_capture;
 
   // US-1844: the coarse public trust signals — the SINGLE projection the buyer
   // surfaces (extension/alerts/watchlist/portfolio) reuse, so a badge shown on a
@@ -864,6 +873,10 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       // US-1281: positive-only. True iff the submission earned the premium
       // '360-Verified' badge; the raw capture metrics stay server-side.
       verified_360_badge: trust.verified360,
+      // US-1762: positive-only. True iff the grade was produced from frames the
+      // server extracted from one continuous clip; the frame metrics and the
+      // reasons a clip fell short stay server-side.
+      video_capture_verified: trust.videoCaptureVerified,
       // US-861: positive-only. True iff the photo-reuse scan ran and found no
       // cross-account match. Never leaks hashes/distances.
       original_photos_verified: trust.originalPhotos,

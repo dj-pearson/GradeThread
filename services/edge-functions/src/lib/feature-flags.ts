@@ -85,7 +85,12 @@ export type FeatureKey =
   // US-1869: Inventory Equity liquidation-value surface. Ops kill-switch on top
   // of the base flipdesk gate; fail-open (default on) so the /api/flipdesk/equity
   // route can be disabled platform-wide without a redeploy.
-  | "inventory_equity";
+  | "inventory_equity"
+  // US-1762: grade from a short walk-around clip (server-side frame extraction).
+  // Every frame is a Vision call billed against ONE grade, so this is also what
+  // the video_grading ai_budgets row flips off on a hard monthly breach
+  // (resolveFlagKey maps the feature 1:1 to this key). Fail-open (default on).
+  | "video_grading";
 
 // US-2406: the flags whose EVERY call site can name the user it is acting for,
 // and therefore the only ones where plan targeting can mean anything.
@@ -110,6 +115,9 @@ export const PLAN_TARGETABLE_FLAGS: ReadonlySet<FeatureKey> = new Set<FeatureKey
   "authenticity_addon",
   "forensic_grade",
   "passport_forecast",
+  // US-1762: only /grade/submit evaluates it, and it always has the workspace
+  // owner in hand, so plan targeting is meaningful here.
+  "video_grading",
 ]);
 
 /** True when plan targeting on `key` can be honoured by all of its callers. */

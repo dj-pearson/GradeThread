@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
-import { BadgeCheck, Check, ChevronLeft, ChevronRight, Loader2, ShieldCheck } from "lucide-react";
+import { BadgeCheck, Camera, Check, ChevronLeft, ChevronRight, Loader2, ShieldCheck, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,6 +50,11 @@ import {
   type SubmissionDraft,
 } from "@/hooks/use-submission-draft";
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
+import { VideoWalkaround } from "@/components/submission/video-walkaround";
+import {
+  serializeVideoSlotMarks,
+  type VideoSlotMarks,
+} from "@/lib/video-capture";
 
 // Item statuses from which a submission moves the item into 'grading'.
 const PRE_GRADE_STATUSES = new Set([
@@ -110,6 +115,27 @@ interface CheckoutRequiredState {
   tier: GradeTierKey;
   tierPriceCents: number;
   suggestedPack: { credits: number; priceCents: number } | null;
+}
+
+// US-207 + US-1764: the /api/grade/submit response, shaped only as far as this
+// page reads it. Declared rather than left as `any` because the XHR path parses
+// the body itself and there is no fetch Response to inherit a loose type from.
+interface SubmitResult {
+  error?: string;
+  details?: unknown;
+  submissionId: string;
+  status?: string;
+  videoGrading?: { ok?: boolean; reason?: string };
+  payment?: {
+    paid?: boolean;
+    method?: string;
+    newIncludedUsed?: number;
+    newBalance?: number;
+    checkoutRequired?: boolean;
+    tier?: string;
+    tierPriceCents?: number;
+    suggestedPack?: { credits: number; priceCents: number } | null;
+  };
 }
 
 function formatLabel(value: string): string {
@@ -179,6 +205,15 @@ export function NewSubmissionPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [garmentInfo, setGarmentInfo] = useState<GarmentInfo | null>(null);
   const [photos, setPhotos] = useState<PhotoUploadItem[]>([]);
+  // US-1766: staged photos or one walk-around clip. Photo mode is the default
+  // and the fallback — a seller can switch back at any point, and a clip that
+  // fails extraction lands the submission in needs_photos with photos offered.
+  const [captureMode, setCaptureMode] = useState<"photos" | "video">("photos");
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoMarks, setVideoMarks] = useState<VideoSlotMarks>({});
+  // 0..100 while a clip is on the wire; null otherwise. Drives the progress bar
+  // in VideoWalkaround — a 60 MB upload with no feedback reads as a hang.
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // US-2032: staged photos live ONLY in React state — the draft autosave stores
   // a manifest (name + type), never the binaries — so navigating away destroys
@@ -190,7 +225,9 @@ export function NewSubmissionPage() {
   // fires when nothing is at stake teaches people to click through it, and
   // blocking during submit would trap the caller behind their own success
   // navigation.
-  const guard = useNavigationGuard(photos.length > 0 && !isSubmitting);
+  const guard = useNavigationGuard(
+    (photos.length > 0 || videoFile !== null) && !isSubmitting,
+  );
   // US-774: synchronous double-submit guard. The button's disabled={isSubmitting}
   // only takes effect on the NEXT render, so a fast double-click can fire
   // handleSubmit twice before React commits the disabled state — which would
@@ -514,6 +551,12 @@ export function NewSubmissionPage() {
     requiredPhotosUploaded.some((p) => p.imageType === "label") &&
     requiredPhotosUploaded.some((p) => p.imageType === "detail");
 
+  // US-1766: the clip supplies the four required views instead of four staged
+  // photos, so in video mode "ready to review" is simply "a clip is attached".
+  // The server still holds the real bar: if the clip yields no usable front,
+  // back, label or detail frame it comes back as needs_photos, uncharged.
+  const captureReady = captureMode === "video" ? videoFile !== null : hasAllRequiredPhotos;
+
   // US-1277: live coverage for the in-flow meter. Scored by the shared engine
   // (US-1276) so the percent/missing zones match exactly what the server will
   // seal onto the certificate — no duplicate zone logic in the client. Computed
@@ -533,10 +576,15 @@ export function NewSubmissionPage() {
   // Fires only on the incomplete→complete transition (a ref tracks the prior
   // value) so returning to the Photos step from Review never bounces them
   // straight back. A brief sonner "Back to photos" action is the undo.
+  //
+  // Video mode deliberately does NOT auto-advance: marking the four views is
+  // the whole point of the guided step, and jumping to Review the instant a
+  // file is chosen would skip it.
   const prevAllRequiredRef = useRef(false);
   useEffect(() => {
     if (
       currentStep === 1 &&
+      captureMode === "photos" &&
       hasAllRequiredPhotos &&
       !prevAllRequiredRef.current
     ) {
@@ -549,7 +597,7 @@ export function NewSubmissionPage() {
       });
     }
     prevAllRequiredRef.current = hasAllRequiredPhotos;
-  }, [hasAllRequiredPhotos, currentStep]);
+  }, [hasAllRequiredPhotos, currentStep, captureMode]);
 
   // US-1627: once the seller first reaches the Photos step, keep PhotoUpload
   // MOUNTED for the rest of the flow (hidden via CSS on other steps) instead of
@@ -583,9 +631,23 @@ export function NewSubmissionPage() {
   }
 
   function handleNextFromPhotos() {
-    if (hasAllRequiredPhotos) {
+    if (captureReady) {
       setCurrentStep(2);
     }
+  }
+
+  // US-1766: switching modes drops the OTHER mode's inputs. Sending both would
+  // be rejected server-side anyway (a video-graded submission refuses photos so
+  // its "one continuous take" claim stays exact), and silently keeping stale
+  // state around is how a seller ends up submitting something they didn't mean.
+  function handleUsePhotoMode() {
+    setCaptureMode("photos");
+    setVideoFile(null);
+    setVideoMarks({});
+  }
+
+  function handleUseVideoMode() {
+    setCaptureMode("video");
   }
 
   // Link the freshly-created submission to the selected inventory item, if any.
@@ -614,8 +676,58 @@ export function NewSubmissionPage() {
     }
   }
 
+  /**
+   * POST the multipart body, reporting UPLOAD progress.
+   *
+   * `fetch` has no upload-progress event, and a 60 MB clip on a phone connection
+   * with no feedback is indistinguishable from a hung app — so the video path
+   * goes through XHR. The photo path keeps using fetch: it is already proven,
+   * and a handful of compressed stills finish before a progress bar would mean
+   * anything. Returns the same { ok, status, json } shape either way.
+   */
+  async function postSubmission(
+    formData: FormData,
+    headers: Record<string, string>,
+    onProgress: ((pct: number) => void) | null,
+  ): Promise<{ ok: boolean; json: SubmitResult }> {
+    const url = `${edgeApiUrl()}/api/grade/submit`;
+    if (!onProgress) {
+      const response = await fetch(url, { method: "POST", headers, body: formData });
+      // US-1632: guard .json() — an HTML 502 from an infra blip isn't JSON.
+      const json = (await response.json().catch(() => ({}))) as SubmitResult;
+      return { ok: response.ok, json };
+    }
+    return await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
+      for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && e.total > 0) {
+          onProgress(Math.min(100, (e.loaded / e.total) * 100));
+        }
+      };
+      // 100% uploaded is not 100% done — frame extraction happens after the last
+      // byte lands, so hold the bar at 100 and let the copy carry the rest.
+      xhr.upload.onload = () => onProgress(100);
+      xhr.onload = () => {
+        let json = {} as SubmitResult;
+        try {
+          json = JSON.parse(xhr.responseText) as SubmitResult;
+        } catch {
+          json = {} as SubmitResult;
+        }
+        resolve({ ok: xhr.status >= 200 && xhr.status < 300, json });
+      };
+      xhr.onerror = () => reject(new Error("Upload failed. Check your connection and try again."));
+      xhr.ontimeout = () => reject(new Error("Upload timed out. Try again on a stronger connection."));
+      xhr.send(formData);
+    });
+  }
+
   async function handleSubmit() {
-    if (!garmentInfo || photos.length === 0) return;
+    if (!garmentInfo) return;
+    const videoMode = captureMode === "video";
+    if (videoMode ? !videoFile : photos.length === 0) return;
     // US-774: reject a re-entrant double-click synchronously (see submitLockRef).
     if (submitLockRef.current) return;
     submitLockRef.current = true;
@@ -657,11 +769,23 @@ export function NewSubmissionPage() {
         authenticityAddonOptIn && tierSupportsAuthenticityAddon(tier) ? "true" : "false"
       );
 
+      // US-1762: grade FROM the clip. The server extracts the frames, writes
+      // them as ordinary submission images, and the normal grading flow runs
+      // over them — so nothing else about this request changes shape. Photos are
+      // deliberately NOT sent in this mode (the server refuses them, to keep the
+      // "every view came from one take" claim exact).
+      if (videoMode && videoFile) {
+        formData.append("video", videoFile);
+        formData.append("video_grading", "true");
+        const marks = serializeVideoSlotMarks(videoMarks);
+        if (marks) formData.append("video_slot_marks", marks);
+      }
+
       // Append images, their types, perceptual hashes, and provenance EXIF as
       // parallel arrays. phashes power server-side photo-reuse detection
       // (US-337). exif_metadata (US-339) is structured provenance read from the
       // ORIGINAL file before compression — "" when none was found.
-      for (const photo of photos) {
+      for (const photo of videoMode ? [] : photos) {
         formData.append("images", photo.file);
         formData.append("image_types", photo.imageType);
         formData.append("phashes", photo.phash ?? "");
@@ -676,7 +800,7 @@ export function NewSubmissionPage() {
       // and OFF by default so the fast compressed-upload path never regresses.
       // The server also gates storage independently (RETAIN_ORIGINAL_IMAGES),
       // so sending these is a no-op unless retention is enabled there too.
-      if (RETAIN_ORIGINALS && photos.every((p) => p.originalFile)) {
+      if (!videoMode && RETAIN_ORIGINALS && photos.every((p) => p.originalFile)) {
         for (const photo of photos) {
           formData.append("original_images", photo.originalFile as File);
         }
@@ -692,19 +816,16 @@ export function NewSubmissionPage() {
       if (workspaceOwner) {
         requestHeaders["X-Workspace-Owner"] = workspaceOwner;
       }
-      const response = await fetch(`${edgeApiUrl()}/api/grade/submit`, {
-        method: "POST",
-        headers: requestHeaders,
-        body: formData,
-      });
+      if (videoMode) setUploadProgress(0);
+      const { ok, json: result } = await postSubmission(
+        formData,
+        requestHeaders,
+        videoMode ? (pct) => setUploadProgress(pct) : null,
+      );
 
-      // US-1632: guard .json() — an HTML 502 from an infra blip isn't JSON and
-      // would otherwise throw a confusing SyntaxError instead of a clear error.
-      const result = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
+      if (!ok) {
         const message = result.error || "Submission failed";
-        if (result.details && Array.isArray(result.details)) {
+        if (Array.isArray(result.details)) {
           toast.error(message, {
             description: result.details.join(", "),
           });
@@ -716,6 +837,27 @@ export function NewSubmissionPage() {
 
       const submissionId: string = result.submissionId;
       const payment = result.payment ?? {};
+
+      // US-1764: the clip yielded no usable view of a required angle, so the
+      // submission abstained instead of grading what it couldn't see. NOT a
+      // charge and NOT a failure — the row is retakeable, and the honest offer
+      // at this point is photos.
+      if (result.status === "needs_photos") {
+        clearDraft();
+        await linkInventoryItem(submissionId);
+        toast.warning("We couldn't grade that clip.", {
+          description: (result.videoGrading?.reason as string | undefined) ??
+            "Record a slower walk-around in even light, or switch to photo mode.",
+          action: {
+            label: "Use photos",
+            onClick: () => {
+              handleUsePhotoMode();
+              setCurrentStep(1);
+            },
+          },
+        });
+        return;
+      }
 
       // US-951: the submission row now exists server-side, so the local draft is
       // obsolete — clear it whether payment cleared inline or a checkout is still
@@ -767,6 +909,7 @@ export function NewSubmissionPage() {
       );
     } finally {
       setIsSubmitting(false);
+      setUploadProgress(null);
       submitLockRef.current = false;
     }
   }
@@ -906,6 +1049,47 @@ export function NewSubmissionPage() {
               (US-1627). */}
           {hasEnteredPhotoStep && (
             <div className={cn("space-y-6", currentStep !== 1 && "hidden")}>
+              {/* US-1766: capture mode. Two ways to give us the same four views
+                  — stage them, or record one lap around the item and let us pull
+                  the frames. Photos stay the default: they are what every seller
+                  already knows how to do, and they are the fallback when a clip
+                  cannot be read. */}
+              <div className="inline-flex rounded-lg border p-1" role="group">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={captureMode === "photos" ? "default" : "ghost"}
+                  onClick={handleUsePhotoMode}
+                >
+                  <Camera className="mr-1.5 h-4 w-4" />
+                  Photos
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={captureMode === "video" ? "default" : "ghost"}
+                  onClick={handleUseVideoMode}
+                >
+                  <Video className="mr-1.5 h-4 w-4" />
+                  Walk-around video
+                </Button>
+              </div>
+
+              {captureMode === "video" && (
+                <VideoWalkaround
+                  file={videoFile}
+                  marks={videoMarks}
+                  onFileChange={setVideoFile}
+                  onMarksChange={setVideoMarks}
+                  uploadProgress={uploadProgress}
+                  onUsePhotos={handleUsePhotoMode}
+                />
+              )}
+
+              {/* Kept MOUNTED (hidden) in video mode for the same reason as
+                  US-1627: unmounting would throw away staged photos, and photo
+                  mode is the fallback a failed clip returns to. */}
+              <div className={cn("space-y-6", captureMode === "video" && "hidden")}>
               {snapFrontFile && (
                 <p className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
                   <BadgeCheck className="mr-1 inline h-3.5 w-3.5 text-brand-navy dark:text-foreground" />
@@ -979,6 +1163,7 @@ export function NewSubmissionPage() {
                 </a>
                 .
               </p>
+              </div>
               <div className="flex items-center justify-between pt-4">
                 <Button type="button" variant="outline" onClick={handleBack}>
                   <ChevronLeft className="mr-1 h-4 w-4" />
@@ -987,7 +1172,7 @@ export function NewSubmissionPage() {
                 <Button
                   type="button"
                   onClick={handleNextFromPhotos}
-                  disabled={!hasAllRequiredPhotos}
+                  disabled={!captureReady}
                 >
                   Continue
                   <ChevronRight className="ml-1 h-4 w-4" />
@@ -1034,8 +1219,33 @@ export function NewSubmissionPage() {
 
               <Separator />
 
+              {/* US-1766: in video mode there are no staged photos to preview —
+                  the views don't exist until the server pulls them out of the
+                  clip. Say what WILL happen rather than showing an empty grid. */}
+              {captureMode === "video" && videoFile && (
+                <div className="space-y-2 rounded-lg border p-3">
+                  <h3 className="flex items-center gap-2 text-sm font-medium">
+                    <Video className="h-4 w-4 text-primary" />
+                    Walk-around clip
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {videoFile.name} · {(videoFile.size / 1024 / 1024).toFixed(1)} MB
+                    {Object.keys(videoMarks).length > 0
+                      ? ` · ${Object.keys(videoMarks).length} view${
+                          Object.keys(videoMarks).length === 1 ? "" : "s"
+                        } marked`
+                      : " · views sampled automatically"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    We pull the front, back, tag and fabric frames out of this
+                    clip and grade those. If a view isn&apos;t usable we&apos;ll
+                    ask for photos instead — you won&apos;t be charged for that.
+                  </p>
+                </div>
+              )}
+
               {/* Photo Thumbnails */}
-              <div className="space-y-3">
+              <div className={cn("space-y-3", captureMode === "video" && "hidden")}>
                 <h3 className="text-sm font-medium text-muted-foreground">
                   Photos ({photos.length})
                 </h3>
@@ -1362,14 +1572,17 @@ export function NewSubmissionPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Leave without submitting? Your photos won't be saved.
+              Leave without submitting? Your{" "}
+              {captureMode === "video" ? "clip" : "photos"} won&apos;t be saved.
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {photos.length === 1
-                ? "You've added 1 photo. "
-                : `You've added ${photos.length} photos. `}
+              {captureMode === "video"
+                ? "You've attached a walk-around clip. "
+                : photos.length === 1
+                  ? "You've added 1 photo. "
+                  : `You've added ${photos.length} photos. `}
               We save your garment details, but not the images themselves — if
-              you leave now you'll need to take them again.
+              you leave now you&apos;ll need to take them again.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

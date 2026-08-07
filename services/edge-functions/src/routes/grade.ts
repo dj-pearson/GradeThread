@@ -4,10 +4,20 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { clientIp } from "../middleware/rate-limit.ts";
 import { getSettingSync } from "../lib/system-settings.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
-import { IN_APP_CAPTURE_SOURCE } from "../lib/verified-capture.ts";
+import {
+  IN_APP_CAPTURE_SOURCE,
+  VIDEO_FRAME_CAPTURE_SOURCE,
+} from "../lib/verified-capture.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { validateVideoUpload } from "../lib/video-validation.ts";
+import {
+  clampFrameCount,
+  DEFAULT_MAX_VIDEO_FRAMES,
+  extractVideoFrames,
+  parseVideoSlotMarks,
+  type VideoSlotMarks,
+} from "../lib/video-frames.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import {
   GRADE_TIERS,
@@ -88,12 +98,16 @@ const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
 const MAX_IMAGES_PER_SUBMISSION = IMAGE_TYPES.length;
 
 // US-1763: optional walk-around video clip. Caps keep a single grade's storage
-// + (future US-1764) frame-extraction cost bounded — a short clip, not a movie.
-// The bytes land in the same private submission bucket + owner folder as the
-// photos; grading FROM the video is a separate story, so this branch only
-// accepts, validates (magic-byte sniff + size + duration), and stores it.
+// + frame-extraction cost bounded — a short clip, not a movie. The bytes land in
+// the same private submission bucket + owner folder as the photos.
 const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60 MB
 const MAX_VIDEO_DURATION_SECONDS = 45;
+
+// US-1765: which effective FlipDesk plans may GRADE FROM a clip. Video costs
+// several Vision calls against a single grade's revenue, so it is a paid-plan
+// capability. Operator-overridable via the `video_grading_plans` setting (00532);
+// this is the fallback when the setting is missing or malformed.
+const DEFAULT_VIDEO_GRADING_PLANS = ["starter", "pro", "business"];
 
 // Optional seller-declared intentional design features. Passed to the grader
 // as a hint so factory distressing isn't read as damage. Allowlist keeps the
@@ -212,6 +226,47 @@ function kickPipeline(submissionId: string, correlationId?: string) {
     });
 }
 
+/**
+ * US-1764: a video submission that produced no gradeable frames.
+ *
+ * Falls back to `needs_photos` — the SAME abstention the image-quality gate
+ * (US-332) uses when photos are unusable — rather than grading a garment we
+ * could not actually see. Crucially this returns BEFORE payment precedence runs,
+ * so a failed extraction never consumes a credit or an included grade: the
+ * submission is retakeable (US-949 treats needs_photos as a retake target) and
+ * the seller can re-record or switch to photos at no cost.
+ */
+async function failVideoGrading(
+  c: Context<GradeEnv>,
+  submissionId: string,
+  ownerId: string,
+  reason: string,
+  record: Record<string, unknown>,
+) {
+  const { error } = await supabaseAdmin
+    .from("submissions")
+    .update({
+      status: "needs_photos",
+      video_graded: false,
+      video_frames: { ...record, reason },
+    })
+    .eq("id", submissionId)
+    .eq("user_id", ownerId);
+  if (error) {
+    console.error(`[video-grade] failed to mark ${submissionId} needs_photos:`, error);
+  }
+  return c.json({
+    submissionId,
+    status: "needs_photos",
+    videoGrading: { ok: false, reason },
+    photo_requests: [
+      reason,
+      "You can also switch to photo mode and upload front, back, label and detail shots.",
+    ],
+    payment: { paid: false, charged: false },
+  }, 201);
+}
+
 // ── POST /submit ─────────────────────────────────────────────────
 gradeRoutes.post("/submit", async (c) => {
   const userId = c.get("userId");
@@ -285,6 +340,16 @@ gradeRoutes.post("/submit", async (c) => {
       }
     }
   }
+  // US-1762: the seller wants this garment GRADED FROM the walk-around clip
+  // rather than from staged photos. Distinct from merely attaching a clip
+  // (US-1763), which is supplementary evidence. When honored, the server
+  // extracts frames and writes them as ordinary submission_images, so the whole
+  // per-image -> composite flow downstream runs unchanged.
+  const videoGradingOptIn =
+    (formData.get("video_grading") as string | null) === "true";
+  // Optional guided-capture marks ("I'm showing the front now"). Never trusted:
+  // parsed + bounded against the clip's real duration below.
+  const videoSlotMarksRaw = formData.get("video_slot_marks") as string | null;
   // US-601: premium authenticity / counterfeit-confidence add-on opt-in. Only
   // HONORED on a paid Premium/Express tier (the higher per-tier charge covers it)
   // and when the kill-switch flag is on — both enforced just below.
@@ -375,11 +440,26 @@ gradeRoutes.post("/submit", async (c) => {
   const retainOriginals = RETAIN_ORIGINAL_IMAGES &&
     allOriginals.length === imageFiles.length;
 
-  for (const required of REQUIRED_IMAGE_TYPES) {
-    if (!imageTypes.includes(required)) errors.push(`A '${required}' image is required`);
-  }
-  if (!imageTypes.some((t) => t.startsWith("detail"))) {
-    errors.push("At least one 'detail' image is required");
+  // US-1762: a video-graded submission supplies its coverage as extracted
+  // FRAMES, so the photo-slot requirements are checked against the frames
+  // instead (REQUIRED_VIDEO_FRAME_SLOTS is the same front/back/label/detail
+  // bar, enforced in selectVideoFrames). Photos are refused outright in this
+  // mode: mixing a hand-picked still into a "one continuous take" submission
+  // would break exactly the claim the Video-Verified badge makes, and it would
+  // push the Vision-call count past the frame cap the cost control depends on.
+  if (videoGradingOptIn) {
+    if (imageFiles.length > 0) {
+      errors.push(
+        "Video grading grades the clip's own frames — remove the photos, or switch to photo mode to use them",
+      );
+    }
+  } else {
+    for (const required of REQUIRED_IMAGE_TYPES) {
+      if (!imageTypes.includes(required)) errors.push(`A '${required}' image is required`);
+    }
+    if (!imageTypes.some((t) => t.startsWith("detail"))) {
+      errors.push("At least one 'detail' image is required");
+    }
   }
 
   // US-1283: Live Capture accepts ONLY in-app camera images — a single
@@ -422,9 +502,79 @@ gradeRoutes.post("/submit", async (c) => {
       };
     }
   }
+  // Grading FROM a clip needs a clip, and needs to know how long it is: the
+  // frame plan samples by timestamp, so an unreadable duration means we cannot
+  // choose where to look. Both are cheap to say NO to here, before a submission
+  // row or a charge exists.
+  if (videoGradingOptIn) {
+    if (!videoUpload) {
+      errors.push("Video grading needs a walk-around clip — attach one, or switch to photo mode");
+    } else if (!videoUpload.durationSeconds || videoUpload.durationSeconds <= 0) {
+      errors.push(
+        "That clip's length could not be read, so it can't be graded. Re-record it, or switch to photo mode.",
+      );
+    }
+  }
 
   if (errors.length > 0) {
     return c.json({ error: "Validation failed", details: errors }, 400);
+  }
+
+  // ── US-1765: video-grading cost gates ──────────────────────────────────────
+  // Ordered cheapest-to-most-consequential and ALL evaluated before a submission
+  // row exists, so a gated request costs nothing and leaves nothing behind.
+  let videoMaxFrames = DEFAULT_MAX_VIDEO_FRAMES;
+  let videoSlotMarks: VideoSlotMarks = {};
+  if (videoGradingOptIn) {
+    // 1. Kill-switch (also what the monthly ai_budgets 'kill' action flips).
+    if (!(await isFeatureEnabled("video_grading", { userId: ownerId }))) {
+      return c.json(featureDisabledBody("video_grading"), 503);
+    }
+    // 2. Hard AI budget. Frames are Vision calls, so a breached video budget
+    //    must stop the clip path specifically — the photo path is unaffected.
+    if (await isAiBudgetExhausted("video_grading")) {
+      return c.json(aiBudgetExceededBody("video_grading"), 429);
+    }
+    // 3. Plan gate. A free-plan seller gets the photo path and a clear upgrade
+    //    prompt, never a silent downgrade into a worse grade.
+    const { data: planRow } = await supabaseAdmin
+      .from("users")
+      .select("flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
+      .eq("id", ownerId)
+      .maybeSingle();
+    const effPlan = effectivePlanFor(
+      (planRow?.flipdesk_plan as string) ?? "free",
+      (planRow?.subscription_status as string) ?? "none",
+      (planRow?.trial_ends_at as string | null) ?? null,
+      new Date(),
+      (planRow?.past_due_since as string | null) ?? null,
+    );
+    const allowedPlansRaw = getSettingSync<unknown>(
+      "video_grading_plans",
+      DEFAULT_VIDEO_GRADING_PLANS,
+    );
+    const allowedPlans = Array.isArray(allowedPlansRaw) && allowedPlansRaw.length > 0
+      ? allowedPlansRaw.filter((p): p is string => typeof p === "string")
+      : DEFAULT_VIDEO_GRADING_PLANS;
+    if (!allowedPlans.includes(effPlan)) {
+      return c.json({
+        error:
+          "Grading from a video is available on a paid plan. Upgrade, or grade this item from photos.",
+        code: "UPGRADE_REQUIRED",
+        action: "upgrade",
+        feature: "video_grading",
+        plan: effPlan,
+      }, 402);
+    }
+    // 4. Frame cap — the direct AI-cost multiplier. Operator-tunable, clamped in
+    //    code so a bad setting can never widen it past HARD_MAX_VIDEO_FRAMES.
+    videoMaxFrames = clampFrameCount(
+      getSettingSync<number>("video_grading_max_frames", DEFAULT_MAX_VIDEO_FRAMES),
+    );
+    videoSlotMarks = parseVideoSlotMarks(
+      videoSlotMarksRaw,
+      videoUpload?.durationSeconds ?? null,
+    );
   }
 
   // Suspended account gate (pre-pricing). Checks the WORKSPACE OWNER's
@@ -521,6 +671,10 @@ gradeRoutes.post("/submit", async (c) => {
       live_capture_opt_in: liveCaptureOptIn,
       verified_360_opt_in: verified360OptIn,
       capture_360: capture360,
+      // US-1762: the request to grade from the clip. `video_graded` is set only
+      // once frames actually landed — the pipeline reads THAT, never this.
+      video_grading_opt_in: videoGradingOptIn,
+      video_slot_marks: videoGradingOptIn ? videoSlotMarks : null,
       authenticity_addon: authenticityAddon,
       forensic_addon: forensicAddon,
       retake_of_submission_id: retakeTargetId,
@@ -641,9 +795,15 @@ gradeRoutes.post("/submit", async (c) => {
     });
   }
 
-  const { error: imageInsertError } = await supabaseAdmin
-    .from("submission_images")
-    .insert(imageRecords);
+  // A video-graded submission arrives with NO photos (they're refused above), so
+  // there is nothing to insert here — the frames become these rows further down.
+  let imageInsertError: { message: string } | null = null;
+  if (imageRecords.length > 0) {
+    const { error } = await supabaseAdmin
+      .from("submission_images")
+      .insert(imageRecords);
+    imageInsertError = error;
+  }
 
   if (imageInsertError) {
     console.error("Failed to insert image records:", imageInsertError);
@@ -673,6 +833,17 @@ gradeRoutes.post("/submit", async (c) => {
       });
     if (videoUploadError) {
       console.error("Failed to upload video:", videoUploadError);
+      // Attaching a clip is supplementary and stays best-effort — but a
+      // submission that has NOTHING BUT the clip cannot be graded without it.
+      if (videoGradingOptIn) {
+        return await failVideoGrading(
+          c,
+          submissionId,
+          ownerId,
+          "The clip could not be stored, so there was nothing to grade. Try uploading it again.",
+          { ok: false, stage: "upload" },
+        );
+      }
     } else {
       const { error: videoPatchError } = await supabaseAdmin
         .from("submissions")
@@ -687,6 +858,144 @@ gradeRoutes.post("/submit", async (c) => {
         console.error("Failed to record video path:", videoPatchError);
       }
     }
+  }
+
+  // ── US-1764: clip -> grading frames ────────────────────────────────────────
+  // Decode a bounded set of stills, keep the sharpest well-exposed one per slot,
+  // drop near-duplicates, and write them as ordinary submission_images. Every
+  // frame goes through the SAME US-276 hardening as an uploaded photo (sniff →
+  // strip metadata → store) — ffmpeg output is bytes we generated, but treating
+  // it as trusted would make this the one upload path with a weaker gate.
+  if (videoGradingOptIn && videoUpload) {
+    const extraction = await extractVideoFrames({
+      videoBytes: videoUpload.bytes,
+      durationSeconds: videoUpload.durationSeconds ?? 0,
+      marks: videoSlotMarks,
+      maxFrames: videoMaxFrames,
+      ext: videoUpload.ext,
+    });
+
+    if (!extraction.ok || !extraction.selection.ok) {
+      const reason = extraction.ok ? extraction.selection.reason : extraction.reason;
+      console.error(`[video-grade] extraction failed for ${submissionId}: ${reason}`);
+      return await failVideoGrading(c, submissionId, ownerId, reason, {
+        ok: false,
+        stage: extraction.ok ? "selection" : "extraction",
+        max_frames: videoMaxFrames,
+        duration_seconds: videoUpload.durationSeconds,
+        extracted: extraction.extracted,
+        planned: extraction.plan.map((p) => ({ slot: p.slot, at: p.atSeconds })),
+        dropped: extraction.ok ? extraction.selection.dropped : [],
+        reason,
+      });
+    }
+
+    const frameRecords: typeof imageRecords = [];
+    const framePaths: string[] = [];
+    let frameOrder = 0;
+    for (const frame of extraction.selection.frames) {
+      const verdict = validateImageUpload(frame.bytes, { allow: ["jpeg"] });
+      if (!verdict.ok) {
+        console.error(`[video-grade] frame ${frame.slot} rejected: ${verdict.reason}`);
+        continue;
+      }
+      const { bytes: cleanBytes } = stripImageMetadata(frame.bytes, verdict.format);
+      const framePath =
+        `${ownerId}/${submissionId}/${frame.slot}_${Date.now()}_${frameOrder}.${verdict.ext}`;
+      const { error: frameUploadError } = await supabaseAdmin.storage
+        .from("submission-images")
+        .upload(framePath, cleanBytes, {
+          contentType: verdict.contentType,
+          upsert: false,
+        });
+      if (frameUploadError) {
+        console.error(`[video-grade] frame upload failed:`, frameUploadError);
+        continue;
+      }
+      framePaths.push(framePath);
+      frameRecords.push({
+        submission_id: submissionId,
+        image_type: frame.slot,
+        storage_path: framePath,
+        display_order: frameOrder++,
+        // Recomputed from the stored bytes like every other upload, so a frame
+        // lifted from someone else's listing video is still caught by reuse
+        // detection (US-480) — and can still cost the clip its badge.
+        phash: await computePhashFromImage(cleanBytes, verdict.format),
+        // A frame carries no EXIF: it was never a file on a camera. The
+        // provenance claim here is video_capture, not device metadata.
+        exif: null,
+        original_storage_path: null,
+        capture_source: VIDEO_FRAME_CAPTURE_SOURCE,
+      });
+    }
+
+    // A frame lost between selection and storage takes its slot's coverage with
+    // it, so re-check the required set rather than grading a partial clip.
+    const storedSlots = new Set(frameRecords.map((r) => r.image_type));
+    const requiredMissing = REQUIRED_IMAGE_TYPES.filter((t) => !storedSlots.has(t));
+    if (requiredMissing.length > 0 || !storedSlots.has("detail")) {
+      if (framePaths.length > 0) {
+        await supabaseAdmin.storage.from("submission-images").remove(framePaths);
+      }
+      return await failVideoGrading(
+        c,
+        submissionId,
+        ownerId,
+        "The clip's frames could not be saved, so there was nothing to grade. Try again in a moment.",
+        { ok: false, stage: "store", max_frames: videoMaxFrames },
+      );
+    }
+
+    const { error: frameInsertError } = await supabaseAdmin
+      .from("submission_images")
+      .insert(frameRecords);
+    if (frameInsertError) {
+      console.error("[video-grade] frame records insert failed:", frameInsertError);
+      if (framePaths.length > 0) {
+        await supabaseAdmin.storage.from("submission-images").remove(framePaths);
+      }
+      return await failVideoGrading(
+        c,
+        submissionId,
+        ownerId,
+        "The clip's frames could not be saved, so there was nothing to grade. Try again in a moment.",
+        { ok: false, stage: "insert", max_frames: videoMaxFrames },
+      );
+    }
+
+    // Only NOW is the submission genuinely video-graded. The pipeline reads this
+    // flag (not the opt-in) to meter under feature='video_grading' and to
+    // evaluate the Video-Verified badge.
+    const { error: videoGradedPatchError } = await supabaseAdmin
+      .from("submissions")
+      .update({
+        video_graded: true,
+        video_frames: {
+          ok: true,
+          max_frames: videoMaxFrames,
+          duration_seconds: videoUpload.durationSeconds,
+          extracted: extraction.extracted,
+          selected: frameRecords.length,
+          reason: extraction.selection.reason,
+          dropped: extraction.selection.dropped,
+          frames: extraction.selection.frames.map((f) => ({
+            slot: f.slot,
+            at: Number(f.atSeconds.toFixed(3)),
+            sharpness: Math.round(f.sharpness),
+            luma: Math.round(f.luma),
+          })),
+        },
+      })
+      .eq("id", submissionId)
+      .eq("user_id", ownerId);
+    if (videoGradedPatchError) {
+      console.error("[video-grade] failed to mark video_graded:", videoGradedPatchError);
+    }
+    console.log(
+      `[video-grade] ${submissionId}: ${frameRecords.length} frame(s) from ` +
+        `${extraction.extracted} decode(s), cap ${videoMaxFrames}`,
+    );
   }
 
   // US-949: now that the retake submission exists with its images, mark the
