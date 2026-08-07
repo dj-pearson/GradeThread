@@ -96,7 +96,14 @@ export type FeatureKey =
   // (defaultEnabled: false) — the one flag here that must not fail open, because
   // failing open would pay out real value during an outage. Cosmetic rewards
   // (XP, levels, badges, streaks) are unaffected by it.
-  | "rewards_tangible";
+  | "rewards_tangible"
+  // US-1852: master switch for quests + time-boxed community challenges. Read
+  // fail-OPEN (defaultEnabled: true), deliberately the opposite of the flag
+  // above: a quest pays XP, which is free status, so an outage that silently
+  // froze everyone's quest progress would do more damage than one that kept
+  // paying it. Individual quests carry their own `enabled` column — retire one
+  // quest with that, not the whole program with this.
+  | "rewards_quests";
 
 // US-2406: the flags whose EVERY call site can name the user it is acting for,
 // and therefore the only ones where plan targeting can mean anything.
@@ -127,6 +134,9 @@ export const PLAN_TARGETABLE_FLAGS: ReadonlySet<FeatureKey> = new Set<FeatureKey
   // US-1848: grantTangibleRewards is always acting for one named user, so a
   // staged rollout (or a per-plan restriction) on reward payouts is honourable.
   "rewards_tangible",
+  // US-1852: loadQuestsState is only ever called for the authed reader, so a
+  // staged rollout of quests is honourable too.
+  "rewards_quests",
 ]);
 
 /** True when plan targeting on `key` can be honoured by all of its callers. */

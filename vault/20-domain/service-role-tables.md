@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-07
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id.
 ---
@@ -53,6 +53,17 @@ is what triggers it.
 > here, because they contain the literal token and force discovery on a table
 > that must have no policy at all. They are `actor_id` and `target_id`. The rule
 > is about the STRING, not the semantics.
+
+## A table with NO owner column at all is not discovered — force it
+
+Discovery only sees tables whose `CREATE TABLE` block carries an owner column.
+Pure CONFIG — `job_locks`, `reward_quests` (US-1852) — has none, so it sails past
+the guard entirely and a later commit could drop its RLS with nothing going red.
+
+For those, register in **both** lists: `SERVICE_ROLE_ONLY` (the justification)
+and `SERVICE_ONLY_FORCED` (which drags the table into the guard so the
+RLS-enabled + zero-policy state is asserted rather than assumed). Being invisible
+to the guard is not the same as being safe.
 
 ## Why discovery-by-regex rather than an explicit list
 

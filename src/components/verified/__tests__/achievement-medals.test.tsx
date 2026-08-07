@@ -17,7 +17,9 @@ interface ShareArgs {
   copiedMessage?: string;
 }
 
-const shareOrCopy = vi.fn(async (_data: ShareArgs) => "copied" as const);
+// Typed via the generic rather than an unused parameter, so `mock.calls` stays
+// typed without tripping no-unused-vars.
+const shareOrCopy = vi.fn<(data: ShareArgs) => Promise<"copied">>(async () => "copied");
 const track = vi.fn();
 vi.mock("@/lib/share", () => ({
   shareOrCopy: (data: ShareArgs) => shareOrCopy(data),

@@ -25,6 +25,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import { useRewards, type SeasonRecap } from "@/hooks/use-rewards";
+import { QuestsPanel } from "@/components/rewards/quests-panel";
 import { cn } from "@/lib/utils";
 
 // US-1851: the seller's rewards home — level, season track, cosmetic perks and
@@ -169,6 +170,9 @@ export function RewardsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Quests — the week. Renders nothing when the program is off or empty. */}
+      <QuestsPanel />
 
       {/* Season — the clock. Resets clean; takes nothing with it. */}
       <Card>

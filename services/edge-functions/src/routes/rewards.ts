@@ -23,6 +23,7 @@ import {
   loadSeasonRecaps,
   loadSeasonTimezone,
 } from "../lib/rewards-seasons.ts";
+import { loadQuestsState } from "../lib/rewards-quests.ts";
 
 type RewardsEnv = { Variables: { userId: string } };
 
@@ -89,5 +90,32 @@ rewardsRoutes.get("/state", async (c) => {
       err instanceof Error ? err.message : String(err),
     );
     return c.json({ error: "Couldn't load your rewards." }, 500);
+  }
+});
+
+// GET /api/rewards/quests — personal quests + live community challenges.
+//
+// Split from /state rather than folded into it because it is the expensive half:
+// a community challenge scans cross-user events for its standings, and the level
+// card should not wait on a leaderboard. Same personal scoping as /state — a
+// quest belongs to the human, never to the workspace they are acting inside.
+//
+// This read EVALUATES: progress is recomputed from the ledger and a quest that
+// has just been finished is claimed and paid here. That is deliberate and it is
+// the season-rollover pattern (finalizeCompletedSeason) — a weekly boundary
+// touches every user at one instant, and a cron fanning out across the whole
+// user base to write one row each is a worse failure surface than writing it the
+// next time they look. Idempotent by claim, so a refresh pays nothing twice.
+rewardsRoutes.get("/quests", async (c) => {
+  const userId = c.get("userId");
+  try {
+    const tz = await loadSeasonTimezone();
+    return c.json(await loadQuestsState(userId, tz, Date.now()));
+  } catch (err) {
+    console.error(
+      "[rewards] quests load failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Couldn't load your quests." }, 500);
   }
 });

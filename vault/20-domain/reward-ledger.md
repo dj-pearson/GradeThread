@@ -11,6 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/rewards-tangible.ts
   - services/edge-functions/src/lib/rewards-levels.ts
   - services/edge-functions/src/lib/rewards-seasons.ts
+  - services/edge-functions/src/lib/rewards-quests.ts
   - src/lib/buyer-rewards-summary.ts
 reviewed: 2026-08-07
 tags: [rewards, gamification, buyer, seller, contract]
@@ -100,6 +101,25 @@ self-limiting: a free or junk submission that abstains or fails has its charge
 reversed and earns nothing, so there is no way to farm XP by burning our own AI
 budget. A new event type that costs us model spend belongs in that set.
 
+### Exactly one type has variable XP, and it is bounded three times
+
+`quest_completed` (US-1852) is the only entry whose award is not a catalog
+constant: a quest's reward is admin-configurable, so the amount is decided by the
+quest definition and **frozen into the event's metadata at grant time**. Editing
+a quest later never rewrites what someone already earned, and a recompute from
+the log stays truthful without consulting the config.
+
+An operator-editable number that mints XP is a faucet, so it is capped in three
+independent places, and a new variable-XP type would need all three:
+
+1. `reward_quests.xp_reward` CHECK, 0–200 (migration 00540);
+2. the admin route's validator, which returns a sentence rather than a 500;
+3. `clampQuestXp` in the scorer — so even a hand-written event row, or a
+   migration that widened the CHECK, cannot out-earn the catalog.
+
+`xpForEvent` reads `xpAward` **only** for a variable type; a stray `quest_xp` on
+any other event is ignored.
+
 ### An unverified event is audit-only
 
 `verified: false` scores 0 by construction. Use it to record that something
@@ -166,6 +186,40 @@ Rollover is **lazy and idempotent** — the recap row is written the next time t
 user opens their rewards screen, guarded by `UNIQUE(user_id, season_key)`. A
 quarterly cron that has to fan out across the whole user base to write one row
 each is a worse failure surface than that.
+
+### Quests are the week, and a quest cannot count a quest
+
+Levels are identity, seasons are the quarter, **quests are the week**
+(`rewards-quests.ts`, 00540). Same one-ledger rule: quest progress is derived
+live from `reputation_events`, and `user_quest_progress` holds only the snapshot
+and the completion claim, so it can be dropped and rebuilt.
+
+Four rules constrain a quest:
+
+- **The XP gate is reused, not reinvented.** An event that scores 0 XP —
+  unverified, or an unpaid grading-spend act — counts 0 toward a quest. There is
+  one definition of "this action counted".
+- **`quest_completed` is not an allowed quest metric.** Two cheap quests counting
+  each other's completions would bootstrap an XP loop. Enforced by the 00540
+  CHECK, by `QUEST_METRICS`, and by the admin validator.
+- **The period key is a DATE, not a week number.** ISO week numbering puts
+  30 Dec 2025 in week 1 of 2026; a key that is wrong once a year pays a quest
+  twice or not at all once a year. Weekly keys are the Monday's date
+  (`w2026-08-03`), monthly are `m2026-08`, fixed windows are `fixed`. Boundaries
+  resolve in the same shared `rewards_season_timezone` the season uses, so "this
+  week" means one thing across every rewards surface.
+- **Evaluation is lazy and idempotent** — it happens on `GET /api/rewards/quests`,
+  the same choice (and rationale) as `finalizeCompletedSeason`. Claim-before-pay
+  via `completed_at IS NULL`, plus `grantReward`'s dedupe key
+  `quest:<key>:<period>`, is what makes two tabs award once.
+
+**A community challenge is time-boxed by definition** and its leaderboard names
+**public Verified profiles only** (`verified_enabled` + a handle). Being counted
+in a challenge is not consent to be named on one, so an unlisted seller still
+scores, still sees their own progress, and the card says why they are not on the
+board rather than silently omitting them. The standings scan is a deliberately
+simple in-window fold with a logged row cap; the materialized aggregate belongs
+to US-1856, not here.
 
 ### A level perk is cosmetic, and there is no paid path to one
 

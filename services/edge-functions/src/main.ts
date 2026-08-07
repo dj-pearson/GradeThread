@@ -180,6 +180,7 @@ import { handleEbayOrderBackstopCron } from "./routes/jobs-ebay-order-backstop.t
 import { handleEbayNotificationReconcileCron } from "./routes/jobs-ebay-notification-reconcile.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
+import { adminRewardsRoutes } from "./routes/admin-rewards.ts";
 import { adminAdsRoutes } from "./routes/admin-ads.ts";
 import { announcementRoutes } from "./routes/announcements.ts";
 import { referralRoutes } from "./routes/referrals.ts";
@@ -989,6 +990,11 @@ app.use("/api/referrals/*", rateLimiter(30, 60_000, "referrals"));
 // flood; /me rides the same scope but is keyed by user once authed.
 app.use("/api/affiliate/*", rateLimiter(60, 60_000, "affiliate", undefined, { failClosed: true }));
 app.use("/api/verified/*", rateLimiter(30, 60_000, "verified"));
+// US-1852: the quests read is the expensive one in this group — it evaluates
+// every live quest and scans cross-user events for each community challenge's
+// standings. Its own tighter bucket, registered BEFORE the group limit so both
+// apply and a refresh loop can't turn one screen into a table scan storm.
+app.use("/api/rewards/quests", rateLimiter(10, 60_000, "rewards-quests"));
 app.use("/api/rewards/*", rateLimiter(30, 60_000, "rewards"));
 
 // Content AI endpoints — generation, research, image creation. Each
@@ -1524,6 +1530,10 @@ app.post("/api/jobs/gsc-sync", (c) => handleGscSyncCron(c));
 // US-625..US-631 Growth/Promote suite (segments, campaigns, announcements,
 // analytics). Admin JWT + MFA gated by the /api/admin/* middleware group.
 app.route("/api/admin/growth", adminGrowthRoutes);
+// US-1852 quest / community-challenge definitions (criteria, window, reward,
+// per-quest kill-switch). Admin JWT + MFA gated by the /api/admin/* group; every
+// mutation audit-logged.
+app.route("/api/admin/rewards", adminRewardsRoutes);
 // US-1073 AI Ad Copy Studio (Google Ads RSA + Apple Search Ads). Admin JWT + MFA
 // gated by the /api/admin/* middleware group; cost tagged feature='ads'.
 app.route("/api/admin/ads", adminAdsRoutes);

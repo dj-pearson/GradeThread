@@ -22,6 +22,9 @@ export type RewardEventType =
   | "aspects_filled"
   | "marketplace_connected"
   | "verified_share"
+  // US-1852: a quest/challenge completion. The ONLY variable-XP type — see
+  // QUEST_XP_MAX below.
+  | "quest_completed"
   // Shared with the trust track — these ALSO carry XP (a paid grade / confirmed
   // arrival is both a trust signal and a rewardable action).
   | "verified_purchase"
@@ -42,7 +45,30 @@ export const REWARD_XP_CATALOG: Record<RewardEventType, number> = {
   verified_share: 20, // verified share-click — viral loop
   verified_purchase: 15, // a paid, grade-linked purchase (paid only)
   aspects_filled: 10, // listing quality / SEO surface
+  quest_completed: 0, // VARIABLE — the real amount rides on the event (US-1852)
 };
+
+/**
+ * The one event type whose XP is not a catalog constant (US-1852). A quest's
+ * reward is admin-configurable, so the amount is decided by the quest definition
+ * and FROZEN into the event's metadata at grant time — editing the quest later
+ * never rewrites what someone already earned.
+ *
+ * An operator-editable number that mints XP is a faucet, so it is bounded twice:
+ * the `reward_quests.xp_reward` CHECK caps it at 200 in the database, and this
+ * clamp caps it again at scoring time, so even a hand-written event row (or a
+ * migration that widened the CHECK) cannot out-earn the catalog.
+ */
+export const QUEST_XP_MAX = 200;
+
+const VARIABLE_XP_EVENTS = new Set<RewardEventType>(["quest_completed"]);
+
+/** Coerce an untrusted per-event award into the allowed band. Pure. */
+export function clampQuestXp(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(QUEST_XP_MAX, Math.floor(n));
+}
 
 // Events that consume real AI grading spend. Per US-1849 AC4 these award XP ONLY
 // when the action was PAID or credit-consuming, so free/junk submissions earn
@@ -56,15 +82,20 @@ const GRADING_SPEND_EVENTS = new Set<RewardEventType>([
 /**
  * XP for one event. A grading-spend event earns 0 unless `paid` is true (AC4).
  * Unverified events earn 0 (anti-gaming) — the caller passes verified.
+ *
+ * `xpAward` is read ONLY for a variable-XP type (quest_completed) and is clamped;
+ * passing it for any other type is ignored, so a stray metadata key on some
+ * unrelated event can never inflate the catalog.
  */
 export function xpForEvent(
   eventType: RewardEventType,
-  opts: { paid?: boolean; verified?: boolean } = {},
+  opts: { paid?: boolean; verified?: boolean; xpAward?: number } = {},
 ): number {
   if (opts.verified === false) return 0;
   const base = REWARD_XP_CATALOG[eventType];
   if (base === undefined) return 0;
   if (GRADING_SPEND_EVENTS.has(eventType) && !opts.paid) return 0;
+  if (VARIABLE_XP_EVENTS.has(eventType)) return clampQuestXp(opts.xpAward);
   return base;
 }
 
@@ -130,6 +161,8 @@ export interface RewardEventInput {
   verified: boolean;
   /** Whether the underlying action was paid/credit-consuming (grading-spend gate). */
   paid?: boolean;
+  /** Variable award for a quest_completed event, frozen at grant time (US-1852). */
+  xpAward?: number;
 }
 
 export interface RewardState {
@@ -169,7 +202,11 @@ export function computeRewardState(events: RewardEventInput[]): RewardState {
   let xpTotal = 0;
   const activeDays = new Set<number>();
   for (const ev of events) {
-    const xp = xpForEvent(ev.eventType, { paid: ev.paid, verified: ev.verified });
+    const xp = xpForEvent(ev.eventType, {
+      paid: ev.paid,
+      verified: ev.verified,
+      xpAward: ev.xpAward,
+    });
     if (xp <= 0) continue;
     xpTotal += xp;
     const d = dayKey(ev.occurredAt);
@@ -433,6 +470,8 @@ export async function recomputeRewardState(
       occurredAt: row.occurred_at,
       verified: row.verified,
       paid: row.metadata?.paid === true,
+      // US-1852: the frozen quest award. Ignored for every other type.
+      xpAward: clampQuestXp(row.metadata?.quest_xp),
     });
   }
 

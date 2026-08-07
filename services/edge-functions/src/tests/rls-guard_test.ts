@@ -459,6 +459,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // cron paths use the service-role client (bypasses RLS). Forced into the guard
   // via SERVICE_ONLY_FORCED below so a regression that drops the RLS fails CI.
   "job_locks",
+  // US-1852: quest / community-challenge DEFINITIONS (migration 00540). Pure
+  // operator config with no owner column — the SPA reads it only through
+  // /api/rewards/quests and writes it only through /api/admin/rewards/quests.
+  // A client-writable quest definition would be a client-writable XP faucet,
+  // so deny-all is the point. Forced into the guard via SERVICE_ONLY_FORCED.
+  "reward_quests",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -468,6 +474,7 @@ const SERVICE_ROLE_ONLY = new Set([
 // SERVICE_ROLE_ONLY above.
 const SERVICE_ONLY_FORCED = [
   "job_locks",
+  "reward_quests",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

@@ -3140,6 +3140,58 @@ Deno.test({
   },
 });
 
+// ── US-1852: rewards quests — self-scoped, and it WRITES ──────────────────────
+//
+// /api/rewards/quests matters more than /state does, because reading it is not
+// read-only: it evaluates quest progress and can claim a completion and pay XP.
+// So the two properties are the same, and the stake on the second one is higher —
+// if A's workspace header could steer the evaluation, it would write rows and
+// award XP against A's ledger from B's session.
+Deno.test({
+  name: "US-1852: rewards quests require authentication",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/rewards/quests`, {
+      headers: { "Content-Type": "application/json" },
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET rewards quests unauthenticated");
+  },
+});
+
+Deno.test({
+  name: "US-1852: B's workspace header cannot make /rewards/quests evaluate A",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const mine = await fetch(`${BASE}/api/rewards/quests`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const spoofed = await fetch(`${BASE}/api/rewards/quests`, {
+      headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": WS_OWNER! },
+    });
+    if (spoofed.status !== 200) {
+      await mine.body?.cancel();
+      await spoofed.body?.cancel();
+      assertDenied(spoofed.status, "GET rewards quests with A's workspace header");
+      return;
+    }
+    assertEquals(mine.status, 200, "B should be able to read their own quests");
+    const a = await mine.json();
+    const b = await spoofed.json();
+    assertEquals(
+      JSON.stringify(b?.quests?.map((q: { key: string; progress: { current: number } }) => [
+        q.key,
+        q.progress?.current,
+      ])),
+      JSON.stringify(a?.quests?.map((q: { key: string; progress: { current: number } }) => [
+        q.key,
+        q.progress?.current,
+      ])),
+      "the workspace header must not change whose quest progress is evaluated",
+    );
+  },
+});
+
 // ── US-1639: passport tag revoke is tenant-scoped ─────────────────────────────
 //
 // POST /garments/:id/tags/:tagId/revoke scopes by created_by = ownerId, so B

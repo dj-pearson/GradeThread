@@ -555,6 +555,17 @@ a learning that only matters to ONE surface, put it in that surface's file.
   buyer confirmation flow, with grace + freeze. Level perks are cosmetic and
   have no paid path. Rules: [[reward-ledger]].
 
+- A CONFIG table with no owner column is INVISIBLE to `rls-guard_test.ts` —
+  discovery matches an owner column in the CREATE TABLE block, so a deny-all
+  config table passes by never being looked at, and a later commit could drop its
+  RLS with nothing going red. Register it in BOTH `SERVICE_ROLE_ONLY` and
+  `SERVICE_ONLY_FORCED`. Rule: [[service-role-tables]].
+- Two vitest guards bite EVERY new admin dialog and are only caught by the full
+  suite: `control-labels.test.ts` (a shadcn `<SelectTrigger>` needs its own
+  `aria-label` — a sibling `<Label>` with no `htmlFor` does not bind to it, and
+  the test has a ratcheting baseline) and `dialog-dynamic-viewport.test.ts`
+  (`max-h-[85vh]` is refused; use `max-h-[calc(100dvh-2rem)]`).
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault

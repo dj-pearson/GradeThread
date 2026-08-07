@@ -20,7 +20,12 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { getSetting } from "./system-settings.ts";
-import { REWARD_XP_CATALOG, type RewardEventType, xpForEvent } from "./rewards-engine.ts";
+import {
+  clampQuestXp,
+  REWARD_XP_CATALOG,
+  type RewardEventType,
+  xpForEvent,
+} from "./rewards-engine.ts";
 import { levelForXp } from "./rewards-engine.ts";
 import { tierForLevel } from "./rewards-levels.ts";
 
@@ -47,7 +52,7 @@ export function normalizeSeasonTimezone(raw: unknown): string {
   return isValidTimeZone(tz) ? tz : "UTC";
 }
 
-interface ZonedParts {
+export interface ZonedParts {
   year: number;
   month: number; // 1–12
   day: number;
@@ -56,8 +61,14 @@ interface ZonedParts {
   second: number;
 }
 
-/** Wall-clock parts of a UTC instant as observed in `tz`. */
-function partsInTz(utcMs: number, tz: string): ZonedParts {
+/**
+ * Wall-clock parts of a UTC instant as observed in `tz`.
+ *
+ * Exported for rewards-quests.ts (US-1852): a quest's weekly/monthly window has
+ * to land on the SAME shared calendar the season boundary uses, or "this week"
+ * would mean two different things on two rewards surfaces.
+ */
+export function partsInTz(utcMs: number, tz: string): ZonedParts {
   const dtf = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
     hourCycle: "h23",
@@ -87,8 +98,14 @@ function tzOffsetMinutes(utcMs: number, tz: string): number {
   return (asUTC - utcMs) / 60_000;
 }
 
-/** The UTC instant of local midnight on `year-month-day` in `tz` (DST-aware). */
-function zonedMidnightUtcMs(year: number, month: number, day: number, tz: string): number {
+/** The UTC instant of local midnight on `year-month-day` in `tz` (DST-aware).
+ *  Exported for the quest windows (US-1852) — same shared calendar. */
+export function zonedMidnightUtcMs(
+  year: number,
+  month: number,
+  day: number,
+  tz: string,
+): number {
   const guess = Date.UTC(year, month - 1, day, 0, 0, 0);
   const off1 = tzOffsetMinutes(guess, tz);
   let utc = guess - off1 * 60_000;
@@ -238,6 +255,8 @@ export interface SeasonEventInput {
   occurredAt: string; // ISO
   verified: boolean;
   paid?: boolean;
+  /** Frozen quest award for a quest_completed event (US-1852). */
+  xpAward?: number;
 }
 
 export interface SeasonProgress {
@@ -272,7 +291,11 @@ export function computeSeasonProgress(
   for (const ev of events) {
     const t = Date.parse(ev.occurredAt);
     if (!Number.isFinite(t) || t < season.startMs || t >= season.endMs) continue;
-    const xp = xpForEvent(ev.eventType, { paid: ev.paid, verified: ev.verified });
+    const xp = xpForEvent(ev.eventType, {
+      paid: ev.paid,
+      verified: ev.verified,
+      xpAward: ev.xpAward,
+    });
     if (xp <= 0) continue;
     xpEarned += xp;
     counts.set(ev.eventType, (counts.get(ev.eventType) ?? 0) + 1);
@@ -409,6 +432,7 @@ async function loadRewardEvents(userId: string, sinceMs: number): Promise<Season
       occurredAt: row.occurred_at,
       verified: row.verified,
       paid: row.metadata?.paid === true,
+      xpAward: clampQuestXp(row.metadata?.quest_xp),
     });
   }
   return out;

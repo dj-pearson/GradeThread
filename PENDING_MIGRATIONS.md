@@ -1,9 +1,46 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Ten migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538 and 00539.** The entries below them were applied to prod and this
-file did not learn about it for a day. See the note under 00528 for how that was
-measured and why the measurement, not the file, is the authority.
+**Eleven migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539 and 00540.** The entries below them were applied to prod and
+this file did not learn about it for a day. See the note under 00528 for how that
+was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00540_reward_quests.sql (US-1852 — quests & challenges)
+
+**Apply order.** Last, in numeric order. It depends on `reputation_events`
+(00417/00443), `users`, `feature_flags` and `set_updated_at()` — all long
+applied — and on nothing newer.
+
+**Risk: LOW.** Two new tables, one widened CHECK constraint, one new
+`feature_flags` row, four seeded quest rows. No existing table, column or row is
+modified.
+
+**What it does.**
+- Widens `reputation_events_event_type_check` to admit `quest_completed`. The
+  whole allow-list is re-stated (the 00443 precedent), so the statement is
+  authoritative and re-runnable. Every existing type is unchanged.
+- Adds `reward_quests` — the admin-authored definitions (criteria, window,
+  reward) with a per-quest `enabled` kill-switch. **Deny-all RLS** (RLS on, zero
+  policies): a client-writable quest definition would be a client-writable XP
+  faucet. `xp_reward` is CHECKed at 0–200; the edge clamps it again.
+- Adds `user_quest_progress` — the per-user snapshot and completion claim.
+  `UNIQUE (user_id, quest_id, period_key)` is what makes a repeating quest pay
+  once per window. RLS lets a user read their own rows; only the service role
+  writes. Quest PROGRESS itself is still derived from `reputation_events` — this
+  table can be dropped and rebuilt.
+- Seeds `feature_flags.rewards_quests` = **true**, read fail-OPEN. Deliberately
+  the opposite of `rewards_tangible`: quests pay XP, which is free status, so an
+  outage that froze everyone's progress would do more damage than one that kept
+  paying it. The money rail keeps its own fail-closed switch.
+- Seeds four starter personal quests (three weekly, one monthly).
+
+**Deploy order matters.** Apply BEFORE the edge rolls (the normal order): an edge
+build that emits `quest_completed` against a DB with the old CHECK gets a 23514
+on every quest completion. The frontend is safe either way — the quests panel
+renders nothing when the read fails.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — two new tables need
+PostgREST to re-read the schema cache.
 
 ## ⏳ HELD: 00539_reward_levels_seasons.sql (US-1851 — levels & seasons)
 
