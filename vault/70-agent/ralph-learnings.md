@@ -753,9 +753,28 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `regex.exec(src)[0]`: it is built even when the assertion passes, so it throws
   on every file that is clean.
 
+- An AC that says "verified against the live site" is not blocked on its CODE,
+  only on its EVIDENCE — and two US-1880 passes stopped at "a human must do it"
+  without leaving that human anything to do it WITH. The completable half is the
+  MEASUREMENT: generate a DevTools snippet that inlines the shipped helper source
+  verbatim (`scripts/lib/adapter-verification.mjs` embeds image-utils.js), so what
+  the operator measures is what the extension does and no second implementation
+  can rot. Two rules the shape forces. Measure the OUTCOME, not the config — a
+  URL-upgrade rule that rewrote nothing looks perfect in JSON, so probe
+  `naturalWidth` on the upgraded URL; that is the only check the config cannot
+  satisfy by itself. And test generated browser text by EXECUTING it
+  (`new Function` + a selector-string→elements stub, no CSS engine needed) — a
+  verification tool nothing runs is one that reports PASS forever. Mutation-check
+  it with the old dead regex. Procedure: [[extension-adapter-verification]].
+- Careless detail that costs a debug cycle: a `String.raw` block holding generated
+  JS still ends at the first backtick and still interpolates `${}` — a prose
+  backtick in a comment inside it is a parse error at the CONSUMER, not the
+  definition.
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault
+- [[extension-adapter-verification]] — proving a marketplace adapter reads a real listing
 - [[backlog-priority-contract]] — which story the loop picks next, and why
 - [[ralph-brand-kb-log]] · [[ralph-ios-log]] · [[ralph-email-marketing-log]] — the on-demand topic logs
 - [[INDEX]]
