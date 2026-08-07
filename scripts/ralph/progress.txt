@@ -4298,3 +4298,8 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T07:57:59.128Z
 - Cost: $1.1474 over 13 turns
 ---
+## US-1765: Video grading: cost control + metering + plan gating
+- Status: COMPLETE
+- Timestamp: 2026-08-07T08:17:41.420Z
+- Cost: $6.5336 over 77 turns
+---

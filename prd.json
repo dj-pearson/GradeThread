@@ -243,7 +243,7 @@
         "Admin AI spend/profitability dashboards break out video_grading"
       ],
       "priority": 1765,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][VIDEO-GRADE][NEW] Reuse recordAiCall (ai-usage.ts) + ai_budgets + isAiBudgetExhausted + withAiAction/credits. Cost math: frames x per-image cost; price/gate accordingly (ties subscription unit economics)."
     },
     {
