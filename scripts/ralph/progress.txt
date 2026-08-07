@@ -4270,3 +4270,9 @@ Branch: ralph/gradethread-build
 - Reason: Someone has to film and upload the ten scripted YouTube shorts, then paste each video's id and upload date into `GRADING_SHORTS` in `src/lib/seo/grading-videos.ts`.
 - Cost: $5.6399 over 62 turns
 ---
+## US-1691: State of Secondhand Condition data report + PR/podcast push
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-08-07T06:21:00.355Z
+- Reason: A human has to pitch the report to resale-trade press, reseller newsletters, and the reseller podcast/YouTube circuit — no agent can perform outreach.
+- Cost: $11.1786 over 102 turns
+---
