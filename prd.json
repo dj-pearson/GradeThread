@@ -354,7 +354,7 @@
         "Events are privacy-compliant (opt-in where required)"
       ],
       "priority": 1845,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][ANALYTICS][GROWTH] Reuse PostHog + admin-growth surface + affiliate/referral attribution. Flywheel metric = buyer-demand -> seller-grading correlation. Depends on foundation (1795); instruments all buyer epics."
     },
     {
