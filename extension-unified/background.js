@@ -70,6 +70,12 @@ const SELECTOR_HEALTH_ENDPOINT =
 const USAGE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/usage";
 const PENDING_DELISTS_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/pending-delists";
+// US-1808: hand ONE listing the shopper is looking at to their own saved-search
+// alerts. Signed-in only (the server 401s without a token) — the whole point is
+// that the listing is checked against THAT buyer's criteria, so there is no
+// anonymous form of this call. Never fired automatically: it is a click, one
+// listing at a time, on a page the shopper opened themselves.
+const INGEST_ENDPOINT = "https://functions.gradethread.com/api/grading/public/ingest-listing";
 const CONFIG_URL = "https://gradethread.com/extension/marketplace-selectors.json";
 const CONFIG_TTL_HIT_MS = 6 * 60 * 60 * 1000;
 const CONFIG_TTL_MISS_MS = 10 * 60 * 1000;
@@ -506,6 +512,73 @@ async function scanCards({ cards, marketplace, query, brand }) {
   }
   if (resp.ok && json) return { ok: true, status: resp.status, data: json };
   return { ok: false, status: resp.status, error: (json && json.error) || "scan failed" };
+}
+
+// ── check this listing against my alerts (US-1808) ────────────────────────
+// The buyer's saved searches only ever heard about GradeThread certificates, so
+// the item they are actually looking at could match perfectly and stay silent.
+// This posts that one listing to the buyer-scoped ingest endpoint, which grades
+// it and evaluates it against their own criteria.
+//
+// SIGNED-IN ONLY, and refused here as well as on the server — an anonymous
+// install has no saved searches for the answer to be about, so firing the
+// request would spend a round trip to be told what we already knew.
+//
+// ONE listing, on click. There is no batch form and no automatic trigger: the
+// endpoint is for a page the shopper opened, not for walking a results grid.
+async function ingestListing(msg) {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return {
+      ok: false,
+      status: 401,
+      needsSignIn: true,
+      error: "Sign in to GradeThread to check listings against your alerts.",
+    };
+  }
+  if (!msg.url) return { ok: false, status: 400, error: "No listing address to check." };
+  if (!Array.isArray(msg.imageUrls) || msg.imageUrls.length === 0) {
+    return { ok: false, status: 400, error: "No listing photos to check." };
+  }
+  const instanceId = await getInstanceId();
+  let resp;
+  try {
+    resp = await fetch(INGEST_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-GT-Extension-Id": instanceId,
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify({
+        url: msg.url,
+        imageUrls: msg.imageUrls.slice(0, maxImagesFor(msg.maxImages)),
+        title: msg.title || undefined,
+        brand: msg.brand || undefined,
+        condition: msg.condition || undefined,
+        price: msg.price || undefined,
+        watch: msg.watch === true,
+      }),
+    });
+  } catch (_e) {
+    return { ok: false, status: 0, error: "Couldn't reach GradeThread. Check your connection." };
+  }
+  let json = null;
+  try {
+    json = await resp.json();
+  } catch (_e) {
+    json = null;
+  }
+  if (resp.ok && json) return { ok: true, status: resp.status, data: json };
+  // 402 is the plan/quota gate and 429 the per-day browsing bound. Both are
+  // states the shopper can act on, so the server's own wording is passed
+  // through rather than flattened into "something went wrong".
+  return {
+    ok: false,
+    status: resp.status,
+    needsUpgrade: resp.status === 402,
+    error: (json && json.error) || "Couldn't check this listing against your alerts.",
+  };
 }
 
 // ── flip mode: the sourcing appraisal (US-2238) ───────────────────────────
@@ -1245,6 +1318,13 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // move, and a stale ROI is the one number they'd act on.
       case "GT_CC_APPRAISE":
         sendResponse(await appraiseListing(msg));
+        break;
+      // US-1808: check this listing against the buyer's saved searches. Not
+      // cached, and deliberately not folded into the read: it spends a metered
+      // buyer action and writes a row on the buyer's account, so it happens only
+      // when they ask for it.
+      case "GT_CC_INGEST":
+        sendResponse(await ingestListing(msg));
         break;
       case "GT_CC_GET_CACHED":
         sendResponse(await readGradeCache(msg.listingKey));

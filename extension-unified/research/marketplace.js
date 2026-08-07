@@ -555,6 +555,13 @@
       // result actually belongs to.
       if (TRAY) body.appendChild(pinControls(data, location.href));
 
+      // US-1808: check this listing against the shopper's own saved searches.
+      // Signed-in only — an anonymous install has no alerts for the answer to be
+      // about, and it already sees the sign-in prompt above.
+      if (data.tier && data.tier !== "anonymous") {
+        body.appendChild(alertControls(location.href));
+      }
+
       // US-2238: the seller's half of this listing. Appended LAST and only for a
       // FlipDesk account — a shopper must never see a resale-margin panel on the
       // item they are trying to buy.
@@ -608,6 +615,67 @@
     open.textContent = TRAY.STRINGS.open;
     open.addEventListener("click", () => send({ type: "GT_CC_TRAY_OPEN" }));
     wrap.appendChild(open);
+    return wrap;
+  }
+
+  // ── check this listing against my alerts (US-1808) ──────────────────────
+  //
+  // A buyer's saved searches only ever matched GradeThread certificates, so the
+  // item in front of them could fit their criteria exactly and never alert. This
+  // sends THIS listing — the one they opened — to the buyer-scoped ingest
+  // endpoint, which grades it and evaluates it against their own searches.
+  //
+  // CLICK-TO-RUN, never automatic, and one listing at a time. That is not a UI
+  // preference: it is what keeps the feature inside "a shopper reading a page
+  // they opened" rather than a crawl of somebody's catalogue. The server holds
+  // the same line (a marketplace allowlist, a per-day bound, no batch form), so
+  // neither side is trusting the other to behave.
+  function alertControls(renderedUrl) {
+    const wrap = el("div", "gt-cc-actions");
+    const btn = el("button", "gt-cc-secondary");
+    btn.setAttribute("type", "button");
+    btn.textContent = "Check my alerts";
+    const note = el("p", "gt-cc-note");
+    note.hidden = true;
+
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Checking…";
+      const res = await send({
+        type: "GT_CC_INGEST",
+        // The URL snapshotted at RENDER time, like the pin path — nothing inside
+        // a rendered result may re-read location.href, because by the time a
+        // click lands the shopper may be on a different listing.
+        url: renderedUrl,
+        imageUrls: extractImageUrls(),
+        title: extractTitle() || document.title,
+        brand: extractBrand(),
+        condition: extractCondition(),
+        price: extractPrice(),
+      });
+      note.hidden = false;
+      if (!res || !res.ok) {
+        btn.disabled = false;
+        btn.textContent = "Check my alerts";
+        note.textContent = (res && res.error) || "Couldn't check your alerts right now.";
+        return;
+      }
+      const matches = (res.data && res.data.matches) || [];
+      btn.textContent = "Checked";
+      if (!matches.length) {
+        // Said plainly. "No matches" is a real, useful answer here — it means
+        // the shopper can stop wondering whether they set the alert up right.
+        note.textContent = "This one doesn't match any of your alerts.";
+        return;
+      }
+      const names = matches.map((m) => m && m.label).filter(Boolean).join(", ");
+      note.textContent = matches.length === 1
+        ? `Matches your alert: ${names}`
+        : `Matches ${matches.length} of your alerts: ${names}`;
+    });
+
+    wrap.appendChild(btn);
+    wrap.appendChild(note);
     return wrap;
   }
 

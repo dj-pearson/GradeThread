@@ -3401,11 +3401,13 @@ export type SavedSearchUpdate = Partial<
   Omit<SavedSearchRow, "id" | "user_id" | "created_at" | "updated_at">
 >;
 
-/** A specific certificate / listing / passport a buyer is watching. */
+/** A specific certificate / listing / passport / ingested marketplace listing a
+ *  buyer is watching. `ingested_listing` (US-1808, migration 00535) points at an
+ *  `ingested_listings.id` — an item the buyer browsed that isn't on GradeThread. */
 export interface WatchlistItemRow {
   id: string;
   user_id: string;
-  target_type: "certificate" | "listing" | "passport";
+  target_type: "certificate" | "listing" | "passport" | "ingested_listing";
   target_id: string;
   label: string | null;
   brand: string | null;
@@ -3414,6 +3416,35 @@ export interface WatchlistItemRow {
 export type WatchlistItemInsert =
   & { user_id: string; target_type: WatchlistItemRow["target_type"]; target_id: string }
   & Partial<Pick<WatchlistItemRow, "label" | "brand">>;
+
+// US-1808: a marketplace listing the buyer was browsing, handed to GradeThread
+// by the extension, graded, and evaluated against their saved searches. Written
+// ONLY by the edge (service role, scoped by user_id); the buyer may read and
+// delete their own rows but never insert or edit one — the grade on it is
+// GradeThread's objective read, not a value the client can set.
+export interface IngestedListingRow {
+  id: string;
+  user_id: string;
+  marketplace: string;
+  /** Canonical URL (query + fragment stripped); the per-buyer dedupe key. */
+  listing_url: string;
+  title: string | null;
+  brand: string | null;
+  claimed_condition: string | null;
+  price_cents: number | null;
+  thumb_url: string | null;
+  images_analyzed: number;
+  overall_score: number | null;
+  grade_tier: string | null;
+  confidence: number | null;
+  factor_scores: Record<string, number> | null;
+  /** The seller's claim expressed on the 1–10 scale (null when unreadable). */
+  claimed_grade: number | null;
+  discrepancy: Record<string, unknown> | null;
+  matched_search_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
 
 // US-1816: buyer Trust Score. reputation_events is the append-only authority;
 // buyer_trust_scores is the derived cache. Both owner-READ only (service writes);
@@ -3546,6 +3577,14 @@ export interface Database {
         Row: WatchlistItemRow;
         Insert: WatchlistItemInsert;
         Update: Partial<Pick<WatchlistItemRow, "label" | "brand">>;
+      };
+      // US-1808: extension-ingested marketplace listings. Owner READ + DELETE
+      // only under RLS — writes are the edge's (see IngestedListingRow), so the
+      // Insert/Update shapes are deliberately `never`.
+      ingested_listings: {
+        Row: IngestedListingRow;
+        Insert: never;
+        Update: never;
       };
       // US-1816: buyer Trust Score — event log + derived score (owner-read).
       reputation_events: {

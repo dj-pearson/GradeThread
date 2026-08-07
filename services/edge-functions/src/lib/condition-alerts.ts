@@ -110,12 +110,20 @@ export interface CandidateCert {
 const lc = (s: string) => s.trim().toLowerCase();
 
 /**
- * Does a public cert satisfy a search's NON-price criteria? An empty criterion
- * array is a wildcard (the buyer didn't constrain that dimension). Sizes are not
+ * The fields `matchesSearch` actually reads. A structural subset of
+ * CandidateCert so a NON-certificate item can be judged by the identical
+ * predicate — US-1808's extension-ingested marketplace listings are matched
+ * through this, and a second copy of the criteria logic would be the bug.
+ */
+export type MatchableItem = Pick<CandidateCert, "brand" | "title" | "category" | "grade">;
+
+/**
+ * Does an item satisfy a search's NON-price criteria? An empty criterion array
+ * is a wildcard (the buyer didn't constrain that dimension). Sizes are not
  * matched in the public-cert universe (a cert doesn't carry a declared size).
  */
 export function matchesSearch(
-  cert: CandidateCert,
+  cert: MatchableItem,
   search: AlertSearch,
 ): boolean {
   if (search.brands.length > 0) {

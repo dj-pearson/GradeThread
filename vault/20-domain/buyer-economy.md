@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/buyer-metering.ts
   - services/edge-functions/src/lib/buyer-guarantee-claim.ts
   - services/edge-functions/src/lib/condition-alerts.ts
-reviewed: 2026-08-02
+reviewed: 2026-08-07
 tags: [buyer, money, privacy, contract]
 summary: Reward credits are an append-only ledger spent in a fixed order, guarantee claims pass fraud then pool before paying, and buyer-facing search sees public certificates only.
 ---
@@ -69,14 +69,27 @@ privacy decision before it is a feature. It was settled deliberately:
 The two rejected options are worth recording, because they will be proposed
 again: *active marketplace listings across all sellers* exposes one seller's
 inventory feed to arbitrary buyers, and *watchlisted targets only* is too narrow
-to be useful. Matching runs over `inventory_items`, which denormalises grade,
-brand, category, size, certificate and eBay category — so the apparent
-`grade_reports ↔ submissions ↔ listings` gap is bypassed entirely rather than
-joined through.
+to be useful.
 
-Two traps in that matching: prices on `listings.listing_price` are **dollars**
-while `saved_searches.max_price_cents` is cents, and `grade_outcomes` is an
-opt-in post-sale training table, **not** a source for matching.
+Re-read 2026-08-07: both matchers — `condition-alerts.ts` (saved searches) and
+`demand-board-db.ts` (buyer wants) — read **`grade_reports` joined to
+`submissions`** for title/brand/category, not a denormalised item table. An
+earlier revision of this note said matching runs over `inventory_items`; it does
+not, and pointing a reader at a seller-inventory table is exactly the wrong
+mental model for a cross-tenant privacy boundary. `grade_outcomes` remains an
+opt-in post-sale training table and is **not** a source for matching.
+
+Prices stay a trap: `saved_searches.max_price_cents` is **cents**, and a public
+certificate has no sale price at all — so the certificate path compares the
+ceiling against a *modelled* Value Index fair price and skips the gate when no
+confident curve resolves.
+
+**A second universe exists as of US-1808**, and it does not weaken this one. A
+marketplace listing the buyer is personally looking at can be handed to the edge
+by the extension, graded, and matched against that same buyer's searches. It is
+never other tenants' data — it is the buyer's own browsing, private to them — so
+the privacy decision above is untouched. Its own boundary (an allowlist, no page
+fetch, a daily bound) is in [[buyer-platform]].
 
 ## Related
 

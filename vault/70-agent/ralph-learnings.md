@@ -109,6 +109,14 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `loadIntoSelf` pattern (`new Function("self","module", src)(selfObj, {exports:{}})`,
   see `extension-unified/test/depth.test.cjs`), which is also the only way to see
   what the file publishes on `self`.
+- Edge tests that SCAN SOURCE TEXT for a literal multi-line snippet (e.g.
+  `condition-alerts_test.ts` US-2317 looks for `.from("saved_searches")\n    .select(`,
+  `ebay-bulk-revise_test.ts` US-2404) FAIL ON THIS WINDOWS HOST and pass in CI:
+  git checks the tree out with CRLF, so the `\n` in the needle never matches the
+  `\r\n` on disk. The HEAD blob is LF and `git diff --stat` shows no whitespace
+  churn, so it is a checkout artifact, not your change — confirm by checking that
+  the scanned file is untouched (`git status --porcelain <file>` empty) and move
+  on. Don't "fix" the test.
 - Adding a cron means FOUR edits or `cron-registry-drift_test.ts` fails: the
   `/api/jobs/*` route in main.ts, a CRON_REGISTRY entry (cron-runs.ts), AND the
   generated tables in COOLIFY.md + vault/10-ops/launch-checklist.md (`cron-registry` markers)

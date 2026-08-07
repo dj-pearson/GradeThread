@@ -12,6 +12,8 @@ code_refs:
   - services/edge-functions/src/lib/buyer-plans.ts
   - services/edge-functions/src/lib/buyer-entitlements.ts
   - services/edge-functions/src/lib/condition-alerts.ts
+  - services/edge-functions/src/lib/listing-ingest.ts
+  - supabase/migrations/00535_ingested_listings.sql
 reviewed: 2026-08-07
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
@@ -147,6 +149,48 @@ Two rules fall out of that, both general:
   `last_matched_at` leaves it permanently stalest, so it is re-picked at the head
   of every run — the [[ralph-learnings|US-2315]] starvation shape, re-created by
   the fix for a different problem.
+
+## Alerts have two universes, and the second one has a ToS boundary
+
+The matching engine's universe is **public GradeThread certificates only** — a
+deliberate privacy choice (see `condition-alerts.ts`), and also almost none of
+what a buyer actually shops. US-1808 added the second universe: a marketplace
+listing the buyer is **looking at**, handed to the edge by the extension, graded,
+and evaluated against that same buyer's saved searches.
+
+Both universes converge on one predicate and one delivery path, on purpose:
+`matchesSearch` (widened to the structural `MatchableItem` so a non-certificate
+can be judged by it) and `notifyBuyer`. A second copy of the criteria logic, or a
+second sender, is the bug — an ingested match would drift from a certificate
+match on quiet hours, digest cadence or dedupe and nobody would notice which.
+
+`activeAlertsCap` is re-applied here through the same `entitledSearchIds`. Skip
+that and the endpoint becomes a way to get alerts on searches over the cap: the
+enforcement point would have *moved*, not been added to.
+
+**The ToS boundary is mechanical, not a promise.** Marketplace terms permit a
+shopper reading a page they opened; they do not permit building a crawl. That
+difference is enforced in code, in five places, because a comment saying
+"buyer-initiated" is not an enforcement:
+
+- **One listing per request.** There is no array form, so no request shape can
+  express "ingest this results page".
+- **A marketplace allowlist** (`INGEST_MARKETPLACE_HOSTS`) matched on **label
+  boundaries**, not `endsWith` — `ebay.com.evil.example` is not eBay. Without the
+  allowlist the endpoint is a general-purpose fetch-and-grade crawler.
+- **The marketplace is derived from the URL**, never read from the body.
+- **The listing page is never fetched.** Only the image URLs the buyer's own
+  browser already loaded are retrieved, through `safeFetch`'s SSRF guard inside
+  `quickGrade`. We never request or store the page's HTML.
+- **A per-buyer daily row cap** (`INGEST_MAX_PER_DAY`), because the monthly
+  `extensionChecksPerMonth` allowance is `-1` on both paid tiers and *unlimited
+  monthly* must not read as *may be pointed at a catalogue*. Plus
+  `INGEST_RETENTION_DAYS` pruning, so the table stays a buyer's recent browsing
+  rather than an accumulating corpus.
+
+Rows are private to the ingesting buyer, owner READ + DELETE under RLS and
+**never owner-write** — the grade on the row is GradeThread's objective read, and
+a client-writable one would make "we graded it 9.5" a number the buyer could set.
 
 ## Known gap: buyer video-grade credits are advertised but not reachable
 

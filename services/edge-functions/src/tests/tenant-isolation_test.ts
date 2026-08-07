@@ -3490,6 +3490,74 @@ Deno.test({
   },
 });
 
+// ── Extension listing ingestion (US-1808) ──────────────────────────────────
+//
+// The other extension-token door, and the one that WRITES. It takes no row id —
+// the tenant is the id inside the HMAC token — so, like pending-delists, the
+// property worth proving is that the token is genuinely REQUIRED. A regression
+// that let this fall back to "anonymous" the way /entitlements does would let an
+// unauthenticated caller write rows, spend Vision, and (worse) have those rows
+// land against whatever user id it invented.
+//
+// A forged token must also be rejected BEFORE any grading happens: the handler
+// verifies first and rate-limits second, so a signature check is the only thing
+// standing between a stranger and somebody else's metered allowance.
+Deno.test({
+  name: "extension ingest-listing rejects missing/forged tokens",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const url = `${BASE}/api/grading/public/ingest-listing`;
+    const payload = JSON.stringify({
+      url: "https://www.poshmark.com/listing/attacker-abc123",
+      imageUrls: ["https://images.poshmark.com/x.jpg"],
+      title: "Nike Hoodie",
+    });
+
+    const noAuth = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+    });
+    await noAuth.body?.cancel();
+    assertEquals(noAuth.status, 401, "POST ingest-listing with no token must be 401");
+
+    for (const bad of ["garbage", "a.b.c", "user-a.9999999999999.deadbeef"]) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${bad}` },
+        body: payload,
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `POST ingest-listing with a forged token (${bad})`);
+    }
+  },
+});
+
+// A buyer's ingested listings are their own browsing history. The SaaS-side
+// read is RLS-scoped, but the row is written by the SERVICE-ROLE client, so the
+// isolation that matters is that the write keys on the token's id — never on
+// anything in the body. Assert the body cannot name a victim: a user_id planted
+// in the payload must not change whose row is written, which shows up here as
+// the request still needing (and being refused for lack of) a valid token.
+Deno.test({
+  name: "ingest-listing ignores a user_id planted in the request body",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/grading/public/ingest-listing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: "00000000-0000-0000-0000-000000000000",
+        userId: "00000000-0000-0000-0000-000000000000",
+        url: "https://www.grailed.com/listings/123-attacker",
+        imageUrls: ["https://media.grailed.com/x.jpg"],
+      }),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 401, "a body-supplied user id must not authenticate anyone");
+  },
+});
+
 // ── US-2238: /api/flipdesk/scout/appraise-url ────────────────────────────────
 //
 // The extension's sourcing appraisal. It takes NO resource id — the body is a

@@ -47,6 +47,26 @@ import {
 } from "../lib/buyer-entitlements.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+// US-1808: extension-fed marketplace listing ingestion. The pure half (the
+// marketplace allowlist that IS the anti-crawl boundary, URL canonicalization,
+// body validation) lives in lib/listing-ingest.ts; the matching predicate is
+// borrowed WHOLE from the alerts engine so an ingested listing is judged by the
+// same rules as an on-platform certificate.
+import {
+  buildIngestAlertBody,
+  INGEST_RETENTION_DAYS,
+  type IngestListingInput,
+  parseIngestBody,
+  priceWithinCeiling,
+} from "../lib/listing-ingest.ts";
+import {
+  type AlertSearch,
+  entitledSearchIds,
+  type MatchableItem,
+  matchesSearch,
+} from "../lib/condition-alerts.ts";
+import { notifyBuyer } from "../lib/buyer-notify.ts";
+import { BuyerQuotaExhaustedError, withBuyerMeter } from "../lib/buyer-metering.ts";
 
 // US-1836: fraud flags are legally sensitive (a public "these look manipulated"
 // signal), so the whole feature is FAIL-CLOSED behind a kill-switch until the
@@ -1426,5 +1446,376 @@ publicGradingRoutes.post("/authenticity-check", async (c) => {
       { error: "Couldn't check that item right now. Try clear, well-lit photos of the tags, logo, and stitching." },
       500,
     );
+  }
+});
+
+// ── Extension-fed marketplace listing ingestion (US-1808) ────────────────────
+//
+// THE GAP THIS CLOSES. The alerts engine (condition-alerts.ts) matches saved
+// searches against PUBLIC GRADETHREAD CERTIFICATES and nothing else. That is a
+// deliberate, privacy-safe universe — and it is also almost none of what a buyer
+// shops. So a buyer could describe exactly the jacket they want, then walk past
+// it on Grailed with the alert silent. This endpoint lets a listing the buyer is
+// LOOKING AT enter the same alerts pipeline: graded, matched, notified.
+//
+// WHY IT IS A SEPARATE ENDPOINT FROM /grade-from-url. That one is anonymous,
+// stateless and persists nothing; this one is authenticated, writes a row, and
+// spends a metered buyer action. Folding a write path into the anonymous read
+// path would mean the anonymous case had to carry a "not signed in" branch
+// through a persistence flow — and the ONE thing that must never regress here is
+// that an unauthenticated caller cannot write.
+//
+// HARDENING, reused rather than reinvented (story AC2):
+//   • per-IP + per-install sliding windows, its own budget (a listing ingest
+//     spends a Vision call AND a DB write, so it cannot share the scan window);
+//   • the monthly `extension_checks` allowance via withBuyerMeter — reserve
+//     before the grade, refund if it throws;
+//   • a per-buyer DAILY row cap, because the top tiers' monthly allowance is
+//     unlimited and "unlimited" must not read as "may be pointed at a catalogue";
+//   • SSRF: image URLs are fetched only through quickGrade → safeFetch (private-
+//     range blocklist + redirect re-validation + size + content-type cap). The
+//     LISTING page itself is never fetched at all;
+//   • the global AI daily ceiling inside quickGrade caps total Vision spend.
+//
+// TENANCY (US-268): `ownerId` is the id inside the HMAC-signed extension token
+// and NOTHING else. There is no user id, workspace header or row id anywhere in
+// the request for a caller to forge, every query below is `.eq("user_id",
+// ownerId)`, and the saved searches evaluated are only ever the token holder's.
+const INGEST_PER_IP_PER_HOUR = 10;
+const INGEST_PER_INSTANCE_PER_HOUR = 20;
+const INGEST_WINDOW_MS = 60 * 60 * 1000;
+const ingestIpHits = new Map<string, number[]>();
+const ingestInstanceHits = new Map<string, number[]>();
+
+/**
+ * US-1808 AC3, the anti-crawl bound. The monthly meter already rations Free
+ * (10 extension checks), but Guard and Connoisseur are `-1` — unlimited — and an
+ * unlimited monthly allowance would let a scripted client walk a category all
+ * night while every individual request looked perfectly legitimate. A daily row
+ * cap is what makes "the buyer's own browsing" a number rather than an intention.
+ * Well above any human's real browsing; low enough that a crawl hits it in an hour.
+ */
+export const INGEST_MAX_PER_DAY = 60;
+
+export function ingestRateLimited(
+  ip: string,
+  instanceId: string | null,
+  now: number,
+): { limited: boolean; scope?: "ip" | "instance" } {
+  if (windowLimited(ingestIpHits, ip, now, INGEST_PER_IP_PER_HOUR, INGEST_WINDOW_MS)) {
+    return { limited: true, scope: "ip" };
+  }
+  if (
+    instanceId &&
+    windowLimited(ingestInstanceHits, instanceId, now, INGEST_PER_INSTANCE_PER_HOUR, INGEST_WINDOW_MS)
+  ) {
+    return { limited: true, scope: "instance" };
+  }
+  return { limited: false };
+}
+
+interface IngestMatch {
+  searchId: string;
+  label: string;
+}
+
+/**
+ * Evaluate one ingested listing against the buyer's OWN saved searches and emit
+ * a condition_alert for each match, through notifyBuyer — the SAME delivery path
+ * an on-platform certificate match takes (story AC3), so an ingested match
+ * inherits the buyer's channel preferences, quiet hours, plan-capped digest
+ * cadence and (userId, dedupeKey) idempotency with no second delivery code path.
+ *
+ * The plan's `activeAlertsCap` is applied here too, via the same
+ * `entitledSearchIds` the cron uses. Without it this endpoint would be a way to
+ * get alerts on searches over the cap — the enforcement point would have moved,
+ * not been added to.
+ */
+async function matchIngestedListing(
+  ownerId: string,
+  listing: IngestListingInput,
+  grade: number,
+  cap: number,
+  featureEnabled: boolean,
+): Promise<IngestMatch[]> {
+  const { data, error } = await supabaseAdmin
+    .from("saved_searches")
+    .select(
+      "id, user_id, label, brands, categories, keywords, min_grade, max_price_cents, last_matched_at, created_at",
+    )
+    .eq("user_id", ownerId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (error) throw new Error(`ingest saved-search load failed: ${error.message}`);
+
+  const searches = (data ?? []) as AlertSearch[];
+  const entitled = entitledSearchIds(searches, cap, featureEnabled);
+
+  // An ingested listing carries no garment CATEGORY — marketplaces express it as
+  // a breadcrumb we deliberately don't scrape — so a category-constrained search
+  // will not match one. Honest under-matching, not a silent wildcard: pretending
+  // "unknown" satisfies "must be outerwear" would alert on the wrong items.
+  const item: MatchableItem = {
+    brand: listing.brand,
+    title: listing.title ?? "",
+    category: null,
+    grade,
+  };
+
+  const matches: IngestMatch[] = [];
+  for (const search of searches) {
+    if (!entitled.has(search.id)) continue;
+    if (!matchesSearch(item, search)) continue;
+    // The real asking price against the buyer's real ceiling — see
+    // priceWithinCeiling on why this is a stronger test than the cert path's.
+    if (!priceWithinCeiling(listing.priceCents, search.max_price_cents)) continue;
+    matches.push({ searchId: search.id, label: search.label });
+  }
+
+  for (const match of matches) {
+    await notifyBuyer(ownerId, {
+      category: "condition_alert",
+      title: "A listing you checked matches your alert",
+      body: buildIngestAlertBody(listing, grade),
+      // In-app, not the marketplace URL: notify links are rendered inside the
+      // buyer app, and the listing itself is carried on `data` for the client.
+      link: "/buyer/alerts",
+      // One alert per (search, listing) per buyer, forever — re-checking the
+      // same item does not re-notify.
+      dedupeKey: `ingested-listing:${match.searchId}:${listing.listingUrl}`,
+      data: { searchId: match.searchId, listingUrl: listing.listingUrl },
+    });
+  }
+  return matches;
+}
+
+publicGradingRoutes.post("/ingest-listing", async (c) => {
+  try {
+    // AUTHENTICATION FIRST, and no anonymous fallback. /entitlements degrades to
+    // an anonymous answer on a bad token because the cost of being wrong there is
+    // one shopper's free read; here a fallback would mean an unauthenticated
+    // caller writing rows and spending Vision.
+    const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
+    if (!verified) {
+      return c.json(
+        { error: "Sign in to GradeThread to check listings against your alerts." },
+        401,
+        { "Cache-Control": "no-store" },
+      );
+    }
+    const ownerId = verified.userId;
+
+    const ip = clientIpFor(c);
+    const instanceId = c.req.header("x-gt-extension-id")?.trim().slice(0, 64) || null;
+    const gate = ingestRateLimited(ip, instanceId, Date.now());
+    if (gate.limited) {
+      return c.json(
+        {
+          error: gate.scope === "instance"
+            ? "This extension has checked too many listings for now. Try again later."
+            : "You've checked too many listings for now. Try again later.",
+        },
+        429,
+      );
+    }
+
+    // FAIL CLOSED on an entitlements read gap, like /pending-delists: this call
+    // spends a metered action and writes a row, so acting on an unverified plan
+    // is worse than making the buyer retry.
+    let ent;
+    try {
+      ent = await getBuyerEntitlements(ownerId);
+    } catch (err) {
+      console.error(
+        "public-grading /ingest-listing entitlements:",
+        err instanceof Error ? err.message : String(err),
+      );
+      return c.json({ error: "Could not verify your plan. Try again." }, 503, {
+        "Cache-Control": "no-store",
+      });
+    }
+    if (!ent.gateFlags.conditionAlerts) {
+      return c.json(
+        { error: "upgrade_required", product: "buyer", feature: "conditionAlerts", current_plan: ent.plan },
+        402,
+      );
+    }
+
+    const gates = resolveExtensionGates(ent);
+    const parsed = parseIngestBody(await c.req.json().catch(() => null), gates.maxImages);
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+    const listing = parsed.listing;
+
+    // Retention, scoped to this buyer. Done inline on the write path rather than
+    // in a cron because it is one indexed delete against one owner's rows, and a
+    // table of somebody's browsing should not depend on a separate job being
+    // healthy to stop growing. Independent of the cap below (90 days vs 24 hours).
+    const cutoff = new Date(Date.now() - INGEST_RETENTION_DAYS * 86_400_000).toISOString();
+    await supabaseAdmin
+      .from("ingested_listings")
+      .delete()
+      .eq("user_id", ownerId)
+      .lt("created_at", cutoff);
+
+    // A ROLLING 24 hours, not a calendar day: a midnight-resetting counter hands
+    // a scripted client two full budgets back to back either side of the reset.
+    const since = new Date(Date.now() - 86_400_000).toISOString();
+    const { count: recentCount } = await supabaseAdmin
+      .from("ingested_listings")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ownerId)
+      .gte("created_at", since);
+    if ((recentCount ?? 0) >= INGEST_MAX_PER_DAY) {
+      return c.json(
+        {
+          error:
+            "You've checked a lot of listings today. GradeThread reads listings you're " +
+            "browsing, one at a time — try again tomorrow.",
+        },
+        429,
+      );
+    }
+
+    // The metered grade. quickGrade fetches ONLY the photo URLs, each through
+    // safeFetch's SSRF guard; the listing page is never requested.
+    let result;
+    try {
+      const viewTypes = assignGalleryImageTypes(listing.imageUrls.length);
+      result = await withBuyerMeter(
+        ownerId,
+        "extension_checks",
+        ent.allowances.extensionChecksPerMonth,
+        () =>
+          quickGrade({
+            images: listing.imageUrls.map((url, i) => ({ url, type: viewTypes[i] })),
+            garment: { brand: listing.brand, title: listing.title ?? "" },
+          }),
+      );
+    } catch (err) {
+      if (err instanceof BuyerQuotaExhaustedError) {
+        return c.json(
+          {
+            error: err.message,
+            code: "quota_exhausted",
+            product: "buyer",
+            feature: "extensionChecks",
+            current_plan: ent.plan,
+          },
+          402,
+        );
+      }
+      if (err instanceof AiCeilingError) return c.json(atCapacityBody(), 503);
+      console.error(
+        "public-grading /ingest-listing grade:",
+        err instanceof Error ? err.message : String(err),
+      );
+      return c.json(
+        { error: "Couldn't read this listing's photos. Try again from the listing page." },
+        400,
+      );
+    }
+
+    // US-1834's scorer, persisted: how far the objective grade falls below what
+    // the seller claimed. Gated for DISPLAY by tier below, but always stored —
+    // it is the buyer's own record of an item they looked at.
+    const claimedGrade = claimedConditionToGrade(listing.claimedCondition, listing.marketplace);
+    const discrepancy = scoreDiscrepancy(result.overallScore, claimedGrade);
+
+    let matches: IngestMatch[] = [];
+    try {
+      matches = await matchIngestedListing(
+        ownerId,
+        listing,
+        result.overallScore,
+        ent.allowances.activeAlertsCap,
+        ent.gateFlags.conditionAlerts,
+      );
+    } catch (err) {
+      // The grade is the thing the buyer is standing there waiting for. A
+      // matching failure must not throw it away — degrade to "no matches" and
+      // still return the read (and still persist it, so a later run can see it).
+      console.error(
+        "public-grading /ingest-listing match:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    // Upsert on (user_id, listing_url) — re-checking an item the buyer already
+    // ingested refreshes that row rather than growing the table.
+    const { data: saved, error: saveErr } = await supabaseAdmin
+      .from("ingested_listings")
+      .upsert(
+        {
+          user_id: ownerId,
+          marketplace: listing.marketplace,
+          listing_url: listing.listingUrl,
+          title: listing.title,
+          brand: listing.brand,
+          claimed_condition: listing.claimedCondition,
+          price_cents: listing.priceCents,
+          thumb_url: listing.imageUrls[0] ?? null,
+          images_analyzed: result.imagesAnalyzed,
+          overall_score: result.overallScore,
+          grade_tier: result.gradeTier,
+          confidence: result.confidence,
+          factor_scores: result.factorScores,
+          claimed_grade: claimedGrade,
+          discrepancy,
+          matched_search_ids: matches.map((m) => m.searchId),
+        } as never,
+        { onConflict: "user_id,listing_url" },
+      )
+      .select("id")
+      .maybeSingle();
+    if (saveErr) {
+      console.error("public-grading /ingest-listing save:", saveErr.message);
+    }
+    const ingestedId = (saved as { id?: string } | null)?.id ?? null;
+
+    // The buyer asked to keep watching this one. Scoped by user_id and made
+    // idempotent by 00416's (user_id, target_type, target_id) unique index.
+    if (listing.watch && ingestedId) {
+      const { error: watchErr } = await supabaseAdmin
+        .from("watchlist_items")
+        .upsert(
+          {
+            user_id: ownerId,
+            target_type: "ingested_listing",
+            target_id: ingestedId,
+            label: listing.title,
+            brand: listing.brand,
+          } as never,
+          { onConflict: "user_id,target_type,target_id" },
+        );
+      if (watchErr) console.error("public-grading /ingest-listing watch:", watchErr.message);
+    }
+
+    return c.json(
+      {
+        ok: true,
+        estimate: true,
+        ingestedId,
+        marketplace: listing.marketplace,
+        overallScore: result.overallScore,
+        gradeTier: result.gradeTier,
+        confidence: result.confidence,
+        imagesAnalyzed: result.imagesAnalyzed,
+        // Same tier gating as /grade-from-url — the objective grade is the free
+        // hook, the claimed-vs-objective read is a paid signal.
+        discrepancy: gates.discrepancy ? discrepancy : null,
+        matches,
+        watched: Boolean(listing.watch && ingestedId),
+        disclaimer: GRADE_CHECK_DISCLAIMER,
+      },
+      200,
+      { "Cache-Control": "no-store, private" },
+    );
+  } catch (err) {
+    console.error(
+      "public-grading /ingest-listing:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Couldn't check that listing right now. Try again later." }, 500);
   }
 });

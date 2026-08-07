@@ -3,7 +3,7 @@
 // Supabase — just the criteria-defaulting contract so every surface produces the
 // same shape.
 
-import type { BuyerPreferencesRow, SavedSearchInsert } from "@/types/database";
+import type { BuyerPreferencesRow, SavedSearchInsert, WatchlistItemRow } from "@/types/database";
 
 /** The editable criteria subset of a saved search (everything the matching
  *  engine filters on), separated from label/notify/state fields. */
@@ -123,7 +123,7 @@ export function countActiveSearches(
 
 /** Stable key for a watch target so a "watched?" lookup is O(1). */
 export function watchTargetKey(
-  targetType: "certificate" | "listing" | "passport",
+  targetType: WatchlistItemRow["target_type"],
   targetId: string,
 ): string {
   return `${targetType}:${targetId}`;

@@ -1,9 +1,39 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Five migrations are held: 00530, 00531, 00532, 00533 and 00534.** The entries
-below them were applied to prod and this file did not learn about it for a day.
-See the note under 00528 for how that was measured and why the measurement, not
-the file, is the authority.
+**Six migrations are held: 00530, 00531, 00532, 00533, 00534 and 00535.** The
+entries below them were applied to prod and this file did not learn about it for
+a day. See the note under 00528 for how that was measured and why the
+measurement, not the file, is the authority.
+
+## ⏳ HELD: 00535_ingested_listings.sql (US-1808 — extension-fed marketplace listing ingestion)
+
+**Apply order.** Independent of 00530–00534; apply it last, in numeric order,
+like the rest.
+
+**Risk: LOW.** One new table with two indexes, a trigger and two RLS policies,
+plus a CHECK swap on `watchlist_items.target_type`. No existing row is rewritten
+and no existing column changes type.
+
+**What it does.**
+- `ingested_listings` — a marketplace listing the buyer was browsing, handed to
+  GradeThread by the extension, graded, and matched against their saved
+  searches. Owner READ + DELETE under RLS; **all writes are the edge's**
+  (service role, scoped by `user_id`). Unique on `(user_id, listing_url)` so
+  re-checking an item refreshes one row.
+- `watchlist_items.target_type` gains `'ingested_listing'`. The constraint is
+  dropped and re-added, so it is idempotent, but note it is a **drop + add, not
+  a widening in place** — between the two statements the column is briefly
+  unconstrained. That window is inside one migration and no writer runs in it.
+
+**⚠️ THE EDGE NEEDS THIS BEFORE THE NEW ROUTE ANSWERS.**
+`POST /api/grading/public/ingest-listing` writes `ingested_listings` on its
+first call, so the edge must not roll before the SQL lands. The frontend does
+**not** read the new table (the types are declared, nothing queries them yet), so
+a Cloudflare Pages auto-deploy on push is harmless on its own.
+
+**Apply, then `NOTIFY pgrst, 'reload schema';`, then redeploy the edge** (the
+same commit bumps `EXPECTED_SCHEMA_VERSION` to `00535`, so the boot guard needs
+the row recorded), then push.
 
 ## ⏳ HELD: 00534_video_live_capture.sql (US-1766 — live-capture provenance for a clip)
 

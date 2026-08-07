@@ -23,7 +23,13 @@ const {
 const { BUYER_PLAN_ENTITLEMENTS } = await import("../lib/buyer-plans.ts");
 
 type Search = Parameters<typeof matchesSearch>[1];
-type Cert = Parameters<typeof matchesSearch>[0];
+// Taken from pickCurveSlugForCert, not matchesSearch: US-1808 widened
+// matchesSearch's parameter to the structural MatchableItem subset so an
+// extension-ingested marketplace listing (which has no certificate id) can be
+// judged by the same predicate. The full CandidateCert is still what the curve
+// resolver and the alert body take, and it satisfies MatchableItem, so one
+// factory keeps serving all three.
+type Cert = Parameters<typeof pickCurveSlugForCert>[0];
 
 function search(o: Partial<Search> = {}): Search {
   return {
