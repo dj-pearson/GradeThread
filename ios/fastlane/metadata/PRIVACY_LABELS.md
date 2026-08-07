@@ -20,6 +20,23 @@ used for "Tracking" in Apple's sense. No IDFA, no `ATTrackingManager`.
 | Photos | User Content → Photos or Videos | Yes | No | App Functionality (garment photos for cataloging + grading) | Supabase Storage |
 | Crash data | Diagnostics → Crash Data | No | No | App Functionality (stability) | Sentry |
 | Product interaction | Usage Data → Product Interaction | No | No | Analytics (opt-out, on by default — user can disable in Settings) | PostHog |
+| Coarse location | Location → Coarse Location | No | No | App Functionality (Thrift Radar — **opt-in, off by default**) | Supabase |
+
+**Thrift Radar location (US-1861).** This is the one genuinely *opt-in*
+entry, and the code backs the word: `RadarConsent` defaults to false, the
+app never calls CoreLocation while it is false, and the permission prompt
+is triggered by the "Contribute to Thrift Radar" switch in Settings rather
+than by a scan. That is the US-1214 rule — labels and behavior must agree —
+applied to a second surface.
+
+What leaves the device is a position; what is *stored* is a geohash cell
+roughly a kilometre across, because the server derives the cell and
+discards the fix in the same request (`radar_scan_events` has no coordinate
+column). Contributions carry a salted digest that rotates weekly instead of
+an account id, which is why this row is **not linked to identity**. If the
+switch ever becomes on-by-default, or a precise coordinate is ever
+retained, this row must change to Precise Location / Linked before the
+build ships.
 
 "Purchase history" here is the reseller's **own** sales bookkeeping, not
 App Store purchases. Apple's closest category is Purchase History; clarify

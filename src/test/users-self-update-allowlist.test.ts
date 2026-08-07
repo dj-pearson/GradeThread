@@ -11,7 +11,9 @@
 // client write to a column NOT on the allowlist now fails at runtime, on a real
 // user, in production. This test is the other half of that trade. It reads the
 // allowlist out of the migration itself (not a copy) and fails if any browser or
-// iOS write path targets a column the database will refuse.
+// iOS write path targets a column the database will refuse. "The migration" is
+// resolved dynamically — see `guardMigration` — because extending the allowlist
+// means restating the function in a NEW file, never editing the applied one.
 //
 // WHY IT SCANS ios/ TOO: the iOS app holds the same anon key and the same
 // authenticated role. A Swift write to users is indistinguishable from a browser
@@ -21,7 +23,38 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const MIGRATION = "supabase/migrations/00526_users_self_update_allowlist.sql";
+const MIGRATIONS_DIR = "supabase/migrations";
+
+/**
+ * The migration that currently DEFINES the guard.
+ *
+ * This used to be pinned to 00526. That was wrong in a way nothing could show
+ * until someone legitimately extended the allowlist: applied migrations are
+ * immutable, so a new self-service column arrives as a `CREATE OR REPLACE` in a
+ * LATER file (US-1861/00547 was the first), and a guard reading only 00526 would
+ * keep asserting against a body the database has already replaced — reporting a
+ * refusal that will not happen, and missing one that will.
+ *
+ * Highest-numbered file wins, which is the order the migrations actually apply
+ * in.
+ */
+function guardMigration(): string {
+  const files = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()
+    .filter((f) =>
+      readFileSync(join(MIGRATIONS_DIR, f), "utf8").includes(
+        "self_service constant text[] := ARRAY[",
+      ),
+    );
+  expect(
+    files.length,
+    "no migration declares the self_service allowlist — the guard moved",
+  ).toBeGreaterThan(0);
+  return join(MIGRATIONS_DIR, files[files.length - 1]!);
+}
+
+const MIGRATION = guardMigration();
 
 /** The allowlist as the database will actually see it. */
 function selfServiceColumns(): string[] {
@@ -159,8 +192,9 @@ describe("users self-update allowlist (US-2283)", () => {
     expect(
       refused,
       "These columns are written on public.users from a client that runs as the " +
-        "authenticated role, and 00526 refuses them. Either the write belongs on " +
-        "the edge (service-role), or the column belongs in the migration's " +
+        "authenticated role, and the guard refuses them. Either the write " +
+        "belongs on the edge (service-role), or the column belongs in the " +
+        "latest migration's " +
         "self_service list — decide which, but a client write to a frozen column " +
         "fails on a real user in production, not here.",
     ).toEqual([]);

@@ -34,10 +34,40 @@ final class ProspectStore {
 
     private let service: Prospecting
 
+    /// US-1861: the Thrift Radar contribution consent, and the only thing that
+    /// decides whether this flow asks iOS for a position at all. Injectable so
+    /// the store stays testable with no CoreLocation.
+    private let radarConsent: RadarConsent
+    private let radarLocation: RadarLocationProvider?
+
     // Constructed in the init BODY (main-actor-isolated) rather than as a default
     // argument, which would evaluate in a nonisolated context.
-    init(service: Prospecting? = nil) {
+    init(
+        service: Prospecting? = nil,
+        radarConsent: RadarConsent? = nil,
+        radarLocation: RadarLocationProvider? = nil
+    ) {
         self.service = service ?? ProspectService()
+        self.radarConsent = radarConsent ?? RadarConsent.shared
+        self.radarLocation = radarLocation ?? RadarLocationProvider.shared
+    }
+
+    /// The coarse fix to send with this scan, or nil.
+    ///
+    /// Reads consent FIRST and returns before touching CoreLocation when it is
+    /// off, so an opted-out scan never asks the operating system where it is.
+    /// Everything below that is best-effort: a denied, absent or slow fix simply
+    /// means this scan contributes nothing, and the scan itself is unaffected
+    /// (`currentFix` is hard-bounded and never throws).
+    ///
+    /// Internal rather than private so the consent gate is directly testable —
+    /// "an opted-out scan sends no fix" is the acceptance criterion, and
+    /// asserting it through `run()` would need a real image pipeline and could
+    /// pass vacuously if compression failed first.
+    func radarFix() async -> RadarFix? {
+        guard radarConsent.isContributing else { return nil }
+        guard let radarLocation, radarLocation.isAuthorized else { return nil }
+        return await radarLocation.currentFix()
     }
 
     var canAddPhoto: Bool { images.count < Self.maxPhotos }
@@ -104,7 +134,11 @@ final class ProspectStore {
         }
 
         do {
-            result = try await service.prospect(images: payload, costCents: costCents)
+            result = try await service.prospect(
+                images: payload,
+                costCents: costCents,
+                fix: await radarFix()
+            )
         } catch {
             result = nil
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

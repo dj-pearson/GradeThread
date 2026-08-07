@@ -4,8 +4,10 @@ import Foundation
 /// unit-tested with a fake (no network).
 @MainActor
 protocol Prospecting {
-    /// Identify + comp an item from 1–2 photos (front + tag).
-    func prospect(images: [Data], costCents: Int?) async throws -> ProspectResponse
+    /// Identify + comp an item from 1–2 photos (front + tag). `fix` is the
+    /// US-1861 Thrift Radar contribution and is nil unless the user has turned
+    /// that switch on.
+    func prospect(images: [Data], costCents: Int?, fix: RadarFix?) async throws -> ProspectResponse
     /// Commit a prospected item into inventory at `sourced`.
     func buy(_ request: ProspectBuyRequest) async throws -> ProspectBuyResponse
 }
@@ -27,9 +29,9 @@ final class ProspectService: Prospecting {
         self.session = session
     }
 
-    func prospect(images: [Data], costCents: Int?) async throws -> ProspectResponse {
+    func prospect(images: [Data], costCents: Int?, fix: RadarFix?) async throws -> ProspectResponse {
         let dataURIs = images.map { "data:image/jpeg;base64," + $0.base64EncodedString() }
-        let body = ProspectRequest(images: dataURIs, costCents: costCents)
+        let body = ProspectRequest(images: dataURIs, costCents: costCents, fix: fix)
         return try await post(path: "/api/flipdesk/scout/prospect", body: body)
     }
 

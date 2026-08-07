@@ -136,6 +136,14 @@ export function PrivacyPage() {
           show you the correct cookie-consent experience for your region. We do
           not store this signal for that purpose.
         </li>
+        <li>
+          <strong>Device location, only if you turn on Thrift Radar.</strong>{" "}
+          Contributing to Thrift Radar is off unless you switch it on. While it
+          is on, a Prospect scan sends your position once so we can work out
+          which coarse area cell you are in; we keep the cell and discard the
+          position. Nothing here applies while the switch is off. See{" "}
+          <a href="#radar">Section 7</a>.
+        </li>
       </ul>
 
       <h3>2.3 Information from third parties</h3>
@@ -335,7 +343,7 @@ export function PrivacyPage() {
         <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a>{" "}
         — objecting does not affect your grades or certificates. QA access
         ends when your photos are deleted under the retention schedule in{" "}
-        <a href="#retention">Section 8</a> (or earlier on request); deleted
+        <a href="#retention">Section 9</a> (or earlier on request); deleted
         photos drop out of QA samples because reviewers always read the live
         stored photo, never a copy.
       </p>
@@ -435,7 +443,63 @@ export function PrivacyPage() {
         <code>cookies</code> permission.
       </p>
 
-      <h2 id="sharing">7. How we share information</h2>
+      {/* US-1861: Thrift Radar. This section is the consent, not a summary of
+          it — the toggle in Settings and the one on iOS both point here, and a
+          reader has to be able to check every claim against what the code does.
+          Location is a new kind of data, so it gets its own section rather than
+          a line inside "Information we collect": folding it into an existing
+          disclosure would change what an earlier consent meant. */}
+      <h2 id="radar">7. Thrift Radar and location</h2>
+      <p>
+        Thrift Radar is a shared map of where secondhand supply turns up, built
+        from the scans resellers run in the field. Contributing to it is{" "}
+        <strong>off unless you turn it on</strong>, on every device. Until you
+        do, we ask for no location and record none.
+      </p>
+      <p>
+        <strong>What a contribution contains.</strong> While the switch is on,
+        each Prospect scan you run adds one observation: the rough area you
+        scanned in, the brand and category we read off the item, the condition
+        band we estimated, whether the item looked worth buying, and when. It
+        does <strong>not</strong> include your photos, what you paid, or the
+        item itself.
+      </p>
+      <p>
+        <strong>The area is deliberately coarse, and your exact position is
+        not kept.</strong> Your device sends a position only to work out which
+        area cell you are in &mdash; roughly a kilometre across. We store the
+        cell and discard the position in the same request. There is no column
+        in our database for a precise coordinate, so no trail of where you have
+        been can be assembled from Radar data, by us or by anyone who obtained
+        it.
+      </p>
+      <p>
+        <strong>Contributions are not labelled with you.</strong> Instead of
+        your account, each observation carries a scrambled code derived from it,
+        so we can count how many different people scanned a place without
+        knowing which people. That code is regenerated every week, so
+        contributions from different weeks cannot be strung together into one
+        person&rsquo;s history.
+      </p>
+      <p>
+        <strong>Places are only shown once enough different people have been
+        there.</strong> Our servers withhold an area entirely until a minimum
+        number of separate contributors have scanned it. This is enforced when
+        the data is requested, not hidden in the app afterwards &mdash; below
+        that threshold there is nothing to show and nothing is sent.
+      </p>
+      <p>
+        <strong>Looking and contributing are separate choices.</strong> Opening
+        Radar never enrols you as a contributor, and turning contribution off
+        never takes the map away. You can switch contribution off at any time in
+        Settings on the web or in the app; sharing stops with the next scan, and
+        we do not go back and gather what happened while it was off. Your own
+        sourcing history stays yours either way &mdash; it is not part of the
+        shared map and is covered by your ordinary rights in{" "}
+        <a href="#your-rights">Section 10</a>.
+      </p>
+
+      <h2 id="sharing">8. How we share information</h2>
       <p>
         We do not sell personal information. We share it only as follows. A
         complete, dated list of our subprocessors is on the{" "}
@@ -516,7 +580,7 @@ export function PrivacyPage() {
         </li>
       </ul>
 
-      <h2 id="retention">8. Data retention</h2>
+      <h2 id="retention">9. Data retention</h2>
       <p>
         We retain personal information for as long as your account is active
         and as needed to provide the Service, then delete or de-identify it
@@ -575,6 +639,14 @@ export function PrivacyPage() {
             </td>
           </tr>
           <tr>
+            <td>Thrift Radar contributions (area cell, brand, condition band)</td>
+            <td>
+              Up to 180 days, then pruned; only area-level totals remain. They
+              carry no precise position and no account, so they are not linked
+              to you at any point.
+            </td>
+          </tr>
+          <tr>
             <td>Server &amp; security logs</td>
             <td>Up to 90 days, then purged or aggregated.</td>
           </tr>
@@ -586,7 +658,7 @@ export function PrivacyPage() {
         <a href="#your-rights">Your rights</a>).
       </p>
 
-      <h2 id="your-rights">9. Your rights and choices</h2>
+      <h2 id="your-rights">10. Your rights and choices</h2>
       <p>
         Depending on where you live, you may have rights to access, correct,
         delete, restrict, or port your personal information, and to object to
@@ -639,7 +711,7 @@ export function PrivacyPage() {
         for residents of these states as well.
       </p>
 
-      <h2 id="security">10. Security</h2>
+      <h2 id="security">11. Security</h2>
       <p>
         We use industry-standard administrative, technical, and physical
         safeguards to protect your information &mdash; including encryption in
@@ -649,7 +721,7 @@ export function PrivacyPage() {
         guarantee absolute security.
       </p>
 
-      <h2 id="international">11. International transfers</h2>
+      <h2 id="international">12. International transfers</h2>
       <p>
         Pearson Media LLC is based in the United States. If you access the
         Service from outside the U.S., your information will be transferred
@@ -658,7 +730,7 @@ export function PrivacyPage() {
         mechanisms such as the Standard Contractual Clauses.
       </p>
 
-      <h2 id="children">12. Children</h2>
+      <h2 id="children">13. Children</h2>
       <p>
         The Service is intended for adults. You must be at least 18 years old to
         use it (see our <Link to="/terms">Terms of Service</Link>). The Service
@@ -669,7 +741,7 @@ export function PrivacyPage() {
         we will delete it.
       </p>
 
-      <h2 id="changes">13. Changes to this policy</h2>
+      <h2 id="changes">14. Changes to this policy</h2>
       <p>
         We may update this Privacy Policy from time to time. When we make
         material changes, we will update the &ldquo;Effective date&rdquo;
@@ -678,7 +750,7 @@ export function PrivacyPage() {
         becomes effective constitutes acceptance of the updated policy.
       </p>
 
-      <h2 id="contact">14. Contact us</h2>
+      <h2 id="contact">15. Contact us</h2>
       <p>
         Pearson Media LLC
         <br />

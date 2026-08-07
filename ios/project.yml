@@ -169,6 +169,11 @@ targets:
         # Voice dictation in the manual intake form (US-179).
         NSSpeechRecognitionUsageDescription: "GradeThread uses speech recognition so you can dictate notes hands-free while sourcing items."
         NSMicrophoneUsageDescription: "GradeThread needs the microphone to capture your voice for dictation."
+        # US-1861: Thrift Radar. Requested ONLY when the user turns on the
+        # "Contribute to Thrift Radar" switch in Settings (default off), and used
+        # only to work out a coarse area cell — the exact position is discarded
+        # server-side in the same request and never stored.
+        NSLocationWhenInUseUsageDescription: "GradeThread uses your location only if you turn on Thrift Radar, to place a scan in a rough area about a kilometre across. Your exact position is discarded and never stored."
         # Custom URL scheme so Supabase OAuth redirects return to the app.
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor

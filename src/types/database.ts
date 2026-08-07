@@ -371,6 +371,11 @@ export interface UserRow {
   ai_action_limit: number | null;
   // Closed-loop sale-outcome opt-in (US-132)
   share_sale_outcomes: boolean;
+  // Thrift Radar contribution opt-in (US-1861, migration 00547). Its own toggle
+  // on purpose — location is a new kind of data, so folding it under
+  // share_sale_outcomes would retroactively change what that consent meant.
+  // Default false; VIEWING Radar is a separate consent and never gated on this.
+  radar_contribute: boolean;
   // Pricing split (US-201): FlipDesk subscription state
   flipdesk_plan: FlipdeskPlan;
   flipdesk_interval: BillingInterval | null;

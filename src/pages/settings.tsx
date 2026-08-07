@@ -52,6 +52,7 @@ import { FieldError } from "@/components/ui/form-feedback";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { MfaCard } from "@/components/settings/mfa-card";
 import { PushNotificationsCard } from "@/components/settings/push-notifications-card";
+import { RadarContributionCard } from "@/components/settings/radar-contribution-card";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
 
@@ -1058,6 +1059,10 @@ export function SettingsPage() {
 
       {/* 00432: Promoted Listings default (off by default, opt-in). */}
       <PromotedListingsDefaultCard />
+
+      {/* US-1861: Thrift Radar contribution — its own consent, its own column,
+          its own copy. Never fold it into the sale-outcome switch above. */}
+      <RadarContributionCard />
 
         </TabsContent>
 

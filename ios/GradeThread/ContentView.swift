@@ -1685,6 +1685,10 @@ struct SettingsView: View {
             // US-696: optional Face ID / passcode app lock.
             AppLockToggleSection()
             analyticsSection
+            // US-1861: Thrift Radar contribution. Its OWN section, next to but
+            // never folded into the analytics one — location is a new kind of
+            // data, so it gets a new switch and its own copy.
+            RadarContributionSection()
 
             // ── Notifications ────────────────────────────────────────
             notificationPreferencesSection
@@ -2042,6 +2046,90 @@ private struct AnalyticsToggleSection: View {
             Text("Anonymous usage stats help us see which flows work and which need polish. Turning this off stops product analytics; crash reports still go through so we can fix bugs in your build.")
                 .font(.footnote)
         }
+    }
+}
+
+/// US-1861 — the Thrift Radar contribution switch. DEFAULT OFF.
+///
+/// The footer is the consent, not a summary of it: it names exactly what a scan
+/// shares and at what granularity, because that is what someone is agreeing to
+/// when they flip this. Every claim in it is checkable against the server code —
+/// the position becomes a ~1 km cell and is discarded, the account is replaced by
+/// a weekly-rotating code, and the scan never waits on the write.
+///
+/// Turning it ON asks for location permission here, beside the explanation,
+/// rather than mid-scan where a system prompt reads as a surprise. Turning it
+/// OFF stops the next scan contributing; it does not affect viewing Radar, which
+/// is a separate choice.
+private struct RadarContributionSection: View {
+    // Seeded from the nonisolated stored value (the same UserDefaults mirror the
+    // scan path reads), then reconciled against the server in `.task`.
+    @State private var isEnabled: Bool = RadarConsent.storedContribution()
+    @State private var isSaving = false
+    @State private var locationBlocked = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $isEnabled) {
+                Label("Contribute to Thrift Radar", systemImage: "dot.radiowaves.left.and.right")
+            }
+            .disabled(isSaving)
+            .onChange(of: isEnabled) { _, newValue in
+                Task { await save(newValue) }
+            }
+
+            if isEnabled, locationBlocked {
+                Text("Location is off for GradeThread, so scans can't be placed on the map. Turn it on in the Settings app to contribute.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        } header: {
+            Text("Thrift Radar")
+        } footer: {
+            Text("Off unless you turn it on. While it's on, each Prospect scan shares the rough area you're in — rounded to a cell about a kilometre across, with your exact position used to work that out and then thrown away — plus the brand, category, condition band and whether the item looked worth buying. Not your photos and not what you paid. Contributions carry a scrambled code instead of your account, and that code is regenerated every week. Viewing Radar is a separate choice: turning this off doesn't take the map away.")
+                .font(.footnote)
+        }
+        .task {
+            await RadarConsent.shared.refresh()
+            isEnabled = RadarConsent.shared.isContributing
+            refreshLocationBlocked()
+        }
+    }
+
+    private func refreshLocationBlocked() {
+        let provider = RadarLocationProvider.shared
+        locationBlocked = provider.hasBeenAsked && !provider.isAuthorized
+    }
+
+    private func save(_ next: Bool) async {
+        let consent = RadarConsent.shared
+        guard next != consent.isContributing else { return }
+        errorMessage = nil
+        isSaving = true
+        defer { isSaving = false }
+
+        // Ask for the permission next to the copy that explains it. Only on the
+        // way ON — a revocation must never trigger a prompt.
+        if next { RadarLocationProvider.shared.requestAuthorizationIfNeeded() }
+
+        guard let userId = try? await SupabaseShared.client.auth.session.user.id.uuidString else {
+            isEnabled = !next
+            errorMessage = "Sign in again to change this."
+            return
+        }
+        if let failure = await consent.setContributing(next, userId: userId) {
+            // Snap back rather than showing a switch the server disagrees with.
+            isEnabled = !next
+            errorMessage = failure
+        }
+        refreshLocationBlocked()
     }
 }
 

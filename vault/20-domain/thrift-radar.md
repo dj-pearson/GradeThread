@@ -6,6 +6,11 @@ source_of_truth: vault
 code_refs:
   - services/edge-functions/src/routes/flipdesk-scout.ts
   - services/edge-functions/src/lib/scout-decision.ts
+  - services/edge-functions/src/lib/radar-privacy.ts
+  - services/edge-functions/src/lib/radar-events.ts
+  - supabase/migrations/00547_radar_scan_events.sql
+  - src/components/settings/radar-contribution-card.tsx
+  - ios/GradeThread/Prospect/RadarConsent.swift
   - src/pages/flipdesk/scout.tsx
 reviewed: 2026-08-07
 tags: [radar, flipdesk, scout, privacy, consent, contract]
@@ -79,12 +84,26 @@ there waiting for. The scan is the product; Radar is a by-product.
 
 ## What the code looks like today
 
-`POST /api/flipdesk/scout/prospect` accepts **photos and a cost, and no location
-at all**. That matters for sequencing: Radar's first commit is the one that adds
-a coordinate to a request that never had one, so the consent gate, the
-"coordinates are not retained" promise and the toggle all have to land in that
-same change. There is no earlier point where the data is already flowing and the
-privacy work can be retrofitted quietly.
+`POST /api/flipdesk/scout/prospect` now accepts an **optional `lat`/`lng`**, and
+US-1861 is the commit that added it — together with the toggle, the consent copy
+and the discard, exactly as this note required. The shape that landed:
+
+- **`radar-privacy.ts` is pure and env-free** (geohash coarsening, epoch, the
+  rotating digest, the row builder). Its test asserts the row's KEY SET, not the
+  absence of a field, so adding a coordinate column would fail rather than pass
+  unnoticed.
+- **`radar-events.ts` is impure and fire-and-forget.** Every gate — deployment
+  kill-switch, `users.radar_contribute`, an unusable fix — lives inside
+  `emitRadarScanEvent`, so the call site in `flipdesk-scout.ts` is one unawaited
+  line and cannot forget one of them.
+- **The consent is `users.radar_contribute`** (00547), default false, written by
+  the web card and by iOS `RadarConsent`. iOS additionally keeps a local mirror,
+  because consent before collection means not calling CoreLocation at all while
+  the answer is no — not calling it and discarding the result.
+- **The precision knob is bounded by the schema.** `radar_privacy
+  .geohash_precision` is clamped in code and capped at 7 characters by a CHECK on
+  the column, so rule 4 survives a config edit by someone who has not read this
+  note.
 
 Every scout route is already tenant-scoped the standard way
 (`c.get("workspaceOwnerId") ?? c.get("userId")`, US-268) — the personal layer

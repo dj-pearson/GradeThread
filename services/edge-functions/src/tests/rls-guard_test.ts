@@ -496,6 +496,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // (POST /api/rewards/nudges/:id/click) goes through the edge, which resolves
   // ownership with .eq("user_id", …) before stamping.
   "reward_nudge_sends",
+  // US-1861: Thrift Radar contributions (migration 00547). It has NO account
+  // column at all — the analytical path carries a salted, rotating
+  // `contributor_key` instead — so nothing discovers it and this classification
+  // plus SERVICE_ONLY_FORCED below are the only things holding its RLS in place.
+  // Deny-all is the point twice over: a readable row set is a movement history
+  // of pseudonymous people, and a client-writable one is a way to poison every
+  // other tenant's view of where supply is.
+  "radar_scan_events",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -508,6 +516,7 @@ const SERVICE_ONLY_FORCED = [
   "reward_quests",
   "reward_milestones",
   "reward_budget_breaches",
+  "radar_scan_events",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

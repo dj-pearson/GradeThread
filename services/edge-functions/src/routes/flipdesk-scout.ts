@@ -39,6 +39,8 @@ import {
 } from "../lib/extension-image-urls.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
+import { parseFix } from "../lib/radar-privacy.ts";
+import { voidEmitRadarScanEvent } from "../lib/radar-events.ts";
 
 export const flipdeskScoutRoutes = new Hono<{
   Variables: { userId: string; workspaceOwnerId: string };
@@ -587,12 +589,26 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   const gate = await requireFlipdesk(c, { feature: "compPulls", userId });
   if (gate) return gate;
 
-  let body: { image?: unknown; images?: unknown; costCents?: unknown };
+  let body: {
+    image?: unknown;
+    images?: unknown;
+    costCents?: unknown;
+    lat?: unknown;
+    lng?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
     return jsonError(c, 400, "Invalid JSON body");
   }
+
+  // US-1861 (Thrift Radar): the ONLY reason this endpoint accepts a coordinate.
+  // It is used to derive a coarse cell inside `voidEmitRadarScanEvent` and is
+  // never stored, logged or echoed — there is no column for it, by design. A
+  // client that has not opted in simply omits it; a client that sends one while
+  // opted out still contributes nothing, because the consent check is
+  // server-side and reads `users.radar_contribute` on every scan.
+  const fix = parseFix(body.lat, body.lng);
 
   // Accept a single `image` or up to two `images` (front + tag). Front is used
   // for the condition grade; all are fed to the identifier (the tag carries the
@@ -760,6 +776,24 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     identified: "true",
     comped: String((value?.sampleSize ?? 0) > 0),
   });
+
+  // US-1861: contribute to Thrift Radar — started here, deliberately NOT
+  // awaited, so a slow or failing Radar write cannot delay or degrade the scan
+  // result the reseller is standing in the aisle waiting for (rule 8). Every
+  // gate that could stop it (deployment kill-switch, per-user consent, an
+  // unusable fix) lives inside the emitter, so this call site stays one line and
+  // cannot forget one of them.
+  if (fix) {
+    voidEmitRadarScanEvent({
+      accountId: userId,
+      lat: fix.lat,
+      lng: fix.lng,
+      brand,
+      category: categoryPath ?? categoryId,
+      grade: shadowGrade,
+      verdict: decision?.recommendation ?? "unknown",
+    });
+  }
 
   return c.json({
     identified: true,

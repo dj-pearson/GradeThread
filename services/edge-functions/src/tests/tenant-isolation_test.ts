@@ -4249,3 +4249,73 @@ Deno.test({
     assertDenied(mine.status, "GET showcase/reactions with no auth");
   },
 });
+
+// ── US-1861: Thrift Radar contribution on /api/flipdesk/scout/prospect ───────
+//
+// This is the first request in the product that carries a coordinate, so the
+// boundary it needs proving on is not "can B read A's row" — there is no row a
+// caller names. It is ATTRIBUTION: a Radar contribution is written under the
+// same `workspaceOwnerId ?? userId` the scan is billed to, so if a non-member
+// could reach the handler carrying somebody else's X-Workspace-Owner, they could
+// plant a location observation under that workspace's contributor identity while
+// spending its AI quota to do it.
+//
+// The gate is workspaceMiddleware (non-member) and blockViewerWrites (viewer),
+// both mounted on /api/flipdesk/* — the same inherited baseline the appraise-url
+// cases above pin, which is why a coordinate-carrying case belongs beside them.
+const PROSPECT_FIX_BODY = JSON.stringify({
+  images: ["data:image/jpeg;base64,AAAA"],
+  lat: 40.712776,
+  lng: -74.005974,
+});
+
+Deno.test({
+  name: "US-1861: non-member B cannot attribute a Radar coordinate to A's workspace",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/prospect`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+      body: PROSPECT_FIX_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(
+      res.status,
+      "POST scout/prospect with a coordinate as a non-member of A's workspace",
+    );
+  },
+});
+
+Deno.test({
+  // A viewer is read-only, and contributing to Radar is a write in the most
+  // literal sense — it inserts a row keyed to the OWNER's rotating contributor
+  // digest, about a place the owner may never have been.
+  name: "US-1861: viewer cannot contribute a Radar coordinate under the owner",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/prospect`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: PROSPECT_FIX_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/prospect with a coordinate as viewer");
+  },
+});
+
+Deno.test({
+  // Unauthenticated must never reach the handler. There is no anonymous
+  // contributor: the consent this feature rests on is per-account, so a scan
+  // with no account behind it has nobody's permission by construction.
+  name: "US-1861: prospect rejects an unauthenticated caller carrying a coordinate",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/prospect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: PROSPECT_FIX_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/prospect with a coordinate and no auth");
+  },
+});

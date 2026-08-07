@@ -637,6 +637,20 @@ a learning that only matters to ONE surface, put it in that surface's file.
   retrofit them quietly. Contributing and VIEWING are separate consents, the
   k-floor is enforced server-side (empty response, not a redacted one), and the
   personal layer is free and works at n=1. Rules: [[thrift-radar]].
+- US-1861 landed that first commit. Two transferable bits: (1) a privacy promise
+  is only as strong as the schema under it — state it as an absence the code
+  cannot restore (`radar_scan_events` has NO coordinate column, and the geohash
+  length is capped by a CHECK, not only by the config clamp), and test it as the
+  row's KEY SET (`assertEquals(Object.keys(row).sort(), [...])`), which fails when
+  someone adds the column back, unlike `assert(!row.lat)` which passes forever.
+  (2) Split the pure transforms (geohash, rotation, row builder) into a module
+  that imports NOTHING touching `lib/supabase.ts`, so its test needs no env dance.
+- Adding a SECTION to `src/pages/legal/privacy.tsx` means renumbering every later
+  `<h2>` AND every `<a href="#anchor">Section N</a>` in the body: two cases in
+  `privacy-extension.test.tsx` pin sequential numbering and anchor-to-number
+  agreement, and they only run in the full suite. Renumber with a script that
+  ASSERTS each old string occurs exactly once — a hand pass is how the duplicate
+  "7" got in last time.
 
 ## Related
 

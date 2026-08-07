@@ -14,6 +14,19 @@ struct ProspectRequest: Encodable {
     let images: [String]
     /// What the reseller would pay (cents). Optional — unlocks the ROI verdict.
     let costCents: Int?
+    /// US-1861: present ONLY while the Thrift Radar contribution switch is on.
+    /// The server uses it to derive a coarse area cell and discards it in the
+    /// same request; there is no column for it. Both must be sent or neither —
+    /// a half fix is refused server-side rather than guessed at.
+    let lat: Double?
+    let lng: Double?
+
+    init(images: [String], costCents: Int?, fix: RadarFix? = nil) {
+        self.images = images
+        self.costCents = costCents
+        self.lat = fix?.latitude
+        self.lng = fix?.longitude
+    }
 }
 
 /// `POST /api/flipdesk/scout/prospect` response. When `identified` is false the

@@ -1,9 +1,44 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Seventeen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545 and 00546.** The entries below them
+**Eighteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546 and 00547.** The entries below them
 were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00547_radar_scan_events.sql (US-1861 — Thrift Radar consent + events)
+
+**Apply order.** Last, in numeric order. It touches `public.users`,
+`public.system_settings` and `public.applied_migrations` — all long applied — so
+it has no dependency on 00530–00546 beyond the numeric sequence.
+
+**Risk: LOW.** One new column with a `false` default, one new table, one config
+row. Nothing existing is modified or dropped, and no behaviour changes on apply:
+contribution is off for every user until they turn it on.
+
+**⚠️ APPLY BEFORE PUSH — the frontend reads the new column from the client.**
+The Settings → FlipDesk tab renders a "Contribute to Thrift Radar" card that
+selects and updates `users.radar_contribute` through PostgREST. Cloudflare Pages
+auto-deploys the frontend on push, so if the SQL has not been applied the card
+errors on save for every user who touches it. Run the SQL, then
+`NOTIFY pgrst, 'reload schema';` (a new column on `users` — PostgREST caches the
+schema), then push.
+
+**What it does.**
+- Adds `users.radar_contribute boolean NOT NULL DEFAULT false` — the contribution
+  consent. A NEW toggle on purpose: it is never folded into
+  `share_sale_outcomes` or the analytics switch.
+- Adds `radar_scan_events` — anonymized contributions. No coordinate column and
+  no account column: a salted, weekly-rotating `contributor_key` plus a geohash
+  cell capped at 7 characters by a CHECK. Deny-all RLS, service-role writes only;
+  registered in both `SERVICE_ROLE_ONLY` and `SERVICE_ONLY_FORCED` in
+  `rls-guard_test.ts` because a table with no owner column is never discovered.
+- Adds the `radar_privacy` config row (kill-switch, cell precision, key rotation,
+  k-anonymity floor, raw-event retention).
+
+**Rollback.** Safe to leave in place; the edge only writes to the new table when
+`radar_privacy.contribution_enabled` is true AND a user has opted in. To stop all
+contribution without a deploy, set that key's `value` to
+`{"contribution_enabled": false, ...}`.
 
 ## ⏳ HELD: 00546_reward_nudges.sql (US-1859 — re-engagement nudges)
 

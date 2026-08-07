@@ -25,8 +25,14 @@ final class ProspectStoreTests: XCTestCase {
         /// Captures the request `addToInventory()` builds so we can assert the
         /// notes / target / grade it folded in.
         private(set) var capturedBuy: ProspectBuyRequest?
+        /// US-1861: what the store handed us for Thrift Radar. `didProspect`
+        /// distinguishes "no fix sent" from "never called".
+        private(set) var capturedFix: RadarFix?
+        private(set) var didProspect = false
 
-        func prospect(images: [Data], costCents: Int?) async throws -> ProspectResponse {
+        func prospect(images: [Data], costCents: Int?, fix: RadarFix?) async throws -> ProspectResponse {
+            didProspect = true
+            capturedFix = fix
             guard let prospectResult else { throw EdgeAPIError.network("no fixture") }
             return prospectResult
         }
@@ -148,6 +154,36 @@ final class ProspectStoreTests: XCTestCase {
 
         let req = try? XCTUnwrap(fake.capturedBuy)
         XCTAssertNil(req?.conditionNotes, "No keywords + no category → no notes string.")
+    }
+
+    // MARK: - Thrift Radar contribution consent (US-1861)
+
+    /// A UserDefaults suite of its own so the real preference is untouched and
+    /// the "never set" case is genuinely never set.
+    private func freshConsent(_ name: String = #function) -> RadarConsent {
+        let defaults = UserDefaults(suiteName: "radar-consent-\(name)")!
+        defaults.removePersistentDomain(forName: "radar-consent-\(name)")
+        return RadarConsent(defaults: defaults)
+    }
+
+    func test_radarConsent_defaultsOff() {
+        // The whole feature rests on this being false on a device that has never
+        // been told otherwise. If a future refactor gives it a `?? true`, this is
+        // the test that should go red.
+        XCTAssertFalse(freshConsent().isContributing)
+    }
+
+    func test_radarFix_isNilWhileContributionIsOff() async {
+        let store = ProspectStore(
+            service: FakeProspecting(),
+            radarConsent: freshConsent(),
+            radarLocation: RadarLocationProvider()
+        )
+        // Consent is checked BEFORE the provider, so this returns without ever
+        // asking CoreLocation — which is what "consent before collection" means
+        // here: not collecting, rather than collecting and discarding.
+        let fix = await store.radarFix()
+        XCTAssertNil(fix, "An opted-out scan must contribute nothing.")
     }
 
     func test_addToInventory_rejectsUnidentifiedResult() async {
