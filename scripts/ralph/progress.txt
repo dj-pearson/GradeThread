@@ -4324,3 +4324,8 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T09:39:11.866Z
 - Cost: $15.5765 over 127 turns
 ---
+## US-1841: Buyer binding: Walk-around video grading credits for buyers
+- Status: COMPLETE
+- Timestamp: 2026-08-07T10:05:32.944Z
+- Cost: $15.3977 over 133 turns
+---

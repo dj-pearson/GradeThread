@@ -326,7 +326,7 @@
         "Metering/debit reuses the credit precedence (1800)"
       ],
       "priority": 1841,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][BINDING][VIDEO] REUSE US-1762 epic (metering 1765, capture 1766). Buyer credits via entitlements (1800). Cost math per US-1765 (frames x per-image). Depends on foundation (1795) + video epic (1762)."
     },
     {
