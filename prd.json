@@ -230,7 +230,7 @@
         "Extraction is bounded (max frames) and logged; failures fall back to needs_photos"
       ],
       "priority": 1764,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][VIDEO-GRADE][NEW] ffmpeg keyframe extraction in a new lib (e.g. video-frames.ts). Reuse grading-quality.ts signals for selection. Simplest integration: frames become submission_images rows so grading-pipeline.ts is untouched."
     },
     {

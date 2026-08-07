@@ -4293,3 +4293,8 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T07:56:58.525Z
 - Cost: $5.3955 over 16 turns
 ---
+## US-1764: Video grading: server frame extraction -> grading slots
+- Status: COMPLETE
+- Timestamp: 2026-08-07T07:57:59.128Z
+- Cost: $1.1474 over 13 turns
+---
