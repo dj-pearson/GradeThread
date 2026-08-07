@@ -141,6 +141,15 @@ jobs:
           fi
           echo "signed"
 
+      # US-2150: the same per-ABI budget the CI lane enforces, run against the
+      # artifact that actually ships. A release is the last moment the number
+      # is still cheap to look at — after the upload it is a download people
+      # have already paid for.
+      - name: Per-ABI download size
+        run: |
+          python3 scripts/abi-size-report.py --self-test
+          python3 scripts/abi-size-report.py
+
       - name: Upload to Play
         if: ${{ !inputs.dry_run }}
         run: |

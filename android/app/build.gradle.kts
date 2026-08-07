@@ -1,3 +1,8 @@
+// `Base64` is imported rather than written as `java.util.Base64` below: inside a
+// Kotlin-DSL build script `java` resolves to the JavaPluginExtension accessor,
+// so the fully-qualified form fails to compile with `Unresolved reference: util`
+// — which takes the WHOLE android module down, not just the release lane.
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -38,7 +43,7 @@ fun resolveKeystore(): File? {
     if (base64.isNotBlank()) {
         val decoded = File(layout.buildDirectory.get().asFile, "release-keystore.jks")
         decoded.parentFile.mkdirs()
-        decoded.writeBytes(java.util.Base64.getDecoder().decode(base64.trim()))
+        decoded.writeBytes(Base64.getDecoder().decode(base64.trim()))
         return decoded
     }
     return secret("ANDROID_KEYSTORE_PATH").takeIf { it.isNotBlank() }
@@ -68,6 +73,21 @@ android {
         // start the real GradeThreadApp, whose onCreate validates config,
         // starts sync and opens sockets — none of which belongs in a UI test.
         testInstrumentationRunner = "com.gradethread.app.HiltTestRunner"
+
+        // US-2150: which ABIs get BUILT at all. ML Kit ships a native OCR
+        // pipeline (~11MB) and a barcode scanner (~5MB) PER ABI, so every ABI
+        // in this list is ~16MB of .so that has to exist somewhere.
+        //
+        // x86 (32-bit) is dropped: no phone has shipped it in a decade and the
+        // only thing that ran it was an old emulator image. x86_64 STAYS —
+        // that is the arch the instrumented CI lane emulates, and dropping it
+        // would make `connectedDebugAndroidTest` fail to install.
+        //
+        // This is the build-side half. The download-side half is the App
+        // Bundle below, which sends ONE of these to each device.
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+        }
 
         // US-1301: endpoint/keys via BuildConfig (see AppConfig.kt). The two
         // base URLs default to prod (they're public routing facts — CLAUDE.md);
@@ -126,6 +146,28 @@ android {
                 "proguard-rules.pro",
             )
         }
+    }
+    /**
+     * US-2150: the release artifact is an App Bundle (`./gradlew bundleRelease`),
+     * not a universal APK.
+     *
+     * A universal APK carries every ABI, so a phone downloads four copies of
+     * ML Kit's native pipeline and can run exactly one of them. Play splits an
+     * AAB and delivers only the slice a device can use — which is the whole
+     * fix, and it is a distribution property, not something the app code can
+     * do anything about.
+     *
+     * `language` split is deliberately OFF. The app has an in-app language
+     * picker (`AppLocale.SUPPORTED` + `res/xml/locales_config.xml`); with
+     * language splits on, Play ships only the device's language and every
+     * other one silently falls back to English the moment someone switches.
+     * Strings are kilobytes — this costs nothing and removes a whole class of
+     * "translations work in debug, not in production" bug.
+     */
+    bundle {
+        abi { enableSplit = true }
+        density { enableSplit = true }
+        language { enableSplit = false }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

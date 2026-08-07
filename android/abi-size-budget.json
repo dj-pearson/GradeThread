@@ -1,0 +1,11 @@
+{
+  "_": "US-2150 — per-ABI NATIVE download budget, in MB, enforced by android/scripts/abi-size-report.py.",
+  "_what": "Only the native slice is budgeted: those are the bytes that exist once per ABI, which is what ABI-splitting is about. The shared payload (dex, resources, assets) is reported by the script but not budgeted here — it is identical on every device, so it is a size question of its own.",
+  "_raising": "Allowed, but do it in the SAME commit as whatever bought the megabytes and say what that was. A budget quietly raised on its own is the silence this file was added to break.",
+  "_measured": "Deflated (level 6) sizes of app/build/intermediates/stripped_native_libs/release, 2026-08-07: armeabi-v7a 5.38, arm64-v8a 6.60, x86_64 7.04. Budgets sit ~20% above, which passes normal drift and fails a doubling. x86 (7.23) is not here because ndk.abiFilters no longer builds it.",
+  "nativeBudgetMb": {
+    "armeabi-v7a": 6.5,
+    "arm64-v8a": 8.0,
+    "x86_64": 8.5
+  }
+}

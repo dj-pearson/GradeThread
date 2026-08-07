@@ -634,6 +634,57 @@ upload in filename order.
 subscription/SKU catalog still have to be created by hand in the Console,
 mirroring the App Store catalog. Nothing in this repo can do that.
 
+### Download size and ABIs (US-2150)
+
+ML Kit's text recogniser is a **native** pipeline
+(`libmlkit_google_ocr_pipeline.so`, ~11MB) and the barcode scanner is another
+(`libbarhopper_v3.so`, ~5MB). A native library exists once **per ABI**, so
+adding text recognition took the universal debug APK from 45MB to 87MB — and
+nothing in the build said a word about it. (The Japanese script model is only
+~1.8MB of *assets*; dropping it is not the fix, because Latin needs the same
+native pipeline.)
+
+Three things hold the size down, and each does a different job:
+
+- **`ndk { abiFilters }` decides what gets built.** `armeabi-v7a`, `arm64-v8a`
+  and `x86_64` only. `x86` (32-bit) is gone — no phone has shipped it in a
+  decade and the only thing that ran it was an old emulator image. `x86_64`
+  **stays**: it is the arch the instrumented lane emulates, and removing it
+  would make `connectedDebugAndroidTest` fail to install.
+- **The App Bundle decides what gets downloaded.** Play splits the AAB and
+  sends each device the one ABI it can run. That is a distribution property; no
+  amount of app code can substitute for it, which is why the release artifact is
+  `bundleRelease` and never a universal APK.
+- **`android/scripts/abi-size-report.py` decides whether anyone notices.** The
+  bundle fixed today's download; it does nothing about the next model
+  dependency landing the same way. The script reads the AAB as a zip, adds up
+  each `lib/<abi>/` slice plus the shared remainder, prints the table into the
+  job summary, and **fails the build** against `android/abi-size-budget.json`.
+  An ABI that is built but unbudgeted is an error too — an unwatched ABI is the
+  hole the script exists to close.
+
+Sizes are measured **compressed**, deflating any entry the bundle stores raw:
+native libraries are often STORED in an AAB and recompressed by Play on the way
+out, so counting them at their on-disk size would overstate the download by
+roughly 2x. They are estimates, deliberately — bundletool would be exact but
+needs a jar download and a signing key in CI, and the job here is to catch a
+*doubling*, which an estimate that is consistently a few percent off catches
+just as well.
+
+```bash
+./gradlew bundleRelease
+python3 android/scripts/abi-size-report.py
+```
+
+Raising a budget is allowed. Do it **in the same commit** as whatever bought
+the megabytes, and say in the message what that was.
+
+**The `language` bundle split is deliberately OFF.** The app has an in-app
+language picker (`AppLocale.SUPPORTED` + `res/xml/locales_config.xml`); with
+language splits on, Play ships only the device's language and every other one
+silently falls back to English the moment someone switches. Strings are
+kilobytes.
+
 ## Localization (US-1393)
 
 **Scoped, not big-bang.** `android/scripts/no-bare-strings.py` enforces
