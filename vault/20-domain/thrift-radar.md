@@ -20,10 +20,16 @@ code_refs:
   - supabase/migrations/00548_radar_venues.sql
   - supabase/migrations/00549_radar_aggregates.sql
   - supabase/migrations/00550_radar_personal_stores.sql
+  - supabase/migrations/00551_radar_activity_by_day.sql
   - src/components/settings/radar-contribution-card.tsx
   - ios/GradeThread/Prospect/RadarConsent.swift
   - src/pages/flipdesk/scout.tsx
   - src/pages/flipdesk/my-stores.tsx
+  - src/pages/flipdesk/radar.tsx
+  - src/lib/radar-map.ts
+  - src/hooks/use-radar-network.ts
+  - src/components/flipdesk/radar-map.tsx
+  - src/components/flipdesk/radar-venue-panel.tsx
 reviewed: 2026-08-07
 tags: [radar, flipdesk, scout, privacy, consent, contract]
 summary: Radar turns Prospect scans into venue-level supply intelligence; contribution and viewing are separate consents, no precise coordinate survives venue resolution, and the k-anonymity floor is a server-side guarantee rather than a display preference.
@@ -264,6 +270,68 @@ items cost, and **blended ROI** folds in what unsold stock is expected to clear
 at the price the reseller set themselves (never a comp lookup — the figure has to
 be one they can check offline). A store with no spend has no ROI and sorts LAST,
 the same missing-value rule as [[backlog-priority-contract]].
+
+### US-1865: the map, and the library that is not in it
+
+The display surface is `/dashboard/flipdesk/sourcing?tab=radar`. It draws three
+layers with three different rules — the free personal layer, the Pro+ network
+layer, and the k-floor which is neither — and the page's job is mostly to keep
+them from being confused for each other. An upgrade does not unlock a
+below-floor venue and no amount of paying will; contributions do. So the plan
+prompt sells the plan and the empty state pitches the toggle, and neither
+pretends to be the other.
+
+**There is no map library, and that is a privacy decision rather than a bundle
+one.** Every tile-based map fetches its background from somebody else's CDN, and
+the tile URLs a viewport requests ARE the viewport: panning Leaflet or MapLibre
+over the user's neighbourhood streams their approximate location to a third
+party on every drag. That is the disclosure rule 4 exists to prevent, undone by
+the page built to display the result — a migration spent keeping a coordinate
+out of our own database, followed by a better one leaked to a tile host. So the
+map is an SVG drawn from data we already serve, plus a graticule and a scale
+bar, and it is honest about being a relative-position map rather than a street
+map. Zero bytes added, zero external requests. **"Let's just add Leaflet" is the
+regression this paragraph exists to stop.**
+
+Three shapes from this story worth keeping:
+
+- **Hotness is relative to what is in view, and weighting is not filtering.**
+  "Hot" means hotter than the rest of what you can see, because that is the
+  comparison a reseller planning a route makes; an absolute scale paints a whole
+  quiet region cold and says nothing about which of its stores to try. The brand
+  weighting comes from the reseller's OWN pipeline history — the `top_brands`
+  the personal layer already computes, ranked by frequency rather than by one
+  outsized flip — so it costs no AI spend and stores no new preference. A store
+  where none of their brands turn up still scores; hiding it would make the map
+  lie about where the supply is.
+- **The weekly pattern rides the aggregate row it belongs to.** `dow_counts`
+  (00551) is a column on `radar_venue_aggregates`, not a table, so it inherits
+  the floor, the recompute and the sweep instead of needing a second copy of
+  each. There is no code path that publishes a venue's weekly rhythm while
+  withholding its counts, which is what would turn it into a timetable for one
+  person's Saturdays. The day is bucketed by the VENUE's approximate solar time
+  (`offsetMinutesForLongitude`, 15 degrees to the hour, from the venue's own
+  cell-centre longitude) — a real timezone lookup would mean sending a
+  coordinate somewhere to resolve it, and UTC would smear every American evening
+  scan onto the next day.
+- **An all-zero week is "no pattern yet", never "quiet every day".** `dayBars`
+  returns null rather than seven empty bars, because an empty chart reads as a
+  finding. Same reason `busiestDayLabel` refuses to name a day when the week is
+  level: a tie across all seven is not a pattern, and naming one invents it.
+
+The panel's withheld sections all say the SAME sentence — "not enough data here
+yet, contributions unlock this" — for a venue nobody has scanned and a venue two
+people have scanned. Distinguishing them would answer "did anyone scan here?",
+which is the question the floor refuses. That is also why `GET /venues/:id`
+returning 404 is rendered as an empty state rather than as an error.
+
+`radar_venues.lat`/`lng` reach the browser through TWO paths now, and only one
+of them is floored: the network list (`GET /venues`, k-floored) and the personal
+store list (US-1864's read, `.in("id", …)` over the caller's own venue ids). The
+second is what lets the personal layer be DRAWN, and it is not a hole in the
+floor — a centroid is where the shop is, for a shop the caller personally walked
+into, and it carries no counts. The floor governs what the shared NUMBERS say
+about a place, never whether a place has a location.
 
 ## Two traps specific to these tables
 

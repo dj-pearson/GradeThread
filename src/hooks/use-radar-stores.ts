@@ -36,6 +36,13 @@ export interface PersonalStore {
   source_type: string | null;
   location: string | null;
   chain: string | null;
+  /**
+   * The linked venue's coordinates (US-1865), so this store can be drawn on the
+   * Radar map. Null for a source nobody has joined to a place — which is why
+   * the map keeps an "not on the map" list beside it rather than dropping them.
+   */
+  lat: number | null;
+  lng: number | null;
   linked: boolean;
   items_sourced: number;
   items_sold: number;

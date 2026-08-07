@@ -675,6 +675,23 @@ a learning that only matters to ONE surface, put it in that surface's file.
   NON-contributor's fix is still a contribution, even though the row is a cell
   centre and names nobody. Hence a read-only `matchScanVenue` beside the
   create-and-bump `resolveScanVenue`. Rules: [[thrift-radar]].
+- The reflex answer to "put this on a map" is a map library, and on any surface
+  with a location-privacy promise that reflex is the bug: tile URLs ARE the
+  viewport, so Leaflet/MapLibre streams the user's neighbourhood to a third-party
+  CDN on every drag — leaking, from the display layer, exactly what the schema
+  below it was built to withhold. US-1865 drew an SVG from data already served
+  (Web Mercator + a graticule + a scale bar, `src/lib/radar-map.ts`): zero
+  dependencies, zero external requests, fully unit-testable. Reach for a tile map
+  only where the coordinate was never sensitive.
+- A per-venue/per-entity BREAKDOWN (US-1865's day-of-week histogram) belongs as a
+  COLUMN on the row that already clears the privacy floor, not as its own table
+  or a read-path query over the raw events. As a column it inherits the floor,
+  the recompute and the sweep for free; as anything else it needs a second copy
+  of each guard, and a copied privacy guard goes stale on one side. Corollary for
+  time-bucketed ones: bucket by the PLACE's approximate solar time
+  (`Math.round(lng/15)*60`), never UTC — UTC smears every American evening onto
+  the next day, and a real timezone lookup means sending the coordinate somewhere
+  to resolve it.
 - Adding a SECTION to `src/pages/legal/privacy.tsx` means renumbering every later
   `<h2>` AND every `<a href="#anchor">Section N</a>` in the body: two cases in
   `privacy-extension.test.tsx` pin sequential numbering and anchor-to-number

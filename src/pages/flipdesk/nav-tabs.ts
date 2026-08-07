@@ -25,9 +25,14 @@ export function resolvePricingTab(raw: string | null | undefined): PricingTab {
 // US-1864 added "stores" — the free personal Thrift Radar layer. It sits beside
 // Sources rather than inside it because Sources is where you MAINTAIN the list
 // and this is where you READ what the list earned you.
+// US-1865 added "radar" — the shared map. It sits next to "stores" because the
+// two are one surface split by who the data belongs to: Radar is everyone's
+// scans (Pro+, k-floored), My stores is yours alone (free, works at n=1). Both
+// draw from the same personal history, which is why neither absorbed the other.
 export const SOURCING_TABS = [
   "scout",
   "buy",
+  "radar",
   "stores",
   "sources",
   "demand",

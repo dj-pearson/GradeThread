@@ -64,6 +64,20 @@ export interface PersonalVenueSeed {
   id: string;
   display_name: string;
   chain: string | null;
+  /**
+   * Where the registry puts this place. US-1865 needs it so the free personal
+   * layer can be DRAWN on the Radar map, which is the cold-start answer: a map
+   * that is blank until strangers show up never gets the strangers.
+   *
+   * Not a widening of rule 4. An auto-created venue's centroid is a geohash
+   * cell's centre, identical for everyone who ever scanned in that cell
+   * (`candidateVenueDraft` has no coordinate parameter to pass a fix through),
+   * and a placed one was placed by a human or by Places. Either way it is where
+   * the SHOP is, not where the caller stood — and the caller is being told about
+   * a shop they personally walked into.
+   */
+  lat: number | null;
+  lng: number | null;
 }
 
 /**
@@ -112,6 +126,13 @@ export interface PersonalStoreStats {
   source_type: string | null;
   location: string | null;
   chain: string | null;
+  /**
+   * The linked venue's coordinates, when there is one. Null for a source that
+   * has never been joined to the map — which is most of them, and is why the
+   * map has an off-map list beside it rather than silently dropping those rows.
+   */
+  lat: number | null;
+  lng: number | null;
   /** True once this store is joined to a shared Radar venue. */
   linked: boolean;
   items_sourced: number;
@@ -217,6 +238,8 @@ interface Bucket {
     source_type: string | null;
     location: string | null;
     chain: string | null;
+    lat: number | null;
+    lng: number | null;
   };
   items_sourced: number;
   items_sold: number;
@@ -344,6 +367,8 @@ export function buildPersonalStores(
         source_type: source.source_type,
         location: source.location,
         chain: venue?.chain ?? null,
+        lat: venue?.lat ?? null,
+        lng: venue?.lng ?? null,
       }),
     );
     if (venueId) claimedVenues.set(venueId, source.id);
@@ -407,6 +432,8 @@ export function buildPersonalStores(
           source_type: null,
           location: null,
           chain: venue?.chain ?? null,
+          lat: venue?.lat ?? null,
+          lng: venue?.lng ?? null,
         });
         buckets.set(key, bucket);
       }

@@ -29,6 +29,7 @@ import {
   historyPlaceKey,
   MAX_RADAR_WINDOW_DAYS,
   mergeHistoryRow,
+  offsetMinutesForLongitude,
   type RadarAggregateRow,
   type RadarHistoryRow,
   type RadarScanEvent,
@@ -120,6 +121,32 @@ async function loadRecentVenueEvents(
   return events;
 }
 
+/**
+ * Approximate UTC offsets for the venues these events landed on.
+ *
+ * Only the day-of-week histogram uses this, and it reads ONE column beyond the
+ * ids we already hold: `lng`, which for an auto-created venue is a geohash
+ * cell's centre and for a placed one is where a human or Places put the shop.
+ * Neither is a contributor's fix, so bucketing "which day is this store busy"
+ * by the store's own solar time costs nothing under rule 4.
+ */
+async function loadVenueOffsets(
+  venueIds: readonly string[],
+): Promise<Map<string, number>> {
+  const offsets = new Map<string, number>();
+  for (const part of chunk(venueIds, WRITE_CHUNK)) {
+    const { data, error } = await supabaseAdmin
+      .from("radar_venues")
+      .select("id, lng")
+      .in("id", part);
+    if (error) throw new Error(`radar_venues offset read failed: ${error.message}`);
+    for (const row of (data ?? []) as unknown as { id: string; lng: number | null }[]) {
+      offsets.set(row.id, offsetMinutesForLongitude(row.lng));
+    }
+  }
+  return offsets;
+}
+
 async function writeAggregates(
   rows: readonly RadarAggregateRow[],
   computedAt: string,
@@ -164,7 +191,10 @@ export async function computeRadarAggregates(
   );
   const events = await loadRecentVenueEvents(now, maxEvents);
 
-  const computed = aggregateScanEvents(events, { now });
+  const venueIds = [...new Set(events.map((e) => e.venue_id).filter((id): id is string => !!id))];
+  const venueOffsetMinutes = await loadVenueOffsets(venueIds);
+
+  const computed = aggregateScanEvents(events, { now, venueOffsetMinutes });
   const servable = servableAggregates(computed, kFloor);
   const computedAt = now.toISOString();
 

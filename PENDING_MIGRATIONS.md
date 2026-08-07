@@ -1,9 +1,41 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Twenty-one migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547, 00548, 00549 and 00550.** The entries below them
+**Twenty-two migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547, 00548, 00549, 00550 and 00551.** The entries below them
 were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00551_radar_activity_by_day.sql (US-1865 — Thrift Radar weekly activity pattern)
+
+**Apply order.** After 00549 — it adds a column to `radar_venue_aggregates`,
+which that migration creates.
+
+**Risk: LOW.** One additive column with a default and a cardinality CHECK on an
+empty-in-prod table. Nothing is dropped, modified or backfilled.
+
+**Apply BEFORE the edge deploy, not after.** The aggregation job's upsert now
+includes `dow_counts` in its payload, so until the column exists every
+`/api/jobs/radar-aggregate` run fails on the write and publishes no aggregates
+at all — the map goes empty rather than degrading. The read path
+(`GET /api/flipdesk/radar/venues*`) also selects the column, so it 500s the same
+way. Both are Radar-only; nothing outside Radar touches this table.
+
+**What it does.**
+- Adds `radar_venue_aggregates.dow_counts integer[] NOT NULL DEFAULT
+  ARRAY[0,0,0,0,0,0,0]` — scans per day of the week at the venue's approximate
+  local day, array position 1 = Sunday.
+- Adds `radar_venue_aggregates_dow_counts_len CHECK (cardinality(dow_counts) = 7)`.
+
+**Why it rides the existing row.** The weekly pattern inherits the k-anonymity
+floor, the hourly recompute and the sweep from the aggregate it is a column of.
+A separate table would have meant a second copy of each guard, and a copied
+privacy guard is one that goes stale on one side —
+`vault/20-domain/thrift-radar.md` rule 6.
+
+**No backfill, deliberately.** The job rewrites every servable row each run and
+deletes what it did not rewrite, so the all-zero default is replaced within the
+hour. A row still holding zeros renders as "no pattern yet" rather than as a
+claim that the store is quiet every day.
 
 ## ⏳ HELD: 00550_radar_personal_stores.sql (US-1864 — Thrift Radar personal store history)
 

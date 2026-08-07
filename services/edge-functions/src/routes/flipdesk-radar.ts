@@ -72,7 +72,7 @@ const HARD_VENUE_LIMIT = 500;
 const AGGREGATE_COLUMNS =
   "venue_id, window_key, brand_key, window_start, window_end, scan_count, " +
   "contributor_count, avg_grade, high_count, mid_count, low_count, " +
-  "ungraded_count, buy_count, verdict_count, buy_rate, last_activity_at";
+  "ungraded_count, buy_count, verdict_count, buy_rate, dow_counts, last_activity_at";
 
 interface VenueRow {
   id: string;

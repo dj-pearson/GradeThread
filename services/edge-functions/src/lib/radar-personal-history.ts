@@ -125,7 +125,10 @@ export async function loadPersonalStores(
   if (venueIds.size > 0) {
     const { data, error } = await supabaseAdmin
       .from("radar_venues")
-      .select("id, display_name, chain")
+      // US-1865 adds lat/lng so these places can be drawn on the Radar map.
+      // Still not a way around the k-floor: this is where the SHOP is, for shops
+      // the caller has personally stood in, and carries no counts at all.
+      .select("id, display_name, chain, lat, lng")
       .in("id", [...venueIds])
       .neq("status", "merged");
     if (error) throw new Error(error.message);

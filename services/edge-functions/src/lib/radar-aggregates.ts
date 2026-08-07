@@ -153,7 +153,61 @@ export interface RadarAggregateRow {
   /** Scans that produced a real verdict — 'unknown' is excluded from the rate. */
   verdict_count: number;
   buy_rate: number | null;
+  /**
+   * Scans per day of the week at the venue's LOCAL day, index 0 = Sunday.
+   * Always length 7. See {@link offsetMinutesForLongitude} for what "local"
+   * means here and why it is an approximation rather than a real timezone.
+   */
+  dow_counts: number[];
   last_activity_at: string;
+}
+
+// ── Day-of-week ─────────────────────────────────────────────────────────────
+
+/** Sunday-first, matching `Date.getUTCDay()`. */
+export const DAYS_IN_WEEK = 7;
+
+export function emptyDowCounts(): number[] {
+  return [0, 0, 0, 0, 0, 0, 0];
+}
+
+/**
+ * A venue's approximate UTC offset, in minutes, from its longitude alone.
+ *
+ * "Is this store busy on Tuesdays?" is a question about the LOCAL day, and
+ * bucketing by UTC would move every evening scan in the Americas onto the next
+ * day — a systematic one-day smear rather than noise. We have no timezone for a
+ * venue and are not about to acquire one: a timezone lookup is either a table
+ * we would have to ship or a request to somebody else's server carrying the
+ * coordinate rule 4 exists to keep off the wire.
+ *
+ * So: solar time, 15 degrees to the hour. It is wrong by up to an hour or two
+ * wherever civil time and the sun disagree (DST, wide zones), which can move a
+ * scan across midnight but never across a whole day. That is the right error to
+ * accept for a "which day is this store hot" histogram, and it is derived from
+ * the venue's cell-centre longitude, so it says nothing about a contributor.
+ */
+export function offsetMinutesForLongitude(lng: number | null | undefined): number {
+  if (typeof lng !== "number" || !Number.isFinite(lng)) return 0;
+  const clamped = Math.max(-180, Math.min(180, lng));
+  return Math.round(clamped / 15) * 60;
+}
+
+/** Local day-of-week index (0 = Sunday) for an instant at a given offset. */
+export function localDayOfWeek(atMs: number, offsetMinutes: number): number {
+  const shifted = new Date(atMs + offsetMinutes * 60_000);
+  return shifted.getUTCDay();
+}
+
+/** Coerce anything the column can hand back into a length-7 non-negative week. */
+export function normalizeDowCounts(raw: unknown): number[] {
+  const out = emptyDowCounts();
+  if (!Array.isArray(raw)) return out;
+  for (let i = 0; i < DAYS_IN_WEEK; i++) {
+    const n = Number(raw[i]);
+    out[i] = Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  }
+  return out;
 }
 
 interface Bucket {
@@ -162,6 +216,7 @@ interface Bucket {
   bands: Record<RadarGradeBand, number>;
   buys: number;
   verdicts: number;
+  dow: number[];
   lastActivityMs: number;
 }
 
@@ -172,11 +227,19 @@ function emptyBucket(): Bucket {
     bands: { high: 0, mid: 0, low: 0, ungraded: 0 },
     buys: 0,
     verdicts: 0,
+    dow: emptyDowCounts(),
     lastActivityMs: 0,
   };
 }
 
-function addToBucket(bucket: Bucket, event: RadarScanEvent, atMs: number): void {
+function addToBucket(
+  bucket: Bucket,
+  event: RadarScanEvent,
+  atMs: number,
+  // Defaulted for the retention rollup, whose output is month-resolution and
+  // carries no weekly pattern to be wrong about.
+  offsetMinutes = 0,
+): void {
   bucket.contributors.add(event.contributor_key);
   bucket.scans += 1;
   const band = event.grade_band in bucket.bands ? event.grade_band : "ungraded";
@@ -185,6 +248,7 @@ function addToBucket(bucket: Bucket, event: RadarScanEvent, atMs: number): void 
     bucket.verdicts += 1;
     if (event.verdict === "buy") bucket.buys += 1;
   }
+  bucket.dow[localDayOfWeek(atMs, offsetMinutes)] += 1;
   if (atMs > bucket.lastActivityMs) bucket.lastActivityMs = atMs;
 }
 
@@ -208,6 +272,12 @@ function averageGrade(bands: Record<RadarGradeBand, number>): number | null {
 export interface AggregateOptions {
   now: Date;
   windows?: readonly RadarWindowKey[];
+  /**
+   * venue id → approximate UTC offset in minutes, for the day-of-week
+   * histogram. A venue that is missing from the map is bucketed in UTC, which
+   * is the same answer this function gave before the histogram existed.
+   */
+  venueOffsetMinutes?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -255,6 +325,7 @@ export function aggregateScanEvents(
         byVenue.set(event.venue_id, brands);
       }
 
+      const offset = opts.venueOffsetMinutes?.get(event.venue_id) ?? 0;
       for (const key of [ALL_BRANDS_KEY, brandKey(event.brand)]) {
         if (key === null) continue;
         let bucket = brands.get(key);
@@ -262,7 +333,7 @@ export function aggregateScanEvents(
           bucket = emptyBucket();
           brands.set(key, bucket);
         }
-        addToBucket(bucket, event, atMs);
+        addToBucket(bucket, event, atMs, offset);
       }
     }
 
@@ -284,6 +355,7 @@ export function aggregateScanEvents(
           buy_count: bucket.buys,
           verdict_count: bucket.verdicts,
           buy_rate: bucket.verdicts > 0 ? round3(bucket.buys / bucket.verdicts) : null,
+          dow_counts: [...bucket.dow],
           last_activity_at: new Date(bucket.lastActivityMs).toISOString(),
         });
       }
@@ -339,6 +411,15 @@ export interface RadarVenueNetworkDto {
   avg_grade: number | null;
   buy_rate: number | null;
   grade_mix: { high: number; mid: number; low: number; ungraded: number };
+  /**
+   * Scans by local day of week, index 0 = Sunday, always length 7.
+   *
+   * Rides the SAME row and therefore the same k-anonymity floor as everything
+   * else here — there is no path that serves a weekly pattern for a venue whose
+   * counts are withheld, which is what would make it a timetable for one
+   * person's Saturdays.
+   */
+  activity_by_day: number[];
   last_activity_at: string;
   /** Whole days since the last scan here — the freshness signal. */
   days_since_activity: number | null;
@@ -379,6 +460,10 @@ export function toVenueNetworkDto(
       low: row.low_count,
       ungraded: row.ungraded_count,
     },
+    // Normalized on read: a row written before the column existed (or by
+    // something that skipped it) reads back as an all-zero week rather than a
+    // ragged array the UI would have to length-check.
+    activity_by_day: normalizeDowCounts(row.dow_counts),
     last_activity_at: row.last_activity_at,
     days_since_activity: days,
   };

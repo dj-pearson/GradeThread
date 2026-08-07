@@ -19,12 +19,15 @@ import {
   brandKey,
   clampKFloor,
   clampRetentionDays,
+  DAYS_IN_WEEK,
   DEFAULT_K_ANONYMITY_FLOOR,
   historyPlaceKey,
   MAX_RADAR_WINDOW_DAYS,
   mergeHistoryRow,
   MIN_K_ANONYMITY_FLOOR,
   monthStart,
+  normalizeDowCounts,
+  offsetMinutesForLongitude,
   type RadarAggregateRow,
   type RadarScanEvent,
   retentionCutoff,
@@ -251,6 +254,7 @@ Deno.test("the served DTO carries counts and freshness, never a contributor", ()
   // field to the DTO has to fail here rather than pass unnoticed (the same
   // assertion shape US-1861 used on the event row).
   assertEquals(Object.keys(dto).sort(), [
+    "activity_by_day",
     "avg_grade",
     "brand",
     "buy_rate",
@@ -262,6 +266,108 @@ Deno.test("the served DTO carries counts and freshness, never a contributor", ()
     "venue_id",
     "window",
   ]);
+});
+
+// ── US-1865: the weekly activity pattern ────────────────────────────────────
+
+Deno.test("US-1865: the weekly histogram sums to the scan count", () => {
+  const row = find(
+    aggregateScanEvents(
+      [
+        event({ contributor_key: "a", scanned_at: daysAgo(1) }),
+        event({ contributor_key: "b", scanned_at: daysAgo(2) }),
+        event({ contributor_key: "c", scanned_at: daysAgo(2) }),
+        event({ contributor_key: "d", scanned_at: daysAgo(5) }),
+      ],
+      { now: NOW },
+    ),
+    VENUE_A,
+    "7d",
+    ALL_BRANDS_KEY,
+  )!;
+  assertEquals(row.dow_counts.length, DAYS_IN_WEEK);
+  assertEquals(row.dow_counts.reduce((a, b) => a + b, 0), row.scan_count);
+  // NOW is a Friday; daysAgo(2) is a Wednesday and two scans landed there.
+  assertEquals(row.dow_counts[3], 2);
+});
+
+Deno.test("US-1865: the day is the VENUE's local day, not UTC", () => {
+  // 02:00Z on a Saturday is Friday evening in Los Angeles. A shop at -118 must
+  // read that as a Friday, or every evening scan in the Americas is smeared onto
+  // the next day — a systematic error, not noise.
+  const saturdayEarlyUtc = "2026-08-01T02:00:00.000Z";
+  assertEquals(new Date(saturdayEarlyUtc).getUTCDay(), 6, "sanity: Saturday in UTC");
+
+  const events = ["a", "b", "c"].map((k) =>
+    event({ contributor_key: k, scanned_at: saturdayEarlyUtc })
+  );
+  const opts = {
+    now: new Date("2026-08-03T12:00:00.000Z"),
+    venueOffsetMinutes: new Map([[VENUE_A, offsetMinutesForLongitude(-118.24)]]),
+  };
+  const local = find(aggregateScanEvents(events, opts), VENUE_A, "7d", ALL_BRANDS_KEY)!;
+  assertEquals(local.dow_counts[5], 3, "Friday, locally");
+  assertEquals(local.dow_counts[6], 0);
+
+  // Without an offset the same events fall on Saturday — which is exactly the
+  // behaviour the map must not ship.
+  const utc = find(
+    aggregateScanEvents(events, { now: opts.now }),
+    VENUE_A,
+    "7d",
+    ALL_BRANDS_KEY,
+  )!;
+  assertEquals(utc.dow_counts[6], 3);
+});
+
+Deno.test("US-1865: longitude → offset is solar time, clamped and total", () => {
+  assertEquals(offsetMinutesForLongitude(0), 0);
+  assertEquals(offsetMinutesForLongitude(-118.24), -8 * 60);
+  assertEquals(offsetMinutesForLongitude(139.7), 9 * 60);
+  // A venue with no usable longitude buckets in UTC rather than throwing.
+  assertEquals(offsetMinutesForLongitude(null), 0);
+  assertEquals(offsetMinutesForLongitude(Number.NaN), 0);
+  assertEquals(offsetMinutesForLongitude(9999), 12 * 60);
+});
+
+Deno.test("US-1865: a ragged or absent stored week reads back as a clean zero week", () => {
+  // The column defaults to seven zeros, but a row written before it existed —
+  // or by anything that skipped it — must not hand the UI an array it has to
+  // length-check. Normalizing on read is what makes `activity_by_day[i]` safe.
+  assertEquals(normalizeDowCounts(undefined), [0, 0, 0, 0, 0, 0, 0]);
+  assertEquals(normalizeDowCounts([1, 2]), [1, 2, 0, 0, 0, 0, 0]);
+  assertEquals(normalizeDowCounts([1, 2, 3, 4, 5, 6, 7, 8]).length, DAYS_IN_WEEK);
+  assertEquals(normalizeDowCounts(["3", -4, null, 2.4, 0, 0, 0]), [
+    3,
+    0,
+    0,
+    2,
+    0,
+    0,
+    0,
+  ]);
+});
+
+Deno.test("US-1865: the weekly pattern is withheld with the row it rides on", () => {
+  // The histogram has no gate of its own, and that is the point: it is a field
+  // of an aggregate that already cleared the floor, so there is no path that
+  // publishes one venue's weekly rhythm while withholding its counts.
+  const below = find(
+    aggregateScanEvents(
+      [event({ contributor_key: "solo" }), event({ contributor_key: "solo" })],
+      { now: NOW },
+    ),
+    VENUE_A,
+    "7d",
+    ALL_BRANDS_KEY,
+  )!;
+  assertEquals(below.contributor_count, 1);
+  assert(below.dow_counts.some((n) => n > 0), "the row itself carries a pattern");
+  assertEquals(
+    toVenueNetworkDto(below, DEFAULT_K_ANONYMITY_FLOOR, NOW),
+    null,
+    "and nothing can serve it",
+  );
 });
 
 // ── Retention ───────────────────────────────────────────────────────────────

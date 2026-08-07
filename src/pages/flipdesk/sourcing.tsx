@@ -26,6 +26,11 @@ const ScoutBuyPage = lazy(() =>
     default: m.FlipdeskScoutBuyPage,
   }))
 );
+const RadarPage = lazy(() =>
+  import("@/pages/flipdesk/radar").then((m) => ({
+    default: m.FlipdeskRadarPage,
+  }))
+);
 const MyStoresPage = lazy(() =>
   import("@/pages/flipdesk/my-stores").then((m) => ({
     default: m.FlipdeskMyStoresPage,
@@ -73,6 +78,7 @@ export function FlipdeskSourcingPage() {
         <TabsList>
           <TabsTrigger value="scout">ScoutAI</TabsTrigger>
           <TabsTrigger value="buy">Buy decision</TabsTrigger>
+          <TabsTrigger value="radar">Radar</TabsTrigger>
           <TabsTrigger value="stores">My stores</TabsTrigger>
           <TabsTrigger value="sources">Sources</TabsTrigger>
           <TabsTrigger value="demand">Buyer demand</TabsTrigger>
@@ -90,6 +96,13 @@ export function FlipdeskSourcingPage() {
           {activeTab === "buy" && (
             <Suspense fallback={<TabLoading />}>
               <ScoutBuyPage />
+            </Suspense>
+          )}
+        </TabsContent>
+        <TabsContent value="radar" className="mt-6">
+          {activeTab === "radar" && (
+            <Suspense fallback={<TabLoading />}>
+              <RadarPage />
             </Suspense>
           )}
         </TabsContent>

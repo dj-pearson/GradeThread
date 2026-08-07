@@ -69,6 +69,8 @@ const venue: PersonalVenueSeed = {
   id: "ven-1",
   display_name: "Thrift store (dr5ru)",
   chain: "goodwill",
+  lat: 40.7,
+  lng: -74.0,
 };
 
 Deno.test("US-1864: works at n=1 — one item, one source, no venue, no network", () => {
