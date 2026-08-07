@@ -142,3 +142,45 @@ Edge loads the **Chrome** zip unchanged — same manifest, same
    is worth confirming.
 
 Then the store checklist in `SUBMISSION.md` → *Microsoft Edge Add-ons — extras*.
+
+## 5c. Transport sign-off (US-1882 AC4) — run it in BOTH browsers
+
+§5a step 8 asks whether the seller flow works. This asks the question underneath
+it: **which transport carried the job**. Chromium must keep using
+`externally_connectable`; Firefox must use the gradethread.com postMessage
+bridge (`gt-bridge.js`), because Firefox has no `externally_connectable` at all.
+A page that quietly used both would list the item twice and still look healthy.
+
+The code half is automated — `src/test/lister-transport-selection.test.ts` fails
+the build if the preference inverts, if Chromium also posts a bridge envelope, or
+if the correlation-id / durable-push semantics stop holding over the bridge. What
+no test can reach is a real extension in a real browser talking to a real
+marketplace. That is this checklist, and it is measured rather than eyeballed:
+
+```
+npm run transport:verify snippet            # prints it
+npm run transport:verify snippet --out /tmp/gt-transport.js
+```
+
+The snippet wraps `window.postMessage` and `chrome.runtime.sendMessage` and then
+watches. It sends nothing itself, so what it reports is what the shipped
+`src/lib/lister-extension.ts` actually did.
+
+| # | Step | Pass looks like |
+|---|---|---|
+| 1 | Sign in on the deployed site, open the FlipDesk **Listing Kit** for a Poshmark-ready item, open DevTools → Console, paste the snippet. | It prints `transport check armed` with the marker and `externally_connectable` readings. On Firefox the marker must read *present* — *ABSENT* means gradethread.com was never granted (§5a step 7) and the flow will HANG, not fail. |
+| 2 | Leave that tab open. Click **Send to extension** for the Poshmark draft and let the marketplace tab fill. | The Poshmark new-listing form prefills as in §5a step 8. |
+| 3 | Back on the GradeThread tab, run `__gtTransportCheck.report()`. | A table, then `VERDICT: PASS`. `transport used` must read `bridge` on Firefox and `externally_connectable` on Chromium/Edge — the tool derives the expectation from what the browser actually exposed, so the same snippet checks the rule each browser is subject to. |
+| 4 | Submit the Poshmark form while the GradeThread tab is still open, then run `report()` again. | `live listing captured (US-1877)` shows the real listing URL. A WARN here only means you closed the tab first. |
+| 5 | Repeat 1–3 in Chrome (or Edge). | Same `PASS`, with `transport used = externally_connectable`. This is the AC4 no-regression half, measured on the same build. |
+
+**Record the outcome** by pasting the tool's own one-line result into the story
+note — it carries browser, transport, expectation, date and verdict:
+
+```
+US-1882 AC4 | firefox | transport=bridge | expected=bridge | 2026-08-07 | PASS
+```
+
+A `FAIL` on `transport used` with `REGRESSION` in the detail means Chromium fell
+back to the bridge: either `VITE_LISTER_EXTENSION_ID` is unset in that deployment
+or the preference in `sendExtensionMessage` inverted.

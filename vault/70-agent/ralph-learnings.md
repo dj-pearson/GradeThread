@@ -792,6 +792,20 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `gt-bridge.js` — an ordinary content script on gradethread.com — and an
   ungranted site permission does not fail the sign-in, it HANGS it: the connect
   page opens, mints the token, posts it, and nothing is listening.
+- When a story adds a SECOND transport/backend behind one call site, "the old one
+  still wins where it exists" is a preference nobody can see — it is a branch
+  order, and reordering it passes review, typecheck and every existing test.
+  US-1882 had only code-reading as evidence. Pin it as an outcome instead: assert
+  the OTHER transport was not ALSO used (`sendToLister` with a stubbed
+  `chrome.runtime` AND the bridge marker must post zero `__gtExtReq` envelopes) —
+  a page that used both would double-list and still resolve looking healthy, so
+  "the right one answered" is not the assertion you want. For the live half, a
+  DevTools tool that WRAPS the transports and then watches beats a checklist that
+  describes them: it observes the shipped code, so there is no second copy of the
+  preference to rot, and it can derive the expectation from what the browser
+  exposed (runtime present ⇒ must be used) rather than from the user agent — one
+  snippet, correct in both browsers. `scripts/transport-verify.mjs`, procedure in
+  `extension-unified/TESTING.md` §5c.
 
 ## Related
 

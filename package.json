@@ -21,6 +21,7 @@
     "test:coverage": "vitest run --coverage",
     "test:scripts": "vitest run --config vitest.scripts.config.mjs",
     "adapter:verify": "node scripts/adapter-verify.mjs",
+    "transport:verify": "node scripts/transport-verify.mjs",
     "vault:lint": "node scripts/vault-lint.mjs --strict",
     "vault:lint:soft": "node scripts/vault-lint.mjs",
     "vault:index": "node scripts/vault-index.mjs",
