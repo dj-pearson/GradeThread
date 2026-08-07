@@ -234,6 +234,16 @@ a learning that only matters to ONE surface, put it in that surface's file.
   resolves `.data` as `never`, so cast `as unknown as Pick<GarmentRow,…>[]`.
 - `react-helmet-async` v3 renders no SSR head; add structured data via `<SEO
   jsonLd=…>` AND mirror it in `src/lib/seo/head-builder.ts` `jsonLdForRoute()`.
+- A story blocked on MEDIA someone must create (video, photos, a data report) is
+  usually not blocked on its CODE. Build the render path behind a **publish
+  gate** — one predicate both the component and the JSON-LD builder call, true
+  only when the real asset's id is present — then the markup cannot describe
+  something that doesn't exist, and shipping becomes a paste job. US-1689 was
+  deferred whole for two runs on "VideoObject for a nonexistent video would be
+  fake markup"; the gate is the answer to that, not deferral. Put the derived
+  naming (title/tags) in code too, so the human can't publish off-series.
+  Extend a SHARED builder (`garmentGuideJsonLd`) rather than the page — the
+  prerender calls the same function, so parity holds with no second wiring.
 - Unified Inventory surface (US-958): `/dashboard/flipdesk/inventory` hosts the
   table/grid/kanban/prep views as `?mode=` toggles (one route). `?mode=` is the
   view toggle; `?view=` is ALREADY the saved-view loader (listings/pipeline read
