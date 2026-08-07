@@ -360,6 +360,16 @@ a learning that only matters to ONE surface, put it in that surface's file.
 
 
 
+## When you cannot finish a story
+- If a story has an AC no iteration can satisfy (a golden set someone must
+  photograph, a scope someone must apply for), land what IS completable, commit,
+  then end with `<promise>STORY_BLOCKED</promise> <one line on what a human must
+  do>`. The runner drops it for the rest of the run, records it in progress.txt
+  and prints it in the end-of-run summary — WITHOUT setting passes:true. Stopping
+  silently instead looks identical to a crash to the runner, so selection
+  re-picks the story every iteration; US-1997 cost three full runs that way.
+  Never emit both tokens. Full contract: `scripts/ralph/CLAUDE.md`.
+
 ## Public certificate columns
 - A publicly-visible `grade_reports` column must be added to BOTH read paths in
   the same commit: the edge allowlist (`CERT_REPORT_COLUMNS`, content-public.ts,

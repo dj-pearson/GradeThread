@@ -88,6 +88,47 @@ export function isOperatorGated(story) {
 }
 
 /**
+ * The OTHER half of the same problem — the one the title markers cannot cover.
+ *
+ * A marker only helps for a block someone ALREADY KNEW ABOUT when they filed
+ * the story. The expensive case is the block nobody knew about until an agent
+ * spent an iteration discovering it: US-1997's last acceptance criterion turned
+ * out to need a non-clothing golden set, which grows only from real
+ * expert-corrected grades and cannot be fabricated. No title said so, because
+ * nobody knew until the work was attempted.
+ *
+ * Selection is stateless and `if (!done) continue` retries forever, so the
+ * agent had no way to say "not done, and not retryable by me" — only "not
+ * done", which reads identically to a crash. US-1997 was re-picked three runs
+ * in a row, each one re-deriving the same conclusion at full cost.
+ *
+ * So the agent can now end an iteration with `<promise>STORY_BLOCKED</promise>`
+ * and the runner drops that story for the REST OF THIS RUN.
+ *
+ * Two deliberate limits:
+ *   • The skip set is in MEMORY, scoped to one run. A block that turns out to
+ *     be wrong, or that the user clears, costs one run and then evaporates —
+ *     never a permanent mark on a story that no one remembers making.
+ *   • prd.json is NOT touched. `passes` stays false and the story stays in the
+ *     backlog. Blocked is not done, and the loop must never be able to make it
+ *     look done — that conflation is what US-1997 exists to end.
+ */
+const STORY_BLOCKED_TOKEN = /<promise>STORY_BLOCKED<\/promise>/;
+
+/**
+ * Whatever the agent wrote on the `STORY_BLOCKED` line, so the human sees the
+ * reason and not just the fact. Best-effort: an unparseable line is not an
+ * error, it just yields no reason.
+ */
+export function extractBlockedReason(text) {
+  const line = (text ?? "")
+    .split("\n")
+    .find((l) => STORY_BLOCKED_TOKEN.test(l));
+  if (!line) return "";
+  return line.replace(STORY_BLOCKED_TOKEN, "").replace(/^[\s:—-]+/, "").trim();
+}
+
+/**
  * Highest-priority open story whose dependsOn are all satisfied and which an
  * agent can actually do.
  *
@@ -100,12 +141,20 @@ export function isOperatorGated(story) {
  * [[US-xxxx]] links in `notes` prose mix "depends on" with "pairs with" and
  * would deadlock the loop. Exported for the test suite.
  */
-export function selectStory(prd) {
+export function selectStory(prd, blocked = new Set()) {
   const open = prd.userStories.filter((s) => !s.passes);
   const openIds = new Set(open.map((s) => s.id));
+  // Reported-blocked counts the same way an operator-gated title does: the loop
+  // cannot finish it, so it must not spend the run proving that again. It is
+  // listed separately because the two need different things from a human — a
+  // title marker is a decision already made, a runtime block is news.
+  const runtimeBlocked = open.filter((s) => blocked.has(s.id));
   const operatorGated = open.filter(isOperatorGated);
   const eligible = open.filter(
-    (s) => !isOperatorGated(s) && !(s.dependsOn ?? []).some((d) => openIds.has(d)),
+    (s) =>
+      !isOperatorGated(s) &&
+      !blocked.has(s.id) &&
+      !(s.dependsOn ?? []).some((d) => openIds.has(d)),
   );
   // Ascending priority, missing sorts last, ties broken on id. The direction and
   // the missing-value rule are the backlog contract, not a local choice, so they
@@ -116,6 +165,7 @@ export function selectStory(prd) {
     story: eligible[0] ?? null,
     open,
     operatorGated,
+    runtimeBlocked,
   };
 }
 
@@ -177,6 +227,8 @@ async function runStory(story, model, resumeSessionId) {
 
   let sessionId = resumeSessionId ?? null;
   let sawStoryDone = false;
+  let sawStoryBlocked = false;
+  let blockedReason = "";
   let result = null;
 
   try {
@@ -220,6 +272,13 @@ async function runStory(story, model, resumeSessionId) {
         // The completion signal is the promise token in the agent's final text.
         if (msg.subtype === "success" && /<promise>STORY_DONE<\/promise>/.test(msg.result ?? ""))
           sawStoryDone = true;
+        // ...and the give-up signal is its sibling. Only honored on a SUCCESSFUL
+        // finish: a crash or a timeout is not the agent's judgement about the
+        // story, it is the run failing, and that still deserves a retry.
+        if (msg.subtype === "success" && STORY_BLOCKED_TOKEN.test(msg.result ?? "")) {
+          sawStoryBlocked = true;
+          blockedReason = extractBlockedReason(msg.result ?? "");
+        }
       }
     }
   } catch (err) {
@@ -228,21 +287,33 @@ async function runStory(story, model, resumeSessionId) {
     console.error(
       `\n  ${aborted ? `TIMEOUT after ${timeoutMs / 1000}s` : "SDK error"}: ${err.message}`,
     );
-    return { done: false, sessionId, result: null, aborted };
+    return { done: false, blocked: false, blockedReason: "", sessionId, result: null, aborted };
   } finally {
     clearTimeout(timer);
   }
 
-  return { done: sawStoryDone, sessionId, result, aborted: false };
+  // STORY_DONE wins if both somehow appear: done is a claim about finished work,
+  // blocked is a claim about remaining work, and only the first can be verified
+  // by the bookkeeping that follows.
+  return {
+    done: sawStoryDone,
+    blocked: sawStoryBlocked && !sawStoryDone,
+    blockedReason,
+    sessionId,
+    result,
+    aborted: false,
+  };
 }
 
 /** Human-readable "why did this iteration end" — the thing the old loop lost. */
-function describeOutcome({ done, result, aborted }) {
+function describeOutcome({ done, blocked, blockedReason, result, aborted }) {
   if (aborted) return "killed on the iteration timeout (likely a hung build)";
   if (!result) return "ended with no result message (transport failure)";
   if (result.subtype === "error_max_turns") return "hit maxTurns before finishing";
   if (result.subtype === "error_max_budget_usd") return "hit the per-iteration budget cap";
   if (result.subtype !== "success") return `errored: ${result.subtype}`;
+  if (blocked)
+    return `reported BLOCKED — needs a human${blockedReason ? `: ${blockedReason}` : ""}`;
   if (!done) return `finished without <promise>STORY_DONE</promise> (stop_reason: ${result.stop_reason ?? "n/a"})`;
   return "completed and self-verified";
 }
@@ -252,11 +323,17 @@ function describeOutcome({ done, result, aborted }) {
 // launching a real loop.
 async function main() {
 const sessions = readJson(SESSIONS, {});
+// Stories the agent reported it cannot finish, this run only. Deliberately not
+// persisted — see STORY_BLOCKED_TOKEN above for why a durable mark would be
+// worse than the problem it solves. Reason kept alongside so the end-of-run
+// summary can say what a human has to do.
+const blockedThisRun = new Map();
 
 for (let i = 1; i <= maxIterations; i++) {
   if (existsSync(STOP_FLAG)) {
     rmSync(STOP_FLAG, { force: true });
     console.log("\nGraceful stop requested — exiting before the next iteration.");
+    reportBlocked(blockedThisRun);
     process.exit(0);
   }
 
@@ -266,7 +343,10 @@ for (let i = 1; i <= maxIterations; i++) {
     process.exit(1);
   }
 
-  const { openCount, story, open, operatorGated } = selectStory(prd);
+  const { openCount, story, open, operatorGated, runtimeBlocked } = selectStory(
+    prd,
+    new Set(blockedThisRun.keys()),
+  );
 
   if (openCount === 0) {
     console.log("\nAll stories pass — nothing left to do.\n<promise>COMPLETE</promise>");
@@ -296,8 +376,16 @@ for (let i = 1; i <= maxIterations; i++) {
       if (unmet.length)
         console.error(`  ${s.id} (prio ${s.priority}) blocked by: ${unmet.join(", ")}`);
     }
+    for (const s of runtimeBlocked) {
+      console.error(
+        `  ${s.id} (prio ${s.priority}) reported blocked this run: ${
+          blockedThisRun.get(s.id) || "(no reason given)"
+        }`,
+      );
+    }
     console.error(
-      `${operatorGated.length} of them are operator-gated (listed above).` +
+      `${operatorGated.length} of them are operator-gated (listed above)` +
+        `${runtimeBlocked.length ? `, ${runtimeBlocked.length} reported blocked mid-run` : ""}.` +
         " Fix dependsOn in prd.json, complete a blocking story, or do the operator work, then re-run.",
     );
     process.exit(1);
@@ -321,7 +409,7 @@ for (let i = 1; i <= maxIterations; i++) {
   writeFileSync(CURRENT_STORY, JSON.stringify(story, null, 2) + "\n");
 
   const outcome = await runStory(story, model, resumeId);
-  const { done, sessionId, result } = outcome;
+  const { done, blocked, blockedReason, sessionId, result } = outcome;
 
   // ── Accounting: the thing the shell-out could not report ──────────────────
   if (result) {
@@ -357,9 +445,33 @@ for (let i = 1; i <= maxIterations; i++) {
 
   // Remember the session so a retry of this same story resumes it; drop it once
   // the story is done so the id can't leak into an unrelated future story.
-  if (done) delete sessions[story.id];
+  // A blocked story is not going to be retried either, so its session goes too.
+  if (done || blocked) delete sessions[story.id];
   else if (sessionId) sessions[story.id] = sessionId;
   writeFileSync(SESSIONS, JSON.stringify(sessions, null, 2) + "\n");
+
+  if (blocked) {
+    blockedThisRun.set(story.id, blockedReason);
+    console.log(
+      `  ${story.id} reported BLOCKED — skipping it for the rest of this run.`,
+    );
+    console.log(
+      `  passes stays FALSE and the story stays in the backlog; blocked is not done.`,
+    );
+    if (blockedReason) console.log(`  Reason: ${blockedReason}`);
+    // Durable for a human, unlike the in-memory skip set: progress.txt is the
+    // file someone actually reads after a run.
+    appendFileSync(
+      PROGRESS,
+      `## ${story.id}: ${story.title}\n- Status: BLOCKED (needs a human)\n` +
+        `- Timestamp: ${new Date().toISOString()}\n` +
+        `- Reason: ${blockedReason || "(none given)"}\n` +
+        `- Cost: $${(result?.total_cost_usd ?? 0).toFixed(4)} over ${result?.num_turns ?? 0} turns\n---\n`,
+    );
+    git("add", PROGRESS);
+    git("commit", "-m", `chore(${story.id}): record blocked-on-human`);
+    continue;
+  }
 
   if (!done) {
     console.log(`  ${story.id} not marked done — will retry next iteration.`);
@@ -389,14 +501,36 @@ for (let i = 1; i <= maxIterations; i++) {
     (s) => !s.passes,
   ).length;
   if (remaining === 0) {
-    console.log(`\nRalph completed all tasks at iteration ${i}.\n<promise>COMPLETE</promise>`);
+    console.log(`\nRalph completed all tasks at iteration ${i}.`);
+    reportBlocked(blockedThisRun);
+    console.log("<promise>COMPLETE</promise>");
     process.exit(0);
   }
 }
 
 console.log(`\nRalph reached max iterations (${maxIterations}) with stories still open.`);
+reportBlocked(blockedThisRun);
 console.log(`Per-story cost log: ${COSTS}`);
 process.exit(1);
+}
+
+/**
+ * The end-of-run answer to "what needs me?". Printed on every exit path that can
+ * follow a block, because a blocked story the human is never told about is
+ * exactly the story that gets re-picked — at full cost — on the next run.
+ */
+function reportBlocked(blockedThisRun) {
+  if (!blockedThisRun.size) return;
+  console.log(
+    `\n${blockedThisRun.size} story(ies) reported BLOCKED and need you, not the loop:`,
+  );
+  for (const [id, reason] of blockedThisRun) {
+    console.log(`  ${id}: ${reason || "(no reason given)"}`);
+  }
+  console.log(
+    "  None was marked complete. Retitle with [OPERATOR] to keep the loop off it,\n" +
+      "  or clear the blocker and re-run.",
+  );
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

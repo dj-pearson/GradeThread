@@ -12,6 +12,16 @@ summary: Five external gates hold up most remaining stories. Each entry says wha
 ---
 # What blocks the backlog (as of 2026-07-19)
 
+> [!info] How the loop now handles these
+> A gate listed here only stops the loop if its story's TITLE carries
+> `[OPERATOR]`, `USER ACTION REQUIRED` or `DEFERRED for agent loop`. For a gate
+> discovered mid-story — nobody knew until an agent tried — the agent ends with
+> `<promise>STORY_BLOCKED</promise>` and the runner drops that story for the rest
+> of the run, records it in `progress.txt`, and lists it at the end. It does NOT
+> mark the story done. Before this existed the loop re-picked such a story every
+> iteration; US-1997 burned three runs proving the same thing. See
+> `scripts/ralph/CLAUDE.md`.
+
 A large share of the open backlog is not waiting on engineering. It is waiting on
 **five things that can only be done outside an agent sandbox.** They are listed
 worst-leverage-last, with the stories each one releases.

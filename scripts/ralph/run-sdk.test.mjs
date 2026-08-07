@@ -6,7 +6,7 @@
 // Importing this module must NOT start a loop; run-sdk.mjs guards main() behind
 // an entrypoint check, and that guard is itself load-bearing here.
 import { describe, expect, it } from "vitest";
-import { resolveModel, selectStory } from "./run-sdk.mjs";
+import { extractBlockedReason, resolveModel, selectStory } from "./run-sdk.mjs";
 
 const story = (over = {}) => ({
   id: "US-1",
@@ -159,6 +159,46 @@ describe("selectStory", () => {
     expect(r.operatorGated).toHaveLength(1);
   });
 
+  // Runtime-reported blocks. The title markers only cover a block someone knew
+  // about when filing. US-1997's was discovered by the agent on iteration one
+  // and re-derived on two and three, because "not done" and "cannot be done"
+  // looked identical to the runner.
+  it("steps over a story reported blocked this run", () => {
+    const r = selectStory(
+      prd([
+        story({ id: "US-1997", priority: 1200 }),
+        story({ id: "US-2407", priority: 2379 }),
+      ]),
+      new Set(["US-1997"]),
+    );
+    expect(r.story.id).toBe("US-2407");
+    expect(r.runtimeBlocked.map((s) => s.id)).toEqual(["US-1997"]);
+    expect(r.openCount).toBe(2); // still open — blocked is not done
+  });
+
+  it("returns null when every open story is blocked, rather than reporting done", () => {
+    // The failure this must never become: a blocked backlog looking like a
+    // finished one. The caller's COMPLETE path keys off openCount.
+    const r = selectStory(prd([story({ id: "US-1997" })]), new Set(["US-1997"]));
+    expect(r.story).toBeNull();
+    expect(r.openCount).toBe(1);
+    expect(r.runtimeBlocked).toHaveLength(1);
+  });
+
+  it("defaults to no blocks so every existing caller is unaffected", () => {
+    const r = selectStory(prd([story({ id: "US-1" })]));
+    expect(r.story.id).toBe("US-1");
+    expect(r.runtimeBlocked).toEqual([]);
+  });
+
+  it("does not block a story merely because another one is blocked", () => {
+    const r = selectStory(
+      prd([story({ id: "US-1", priority: 1 }), story({ id: "US-2", priority: 2 })]),
+      new Set(["US-2"]),
+    );
+    expect(r.story.id).toBe("US-1");
+  });
+
   it("sorts a story with no priority last rather than first", () => {
     const r = selectStory(
       prd([story({ id: "US-1", priority: undefined }), story({ id: "US-2", priority: -500 })]),
@@ -194,5 +234,32 @@ describe("resolveModel", () => {
   });
   it("respects RALPH_DEFAULT_MODEL for an unpinned story", () => {
     expect(resolveModel(story(), { RALPH_DEFAULT_MODEL: "sonnet" })).toBe("sonnet");
+  });
+});
+
+describe("extractBlockedReason", () => {
+  // The reason is the whole point of the token over a silent stop: the human
+  // reading progress.txt needs to know what THEY have to do.
+  it("takes the text after the token on the same line", () => {
+    expect(
+      extractBlockedReason("done things\n<promise>STORY_BLOCKED</promise> needs a golden set"),
+    ).toBe("needs a golden set");
+  });
+
+  it("strips a leading separator so the usual phrasings read cleanly", () => {
+    for (const sep of [":", " — ", " - ", "  "]) {
+      expect(extractBlockedReason(`<promise>STORY_BLOCKED</promise>${sep}collect expert grades`))
+        .toBe("collect expert grades");
+    }
+  });
+
+  it("returns empty rather than throwing when the token carries no reason", () => {
+    expect(extractBlockedReason("<promise>STORY_BLOCKED</promise>")).toBe("");
+  });
+
+  it("returns empty when the token is absent", () => {
+    expect(extractBlockedReason("<promise>STORY_DONE</promise>")).toBe("");
+    expect(extractBlockedReason("")).toBe("");
+    expect(extractBlockedReason(undefined)).toBe("");
   });
 });

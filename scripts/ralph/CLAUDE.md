@@ -144,6 +144,37 @@ progress entry, and spawns the next iteration. When no `passes:false` stories
 remain, the harness emits `<promise>COMPLETE</promise>` and halts — you don't
 need to check for that yourself.
 
+## When the story CANNOT be finished by an agent
+
+Some stories have an acceptance criterion no amount of iterations can satisfy:
+photographing a golden set, applying to eBay for a restricted scope, clicking
+through Search Console, collecting real expert corrections. Sometimes the title
+already says so (`[OPERATOR]`, `USER ACTION REQUIRED`, `DEFERRED for agent
+loop`) and the harness never hands it to you. **Sometimes nobody knew until you
+tried** — that is the case this section is for.
+
+Land everything that IS completable, commit it, then end with:
+
+```
+<promise>STORY_BLOCKED</promise> one line saying what a human has to do
+```
+
+The harness drops the story **for the rest of this run**, records it in
+`progress.txt`, and prints it in the end-of-run summary. It does NOT set
+`passes:true` — blocked is not done, and the story stays in the backlog where
+someone will see it.
+
+Use this only when you are confident no further iteration helps. It costs the
+story its remaining turns this run; a merely hard story should just be retried,
+so say nothing and stop. **Never emit both tokens** — `STORY_DONE` wins, and
+claiming both is claiming the work is simultaneously finished and impossible.
+
+Before US-1997 this did not exist. An agent that hit a wall could only stop
+silently, which reads to the harness exactly like a crash, so selection re-picked
+the same story every iteration. US-1997 burned three full runs re-deriving the
+same conclusion. If you find yourself confirming a block someone already
+confirmed, that is the bug — say so with this token.
+
 ## Important Reminders
 
 - **One story per iteration.** Don't batch.
