@@ -1,4 +1,6 @@
 // US-1863: Thrift Radar — the read-only network layer.
+// US-1864 adds the PERSONAL layer to the same router; see the second block of
+// endpoints at the bottom, and note that they are gated differently on purpose.
 //
 // Two endpoints, both serving the aggregates the cron publishes:
 //   GET /venues?bbox=minLat,minLng,maxLat,maxLng[&window=30d][&brand=]
@@ -22,10 +24,16 @@
 //     UI, on the same `compPulls` flag the Prospect scan that feeds it uses.
 //     The PERSONAL layer is a separate, free surface and is not served here.
 //
-// Tenancy (US-268): these routes read NO tenant-owned table. Aggregates belong
-// to the map, not to an account — there is no id from the request body, and
-// nothing scoped by user. The tenant boundary that matters on this surface is
-// the plan gate above and the k-floor below.
+// Tenancy (US-268): the two NETWORK routes read no tenant-owned table.
+// Aggregates belong to the map, not to an account — there is no id from the
+// request body, and nothing scoped by user. The tenant boundary that matters on
+// that surface is the plan gate above and the k-floor below.
+//
+// The PERSONAL routes (US-1864, at the bottom) are the opposite case: they read
+// and write the caller's own rows, so every query is explicitly scoped with
+// `.eq("user_id", c.get("workspaceOwnerId") ?? c.get("userId"))` in
+// `radar-personal-history.ts`, and the link write confirms ownership of the
+// named source BEFORE updating it. Cases in tenant-isolation_test.ts.
 
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
@@ -43,6 +51,14 @@ import {
   toVenueNetworkDto,
 } from "../lib/radar-aggregates.ts";
 import type { RadarVenueChain, RadarVenueStatus } from "../lib/radar-venues.ts";
+import {
+  DEFAULT_PERSONAL_STORE_SORT,
+  isPersonalStoreSort,
+} from "../lib/radar-personal.ts";
+import {
+  linkSourceToVenue,
+  loadPersonalStores,
+} from "../lib/radar-personal-history.ts";
 
 export const flipdeskRadarRoutes = new Hono<{
   Variables: { userId: string; workspaceOwnerId: string };
@@ -254,4 +270,107 @@ flipdeskRadarRoutes.get("/venues/:id", async (c) => {
     network,
     brands,
   });
+});
+
+// ─── US-1864: the PERSONAL layer ────────────────────────────────────────────
+//
+// Everything above serves the shared map. Everything below serves one reseller
+// their own sourcing history, and the differences are all deliberate:
+//
+//   • NO PLAN GATE. `requireFlipdesk` is absent, and its absence is the feature
+//     (rule 7): the personal layer is free on every plan. It is the cold-start
+//     answer — a Radar that is blank until strangers show up never gets the
+//     strangers — so putting it behind the same paywall as the network layer
+//     would remove the only reason to open Radar on day one.
+//   • NO CONTRIBUTION CONSENT. These rows are the caller's own data. Requiring
+//     `users.radar_contribute` to see your own store history would make a
+//     privacy toggle into a feature paywall, which is how a consent stops being
+//     a consent.
+//   • NO K-ANONYMITY FLOOR. The floor stops one person's activity being inferred
+//     from a shared number; this surface IS one person's activity, shown to that
+//     person, where n=1 is the normal case.
+//   • TENANT SCOPING IS THEREFORE THE ONLY BOUNDARY LEFT (US-268), and it lives
+//     in `radar-personal-history.ts` — every owner-scoped read carries an
+//     explicit `.eq("user_id", …)`, and the link write confirms ownership before
+//     it and repeats the predicate in it.
+
+const MAX_LINK_ID_LENGTH = 64;
+
+/**
+ * GET /my-stores — "your best stores", ranked.
+ *
+ * Works with zero network data and at n=1: a single item bought from a single
+ * named source produces a row. A reseller with no items and no scans gets an
+ * empty list and an honest count of what could not be attributed, not an error.
+ */
+flipdeskRadarRoutes.get("/my-stores", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  const raw = c.req.query("sort");
+  const sort = isPersonalStoreSort(raw) ? raw : DEFAULT_PERSONAL_STORE_SORT;
+
+  try {
+    const payload = await loadPersonalStores(userId, sort);
+    return c.json(payload);
+  } catch (err) {
+    console.error(
+      "[flipdesk-radar] my-stores read:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Failed to load your store history" }, 500);
+  }
+});
+
+/**
+ * POST /my-stores/link — say that one of your sources IS a place on the map.
+ *
+ * This is the join that makes the personal layer whole: money lives on a source
+ * (items, spend, sales) and visits live on a venue, and until somebody says they
+ * are the same shop the two halves cannot meet. Send `venue_id: null` to unlink.
+ *
+ * A caller may only ever name their OWN source; the venue is shared, so naming
+ * one discloses nothing they did not already have.
+ */
+flipdeskRadarRoutes.post("/my-stores/link", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { source_id?: unknown; venue_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const sourceId = typeof body.source_id === "string" ? body.source_id.trim() : "";
+  if (!sourceId || sourceId.length > MAX_LINK_ID_LENGTH) {
+    return c.json({ error: "source_id is required" }, 400);
+  }
+
+  // Absent and explicit null both mean "unlink" — a client clearing the select
+  // should not have to know which one this endpoint prefers.
+  let venueId: string | null = null;
+  if (typeof body.venue_id === "string") {
+    const trimmed = body.venue_id.trim();
+    if (trimmed.length > MAX_LINK_ID_LENGTH) {
+      return c.json({ error: "venue_id is not a valid id" }, 400);
+    }
+    venueId = trimmed.length > 0 ? trimmed : null;
+  } else if (body.venue_id != null) {
+    return c.json({ error: "venue_id must be a string or null" }, 400);
+  }
+
+  const result = await linkSourceToVenue(userId, sourceId, venueId);
+  if (result.ok) return c.json({ ok: true, venue_id: result.venue_id });
+
+  switch (result.reason) {
+    case "unknown_source":
+      // The SAME body a source that does not exist would get. A caller must not
+      // be able to tell "not yours" from "not real" — that difference is a way
+      // to enumerate other tenants' source ids.
+      return c.json({ error: "Source not found" }, 404);
+    case "unknown_venue":
+      return c.json({ error: "Venue not found" }, 404);
+    default:
+      return c.json({ error: "Failed to link that store" }, 500);
+  }
 });

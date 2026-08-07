@@ -4319,3 +4319,112 @@ Deno.test({
     assertDenied(res.status, "POST scout/prospect with a coordinate and no auth");
   },
 });
+
+// ── US-1864: Thrift Radar — the PERSONAL layer ───────────────────────────────
+//
+// The network endpoints above are gated by plan and by the k-anonymity floor.
+// These two are gated by NEITHER — deliberately, because the personal layer is
+// free, consent-independent and must work at n=1 (rule 7). That removes two
+// accidental barriers, which makes tenant scoping the ONLY thing standing
+// between one reseller's sourcing history and another's.
+//
+// Two boundaries therefore need proving:
+//   1. READ. GET /my-stores answers for whoever the middleware resolved, never
+//      for a workspace the caller is not a member of. A leak here is somebody
+//      else's spend, profit and the stores they buy from — competitive
+//      intelligence, handed over.
+//   2. WRITE. POST /my-stores/link takes a source id FROM THE REQUEST BODY,
+//      which is exactly the shape US-268 exists for. B must not be able to
+//      repoint A's source at a venue, and must not be able to tell "not yours"
+//      from "not real" — the two answers must be byte-identical, or the endpoint
+//      is an oracle for enumerating another tenant's source ids.
+const A_SOURCE_ID = Deno.env.get("TEST_USER_A_SOURCE_ID");
+
+Deno.test({
+  name: "US-1864: non-member B cannot read A's personal store history",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/radar/my-stores`, {
+      headers: foreignWorkspaceHeaders(),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET radar/my-stores as a non-member of A's workspace");
+  },
+});
+
+Deno.test({
+  name: "US-1864: my-stores rejects an unauthenticated caller",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/radar/my-stores`);
+    await res.body?.cancel();
+    assertDenied(res.status, "GET radar/my-stores with no auth");
+  },
+});
+
+Deno.test({
+  name: "US-1864: non-member B cannot link A's source to a Radar venue",
+  ignore: !CONFIGURED || !WS_OWNER || !A_SOURCE_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/radar/my-stores/link`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+      body: JSON.stringify({ source_id: A_SOURCE_ID, venue_id: null }),
+    });
+    await res.body?.cancel();
+    assertDenied(
+      res.status,
+      "POST radar/my-stores/link on A's source as a non-member",
+    );
+  },
+});
+
+Deno.test({
+  // B is a legitimate account acting in their OWN workspace, naming A's source
+  // id. Nothing about the request is malformed, so the only thing that can stop
+  // it is the ownership check inside linkSourceToVenue — this is the case that
+  // fails if somebody "simplifies" it to .eq("id", sourceId).
+  name: "US-1864: B in their own workspace cannot link A's source id",
+  ignore: !CONFIGURED || !A_SOURCE_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/radar/my-stores/link`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ source_id: A_SOURCE_ID, venue_id: null }),
+    });
+    const body = await res.text();
+    assertDenied(res.status, "POST radar/my-stores/link naming A's source as B");
+    // And the SAME body a made-up id gets, so the response cannot be used to
+    // discover which source ids exist in another tenant.
+    const fake = await fetch(`${BASE}/api/flipdesk/radar/my-stores/link`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        source_id: "00000000-0000-4000-8000-000000000000",
+        venue_id: null,
+      }),
+    });
+    const fakeBody = await fake.text();
+    assertEquals(
+      [res.status, body],
+      [fake.status, fakeBody],
+      "a foreign source id and an unknown one must be indistinguishable",
+    );
+  },
+});
+
+Deno.test({
+  // A viewer is read-only. Linking a store rewrites how the owner's own sourcing
+  // ROI is attributed, which is a write however small the column is.
+  name: "US-1864: viewer cannot link a store under the owner",
+  ignore: !VIEWER_READY || !A_SOURCE_ID,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/radar/my-stores/link`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ source_id: A_SOURCE_ID, venue_id: null }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST radar/my-stores/link as viewer");
+  },
+});

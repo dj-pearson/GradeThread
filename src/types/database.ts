@@ -1430,6 +1430,10 @@ export interface SourceRow {
   source_type: FlipdeskSourceType;
   location: string | null;
   notes: string | null;
+  // US-1864 (00550): the shared Thrift Radar venue this source IS, once the owner
+  // has linked them. This column is the JOIN that lets a store's money (items,
+  // spend, sales) meet its visits — set through the edge, never written here.
+  radar_venue_id: string | null;
   created_at: string;
   updated_at: string;
 }

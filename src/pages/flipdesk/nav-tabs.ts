@@ -22,7 +22,16 @@ export function resolvePricingTab(raw: string | null | undefined): PricingTab {
     : "repricing";
 }
 
-export const SOURCING_TABS = ["scout", "buy", "sources", "demand"] as const;
+// US-1864 added "stores" — the free personal Thrift Radar layer. It sits beside
+// Sources rather than inside it because Sources is where you MAINTAIN the list
+// and this is where you READ what the list earned you.
+export const SOURCING_TABS = [
+  "scout",
+  "buy",
+  "stores",
+  "sources",
+  "demand",
+] as const;
 export type SourcingTab = (typeof SOURCING_TABS)[number];
 
 export function resolveSourcingTab(

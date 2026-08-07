@@ -118,6 +118,35 @@ export async function resolveScanVenue(
 }
 
 /**
+ * Match a scan to a venue that ALREADY EXISTS. Never creates one, never bumps an
+ * observation count.
+ *
+ * US-1864: this is what the personal layer uses when the account has NOT opted
+ * in to contributing. The reseller's own visit history is theirs and needs no
+ * consent (rule 7), but minting a shared venue row — or advancing the counter
+ * that promotes a candidate to confirmed — IS a contribution to the map, and
+ * doing that off a non-contributor's coordinate is exactly the widening rule 3
+ * refuses. So a non-contributor's scan may recognise a place the map already
+ * knows and otherwise keeps only its cell.
+ */
+export async function matchScanVenue(
+  fix: LatLng,
+  cell: string,
+  config?: RadarVenueConfig,
+): Promise<string | null> {
+  try {
+    const cfg = config ?? await radarVenueConfig();
+    if (cfg.resolution_enabled === false) return null;
+    const nearby = await loadVenuesNear(cell);
+    const match = resolveNearestVenue(fix, nearby, cfg.match_radius_meters);
+    return match ? match.venue.id : null;
+  } catch (err) {
+    captureException(err, { level: "warn", route: "radar.venues.match" });
+    return null;
+  }
+}
+
+/**
  * Insert the candidate an unresolved scan creates, and return its id.
  *
  * The partial unique index on (geohash, chain) is what makes later scans

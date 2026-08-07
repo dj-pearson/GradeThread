@@ -274,6 +274,15 @@ accountRoutes.get("/export", async (c) => {
           ],
           ["listings", pageOf("listings", (q) => q.eq("user_id", userId))],
           ["sales", pageOf("sales", (q) => q.eq("user_id", userId))],
+          // US-1864: the reseller's own Thrift Radar visit log. Paged rather than
+          // eager because it grows with field trips, and included because it is
+          // the ONE Radar table that is subject data — the shared event store
+          // (00547) deliberately has no account column, so there is nothing in it
+          // to hand back and no way to ask which rows were theirs.
+          [
+            "radar_personal_scans",
+            pageOf("radar_personal_scans", (q) => q.eq("user_id", userId)),
+          ],
           // US-1846: the buyer half of the account. Driven off the register in
           // lib/buyer-pii.ts rather than listed here, because a hand-written
           // list is exactly what left every buyer table out of this response

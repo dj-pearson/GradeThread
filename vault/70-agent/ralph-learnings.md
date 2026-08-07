@@ -660,6 +660,21 @@ a learning that only matters to ONE surface, put it in that surface's file.
   rows for the keys you are about to write, then split into `.insert()` and
   per-id `.update()`. Safe under a job lock (single runner); do NOT reach for the
   generated column in an upsert and assume PostgREST will infer it.
+- A new `TEST_USER_A_*` env id that GATES a `tenant-isolation_test.ts` case must
+  ALSO be emitted by `services/edge-functions/scripts/seed-tenant-isolation-fixture.ts`
+  or classified in that file's `KNOWN_UNSEEDED` — a structural guard case parses
+  both files and fails otherwise, because a gated case that skips in CI reports
+  green while proving nothing. A plain-insert row (US-1864's `sources`) belongs in
+  the seed script, not in KNOWN_UNSEEDED. The guard also fails on a STALE
+  classification, so don't add one "just in case".
+- When a feature adds a SECOND write derived from an input an earlier consent
+  already justified (US-1864's private visit log off US-1861's coordinate), put
+  both writes in ONE function so the input is resolved once and its life stays in
+  one place — then give the two halves DIFFERENT gates inside it. The trap is the
+  side effects that look harmless: minting a shared `radar_venues` candidate off a
+  NON-contributor's fix is still a contribution, even though the row is a cell
+  centre and names nobody. Hence a read-only `matchScanVenue` beside the
+  create-and-bump `resolveScanVenue`. Rules: [[thrift-radar]].
 - Adding a SECTION to `src/pages/legal/privacy.tsx` means renumbering every later
   `<h2>` AND every `<a href="#anchor">Section N</a>` in the body: two cases in
   `privacy-extension.test.tsx` pin sequential numbering and anchor-to-number

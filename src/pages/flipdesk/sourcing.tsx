@@ -26,6 +26,11 @@ const ScoutBuyPage = lazy(() =>
     default: m.FlipdeskScoutBuyPage,
   }))
 );
+const MyStoresPage = lazy(() =>
+  import("@/pages/flipdesk/my-stores").then((m) => ({
+    default: m.FlipdeskMyStoresPage,
+  }))
+);
 const SourcesPage = lazy(() =>
   import("@/pages/flipdesk/sources").then((m) => ({
     default: m.FlipdeskSourcesPage,
@@ -68,6 +73,7 @@ export function FlipdeskSourcingPage() {
         <TabsList>
           <TabsTrigger value="scout">ScoutAI</TabsTrigger>
           <TabsTrigger value="buy">Buy decision</TabsTrigger>
+          <TabsTrigger value="stores">My stores</TabsTrigger>
           <TabsTrigger value="sources">Sources</TabsTrigger>
           <TabsTrigger value="demand">Buyer demand</TabsTrigger>
         </TabsList>
@@ -84,6 +90,13 @@ export function FlipdeskSourcingPage() {
           {activeTab === "buy" && (
             <Suspense fallback={<TabLoading />}>
               <ScoutBuyPage />
+            </Suspense>
+          )}
+        </TabsContent>
+        <TabsContent value="stores" className="mt-6">
+          {activeTab === "stores" && (
+            <Suspense fallback={<TabLoading />}>
+              <MyStoresPage />
             </Suspense>
           )}
         </TabsContent>

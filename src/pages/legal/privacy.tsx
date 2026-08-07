@@ -498,6 +498,21 @@ export function PrivacyPage() {
         shared map and is covered by your ordinary rights in{" "}
         <a href="#your-rights">Section 10</a>.
       </p>
+      {/* US-1864: the personal layer. Stated here rather than left to the
+          sentence above, because it is a SECOND record written from the same
+          position, with a different purpose and a different gate — and an
+          unstated second use of location is precisely what the separate-consent
+          rule exists to prevent. */}
+      <p>
+        <strong>Your own store history is a separate, private record.</strong>{" "}
+        When your device works out an area cell, we also keep a private note for
+        you of which store you were at, so &ldquo;My stores&rdquo; can show what
+        each place you buy from has actually earned you. That record carries your
+        account, is visible only to you, is never part of the shared map, and
+        still holds no precise position &mdash; only the store or the area cell.
+        It is included in your data export, you can delete it, and it is deleted
+        with your account.
+      </p>
 
       <h2 id="sharing">8. How we share information</h2>
       <p>
@@ -644,6 +659,14 @@ export function PrivacyPage() {
               Up to 180 days, then pruned; only area-level totals remain. They
               carry no precise position and no account, so they are not linked
               to you at any point.
+            </td>
+          </tr>
+          <tr>
+            <td>Your own store history (which stores you scanned at)</td>
+            <td>
+              Life of the account. It is your trading record, so we do not prune
+              it on a timer; you can delete it, and it is deleted with your
+              account.
             </td>
           </tr>
           <tr>

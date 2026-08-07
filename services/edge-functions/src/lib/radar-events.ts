@@ -4,7 +4,7 @@
 //
 // Two properties this module exists to guarantee:
 //
-//   • FIRE-AND-FORGET (rule 8). `emitRadarScanEvent` never throws and is never
+//   • FIRE-AND-FORGET (rule 8). `recordScanLocation` never throws and is never
 //     awaited by the scan handler. Radar is a by-product; the scan result is the
 //     product, and a Radar write that fails, times out, or is rate-limited must
 //     not be something the reseller standing in the aisle can feel.
@@ -13,6 +13,11 @@
 //     false, and is read fresh on every scan so a revocation takes effect on the
 //     next one. `radar_privacy.contribution_enabled` is the deployment-wide
 //     kill-switch above it.
+//
+// US-1864 added a SECOND write on the same coordinate, with a deliberately
+// different gate: the reseller's own visit history (rule 7 — free, plan- and
+// consent-independent, useful at n=1). Both writes live in `recordScanLocation`
+// so the fix is resolved once and its life stays inside one function.
 //
 // The raw fix reaches this module and leaves it as a geohash cell. It is not
 // logged, not returned, and has no column to land in.
@@ -28,7 +33,8 @@ import {
   type RadarGradeBand,
   type RadarVerdict,
 } from "./radar-privacy.ts";
-import { resolveScanVenue } from "./radar-venue-registry.ts";
+import { matchScanVenue, resolveScanVenue } from "./radar-venue-registry.ts";
+import { insertPersonalScan } from "./radar-personal-history.ts";
 import { captureException } from "./observability.ts";
 
 export interface RadarPrivacyConfig {
@@ -80,35 +86,81 @@ export interface RadarEmitInput {
   verdict: RadarVerdict;
 }
 
+/** What a located scan actually wrote. Both halves are independent. */
+export interface RadarScanLocationOutcome {
+  /** A row in the reseller's OWN visit history (US-1864). Needs no consent. */
+  personal: boolean;
+  /** A row in the shared, de-identified event store. Needs consent. */
+  contributed: boolean;
+}
+
 /**
- * Record one contribution. Resolves to true only when a row was actually
- * written; every other outcome (kill-switch off, no consent, unusable fix, DB
- * error) resolves false and is invisible to the caller's response.
+ * Record everything one located scan produces: the reseller's own visit, and —
+ * only with consent — the anonymous contribution to the shared map.
  *
- * Call this WITHOUT awaiting — see `voidEmitRadarScanEvent` below, which is what
- * route code should use.
+ * ONE function, because there is one coordinate and its whole life belongs in
+ * one place. It arrives as an argument, it picks a cell and a venue, and it is
+ * gone; neither row that comes out has a field it could have landed in. Splitting
+ * this across two call sites would mean two functions holding rule 4, and a rule
+ * held in two places is held by whoever last remembered it.
+ *
+ * The two halves have DIFFERENT gates, and that asymmetry is the story:
+ *
+ *   • The PERSONAL row is the user's own sourcing history. It is free, available
+ *     on every plan, and gated on nothing but a usable fix (rule 7) — a person
+ *     does not need permission to be told where they have been.
+ *   • The CONTRIBUTION is gated on the deployment kill-switch AND
+ *     `users.radar_contribute`, read fresh so a revocation lands on the next scan.
+ *   • VENUE RESOLUTION follows the contribution gate, not the personal one. A
+ *     contributor's scan may create a candidate venue and advance the count that
+ *     confirms it; a non-contributor's may only RECOGNISE a place the map already
+ *     knows (`matchScanVenue`). Minting a shared row off a non-contributor's
+ *     coordinate would be the widening rule 3 refuses, however coarse the row is.
+ *
+ * Never throws. Call it WITHOUT awaiting — see `voidRecordScanLocation`.
  */
-export async function emitRadarScanEvent(input: RadarEmitInput): Promise<boolean> {
+export async function recordScanLocation(
+  input: RadarEmitInput,
+): Promise<RadarScanLocationOutcome> {
+  const outcome: RadarScanLocationOutcome = {
+    personal: false,
+    contributed: false,
+  };
   try {
     const config = await radarPrivacyConfig();
-    if (config.contribution_enabled === false) return false;
-    if (!(await hasRadarConsent(input.accountId))) return false;
+    const cell = coarseCell(input.lat, input.lng, config.geohash_precision);
+    // No usable cell means no locatable scan. Neither row may be invented from a
+    // fix we could not place — a wrong location is worse than none.
+    if (!cell) return outcome;
+
+    const mayContribute = config.contribution_enabled !== false &&
+      await hasRadarConsent(input.accountId);
+
+    const fix = { lat: input.lat, lng: input.lng };
+    const venueId = mayContribute
+      ? await resolveScanVenue(fix, cell)
+      : await matchScanVenue(fix, cell);
+
+    const gradeBand = bandForGrade(input.grade) as RadarGradeBand;
+    const at = new Date();
+
+    // US-1864: the personal visit. Written first because it is the one the user
+    // is entitled to regardless of what else happens below.
+    outcome.personal = await insertPersonalScan({
+      accountId: input.accountId,
+      venueId,
+      cell,
+      brand: input.brand,
+      category: input.category,
+      gradeBand,
+      verdict: input.verdict,
+      at,
+    });
+
+    if (!mayContribute) return outcome;
 
     const salt = Deno.env.get("RADAR_CONTRIBUTOR_SALT") ??
       Deno.env.get("PASSPORT_LINKAGE_SALT") ?? "";
-
-    // US-1862: resolve the fix to a named venue BEFORE the row is built, so the
-    // coordinate's whole life is contained in this function. It arrives as an
-    // argument, it picks a cell and a venue, and it is gone — the row that comes
-    // out of buildRadarEventRow has no field it could have landed in.
-    //
-    // A failure here is not a failure of the contribution: resolveScanVenue
-    // returns null and the event keeps its cell, which is the state the
-    // `radar_scan_events_located` CHECK was written to allow.
-    const cell = coarseCell(input.lat, input.lng, config.geohash_precision);
-    const venueId = cell
-      ? await resolveScanVenue({ lat: input.lat, lng: input.lng }, cell)
-      : null;
 
     const row = await buildRadarEventRow({
       accountId: input.accountId,
@@ -116,15 +168,15 @@ export async function emitRadarScanEvent(input: RadarEmitInput): Promise<boolean
       lng: input.lng,
       brand: input.brand,
       category: input.category,
-      gradeBand: bandForGrade(input.grade) as RadarGradeBand,
+      gradeBand,
       verdict: input.verdict,
-      at: new Date(),
+      at,
       salt,
       precision: config.geohash_precision,
       rotationDays: config.key_rotation_days,
       venueId,
     });
-    if (!row) return false;
+    if (!row) return outcome;
 
     const { error } = await supabaseAdmin
       .from("radar_scan_events")
@@ -133,21 +185,22 @@ export async function emitRadarScanEvent(input: RadarEmitInput): Promise<boolean
       // Warn, not error: a dropped contribution is a data-completeness problem,
       // never a user-facing one.
       captureException(error, { level: "warn", route: "radar.emit" });
-      return false;
+      return outcome;
     }
-    return true;
+    outcome.contributed = true;
+    return outcome;
   } catch (err) {
     captureException(err, { level: "warn", route: "radar.emit" });
-    return false;
+    return outcome;
   }
 }
 
 /**
- * Fire-and-forget wrapper. Starts the write and returns immediately, swallowing
+ * Fire-and-forget wrapper. Starts the writes and returns immediately, swallowing
  * any rejection so an unhandled promise can never take the process down.
  *
  * Route code calls THIS, before returning its response, and never awaits it.
  */
-export function voidEmitRadarScanEvent(input: RadarEmitInput): void {
-  void emitRadarScanEvent(input).catch(() => {});
+export function voidRecordScanLocation(input: RadarEmitInput): void {
+  void recordScanLocation(input).catch(() => {});
 }

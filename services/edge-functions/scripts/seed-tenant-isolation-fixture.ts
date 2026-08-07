@@ -325,6 +325,16 @@ async function main(): Promise<void> {
     is_active: false,
   });
 
+  // A sourcing location owned by A (US-1864). The personal Radar layer links a
+  // source to a shared venue, so this is the id B must never be able to point at
+  // a venue of their choosing — a plain insert, hence seeded rather than
+  // classified unseeded.
+  out.TEST_USER_A_SOURCE_ID = await insert("sources", {
+    user_id: aId,
+    name: "Tenant-A fixture thrift store",
+    source_type: "thrift",
+  });
+
   // A passport owner node linked to A (owner_node_kind 'seller').
   out.TEST_USER_A_PASSPORT_NODE_ID = await insert("owner_nodes", {
     pseudonymous_label: "Tenant-A fixture node",

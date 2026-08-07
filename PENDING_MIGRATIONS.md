@@ -1,9 +1,60 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Twenty migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547, 00548 and 00549.** The entries below them
+**Twenty-one migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547, 00548, 00549 and 00550.** The entries below them
 were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00550_radar_personal_stores.sql (US-1864 — Thrift Radar personal store history)
+
+**Apply order.** After 00548 — both new objects reference `radar_venues`
+(`sources.radar_venue_id` and `radar_personal_scans.venue_id` are foreign keys to
+it), so applying this first fails on a missing relation.
+
+**Risk: LOW.** One nullable column on an existing table, one new table, two
+indexes, two RLS policies. Nothing existing is modified or dropped, no data is
+backfilled, and the new table starts empty.
+
+**⚠️ THE SPA READS THE NEW COLUMN — apply BEFORE the frontend deploy.** Unlike
+00547–00549 this story is NOT server-only. `useSources()` selects `*` from
+`sources`, so the column arrives for free once applied; but the new "My stores"
+tab reads `sources.radar_venue_id` to decide which venues are still unlinked, and
+`POST /api/flipdesk/radar/my-stores/link` writes it. Deploying the SPA first
+leaves that tab erroring on every link attempt.
+
+**What breaks if it stays unapplied.**
+- `GET /api/flipdesk/radar/my-stores` returns 500 ("Failed to load your store
+  history") on the `sources` read, because the selected column does not exist.
+  The whole Sourcing → My stores tab shows its error card.
+- `POST /api/flipdesk/radar/my-stores/link` returns 500 on the update.
+- Every Prospect scan carrying a coordinate logs one warning
+  (`radar.personal.insert`) and continues. The scan result itself is unaffected —
+  the personal write is fire-and-forget (rule 8), like the contribution beside it.
+- Radar contributions are otherwise unchanged: `radar_scan_events` still fills
+  normally, so nothing already shipped regresses.
+
+**What it does.**
+- Adds `sources.radar_venue_id` (nullable, `REFERENCES radar_venues(id) ON DELETE
+  SET NULL`) — the join that lets a named source's money meet a shared venue's
+  visits. SET NULL rather than CASCADE on purpose: a merged-away venue must never
+  take a reseller's own source row with it.
+- Adds `radar_personal_scans` — the reseller's OWN visit log. It cannot be derived
+  from `radar_scan_events`, which deliberately has no account column, so the
+  personal layer needs its own store. Carries a plain `user_id`, a `venue_id`
+  and/or a coarse `geohash`, the brand/category, grade band and verdict.
+- **No coordinate column, and the same CHECKs as 00547** (`geohash` 4–7 chars of
+  base32; at least one of venue/cell present). "Their own data" is the reason to
+  be more careful, not less — these rows are not pseudonymised the way a
+  contribution is, so a coordinate column here would be a movement trail of a
+  named person.
+- RLS: owner SELECT + owner DELETE (`(select auth.uid()) = user_id`), and NO
+  insert/update policy — writes are service-role only.
+
+**`NOTIFY pgrst, 'reload schema';`** — required. One new table AND a new column
+on an existing table the SPA selects.
+
+**Exercised** against a throwaway local stack via `npm run verify:db` (Docker),
+not against prod.
 
 ## ⏳ HELD: 00549_radar_aggregates.sql (US-1863 — Thrift Radar aggregates + retention archive)
 

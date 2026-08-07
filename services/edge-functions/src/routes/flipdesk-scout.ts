@@ -40,7 +40,7 @@ import {
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 import { parseFix } from "../lib/radar-privacy.ts";
-import { voidEmitRadarScanEvent } from "../lib/radar-events.ts";
+import { voidRecordScanLocation } from "../lib/radar-events.ts";
 
 export const flipdeskScoutRoutes = new Hono<{
   Variables: { userId: string; workspaceOwnerId: string };
@@ -603,7 +603,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   }
 
   // US-1861 (Thrift Radar): the ONLY reason this endpoint accepts a coordinate.
-  // It is used to derive a coarse cell inside `voidEmitRadarScanEvent` and is
+  // It is used to derive a coarse cell inside `voidRecordScanLocation` and is
   // never stored, logged or echoed — there is no column for it, by design. A
   // client that has not opted in simply omits it; a client that sends one while
   // opted out still contributes nothing, because the consent check is
@@ -777,14 +777,16 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     comped: String((value?.sampleSize ?? 0) > 0),
   });
 
-  // US-1861: contribute to Thrift Radar — started here, deliberately NOT
-  // awaited, so a slow or failing Radar write cannot delay or degrade the scan
-  // result the reseller is standing in the aisle waiting for (rule 8). Every
-  // gate that could stop it (deployment kill-switch, per-user consent, an
-  // unusable fix) lives inside the emitter, so this call site stays one line and
-  // cannot forget one of them.
+  // US-1861 + US-1864: record where this scan happened — started here,
+  // deliberately NOT awaited, so a slow or failing Radar write cannot delay or
+  // degrade the scan result the reseller is standing in the aisle waiting for
+  // (rule 8). Every gate lives inside `recordScanLocation`, so this call site
+  // stays one line and cannot forget one of them, and the two writes it makes
+  // have DIFFERENT gates: the reseller's own visit history is free and needs no
+  // consent (rule 7), while the anonymous contribution to the shared map needs
+  // both the kill-switch and `users.radar_contribute`.
   if (fix) {
-    voidEmitRadarScanEvent({
+    voidRecordScanLocation({
       accountId: userId,
       lat: fix.lat,
       lng: fix.lng,

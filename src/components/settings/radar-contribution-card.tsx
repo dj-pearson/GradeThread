@@ -109,6 +109,14 @@ export function RadarContributionCard() {
               week, so contributions cannot be strung together over time.
             </li>
           </ul>
+          <p className="font-medium text-foreground">Your own store history</p>
+          <p>
+            Separate from this, and always yours: we keep a private record of
+            which stores you scanned at so &ldquo;My stores&rdquo; can show you
+            what each one has earned you. It is never part of the shared map, it
+            is not shared with anyone, and you can see it under Sourcing &rarr;
+            My stores.
+          </p>
           <p>
             Looking at Radar is a separate choice. Turning this off does not
             take the map away, and turning the map on never signs you up to

@@ -12,14 +12,18 @@ code_refs:
   - services/edge-functions/src/lib/radar-venue-registry.ts
   - services/edge-functions/src/lib/radar-aggregates.ts
   - services/edge-functions/src/lib/radar-aggregate-engine.ts
+  - services/edge-functions/src/lib/radar-personal.ts
+  - services/edge-functions/src/lib/radar-personal-history.ts
   - services/edge-functions/src/routes/flipdesk-radar.ts
   - services/edge-functions/src/routes/jobs-radar-aggregate.ts
   - supabase/migrations/00547_radar_scan_events.sql
   - supabase/migrations/00548_radar_venues.sql
   - supabase/migrations/00549_radar_aggregates.sql
+  - supabase/migrations/00550_radar_personal_stores.sql
   - src/components/settings/radar-contribution-card.tsx
   - ios/GradeThread/Prospect/RadarConsent.swift
   - src/pages/flipdesk/scout.tsx
+  - src/pages/flipdesk/my-stores.tsx
 reviewed: 2026-08-07
 tags: [radar, flipdesk, scout, privacy, consent, contract]
 summary: Radar turns Prospect scans into venue-level supply intelligence; contribution and viewing are separate consents, no precise coordinate survives venue resolution, and the k-anonymity floor is a server-side guarantee rather than a display preference.
@@ -205,7 +209,61 @@ recompute or correct.
 
 The network layer is Pro+, gated at the endpoint on the same `compPulls` flag
 the Prospect scan that feeds it uses (rule 7). The personal layer is a separate,
-free surface and is not served here.
+free surface, described next.
+
+### US-1864: the personal layer, and why it needed its own table
+
+`radar_personal_scans` (00550) exists because rule 5 succeeded. The shared event
+store deliberately carries no account column, so there is no query that answers
+"which of these were mine" — and there must never be one. The personal layer
+therefore cannot be a view over the contribution path; it needs its own store,
+and that store is owner-readable, owner-deletable, service-role-write, and
+cascades with the account.
+
+The privacy shape is inherited WHOLE rather than relaxed on the grounds that the
+rows are the user's own. No coordinate column, the same 4–7 character CHECK on
+`geohash`, the same located CHECK. "Their own data" is the reason to be *more*
+careful here, not less: unlike a contribution, these rows are not pseudonymised,
+so a coordinate column would be a movement trail of a named person.
+
+Three shapes worth keeping:
+
+- **One coordinate, one function.** `recordScanLocation` (radar-events.ts)
+  replaced `emitRadarScanEvent` and makes BOTH writes, because there is one fix
+  and its whole life belongs in one place. Two call sites would mean two
+  functions holding rule 4.
+- **The gates diverge inside that function, deliberately.** The personal row is
+  gated on nothing but a usable fix (rule 7). The contribution is gated on the
+  kill-switch and `users.radar_contribute`. And venue resolution follows the
+  *contribution* gate: a contributor's scan may create a candidate and advance
+  the count that confirms it (`resolveScanVenue`), a non-contributor's may only
+  recognise a place the map already knows (`matchScanVenue`). Minting a shared
+  venue row off a non-contributor's coordinate would be the widening rule 3
+  refuses, however coarse the row is — the centroid being a cell centre makes the
+  row non-identifying, not consented to.
+- **`sources.radar_venue_id` is the join, and somebody has to make it.** Money
+  lives on a source (items, spend, sales); visits live on a venue. Nothing can
+  infer they are the same shop, so the reseller says so through
+  `POST /api/flipdesk/radar/my-stores/link`, which confirms they own the source
+  before it writes and follows a merged venue to its survivor. Until the link
+  exists the two appear as two rows, which is honest rather than a bug.
+
+The endpoint has no plan gate and no consent gate, and both absences ARE the
+feature — which leaves tenant scoping as the only boundary on the surface, hence
+the explicit `.eq("user_id", …)` on every owner-scoped read in
+`radar-personal-history.ts` and the five cases in `tenant-isolation_test.ts`. The
+one read that is NOT tenant-scoped is `radar_venues`, constrained instead by
+`.in("id", …)` over ids the tenant's own rows already contain: it returns a name
+and a chain tag for a place the caller stood in, never an aggregate. The k-floor
+governs what the shared NUMBERS say about a place; it was never a claim that a
+place's name is a secret from the person who walked into it.
+
+Two money definitions this surface pins, because "best store" is ambiguous while
+stock is unsold: **realized ROI** is profit on completed sales over what those
+items cost, and **blended ROI** folds in what unsold stock is expected to clear
+at the price the reseller set themselves (never a comp lookup — the figure has to
+be one they can check offline). A store with no spend has no ROI and sorts LAST,
+the same missing-value rule as [[backlog-priority-contract]].
 
 ## Two traps specific to these tables
 
@@ -214,6 +272,10 @@ free surface and is not served here.
   looks at passes by never being examined, and a later commit could drop its RLS
   with nothing going red — so register EACH in **both** `SERVICE_ROLE_ONLY` and
   `SERVICE_ONLY_FORCED`. Full rule: [[service-role-tables]].
+  `radar_personal_scans` is the exception that proves the pattern: it DOES carry
+  a plain `user_id`, so it is auto-discovered and its owner policies are checked
+  for free — which is also why it is the only Radar table in
+  `GET /api/account/export`. There is nothing in the others to hand back.
 - Retention pruning and the rollup are the only things that keep rule 4 true over
   time. An aggregate that is recomputable from retained raw events is a raw event
   store wearing a rollup's name.
