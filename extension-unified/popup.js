@@ -23,6 +23,12 @@ const ATTR = self.GT_ATTRIBUTION;
 // the background worker — this file only reports clicks and owns the toggle.
 const USAGE = self.GT_USAGE;
 
+// US-1881 AC3: Firefox's opt-in host permissions. On Chrome every probe below
+// answers "granted" (Chrome grants host_permissions at install), so none of this
+// renders there — it exists for the Firefox install that looks healthy and does
+// nothing. See host-permissions.js for the three platform rules it encodes.
+const PERMS = self.GT_HOST_PERMS;
+
 // US-1885 AC3: versioned Lister consent — bump this when the Lister terms change
 // and every seller is re-prompted (an accepted older version no longer counts).
 const TOS_VERSION = "2026-07-13";
@@ -65,12 +71,16 @@ function timeAgo(ts) {
   return Math.floor(h / 24) + "d ago";
 }
 
-async function activeHost() {
+async function activeTabInfo() {
   try {
     const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.url) return new URL(tab.url).host;
+    if (tab && tab.url) return { id: tab.id, host: new URL(tab.url).host };
   } catch (_e) { /* no activeTab access */ }
-  return null;
+  return { id: null, host: null };
+}
+
+async function activeHost() {
+  return (await activeTabInfo()).host;
 }
 
 function send(msg) {
@@ -136,6 +146,54 @@ function renderAccount(caps) {
   }
 }
 
+// ── Firefox opt-in host permissions (US-1881 AC3) ───────────────────────────
+//
+// The whole point is that a missing host permission produces NO error anywhere,
+// so this is the only surface that can tell the person what happened. It is
+// shown only when the probe says access is missing — which on Chrome it never
+// does, so this block is invisible there rather than gated on a browser sniff.
+//
+// The click handler calls requestHostAccess FIRST and awaits nothing before it:
+// permissions.request() is refused outside a user gesture, and an await ends the
+// gesture. On a grant the tab is reloaded, because Firefox injects a
+// newly-permitted content script on the next navigation only — without that the
+// page they are looking at stays as blank as it was before they said yes.
+async function initHostPermission(host, tabId) {
+  const wrap = document.getElementById("hostPermWrap");
+  const text = document.getElementById("hostPermText");
+  const btn = document.getElementById("hostPermBtn");
+  if (!wrap || !text || !btn || !PERMS) return;
+
+  if (await PERMS.hasHostAccess(ext, host)) return;
+
+  text.textContent =
+    "This browser has not given GradeThread access to " +
+    host +
+    " yet, so the condition read cannot run here. Allow it and the page reloads " +
+    "with the GradeThread pill in place.";
+  btn.textContent = "Allow on " + host;
+  wrap.hidden = false;
+
+  btn.addEventListener("click", () => {
+    const granted = PERMS.requestHostAccess(ext, host); // FIRST — keeps the gesture
+    btn.disabled = true;
+    granted.then(async (ok) => {
+      if (!ok) {
+        btn.disabled = false;
+        text.textContent =
+          "Access to " +
+          host +
+          " was not granted, so the condition read stays off on this site. You " +
+          "can allow it here any time, or from Firefox's Add-ons manager.";
+        return;
+      }
+      wrap.hidden = true;
+      await PERMS.reloadTab(ext, tabId);
+      window.close();
+    });
+  });
+}
+
 // ── research settings ───────────────────────────────────────────────────────
 async function initResearch() {
   const { autoRun, disabledHosts, scanMode } = await ext.storage.local.get([
@@ -186,8 +244,9 @@ async function initResearch() {
     else await ext.storage.local.remove([USAGE.CONSENT_KEY, USAGE.BATCH_KEY]);
   });
 
-  const host = await activeHost();
+  const { id: tabId, host } = await activeTabInfo();
   if (host && MARKETPLACE_HOST_RE.test(host)) {
+    await initHostPermission(host, tabId);
     const wrap = document.getElementById("siteToggleWrap");
     const label = document.getElementById("siteToggleLabel");
     const box = document.getElementById("siteEnabled");
@@ -626,6 +685,23 @@ function renderSellerSections(caps) {
 }
 
 // ── sign-in / connect ───────────────────────────────────────────────────────
+//
+// US-1881 AC3: on Firefox the token comes home through gt-bridge.js, an ordinary
+// content script on gradethread.com — there is no externally_connectable to fall
+// back on. So an un-granted site permission does not fail the sign-in, it HANGS
+// it: the connect page opens, mints the token, posts it, and nothing is
+// listening. `siteAccessMissing` is resolved once at render time, and the click
+// handler asks for the origins before opening the tab (first statement, gesture
+// intact) — on Chrome the flag is false and this path is never taken.
+let siteAccessMissing = false;
+
+async function initSiteAccess() {
+  const hint = document.getElementById("sitePermHint");
+  if (!PERMS) return;
+  siteAccessMissing = !(await PERMS.hasSiteAccess(ext));
+  if (hint) hint.hidden = !siteAccessMissing;
+}
+
 function wireAccount() {
   const connect = document.getElementById("connectBtn");
   const disconnect = document.getElementById("disconnectBtn");
@@ -637,11 +713,28 @@ function wireAccount() {
       campaign: "connect",
       params: { ext: ext.runtime.id },
     });
-    try {
-      ext.tabs.create({ url });
-    } catch (_e) {
-      window.open(url, "_blank", "noopener");
+    const openConnectTab = () => {
+      try {
+        ext.tabs.create({ url });
+      } catch (_e) {
+        window.open(url, "_blank", "noopener");
+      }
+    };
+    // Ask first when the bridge origin is missing, then open the tab either way:
+    // a refusal still deserves the page (they may sign in and grant later), it
+    // just will not complete the handshake — which the hint above already says.
+    if (siteAccessMissing && PERMS) {
+      PERMS.requestSiteAccess(ext).then((ok) => {
+        if (ok) {
+          siteAccessMissing = false;
+          const hint = document.getElementById("sitePermHint");
+          if (hint) hint.hidden = true;
+        }
+        openConnectTab();
+      });
+      return;
     }
+    openConnectTab();
   });
   disconnect.addEventListener("click", async () => {
     await ext.storage.local.remove("gtBuyerToken");
@@ -673,7 +766,7 @@ function applyCapabilities(caps) {
   renderCompareLink();
   // Render research immediately (works offline / anonymous), then fold in the
   // account-driven sections once entitlements resolve.
-  await Promise.all([initResearch(), renderReads()]);
+  await Promise.all([initResearch(), renderReads(), initSiteAccess()]);
   const caps = await send({ type: "GT_GET_CAPABILITIES", force: true });
   applyCapabilities(caps || { research: true, authenticated: false, sellerEnabled: false });
 })();

@@ -130,6 +130,47 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 GradeThread Condition Check & Lister does not read your marketplace accounts and has no "cookies" permission. When you request a condition read, the extension sends the public listing's image URLs and basic details (title, brand, price) to GradeThread's grading service to produce a score; results are not stored on our servers. If you are signed in and press "check this against my alerts", that one listing is different: its address, title, brand, stated condition, price and photo links are sent with your account token and stored privately against your GradeThread account, together with our grade, so your own saved-search alerts can match it — one listing per press, deletable by you, and automatically deleted after 90 days. On a supported marketplace's search page the extension also sends the text already printed on the visible result cards — title, price and the seller's stated condition, for up to 24 cards — so it can tell you whether each asking price is high or low for the condition the seller claims. No photos are read and nothing is graded on a search page, none of it is stored on our servers, and you can turn this off in the extension's popup. Your recent reads and settings are stored only on your device — including the seller's public username from listings you read, which the extension uses to show you your own pattern with that seller and never sends to us. If you turn on the optional "report when a site's layout breaks the read" setting (off by default), the extension sends us the marketplace's name and which part of the read failed, so we can fix it — never the listing, the page address, or any identifier for you or your installation. A second, separate optional setting, "share anonymous usage counts" (also off by default), keeps two running totals on your device — how many condition reads you asked for and how many times you clicked a link back to gradethread.com — and sends only those totals every few hours, with no timestamps, no ordering, no listing, no account and no install identifier; turning it off deletes any totals still waiting on your device. If you sign in, a short-lived access token is stored locally to apply your account's quota and unlock seller tools. Cross-listing runs entirely in your browser; your marketplace passwords and cookies are never sent to GradeThread. On gradethread.com itself the extension runs a small message relay so our website can hand cross-listing requests to the extension (Firefox provides no other way for a site to reach its own extension); it reads no page content and forwards only our own messages. Full policy: https://gradethread.com/privacy
 ```
 
+## Microsoft Edge Add-ons — extras (US-1881 AC5)
+
+**Upload the CHROME zip.** Edge is Chromium, reads the same MV3 manifest, and
+supports `externally_connectable`, so there is no third artifact and no third
+manifest transform — `dist-ext/gradethread-v<version>-chrome.zip` is the Edge
+package. If a build ever needs an Edge-specific manifest, that is a packager
+change (`firefoxManifest()`'s neighbour), never a hand-edited zip.
+
+**One thing that is genuinely different: the extension ID.** Edge assigns its own
+id at publish, unrelated to the Chrome Web Store one. Two places read it, and
+both are silent when it is wrong:
+
+| where | var | what to add |
+|---|---|---|
+| edge service (Coolify) | `EXTENSION_ALLOWED_ORIGINS` | append `chrome-extension://<the Edge id>` — the CORS allow-list is comma-separated, so this is an ADD, never a replace |
+| frontend (Pages) | `VITE_LISTER_EXTENSION_ID` | only if the Edge build is the one a given deploy targets; one value, so it cannot hold both stores |
+
+Skipping row 1 does not break the overlay (buyer research is anonymous and
+same-origin-free) — it breaks sign-in and every seller call, as a CORS failure in
+the console and nothing at all in the UI.
+
+**Partner Center listing fields.** Everything in *Shared fields* above applies
+verbatim. Edge-only entries:
+
+- **Store listing language:** English (United States) — must be added explicitly.
+- **Category:** Shopping.
+- **Privacy policy URL:** `https://gradethread.com/privacy` (required, not optional as on Chrome).
+- **Does your extension collect personal data?** Yes — same disclosure as the
+  Chrome data-safety block above; Edge asks it as prose, so paste the AMO privacy
+  summary.
+- **Search terms (≤7):** do NOT list marketplace brand names. Same rule and the
+  same rejection risk as Chrome (see the ⚠️ under *Summary*).
+- **Notes for certification:** paste the *Notes to Reviewer* block below,
+  unchanged — the anonymous path needs no account there either.
+- **Screenshots:** 1280×800, at least one. The Chrome set is reusable as-is.
+
+**Before you upload, the smoke that has to pass** — the checklist is
+`TESTING.md` §5b. Edge is Chromium, but "Chromium-compatible" is a claim about
+the manifest, not evidence about the build, and the store artifact is not
+recallable once submitted.
+
 ## Notes to Reviewer (AMO) / Testing instructions
 
 ```

@@ -17,9 +17,16 @@ handled in-code; only the manifest transforms differ, which the packaged zip
 applies). To test the exact store artifact, load the built zip:
 
 1. `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…**
-2. Select `dist-ext/gradethread-v0.3.0-firefox.zip` (or its `manifest.json` after
-   unzipping). The gecko id is `unified@gradethread.com`.
+2. Select `dist-ext/gradethread-v<version>-firefox.zip` (or its `manifest.json`
+   after unzipping) — `<version>` is whatever `manifest.json` says, so run
+   `node scripts/package-extensions.mjs` first and take the name it prints. The
+   gecko id is `unified@gradethread.com`.
 3. Inspect the background **event page** from that same page if you need the console.
+
+> **Firefox will not have granted the sites yet.** Firefox's MV3 makes
+> `host_permissions` opt-in, so a healthy install starts with no site access and
+> the overlay simply never appears. That is expected on first load, not a bug —
+> §5a step 2 is where you grant it.
 
 Buyer research works immediately (§2). Sign-in / seller tools go through the
 gradethread.com **postMessage bridge** instead of `externally_connectable` — the
@@ -82,6 +89,56 @@ node scripts/test-extensions.mjs      # adapter helpers, config sync, host drift
 node scripts/package-extensions.mjs   # builds the store zips + validates the manifest
 ```
 
-Both run in `npm run verify` (verify:web). The packaged Chrome zip lands in
-`dist-ext/gradethread-v<version>-chrome.zip`. Firefox is skipped until the
-postMessage bridge (US-1882).
+Both run in `npm run verify` (verify:web). The packager emits BOTH store
+artifacts — `dist-ext/gradethread-v<version>-chrome.zip` (Chrome **and Edge**;
+see §5b) and `dist-ext/gradethread-v<version>-firefox.zip`, whose manifest is
+DERIVED from the Chrome one (`firefoxManifest()`), never re-declared. The
+Firefox build is no longer skipped: the postMessage bridge landed in US-1882.
+
+What CI cannot check, and why §5 exists: every automated guard here runs the
+Chrome path. Chrome grants `host_permissions` at install, so the ungranted state
+Firefox ships with is unreachable from a test — the two browsers diverge exactly
+where nothing is watching. §5a and §5b are the human half, and they are the
+evidence US-1881 AC3 and AC5 are asking for.
+
+## 5a. Firefox end-to-end (US-1881 AC3) — the sign-off checklist
+
+Do this on the built `-firefox.zip`, against the **deployed site**, on a real
+listing. Tick every line; a skipped line is a claim nobody made.
+
+| # | Step | Pass looks like |
+|---|---|---|
+| 1 | Load the zip per §1b. Open `about:debugging` → **Inspect** the event page. | Console shows the background booted with no `ReferenceError`. A missing `GT_LISTER_*` global here means a `background.scripts` dep drifted (guarded by `test/background-deps.test.cjs`, but confirm). |
+| 2 | Open a live eBay `/itm/` listing. Click the toolbar icon. | The popup shows the amber **"has not given GradeThread access to …"** block with an **Allow on `www.ebay.com`** button. It must NOT show a working site toggle instead — that would mean the probe answered wrong. |
+| 3 | Click **Allow on …** and accept Firefox's prompt. | The tab reloads by itself and the **GradeThread** pill appears bottom-right. (Firefox injects a newly-permitted content script on the next navigation only, which is why the reload is part of the flow.) |
+| 4 | Click **Get condition read**. | A 1–10 score renders from the listing photos. This is the config fetch **and** the grade call: a CORS failure here means the install's `moz-extension://<uuid>` origin is not in `EXTENSION_ALLOWED_ORIGINS` — see the table in §3 and the example in `services/edge-functions/.env.example`. Note that Firefox's uuid is **per-install**, so a dev profile's origin is not the store build's. |
+| 5 | Reopen the popup. | The read is listed under **Recent reads** with its score; **Auto-run** and the per-site toggle are present and persist across a popup close/reopen (storage). |
+| 6 | Repeat step 2 on one non-eBay site (Poshmark `/listing/`, Vinted `/items/`, …). | Same ask, same grant, same read. Confirms the flow is per-host and not eBay-shaped. |
+| 7 | Popup → **Sign in to unlock**. | Before the click, the popup shows the **"Firefox will ask you to allow GradeThread on gradethread.com"** hint; the click asks for that permission and then opens `/connect-extension`. Signing in returns you to a popup reading **Connected** with plan badges. Without the grant the token has no way home (no `externally_connectable` on Firefox) and the popup would sit on *Not signed in* with no error — that is the failure this step is looking for. |
+| 8 | Seller tools, on a paid FlipDesk account. | The **Seller tools** section appears with live platform status, and FlipDesk → **Send to extension** fills a Poshmark draft. On a free account, the honest *"unlocks with a FlipDesk plan"* teaser instead. Seller gating is capability-based (entitlements), not browser-based — there is no Firefox gate to look for. |
+
+**Record the outcome** in the story's progress note: Firefox version, OS, which
+marketplace, and any step that needed a retry.
+
+## 5b. Edge smoke (US-1881 AC5)
+
+Edge loads the **Chrome** zip unchanged — same manifest, same
+`externally_connectable`, host permissions granted at install (so §5a's steps 2,
+3 and 7 have no permission prompt; the amber block must stay hidden).
+
+1. `edge://extensions` → **Developer mode** → **Load unpacked** → `extension-unified/`
+   (or drag in `dist-ext/gradethread-v<version>-chrome.zip`).
+2. Note the ID Edge assigns. It is **not** the Chrome Web Store id — add
+   `chrome-extension://<that id>` to `EXTENSION_ALLOWED_ORIGINS` before testing
+   anything past step 4 below.
+3. Open a live eBay `/itm/` listing → the pill appears with no prompt → **Get
+   condition read** returns a score.
+4. Popup: recent read listed, auto-run toggle persists, per-site toggle works.
+5. Popup → **Sign in to unlock** → `/connect-extension` → popup reads
+   **Connected**. (Edge supports `externally_connectable`, so this is the Chrome
+   path, not the bridge.)
+6. Keyboard shortcut `Alt+G` on a listing runs a read — Edge manages its own
+   shortcut list at `edge://extensions/shortcuts`, so a conflict is possible and
+   is worth confirming.
+
+Then the store checklist in `SUBMISSION.md` → *Microsoft Edge Add-ons — extras*.

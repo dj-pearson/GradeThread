@@ -29,6 +29,15 @@
           <div class="pop-badges" id="acctBadges"></div>
         </div>
         <button class="pop-cta" id="connectBtn" type="button">Sign in to unlock</button>
+        <!-- US-1881 AC3: Firefox has no externally_connectable, so sign-in rides
+             the gt-bridge content script on gradethread.com — and that script
+             does not run until the site is allowed. Un-granted, the connect page
+             opens and the token simply never arrives. Say so before the click,
+             not after the wait. -->
+        <p class="pop-hint" id="sitePermHint" hidden>
+          Firefox will ask you to allow GradeThread on gradethread.com. Sign-in
+          needs that permission to hand the token back to this extension.
+        </p>
         <button class="pop-linkbtn" id="disconnectBtn" type="button" hidden>Sign out of this extension</button>
       </section>
 
@@ -51,6 +60,17 @@
           Search pages get the seller’s stated condition and a price check only.
           No photos are read until you open a listing.
         </p>
+        <!-- US-1881 AC3: the Firefox opt-in host-permission flow. Firefox
+             installs the add-on and then withholds every declared host until the
+             person allows it, so the overlay is simply absent with no error to
+             read. This block is the honest degradation: it appears only when the
+             probe says access is missing (never on Chrome, where the same hosts
+             are granted at install), and its button is the user gesture the
+             platform requires for permissions.request(). -->
+        <div class="pop-perm" id="hostPermWrap" hidden>
+          <p class="pop-perm-text" id="hostPermText"></p>
+          <button class="pop-cta" id="hostPermBtn" type="button">Allow on this site</button>
+        </div>
         <label class="pop-toggle" id="siteToggleWrap" hidden>
           <input type="checkbox" id="siteEnabled" />
           <span id="siteToggleLabel">Enabled on this site</span>
@@ -189,6 +209,10 @@
     <script src="research/seller-memory.js"></script>
     <!-- US-2240: the tray key + helpers, shared with the worker and compare.html. -->
     <script src="research/compare-tray.js"></script>
+    <!-- US-1881 AC3: Firefox makes host_permissions opt-in, so a granted-looking
+         install can be completely inert. Loads before popup.js, which reads
+         self.GT_HOST_PERMS at render time. -->
+    <script src="host-permissions.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

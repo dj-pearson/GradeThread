@@ -123,6 +123,12 @@ const ALLOWED = {
   // fragment the CDN cache.
   "background.js": [/^https:\/\/gradethread\.com\/extension\/marketplace-selectors\.json$/],
   "research/selectors.js": [/^https:\/\/gradethread\.com\/extension\/marketplace-selectors\.json$/],
+  // US-1881: a WebExtension match pattern handed to permissions.request(), not a
+  // link — nobody navigates to it and a utm param would make it invalid. The
+  // trailing `/*` is what says so, and it is the only shape allowed here.
+  // host-permissions.test.cjs separately pins these to the manifest's own
+  // gt-bridge.js content-script matches, so they cannot drift into a real URL.
+  "host-permissions.js": [/^https:\/\/gradethread\.com\/\*$/],
 };
 
 // Files the browser actually loads (the store zip ships more, but only these can

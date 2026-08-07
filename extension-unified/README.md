@@ -133,7 +133,7 @@ Once published, the unified extension has ONE id. Update:
 
 Chrome, Edge, **and Firefox**. The packager emits both a Chrome zip
 (`-chrome.zip`) and a Firefox zip (`-firefox.zip`, gecko id
-`unified@gradethread.com`). Three things make Firefox work from one codebase:
+`unified@gradethread.com`). Four things make Firefox work from one codebase:
 
 1. **API namespace** — Firefox's `chrome.*` is callback-only; only `browser.*`
    returns promises. Every script aliases `const chrome = globalThis.browser ||
@@ -155,6 +155,22 @@ Chrome, Edge, **and Firefox**. The packager emits both a Chrome zip
    `externally_connectable`, Firefox uses the bridge. The packager strips
    `externally_connectable` from the Firefox manifest (AMO flags the unsupported
    key).
+4. **Opt-in host permissions** — Chrome grants `host_permissions` at install;
+   Firefox withholds them until the person allows each site. So a perfectly
+   healthy Firefox install starts INERT: no content script runs, no promise
+   rejects, no console line appears, and the only available reading is that the
+   extension is broken. `host-permissions.js` is the probe (fail-open — an
+   unanswerable probe means granted, so Chrome never sees a prompt for access it
+   already has) and the popup is the ask: an honest block on a marketplace tab
+   with no access, and a hint before **Sign in**, because the bridge in (3) is
+   itself a content script and an ungranted gradethread.com makes sign-in HANG
+   rather than fail. A grant reaches only the next navigation, so the flow
+   reloads the tab. `permissions.request()` must be the first statement of a
+   click handler (an `await` ends the gesture) and must never be called on a
+   browser that already granted the permission — Chrome throws for anything not
+   in `optional_permissions`. `test/host-permissions.test.cjs` pins all of it,
+   including a source guard that no other shipped file may call
+   `permissions.request()` directly.
 
 ## Status vs the two legacy folders
 

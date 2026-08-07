@@ -771,6 +771,28 @@ a learning that only matters to ONE surface, put it in that surface's file.
   backtick in a comment inside it is a parse error at the CONSUMER, not the
   definition.
 
+- "Chromium-compatible" and "same manifest" do NOT mean the same INSTALL: Chrome
+  grants `host_permissions` at install, Firefox withholds them until the person
+  opts in, so the identical zip ships a Firefox add-on where no content script
+  runs, nothing rejects, nothing logs, and the only reading available is that our
+  software is broken. Every guard in this repo executes the Chrome path, where
+  the probe answers granted forever — an ungranted state no test can reach is one
+  no test can catch, so drive it with a STUB api object rather than a browser
+  (US-1881). Three platform rules the fix cannot skip: `permissions.request()`
+  THROWS on Chrome for anything not in `optional_permissions` (so probe first,
+  and make the request reachable only from the state the probe ruled out); it is
+  refused outside a user gesture and an `await` before it ENDS that gesture (so
+  it is the first statement of the click handler, never after a check); and a
+  grant reaches only the next navigation, so reload the tab or the page they are
+  staring at stays as dead as before they said yes. Probes fail OPEN, requests
+  fail CLOSED — a false negative shows a working Chrome user a scary prompt for
+  access they already have. Same shape as the US-1967 capability probe.
+- Corollary: the *second* surface a permission feeds is the one that breaks
+  silently. Firefox has no `externally_connectable`, so sign-in rides
+  `gt-bridge.js` — an ordinary content script on gradethread.com — and an
+  ungranted site permission does not fail the sign-in, it HANGS it: the connect
+  page opens, mints the token, posts it, and nothing is listening.
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault
