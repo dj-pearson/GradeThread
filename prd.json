@@ -368,7 +368,7 @@
         "Consent surfaces respect the existing legal geo-consent framework"
       ],
       "priority": 1846,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][LEGAL][PRIVACY] Reuse existing privacy/geo-consent framework + SECURITY.md posture. Coverage terms (1819) + fraud-flag copy (1836) + authenticity disclaimers (1840) all need legal review. Extension privacy ties to US-1757. Cross-cutting across all buyer epics."
     },
     {

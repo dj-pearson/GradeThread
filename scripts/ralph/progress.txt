@@ -4339,3 +4339,8 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T10:59:19.253Z
 - Cost: $23.1079 over 200 turns
 ---
+## US-1846: Buyer platform: legal, privacy & consent (PII, guarantee terms, extension)
+- Status: COMPLETE
+- Timestamp: 2026-08-07T11:23:20.827Z
+- Cost: $11.1296 over 106 turns
+---
