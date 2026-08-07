@@ -716,6 +716,18 @@ a learning that only matters to ONE surface, put it in that surface's file.
   ASSERTS each old string occurs exactly once — a hand pass is how the duplicate
   "7" got in last time.
 
+## An EPIC story whose fence is the whole deliverable
+- Some epics ship no code by AC — but their ACs are still RULES ("do not build
+  lending", "always label it an estimate"), and a rule that lives only in a story
+  is one the next author never reads. US-1868's deliverable was therefore the
+  fence itself: the refused vocabulary and the required disclosure as exported
+  constants, plus a guard that finds the surfaces by DISCOVERY (glob the path for
+  the feature word across src/, edge, functions/, ios/, android/) so a surface
+  that does not exist yet is already covered. Strip COMMENTS before scanning, or
+  the header comment declaring the rule trips it; strip IMPORT lines too, or a
+  file that imports the copy and renders nothing passes. Mutation-check both
+  halves — mine passed twice while broken before that. Rules: [[inventory-equity]].
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault

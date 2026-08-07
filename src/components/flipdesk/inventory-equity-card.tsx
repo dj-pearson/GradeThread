@@ -3,8 +3,10 @@
 // Renders the estimated liquidation value of the seller's GRADED inventory —
 // the capital on their racks — from the tenant-scoped /api/flipdesk/equity
 // endpoint (US-1869). Phase-1 DISPLAY-ONLY (US-1868 scope fence): this is an
-// estimate for planning, NOT an appraisal, offer, or borrowing capacity — the
-// disclaimer copy below must stay.
+// estimate for planning, NOT an appraisal, offer, or borrowing capacity. The
+// disclosure copy is the shared EQUITY_ESTIMATE_DISCLOSURE and must stay
+// rendered — inventory-equity-scope-fence.test.ts requires it here and on every
+// other equity surface.
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
@@ -17,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { EQUITY_ESTIMATE_DISCLOSURE } from "@/lib/inventory-equity-disclosure";
 import { cn } from "@/lib/utils";
 
 interface EquityBucket {
@@ -243,9 +246,7 @@ export function InventoryEquityCard() {
 
             <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
               <Info className="mt-0.5 h-3 w-3 shrink-0" />
-              An estimate for planning only, from sold comps and your own
-              sell-through — not an appraisal, an offer, or borrowing capacity.
-              Items without a grade or usable comps are excluded.
+              {EQUITY_ESTIMATE_DISCLOSURE}
             </p>
           </>
         )}
