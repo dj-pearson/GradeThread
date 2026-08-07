@@ -35,6 +35,8 @@ code_refs:
   - src/hooks/use-radar-network.ts
   - src/components/flipdesk/radar-map.tsx
   - src/components/flipdesk/radar-venue-panel.tsx
+  - src/lib/radar-route.ts
+  - src/components/flipdesk/radar-route-planner.tsx
 reviewed: 2026-08-07
 tags: [radar, flipdesk, scout, privacy, consent, contract]
 summary: Radar turns Prospect scans into venue-level supply intelligence; contribution and viewing are separate consents, no precise coordinate survives venue resolution, and the k-anonymity floor is a server-side guarantee rather than a display preference.
@@ -380,6 +382,53 @@ routed to the upgrade sheet by `EdgeAPI` (US-1213) and recorded as
 `networkLocked`, which is sticky for the session so a Free seller changing the
 window does not collect a second sheet, with an explicit "Check again" as the way
 back in.
+
+### US-1867: the circuit, and the coordinate that stays on the device
+
+The route planner is the last of the network surfaces and the only one that has
+to handle a genuinely precise coordinate: a circuit starts somewhere. It is
+therefore the surface most likely to undo rule 4 by accident, and the shape that
+prevents it is that **the planner runs entirely in the browser**
+(`src/lib/radar-route.ts`, no endpoint, no fetch). Both layers it blends were
+already served to the page — `/my-stores` and `/radar/venues` for the current
+viewport — so ordering eight stores is arithmetic a device can do, and sending
+the start point to a server to do it instead would be handing over the one fix
+the whole schema was built to avoid holding. The route leaves for a maps app
+when the reseller taps it, and nowhere else.
+
+That also keeps the plan gate honest without adding one. The network half of
+every score comes from `/radar/venues`, which 402s a Free seller server-side, so
+there is no new endpoint to forget to gate — only the UI entry point, which is
+hidden on Free for the same reason the map's is.
+
+Three decisions worth keeping:
+
+- **Only one of the two layers is denominated in money, so the other is a
+  multiplier, never a number.** The aggregates carry scans, contributors,
+  buy-rate and a weekday rhythm; they never carried a price, because the events
+  under them never did. So every dollar figure is anchored on the RESELLER'S OWN
+  books — what a visit has historically been worth to them — and the network
+  moves that figure up or down (day, brand share, buy-rate, freshness, clamped to
+  0.2–3×). A store they have never been to is quoted at their own portfolio
+  average adjusted by the place, which is a number they can check. Inventing a
+  dollar value from a scan count would be inventing revenue.
+- **No money history means no dollars, not a plausible dollar.** The plan carries
+  `moneyBasis`, and when it is false every money field is `null` and the notes
+  say the stops are ranked by activity instead. Same rule as US-1865's all-zero
+  week: a number that reads as a finding must not be a placeholder.
+- **Travel time is inside the comparison that picks each stop, not a penalty
+  applied afterwards.** The greedy step chooses the best value per hour FROM
+  WHERE YOU ARE, which is what makes the ordering a circuit rather than a
+  leaderboard with a drive attached. Straight-line distance times a 1.3 detour
+  factor at 40 km/h — the centroids are cell centres, so a router would be
+  precision the inputs do not have.
+
+`MAX_ROUTE_STOPS` is 8 because a Google Maps directions URL carries nine
+intermediate waypoints, and a plan that cannot be opened is not a plan. The
+sparse-data path is an acceptance criterion rather than a fallback: with no
+network coverage the circuit is still built, and it says in words that it is one
+person's history rather than a crowd's — otherwise a confident ordered list
+implies the stronger claim.
 
 ## Two traps specific to these tables
 

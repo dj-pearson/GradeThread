@@ -701,6 +701,14 @@ a learning that only matters to ONE surface, put it in that surface's file.
   vs. prose). Keep the amendment small by never prompting on appear and by
   quantizing the fix into a bbox before it leaves the device — then the honest
   sentence is short. Rule: [[thrift-radar]].
+- When a feature BLENDS two data sources and only one of them is denominated in
+  money, the tempting move is to invent an exchange rate (scans → dollars). Don't:
+  anchor every figure on the source that IS money — the user's own books — and let
+  the other be a bounded MULTIPLIER on it. US-1867 prices an unvisited store at the
+  reseller's own average profit per visit times what the network says about the
+  place, so the number is one they can check; and when they have no money history
+  at all, the whole plan reports `null` and ranks without dollars rather than
+  printing a plausible figure. A placeholder number reads as a finding.
 - Adding a SECTION to `src/pages/legal/privacy.tsx` means renumbering every later
   `<h2>` AND every `<a href="#anchor">Section N</a>` in the body: two cases in
   `privacy-extension.test.tsx` pin sequential numbering and anchor-to-number

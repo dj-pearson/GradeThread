@@ -33,6 +33,19 @@ export const RADAR_WINDOWS: { key: RadarWindowKey; label: string }[] = [
   { key: "90d", label: "Last 90 days" },
 ];
 
+/**
+ * The same windows as a phrase, for prose rather than a control (US-1867).
+ *
+ * The route planner splices the window into each stop's rationale, and "strong
+ * Nike density Last 30 days" is not a sentence. Kept beside the labels so the two
+ * cannot drift into naming different periods.
+ */
+export const RADAR_WINDOW_PHRASES: Record<RadarWindowKey, string> = {
+  "7d": "in the last 7 days",
+  "30d": "in the last 30 days",
+  "90d": "in the last 90 days",
+};
+
 export interface RadarNetworkStats {
   venue_id: string;
   window: RadarWindowKey;

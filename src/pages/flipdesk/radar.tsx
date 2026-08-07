@@ -14,8 +14,13 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { RadarMap, RadarMapLegend, type RadarMapMarker } from "@/components/flipdesk/radar-map";
+import {
+  RadarRoutePlanner,
+  type RouteStartOption,
+} from "@/components/flipdesk/radar-route-planner";
 import { RadarVenuePanel } from "@/components/flipdesk/radar-venue-panel";
 import {
+  RADAR_WINDOW_PHRASES,
   RADAR_WINDOWS,
   useRadarMap,
   useRadarVenueDetail,
@@ -36,6 +41,10 @@ import {
   weightedActivity,
   type MapViewport,
 } from "@/lib/radar-map";
+import type {
+  RouteCandidate,
+  RoutePersonalFacts,
+} from "@/lib/radar-route";
 
 // US-1865: Thrift Radar — the map.
 //
@@ -61,9 +70,28 @@ import {
 const MAP_SIZE = { width: 900, height: 520 };
 const REQUIRED_PLAN: FlipdeskPlanKey = "pro";
 
+/** Where the map sits before anything is known — the middle of the country. */
+const FALLBACK_VIEWPORT: MapViewport = {
+  centerLat: 39.5,
+  centerLng: -98.35,
+  zoom: DEFAULT_ZOOM,
+};
+
 /** A store the reseller owns that the registry can place on the map. */
 function placeable(store: PersonalStore): store is PersonalStore & { lat: number; lng: number } {
   return typeof store.lat === "number" && typeof store.lng === "number";
+}
+
+/** The reseller's own books for one store, in the shape the planner scores. */
+function personalFacts(store: PersonalStore): RoutePersonalFacts {
+  return {
+    visits: store.visits,
+    itemsSourced: store.items_sourced,
+    spendCents: store.spend_cents,
+    realizedProfitCents: store.realized_profit_cents,
+    expectedProfitCents: store.expected_profit_cents,
+    roiPct: store.roi_pct,
+  };
 }
 
 export function FlipdeskRadarPage() {
@@ -171,6 +199,72 @@ export function FlipdeskRadarPage() {
     [stores],
   );
 
+  // US-1867: the circuit planner reads the SAME two layers the map draws, so a
+  // stop it ranks first is a dot the reseller can already see. Network venues
+  // carry their personal history where the two have been linked; a store of
+  // theirs the network says nothing about is still a candidate, because a place
+  // that has made them money is a place worth driving to whether or not
+  // strangers have been.
+  const routeCandidates = useMemo<RouteCandidate[]>(() => {
+    const byVenue = new Map(
+      placedStores.filter((s) => s.venue_id).map((s) => [s.venue_id!, s]),
+    );
+    const out: RouteCandidate[] = [];
+    const claimed = new Set<string>();
+
+    for (const venue of map.venues) {
+      const mine = byVenue.get(venue.id) ?? null;
+      if (mine) claimed.add(venue.id);
+      out.push({
+        id: venue.id,
+        name: mine?.name ?? venue.display_name,
+        lat: venue.lat,
+        lng: venue.lng,
+        personal: mine ? personalFacts(mine) : null,
+        network: {
+          scanCount: venue.network.scan_count,
+          contributorCount: venue.network.contributor_count,
+          buyRate: venue.network.buy_rate,
+          daysSince: venue.network.days_since_activity,
+          activityByDay: venue.network.activity_by_day,
+          brandScans: map.activity.get(venue.id)?.brandScans ?? {},
+        },
+      });
+    }
+
+    for (const store of placedStores) {
+      if (store.venue_id && claimed.has(store.venue_id)) continue;
+      out.push({
+        id: store.key,
+        name: store.name,
+        lat: store.lat,
+        lng: store.lng,
+        personal: personalFacts(store),
+        network: null,
+      });
+    }
+    return out;
+  }, [map.venues, map.activity, placedStores]);
+
+  // Starting points that cost no permission: where the map already is, or a
+  // store they own. The header's "Use my location" moves the map, so choosing to
+  // start from where you are is the same one tap it always was.
+  const startOptions = useMemo<RouteStartOption[]>(() => {
+    const centre = viewport ?? FALLBACK_VIEWPORT;
+    return [
+      {
+        id: "map",
+        label: "Middle of the map",
+        point: { lat: centre.centerLat, lng: centre.centerLng },
+      },
+      ...placedStores.map((store) => ({
+        id: `store:${store.key}`,
+        label: store.name,
+        point: { lat: store.lat, lng: store.lng },
+      })),
+    ];
+  }, [viewport, placedStores]);
+
   function useMyLocation() {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       toast.error("This browser cannot share a location.");
@@ -204,6 +298,17 @@ export function FlipdeskRadarPage() {
         subtitle="Where the good stuff is turning up right now — and where it has worked for you before."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {/* Pro+, the same tier as the rest of the network layer: the ranking
+                blends aggregates that already 402 a Free seller server-side, so
+                offering the planner to them would be offering half a feature. */}
+            {canSeeNetwork && (
+              <RadarRoutePlanner
+                candidates={routeCandidates}
+                startOptions={startOptions}
+                weights={weights}
+                windowLabel={RADAR_WINDOW_PHRASES[windowKey]}
+              />
+            )}
             <Button
               type="button"
               variant="outline"
@@ -265,7 +370,7 @@ export function FlipdeskRadarPage() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-3">
           <RadarMap
-            viewport={viewport ?? { centerLat: 39.5, centerLng: -98.35, zoom: DEFAULT_ZOOM }}
+            viewport={viewport ?? FALLBACK_VIEWPORT}
             onViewportChange={setViewport}
             markers={markers}
             selectedId={selectedId}
@@ -378,9 +483,9 @@ function NetworkUpgradeCard({ plan }: { plan: FlipdeskPlanKey }) {
             The shared map is on {required.name}
           </p>
           <p className="text-sm text-muted-foreground">
-            Hotness, brand mix and busy days come from everyone else&rsquo;s
-            scans. Your own stores and your own numbers stay on this map on every
-            plan.
+            Hotness, brand mix, busy days and the circuit planner come from
+            everyone else&rsquo;s scans. Your own stores and your own numbers
+            stay on this map on every plan.
           </p>
         </div>
         <Button
