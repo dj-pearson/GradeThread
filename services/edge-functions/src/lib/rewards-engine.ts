@@ -22,9 +22,11 @@ export type RewardEventType =
   | "aspects_filled"
   | "marketplace_connected"
   | "verified_share"
-  // US-1852: a quest/challenge completion. The ONLY variable-XP type — see
-  // QUEST_XP_MAX below.
+  // US-1852: a quest/challenge completion. Variable XP — see QUEST_XP_MAX below.
   | "quest_completed"
+  // US-1854: a shared find crossed a verified-reach rung. Also variable XP, and
+  // bounded by the same ceiling.
+  | "share_milestone"
   // Shared with the trust track — these ALSO carry XP (a paid grade / confirmed
   // arrival is both a trust signal and a rewardable action).
   | "verified_purchase"
@@ -46,6 +48,7 @@ export const REWARD_XP_CATALOG: Record<RewardEventType, number> = {
   verified_purchase: 15, // a paid, grade-linked purchase (paid only)
   aspects_filled: 10, // listing quality / SEO surface
   quest_completed: 0, // VARIABLE — the real amount rides on the event (US-1852)
+  share_milestone: 0, // VARIABLE — the rung's award rides on the event (US-1854)
 };
 
 /**
@@ -61,13 +64,29 @@ export const REWARD_XP_CATALOG: Record<RewardEventType, number> = {
  */
 export const QUEST_XP_MAX = 200;
 
-const VARIABLE_XP_EVENTS = new Set<RewardEventType>(["quest_completed"]);
+const VARIABLE_XP_EVENTS = new Set<RewardEventType>([
+  "quest_completed",
+  "share_milestone",
+]);
 
 /** Coerce an untrusted per-event award into the allowed band. Pure. */
 export function clampQuestXp(raw: unknown): number {
   const n = typeof raw === "number" ? raw : Number(raw);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.min(QUEST_XP_MAX, Math.floor(n));
+}
+
+/**
+ * Read the FROZEN award off a variable-XP event's metadata, clamped. US-1852
+ * wrote it as `quest_xp`; US-1854 writes `award_xp`. Both are read here, and
+ * clamped identically, so events already in the log keep scoring exactly what
+ * they scored — and every recompute site reads the same one function rather
+ * than three copies of the same key list drifting apart.
+ */
+export function frozenXpAward(
+  metadata: Record<string, unknown> | null | undefined,
+): number {
+  return clampQuestXp(metadata?.award_xp ?? metadata?.quest_xp);
 }
 
 // Events that consume real AI grading spend. Per US-1849 AC4 these award XP ONLY
@@ -470,8 +489,8 @@ export async function recomputeRewardState(
       occurredAt: row.occurred_at,
       verified: row.verified,
       paid: row.metadata?.paid === true,
-      // US-1852: the frozen quest award. Ignored for every other type.
-      xpAward: clampQuestXp(row.metadata?.quest_xp),
+      // The frozen award of a variable-XP event. Ignored for every other type.
+      xpAward: frozenXpAward(row.metadata),
     });
   }
 

@@ -21,7 +21,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { getSetting } from "./system-settings.ts";
 import {
-  clampQuestXp,
+  frozenXpAward,
   REWARD_XP_CATALOG,
   type RewardEventType,
   xpForEvent,
@@ -438,7 +438,7 @@ async function loadRewardEvents(userId: string, sinceMs: number): Promise<Season
       occurredAt: row.occurred_at,
       verified: row.verified,
       paid: row.metadata?.paid === true,
-      xpAward: clampQuestXp(row.metadata?.quest_xp),
+      xpAward: frozenXpAward(row.metadata),
     });
   }
   return out;

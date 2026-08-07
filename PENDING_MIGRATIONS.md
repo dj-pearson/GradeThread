@@ -1,9 +1,46 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Twelve migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540 and 00541.** The entries below them were applied to
-prod and this file did not learn about it for a day. See the note under 00528 for
-how that was measured and why the measurement, not the file, is the authority.
+**Thirteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541 and 00542.** The entries below them were applied
+to prod and this file did not learn about it for a day. See the note under 00528
+for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00542_share_to_earn.sql (US-1854 — share-to-earn loop)
+
+**Apply order.** Last, in numeric order. It only needs `reputation_events`
+(00417), `badge_click_events` (00404) and `users`, all long applied — so it does
+not depend on any other held migration and could go first if 00530–00541 slip.
+
+**Risk: LOW.** One new table, two new columns on `badge_click_events` (both
+nullable-or-defaulted), three indexes, and one CHECK constraint widened by a
+single value. No existing column, row or enum is modified or dropped.
+
+**What it does.**
+- Widens the `reputation_events` event_type CHECK by one value,
+  `share_milestone`. Restated in full, so the whole allow-list is authoritative.
+  Widening only — no existing event type is removed, so already-stored rows stay
+  valid.
+- Adds `share_events` — the TRACKED SHARE log (who shared which certificate,
+  through which channel). **Deny-all RLS** plus an explicit REVOKE: it holds
+  `sharer_hash`, which is the self-click defence, so a client that could write it
+  could bank a fingerprint against someone else's find and have that seller's
+  genuine clicks discarded.
+- Adds `badge_click_events.visitor_hash` (nullable) and `.self_click` (NOT NULL
+  DEFAULT false). `self_click` is defaulted, so the backfill is implicit and
+  existing rows read as "not a self-click", which is the honest reading for
+  clicks recorded before any fingerprint existed.
+
+**Deploy order.** Apply BEFORE the edge rolls (the normal order). An edge build
+running against a DB without this migration would fail the `share_milestone`
+CHECK on every milestone grant and fail every `badge_click_events` insert on the
+unknown `visitor_hash`/`self_click` columns — i.e. it would break the EXISTING
+badge-click recording, not just the new feature. That is the one thing here worth
+watching: this migration must land before the edge image that expects it.
+
+**Client-side reads?** None. The SPA never queries `share_events` or the new
+columns — both go through the edge (`/api/rewards/share`,
+`/api/content/public/badge-click`). So a frontend auto-deploy ahead of the SQL is
+harmless; the edge is the one that must not run ahead.
 
 ## ⏳ HELD: 00541_reward_milestone_catalog.sql (US-1853 — milestone rewards)
 

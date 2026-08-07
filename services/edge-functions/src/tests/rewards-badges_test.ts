@@ -7,7 +7,7 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { BADGE_CATALOG, badgeByKey, evaluateBadges, publicAchievements } =
+const { BADGE_CATALOG, badgeByKey, countViralFinds, evaluateBadges, publicAchievements } =
   await import("../lib/rewards-badges.ts");
 type BadgeContext = Parameters<typeof evaluateBadges>[0];
 
@@ -17,6 +17,7 @@ const ctx = (over: Partial<BadgeContext> = {}): BadgeContext => ({
   nwtCount: 0,
   longestStreak: 0,
   shareCount: 0,
+  viralFindCount: 0,
   marketplaceCount: 0,
   xpTotal: 0,
   level: 0,
@@ -54,8 +55,9 @@ Deno.test("milestone badges unlock on their stat", () => {
   assert(!evaluateBadges(ctx({ longestStreak: 6 })).includes("streak_7"));
   assert(evaluateBadges(ctx({ marketplaceCount: 1 })).includes("connected"));
   assert(evaluateBadges(ctx({ shareCount: 1 })).includes("first_share"));
-  assert(evaluateBadges(ctx({ shareCount: 10 })).includes("viral_find"));
-  assert(!evaluateBadges(ctx({ shareCount: 9 })).includes("viral_find"));
+  // US-1854: Viral Find is ONE find that travelled, not many finds clicked once.
+  assert(evaluateBadges(ctx({ viralFindCount: 1 })).includes("viral_find"));
+  assert(!evaluateBadges(ctx({ shareCount: 50 })).includes("viral_find"));
   assert(evaluateBadges(ctx({ level: 5 })).includes("level_5"));
 });
 
@@ -117,4 +119,32 @@ Deno.test("US-1850 AC3: a retired key drops out, a hidden badge shows once earne
 
 Deno.test("US-1850 AC3: no earned rows means no medals", () => {
   assertEquals(publicAchievements([]), []);
+});
+
+// ─── US-1854: viral finds are counted per FIND, not per event ────────────────
+
+Deno.test("countViralFinds counts distinct finds at a viral rung", () => {
+  // Two rungs on ONE find is one viral find.
+  assertEquals(
+    countViralFinds(["share:cert:ABC:viral", "share:cert:ABC:signup"]),
+    1,
+  );
+  // Two different finds is two.
+  assertEquals(
+    countViralFinds(["share:cert:ABC:viral", "share:cert:XYZ:signup"]),
+    2,
+  );
+});
+
+Deno.test("countViralFinds ignores lower rungs and foreign keys", () => {
+  assertEquals(
+    countViralFinds([
+      "share:cert:ABC:spark",
+      "share:cert:ABC:buzz",
+      "quest:weekly_share:w2026-08-03",
+      "cert:ABC:share",
+      "",
+    ]),
+    0,
+  );
 });

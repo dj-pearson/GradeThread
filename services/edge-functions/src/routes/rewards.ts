@@ -6,12 +6,24 @@
 // c.get("userId") — never workspaceOwnerId, which would let a workspace member
 // read the owner's XP.
 //
-// Read-only. Nothing here grants, spends or configures anything: XP accrues from
-// the reward ledger (US-1849) and the only write this route can cause is the
-// idempotent season-recap row when a quarter has rolled over.
+// Nothing here spends or configures anything, and nothing here grants XP: XP
+// accrues from the reward ledger (US-1849). The two writes this route can cause
+// are the idempotent season-recap row when a quarter has rolled over, and
+// US-1854's TRACKED SHARE — a row that records "this seller shared this find"
+// and pays nothing at all. The payout for a share happens later, on the click,
+// somewhere the sharer does not control (see lib/share-to-earn.ts).
 
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { readRewardState } from "../lib/rewards-engine.ts";
+import {
+  isShareTargetType,
+  normalizeShareChannel,
+  recordShare,
+  shareLoopStats,
+  visitorFingerprint,
+} from "../lib/share-to-earn.ts";
+import { clientIp } from "../middleware/rate-limit.ts";
 import {
   levelProgress,
   lockedPerks,
@@ -106,6 +118,70 @@ rewardsRoutes.get("/state", async (c) => {
 // touches every user at one instant, and a cron fanning out across the whole
 // user base to write one row each is a worse failure surface than writing it the
 // next time they look. Idempotent by claim, so a refresh pays nothing twice.
+// POST /api/rewards/share — record a tracked share of a graded find (US-1854).
+//
+// Pays NOTHING. It writes the row the share loop is measured against and banks
+// the sharer's fingerprint so their own click on their own link is recognisable.
+// A caller may only record a share of a find THEY own (US-268: ownership is
+// resolved server-side from the certificate, never taken from the body), which
+// also stops an attacker poisoning another seller's self-click set.
+rewardsRoutes.post("/share", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => null)) as
+    | { targetType?: unknown; targetId?: unknown; channel?: unknown }
+    | null;
+
+  if (!body || !isShareTargetType(body.targetType) || typeof body.targetId !== "string") {
+    return c.json({ error: "A certificate is required." }, 400);
+  }
+  const channel = normalizeShareChannel(body.channel);
+  if (!channel) return c.json({ error: "Unknown share channel." }, 400);
+
+  const sharerHash = await visitorFingerprint(
+    clientIp(c as unknown as Context),
+    c.req.header("user-agent") ?? null,
+  );
+
+  const result = await recordShare({
+    userId,
+    targetType: body.targetType,
+    targetId: body.targetId,
+    channel,
+    sharerHash,
+  });
+
+  if (!result.ok) {
+    if (result.reason === "rate_limited") {
+      return c.json({ error: "That's a lot of sharing — try again tomorrow." }, 429);
+    }
+    // not_owner and error both read as "not your certificate" to the caller: a
+    // distinguishable 404 would let anyone probe which certificate ids exist.
+    return c.json({ error: "Certificate not found." }, 404);
+  }
+  return c.json({ ok: true });
+});
+
+// GET /api/rewards/share/:targetType/:targetId — what one find has earned from
+// being shared. Owner-scoped by construction: the caller's id IS the scope, so
+// handing it someone else's certificate id reports zeros, never their numbers.
+rewardsRoutes.get("/share/:targetType/:targetId", async (c) => {
+  const userId = c.get("userId");
+  const targetType = c.req.param("targetType");
+  const targetId = c.req.param("targetId");
+  if (!isShareTargetType(targetType) || !targetId) {
+    return c.json({ error: "A certificate is required." }, 400);
+  }
+  try {
+    return c.json(await shareLoopStats(userId, targetType, targetId));
+  } catch (err) {
+    console.error(
+      "[rewards] share stats failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Couldn't load your share stats." }, 500);
+  }
+});
+
 rewardsRoutes.get("/quests", async (c) => {
   const userId = c.get("userId");
   try {

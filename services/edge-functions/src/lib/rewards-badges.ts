@@ -18,6 +18,10 @@ export interface BadgeContext {
   nwtCount: number; // grades tiered NWT (new with tags)
   longestStreak: number; // consecutive active days (reward state)
   shareCount: number; // verified_share reward events
+  /** US-1854: distinct FINDS that reached the top of the share ladder (25
+   *  verified click-throughs) or produced a signup. Deliberately not the same
+   *  number as shareCount — see the `viral_find` entry below. */
+  viralFindCount: number;
   marketplaceCount: number; // marketplace_connected reward events
   xpTotal: number;
   level: number;
@@ -47,7 +51,12 @@ export const BADGE_CATALOG: readonly BadgeDef[] = [
   { key: "streak_7", name: "7-Day Streak", description: "Active 7 days in a row.", tier: "silver", icon: "Flame", hidden: false, criteria: (c) => c.longestStreak >= 7 },
   { key: "connected", name: "Plugged In", description: "Connected a marketplace.", tier: "bronze", icon: "Plug", hidden: false, criteria: (c) => c.marketplaceCount >= 1 },
   { key: "first_share", name: "First Share", description: "Shared a verified grade.", tier: "bronze", icon: "Share2", hidden: false, criteria: (c) => c.shareCount >= 1 },
-  { key: "viral_find", name: "Viral Find", description: "A shared grade earned 10 verified clicks.", tier: "gold", icon: "TrendingUp", hidden: true, criteria: (c) => c.shareCount >= 10 },
+  // US-1854: ONE find that travelled — 25 verified click-throughs, or a signup.
+  // It used to read `shareCount >= 10`, which is ten DIFFERENT finds clicked
+  // once each: a medal named for a viral find that could be earned without ever
+  // having one. The medal describes a single item's reach, so its criterion has
+  // to be per-item too.
+  { key: "viral_find", name: "Viral Find", description: "One shared grade drove 25 verified click-throughs (or a signup).", tier: "gold", icon: "TrendingUp", hidden: true, criteria: (c) => c.viralFindCount >= 1 },
   { key: "level_5", name: "Level 5", description: "Reached reward level 5.", tier: "silver", icon: "ChevronsUp", hidden: false, criteria: (c) => c.level >= 5 },
 ];
 
@@ -105,6 +114,29 @@ export function publicAchievements(
   );
 }
 
+// US-1854: the share ladder's dedupe keys are `share:<type>:<id>:<rung>`. The
+// rungs that mean "this ONE find travelled" are the top click rung and a signup.
+// Parsed here rather than imported from share-to-earn.ts, which imports the
+// reward engine that imports this file — a cycle whose init order would decide
+// whether a const is defined yet.
+const VIRAL_RUNGS = new Set(["viral", "signup"]);
+
+/**
+ * Pure: how many DISTINCT finds reached a viral rung, from their ledger dedupe
+ * keys. A find that hits both the click rung and a signup counts once.
+ */
+export function countViralFinds(referenceIds: readonly string[]): number {
+  const finds = new Set<string>();
+  for (const ref of referenceIds) {
+    const parts = (ref ?? "").split(":");
+    if (parts.length < 4 || parts[0] !== "share") continue;
+    const rung = parts[parts.length - 1]!;
+    if (!VIRAL_RUNGS.has(rung)) continue;
+    finds.add(parts.slice(1, -1).join(":"));
+  }
+  return finds.size;
+}
+
 /** Pure: the catalog keys the context satisfies. Deterministic + DB-free. */
 export function evaluateBadges(ctx: BadgeContext): string[] {
   return BADGE_CATALOG.filter((b) => b.criteria(ctx)).map((b) => b.key);
@@ -118,6 +150,7 @@ const EMPTY_CONTEXT: BadgeContext = {
   nwtCount: 0,
   longestStreak: 0,
   shareCount: 0,
+  viralFindCount: 0,
   marketplaceCount: 0,
   xpTotal: 0,
   level: 0,
@@ -170,6 +203,20 @@ export async function loadBadgeContext(userId: string): Promise<BadgeContext> {
   ]);
   ctx.shareCount = shareCount ?? 0;
   ctx.marketplaceCount = marketplaceCount ?? 0;
+
+  // US-1854: the per-find viral count. Read as dedupe keys rather than counted
+  // in SQL because the medal is per FIND, not per event — two rungs on one find
+  // must not read as two viral finds.
+  const { data: shareMilestones } = await supabaseAdmin
+    .from("reputation_events")
+    .select("reference_id")
+    .eq("user_id", userId)
+    .eq("event_type", "share_milestone")
+    .eq("verified", true)
+    .limit(1000);
+  ctx.viralFindCount = countViralFinds(
+    ((shareMilestones ?? []) as Array<{ reference_id: string }>).map((r) => r.reference_id),
+  );
 
   // XP / level / streak from the reward-state cache.
   const { data: state } = await supabaseAdmin
@@ -228,8 +275,9 @@ function contextSnapshotFor(key: string, c: BadgeContext): Record<string, number
     case "streak_7":
       return { longestStreak: c.longestStreak };
     case "first_share":
-    case "viral_find":
       return { shareCount: c.shareCount };
+    case "viral_find":
+      return { viralFindCount: c.viralFindCount };
     case "connected":
       return { marketplaceCount: c.marketplaceCount };
     case "level_5":

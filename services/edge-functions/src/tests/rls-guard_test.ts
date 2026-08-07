@@ -121,6 +121,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // endpoint (service-role, owner resolved server-side) writes it and the
   // owner-scoped funnel endpoints read it; the SPA never queries it. No buyer PII.
   "badge_click_events",
+  // US-1854 tracked shares (00542): deny-all by design, same posture as
+  // badge_click_events above. Written by POST /api/rewards/share after the edge
+  // has verified the caller OWNS the certificate, read only by the share-to-earn
+  // engine and the owner-scoped stats endpoint. A client-writable share log
+  // would be a client-writable claim on someone else's find — and `sharer_hash`
+  // is the self-click defence, so a client that could write it could suppress
+  // another seller's rewards.
+  "share_events",
   // US-1710 Brand & Style Knowledge Base (00389): five GLOBAL REFERENCE tables —
   // brand facts only, NO tenant data and no owner column. RLS enabled, zero
   // policies by design: the edge service-role client reads the packs (US-1711

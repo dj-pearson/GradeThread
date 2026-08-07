@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Printer, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -21,9 +21,22 @@ import { prefersNativeShare } from "@/lib/share";
 // by captureAffiliateRef() (a ?ref= + utm_source=certificate on the cert URL is
 // stored last-touch and redeemed when the visitor signs up). One-tap channels
 // (X, Facebook, Pinterest, WhatsApp, Reddit, Email) unfurl the slab OG image.
+//
+// US-1854: close the earn half. Every share press is reported as a TRACKED
+// SHARE — which pays nothing on its own, deliberately. The reward lands later,
+// on verified click-throughs of the shared link, somewhere the sharer does not
+// control; a button that paid on press would be a button to mash. The panel
+// shows the owner what their find has actually earned so the loop is visible.
 
 interface ReferralMe {
   code: string;
+}
+
+interface ShareLoopStats {
+  shares: number;
+  verified_clicks: number;
+  milestones_earned: string[];
+  next_milestone: { key: string; clicks: number; xp: number; label: string } | null;
 }
 
 export function CertShareActions({
@@ -56,6 +69,43 @@ export function CertShareActions({
     staleTime: 5 * 60 * 1000,
   });
   const referralCode = referral?.code ?? null;
+
+  const queryClient = useQueryClient();
+
+  // What this find has earned from being shared. Owner-scoped SERVER-SIDE: a
+  // signed-in viewer who doesn't own the certificate gets zeros, so the panel
+  // below never needs to know who the owner is — it just doesn't render.
+  const shareStatsKey = ["cert-share-loop", certificateId] as const;
+  const { data: shareStats } = useQuery({
+    queryKey: shareStatsKey,
+    queryFn: async (): Promise<ShareLoopStats> => {
+      const res = await edgeFetch(
+        `/api/rewards/share/cert/${encodeURIComponent(certificateId)}`,
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load share stats");
+      return json as ShareLoopStats;
+    },
+    enabled: !!user,
+    staleTime: 60 * 1000,
+    retry: false,
+  });
+
+  /**
+   * Report the share. Fire-and-forget on purpose: this grants nothing, so a
+   * failed ping costs the sharer no reward — and blocking the share sheet on a
+   * request to us would be a worse trade than losing one row.
+   */
+  function reportShare(channel: string) {
+    if (!user) return;
+    void edgeFetch("/api/rewards/share", {
+      method: "POST",
+      json: { targetType: "cert", targetId: certificateId, channel },
+      silentGate: true,
+    })
+      .then(() => queryClient.invalidateQueries({ queryKey: shareStatsKey }))
+      .catch(() => {});
+  }
 
   const origin =
     typeof window !== "undefined" ? window.location.origin : SITE_URL;
@@ -147,6 +197,7 @@ export function CertShareActions({
       channel: channel.key,
       referral: Boolean(referralCode),
     });
+    reportShare(channel.key);
     if (typeof window !== "undefined") {
       window.open(channel.href, "_blank", "noopener,noreferrer");
     }
@@ -190,6 +241,7 @@ export function CertShareActions({
           channel: "native",
           referral: Boolean(referralCode),
         });
+        reportShare("native");
         return;
       }
 
@@ -202,6 +254,7 @@ export function CertShareActions({
         channel: "clipboard",
         referral: Boolean(referralCode),
       });
+      reportShare("clipboard");
     } catch (err) {
       // User dismissing the share sheet throws AbortError — not an error.
       if ((err as Error)?.name === "AbortError") return;
@@ -214,6 +267,7 @@ export function CertShareActions({
           channel: "clipboard",
           referral: Boolean(referralCode),
         });
+        reportShare("clipboard");
       } catch {
         toast.error("Couldn't share — copy the link from your browser.");
       }
@@ -257,6 +311,23 @@ export function CertShareActions({
           </Button>
         ))}
       </div>
+      {/* US-1854: the earn half, made visible. Only renders once this find has
+          actually been shared, so a buyer viewing a stranger's certificate (who
+          gets zeros from the owner-scoped endpoint) sees nothing at all. */}
+      {shareStats && shareStats.shares > 0 && (
+        <p className="max-w-[46ch] text-right text-xs text-muted-foreground">
+          {shareStats.verified_clicks === 0
+            ? "Shared. You earn when someone actually opens it."
+            : `${shareStats.verified_clicks} verified click-${shareStats.verified_clicks === 1 ? "through" : "throughs"}.`}
+          {shareStats.next_milestone && (
+            <>
+              {" "}
+              {shareStats.next_milestone.clicks - shareStats.verified_clicks} more
+              to earn {shareStats.next_milestone.xp} XP.
+            </>
+          )}
+        </p>
+      )}
     </div>
   );
 }

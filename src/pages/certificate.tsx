@@ -332,8 +332,13 @@ export function CertificatePage() {
         // US-1760: attribute a badge-driven arrival to the seller. Only for the
         // badge/embed/qr sources; the owner is resolved server-side. Once per
         // session (shares the view session-key gate above).
+        //
+        // US-1854 adds `share`: a visit that came from a link the seller shared
+        // is the verified click-through the share-to-earn loop pays for. The
+        // server decides whether it counts (bot gate, self-click, fingerprint) —
+        // this only reports that the arrival happened.
         const src = searchParams.get("s") ?? "";
-        if (src === "embed" || src === "badge" || src === "qr") {
+        if (src === "embed" || src === "badge" || src === "qr" || src === "share") {
           void fetch(`${edgeApiUrl()}/api/content/public/badge-click`, {
             method: "POST",
             headers: { "content-type": "application/json" },

@@ -33,10 +33,16 @@ Deno.test("isBadgeTargetType guards cert/seller only", () => {
   assert(!isBadgeTargetType(null));
 });
 
-Deno.test("BADGE_CLICK_SOURCES: badge sources only, not direct/share", () => {
+Deno.test("BADGE_CLICK_SOURCES: attributed click-throughs only, never direct", () => {
   assert(BADGE_CLICK_SOURCES.has("embed"));
   assert(BADGE_CLICK_SOURCES.has("badge"));
   assert(BADGE_CLICK_SOURCES.has("qr"));
+  // US-1854: `share` joined the set. It answers the SAME question as the three
+  // above — did a real person come back to this grade because of it — so it
+  // rides the same ledger. `direct` still must not: an unattributed visit is
+  // not a click-through, and admitting it would make every funnel number the
+  // page-view count.
+  assert(BADGE_CLICK_SOURCES.has("share"));
   assert(!BADGE_CLICK_SOURCES.has("direct"));
-  assert(!BADGE_CLICK_SOURCES.has("share"));
+  assert(!BADGE_CLICK_SOURCES.has(""));
 });

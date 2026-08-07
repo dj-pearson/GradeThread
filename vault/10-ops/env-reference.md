@@ -420,6 +420,19 @@ sandbox — the hook changes rendering and routing, not deliverability.
 Generate with `npx web-push generate-vapid-keys`. Unset ⇒ web push no-ops
 silently; email and in-app remain the delivery channels.
 
+### Share-to-earn fingerprint (US-1854)
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `SHARE_FINGERPRINT_SALT` | Optional | Salt for the pseudonymous visitor hash the share loop counts unique click-throughs and self-clicks with. **Secret.** |
+
+Unset ⇒ the salt falls back to `SUPABASE_SERVICE_ROLE_KEY`, which the edge always
+has, so the loop works with no configuration. Set it explicitly if you rotate the
+service key and want fingerprints recorded before the rotation to keep matching —
+changing the salt does not break anything, it just starts a fresh visitor space.
+The hash is never reversible to an IP and no IP is stored. See
+[[reward-ledger]].
+
 ### Apple Search Ads
 
 `APPLE_SEARCH_ADS_ORG_ID`, `_KEY_ID`, `_CLIENT_ID`, `_PRIVATE_KEY` (the `.p8` PEM,

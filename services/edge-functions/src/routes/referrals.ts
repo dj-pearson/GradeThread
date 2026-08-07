@@ -15,6 +15,7 @@ import {
   REFERRAL_MILESTONES,
 } from "../lib/referral-rewards.ts";
 import { applyReferredSignupIncentive, getReferralRewardConfig } from "../lib/referrals.ts";
+import { certIdFromLandingPath, recordShareSignup } from "../lib/share-to-earn.ts";
 
 type Env = { Variables: { userId?: string } };
 
@@ -415,17 +416,30 @@ referralRoutes.post("/redeem", async (c) => {
   if (attributionSource === "affiliate") {
     const { data: click } = await supabaseAdmin
       .from("affiliate_clicks")
-      .select("id")
+      .select("id, landing_path")
       .eq("code", code)
       .is("converted_user_id", null)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (click?.id) {
+    const converted = click as { id?: string; landing_path?: string | null } | null;
+    if (converted?.id) {
       await supabaseAdmin
         .from("affiliate_clicks")
         .update({ converted_user_id: userId })
-        .eq("id", click.id);
+        .eq("id", converted.id);
+
+      // US-1854: a signup is the strongest thing a shared find can produce, so
+      // it pays the top rung of the share ladder outright. The click's
+      // landing_path is the ONLY record of which find brought this person in —
+      // the referral event knows who referred them, not what they clicked. The
+      // referrer is the code's owner, resolved above; nothing here trusts the
+      // signing-up user's input. Best-effort: a reward problem must never fail a
+      // redemption that already landed.
+      const certId = certIdFromLandingPath(converted.landing_path);
+      if (certId) {
+        await recordShareSignup(owner.user_id, "cert", certId);
+      }
     }
   }
 

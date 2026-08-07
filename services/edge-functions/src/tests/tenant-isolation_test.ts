@@ -3434,6 +3434,46 @@ Deno.test({
   },
 });
 
+// US-1854: the share-to-earn loop. Recording a tracked share of a find you do
+// not own would be worse than a cosmetic lie — `share_events.sharer_hash` is the
+// self-click defence, so a foreign share row lets an attacker bank a fingerprint
+// against the victim's find and have the victim's genuine clicks discarded as
+// self-clicks. recordShare resolves the certificate's owner server-side and
+// refuses anything that isn't the caller.
+Deno.test({
+  name: "B cannot record a tracked share of A's certificate",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CERT_ID"),
+  fn: async () => {
+    const certId = Deno.env.get("TEST_USER_A_CERT_ID")!;
+    const res = await fetch(`${BASE}/api/rewards/share`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ targetType: "cert", targetId: certId, channel: "x" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST rewards/share for a foreign-owned certificate");
+
+    // The stats read is owner-scoped by construction (the caller's id IS the
+    // filter), so it answers 200 — but it must answer with B's zeros, never A's
+    // numbers. A denial is equally acceptable.
+    const stats = await fetch(
+      `${BASE}/api/rewards/share/cert/${encodeURIComponent(certId)}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    if (stats.status === 200) {
+      const body = (await stats.json().catch(() => ({}))) as { shares?: number };
+      assertEquals(
+        body.shares ?? 0,
+        0,
+        "share stats must not report another tenant's shares",
+      );
+    } else {
+      await stats.body?.cancel();
+      assertDenied(stats.status, "GET rewards/share stats for a foreign cert");
+    }
+  },
+});
+
 // US-1847 (AC1) audit — buyer routes with NO cross-tenant id/path vector, so no
 // scope-test case is possible or needed (documented so every buyer route is
 // accounted for):

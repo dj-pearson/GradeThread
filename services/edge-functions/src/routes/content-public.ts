@@ -28,6 +28,8 @@ import { FALLBACK_PNG_BASE64, isCardFrameKey } from "../lib/cert-og-template.ts"
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
 import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
+import { visitorFingerprint } from "../lib/share-to-earn.ts";
+import { clientIp } from "../middleware/rate-limit.ts";
 import {
   badgeByKey,
   type PublicAchievement,
@@ -1487,10 +1489,20 @@ contentPublicRoutes.post("/badge-click", async (c) => {
   ) {
     return c.json({ ok: false }, 200); // never surface validation detail to a public pinger
   }
+  // US-1854: the visitor fingerprint for the share loop. Derived SERVER-SIDE
+  // from the Cloudflare-verified IP + User-Agent — never from anything the
+  // caller can set — so "unique verified click" can't be manufactured by a
+  // pinger rotating a header. Null when the request carried no trustworthy IP,
+  // which recordBadgeClick treats as "record it, reward nothing".
+  const userAgent = c.req.header("user-agent") ?? null;
+  const visitorHash = await visitorFingerprint(clientIp(c), userAgent);
+
   const { recorded } = await recordBadgeClick({
     targetType: body.targetType,
     targetId: body.targetId,
     source: body.source,
+    visitorHash,
+    userAgent,
   });
   return c.json({ ok: recorded });
 });

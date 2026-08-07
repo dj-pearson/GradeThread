@@ -12,6 +12,8 @@ code_refs:
   - services/edge-functions/src/lib/rewards-levels.ts
   - services/edge-functions/src/lib/rewards-seasons.ts
   - services/edge-functions/src/lib/rewards-quests.ts
+  - services/edge-functions/src/lib/share-to-earn.ts
+  - services/edge-functions/src/lib/badge-analytics.ts
   - src/lib/buyer-rewards-summary.ts
 reviewed: 2026-08-07
 tags: [rewards, gamification, buyer, seller, contract]
@@ -71,6 +73,7 @@ as the thing that should only ever pay once:
 | `aspects_filled` | `item:<itemId>` | item |
 | `badge_embedded` | `cert:<certId>` | certificate, no matter how many impressions |
 | `verified_share` | `<target>:<id>:<source>` | badge target |
+| `share_milestone` | `share:<type>:<id>:<rung>` | rung, per shared find |
 | `grade_confirmed` | `<purchaseId>` | purchase |
 
 Because the key absorbs replays, **there is nothing to mash**: clicking your own
@@ -101,10 +104,13 @@ self-limiting: a free or junk submission that abstains or fails has its charge
 reversed and earns nothing, so there is no way to farm XP by burning our own AI
 budget. A new event type that costs us model spend belongs in that set.
 
-### Exactly one type has variable XP, and it is bounded three times
+### Variable-XP types are bounded three times
 
-`quest_completed` (US-1852) is the only entry whose award is not a catalog
-constant: a quest's reward is admin-configurable, so the amount is decided by the
+`quest_completed` (US-1852) and `share_milestone` (US-1854) are the only entries
+whose award is not a catalog constant. Both freeze the amount into the event's
+metadata at grant time and both are read through the one `frozenXpAward` helper,
+so a recompute cannot disagree with what was paid. Taking the quest as the
+worked example: a quest's reward is admin-configurable, so the amount is decided by the
 quest definition and **frozen into the event's metadata at grant time**. Editing
 a quest later never rewrites what someone already earned, and a recompute from
 the log stays truthful without consulting the config.
@@ -281,6 +287,75 @@ Four rules constrain anything added here:
 Attaching a milestone to a **season goal** is the one place this crosses into the
 cosmetic track. It is opt-in per goal and off by default — season goals stay
 cosmetic until an operator says otherwise.
+
+## The share loop pays on the CLICK, never on the press (US-1854)
+
+`share-to-earn.ts`. Pressing share is **tracked and worth zero**. The `share_events`
+row (00542) records that a seller shared a find; the XP lands later, on
+click-throughs the sharer does not control:
+
+| Step | Event | Award | Dedupe key |
+|---|---|---|---|
+| press share | *(none — a `share_events` row)* | 0 | — |
+| 1st verified click | `verified_share` | 20 | `cert:<id>:share` |
+| 3 / 10 / 25 unique clicks | `share_milestone` | 25 / 60 / 150 | `share:cert:<id>:<rung>` |
+| a signup off the find | `share_milestone` | 150 | `share:cert:<id>:signup` |
+
+This is a decision, not an oversight: the story's AC reads "creates a tracked
+share **and grants XP**", and its own notes say "reward on verified conversion,
+not raw share, to prevent farming". A button that pays on press is a button to
+mash, and the sharer holds both ends of it. So the share is tracked (the row is
+load-bearing — see below) and the *share* earns its XP, through the click.
+
+**One find's ladder is finite.** Every rung is one-per-find by dedupe key, so a
+single certificate can earn at most 20 + 25 + 60 + 150 XP no matter how many
+times its link is opened. That is the same anti-farming construction as the rest
+of the ledger, applied per rung.
+
+**A tracked share is a precondition, not decoration.** `evaluateShareMilestones`
+refuses to pay a find with no `share_events` row. This is what stops the ladder
+from paying for links that never went through our sheet, and it is where the
+sharer's own fingerprint is banked.
+
+### Four gates decide whether a click is "verified"
+
+All four are server-side, and all four fail CLOSED:
+
+1. **Bot gate.** `isLikelyBotUserAgent` — a MISSING agent counts as a bot. Every
+   social network fetches a posted URL to build its unfurl card, so without this
+   the act of posting a link manufactures its own clicks.
+2. **Fingerprint.** A salted, truncated SHA-256 of (Cloudflare-verified IP,
+   User-Agent). No trustworthy IP ⇒ no handle ⇒ recorded, not rewarded. A
+   spoofable handle would make "unique clicks" mean "times the header was
+   rotated". It is not an identity and no IP is stored.
+3. **Self-click.** A click whose handle matches a `sharer_hash` banked when the
+   seller shared is recorded with `self_click = true` and never paid.
+4. **Daily caps.** `share_record` (100/day) and `share_milestone` (25/day) ride
+   the shared `rate_limit_counters` store. The per-find ladder is already finite,
+   so the milestone cap bounds the OTHER shape: many finds, each pushed over a
+   rung by manufactured clicks.
+
+`share_events` is **deny-all** for the same reason `sharer_hash` exists: a client
+that could write a share row against someone else's find would bank a fingerprint
+there and have that seller's genuine clicks discarded as self-clicks. Ownership
+of the certificate is resolved server-side on every recorded share.
+
+### Only XP is minted here
+
+A signup through a baked referral link **already** pays the sharer grade credits
+through the referral loop (`referrals.ts`). The share ladder adds the XP that
+loop does not, and deliberately mints no second credit — two faucets on one act
+pay twice for it. The signup is attributed to a find by the converted affiliate
+click's `landing_path`, which is the only record of *which* find brought the
+person in; the referral event knows only who referred them.
+
+### `Viral Find` is one find, not many
+
+The medal's criterion is `viralFindCount >= 1` — a find that reached the top
+click rung or produced a signup. It used to be `shareCount >= 10`, which is ten
+*different* finds clicked once each: a medal named for a viral find that could be
+earned without ever having one. A per-item claim needs a per-item criterion.
+Earned medals are kept, so tightening it takes nothing from anyone.
 
 ## Wiring a new source
 

@@ -163,6 +163,7 @@ Deno.test("the remaining catalog events are wired at a source", async () => {
     ["../lib/buyer-grade-confirmation.ts", "grade_confirmed"],
     ["../routes/flipdesk-ai.ts", "aspects_filled"],
     ["../routes/content-public.ts", "badge_embedded"],
+    ["../lib/share-to-earn.ts", "share_milestone"],
   ];
   for (const [path, eventType] of wiring) {
     const src = await Deno.readTextFile(new URL(path, import.meta.url));

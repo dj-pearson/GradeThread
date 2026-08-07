@@ -575,6 +575,13 @@ a learning that only matters to ONE surface, put it in that surface's file.
   were red on `main` before US-1853; the migration manifest was stale for 00540
   the same way (`node scripts/gen-migration-manifest.mjs` regenerates it).
 
+- Adding an entry to `REWARD_XP_CATALOG` SILENTLY widens `QUEST_METRICS`, which
+  is derived from the catalog's keys — but the allowed quest metrics are ALSO a
+  CHECK in 00540, which the new key is not in. So an admin gets a validator that
+  passes and an insert that 23514s. Either exclude the new type in the
+  `QUEST_METRICS` filter (US-1854 did, for `share_milestone`) or widen the CHECK
+  in the same commit. No test catches the mismatch.
+
 ## Tangible rewards (money-moving grants)
 - XP is NEVER debited — milestones GRANT, they never charge (US-1853). The
   catalog is the `reward_milestones` table (00541), not the compiled

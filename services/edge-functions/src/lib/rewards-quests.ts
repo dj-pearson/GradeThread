@@ -32,6 +32,7 @@ import { isFeatureEnabled } from "./feature-flags.ts";
 import { notifyUser } from "./notify.ts";
 import {
   clampQuestXp,
+  frozenXpAward,
   grantReward,
   type RewardEventType,
   REWARD_XP_CATALOG,
@@ -71,7 +72,12 @@ export interface QuestDefinition {
  */
 export const QUEST_METRICS: readonly QuestMetric[] = [
   ...(Object.keys(REWARD_XP_CATALOG) as RewardEventType[]).filter(
-    (t) => t !== "quest_completed",
+    // `quest_completed`: a quest counting quest completions bootstraps an XP
+    // loop. `share_milestone` (US-1854): its award is already the escalating
+    // reach ladder, so a quest counting it pays a second, uncapped time for the
+    // same viral event — and the 00540 CHECK does not allow it either, so
+    // offering it would be a validator that passes and an insert that fails.
+    (t) => t !== "quest_completed" && t !== "share_milestone",
   ),
   "xp",
 ];
@@ -292,7 +298,7 @@ function toQuestEvent(row: {
     occurredAt: row.occurred_at,
     verified: row.verified,
     paid: row.metadata?.paid === true,
-    xpAward: clampQuestXp(row.metadata?.quest_xp),
+    xpAward: frozenXpAward(row.metadata),
   };
 }
 

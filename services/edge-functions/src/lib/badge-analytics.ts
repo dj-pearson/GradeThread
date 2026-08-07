@@ -10,12 +10,28 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException } from "./observability.ts";
 import { grantReward } from "./rewards-engine.ts";
+import {
+  evaluateShareMilestones,
+  isLikelyBotUserAgent,
+  isSelfClick,
+  SHARE_CLICK_SOURCES,
+} from "./share-to-earn.ts";
 
-// The ?s= sources that represent a genuine badge click (as opposed to a direct
-// visit or an internal share). Kept tight so the funnel means "badge-driven".
+// The ?s= sources that represent a genuine click-through to a seller's grade
+// (as opposed to a direct visit). Kept tight so the funnel stays meaningful.
 // US-1844: `buyer` = a trust badge clicked inside a GradeThread buyer surface
 // (extension overlay, alerts, watchlist, portfolio) — same attribution ledger.
-export const BADGE_CLICK_SOURCES = new Set(["embed", "badge", "qr", "buyer"]);
+// US-1854: `share` = someone followed a link the seller shared from the cert
+// share sheet. It is the same question the other four answer — "did a real
+// person come back to this grade because of it?" — so it rides the same ledger
+// rather than a parallel one, and the funnel gains a `share` bucket.
+export const BADGE_CLICK_SOURCES = new Set([
+  "embed",
+  "badge",
+  "qr",
+  "buyer",
+  "share",
+]);
 
 export type BadgeTargetType = "cert" | "seller";
 
@@ -56,22 +72,55 @@ export async function recordBadgeClick(input: {
   targetType: BadgeTargetType;
   targetId: string;
   source: string;
+  /** US-1854: salted visitor fingerprint (share sources only). Null when the
+   *  request carried no trustworthy IP — see visitorFingerprint. */
+  visitorHash?: string | null;
+  /** US-1854: raw User-Agent, used only for the bot gate on share clicks. */
+  userAgent?: string | null;
 }): Promise<{ recorded: boolean }> {
   try {
     const source = input.source.trim().toLowerCase();
-    const targetId = input.targetId.trim();
+    // Clipped once, up front: the stored id, the reward dedupe key and the
+    // share-ladder lookups must all key on the SAME string or a long id would
+    // silently split into two finds.
+    const targetId = input.targetId.trim().slice(0, 200);
     if (!targetId || !BADGE_CLICK_SOURCES.has(source)) return { recorded: false };
+
+    // US-1854 anti-gaming, applied to the SHARE loop only so the pre-existing
+    // badge funnel keeps behaving exactly as it did. Every social network
+    // fetches a posted URL to build its unfurl card, so without this the act of
+    // posting a link would manufacture its own "verified" clicks.
+    const isShareClick = SHARE_CLICK_SOURCES.has(source);
+    if (isShareClick && isLikelyBotUserAgent(input.userAgent)) {
+      return { recorded: false };
+    }
 
     const ownerUserId = await resolveOwner(input.targetType, targetId);
     if (!ownerUserId) return { recorded: false };
 
+    const shareTargetType = input.targetType === "cert" ? "cert" : null;
+    const visitorHash = isShareClick ? input.visitorHash ?? null : null;
+    // The seller opening their own shared link. Recorded (the funnel should
+    // still see it) but never rewarded.
+    const selfClick = isShareClick && shareTargetType
+      ? await isSelfClick(ownerUserId, shareTargetType, targetId, visitorHash)
+      : false;
+
     const { error } = await supabaseAdmin.from("badge_click_events").insert({
       owner_user_id: ownerUserId,
       target_type: input.targetType,
-      target_id: targetId.slice(0, 200),
+      target_id: targetId,
       source,
+      visitor_hash: visitorHash,
+      self_click: selfClick,
     });
     if (error) return { recorded: false };
+
+    // A share click with no trustworthy fingerprint, or the sharer's own, is a
+    // recorded click that earns nothing. Fail-closed: an unspoofable handle is
+    // the whole basis of "unique verified click", so no handle means no reward
+    // rather than a reward we cannot defend.
+    if (isShareClick && (selfClick || !visitorHash)) return { recorded: true };
 
     // US-1848: this click closes the epic's core loop — a grade was shared, a
     // real person followed it back, and the seller earns for it. It is the only
@@ -86,13 +135,21 @@ export async function recordBadgeClick(input: {
     // which is where velocity and self-click detection belong.
     try {
       await grantReward(ownerUserId, "verified_share", {
-        referenceId: `${input.targetType}:${targetId.slice(0, 200)}:${source}`,
+        referenceId: `${input.targetType}:${targetId}:${source}`,
         source: "badge_click",
         metadata: { target_type: input.targetType, click_source: source },
       });
     } catch (err) {
       // A reward problem must never break the public page that pinged us.
       captureException(err, { level: "warn", route: "badge-analytics.reward" });
+    }
+
+    // US-1854: the escalating half. Only a share click can move the ladder, and
+    // evaluateShareMilestones re-derives the DISTINCT non-self click count from
+    // the ledger rather than trusting this one request — so a rung is paid on
+    // reach that actually happened. Best-effort, like the grant above.
+    if (isShareClick && shareTargetType) {
+      await evaluateShareMilestones(ownerUserId, shareTargetType, targetId);
     }
     return { recorded: true };
   } catch (err) {
