@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/grade-adjustment.ts
   - services/edge-functions/src/routes/content-public.ts
   - services/edge-functions/src/tests/certificate-revision-stamp_test.ts
-reviewed: 2026-08-04
+reviewed: 2026-08-07
 tags: [grading, certificates, provenance, seo]
 summary: A certificate records when its certified content was last rewritten in place; NULL means never revised, and a regrade must never set it.
 ---

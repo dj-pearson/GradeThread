@@ -428,6 +428,13 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `src/test/public-grade-report-view-parity.test.ts`. Rule:
   [[public-certificate-read-paths]].
 
+- The VERIFIED SELLER PROFILE has the same two-read-path shape: humans in prod
+  get the Pages Function SSR (`functions/verified/[handle].ts`), the SPA route
+  (`src/pages/verified-seller.tsx`) serves in-app/dev, and both consume the ONE
+  `/api/content/public/sellers/:handle` payload. A new field added to one
+  renderer only reads `undefined` on the other and its section just vanishes —
+  no test goes red. Guard: `src/test/verified-achievements-parity.test.ts`.
+
 ## A new AI feature needs BOTH economics config surfaces
 - Metering a new `ai_usage_events.feature` reaches the admin dashboards through
   TWO `system_settings` rows, not one: `ai_feature_economics` (the OBSERVED
