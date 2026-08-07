@@ -4344,3 +4344,9 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T11:23:20.827Z
 - Cost: $11.1296 over 106 turns
 ---
+## US-1848: EPIC: GradeThread Rewards — gamified grade -> share -> reward viral loop
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-08-07T11:46:11.114Z
+- Reason: Add `dependsOn` for US-1849..US-1859 to US-1848 in prd.json (and the same for US-1794) so the harness stops selecting umbrella epics ahead of their own children.
+- Cost: $9.2090 over 100 turns
+---
