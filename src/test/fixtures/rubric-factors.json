@@ -60,5 +60,90 @@
         { "key": "interior_odor", "label": "Interior & Odor", "weight": 0.1 }
       ]
     }
-  }
+  },
+  "_weighted_readme": [
+    "US-1997 activation step 2: the SCORING half of the parity guard.",
+    "",
+    "The block above pins the rubric DEFINITIONS. This block pins what both mirrors DO with",
+    "them — computeRubricWeightedOverall, the generalized weighted overall that replaces the",
+    "clothing-only FACTOR_WEIGHTS loops in ai-grading.ts and human-review.ts for any rubric.",
+    "Definitions matching while the arithmetic drifts would leave a cert rendering the right",
+    "factor labels against a number computed some other way, which is the failure this whole",
+    "guard exists to prevent.",
+    "",
+    "Every expected_overall here was derived by hand from the weights, NOT captured from a",
+    "run — a fixture recorded from the implementation it tests only pins the bug in place.",
+    "Cases avoid exact .05 boundaries so float noise cannot flip a round-half-up tie and make",
+    "the suites disagree for a reason that has nothing to do with drift.",
+    "",
+    "watches and shoes share clothing's .30/.25/.20/.15/.10 vector, so their cases reuse sums",
+    "already verified by weighted-grade-cases.json. sports_cards (.30/.25/.25/.20) is the only",
+    "novel weight vector and carries the arithmetic in its own right."
+  ],
+  "weighted_cases": [
+    { "rubric": "sports_cards", "scores": { "surface": 10, "corners": 10, "edges": 10, "centering": 10 }, "expected_overall": 10 },
+    { "rubric": "sports_cards", "scores": { "surface": 1, "corners": 1, "edges": 1, "centering": 1 }, "expected_overall": 1 },
+    { "rubric": "sports_cards", "scores": { "surface": 8, "corners": 7, "edges": 9, "centering": 6 }, "expected_overall": 7.6 },
+    { "rubric": "sports_cards", "scores": { "surface": 9, "corners": 1, "edges": 9, "centering": 1 }, "expected_overall": 5.4 },
+    { "rubric": "sports_cards", "scores": { "surface": 10, "corners": 4, "edges": 8, "centering": 6 }, "expected_overall": 7.2 },
+    { "rubric": "sports_cards", "scores": { "surface": 7.5, "corners": 8, "edges": 6.5, "centering": 9 }, "expected_overall": 7.7 },
+    { "rubric": "sports_cards", "scores": { "surface": 6, "corners": 6.5, "edges": 7, "centering": 7.5 }, "expected_overall": 6.7 },
+    { "rubric": "watches", "scores": { "dial_hands": 10, "case_bracelet": 10, "crystal": 10, "movement_function": 10, "cosmetic": 10 }, "expected_overall": 10 },
+    { "rubric": "watches", "scores": { "dial_hands": 8.5, "case_bracelet": 8.5, "crystal": 8, "movement_function": 8, "cosmetic": 8.5 }, "expected_overall": 8.3 },
+    { "rubric": "watches", "scores": { "dial_hands": 9, "case_bracelet": 8.5, "crystal": 9, "movement_function": 8.5, "cosmetic": 8 }, "expected_overall": 8.7 },
+    { "rubric": "shoes", "scores": { "upper": 1, "outsole": 1, "structure": 1, "cosmetic": 1, "interior_odor": 1 }, "expected_overall": 1 },
+    { "rubric": "shoes", "scores": { "upper": 7.5, "outsole": 7, "structure": 7.5, "cosmetic": 7, "interior_odor": 7 }, "expected_overall": 7.3 },
+    { "rubric": "shoes", "scores": { "upper": 5, "outsole": 9, "structure": 5, "cosmetic": 9, "interior_odor": 5 }, "expected_overall": 6.6 },
+    { "rubric": "clothing", "scores": { "fabric_condition": 8.5, "structural_integrity": 9, "cosmetic_appearance": 8, "functional_elements": 7.5, "odor_cleanliness": 9.5 }, "expected_overall": 8.5 }
+  ],
+  "_refusal_readme": [
+    "Inputs on which BOTH mirrors must THROW rather than return a number, with the SAME message.",
+    "Same rule and the same reasoning as weighted-grade-cases.json refusal_cases (US-2386): a",
+    "missing factor scored as 0 produces a plausible low grade that nothing flags, and the",
+    "certificate reseal then certifies it. With a variable factor set the risk is strictly",
+    "higher, because 'which factors did this rubric expect' is no longer obvious from the code,",
+    "so the message names the rubric too.",
+    "",
+    "Same two JSON encoding limits as that fixture: undefined cannot be written (the key is",
+    "simply dropped), and NaN is carried as the sentinel string \"__NaN__\", which each runner",
+    "MUST convert to a real NaN before calling. A runner that forgets asserts on a string, which",
+    "also throws — so the test would pass for the wrong reason. Assert the sentinel is translated."
+  ],
+  "refusal_cases": [
+    {
+      "why": "surface omitted — the heaviest sports_cards factor at 30%",
+      "rubric": "sports_cards",
+      "scores": { "corners": 8, "edges": 8, "centering": 8 }
+    },
+    {
+      "why": "centering omitted — the lightest, so a coalesced result would be closest to plausible",
+      "rubric": "sports_cards",
+      "scores": { "surface": 8, "corners": 8, "edges": 8 }
+    },
+    {
+      "why": "explicit null, which is what a partially-populated factor_scores JSONB yields",
+      "rubric": "watches",
+      "scores": { "dial_hands": 8, "case_bracelet": null, "crystal": 8, "movement_function": 8, "cosmetic": 8 }
+    },
+    {
+      "why": "NaN (sentinel) — arithmetic already went wrong upstream; do not launder it into a grade",
+      "rubric": "shoes",
+      "scores": { "upper": 8, "outsole": 8, "structure": "__NaN__", "cosmetic": 8, "interior_odor": 8 }
+    },
+    {
+      "why": "a numeric-looking string — JS would coerce it in the multiply and return a real-looking overall",
+      "rubric": "shoes",
+      "scores": { "upper": "8", "outsole": 8, "structure": 8, "cosmetic": 8, "interior_odor": 8 }
+    },
+    {
+      "why": "clothing scores handed to the sports_cards rubric — a mis-routed report, not a missing value. Every expected key is absent, so it must refuse rather than score a card on zero factors",
+      "rubric": "sports_cards",
+      "scores": { "fabric_condition": 8, "structural_integrity": 8, "cosmetic_appearance": 8, "functional_elements": 8, "odor_cleanliness": 8 }
+    },
+    {
+      "why": "empty object — every factor missing",
+      "rubric": "clothing",
+      "scores": {}
+    }
+  ]
 }

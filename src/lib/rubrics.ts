@@ -82,3 +82,65 @@ export function rubricForKey(key: string | null | undefined): Rubric {
   if (!key) return CLOTHING_RUBRIC;
   return RUBRICS[key] ?? CLOTHING_RUBRIC;
 }
+
+// ---------------------------------------------------------------------------
+// Rubric-driven weighted overall (US-1997) — mirror of the edge implementation
+// in services/edge-functions/src/lib/rubric.ts. Same arithmetic, same 0.1
+// rounding, same refusal, same error message.
+// ---------------------------------------------------------------------------
+//
+// The web already has ONE weighted-overall (src/lib/weighted-grade.ts), and it
+// is not this: that one is hard-typed to the five clothing factors keyed by
+// their grade_reports COLUMN names, which is the shape every admin surface
+// edits. This one is keyed by a rubric's own factor keys — the shape
+// grade_reports.factor_scores stores — and works for any factor set. Both
+// exist on purpose; for clothing they return the same number on the same
+// input, and that is asserted rather than assumed (rubrics.test.ts runs the
+// shared weighted-grade fixture through both).
+//
+// NO CLAMP, deliberately — see the edge mirror for the reasoning.
+
+/**
+ * A rubric's weights must sum to 1.0. Floating-point exact equality is the
+ * wrong test for that, so callers and suites compare within this tolerance.
+ */
+export const RUBRIC_WEIGHT_SUM_TOLERANCE = 1e-9;
+
+/** Sum of a rubric's factor weights. Should be 1.0 for every rubric. */
+export function rubricWeightSum(rubric: Rubric): number {
+  return rubric.factors.reduce((total, factor) => total + factor.weight, 0);
+}
+
+function requireRubricFactor(
+  rubric: Rubric,
+  scores: Record<string, number>,
+  key: string,
+): number {
+  const value = scores[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(
+      `computeRubricWeightedOverall: factor "${key}" of rubric ` +
+        `"${rubric.key}" is missing or not finite (got ${String(value)}). ` +
+        `Refusing to compute a weighted overall from an incomplete factor set.`,
+    );
+  }
+  return value;
+}
+
+/**
+ * The weighted overall for ANY rubric, rounded to 0.1.
+ *
+ * `scores` is keyed by the rubric's own factor keys — the shape
+ * grade_reports.factor_scores (migration 00231) stores for a non-clothing
+ * report.
+ */
+export function computeRubricWeightedOverall(
+  rubric: Rubric,
+  scores: Record<string, number>,
+): number {
+  let total = 0;
+  for (const factor of rubric.factors) {
+    total += requireRubricFactor(rubric, scores, factor.key) * factor.weight;
+  }
+  return Math.round(total * 10) / 10;
+}

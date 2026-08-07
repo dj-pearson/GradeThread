@@ -6,21 +6,32 @@
 // activation phase, select factors + weights + prompt guidance + defect routing
 // by category instead of assuming clothing.
 //
-// FOUNDATION ONLY: this registry is NOT yet wired into the live pipeline, so
-// clothing grading is byte-for-byte unchanged. The web mirror
-// (src/lib/rubrics.ts) renders certificates from these definitions and MUST
-// stay in sync (factor keys + weights + labels). The clothing weights here are
-// identical to ai-grading.ts FACTOR_WEIGHTS.
+// NOT YET WIRED into the live pipeline, so clothing grading is byte-for-byte
+// unchanged. The web mirror (src/lib/rubrics.ts) renders certificates from
+// these definitions and MUST stay in sync (factor keys + weights + labels) —
+// pinned by src/test/fixtures/rubric-factors.json, which both suites assert.
+// The clothing weights here are identical to ai-grading.ts FACTOR_WEIGHTS.
 //
-// Activation checklist (follow-up):
-//   1. Pass item_category into the grading pipeline (flipdesk-grading currently
-//      maps it to garment_type; non-clothing has neither, and submissions
-//      requires garment_type NOT NULL — de-gate that first).
+// Activation checklist (US-1997 decided ACTIVATE; this is a multi-phase
+// program, so the checklist records what is done and what is not):
+//   1. TODO — Pass item_category into the grading pipeline (flipdesk-grading
+//      currently maps it to garment_type; non-clothing has neither, and
+//      submissions requires garment_type NOT NULL — de-gate that first).
 //   2. Select the rubric by item_category; build the composite prompt from
 //      rubric.factors + rubric.promptGuidance; compute the overall score from
 //      these weights; route defects via rubric.defectRouting.
-//   3. Persist grade_reports.factor_scores (JSONB) + rubric_key; recreate the
-//      public_grade_reports view to expose them.
+//      - DONE: the scoring math — computeRubricWeightedOverall below, pinned
+//        against the clothing implementations it generalizes.
+//      - TODO: the per-category composite prompts and defect routing. New
+//        prompts reach live traffic ONLY through shadow → golden-set eval gate
+//        → canary, and no non-clothing golden set exists yet (golden cases grow
+//        from real human-corrected grades; they cannot be fabricated). That is
+//        the gate this phase is waiting on, not a missing decision.
+//   3. TODO — Persist grade_reports.factor_scores (JSONB) + rubric_key on ALL
+//      write paths (insert + human-review reseal + adjustment, or the JSONB
+//      goes stale against the typed columns); recreate the public_grade_reports
+//      view to expose them. The public cert allowlist (content-public.ts
+//      CERT_REPORT_COLUMNS) already carries both columns.
 
 export interface RubricFactor {
   key: string;
@@ -139,4 +150,87 @@ export const NON_CLOTHING_RUBRIC_KEYS = ["sports_cards", "watches", "shoes"] as 
 export function rubricForKey(key: string | null | undefined): Rubric {
   if (!key) return CLOTHING;
   return RUBRICS[key] ?? CLOTHING;
+}
+
+// ---------------------------------------------------------------------------
+// Rubric-driven weighted overall (US-1997, activation checklist step 2)
+// ---------------------------------------------------------------------------
+//
+// The two live weighted-overall implementations — ai-grading.roundToTenth over
+// FACTOR_WEIGHTS, and human-review.computeWeightedOverall — are both hard-typed
+// to the five CLOTHING factors, in two different key spaces (AI response names
+// vs. grade_reports column names). Neither can score a rubric with a different
+// factor set, so nothing downstream of this registry could compute an overall
+// for a card, a watch or a pair of shoes.
+//
+// This is the generalized form: same arithmetic, same 0.1 rounding, same
+// refusal, but the factor set comes from the rubric instead of a hardcoded
+// union. For CLOTHING it is byte-identical to both existing implementations —
+// that is not an assertion of intent, it is asserted directly, by running the
+// existing shared fixture (src/test/fixtures/weighted-grade-cases.json, the
+// US-2034/US-2386 table the other two mirrors are already pinned by) through
+// this function under the clothing rubric. See rubric-parity_test.ts.
+//
+// It is deliberately NOT wired into the pipeline yet: activating non-clothing
+// grading needs new per-category composite prompts, and a new prompt reaches
+// live traffic only through shadow-compare → golden-set eval gate → canary
+// (see the grading-engine contract). The non-clothing golden set does not exist
+// yet and cannot be fabricated — golden cases grow from real human-corrected
+// grades. So this lands the scoring math, pinned, ahead of that gate.
+//
+// NO CLAMP, on purpose. ai-grading clamps the weighted sum to 1.0–10.0 before
+// rounding; human-review does not. Under the invariant both rely on — every
+// factor validated to 1.0–10.0, rubric weights summing to 1.0 — the clamp is a
+// no-op, so the two agree today. Clamping HERE would not be a no-op if that
+// invariant ever broke: it would quietly launder an out-of-range factor into a
+// plausible grade, which is the same failure mode US-2386 removed when it
+// replaced `?? 0` with a refusal. An impossible input should announce itself.
+
+/**
+ * A rubric's weights must sum to 1.0. Floating-point exact equality is the
+ * wrong test for that, so callers and suites compare within this tolerance.
+ */
+export const RUBRIC_WEIGHT_SUM_TOLERANCE = 1e-9;
+
+/** Sum of a rubric's factor weights. Should be 1.0 for every rubric. */
+export function rubricWeightSum(rubric: Rubric): number {
+  return rubric.factors.reduce((total, factor) => total + factor.weight, 0);
+}
+
+// Mirrors requireFactor in human-review.ts / src/lib/weighted-grade.ts — a
+// missing or non-finite factor REFUSES rather than scoring itself as 0 or
+// falling out as NaN. The message names the rubric as well as the factor,
+// because with a variable factor set "corners is missing" is ambiguous about
+// which rubric was expected. src/lib/rubrics.ts produces the SAME string.
+function requireRubricFactor(
+  rubric: Rubric,
+  scores: Record<string, number>,
+  key: string,
+): number {
+  const value = scores[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(
+      `computeRubricWeightedOverall: factor "${key}" of rubric ` +
+        `"${rubric.key}" is missing or not finite (got ${String(value)}). ` +
+        `Refusing to compute a weighted overall from an incomplete factor set.`,
+    );
+  }
+  return value;
+}
+
+/**
+ * The weighted overall for ANY rubric, rounded to 0.1.
+ *
+ * `scores` is keyed by the rubric's own factor keys — the shape
+ * grade_reports.factor_scores (00231) stores for a non-clothing report.
+ */
+export function computeRubricWeightedOverall(
+  rubric: Rubric,
+  scores: Record<string, number>,
+): number {
+  let total = 0;
+  for (const factor of rubric.factors) {
+    total += requireRubricFactor(rubric, scores, factor.key) * factor.weight;
+  }
+  return Math.round(total * 10) / 10;
 }
