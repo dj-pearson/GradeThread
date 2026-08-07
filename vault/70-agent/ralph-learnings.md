@@ -452,6 +452,14 @@ a learning that only matters to ONE surface, put it in that surface's file.
   keys really are members of the taxonomy/enum it says it reuses. Full case:
   [[shipped-but-unwired]].
 
+## An allowance is inert until something spends it
+- A NUMBER in a plan matrix (`activeAlertsCap`, `portfolioItemCap`, credits) is
+  decoration until a call site reads it and refuses. The parity test cannot see
+  this — it compares advertised to enforced, and two agreeing numbers nothing
+  reads pass it perfectly. When the row is written CLIENT-SIDE under RLS there is
+  no route to guard, so gate the OUTCOME instead (US-1805 caps in the matching
+  engine, not on the insert). Rule + the bound/unbound table: [[buyer-platform]].
+
 ## DB schema ownership gotchas
 - `grade_reports` has NO `user_id` column — ownership flows through
   `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A

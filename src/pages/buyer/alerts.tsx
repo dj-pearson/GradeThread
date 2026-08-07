@@ -16,6 +16,7 @@ import { ChipInput } from "@/components/buyer/chip-input";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { useSavedSearches } from "@/hooks/use-saved-searches";
+import { alertCapState, countActiveSearches } from "@/lib/watchlist";
 import { useWatchlist } from "@/hooks/use-watchlist";
 import { useBuyerAlertMatches } from "@/hooks/use-buyer-alert-matches";
 import { useBuyerTrustSignals } from "@/hooks/use-buyer-trust-signals";
@@ -51,11 +52,14 @@ function SavedSearchCard({
   onSave,
   onDelete,
   busy,
+  canActivate,
 }: {
   search: SavedSearchRow;
   onSave: (id: string, patch: Partial<SavedSearchRow>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   busy: boolean;
+  /** False when the plan's active-alert cap is full (US-1805). */
+  canActivate: boolean;
 }) {
   const [label, setLabel] = useState(search.label);
   const [brands, setBrands] = useState<string[]>(search.brands);
@@ -93,6 +97,8 @@ function SavedSearchCard({
             <Switch
               id={`active-${search.id}`}
               checked={search.is_active}
+              // Pausing is always allowed; resuming needs room under the cap.
+              disabled={!search.is_active && !canActivate}
               onCheckedChange={(v) => toggle({ is_active: v })}
             />
             {search.is_active ? "Active" : "Paused"}
@@ -210,6 +216,14 @@ export function BuyerAlertsPage() {
   // Local digest frequency, seeded from prefs. "immediate" is capped to a digest
   // for plans whose alertFrequency is only "daily" (the edge enforces this too).
   const canInstant = ent.config.alertFrequency !== "daily";
+
+  // US-1805: the plan's cap on CONCURRENTLY ACTIVE saved searches. Shown and
+  // respected here so the buyer sees the limit they were sold; the matching
+  // engine enforces it regardless of what this screen allows.
+  const alertCap = alertCapState(
+    countActiveSearches(searches.searches),
+    ent.config.activeAlertsCap,
+  );
   const [digest, setDigest] = useState<string>("immediate");
   const [digestSeeded, setDigestSeeded] = useState(false);
   useEffect(() => {
@@ -248,6 +262,11 @@ export function BuyerAlertsPage() {
   }
 
   async function createSearch() {
+    // A new search is created ACTIVE, so it counts against the cap immediately.
+    if (alertCap.atCap) {
+      toast.error(`Your plan runs ${alertCap.cap} active alerts. Pause one, or upgrade for more.`);
+      return;
+    }
     try {
       await searches.create();
       toast.success("Alert created — tune its criteria below");
@@ -257,6 +276,10 @@ export function BuyerAlertsPage() {
   }
 
   async function saveSearch(id: string, patch: Partial<SavedSearchRow>) {
+    if (patch.is_active === true && alertCap.atCap) {
+      toast.error(`Your plan runs ${alertCap.cap} active alerts. Pause one, or upgrade for more.`);
+      return;
+    }
     try {
       await searches.update(id, patch);
       toast.success("Alert saved");
@@ -315,11 +338,35 @@ export function BuyerAlertsPage() {
 
         {/* ── Saved searches ── */}
         <TabsContent value="searches" className="space-y-4">
-          <div className="flex justify-end">
-            <Button onClick={createSearch} disabled={searches.isMutating} size="sm">
+          {/* US-1805: the plan's active-alert allowance, stated plainly. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              {alertCap.unlimited
+                ? `${alertCap.activeCount} active ${alertCap.activeCount === 1 ? "alert" : "alerts"} — unlimited on your plan`
+                : `${alertCap.activeCount} of ${alertCap.cap} active alerts used`}
+              {alertCap.atCap && !alertCap.unlimited && (
+                <>
+                  {" · "}
+                  <Link to="/buyer/billing?upgrade=conditionAlerts" className="font-medium text-primary underline-offset-4 hover:underline">
+                    Upgrade for more
+                  </Link>
+                </>
+              )}
+            </p>
+            <Button
+              onClick={createSearch}
+              disabled={searches.isMutating || alertCap.atCap}
+              size="sm"
+            >
               <Plus className="mr-1.5 h-4 w-4" /> New alert
             </Button>
           </div>
+          {alertCap.atCap && (
+            <p className="text-sm text-muted-foreground">
+              You're running every alert your plan includes. Pause one to swap in a new search,
+              or move up a plan to watch more at once.
+            </p>
+          )}
           {searches.isLoading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -348,6 +395,7 @@ export function BuyerAlertsPage() {
                 onSave={saveSearch}
                 onDelete={deleteSearch}
                 busy={searches.isMutating}
+                canActivate={!alertCap.atCap}
               />
             ))
           )}

@@ -18,7 +18,9 @@ const {
   buildAlertBody,
   DEFAULT_ALERTS_CONFIG,
   SAVED_SEARCH_SCAN_CAP,
+  entitledSearchIds,
 } = await import("../lib/condition-alerts.ts");
+const { BUYER_PLAN_ENTITLEMENTS } = await import("../lib/buyer-plans.ts");
 
 type Search = Parameters<typeof matchesSearch>[1];
 type Cert = Parameters<typeof matchesSearch>[0];
@@ -34,6 +36,7 @@ function search(o: Partial<Search> = {}): Search {
     min_grade: null,
     max_price_cents: null,
     last_matched_at: null,
+    created_at: "2026-01-01T00:00:00.000Z",
     ...o,
   };
 }
@@ -222,6 +225,7 @@ Deno.test("US-2315: the stalest search really is picked first (the starvation ve
     min_grade: null,
     max_price_cents: null,
     last_matched_at: last,
+    created_at: "2026-01-01T00:00:00.000Z",
   });
   // "never matched" sorts ahead of every dated one — that is the null → 0 rule.
   const sel = selectDueSearches(
@@ -250,6 +254,7 @@ Deno.test("US-2315: a search that is never re-stamped stays first forever", () =
     min_grade: null,
     max_price_cents: null,
     last_matched_at: last,
+    created_at: "2026-01-01T00:00:00.000Z",
   });
   const cfg = { ...DEFAULT_ALERTS_CONFIG, maxSearchesPerRun: 1 };
   const searches = [mk("poison", null), mk("waiting", "2026-07-01T10:00:00Z")];
@@ -335,5 +340,83 @@ Deno.test("US-2317: the cap sits far above the per-run budget", () => {
   assert(
     SAVED_SEARCH_SCAN_CAP > DEFAULT_ALERTS_CONFIG.maxSearchesPerRun * 100,
     "the read cap must not double as a per-run budget",
+  );
+});
+
+// ── US-1805: the plan cap on concurrently-active alerts ──────────────────────
+//
+// activeAlertsCap was advertised on both halves of the plan matrix and
+// parity-tested, but nothing read it — saved searches are written client-side
+// under RLS, so this engine is the only place the cap can be enforced.
+
+function capRow(id: string, created_at: string) {
+  return { id, created_at };
+}
+
+Deno.test("US-1805: a limited plan entitles only its OLDEST N active searches", () => {
+  const mine = [
+    capRow("a", "2026-01-01T00:00:00Z"),
+    capRow("b", "2026-02-01T00:00:00Z"),
+    capRow("c", "2026-03-01T00:00:00Z"),
+    capRow("d", "2026-04-01T00:00:00Z"),
+  ];
+  const entitled = entitledSearchIds(mine, 3, true);
+  assertEquals(entitled.size, 3);
+  assert(entitled.has("a") && entitled.has("b") && entitled.has("c"));
+  assert(!entitled.has("d"), "the newest search is the one over the cap");
+});
+
+Deno.test("US-1805: the entitled subset is STABLE regardless of input order", () => {
+  const mine = [
+    capRow("c", "2026-03-01T00:00:00Z"),
+    capRow("a", "2026-01-01T00:00:00Z"),
+    capRow("b", "2026-02-01T00:00:00Z"),
+  ];
+  // Shuffled input, same answer — otherwise an over-cap buyer would get a
+  // different arbitrary subset alerted on every sweep.
+  assertEquals([...entitledSearchIds(mine, 2, true)].sort(), ["a", "b"]);
+  assertEquals([...entitledSearchIds([...mine].reverse(), 2, true)].sort(), ["a", "b"]);
+});
+
+Deno.test("US-1805: same-instant rows tie-break on id, so the result is deterministic", () => {
+  const same = "2026-01-01T00:00:00Z";
+  const mine = [capRow("z", same), capRow("a", same), capRow("m", same)];
+  assertEquals([...entitledSearchIds(mine, 2, true)].sort(), ["a", "m"]);
+});
+
+Deno.test("US-1805: an unlimited cap entitles everything", () => {
+  const mine = Array.from({ length: 40 }, (_, i) => capRow(`s${i}`, "2026-01-01T00:00:00Z"));
+  assertEquals(entitledSearchIds(mine, -1, true).size, 40);
+});
+
+Deno.test("US-1805: a plan without the alerts flag entitles NOTHING, cap notwithstanding", () => {
+  const mine = [capRow("a", "2026-01-01T00:00:00Z")];
+  assertEquals(entitledSearchIds(mine, -1, false).size, 0);
+  assertEquals(entitledSearchIds(mine, 25, false).size, 0);
+});
+
+Deno.test("US-1805: a cap of zero entitles nothing", () => {
+  assertEquals(entitledSearchIds([capRow("a", "2026-01-01T00:00:00Z")], 0, true).size, 0);
+});
+
+Deno.test("US-1805: the caps the engine enforces are the ENFORCED plan matrix's", () => {
+  // Guards the binding, not the numbers — buyer-plan-limits-parity.test.ts is
+  // what keeps the advertised and enforced numbers equal.
+  const mine = Array.from({ length: 30 }, (_, i) =>
+    capRow(`s${i}`, `2026-01-${String(i + 1).padStart(2, "0")}T00:00:00Z`));
+  const free = BUYER_PLAN_ENTITLEMENTS.free;
+  const guard = BUYER_PLAN_ENTITLEMENTS.guard;
+  const conn = BUYER_PLAN_ENTITLEMENTS.connoisseur;
+  assertEquals(
+    entitledSearchIds(mine, free.allowances.activeAlertsCap, free.gateFlags.conditionAlerts).size,
+    3,
+  );
+  assertEquals(
+    entitledSearchIds(mine, guard.allowances.activeAlertsCap, guard.gateFlags.conditionAlerts).size,
+    25,
+  );
+  assertEquals(
+    entitledSearchIds(mine, conn.allowances.activeAlertsCap, conn.gateFlags.conditionAlerts).size,
+    30,
   );
 });

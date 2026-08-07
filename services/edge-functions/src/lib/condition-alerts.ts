@@ -19,6 +19,11 @@
 // never double-alerts; and the fixed schedule self-heals a crashed run on the
 // next tick (reclaim). Config-driven kill-switch + per-run budget bound the cost.
 //
+// ENTITLEMENT (US-1805): a buyer's plan caps how many saved searches may be
+// ACTIVE at once (activeAlertsCap — Free 3 / Guard 25 / Connoisseur unlimited).
+// This engine is where that cap is ENFORCED, because saved searches are written
+// client-side under RLS and there is no route in between. See entitledSearchIds.
+//
 // PRICE FAIRNESS (AC): a saved search's max_price is compared to the Value Index
 // FAIR price for the item's (brand, grade) — a public cert has no live sale
 // price, so "at/below fair for this grade" is the meaningful ceiling. Best-effort:
@@ -28,6 +33,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { acquireJobLock } from "./job-lock.ts";
+import { resolveBuyerEntitlements } from "./buyer-entitlements.ts";
 import { isCertificateWithheld } from "./certificate-visibility.ts";
 import { captureException, logEvent } from "./observability.ts";
 import { getSetting } from "./system-settings.ts";
@@ -86,6 +92,8 @@ export interface AlertSearch {
   min_grade: number | null;
   max_price_cents: number | null;
   last_matched_at: string | null;
+  /** US-1805: creation order decides which searches fit under the plan cap. */
+  created_at: string;
 }
 
 /** A public certificate projected to just what matching needs. */
@@ -189,6 +197,110 @@ export function selectDueSearches(
   };
 }
 
+// ── Per-buyer entitlement cap (US-1805) ─────────────────────────────────────
+//
+// `activeAlertsCap` (Free 3 / Guard 25 / Connoisseur unlimited) was advertised on
+// both halves of the plan matrix and parity-tested, but NOTHING read it — saved
+// searches are written client-side straight to Supabase under RLS, so there was
+// no route to gate and the cap was decoration. The buyer-facing UI now shows and
+// respects it, but the UI is not the enforcement: this is, because the engine is
+// the only place a saved search turns into the thing being sold (an alert).
+//
+// A search is entitled when its plan unlocks conditionAlerts AND it is among the
+// buyer's `cap` OLDEST active searches. Oldest-first is deliberate: it is stable
+// across runs (so a buyer over the cap does not get a different random subset
+// alerted each sweep), and it keeps the searches the buyer has relied on longest
+// rather than silencing them in favour of a search made this morning.
+
+/**
+ * The subset of ONE buyer's active searches the plan entitles. PURE.
+ *
+ * `cap` < 0 means unlimited; `featureEnabled` false means none at all (a plan
+ * that does not include alerts). Ties on `created_at` break on `id` so the
+ * result is deterministic for rows written in the same transaction.
+ */
+export function entitledSearchIds(
+  searchesForUser: ReadonlyArray<{ id: string; created_at: string }>,
+  cap: number,
+  featureEnabled: boolean,
+): Set<string> {
+  if (!featureEnabled) return new Set();
+  if (cap < 0) return new Set(searchesForUser.map((s) => s.id));
+  const limit = Math.max(0, Math.trunc(cap));
+  if (limit === 0) return new Set();
+  const ordered = [...searchesForUser].sort((a, b) => {
+    const at = Date.parse(a.created_at) || 0;
+    const bt = Date.parse(b.created_at) || 0;
+    if (at !== bt) return at - bt;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return new Set(ordered.slice(0, limit).map((s) => s.id));
+}
+
+interface BuyerPlanRow {
+  id: string;
+  buyer_plan?: string | null;
+  buyer_subscription_status?: string | null;
+  flipdesk_plan?: string | null;
+  subscription_status?: string | null;
+  trial_ends_at?: string | null;
+  past_due_since?: string | null;
+}
+
+/**
+ * Resolve the alert entitlement (feature flag + cap) for a set of buyers in one
+ * read. FAIL-SAFE TO FREE, matching getBuyerEntitlements: a missing row or a
+ * failed read resolves to the Free floor (3 alerts, feature on) rather than to
+ * "deny everything" — a transient DB hiccup must not silence every buyer's
+ * alerts, and it must not hand anyone a paid cap either.
+ */
+async function loadAlertCaps(
+  userIds: string[],
+): Promise<Map<string, { cap: number; enabled: boolean }>> {
+  const out = new Map<string, { cap: number; enabled: boolean }>();
+  const free = resolveBuyerEntitlements(null, null);
+  const freeEntry = {
+    cap: free.allowances.activeAlertsCap,
+    enabled: free.gateFlags.conditionAlerts,
+  };
+  for (const id of userIds) out.set(id, freeEntry);
+  if (userIds.length === 0) return out;
+
+  // Chunked so a raised maxSearchesPerRun can't build an unbounded `in(...)`.
+  for (let i = 0; i < userIds.length; i += 200) {
+    const chunk = userIds.slice(i, i + 200);
+    const { data, error } = await supabaseAdmin
+      .from("users")
+      .select(
+        "id, buyer_plan, buyer_subscription_status, flipdesk_plan, subscription_status, trial_ends_at, past_due_since",
+      )
+      .in("id", chunk);
+    if (error) {
+      captureException(new Error(`condition-alerts cap load failed: ${error.message}`), {
+        level: "warn",
+        route: "condition-alerts.caps",
+      });
+      continue; // leave this chunk on the Free floor
+    }
+    for (const row of (data ?? []) as BuyerPlanRow[]) {
+      // US-1887: the seller plan folds in, so a Business seller is a
+      // Connoisseur buyer without a second subscription — same rule as every
+      // other buyer gate, resolved by the same function.
+      const ent = resolveBuyerEntitlements(row.buyer_plan, row.buyer_subscription_status, {
+        flipdeskPlan: row.flipdesk_plan,
+        flipdeskStatus: row.subscription_status,
+        trialEndsAt: row.trial_ends_at ?? null,
+        pastDueSince: row.past_due_since ?? null,
+      });
+      out.set(row.id, {
+        cap: ent.allowances.activeAlertsCap,
+        enabled: ent.gateFlags.conditionAlerts,
+      });
+    }
+  }
+  return out;
+}
+
 // ── DB-touching orchestration ────────────────────────────────────────────────
 
 interface CandidateRow {
@@ -273,6 +385,8 @@ export interface AlertsRunResult {
   matchesEmitted: number;
   candidatePool: number;
   budgetCapped: boolean;
+  /** US-1805: searches skipped because their owner is over their plan's cap. */
+  overCapSkipped: number;
   disabled?: boolean;
   /**
    * US-2315: searches whose matching pass THREW. Named `failed` because
@@ -325,6 +439,7 @@ export async function runConditionAlerts(
       matchesEmitted: 0,
       candidatePool: 0,
       budgetCapped: false,
+      overCapSkipped: 0,
       disabled: true,
     };
   }
@@ -345,7 +460,7 @@ export async function runConditionAlerts(
   const { data: searchData, error: sErr } = await supabaseAdmin
     .from("saved_searches")
     .select(
-      "id, user_id, label, brands, categories, keywords, min_grade, max_price_cents, last_matched_at",
+      "id, user_id, label, brands, categories, keywords, min_grade, max_price_cents, last_matched_at, created_at",
     )
     .eq("is_active", true)
     .order("last_matched_at", { ascending: true, nullsFirst: true })
@@ -360,17 +475,46 @@ export async function runConditionAlerts(
       matchesEmitted: 0,
       candidatePool: 0,
       budgetCapped: false,
+      overCapSkipped: 0,
     };
   }
 
   const sel = selectDueSearches(searches, config, nowMs);
+
+  // US-1805: resolve the entitled subset for every buyer represented in this
+  // batch. The RANKING uses the buyer's FULL active set (from the read above),
+  // not just their rows in the batch — "your 3 oldest" is only meaningful
+  // against all of them. Only the batch's owners are looked up, so this is one
+  // bounded read per run, not one per search.
+  const batchUserIds = [...new Set(sel.batch.map((s) => s.user_id))];
+  const caps = await loadAlertCaps(batchUserIds);
+  const entitled = new Set<string>();
+  for (const userId of batchUserIds) {
+    const plan = caps.get(userId);
+    const mine = searches.filter((s) => s.user_id === userId);
+    for (const id of entitledSearchIds(mine, plan?.cap ?? 0, plan?.enabled ?? false)) {
+      entitled.add(id);
+    }
+  }
+
   const candidates = await loadCandidateCerts(config, nowMs);
   const hub = candidates.length > 0 ? await getValueHub() : [];
 
   let matchesEmitted = 0;
   let failed = 0;
+  let overCapSkipped = 0;
   for (const search of sel.batch) {
     try {
+      if (!entitled.has(search.id)) {
+        // Over the plan's activeAlertsCap (or on a plan without alerts at all).
+        // STAMPED, not merely skipped: an unstamped row stays the stalest
+        // forever and is re-picked at the head of every run — the US-2315
+        // starvation shape. Stamping costs one write and lets it rotate, so an
+        // over-cap search consumes only its fair share of the budget.
+        overCapSkipped += 1;
+        await stampSearch(search, nowMs);
+        continue;
+      }
       let emittedForSearch = 0;
       for (const cert of candidates) {
         if (emittedForSearch >= config.maxMatchesPerSearch) break;
@@ -421,17 +565,23 @@ export async function runConditionAlerts(
   }
 
   logEvent("info", "condition-alerts.run", {
-    searchesEvaluated: sel.batch.length,
+    // Honest count: searches actually matched against the candidate pool. An
+    // over-cap search consumed a budget slot but was never evaluated.
+    searchesEvaluated: sel.batch.length - overCapSkipped,
     matchesEmitted,
     candidatePool: candidates.length,
     budgetCapped: sel.budgetCapped,
+    overCapSkipped,
     failed,
   });
   return {
-    searchesEvaluated: sel.batch.length,
+    // Honest count: searches actually matched against the candidate pool. An
+    // over-cap search consumed a budget slot but was never evaluated.
+    searchesEvaluated: sel.batch.length - overCapSkipped,
     matchesEmitted,
     candidatePool: candidates.length,
     budgetCapped: sel.budgetCapped,
+    overCapSkipped,
     failed,
   };
 }

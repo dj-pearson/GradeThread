@@ -70,6 +70,57 @@ export function newSavedSearchFromPreferences(
   };
 }
 
+// ── Plan cap on active alerts (US-1805) ─────────────────────────────────────
+//
+// `BUYER_PLANS[plan].activeAlertsCap` is Free 3 / Guard 25 / Connoisseur
+// unlimited. What follows is the CLIENT half: it keeps the UI honest about the
+// limit the buyer was sold and stops them creating an alert that would never
+// fire. It is NOT the enforcement — saved searches are written straight to
+// Supabase under RLS, so anything client-side is advisory. The matching engine
+// (services/edge-functions/src/lib/condition-alerts.ts, entitledSearchIds) is
+// the authority: it only ever alerts on a buyer's `cap` oldest active searches.
+
+export interface AlertCapState {
+  /** The plan's cap, normalised. Meaningless when `unlimited`. */
+  cap: number;
+  unlimited: boolean;
+  activeCount: number;
+  /** How many more may be activated. `Infinity` when unlimited. */
+  remaining: number;
+  atCap: boolean;
+}
+
+/** Resolve the cap state for a buyer. PURE. Negative cap = unlimited. */
+export function alertCapState(activeCount: number, cap: number): AlertCapState {
+  const active = Math.max(0, Math.trunc(activeCount));
+  if (cap < 0) {
+    return {
+      cap,
+      unlimited: true,
+      activeCount: active,
+      remaining: Number.POSITIVE_INFINITY,
+      atCap: false,
+    };
+  }
+  const limit = Math.max(0, Math.trunc(cap));
+  return {
+    cap: limit,
+    unlimited: false,
+    activeCount: active,
+    // `>=`, not `===`: a buyer who was downgraded is OVER the cap, not at it,
+    // and must still be blocked from activating more.
+    remaining: Math.max(0, limit - active),
+    atCap: active >= limit,
+  };
+}
+
+/** How many of a buyer's saved searches count against the cap. */
+export function countActiveSearches(
+  searches: ReadonlyArray<{ is_active: boolean }>,
+): number {
+  return searches.reduce((n, s) => (s.is_active ? n + 1 : n), 0);
+}
+
 /** Stable key for a watch target so a "watched?" lookup is O(1). */
 export function watchTargetKey(
   targetType: "certificate" | "listing" | "passport",

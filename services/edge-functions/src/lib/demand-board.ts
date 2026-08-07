@@ -103,7 +103,11 @@ export function wantToSearch(w: WantSearchFields): AlertSearch {
     keywords: w.keywords,
     min_grade: w.min_grade,
     max_price_cents: w.max_price_cents,
+    // Scheduling/entitlement fields the projection has no analogue for.
+    // matchesSearch reads NEITHER — a want is matched on criteria alone, and
+    // wants are capped by their own board rules, not by activeAlertsCap.
     last_matched_at: null,
+    created_at: new Date(0).toISOString(),
   };
 }
 

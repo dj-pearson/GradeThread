@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  alertCapState,
+  countActiveSearches,
   defaultSearchCriteriaFromPreferences,
   EMPTY_SEARCH_CRITERIA,
   newSavedSearchFromPreferences,
   watchTargetKey,
 } from "@/lib/watchlist";
+import { BUYER_PLANS } from "@/lib/constants";
 import type { BuyerPreferencesRow } from "@/types/database";
 
 function prefs(overrides: Partial<BuyerPreferencesRow> = {}): BuyerPreferencesRow {
@@ -88,5 +91,53 @@ describe("watchTargetKey", () => {
   it("is stable and type-scoped so a cert and listing with the same id differ", () => {
     expect(watchTargetKey("certificate", "abc")).toBe("certificate:abc");
     expect(watchTargetKey("certificate", "abc")).not.toBe(watchTargetKey("listing", "abc"));
+  });
+});
+
+// US-1805: the plan cap on concurrently-active alerts. This is the CLIENT half
+// (honest UI); the engine's entitledSearchIds is the enforcement.
+describe("alertCapState", () => {
+  it("counts remaining room and flags the cap on a limited plan", () => {
+    expect(alertCapState(0, 3)).toMatchObject({ remaining: 3, atCap: false, unlimited: false });
+    expect(alertCapState(2, 3)).toMatchObject({ remaining: 1, atCap: false });
+    expect(alertCapState(3, 3)).toMatchObject({ remaining: 0, atCap: true });
+  });
+
+  it("treats a DOWNGRADED buyer (over the cap) as capped, not as having room", () => {
+    // Connoisseur → Free with 9 active alerts. `>=` is what makes this true; an
+    // `===` check would leave the create button live and remaining negative.
+    const state = alertCapState(9, 3);
+    expect(state.atCap).toBe(true);
+    expect(state.remaining).toBe(0);
+  });
+
+  it("never caps an unlimited plan", () => {
+    const state = alertCapState(500, -1);
+    expect(state.unlimited).toBe(true);
+    expect(state.atCap).toBe(false);
+    expect(state.remaining).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("a cap of zero blocks everything", () => {
+    expect(alertCapState(0, 0)).toMatchObject({ atCap: true, remaining: 0 });
+  });
+
+  it("matches the advertised buyer plan matrix", () => {
+    expect(alertCapState(3, BUYER_PLANS.free.activeAlertsCap).atCap).toBe(true);
+    expect(alertCapState(3, BUYER_PLANS.guard.activeAlertsCap).atCap).toBe(false);
+    expect(alertCapState(9999, BUYER_PLANS.connoisseur.activeAlertsCap).atCap).toBe(false);
+  });
+});
+
+describe("countActiveSearches", () => {
+  it("counts only active searches — a paused search frees a slot", () => {
+    expect(
+      countActiveSearches([
+        { is_active: true },
+        { is_active: false },
+        { is_active: true },
+      ]),
+    ).toBe(2);
+    expect(countActiveSearches([])).toBe(0);
   });
 });

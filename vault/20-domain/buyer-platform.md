@@ -7,9 +7,11 @@ source_of_truth: code
 code_refs:
   - src/lib/constants.ts
   - src/lib/buyer-features.ts
+  - src/lib/watchlist.ts
   - src/lib/__tests__/buyer-plan-limits-parity.test.ts
   - services/edge-functions/src/lib/buyer-plans.ts
   - services/edge-functions/src/lib/buyer-entitlements.ts
+  - services/edge-functions/src/lib/condition-alerts.ts
 reviewed: 2026-08-07
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
@@ -103,6 +105,48 @@ the key order** of `BUYER_FEATURES`. A bullet naming two features ("3 authentici
 + 2 video-grade credits / month") badges only on the first one that matches, so
 flipping the second feature's `live` changes nothing visible. A feature that needs
 its own badge needs its own bullet.
+
+## A gate flag is a switch; an allowance needs a *binding*
+
+`gateFlags` gate themselves — `requireBuyerFeature` is the one call and a route
+either makes it or does not. **Allowances do not.** A number in the matrix is
+inert until some call site reads it and refuses, and the parity test cannot see
+the difference: it compares the advertised number to the enforced number, and two
+agreeing numbers that nothing reads pass it perfectly.
+
+So the question to ask of any allowance is *where is it spent*, and the answer
+takes one of three shapes:
+
+| Allowance | Bound by |
+|---|---|
+| `extensionChecksPerMonth`, `authenticityCreditsPerMonth` | `withBuyerMeter` — debited per action |
+| `alertFrequency` | `effectiveDigestMode` (`buyer-notify.ts`) — floors the buyer's chosen cadence |
+| `activeAlertsCap` | `entitledSearchIds` (`condition-alerts.ts`) — the matching engine |
+| `videoGradeCreditsPerMonth` | **nothing** — see the next section |
+| `portfolioItemCap` | **nothing** — US-1824 owns it |
+
+`activeAlertsCap` is the instructive one, because its binding could not be a
+route guard. Saved searches are written **client-side straight to Supabase under
+RLS** — there is no edge route between the buyer and the row, so there is nothing
+for `requireBuyerFeature` to sit in front of. It was decoration for the whole of
+the alerts epic for that reason.
+
+US-1805 resolved it by moving the gate to where the thing being *sold* is
+produced. A saved search is not the product; an **alert** is. So the matching
+engine resolves each batch buyer's plan and evaluates only their `cap` **oldest**
+active searches — oldest because that is stable across sweeps (an over-cap buyer
+must not get a different arbitrary subset alerted each run) and because it keeps
+the searches they have relied on longest. The buyer UI shows and respects the
+same cap, but is explicitly *not* the enforcement.
+
+Two rules fall out of that, both general:
+
+- **Gate the outcome, not the row**, whenever the row is client-written. A client
+  check on an RLS-direct write is advice, not a limit.
+- **An over-cap row still gets stamped.** Skipping it without stamping
+  `last_matched_at` leaves it permanently stalest, so it is re-picked at the head
+  of every run — the [[ralph-learnings|US-2315]] starvation shape, re-created by
+  the fix for a different problem.
 
 ## Known gap: buyer video-grade credits are advertised but not reachable
 
