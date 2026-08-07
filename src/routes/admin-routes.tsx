@@ -103,6 +103,7 @@ const GrowthAnnouncementsPage = lazy(() => import("@/pages/admin/growth/announce
 const GrowthReferralsPage = lazy(() => import("@/pages/admin/growth/referrals").then(m => ({ default: m.GrowthReferralsPage })));
 const BuyerGrowthPage = lazy(() => import("@/pages/admin/growth/buyer").then(m => ({ default: m.BuyerGrowthPage })));
 const GrowthQuestsPage = lazy(() => import("@/pages/admin/growth/quests").then(m => ({ default: m.GrowthQuestsPage })));
+const GrowthRewardMilestonesPage = lazy(() => import("@/pages/admin/growth/reward-milestones").then(m => ({ default: m.GrowthRewardMilestonesPage })));
 
 export function AdminRoutes() {
   return (
@@ -194,6 +195,7 @@ export function AdminRoutes() {
       <Route path="growth/referrals" element={<SuspenseWrapper><GrowthReferralsPage /></SuspenseWrapper>} />
       <Route path="growth/buyer" element={<SuspenseWrapper><BuyerGrowthPage /></SuspenseWrapper>} />
       <Route path="growth/quests" element={<SuspenseWrapper><GrowthQuestsPage /></SuspenseWrapper>} />
+      <Route path="growth/reward-milestones" element={<SuspenseWrapper><GrowthRewardMilestonesPage /></SuspenseWrapper>} />
       // Content module — blog, social, topic bank, knowledge base,
       // analytics + settings. Lives in the admin dashboard (admin +
       // super_admin), behind the AdminMfaGate like every other admin

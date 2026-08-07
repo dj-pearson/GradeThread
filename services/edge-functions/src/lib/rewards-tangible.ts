@@ -1,4 +1,4 @@
-// US-1848 (epic spine): the TANGIBLE reward rail.
+// US-1848 / US-1853: the TANGIBLE reward rail.
 //
 // The cosmetic track (XP, levels, badges, streaks — rewards-engine.ts,
 // rewards-badges.ts) is free and unlimited: it costs nothing to award status.
@@ -9,7 +9,9 @@
 //   1. XP IS NEVER SPENT. A milestone is a THRESHOLD crossed, not a purchase.
 //      Crossing it claims a reward_tangible_grants row; the XP total is not
 //      debited and only ever accrues. (Spendable currency remains the existing
-//      grade-credit ledger.)
+//      grade-credit ledger.) This is why a level or a leaderboard rank can never
+//      go backwards for redeeming — the redemption does not touch the number the
+//      rank is computed from.
 //   2. IDEMPOTENT BY CLAIM-BEFORE-PAY. The UNIQUE (user_id, milestone_key) index
 //      is the guarantee: the row is inserted BEFORE any value moves, so two
 //      concurrent grant paths cannot double-pay a milestone. A delivery failure
@@ -17,73 +19,166 @@
 //      awardReferralMilestones (US-1071), which solved the same problem.
 //   3. CAPPED AND KILL-SWITCHED, FAIL-CLOSED. The `rewards_tangible` flag is read
 //      with defaultEnabled=false — unlike most flags here, a missing row or a DB
-//      blip pays NOBODY rather than everybody. Spend is bounded by three ceilings
-//      (global monthly, per-user monthly, per-user lifetime) evaluated against
-//      the marginal cost recorded on each grant.
+//      blip pays NOBODY rather than everybody. Spend is bounded by three USD
+//      ceilings (global monthly, per-user monthly, per-user lifetime) and, per
+//      milestone, by its own platform-wide monthly + lifetime issue caps.
 //
-// ── Why the catalog only mints credits today ────────────────────────────────
-// The table, the types and the budget rail all carry subscription_discount and
-// per_grade_discount, because US-1853 adds them with the Stripe coupon and
-// payment-precedence work they need. The CATALOG below deliberately ships only
-// free_grade_credits, and grantTangibleRewards refuses any reward type with no
-// registered fulfiller. A ledger row nothing honours is an inert promise to a
-// user — worse than no reward at all — so the fulfiller registry, not a comment,
-// is what keeps the two in step.
+// ── The catalog is data now (US-1853) ───────────────────────────────────────
+// TANGIBLE_MILESTONES below is no longer the ladder — it is the FALLBACK ladder,
+// used only when the reward_milestones table (00541) can't be read. The live
+// catalog is operator-editable: reward type, trigger (XP threshold | badge |
+// season goal), value, cost and caps. Keep the two in step in spirit, not by
+// hand: the seed in 00541 is exactly this list.
+//
+// ── Every reward type now has a fulfiller ───────────────────────────────────
+// US-1848 shipped credits only and refused the two discount types, because a
+// ledger row nothing honours is an inert promise to a user — worse than no
+// reward at all. US-1853 registers both: a subscription discount mints a Stripe
+// coupon redeemed at the next subscription checkout (payments.ts), and a
+// per-grade discount is a time-boxed entitlement read at the payment-precedence
+// step (grade-billing.ts) and applied at per-grade checkout. The registry, not a
+// comment, is still what keeps the catalog honest.
 
 import { supabaseAdmin } from "./supabase.ts";
 import { notifyUser } from "./notify.ts";
 import { getSetting } from "./system-settings.ts";
 import { isFeatureEnabled } from "./feature-flags.ts";
+import { getStripe } from "./stripe-client.ts";
 
 export type TangibleRewardType =
   | "free_grade_credits"
   | "subscription_discount"
   | "per_grade_discount";
 
+/** What unlocks a milestone. Mirrors the `trigger_type` CHECK in 00541. */
+export type MilestoneTriggerType = "xp_threshold" | "badge" | "season_goal";
+
 export interface MilestoneReward {
   /** Stable catalog key — also the idempotency key on the grant row. */
   key: string;
-  /** XP total at or above which the milestone unlocks. */
+  triggerType: MilestoneTriggerType;
+  /** XP total at or above which the milestone unlocks (xp_threshold only). */
   xpThreshold: number;
+  /** Badge key / season-goal key for the other two trigger types. */
+  triggerKey: string | null;
   rewardType: TangibleRewardType;
   /** Credits (a count) or a discount percent, per rewardType. */
   value: number;
   /** GradeThread's marginal cost of honouring it, in USD. */
   costUsd: number;
   label: string;
+  /** Months a subscription coupon repeats for (null = a single invoice). */
+  discountDurationMonths: number | null;
+  /** Days a per-grade discount stays live (null = DEFAULT_DISCOUNT_VALID_DAYS). */
+  discountValidDays: number | null;
+  /** Platform-wide issue caps for this milestone (null = uncapped). */
+  monthlyGrantCap: number | null;
+  lifetimeGrantCap: number | null;
+}
+
+/** A per-grade discount with no configured window lives this long. */
+export const DEFAULT_DISCOUNT_VALID_DAYS = 90;
+
+function xpMilestone(
+  key: string,
+  xpThreshold: number,
+  value: number,
+  costUsd: number,
+  label: string,
+): MilestoneReward {
+  return {
+    key,
+    triggerType: "xp_threshold",
+    xpThreshold,
+    triggerKey: null,
+    rewardType: "free_grade_credits",
+    value,
+    costUsd,
+    label,
+    discountDurationMonths: null,
+    discountValidDays: null,
+    monthlyGrantCap: null,
+    lifetimeGrantCap: null,
+  };
 }
 
 /**
- * The milestone ladder. Thresholds are spaced so the first reward lands after a
- * user has genuinely used the product (level 3 on the quadratic curve = 900 XP)
- * and later ones take sustained contribution — a farmed account hits the caps
- * long before it walks the ladder.
+ * The FALLBACK milestone ladder — what the engine grants when the catalog table
+ * can't be read. Thresholds are spaced so the first reward lands after a user has
+ * genuinely used the product (level 3 on the quadratic curve = 900 XP) and later
+ * ones take sustained contribution — a farmed account hits the caps long before
+ * it walks the ladder.
  *
  * costUsd is the AI + processing cost of a free grade, NOT its list price: the
  * budget protects the margin, so it must be denominated in what a grant actually
  * costs to honour.
  */
 export const TANGIBLE_MILESTONES: readonly MilestoneReward[] = [
-  { key: "xp_900_credits_1", xpThreshold: 900, rewardType: "free_grade_credits", value: 1, costUsd: 0.35, label: "1 free grade" },
-  { key: "xp_2500_credits_3", xpThreshold: 2_500, rewardType: "free_grade_credits", value: 3, costUsd: 1.05, label: "3 free grades" },
-  { key: "xp_6400_credits_5", xpThreshold: 6_400, rewardType: "free_grade_credits", value: 5, costUsd: 1.75, label: "5 free grades" },
-  { key: "xp_14400_credits_10", xpThreshold: 14_400, rewardType: "free_grade_credits", value: 10, costUsd: 3.5, label: "10 free grades" },
-  { key: "xp_25600_credits_20", xpThreshold: 25_600, rewardType: "free_grade_credits", value: 20, costUsd: 7, label: "20 free grades" },
+  xpMilestone("xp_900_credits_1", 900, 1, 0.35, "1 free grade"),
+  xpMilestone("xp_2500_credits_3", 2_500, 3, 1.05, "3 free grades"),
+  xpMilestone("xp_6400_credits_5", 6_400, 5, 1.75, "5 free grades"),
+  xpMilestone("xp_14400_credits_10", 14_400, 10, 3.5, "10 free grades"),
+  xpMilestone("xp_25600_credits_20", 25_600, 20, 7, "20 free grades"),
 ];
 
-/** Milestones an XP total has reached, lowest first. Pure. */
-export function milestonesForXp(xpTotal: number): MilestoneReward[] {
-  return TANGIBLE_MILESTONES
-    .filter((m) => xpTotal >= m.xpThreshold)
+/** XP milestones an XP total has reached, lowest first. Pure. */
+export function milestonesForXp(
+  xpTotal: number,
+  catalog: readonly MilestoneReward[] = TANGIBLE_MILESTONES,
+): MilestoneReward[] {
+  return catalog
+    .filter((m) => m.triggerType === "xp_threshold" && xpTotal >= m.xpThreshold)
     .sort((a, b) => a.xpThreshold - b.xpThreshold);
 }
 
-/** The next milestone above `xpTotal`, or null when the ladder is exhausted. */
-export function nextMilestoneForXp(xpTotal: number): MilestoneReward | null {
-  const ahead = TANGIBLE_MILESTONES
-    .filter((m) => xpTotal < m.xpThreshold)
+/** The next XP milestone above `xpTotal`, or null when the ladder is exhausted. */
+export function nextMilestoneForXp(
+  xpTotal: number,
+  catalog: readonly MilestoneReward[] = TANGIBLE_MILESTONES,
+): MilestoneReward | null {
+  const ahead = catalog
+    .filter((m) => m.triggerType === "xp_threshold" && xpTotal < m.xpThreshold)
     .sort((a, b) => a.xpThreshold - b.xpThreshold);
   return ahead[0] ?? null;
+}
+
+// ─── Triggers ───────────────────────────────────────────────────────────────
+
+/**
+ * Everything a milestone's trigger can be evaluated against. The two key sets
+ * are loaded lazily — a catalog with no badge/season milestone never pays for
+ * them (see loadTriggerContext).
+ */
+export interface MilestoneTriggerContext {
+  xpTotal: number;
+  badgeKeys: ReadonlySet<string>;
+  seasonGoalKeys: ReadonlySet<string>;
+}
+
+/** Has this milestone's trigger fired? Pure — the whole policy is testable. */
+export function isMilestoneUnlocked(
+  m: MilestoneReward,
+  ctx: MilestoneTriggerContext,
+): boolean {
+  switch (m.triggerType) {
+    case "xp_threshold":
+      return ctx.xpTotal >= m.xpThreshold;
+    case "badge":
+      return !!m.triggerKey && ctx.badgeKeys.has(m.triggerKey);
+    case "season_goal":
+      return !!m.triggerKey && ctx.seasonGoalKeys.has(m.triggerKey);
+  }
+}
+
+/** Every unlocked milestone, cheapest-cost first so a tight budget pays the
+ *  small rungs rather than being eaten by one expensive one. Pure. */
+export function unlockedMilestones(
+  catalog: readonly MilestoneReward[],
+  ctx: MilestoneTriggerContext,
+): MilestoneReward[] {
+  return catalog
+    .filter((m) => isMilestoneUnlocked(m, ctx))
+    .sort((a, b) => a.costUsd - b.costUsd || a.key.localeCompare(b.key));
 }
 
 // ─── Budget ─────────────────────────────────────────────────────────────────
@@ -162,22 +257,223 @@ export function budgetDecision(
   return { allowed: true };
 }
 
+/** Grants of ONE milestone already issued platform-wide. */
+export interface MilestoneIssueCounts {
+  monthCount: number;
+  lifetimeCount: number;
+}
+
+export type MilestoneCapRefusal = "milestone_monthly_cap" | "milestone_lifetime_cap";
+
+/**
+ * The per-milestone issue caps (00541). These narrow the USD budget, never widen
+ * it: both are checked, and either one refusing is a refusal. Pure.
+ *
+ * They are PLATFORM-WIDE rather than per-user because UNIQUE (user_id,
+ * milestone_key) already bounds a user to one grant of each milestone — the
+ * number that actually needs a ceiling is how many of a given reward go out
+ * before an operator looks at it again.
+ */
+export function milestoneCapDecision(
+  m: MilestoneReward,
+  counts: MilestoneIssueCounts,
+): { allowed: boolean; refusal?: MilestoneCapRefusal } {
+  if (m.lifetimeGrantCap !== null && counts.lifetimeCount + 1 > m.lifetimeGrantCap) {
+    return { allowed: false, refusal: "milestone_lifetime_cap" };
+  }
+  if (m.monthlyGrantCap !== null && counts.monthCount + 1 > m.monthlyGrantCap) {
+    return { allowed: false, refusal: "milestone_monthly_cap" };
+  }
+  return { allowed: true };
+}
+
 /** UTC first-of-month boundary for the monthly budget window. */
 export function monthStartIso(nowMs: number = Date.now()): string {
   const d = new Date(nowMs);
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
 }
 
+/** When a grant stops applying, or null for one that never expires. Pure. */
+export function grantExpiryIso(m: MilestoneReward, nowMs: number): string | null {
+  if (m.rewardType !== "per_grade_discount") return null;
+  const days = m.discountValidDays ?? DEFAULT_DISCOUNT_VALID_DAYS;
+  return new Date(nowMs + days * 86_400_000).toISOString();
+}
+
+// ─── Discounts ──────────────────────────────────────────────────────────────
+
+export interface CouponParams {
+  percentOff: number;
+  duration: "once" | "repeating";
+  durationInMonths?: number;
+  /** Single-user coupons are capped at one redemption. */
+  maxRedemptions?: number;
+  redeemByMs?: number;
+}
+
+/**
+ * The Stripe coupon a discount milestone mints. Pure, so the shape of the offer
+ * is testable without a Stripe key.
+ *
+ * A per-grade discount rides ONE-OFF payments, and Stripe only accepts a
+ * `duration: 'once'` coupon on a `mode: 'payment'` session — the entitlement's
+ * lifetime is carried by redeem_by (and by expires_at on the grant row), not by
+ * the coupon duration, which for a one-off charge is meaningless.
+ */
+export function couponParamsFor(m: MilestoneReward, nowMs: number): CouponParams {
+  const percentOff = Math.min(100, Math.max(1, Math.round(m.value)));
+  if (m.rewardType === "subscription_discount") {
+    const months = m.discountDurationMonths;
+    return months && months > 1
+      ? { percentOff, duration: "repeating", durationInMonths: months, maxRedemptions: 1 }
+      : { percentOff, duration: "once", maxRedemptions: 1 };
+  }
+  const expiry = grantExpiryIso(m, nowMs);
+  return {
+    percentOff,
+    duration: "once",
+    ...(expiry ? { redeemByMs: Date.parse(expiry) } : {}),
+  };
+}
+
+/** A live, unredeemed discount a checkout can apply. */
+export interface ActiveDiscount {
+  milestoneKey: string;
+  percentOff: number;
+  couponId: string;
+}
+
+interface GrantRow {
+  milestone_key: string;
+  reward_type: string;
+  reward_value: number | string;
+  expires_at: string | null;
+  consumed_at: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+/**
+ * Pick the discount a checkout should apply from a user's granted rows: the
+ * BIGGEST live one. Stripe takes a single discount per session, so when someone
+ * holds two the choice has to be deterministic, and giving them the smaller one
+ * is the sort of quiet shortchanging nobody would ever notice. Pure.
+ */
+export function activeDiscount(
+  rows: readonly GrantRow[],
+  rewardType: TangibleRewardType,
+  nowMs: number,
+): ActiveDiscount | null {
+  let best: ActiveDiscount | null = null;
+  for (const r of rows) {
+    if (r.reward_type !== rewardType) continue;
+    if (r.consumed_at) continue;
+    if (r.expires_at && Date.parse(r.expires_at) <= nowMs) continue;
+    const couponId = typeof r.metadata?.stripe_coupon_id === "string"
+      ? r.metadata.stripe_coupon_id
+      : "";
+    if (!couponId) continue;
+    const percentOff = Math.round(Number(r.reward_value) || 0);
+    if (percentOff <= 0) continue;
+    if (!best || percentOff > best.percentOff) {
+      best = { milestoneKey: r.milestone_key, percentOff, couponId };
+    }
+  }
+  return best;
+}
+
+/** Apply a whole-percent discount to a price in cents, never below zero. Pure. */
+export function discountedCents(priceCents: number, percentOff: number): number {
+  if (!Number.isFinite(priceCents) || priceCents <= 0) return Math.max(0, priceCents | 0);
+  const pct = Math.min(100, Math.max(0, Math.round(percentOff)));
+  if (pct === 0) return priceCents;
+  return Math.max(0, Math.round(priceCents * (100 - pct) / 100));
+}
+
+/**
+ * The live discount of `rewardType` for one user, or null. Tenant-scoped by
+ * user_id (US-268). Best-effort: a DB error reads as "no discount", which
+ * charges full price — the safe direction for a read that gates money.
+ */
+export async function loadActiveDiscount(
+  userId: string,
+  rewardType: TangibleRewardType,
+  nowMs: number = Date.now(),
+): Promise<ActiveDiscount | null> {
+  const { data, error } = await supabaseAdmin
+    .from("reward_tangible_grants")
+    .select("milestone_key, reward_type, reward_value, expires_at, consumed_at, metadata")
+    .eq("user_id", userId)
+    .eq("reward_type", rewardType)
+    .eq("status", "granted")
+    .is("consumed_at", null);
+  if (error) {
+    console.error("[rewards-tangible] discount load failed:", error.message);
+    return null;
+  }
+  return activeDiscount((data ?? []) as unknown as GrantRow[], rewardType, nowMs);
+}
+
+/**
+ * Mark a subscription discount redeemed. Called from the webhook that sees the
+ * subscription created — the same place the referral/drip coupons are consumed —
+ * so an abandoned checkout never burns the reward. Best-effort.
+ */
+export async function consumeSubscriptionDiscount(userId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("reward_tangible_grants")
+    .update({ consumed_at: new Date().toISOString() } as never)
+    .eq("user_id", userId)
+    .eq("reward_type", "subscription_discount")
+    .eq("status", "granted")
+    .is("consumed_at", null);
+  if (error) {
+    console.error("[rewards-tangible] discount consume failed:", error.message);
+  }
+}
+
 // ─── Fulfilment ─────────────────────────────────────────────────────────────
+
+/** Extra metadata a fulfiller wants recorded on the grant row (a coupon id). */
+type FulfilResult = Record<string, unknown> | void;
+
+async function mintRewardCoupon(
+  userId: string,
+  reward: MilestoneReward,
+  nowMs: number,
+): Promise<string> {
+  const stripe = getStripe();
+  // No Stripe, no coupon, no honourable discount. Throwing releases the claim so
+  // a later pass retries — far better than recording a grant nothing can redeem.
+  if (!stripe) throw new Error("STRIPE_UNAVAILABLE");
+
+  const params = couponParamsFor(reward, nowMs);
+  const coupon = await stripe.coupons.create(
+    {
+      percent_off: params.percentOff,
+      duration: params.duration,
+      ...(params.durationInMonths ? { duration_in_months: params.durationInMonths } : {}),
+      ...(params.maxRedemptions ? { max_redemptions: params.maxRedemptions } : {}),
+      ...(params.redeemByMs ? { redeem_by: Math.floor(params.redeemByMs / 1000) } : {}),
+      name: `Reward: ${reward.label}`.slice(0, 40),
+      metadata: { user_id: userId, milestone_key: reward.key, source: "rewards_milestone" },
+    },
+    // One coupon per (user, milestone) even across retries: a released-and-retried
+    // claim must not litter Stripe with duplicate live coupons.
+    { idempotencyKey: `reward-coupon:${userId}:${reward.key}` },
+  );
+  return coupon.id;
+}
 
 /**
  * How each reward type is actually honoured. A type with NO entry here can never
  * be granted (grantTangibleRewards skips it and logs), which is what stops the
- * ledger from filling with promises nothing redeems. US-1853 registers the two
- * discount fulfillers alongside its Stripe coupon work.
+ * ledger from filling with promises nothing redeems.
  */
 const FULFILLERS: Partial<
-  Record<TangibleRewardType, (userId: string, reward: MilestoneReward) => Promise<void>>
+  Record<
+    TangibleRewardType,
+    (userId: string, reward: MilestoneReward, nowMs: number) => Promise<FulfilResult>
+  >
 > = {
   free_grade_credits: async (userId, reward) => {
     const { error } = await supabaseAdmin.rpc("grant_grade_credits", {
@@ -189,11 +485,100 @@ const FULFILLERS: Partial<
     });
     if (error) throw new Error(error.message);
   },
+
+  // US-1853: a coupon on the user's single Stripe customer, applied at their next
+  // subscription checkout (payments.ts) and consumed by the webhook that sees the
+  // subscription created.
+  subscription_discount: async (userId, reward, nowMs) => ({
+    stripe_coupon_id: await mintRewardCoupon(userId, reward, nowMs),
+    percent_off: Math.round(reward.value),
+    duration_months: reward.discountDurationMonths,
+  }),
+
+  // US-1853: a time-boxed entitlement. The grant row IS the discount — it is read
+  // at the payment-precedence step so the quote is right, and the coupon is
+  // applied at per-grade checkout so the charge matches the quote.
+  per_grade_discount: async (userId, reward, nowMs) => ({
+    stripe_coupon_id: await mintRewardCoupon(userId, reward, nowMs),
+    percent_off: Math.round(reward.value),
+  }),
 };
 
 /** True when a reward type has a registered fulfiller. Pure. */
 export function isFulfillable(rewardType: TangibleRewardType): boolean {
   return typeof FULFILLERS[rewardType] === "function";
+}
+
+// ─── Catalog (service-role) ─────────────────────────────────────────────────
+
+interface MilestoneRow {
+  key: string;
+  label: string;
+  reward_type: string;
+  trigger_type: string;
+  xp_threshold: number | null;
+  trigger_key: string | null;
+  reward_value: number | string;
+  cost_usd: number | string;
+  discount_duration_months: number | null;
+  discount_valid_days: number | null;
+  monthly_grant_cap: number | null;
+  lifetime_grant_cap: number | null;
+}
+
+const REWARD_TYPES = new Set<string>([
+  "free_grade_credits",
+  "subscription_discount",
+  "per_grade_discount",
+]);
+const TRIGGER_TYPES = new Set<string>(["xp_threshold", "badge", "season_goal"]);
+
+/** Map a catalog row onto the engine's shape, or null if it is unusable. Pure. */
+export function milestoneFromRow(row: MilestoneRow): MilestoneReward | null {
+  if (!REWARD_TYPES.has(row.reward_type) || !TRIGGER_TYPES.has(row.trigger_type)) return null;
+  const value = Number(row.reward_value);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const triggerType = row.trigger_type as MilestoneTriggerType;
+  if (triggerType === "xp_threshold" && row.xp_threshold === null) return null;
+  if (triggerType !== "xp_threshold" && !row.trigger_key) return null;
+  return {
+    key: row.key,
+    label: row.label,
+    triggerType,
+    xpThreshold: row.xp_threshold ?? 0,
+    triggerKey: row.trigger_key,
+    rewardType: row.reward_type as TangibleRewardType,
+    value,
+    costUsd: Math.max(0, Number(row.cost_usd) || 0),
+    discountDurationMonths: row.discount_duration_months,
+    discountValidDays: row.discount_valid_days,
+    monthlyGrantCap: row.monthly_grant_cap,
+    lifetimeGrantCap: row.lifetime_grant_cap,
+  };
+}
+
+/**
+ * The live, enabled catalog.
+ *
+ * An ERROR falls back to the compiled ladder (a DB blip must not silently stop
+ * paying rewards people have already earned). An EMPTY result does NOT — every
+ * milestone being switched off is a decision an operator made, and overriding it
+ * with the compiled list would make the disable switch a lie.
+ */
+export async function loadMilestoneCatalog(): Promise<MilestoneReward[]> {
+  const { data, error } = await supabaseAdmin
+    .from("reward_milestones")
+    .select(
+      "key, label, reward_type, trigger_type, xp_threshold, trigger_key, reward_value, cost_usd, discount_duration_months, discount_valid_days, monthly_grant_cap, lifetime_grant_cap",
+    )
+    .eq("enabled", true)
+    .order("sort_order", { ascending: true });
+  if (error) {
+    console.error("[rewards-tangible] catalog load failed, using fallback:", error.message);
+    return [...TANGIBLE_MILESTONES];
+  }
+  const rows = (data ?? []) as unknown as MilestoneRow[];
+  return rows.map(milestoneFromRow).filter((m): m is MilestoneReward => m !== null);
 }
 
 // ─── Engine (service-role; every query scoped by user_id — US-268) ──────────
@@ -234,8 +619,81 @@ async function loadSpend(userId: string, nowMs: number): Promise<RewardSpend | n
   };
 }
 
+/** Platform-wide issue counts for one milestone. Null on a read failure, which
+ *  the caller treats as "don't grant" — an uncounted cap is not a cap. */
+async function loadMilestoneCounts(
+  milestoneKey: string,
+  nowMs: number,
+): Promise<MilestoneIssueCounts | null> {
+  const since = monthStartIso(nowMs);
+  const [lifetime, month] = await Promise.all([
+    supabaseAdmin
+      .from("reward_tangible_grants")
+      .select("id", { count: "exact", head: true })
+      .eq("milestone_key", milestoneKey)
+      .eq("status", "granted"),
+    supabaseAdmin
+      .from("reward_tangible_grants")
+      .select("id", { count: "exact", head: true })
+      .eq("milestone_key", milestoneKey)
+      .eq("status", "granted")
+      .gte("granted_at", since),
+  ]);
+  if (lifetime.error || month.error) {
+    console.error(
+      "[rewards-tangible] milestone count failed:",
+      lifetime.error?.message ?? month.error?.message,
+    );
+    return null;
+  }
+  return { lifetimeCount: lifetime.count ?? 0, monthCount: month.count ?? 0 };
+}
+
 /**
- * Grant every milestone `userId`'s XP has unlocked and not yet been paid.
+ * Build the trigger context, loading ONLY what the catalog actually asks for. A
+ * catalog of pure XP milestones — the shipped default — costs zero extra queries,
+ * which matters because this runs off the back of every rewardable action.
+ */
+async function loadTriggerContext(
+  userId: string,
+  xpTotal: number,
+  catalog: readonly MilestoneReward[],
+  nowMs: number,
+): Promise<MilestoneTriggerContext> {
+  const needsBadges = catalog.some((m) => m.triggerType === "badge");
+  const needsSeason = catalog.some((m) => m.triggerType === "season_goal");
+  const badgeKeys = new Set<string>();
+  const seasonGoalKeys = new Set<string>();
+
+  if (needsBadges) {
+    const { data, error } = await supabaseAdmin
+      .from("user_badges")
+      .select("badge_key")
+      .eq("user_id", userId);
+    if (error) console.error("[rewards-tangible] badge load failed:", error.message);
+    for (const r of (data ?? []) as Array<{ badge_key: string }>) badgeKeys.add(r.badge_key);
+  }
+
+  if (needsSeason) {
+    try {
+      // Imported lazily: rewards-seasons imports the engine that imports this
+      // module, and a static edge would make the cycle load-bearing at boot.
+      const { loadSeasonProgress, loadSeasonTimezone } = await import("./rewards-seasons.ts");
+      const progress = await loadSeasonProgress(userId, await loadSeasonTimezone(), nowMs);
+      for (const g of progress.goals) if (g.complete) seasonGoalKeys.add(g.key);
+    } catch (err) {
+      console.error(
+        "[rewards-tangible] season progress load failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  return { xpTotal, badgeKeys, seasonGoalKeys };
+}
+
+/**
+ * Grant every milestone `userId` has unlocked and not yet been paid.
  *
  * Best-effort by design: this runs off the back of a rewardable action, and a
  * reward-payout problem must never fail the action that earned it. Returns the
@@ -254,8 +712,8 @@ export async function grantTangibleRewards(
     });
     if (!enabled) return [];
 
-    const eligible = milestonesForXp(xpTotal).filter((m) => isFulfillable(m.rewardType));
-    if (eligible.length === 0) return [];
+    const catalog = (await loadMilestoneCatalog()).filter((m) => isFulfillable(m.rewardType));
+    if (catalog.length === 0) return [];
 
     // Which milestones already have a row? A 'claimed' row counts as taken — a
     // retry of THAT milestone is the claim-repair path below, not a second pay.
@@ -270,7 +728,14 @@ export async function grantTangibleRewards(
     const taken = new Set(
       ((existing ?? []) as Array<{ milestone_key: string }>).map((r) => r.milestone_key),
     );
-    const pending = eligible.filter((m) => !taken.has(m.key));
+
+    // Evaluate triggers only against milestones this user could still be paid —
+    // an already-claimed badge milestone is no reason to go load their badges.
+    const unclaimed = catalog.filter((m) => !taken.has(m.key));
+    if (unclaimed.length === 0) return [];
+
+    const ctx = await loadTriggerContext(userId, xpTotal, unclaimed, nowMs);
+    const pending = unlockedMilestones(unclaimed, ctx);
     if (pending.length === 0) return [];
 
     const budget = normalizeRewardBudget(
@@ -284,11 +749,26 @@ export async function grantTangibleRewards(
       const decision = budgetDecision(reward.costUsd, spend, budget);
       if (!decision.allowed) {
         // Refused, not deferred — but the milestone stays unclaimed, so a later
-        // pass in a fresh budget window can still honour it.
+        // pass in a fresh budget window can still honour it. The list is sorted
+        // cheapest-first, so a refusal here means nothing further fits either.
         console.warn(
           `[rewards-tangible] ${reward.key} refused for ${userId}: ${decision.refusal}`,
         );
         break;
+      }
+
+      // Per-milestone issue caps (00541). A failed count refuses this milestone
+      // and moves on: an uncounted cap is not a cap.
+      if (reward.monthlyGrantCap !== null || reward.lifetimeGrantCap !== null) {
+        const counts = await loadMilestoneCounts(reward.key, nowMs);
+        if (!counts) continue;
+        const capped = milestoneCapDecision(reward, counts);
+        if (!capped.allowed) {
+          console.warn(
+            `[rewards-tangible] ${reward.key} refused for ${userId}: ${capped.refusal}`,
+          );
+          continue;
+        }
       }
 
       // CLAIM first (UNIQUE absorbs a concurrent claimer), then move value.
@@ -301,7 +781,12 @@ export async function grantTangibleRewards(
           reward_value: reward.value,
           cost_usd: reward.costUsd,
           status: "claimed",
-          metadata: { xp_total: xpTotal, xp_threshold: reward.xpThreshold },
+          metadata: {
+            trigger_type: reward.triggerType,
+            trigger_key: reward.triggerKey,
+            xp_total: xpTotal,
+            xp_threshold: reward.xpThreshold,
+          },
         } as never);
       if (claimErr) {
         // 23505 = a concurrent pass already claimed it. Anything else is a real
@@ -312,8 +797,9 @@ export async function grantTangibleRewards(
         continue;
       }
 
+      let extra: FulfilResult;
       try {
-        await FULFILLERS[reward.rewardType]!(userId, reward);
+        extra = await FULFILLERS[reward.rewardType]!(userId, reward, nowMs);
       } catch (err) {
         // Release the claim so a later pass can retry the milestone.
         console.error(
@@ -330,7 +816,18 @@ export async function grantTangibleRewards(
 
       await supabaseAdmin
         .from("reward_tangible_grants")
-        .update({ status: "granted", granted_at: new Date(nowMs).toISOString() } as never)
+        .update({
+          status: "granted",
+          granted_at: new Date(nowMs).toISOString(),
+          expires_at: grantExpiryIso(reward, nowMs),
+          metadata: {
+            trigger_type: reward.triggerType,
+            trigger_key: reward.triggerKey,
+            xp_total: xpTotal,
+            xp_threshold: reward.xpThreshold,
+            ...(extra ?? {}),
+          },
+        } as never)
         .eq("user_id", userId)
         .eq("milestone_key", reward.key);
 
@@ -344,7 +841,7 @@ export async function grantTangibleRewards(
       await notifyUser(userId, {
         type: "billing",
         title: "Reward unlocked!",
-        message: `You hit ${reward.xpThreshold.toLocaleString()} XP — ${reward.label} added to your account.`,
+        message: rewardNotificationMessage(reward),
         link: "/dashboard/billing",
       }).catch(() => {});
     }
@@ -357,4 +854,16 @@ export async function grantTangibleRewards(
     );
     return [];
   }
+}
+
+/** What the unlock notification says. Pure — the copy has to match the trigger,
+ *  or a badge reward reads as an XP one. */
+export function rewardNotificationMessage(reward: MilestoneReward): string {
+  const earned = reward.triggerType === "xp_threshold"
+    ? `You hit ${reward.xpThreshold.toLocaleString()} XP`
+    : "You hit a rewards milestone";
+  const perk = reward.rewardType === "free_grade_credits"
+    ? `${reward.label} added to your account.`
+    : `${reward.label} is ready to use.`;
+  return `${earned} — ${perk}`;
 }

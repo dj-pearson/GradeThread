@@ -7,6 +7,7 @@ import {
   type GradeTier,
 } from "./grade-pricing.ts";
 import { type FlipdeskPlan, getGradePricing, getPlanMatrix } from "./pricing-config.ts";
+import { discountedCents, loadActiveDiscount } from "./rewards-tangible.ts";
 
 // ── Canonical grade billing (US-207) ─────────────────────────────
 //
@@ -105,7 +106,14 @@ export type PrecedenceResult =
       checkoutRequired: true;
       suggestedTier: GradeTier;
       suggestedPack: { credits: number; priceCents: number } | null;
+      /** What the grade will actually cost — already discounted (US-1853). */
       tierPriceCents: number;
+      /** Undiscounted list price, present only when a reward discount applied. */
+      listPriceCents?: number;
+      /** The reward discount applied to tierPriceCents, in whole percent. */
+      rewardDiscountPercent?: number;
+      /** The milestone that granted it, for the quote's explanatory line. */
+      rewardMilestoneKey?: string;
     };
 
 // Picks the cheapest valid payment path for a tier on a submission:
@@ -332,11 +340,30 @@ export async function runPaymentPrecedence(
   }
 
   // ─ (3) Checkout required ─
+  //
+  // US-1853: a per-grade discount earned from a rewards milestone applies HERE,
+  // at the one charging chokepoint, so every entry point quotes the same number.
+  // It deliberately bites only on the money path: included grades are already
+  // free, and shaving the credit cost would make a discount worth less the more
+  // credits someone holds. The matching Stripe coupon is attached at checkout
+  // (payments.ts), so the charge equals this quote rather than merely resembling
+  // it. A failed lookup reads as "no discount" — full price, the safe direction.
+  const listPriceCents = pricing.tiers[tier].priceCents;
+  const discount = await loadActiveDiscount(userId, "per_grade_discount");
   return {
     paid: false,
     checkoutRequired: true,
     suggestedTier: tier,
     suggestedPack: suggestPackFrom(pricing.packs, cost),
-    tierPriceCents: pricing.tiers[tier].priceCents,
+    tierPriceCents: discount
+      ? discountedCents(listPriceCents, discount.percentOff)
+      : listPriceCents,
+    ...(discount
+      ? {
+          listPriceCents,
+          rewardDiscountPercent: discount.percentOff,
+          rewardMilestoneKey: discount.milestoneKey,
+        }
+      : {}),
   };
 }

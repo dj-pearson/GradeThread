@@ -1,5 +1,7 @@
 // US-1848: the tangible reward rail — milestone ladder, budget ceilings, the
 // fulfiller registry, and the coverage gate that starts the loop.
+// US-1853: the operator-editable catalog, the three trigger kinds, the
+// per-milestone issue caps, and the discount entitlements.
 
 import { assertEquals, assertNotEquals } from "@std/assert";
 
@@ -12,17 +14,32 @@ Deno.env.set(
 
 const {
   TANGIBLE_MILESTONES,
+  DEFAULT_DISCOUNT_VALID_DAYS,
   DEFAULT_REWARD_BUDGET,
+  activeDiscount,
   budgetDecision,
+  couponParamsFor,
+  discountedCents,
+  grantExpiryIso,
   isFulfillable,
+  isMilestoneUnlocked,
+  milestoneCapDecision,
+  milestoneFromRow,
   milestonesForXp,
   monthStartIso,
   nextMilestoneForXp,
   normalizeRewardBudget,
+  rewardNotificationMessage,
+  unlockedMilestones,
 } = await import("../lib/rewards-tangible.ts");
 const { hasFullGradeCoverage } = await import("../lib/rewards-engine.ts");
 
-import type { RewardBudget, RewardSpend } from "../lib/rewards-tangible.ts";
+import type {
+  MilestoneReward,
+  MilestoneTriggerContext,
+  RewardBudget,
+  RewardSpend,
+} from "../lib/rewards-tangible.ts";
 
 const NO_SPEND: RewardSpend = {
   globalMonthUsd: 0,
@@ -51,11 +68,13 @@ Deno.test("every catalogued milestone has a registered fulfiller", () => {
   }
 });
 
-Deno.test("the discount reward types are typed but not yet fulfillable", () => {
-  // The table and the budget rail carry them so US-1853 can add the Stripe work;
-  // until a fulfiller is registered the engine refuses to grant them.
-  assertEquals(isFulfillable("subscription_discount"), false);
-  assertEquals(isFulfillable("per_grade_discount"), false);
+Deno.test("US-1853 registered a fulfiller for every reward type", () => {
+  // US-1848 shipped credits only and refused the two discounts, because a ledger
+  // row nothing honours is an inert promise. Both are now honoured, so the
+  // catalog is free to use them.
+  assertEquals(isFulfillable("free_grade_credits"), true);
+  assertEquals(isFulfillable("subscription_discount"), true);
+  assertEquals(isFulfillable("per_grade_discount"), true);
 });
 
 Deno.test("milestonesForXp returns everything reached, lowest first", () => {
@@ -218,5 +237,255 @@ Deno.test("a defect or measurement shot does not stand in for a detail", () => {
       img("measurement_chest"),
     ]),
     false,
+  );
+});
+
+// ─── US-1853: triggers ──────────────────────────────────────────────────────
+
+function milestone(over: Partial<MilestoneReward> = {}): MilestoneReward {
+  return {
+    key: "m",
+    triggerType: "xp_threshold",
+    xpThreshold: 100,
+    triggerKey: null,
+    rewardType: "free_grade_credits",
+    value: 1,
+    costUsd: 0.35,
+    label: "1 free grade",
+    discountDurationMonths: null,
+    discountValidDays: null,
+    monthlyGrantCap: null,
+    lifetimeGrantCap: null,
+    ...over,
+  };
+}
+
+function ctx(over: Partial<MilestoneTriggerContext> = {}): MilestoneTriggerContext {
+  return {
+    xpTotal: 0,
+    badgeKeys: new Set<string>(),
+    seasonGoalKeys: new Set<string>(),
+    ...over,
+  };
+}
+
+Deno.test("each trigger kind fires only on its own signal", () => {
+  const xp = milestone({ triggerType: "xp_threshold", xpThreshold: 900 });
+  assertEquals(isMilestoneUnlocked(xp, ctx({ xpTotal: 899 })), false);
+  assertEquals(isMilestoneUnlocked(xp, ctx({ xpTotal: 900 })), true);
+
+  const badge = milestone({ triggerType: "badge", triggerKey: "grades_100" });
+  assertEquals(isMilestoneUnlocked(badge, ctx({ xpTotal: 10_000_000 })), false);
+  assertEquals(
+    isMilestoneUnlocked(badge, ctx({ badgeKeys: new Set(["grades_100"]) })),
+    true,
+  );
+
+  const season = milestone({ triggerType: "season_goal", triggerKey: "full_coverage" });
+  assertEquals(
+    isMilestoneUnlocked(season, ctx({ badgeKeys: new Set(["full_coverage"]) })),
+    false,
+  );
+  assertEquals(
+    isMilestoneUnlocked(season, ctx({ seasonGoalKeys: new Set(["full_coverage"]) })),
+    true,
+  );
+});
+
+Deno.test("a badge/season milestone with no key can never fire", () => {
+  // The DB CHECK forbids it, but a row that predates the constraint (or a bad
+  // hand-write) must not be treated as unlocked-for-everyone.
+  const orphan = milestone({ triggerType: "badge", triggerKey: null });
+  assertEquals(isMilestoneUnlocked(orphan, ctx({ badgeKeys: new Set([""]) })), false);
+});
+
+Deno.test("unlocked milestones come back cheapest-first", () => {
+  // The engine stops at the first budget refusal, so ordering by cost is what
+  // stops one expensive rung starving every cheap one behind it.
+  const out = unlockedMilestones(
+    [
+      milestone({ key: "big", costUsd: 7, xpThreshold: 10 }),
+      milestone({ key: "small", costUsd: 0.35, xpThreshold: 10 }),
+      milestone({ key: "locked", costUsd: 0.1, xpThreshold: 10_000 }),
+    ],
+    ctx({ xpTotal: 50 }),
+  );
+  assertEquals(out.map((m) => m.key), ["small", "big"]);
+});
+
+// ─── US-1853: per-milestone issue caps ──────────────────────────────────────
+
+Deno.test("an uncapped milestone is never refused by the cap check", () => {
+  assertEquals(
+    milestoneCapDecision(milestone(), { monthCount: 9_999, lifetimeCount: 9_999 }),
+    { allowed: true },
+  );
+});
+
+Deno.test("the monthly and lifetime issue caps each refuse on their own", () => {
+  const m = milestone({ monthlyGrantCap: 2, lifetimeGrantCap: 5 });
+  assertEquals(milestoneCapDecision(m, { monthCount: 1, lifetimeCount: 1 }).allowed, true);
+  assertEquals(
+    milestoneCapDecision(m, { monthCount: 2, lifetimeCount: 2 }),
+    { allowed: false, refusal: "milestone_monthly_cap" },
+  );
+  assertEquals(
+    milestoneCapDecision(m, { monthCount: 0, lifetimeCount: 5 }),
+    { allowed: false, refusal: "milestone_lifetime_cap" },
+  );
+});
+
+// ─── US-1853: discounts ─────────────────────────────────────────────────────
+
+Deno.test("a per-grade discount expires; a subscription discount does not", () => {
+  const now = Date.parse("2026-08-07T00:00:00Z");
+  const perGrade = milestone({ rewardType: "per_grade_discount", discountValidDays: 30 });
+  assertEquals(grantExpiryIso(perGrade, now), "2026-09-06T00:00:00.000Z");
+  // No window configured → the default, not "forever".
+  const defaulted = milestone({ rewardType: "per_grade_discount" });
+  assertEquals(
+    grantExpiryIso(defaulted, now),
+    new Date(now + DEFAULT_DISCOUNT_VALID_DAYS * 86_400_000).toISOString(),
+  );
+  assertEquals(grantExpiryIso(milestone({ rewardType: "subscription_discount" }), now), null);
+  assertEquals(grantExpiryIso(milestone(), now), null);
+});
+
+Deno.test("a per-grade coupon is always duration:once — Stripe refuses anything else on a one-off charge", () => {
+  const now = Date.parse("2026-08-07T00:00:00Z");
+  const perGrade = couponParamsFor(
+    milestone({ rewardType: "per_grade_discount", value: 15, discountValidDays: 30 }),
+    now,
+  );
+  assertEquals(perGrade.duration, "once");
+  assertEquals(perGrade.percentOff, 15);
+  assertEquals(perGrade.redeemByMs, Date.parse("2026-09-06T00:00:00.000Z"));
+
+  const repeating = couponParamsFor(
+    milestone({
+      rewardType: "subscription_discount",
+      value: 20,
+      discountDurationMonths: 3,
+    }),
+    now,
+  );
+  assertEquals(repeating.duration, "repeating");
+  assertEquals(repeating.durationInMonths, 3);
+  // A user-specific coupon must not be redeemable by anyone else.
+  assertEquals(repeating.maxRedemptions, 1);
+
+  const single = couponParamsFor(
+    milestone({ rewardType: "subscription_discount", value: 20, discountDurationMonths: 1 }),
+    now,
+  );
+  assertEquals(single.duration, "once");
+});
+
+const NOW = Date.parse("2026-08-07T00:00:00Z");
+
+function grantRow(over: Record<string, unknown> = {}) {
+  return {
+    milestone_key: "m",
+    reward_type: "per_grade_discount",
+    reward_value: 10,
+    expires_at: null,
+    consumed_at: null,
+    metadata: { stripe_coupon_id: "co_test" },
+    ...over,
+  } as never;
+}
+
+Deno.test("the biggest live discount wins", () => {
+  const picked = activeDiscount(
+    [
+      grantRow({ milestone_key: "small", reward_value: 10 }),
+      grantRow({ milestone_key: "big", reward_value: 25 }),
+    ],
+    "per_grade_discount",
+    NOW,
+  );
+  assertEquals(picked?.milestoneKey, "big");
+  assertEquals(picked?.percentOff, 25);
+});
+
+Deno.test("expired, consumed, wrong-type and couponless grants are all skipped", () => {
+  assertEquals(
+    activeDiscount([grantRow({ expires_at: "2026-08-06T00:00:00Z" })], "per_grade_discount", NOW),
+    null,
+  );
+  assertEquals(
+    activeDiscount([grantRow({ consumed_at: "2026-08-01T00:00:00Z" })], "per_grade_discount", NOW),
+    null,
+  );
+  assertEquals(
+    activeDiscount([grantRow()], "subscription_discount", NOW),
+    null,
+  );
+  // A grant whose fulfilment never recorded a coupon can't be applied to a
+  // checkout, so it must not be reported as an available discount.
+  assertEquals(activeDiscount([grantRow({ metadata: {} })], "per_grade_discount", NOW), null);
+});
+
+Deno.test("discountedCents rounds to whole cents and never goes negative", () => {
+  assertEquals(discountedCents(1999, 15), 1699);
+  assertEquals(discountedCents(1999, 0), 1999);
+  assertEquals(discountedCents(1999, 100), 0);
+  assertEquals(discountedCents(0, 50), 0);
+});
+
+// ─── US-1853: catalog rows ──────────────────────────────────────────────────
+
+const ROW = {
+  key: "xp_900_credits_1",
+  label: "1 free grade",
+  reward_type: "free_grade_credits",
+  trigger_type: "xp_threshold",
+  xp_threshold: 900,
+  trigger_key: null,
+  reward_value: "1",
+  cost_usd: "0.35",
+  discount_duration_months: null,
+  discount_valid_days: null,
+  monthly_grant_cap: null,
+  lifetime_grant_cap: null,
+};
+
+Deno.test("a catalog row maps onto the engine's shape, numerics coerced", () => {
+  const m = milestoneFromRow(ROW as never);
+  assertEquals(m?.value, 1);
+  assertEquals(m?.costUsd, 0.35);
+  assertEquals(m?.triggerType, "xp_threshold");
+});
+
+Deno.test("an unusable catalog row is dropped, not guessed at", () => {
+  // Each of these would otherwise become a milestone that pays the wrong thing
+  // or unlocks for everyone.
+  assertEquals(milestoneFromRow({ ...ROW, reward_type: "free_beer" } as never), null);
+  assertEquals(milestoneFromRow({ ...ROW, trigger_type: "vibes" } as never), null);
+  assertEquals(milestoneFromRow({ ...ROW, reward_value: "0" } as never), null);
+  assertEquals(milestoneFromRow({ ...ROW, xp_threshold: null } as never), null);
+  assertEquals(
+    milestoneFromRow(
+      { ...ROW, trigger_type: "badge", xp_threshold: null, trigger_key: null } as never,
+    ),
+    null,
+  );
+});
+
+Deno.test("the unlock notification matches the trigger that fired", () => {
+  assertEquals(
+    rewardNotificationMessage(milestone({ xpThreshold: 900 })),
+    "You hit 900 XP — 1 free grade added to your account.",
+  );
+  // A badge reward must not claim an XP threshold the user never crossed.
+  const badge = milestone({
+    triggerType: "badge",
+    triggerKey: "grades_100",
+    rewardType: "subscription_discount",
+    label: "20% off your next 3 months",
+  });
+  assertEquals(
+    rewardNotificationMessage(badge),
+    "You hit a rewards milestone — 20% off your next 3 months is ready to use.",
   );
 });

@@ -153,6 +153,8 @@ const growthNavItems = [
   { to: "/admin/growth/referrals", icon: Gift, label: "Referrals", end: false },
   // US-1852 quest + community-challenge definitions (criteria, window, reward).
   { to: "/admin/growth/quests", icon: Target, label: "Quests", end: false },
+  // US-1853 tangible milestone rewards — credits, subscription + grading discounts.
+  { to: "/admin/growth/reward-milestones", icon: Gift, label: "Milestone Rewards", end: false },
   // US-1845 buyer funnel, plan mix, feature adoption + the two-sided flywheel.
   { to: "/admin/growth/buyer", icon: Users, label: "Buyer Growth", end: false },
   // US-946 trial-conversion drip funnel/ROI analytics.

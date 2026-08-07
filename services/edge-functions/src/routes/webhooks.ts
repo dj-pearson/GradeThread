@@ -41,6 +41,7 @@ import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
 import { applySesFeedback } from "../lib/email-suppression.ts";
 import { type SnsMessage, verifySnsSignature } from "../lib/sns-verify.ts";
 import { recordDripConversion } from "../lib/drip-conversion.ts";
+import { consumeSubscriptionDiscount } from "../lib/rewards-tangible.ts";
 import {
   paymentIntentIdOf,
   resolveChargeMetadata,
@@ -720,6 +721,15 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   // for ALL subscription.created (trial conversion or fresh paid). Fire-and-forget.
   if (event.type === "customer.subscription.created") {
     void emitEvent(user.id, "subscription_created", { properties: { plan, interval } });
+  }
+
+  // US-1853: consume any milestone-earned subscription discount now that it has
+  // ridden a real subscription. Same moment the referral and drip coupons are
+  // cleared above, and for the same reason: consuming it at checkout-session
+  // creation would burn the reward on a checkout the user abandoned. Best-effort
+  // — a reward bookkeeping failure must never fail a billing webhook.
+  if (event.type === "customer.subscription.created") {
+    void consumeSubscriptionDiscount(user.id);
   }
 
   // US-937: attribute this conversion to the trial-conversion drip step/email

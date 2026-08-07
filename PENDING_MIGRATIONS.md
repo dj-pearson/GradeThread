@@ -1,9 +1,47 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Eleven migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539 and 00540.** The entries below them were applied to prod and
-this file did not learn about it for a day. See the note under 00528 for how that
-was measured and why the measurement, not the file, is the authority.
+**Twelve migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540 and 00541.** The entries below them were applied to
+prod and this file did not learn about it for a day. See the note under 00528 for
+how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00541_reward_milestone_catalog.sql (US-1853 — milestone rewards)
+
+**Apply order.** Last, in numeric order. It depends on `reward_tangible_grants`
+(00538, also held), `users` and `set_updated_at()`, so it MUST go after 00538.
+
+**Risk: LOW.** One new table, two new nullable columns on a table nothing has
+written to in prod yet, two indexes, seven seeded catalog rows (five of which
+restate the ladder already compiled into the edge). No existing column, enum or
+row is modified.
+
+**What it does.**
+- Adds `reward_milestones` — the operator-editable tangible catalog: reward type,
+  trigger (XP threshold | badge | season goal), value, marginal cost, and its own
+  monthly + lifetime issue caps. **Deny-all RLS** (RLS on, zero policies) plus an
+  explicit REVOKE: a client-writable reward catalog is a client-writable money
+  faucet. Read through `/api/admin/rewards/milestones` and by the service-role
+  engine only.
+- Adds `reward_tangible_grants.expires_at` and `.consumed_at`. A per-grade
+  discount is live until `expires_at` and then simply stops applying (no
+  revocation job); a subscription coupon is redeemable once and the
+  `customer.subscription.created` webhook stamps `consumed_at`.
+- Seeds the five XP credit milestones US-1848 shipped in code, with the same
+  keys/values/costs, so grants already in the ledger still map to a milestone.
+- Seeds two DISABLED discount milestones (a badge-triggered subscription discount
+  and a season-goal-triggered grading discount) so the shapes are visible in the
+  admin screen. Turning one on is deliberate: both mint a real Stripe coupon, and
+  the honest `cost_usd` of a discount depends on a plan mix this file can't see.
+
+**Deploy order.** Apply BEFORE the edge rolls (the normal order). An edge build
+that reads `reward_milestones` against a DB without it logs the failure and falls
+back to the compiled ladder, so it degrades rather than breaking — but the
+discount grants need `expires_at`/`consumed_at` to exist before they can be paid.
+The `rewards_tangible` kill-switch (00538) is still seeded OFF, so nothing here
+pays anybody until an operator turns it on.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — one new table and two new
+columns need PostgREST to re-read the schema cache.
 
 ## ⏳ HELD: 00540_reward_quests.sql (US-1852 — quests & challenges)
 

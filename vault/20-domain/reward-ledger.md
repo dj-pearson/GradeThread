@@ -234,6 +234,54 @@ The half that moves real value is the tangible rail (`rewards-tangible.ts`,
 from the level code. If a future story wants a paid frame it needs its own catalog — folding one
 into this one makes every existing entry's promise ambiguous.
 
+## The tangible rail: milestones GRANT, they never charge
+
+XP is **status currency and is never debited** — not by a purchase, not by a
+redemption, not by anything. Tangible value is *granted* on crossing a milestone,
+and the spendable currency stays the grade-credit ledger. This is a decision, not
+an implementation detail: US-1853's original spend-XP design was replaced because
+spending XP deflates status, penalises the people who redeem on the very
+leaderboard the XP feeds, and rewards hoarding over using the product. Because a
+grant reads the XP total and never writes it, "your level can't go backwards for
+taking a reward" is structural rather than merely likely.
+
+The catalog is **data** (`reward_milestones`, 00541), not code: reward type
+(`free_grade_credits` | `subscription_discount` | `per_grade_discount`), trigger
+(XP threshold | badge key | season-goal key), value, marginal cost, and its own
+platform-wide monthly + lifetime issue caps. `TANGIBLE_MILESTONES` in
+rewards-tangible.ts is the FALLBACK used when the table can't be read — a read
+*error* falls back, an *empty* result does not, because every milestone being off
+is a decision an operator made.
+
+Four rules constrain anything added here:
+
+1. **A reward type with no registered fulfiller can never be granted.** The
+   `FULFILLERS` registry — not a comment — is what stops the ledger filling with
+   promises nothing redeems. US-1848 shipped the two discount types as *typed but
+   unfulfillable* for exactly this reason; US-1853 registered them.
+2. **Claim before you pay.** `UNIQUE (user_id, milestone_key)` is the idempotency
+   guarantee, and the row is inserted BEFORE value moves. A failed fulfilment
+   deletes the claim so a later pass retries; a 23505 means someone else got
+   there first. Renaming a milestone's key after it has been paid would make
+   every holder eligible again — the admin route refuses it.
+3. **Cost is denominated in margin, not list price.** The budget
+   (`rewards_tangible_budget`) protects the margin floor, so `cost_usd` is what
+   honouring the grant costs GradeThread. Per-milestone caps narrow that budget;
+   they never widen it. An uncounted cap is treated as a refusal.
+4. **Discounts are Stripe coupons minted at grant time.** A subscription discount
+   rides the next subscription checkout (payments.ts) and is consumed by the
+   `customer.subscription.created` webhook — never at session creation, or an
+   abandoned checkout would burn it. A per-grade discount is a time-boxed
+   entitlement read at the payment-precedence step (`runPaymentPrecedence`) so
+   the quote is right, and applied as the coupon at per-grade checkout so the
+   charge matches the quote. It bites the money path only: included grades are
+   already free, and shaving the credit cost would make a discount worth less the
+   more credits someone holds.
+
+Attaching a milestone to a **season goal** is the one place this crosses into the
+cosmetic track. It is opt-in per goal and off by default — season goals stay
+cosmetic until an operator says otherwise.
+
 ## Wiring a new source
 
 The catalog is inert policy until a call site spends it — the same trap as

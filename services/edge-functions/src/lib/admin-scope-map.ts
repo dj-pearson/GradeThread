@@ -363,6 +363,16 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     rationale: "Drip email flows.",
   },
   {
+    file: "admin-rewards.ts",
+    scope: "growth:write",
+    mode: "router",
+    rationale:
+      "Quest definitions (US-1852) and the tangible milestone catalog (US-1853). " +
+      "Router-wide rather than per-mutation because every route here edits the " +
+      "engagement economy, and the reads exist to serve those edits — the whole " +
+      "surface should close together when the scope is revoked.",
+  },
+  {
     file: "admin-journeys.ts",
     scope: "growth:write",
     mode: "router",

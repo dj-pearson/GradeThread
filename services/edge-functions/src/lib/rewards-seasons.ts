@@ -191,7 +191,13 @@ export interface SeasonGoal {
  * The season track. Four action goals plus one XP goal, all achievable inside a
  * quarter by a working reseller and all pointed at acts that compound the moat
  * (the same weighting REWARD_XP_CATALOG uses). Completing them earns the season
- * recap's cosmetic honours — never credits, never a discount.
+ * recap's cosmetic honours.
+ *
+ * US-1853: a goal key can ALSO be the trigger of a tangible milestone
+ * (reward_milestones.trigger_type = 'season_goal'), so finishing one can pay real
+ * value. That is opt-in per goal, off by default, and it changes nothing here —
+ * the goals stay cosmetic until an operator attaches a milestone to one, and the
+ * milestone's own caps and the USD budget bound what it can ever cost.
  *
  * Targets are quarter-sized on purpose: a seller who takes a slow month can
  * still finish the track in the other two.

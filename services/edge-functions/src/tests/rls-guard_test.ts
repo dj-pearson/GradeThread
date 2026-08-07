@@ -465,6 +465,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // A client-writable quest definition would be a client-writable XP faucet,
   // so deny-all is the point. Forced into the guard via SERVICE_ONLY_FORCED.
   "reward_quests",
+  // US-1853: the TANGIBLE milestone catalog (migration 00541). Same shape as
+  // reward_quests but a worse blast radius — a quest definition mints XP, and
+  // this one mints grade credits and Stripe coupons. No owner column, read only
+  // through /api/admin/rewards/milestones and by the service-role engine, so
+  // deny-all is the point. Forced into the guard via SERVICE_ONLY_FORCED.
+  "reward_milestones",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -475,6 +481,7 @@ const SERVICE_ROLE_ONLY = new Set([
 const SERVICE_ONLY_FORCED = [
   "job_locks",
   "reward_quests",
+  "reward_milestones",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

@@ -15,6 +15,7 @@ import {
 } from "../lib/appstore/precedence.ts";
 import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
+import { loadActiveDiscount } from "../lib/rewards-tangible.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -500,6 +501,21 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
       if (dripCoupon && notExpired && notAlreadyPaid) {
         delete sessionParams.allow_promotion_codes;
         sessionParams.discounts = [{ coupon: dripCoupon }];
+      }
+    }
+
+    // US-1853: a subscription discount EARNED from a rewards milestone. Last in
+    // the precedence chain on purpose — the referral and win-back offers are
+    // acquisition spend with a window on them, while this one was earned and
+    // stays valid until it is redeemed, so it loses nothing by waiting for the
+    // next checkout. Consumed by the customer.subscription.created webhook, the
+    // same place the other two are cleared, so an abandoned checkout does not
+    // burn it.
+    if (!sessionParams.discounts) {
+      const rewardDiscount = await loadActiveDiscount(userId, "subscription_discount");
+      if (rewardDiscount) {
+        delete sessionParams.allow_promotion_codes;
+        sessionParams.discounts = [{ coupon: rewardDiscount.couponId }];
       }
     }
 
@@ -1018,6 +1034,22 @@ async function perGradeCheckout(c: Ctx) {
       ...(priceId ? { billing_address_collection: "required" as const } : {}),
       allow_promotion_codes: true,
     };
+
+    // US-1853: a live per-grade discount earned from a rewards milestone. This
+    // is the same entitlement runPaymentPrecedence already quoted, read from the
+    // same place, so the charge matches the number the seller was shown rather
+    // than merely resembling it. Scoped to the PAYER (userId), not the submission
+    // owner — a discount is earned by a person and travels with them.
+    const gradeDiscount = await loadActiveDiscount(userId, "per_grade_discount");
+    if (gradeDiscount) {
+      // Stripe rejects `discounts` alongside `allow_promotion_codes`.
+      delete sessionParams.allow_promotion_codes;
+      sessionParams.discounts = [{ coupon: gradeDiscount.couponId }];
+      sessionParams.metadata = {
+        ...(sessionParams.metadata ?? {}),
+        reward_milestone_key: gradeDiscount.milestoneKey,
+      };
+    }
 
     // US-391: bind to the single Stripe customer (created lazily) so the
     // per-grade purchase reuses the user's one customer instead of minting a

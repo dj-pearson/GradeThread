@@ -566,6 +566,23 @@ a learning that only matters to ONE surface, put it in that surface's file.
   the test has a ratcheting baseline) and `dialog-dynamic-viewport.test.ts`
   (`max-h-[85vh]` is refused; use `max-h-[calc(100dvh-2rem)]`).
 
+- A NEW `src/routes/admin-*.ts` file needs an entry in `lib/admin-scope-map.ts`
+  in the same commit or `admin-scope-coverage_test.ts` fails, and any
+  `c.json({ error: err.message })` — even for your OWN typed validation error —
+  fails `no-raw-db-error_test.ts` unless a `// safe-raw-error: <reason>` marker
+  sits on the SAME LINE (the scanner is line-local, so a comment above it does
+  nothing). US-1852 shipped admin-rewards.ts missing both, so those two tests
+  were red on `main` before US-1853; the migration manifest was stale for 00540
+  the same way (`node scripts/gen-migration-manifest.mjs` regenerates it).
+
+## Tangible rewards (money-moving grants)
+- XP is NEVER debited — milestones GRANT, they never charge (US-1853). The
+  catalog is the `reward_milestones` table (00541), not the compiled
+  `TANGIBLE_MILESTONES` list, which is only the fallback for a failed read; an
+  EMPTY read must NOT fall back, or the per-milestone disable switch is a lie. A
+  reward type with no entry in `FULFILLERS` can never be granted. Rules:
+  [[reward-ledger]].
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault
