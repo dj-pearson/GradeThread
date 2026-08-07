@@ -19,6 +19,7 @@ import {
   passportUrls,
   sellerUrls,
   conditionIndexUrls,
+  findsUrls,
   valueIndexUrls,
   durabilityUrls,
   authorUrls,
@@ -45,9 +46,11 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     condition: SitemapUrl[],
     value: SitemapUrl[],
     durability: SitemapUrl[],
+    finds: SitemapUrl[],
     authors: SitemapUrl[];
   try {
-    [statics, blog, certs, passports, sellers, condition, value, durability, authors] = await Promise.all([
+    [statics, blog, certs, passports, sellers, condition, value, durability, finds, authors] =
+      await Promise.all([
       staticUrls(env),
       blogUrls(env),
       certUrls(env),
@@ -56,6 +59,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
       conditionIndexUrls(env),
       valueIndexUrls(env),
       durabilityUrls(env),
+      findsUrls(env),
       authorUrls(env),
     ]);
   } catch (e) {
@@ -75,6 +79,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     condition.length +
     value.length +
     durability.length +
+    finds.length +
     authors.length;
 
   const xml =
@@ -96,6 +101,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           { name: "sitemap-condition.xml", lastmod: newestLastmod(condition) },
           { name: "sitemap-value.xml", lastmod: newestLastmod(value) },
           { name: "sitemap-durability.xml", lastmod: newestLastmod(durability) },
+          { name: "sitemap-finds.xml", lastmod: newestLastmod(finds) },
           { name: "sitemap-authors.xml", lastmod: newestLastmod(authors) },
           // The image sitemap is generated from the blog payload, so its
           // content date is the blog's.
@@ -110,6 +116,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           ...condition,
           ...value,
           ...durability,
+          ...finds,
           ...authors,
         ]);
 

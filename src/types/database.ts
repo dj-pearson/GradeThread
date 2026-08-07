@@ -584,6 +584,13 @@ export interface SubmissionRow {
   // finished grade is written back onto that item.
   buyer_video_grade: boolean;
   closet_item_id: string | null;
+  // US-1855: per-item consent for the public Showcase / "Finds" feed. Defaults
+  // false and inherits nothing from the account-level verified-profile toggles —
+  // a public profile is consent to be found, not to have THIS garment reposted.
+  // showcase_value_cents is the seller's OWN stated value, never an inferred comp.
+  showcase_opt_in: boolean;
+  showcase_opted_in_at: string | null;
+  showcase_value_cents: number | null;
   created_at: string;
   updated_at: string;
 }

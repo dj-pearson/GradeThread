@@ -4089,3 +4089,55 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  // US-1855: Showcase consent decides whether one of A's garments appears in a
+  // PUBLIC feed. The submission id travels in the request BODY, so a denial
+  // here can only come from the `.eq("user_id", userId)` filter on the update —
+  // there is no path segment to reject it earlier. If this ever passed, B could
+  // publish A's private find (or withdraw A's own consent) at will.
+  name: "US-1855: B cannot set Showcase consent on A's submission",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_GRADE_SUBMISSION_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_GRADE_SUBMISSION_ID")!;
+    const res = await fetch(`${BASE}/api/showcase/consent`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ submission_id: id, opt_in: true }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "PUT showcase/consent (A's submission)");
+  },
+});
+
+Deno.test({
+  // The Showcase WRITE half is authenticated end to end. The feed itself is
+  // public (GET /api/content/public/finds.json), so it would be easy to assume
+  // the writes could be too — they cannot: consent publishes someone's garment
+  // and a reaction is attributed to an account.
+  name: "US-1855: Showcase writes reject an unauthenticated caller",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const consent = await fetch(`${BASE}/api/showcase/consent`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        submission_id: "00000000-0000-4000-8000-000000000000",
+        opt_in: true,
+      }),
+    });
+    await consent.body?.cancel();
+    assertDenied(consent.status, "PUT showcase/consent with no auth");
+
+    const react = await fetch(
+      `${BASE}/api/showcase/reactions/00000000-0000-4000-8000-000000000000`,
+      { method: "POST" },
+    );
+    await react.body?.cancel();
+    assertDenied(react.status, "POST showcase/reactions with no auth");
+
+    const mine = await fetch(`${BASE}/api/showcase/reactions?ids=00000000-0000-4000-8000-000000000000`);
+    await mine.body?.cancel();
+    assertDenied(mine.status, "GET showcase/reactions with no auth");
+  },
+});

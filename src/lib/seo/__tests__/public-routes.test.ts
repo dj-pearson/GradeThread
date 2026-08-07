@@ -34,6 +34,15 @@ const AUTH_OR_FLOW_EXACT = new Set([
   // utility page, not indexable content, so it's intentionally not in
   // PUBLIC_ROUTES. (Fixes the pre-existing CI web-lane red.)
   "/connect-extension",
+  // US-1855: the public Showcase feed. Indexable, but its content changes every
+  // time someone showcases a find or reacts to one, so it is edge-SSR'd by
+  // functions/finds/[[path]].ts and listed in the sitemap by findsUrls() —
+  // NOT prerendered at build like a static marketing page. Registering it here
+  // would bake a snapshot of the feed into dist/ that _routes.json never serves
+  // (the Function wins) and list /finds in the sitemap twice. Same treatment as
+  // /cert/:id and /verified/:handle, which escape this guard only because they
+  // carry a param.
+  "/finds",
 ]);
 
 /** A router path that should have a static, indexable registry entry. */

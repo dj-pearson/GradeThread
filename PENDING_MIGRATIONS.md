@@ -1,9 +1,43 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Thirteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541 and 00542.** The entries below them were applied
-to prod and this file did not learn about it for a day. See the note under 00528
-for how that was measured and why the measurement, not the file, is the authority.
+**Fourteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542 and 00543.** The entries below them were
+applied to prod and this file did not learn about it for a day. See the note under
+00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00543_showcase_finds.sql (US-1855 — public Showcase / "Finds" feed)
+
+**Apply order.** Last, in numeric order. It needs `submissions`, `grade_reports`
+and `users` (all long applied), so it depends on none of the other held
+migrations and could go first if 00530–00542 slip.
+
+**Risk: LOW.** Three nullable-or-defaulted columns on `submissions`, one new
+table, one new view, three indexes and one CHECK constraint. No existing column,
+row, view or enum is modified or dropped.
+
+**What it does.**
+- Adds `submissions.showcase_opt_in` (NOT NULL DEFAULT false),
+  `.showcase_opted_in_at` and `.showcase_value_cents` — the PER-ITEM consent that
+  decides whether a graded find appears in the public feed. The default is false,
+  so the backfill is implicit and NOTHING becomes public on apply.
+- Adds `showcase_reactions` (one upvote per user per find) with owner-scoped RLS:
+  a user reads, inserts and deletes only their own rows. Public counts are
+  aggregated by the service-role edge, so no "anyone can read" policy exists —
+  who reacted to what is not public, only how many did.
+- Adds the `public_showcase_finds` VIEW, granted to `anon`. It re-states the
+  `public_grade_reports` visibility predicate (certified, review-approved, not
+  moderation-withheld) and ANDs consent on top, so a find can never be more
+  visible than its own certificate.
+
+**Deploy order.** Apply BEFORE the edge rolls (the normal order). The edge build
+that ships with it serves `/api/content/public/finds.json` and `/api/showcase/*`,
+both of which read the new view/table; against a DB without this migration those
+routes 500. Nothing EXISTING breaks either way — the columns are additive and no
+current query reads them.
+
+**Client-side reads?** Yes, but only through the edge. The SPA reads the feed
+from `/api/content/public/finds.json` and never queries `public_showcase_finds`
+or `showcase_reactions` directly, so the RLS posture above is the whole story.
 
 ## ⏳ HELD: 00542_share_to_earn.sql (US-1854 — share-to-earn loop)
 

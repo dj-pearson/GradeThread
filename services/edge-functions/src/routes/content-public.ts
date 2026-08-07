@@ -38,6 +38,16 @@ import {
 import { grantReward, isOffPlatformEmbedReferer } from "../lib/rewards-engine.ts";
 import { isFrameUnlocked, publicLevelFlair } from "../lib/rewards-levels.ts";
 import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
+import {
+  brandFacets,
+  categoryFacets,
+  FINDS_SCAN_LIMIT,
+  parseFindsQuery,
+  projectFind,
+  rankFinds,
+  type ShowcaseFindRow,
+  showcaseLeaderboard,
+} from "../lib/showcase.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
@@ -2100,4 +2110,81 @@ contentPublicRoutes.get("/buyer-profile/:handle", async (c) => {
     vis,
   );
   return c.json({ profile });
+});
+
+// ── GET /finds.json ───────────────────────────────────────────────
+// US-1855: the public Showcase / "Finds" feed. Anonymous; powers both the SSR
+// Pages Function at /finds and the SPA route (Model B — one payload, two
+// renderers, so neither can quietly describe something the other doesn't).
+//
+// EVERY row comes from the `public_showcase_finds` VIEW, never from
+// grade_reports/submissions directly. That is the whole safety argument: the
+// view carries the seller's per-item consent gate AND the certificate
+// visibility rules (certified, review-approved, not moderation-withheld), and it
+// projects no user id, no email and no private grading internals. Reading the
+// base tables here would put those three guarantees in this handler's hands
+// instead, where the next edit could drop one.
+contentPublicRoutes.get("/finds.json", async (c) => {
+  const query = parseFindsQuery(new URL(c.req.url).searchParams);
+
+  let scan = supabaseAdmin
+    .from("public_showcase_finds")
+    .select(
+      "grade_report_id, certificate_id, overall_score, grade_tier, graded_at, showcased_at, title, brand, brand_slug, category, garment_type, value_cents, seller_handle, seller_display_name",
+    )
+    .order("showcased_at", { ascending: false })
+    .limit(FINDS_SCAN_LIMIT);
+  if (query.brandSlug) scan = scan.eq("brand_slug", query.brandSlug);
+  if (query.category) scan = scan.eq("category", query.category);
+  if (query.minGrade != null) scan = scan.gte("overall_score", query.minGrade);
+
+  const { data, error } = await scan;
+  if (error) return publicError(c, error, "finds");
+  const rows = (data ?? []) as unknown as ShowcaseFindRow[];
+
+  // Reaction counts for the scanned window, in ONE query. Only aggregates leave
+  // this endpoint — who reacted is never public (see the RLS note in 00543).
+  const counts = new Map<string, number>();
+  if (rows.length > 0) {
+    const { data: reactionRows, error: reactionErr } = await supabaseAdmin
+      .from("showcase_reactions")
+      .select("grade_report_id")
+      .in("grade_report_id", rows.map((r) => r.grade_report_id))
+      .limit(FINDS_SCAN_LIMIT * 200);
+    // Reactions are decoration on top of the feed; a failure here must not take
+    // the feed down, so degrade to zero counts rather than 500.
+    if (reactionErr) {
+      console.error("[content-public] finds reactions failed:", reactionErr.message);
+    } else {
+      for (const r of (reactionRows ?? []) as Array<{ grade_report_id: string }>) {
+        counts.set(r.grade_report_id, (counts.get(r.grade_report_id) ?? 0) + 1);
+      }
+    }
+  }
+
+  const projected = rows.map((r) =>
+    projectFind(r, counts.get(r.grade_report_id) ?? 0, PUBLIC_SITE_URL)
+  );
+  const ranked = rankFinds(projected, query.sort, Date.now());
+
+  return c.json({
+    truncated: warnIfCapped("finds.json", rows.length, FINDS_SCAN_LIMIT),
+    sort: query.sort,
+    filters: {
+      brand_slug: query.brandSlug,
+      category: query.category,
+      min_grade: query.minGrade,
+    },
+    total: ranked.length,
+    finds: ranked.slice(0, query.limit),
+    // Facets are computed over the UNSLICED window so the filter chips reflect
+    // the whole feed, not just the page being rendered.
+    facets: {
+      brands: brandFacets(rows),
+      categories: categoryFacets(rows),
+    },
+    // AC3: the community leaderboard the Showcase feeds. Ranked over the same
+    // window, and only over sellers who run a public verified profile.
+    leaderboard: showcaseLeaderboard(projected),
+  });
 });

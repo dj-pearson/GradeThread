@@ -72,6 +72,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
+import { ShowcaseConsentPanel } from "@/components/showcase/showcase-consent-panel";
 import { RepairTriagePanel } from "@/components/grade/repair-triage-panel";
 import { GarmentPassportPanel } from "@/components/passport/garment-passport-panel";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
@@ -1523,6 +1524,17 @@ export function SubmissionDetailPage() {
             <GradedPhotoPanel certificateId={gradeReport.certificate_id} />
           </CardContent>
         </Card>
+      )}
+
+      {/* US-1855: per-item consent for the public Showcase / Finds feed. Gated
+          on a finalized certificate — there is nothing publishable before one,
+          and the feed's own view refuses uncertified reports anyway. */}
+      {submission.status === "completed" && gradeReport?.certificate_id && (
+        <ShowcaseConsentPanel
+          submissionId={submission.id}
+          optIn={submission.showcase_opt_in === true}
+          valueCents={submission.showcase_value_cents ?? null}
+        />
       )}
 
       {/* US-862: post-grade share prompt — nudge the seller to share their

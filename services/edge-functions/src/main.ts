@@ -205,6 +205,7 @@ import { supportTicketRoutes } from "./routes/support-tickets.ts";
 import { legalRoutes } from "./routes/legal.ts";
 import { verifiedRoutes } from "./routes/verified.ts";
 import { rewardsRoutes } from "./routes/rewards.ts";
+import { showcaseRoutes } from "./routes/showcase.ts";
 import { buyerPurchasesRoutes } from "./routes/buyer-purchases.ts";
 import { buyerClosetRoutes } from "./routes/buyer-closet.ts";
 import { buyerRewardsRoutes } from "./routes/buyer-rewards.ts";
@@ -399,6 +400,10 @@ app.use("/api/verified/*", authMiddleware);
 // profile. Deliberately NOT workspace-scoped: XP and a tier belong to the human
 // who earned them, so a workspace member must not read the owner's.
 app.use("/api/rewards/*", authMiddleware);
+// US-1855 Showcase WRITES (per-find consent + reactions) — personal, like the
+// verified profile. The public feed itself is anonymous and lives under
+// /api/content/public/finds.json, so only this write half is authed.
+app.use("/api/showcase/*", authMiddleware);
 // Buyer surfaces (US-1811+) — personal account, no workspace middleware; every
 // handler scopes by c.get("userId").
 app.use("/api/buyer/*", authMiddleware);
@@ -1615,6 +1620,7 @@ app.route("/api/support-tickets", supportTicketRoutes);
 app.route("/api/legal", legalRoutes);
 app.route("/api/verified", verifiedRoutes);
 app.route("/api/rewards", rewardsRoutes);
+app.route("/api/showcase", showcaseRoutes);
 app.route("/api/buyer", buyerPurchasesRoutes);
 app.route("/api/buyer", buyerClosetRoutes);
 app.route("/api/buyer", buyerRewardsRoutes);

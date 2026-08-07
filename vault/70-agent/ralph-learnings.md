@@ -242,6 +242,13 @@ a learning that only matters to ONE surface, put it in that surface's file.
   toast. Icons from `lucide-react` only. Named exports + `@/` imports.
 - New public static page → register in `src/lib/seo/public-routes.ts` AND
   `src/prerender/entry-server.tsx`, or the prerender sync-guard test fails.
+- ...but a PARAMETERLESS SPA route that is EDGE-SSR'd instead of prerendered
+  (US-1855 `/finds`) hits the same guard and must NOT be registered: registering
+  it bakes a build-time snapshot into `dist/` that `_routes.json` never serves
+  (the Pages Function wins) and lists the path in the sitemap twice. Add it to
+  `AUTH_OR_FLOW_EXACT` in `seo/__tests__/public-routes.test.ts` with the reason.
+  `/cert/:id` and `/verified/:handle` escape the guard only because they carry a
+  param — that is an accident of shape, not a rule.
 - The `garments` table (Garment Passports, 00256) is now in the frontend
   `Database` type (`GarmentRow`, US-1118). Client reads are RLS-scoped to
   `created_by = auth.uid()` (no client writes), so `supabase.from("garments")`

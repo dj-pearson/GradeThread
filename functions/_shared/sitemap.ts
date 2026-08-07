@@ -467,6 +467,49 @@ export async function conditionIndexUrls(env: PagesEnv): Promise<SitemapUrl[]> {
 }
 
 /**
+ * US-1855: the public Showcase feed — the /finds hub plus its BRAND and
+ * CATEGORY facet pages.
+ *
+ * Only facets the feed actually reports are listed. A facet page with no finds
+ * 404s (thin/duplicate), so listing one from a hand-written guess would put a
+ * known-dead URL in the sitemap. `finds.json` returns the facets it computed
+ * over the live window, which is exactly the set of pages that render.
+ */
+export async function findsUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const data = await fetchEdgeJson<{
+    finds?: Array<{ showcased_at?: string }>;
+    facets?: {
+      brands?: Array<{ slug: string }>;
+      categories?: Array<{ slug: string }>;
+    };
+  }>(env, "/api/content/public/finds.json?sort=recent&limit=1");
+
+  const newest = data?.finds?.[0]?.showcased_at?.slice(0, 10);
+  const urls: SitemapUrl[] = [
+    { loc: `${base}/finds`, lastmod: newest ?? today(), changefreq: "daily", priority: 0.7 },
+  ];
+  for (const b of data?.facets?.brands ?? []) {
+    urls.push({
+      loc: `${base}/finds/b/${b.slug}`,
+      lastmod: newest,
+      changefreq: "weekly",
+      priority: 0.5,
+    });
+  }
+  for (const cat of data?.facets?.categories ?? []) {
+    urls.push({
+      loc: `${base}/finds/c/${cat.slug}`,
+      lastmod: newest,
+      changefreq: "weekly",
+      priority: 0.5,
+    });
+  }
+  // US-2100: hub inherits its newest child's date instead of today().
+  return withHubLastmod(urls);
+}
+
+/**
  * Value Index URLs (US-1747): the hub + one brand/item page per published curve.
  * Bounded to curves with real comp depth — the /api/grading/public/value hub is
  * already MIN_INDEX_TOTAL_SAMPLE-filtered, so no thin page enters the sitemap.

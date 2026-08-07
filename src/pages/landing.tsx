@@ -35,6 +35,7 @@ import {
 import { LaunchBanner } from "@/components/launch-banner";
 import { StandardJustifications } from "@/components/marketing/standard-justifications";
 import { StatCounters } from "@/components/marketing/stat-counters";
+import { TrendingFinds } from "@/components/marketing/trending-finds";
 import { HeroBackdrop } from "@/components/marketing/hero-backdrop";
 import { ScrollExperience } from "@/components/marketing/scroll-experience/scroll-experience";
 import { NewsletterSignup } from "@/components/newsletter-signup";
@@ -793,6 +794,10 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* US-1855 AC3: trending finds from the public Showcase. Renders nothing
+          until the feed has real, seller-consented entries. */}
+      <TrendingFinds />
 
       {/* Features */}
       <section className="px-6 py-20">

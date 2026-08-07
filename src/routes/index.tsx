@@ -64,6 +64,7 @@ const TagScanPage = lazy(() => import("@/pages/tag-scan").then(m => ({ default: 
 const VerifiedSellerPage = lazy(() => import("@/pages/verified-seller").then(m => ({ default: m.VerifiedSellerPage })));
 const TrustProfilePage = lazy(() => import("@/pages/trust-profile").then(m => ({ default: m.TrustProfilePage })));
 const VerifiedDirectoryPage = lazy(() => import("@/pages/verified-directory").then(m => ({ default: m.VerifiedDirectoryPage })));
+const FindsPage = lazy(() => import("@/pages/finds").then(m => ({ default: m.FindsPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
 // Public status page (US-500) — live component health probed from the
 // visitor's browser. Dynamic, NOT registered in PUBLIC_ROUTES (no prerender).
@@ -273,6 +274,14 @@ export const router = createBrowserRouter([
       // /cert/:id): served by the SSR Pages Function in prod; this SPA route is
       // the dev / in-app fallback. NOT registered in PUBLIC_ROUTES (dynamic).
       { path: "/verified/:handle", element: <SuspenseWrapper><VerifiedSellerPage /></SuspenseWrapper> },
+      // US-1855: the public Showcase / "Finds" feed. Dynamic (like /cert/:id):
+      // served by the SSR Pages Function in prod, this SPA route is the dev /
+      // in-app renderer and the interactive one. The facet paths mirror the
+      // Function's (/finds/b/<brand>, /finds/c/<category>) so an SSR link lands
+      // somewhere the SPA can render. NOT in PUBLIC_ROUTES (dynamic, not prerendered).
+      { path: "/finds", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },
+      { path: "/finds/b/:brandSlug", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },
+      { path: "/finds/c/:categorySlug", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },
       // US-1818: public opt-in buyer Trust Score profile. Client-rendered + NOINDEX
       // (private-by-default; deliberately NOT in PUBLIC_ROUTES / the sitemap).
       { path: "/trust/:handle", element: <SuspenseWrapper><TrustProfilePage /></SuspenseWrapper> },
