@@ -244,6 +244,14 @@ a learning that only matters to ONE surface, put it in that surface's file.
   naming (title/tags) in code too, so the human can't publish off-series.
   Extend a SHARED builder (`garmentGuideJsonLd`) rather than the page — the
   prerender calls the same function, so parity holds with no second wiring.
+- Two traps when widening a marketing page (US-1691): (1) a route's
+  `description` in `src/lib/seo/public-routes.ts` is budget-checked at 70–160
+  chars by `seo/__tests__/route-metadata.test.ts` — extending the copy to cover
+  a new section blows it, and the page's own `<MarketingLayout description>`
+  must be edited in the SAME step or prerender and SPA disagree. (2) An SSR test
+  asserting a bare phrase ("By the numbers") passes off the FAQ copy that merely
+  MENTIONS the section; assert the heading (`"By the numbers</h2>"`) so the
+  unseeded/negative case can actually fail.
 - Unified Inventory surface (US-958): `/dashboard/flipdesk/inventory` hosts the
   table/grid/kanban/prep views as `?mode=` toggles (one route). `?mode=` is the
   view toggle; `?view=` is ALREADY the saved-view loader (listings/pipeline read
