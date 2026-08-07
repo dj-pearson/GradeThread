@@ -4264,3 +4264,9 @@ Branch: ralph/gradethread-build
 - Reason: Needs a non-clothing golden set: grade real cards, watches and shoes behind a flag, then collect expert corrections, before any per-category prompt can pass the eval gate.
 - Cost: $3.0044 over 2 turns
 ---
+## US-1689: YouTube grading shorts + on-page embeds
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-08-07T05:54:19.978Z
+- Reason: Someone has to film and upload the ten scripted YouTube shorts, then paste each video's id and upload date into `GRADING_SHORTS` in `src/lib/seo/grading-videos.ts`.
+- Cost: $5.6399 over 62 turns
+---
