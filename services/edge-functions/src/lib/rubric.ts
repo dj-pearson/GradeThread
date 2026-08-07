@@ -22,16 +22,30 @@
 //      these weights; route defects via rubric.defectRouting.
 //      - DONE: the scoring math — computeRubricWeightedOverall below, pinned
 //        against the clothing implementations it generalizes.
-//      - TODO: the per-category composite prompts and defect routing. New
-//        prompts reach live traffic ONLY through shadow → golden-set eval gate
-//        → canary, and no non-clothing golden set exists yet (golden cases grow
-//        from real human-corrected grades; they cannot be fabricated). That is
-//        the gate this phase is waiting on, not a missing decision.
+//      - DONE: defect routing — routeDefectToRubricFactors below, with the
+//        routing tables reconciled to the shared DefectType taxonomy. Seven
+//        non-clothing entries had been keyed on invented defect names that
+//        coerceDefectType maps to `other`, so they could never have fired; see
+//        the Rubric.defectRouting comment. The type + rubric-parity_test.ts now
+//        make that class of entry impossible to add back.
+//      - TODO: the per-category composite prompts, and extending DefectType
+//        with card/watch vocabulary (corner ding, edge whitening, crystal
+//        crack) that has no honest equivalent today. BOTH are prompt changes —
+//        DefectType is enumerated to the vision model — so both reach live
+//        traffic ONLY through shadow → golden-set eval gate → canary, and no
+//        non-clothing golden set exists yet (golden cases grow from real
+//        human-corrected grades; they cannot be fabricated). That is the gate
+//        this phase is waiting on, not a missing decision.
 //   3. TODO — Persist grade_reports.factor_scores (JSONB) + rubric_key on ALL
 //      write paths (insert + human-review reseal + adjustment, or the JSONB
 //      goes stale against the typed columns); recreate the public_grade_reports
 //      view to expose them. The public cert allowlist (content-public.ts
 //      CERT_REPORT_COLUMNS) already carries both columns.
+
+import {
+  type DefectType,
+  FACTOR_ROUTING as CLOTHING_DEFECT_ROUTING,
+} from "./defect-weighting.ts";
 
 export interface RubricFactor {
   key: string;
@@ -42,6 +56,14 @@ export interface RubricFactor {
   guidance: string;
 }
 
+/**
+ * How one defect type's penalty is split across a rubric's factors. Keys are
+ * factor keys of THAT rubric; values sum to 1.0. Optional-valued so a
+ * `Partial<Record<FactorKey, number>>` from defect-weighting.ts assigns
+ * directly — the clothing rubric reuses that table rather than copying it.
+ */
+export type RubricDefectSplit = Partial<Record<string, number>>;
+
 export interface Rubric {
   /** Matches item_category and grade_reports.rubric_key. */
   key: string;
@@ -50,13 +72,30 @@ export interface Rubric {
   /** Category framing prepended to the composite grading prompt. */
   promptGuidance: string;
   /**
-   * Defect-type → factor weight routing for the deterministic defect-weighting
-   * pass (mirrors defect-weighting.ts FACTOR_ROUTING, but per rubric). Keys are
-   * factor keys of THIS rubric; values sum to ~1.0 per defect type. The shared
-   * defect taxonomy (stain, rip_tear, …) is reused; unmapped defects fall back
-   * to the rubric's first factor.
+   * Defect-type → factor-weight routing for the deterministic defect-weighting
+   * pass, per rubric. Outer keys MUST be members of the shared `DefectType`
+   * taxonomy (defect-weighting.ts) — that is now enforced by the type, and by
+   * rubric-parity_test.ts at runtime.
+   *
+   * US-1997 — WHY THE TYPE IS THE POINT. This field used to be
+   * `Record<string, …>` and the non-clothing rubrics keyed it on invented
+   * vocabulary: `corner_ding`, `edge_whitening`, `surface_scratch`,
+   * `off_center`, `crease`, `scratch`, `crack`. None of the seven is a
+   * `DefectType`, and `coerceDefectType` maps any unrecognized string to
+   * `other` — so every one of those routings was unreachable. A sports card's
+   * corner ding would have arrived as `other` and fallen through to the
+   * rubric's first factor (surface), never touching `corners`. Nothing failed;
+   * the grade would just have been wrong in a way no test looked at. The
+   * entries below are reconciled to the real taxonomy, and the card/watch
+   * vocabulary that has no honest equivalent is NOT faked — extending the
+   * taxonomy is Phase 2 work (checklist step 2), because `DefectType` is also
+   * what the vision prompt enumerates.
+   *
+   * Unmapped defect types fall back to the rubric's FIRST factor — see
+   * `routeDefectToRubricFactors`, which is where that rule actually lives now
+   * (it was documented here and implemented nowhere).
    */
-  defectRouting: Record<string, Record<string, number>>;
+  defectRouting: Partial<Record<DefectType, RubricDefectSplit>>;
 }
 
 const CLOTHING: Rubric = {
@@ -71,11 +110,12 @@ const CLOTHING: Rubric = {
   ],
   promptGuidance:
     "Grade this garment's condition relative to its as-manufactured state. Intentional design features are not defects.",
-  defectRouting: {
-    stain: { odor_cleanliness: 0.6, cosmetic_appearance: 0.4 },
-    rip_tear: { structural_integrity: 0.6, fabric_condition: 0.4 },
-    broken_zipper: { functional_elements: 1.0 },
-  },
+  // NOT a copy — the live engine's own table. Clothing is the one rubric that
+  // already grades in production, so its routing must BE defect-weighting's,
+  // not a subset of it that drifts when that table is tuned (US-2107 warns
+  // that tuning it edits a PUBLISHED spec). The three entries this used to
+  // hand-copy were correct and covered 3 of the taxonomy's 16 types.
+  defectRouting: CLOTHING_DEFECT_ROUTING,
 };
 
 const SPORTS_CARDS: Rubric = {
@@ -89,12 +129,19 @@ const SPORTS_CARDS: Rubric = {
   ],
   promptGuidance:
     "Grade this trading card like a condition grader (PSA/BGS-style intuition, NOT an official slab grade). Assess surface, corners, edges, and centering independently. Factory print artifacts are not handling damage.",
+  // Reconciled to the shared taxonomy. `centering` deliberately has NO routing:
+  // it is a factory cut attribute, not handling damage, so no defect should
+  // ever debit it — the routing table is the wrong instrument for it and
+  // `off_center` was never a DefectType. Corner/edge wear routes through
+  // `abrasion_thinning`, which is what that damage physically is.
   defectRouting: {
-    crease: { surface: 0.7, corners: 0.3 },
-    corner_ding: { corners: 1.0 },
-    edge_whitening: { edges: 1.0 },
-    surface_scratch: { surface: 1.0 },
-    off_center: { centering: 1.0 },
+    wrinkle_crease: { surface: 0.7, corners: 0.3 },
+    abrasion_thinning: { edges: 0.6, corners: 0.4 },
+    rip_tear: { edges: 0.6, surface: 0.4 },
+    hole_puncture: { surface: 1.0 },
+    stain: { surface: 1.0 },
+    discoloration: { surface: 1.0 },
+    fading: { surface: 1.0 },
   },
 };
 
@@ -110,10 +157,16 @@ const WATCHES: Rubric = {
   ],
   promptGuidance:
     "Grade this watch's condition from the photos. Distinguish honest wear from damage; do NOT assert authenticity or service history beyond what's visible.",
+  // `scratch` and `crack` were not DefectTypes. Scratching is `abrasion_thinning`;
+  // a chipped/cracked crystal is the taxonomy's `hole_puncture` (the only
+  // "material breached" type) until Phase 2 gives glass its own term.
   defectRouting: {
-    scratch: { case_bracelet: 0.6, crystal: 0.4 },
-    crack: { crystal: 1.0 },
+    abrasion_thinning: { case_bracelet: 0.6, crystal: 0.4 },
+    hole_puncture: { crystal: 1.0 },
     stretched_misshapen: { case_bracelet: 1.0 },
+    missing_hardware: { case_bracelet: 0.5, movement_function: 0.5 },
+    discoloration: { dial_hands: 0.7, cosmetic: 0.3 },
+    stain: { dial_hands: 0.6, cosmetic: 0.4 },
   },
 };
 
@@ -129,10 +182,15 @@ const SHOES: Rubric = {
   ],
   promptGuidance:
     "Grade these shoes' condition from the photos, including the outsole. Distinguish normal break-in from damage.",
+  // These three were already valid taxonomy members; the rest fill obvious gaps
+  // (sole separation, midsole yellowing) with terms that already exist.
   defectRouting: {
     abrasion_thinning: { upper: 0.6, cosmetic: 0.4 },
     rip_tear: { upper: 0.6, structure: 0.4 },
     odor_indicator: { interior_odor: 1.0 },
+    seam_failure_unthreading: { structure: 0.6, upper: 0.4 },
+    stain: { upper: 0.7, cosmetic: 0.3 },
+    discoloration: { outsole: 0.6, upper: 0.4 },
   },
 };
 
@@ -150,6 +208,35 @@ export const NON_CLOTHING_RUBRIC_KEYS = ["sports_cards", "watches", "shoes"] as 
 export function rubricForKey(key: string | null | undefined): Rubric {
   if (!key) return CLOTHING;
   return RUBRICS[key] ?? CLOTHING;
+}
+
+/**
+ * The factor split a defect type debits under a given rubric.
+ *
+ * The "unmapped defects fall back to the rubric's first factor" rule was
+ * written into the `defectRouting` doc comment from the start and implemented
+ * nowhere, so the fallback existed only as a claim. It lives here now, pinned
+ * by rubric-parity_test.ts.
+ *
+ * Returns a plain `Record<string, number>` — undefined-valued entries are
+ * dropped, so callers can iterate without re-checking. Never returns an empty
+ * object for a rubric that has factors: an unroutable defect must still land
+ * somewhere, or it silently costs the item nothing.
+ */
+export function routeDefectToRubricFactors(
+  rubric: Rubric,
+  defectType: string,
+): Record<string, number> {
+  const split = rubric.defectRouting[defectType as DefectType];
+  if (split) {
+    const out: Record<string, number> = {};
+    for (const [factor, weight] of Object.entries(split)) {
+      if (typeof weight === "number") out[factor] = weight;
+    }
+    if (Object.keys(out).length > 0) return out;
+  }
+  const first = rubric.factors[0];
+  return first ? { [first.key]: 1.0 } : {};
 }
 
 // ---------------------------------------------------------------------------

@@ -360,6 +360,16 @@ a learning that only matters to ONE surface, put it in that surface's file.
 
 
 
+## Scaffolding modules
+- A module that is "shipped but not yet wired" is NOT thereby correct — nothing
+  calls it, so nothing can produce a wrong answer from it, so no test has a
+  reason to check it. `rubric.ts`'s per-rubric `defectRouting` sat for months
+  keyed on seven invented defect names; `coerceDefectType` folds any unknown
+  string to `other`, so every one of those routings was unreachable (US-1997).
+  Before extending a scaffold, first assert its declared invariants — that its
+  keys really are members of the taxonomy/enum it says it reuses. Full case:
+  [[shipped-but-unwired]].
+
 ## DB schema ownership gotchas
 - `grade_reports` has NO `user_id` column — ownership flows through
   `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A

@@ -167,7 +167,13 @@ const SIZE_MULT: Record<SizeBucket, number> = {
 
 // Routing: how each defect type's penalty is distributed across factors.
 // Splits per type sum to 1.0.
-const FACTOR_ROUTING: Record<DefectType, Partial<Record<FactorKey, number>>> = {
+//
+// US-1997: exported so rubric.ts's CLOTHING rubric can REFERENCE this table
+// instead of carrying a three-entry hand-copy of it (which is what it had, and
+// which would have silently diverged from the live engine the moment either
+// side was tuned). Exporting changes no value, so the published mirror
+// (src/lib/grading-standard.ts, US-2107) and its parity test are unaffected.
+export const FACTOR_ROUTING: Record<DefectType, Partial<Record<FactorKey, number>>> = {
   stain: { odor_cleanliness: 0.6, cosmetic_appearance: 0.4 },
   hole_puncture: { fabric_condition: 0.8, cosmetic_appearance: 0.2 },
   rip_tear: { structural_integrity: 0.6, fabric_condition: 0.4 },

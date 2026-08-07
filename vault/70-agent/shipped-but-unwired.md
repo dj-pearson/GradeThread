@@ -6,10 +6,11 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/authenticity-eval.ts
   - services/edge-functions/src/lib/title-sync.ts
+  - services/edge-functions/src/lib/rubric.ts
   - src/test/no-dead-column-writes.test.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-07
 tags: [quality, testing, dead-code, gotcha]
-summary: Modules that pass their tests while nothing calls them; one is a real unenforced guarantee, one is uncalled by design, one was a policy retirement that got deleted once a live switch started promising it — and telling the shapes apart is the point.
+summary: Modules that pass their tests while nothing calls them; one is a real unenforced guarantee, one is uncalled by design, one was a policy retirement that got deleted once a live switch started promising it, and one was assumed correct because being unwired hid a broken table — telling the shapes apart is the point.
 ---
 
 # Shipped but unwired
@@ -132,12 +133,48 @@ generated *and persisted*; the replacement is pure prompt-building consumed by
 the assembler. 4 exports, **0 tests**, 0 callers. Dead by supersession, like
 `drip-trigger.ts`.
 
-### `rubric.ts` — PENDING, correctly
+### `rubric.ts` — PENDING, and "pending" hid a broken table
 
 Self-documents as "FOUNDATION ONLY: this registry is NOT yet wired into the live
 pipeline, so clothing grading is byte-for-byte unchanged." Covered by the open
-**US-1997** (category rubric activation). Nothing to do; the header and the story
-already agree.
+**US-1997** (category rubric activation), whose decision the owner settled on
+2026-07-23: **ACTIVATE**, as a multi-phase program.
+
+The 2026-07-19 triage closed this entry with "nothing to do; the header and the
+story already agree." That was true about the *wiring* and wrong about the
+*content*, which is the correction worth keeping (2026-08-07):
+
+Each non-clothing rubric carried a `defectRouting` table keyed on invented
+defect names — `corner_ding`, `edge_whitening`, `surface_scratch`, `off_center`,
+`crease`, `scratch`, `crack`. None of the seven is a member of the shared
+`DefectType` taxonomy in `defect-weighting.ts`, and `coerceDefectType` folds any
+unrecognized string to `other`. So every one of those routings was unreachable
+from the moment it was written: a sports card's corner ding would have arrived
+as `other` and debited `surface` via the first-factor fallback, never `corners`.
+The clothing entry had the milder version of the same problem — a three-entry
+hand-copy of a sixteen-entry live table, so the other thirteen clothing defect
+types also fell through to the fallback.
+
+**The generalisable bit, and it sharpens this note's thesis.** Being unwired is
+what let the table look fine. Nothing called it, so nothing could have produced
+a wrong answer from it, so no test had a reason to check its keys against the
+taxonomy they were declared to come from. "Correct-but-not-yet-connected" was
+assumed when only "not-yet-connected" had been verified. A scaffold accumulates
+defects at exactly the rate a live module would, and reports none of them.
+
+Fixed under US-1997: the routing type is now `Partial<Record<DefectType, …>>`
+so the compiler rejects an invented key, clothing REFERENCES the live
+`FACTOR_ROUTING` export rather than copying part of it, the documented
+"unmapped defects fall back to the first factor" rule is implemented
+(`routeDefectToRubricFactors` — it had been a comment and nothing else), and
+`rubric-parity_test.ts` asserts every routing key survives `coerceDefectType`
+and every split sums to 1.0 over its own rubric's factors. The card/watch
+vocabulary with no honest taxonomy equivalent was **not** faked; extending
+`DefectType` is a prompt change (the vision model is given the enum), so it
+goes through the eval gate in Phase 2.
+
+Still unwired into the pipeline, still correct that it is. See
+[[blocked-work-gates]] for what Phase 2 is actually waiting on.
 
 ### `brand-seed.ts` — the gate that could never have run
 

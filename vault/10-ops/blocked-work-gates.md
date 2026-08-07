@@ -6,7 +6,7 @@ status: current
 source_of_truth: vault
 code_refs:
   - PENDING_MIGRATIONS.md
-reviewed: 2026-07-19
+reviewed: 2026-08-07
 tags: [ops, backlog, blockers]
 summary: Five external gates hold up most remaining stories. Each entry says what to do and exactly which stories it releases.
 ---
@@ -95,20 +95,34 @@ US-2001 AC2/AC3 (measure `/health` for a real release SHA).
 
 ## 4. Two Grading decisions → the domain named first in every work request
 
-Neither is an engineering question:
+Neither is an engineering question. One is now answered; it is kept here because
+the gate moved rather than lifting, and a reader who only sees "answered" will
+pick the story up expecting to finish it.
 
-- **US-1997** — activate or remove the category-rubric scaffolding. Migration
-  00231 shipped `rubric_key` / `factor_scores` to prod and nothing writes them.
-  The AC explicitly says *do not default to whichever is less work*: it is a
-  product question about whether non-clothing grading is happening.
+- **US-1997** — ~~activate or remove the category-rubric scaffolding~~
+  **ANSWERED 2026-07-23: ACTIVATE.** Non-clothing grading (sports cards,
+  watches, shoes) is on the roadmap, so the scaffolding is built out rather than
+  removed. The gate MOVED rather than closing: what now blocks the feature is
+  not a decision but a **non-clothing golden set**, which does not exist and
+  cannot be fabricated — golden cases grow from real human-corrected grades, and
+  the per-category composite prompts (plus the `DefectType` extension they need)
+  reach live traffic only through shadow → eval gate → canary. So Phase 2 needs
+  someone to grade real non-clothing behind a flag and collect expert
+  corrections FIRST. That is operator work, not agent work.
+  Everything safely completable without it has landed: the client/edge drift
+  fixture, the cert column allowlist, the rubric-driven weighted overall, and
+  the defect-routing repair described in [[shipped-but-unwired]].
 - **US-2035** — is a regrade of identical photos allowed to return a different
   score? `ai-config.ts` documents a determinism guarantee the default model does
   not provide. Either restore it or stop claiming it — but the comment cannot
   keep asserting a property the code lacks.
 
-**Do:** answer both.
-**Releases:** US-1997, US-2035, and the only remaining Grading work that is not
-prod-data-bound.
+**Do:** answer US-2035; for US-1997, start collecting the non-clothing golden
+set (grade real cards/watches/shoes behind a flag, then have an expert correct
+them) — no amount of engineering substitutes for it.
+**Releases:** US-2035, and the only remaining Grading work that is not
+prod-data-bound. US-1997's remaining phase does NOT release on a decision any
+more; it releases on the golden set.
 
 ---
 

@@ -11,11 +11,13 @@ import { assert, assertEquals, assertThrows } from "@std/assert";
 import {
   computeRubricWeightedOverall,
   NON_CLOTHING_RUBRIC_KEYS,
+  routeDefectToRubricFactors,
   RUBRIC_WEIGHT_SUM_TOLERANCE,
   RUBRICS,
   rubricForKey,
   rubricWeightSum,
 } from "../lib/rubric.ts";
+import { coerceDefectType, DEFECT_TYPES } from "../lib/defect-weighting.ts";
 import {
   computeWeightedOverall,
   type FactorScores as ColumnFactorScores,
@@ -96,6 +98,111 @@ Deno.test("rubricWeightSum reports 1.0 for every shipped rubric", () => {
       `${key} weights sum to ${sum}, expected 1.0`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// US-1997 activation step 2 — defect routing.
+// ---------------------------------------------------------------------------
+//
+// The routing tables shipped with SEVEN entries keyed on defect names that are
+// not in the shared taxonomy (corner_ding, edge_whitening, surface_scratch,
+// off_center, crease, scratch, crack). `coerceDefectType` folds any unknown
+// string to `other`, so none of them could ever have matched: a card's corner
+// ding would have debited `surface` (the first-factor fallback) instead of
+// `corners`, silently. The type now rejects that shape; these assert it at
+// runtime too, because the type alone would not survive a `as` cast or a
+// future `Record<string, …>` widening.
+
+Deno.test("every defectRouting key is a member of the shared DefectType taxonomy", () => {
+  const known = new Set<string>(DEFECT_TYPES);
+  for (const [rubricKey, rubric] of Object.entries(RUBRICS)) {
+    for (const defectType of Object.keys(rubric.defectRouting)) {
+      assert(
+        known.has(defectType),
+        `${rubricKey}.defectRouting has "${defectType}", which is not a DefectType — ` +
+          `coerceDefectType would fold it to "other" and this routing could never fire`,
+      );
+      // The stronger form of the same check: a real taxonomy member survives
+      // the coercion the pipeline actually applies to the model's string.
+      assertEquals(coerceDefectType(defectType), defectType);
+    }
+  }
+});
+
+Deno.test("every defectRouting split names factors of ITS OWN rubric and sums to 1.0", () => {
+  for (const [rubricKey, rubric] of Object.entries(RUBRICS)) {
+    const factorKeys = new Set(rubric.factors.map((f) => f.key));
+    for (const [defectType, split] of Object.entries(rubric.defectRouting)) {
+      assert(split, `${rubricKey}.${defectType} has no split`);
+      let sum = 0;
+      for (const [factor, weight] of Object.entries(split)) {
+        assert(
+          factorKeys.has(factor),
+          `${rubricKey}.defectRouting.${defectType} routes to "${factor}", ` +
+            `which is not a factor of the ${rubricKey} rubric`,
+        );
+        assert(typeof weight === "number", `${rubricKey}.${defectType}.${factor} is not a number`);
+        sum += weight;
+      }
+      assert(
+        Math.abs(sum - 1) < RUBRIC_WEIGHT_SUM_TOLERANCE,
+        `${rubricKey}.defectRouting.${defectType} sums to ${sum}, expected 1.0`,
+      );
+    }
+  }
+});
+
+Deno.test("clothing's routing IS the live engine table, not a copy of part of it", () => {
+  // The hand-copied subset it used to carry covered 3 of 16 defect types, so a
+  // clothing defect outside that subset fell through to the first-factor
+  // fallback — a fabric_condition debit for a broken zipper.
+  for (const defectType of DEFECT_TYPES) {
+    const routed = routeDefectToRubricFactors(RUBRICS.clothing, defectType);
+    assert(
+      Object.keys(routed).length > 0,
+      `clothing has no routing for "${defectType}"`,
+    );
+  }
+  assertEquals(routeDefectToRubricFactors(RUBRICS.clothing, "broken_zipper"), {
+    functional_elements: 1.0,
+  });
+});
+
+Deno.test("routeDefectToRubricFactors falls back to the rubric's first factor", () => {
+  const cards = RUBRICS.sports_cards;
+  // `other` is what coerceDefectType yields for anything unrecognized, and no
+  // rubric routes it explicitly — so it must still land somewhere.
+  assertEquals(routeDefectToRubricFactors(cards, "other"), { surface: 1.0 });
+  assertEquals(routeDefectToRubricFactors(cards, "not_a_defect_type"), { surface: 1.0 });
+  assertEquals(routeDefectToRubricFactors(cards, "wrinkle_crease"), {
+    surface: 0.7,
+    corners: 0.3,
+  });
+});
+
+Deno.test("no rubric leaves a defect unrouted", () => {
+  for (const [rubricKey, rubric] of Object.entries(RUBRICS)) {
+    for (const defectType of DEFECT_TYPES) {
+      const routed = routeDefectToRubricFactors(rubric, defectType);
+      assert(
+        Object.keys(routed).length > 0,
+        `${rubricKey} routes "${defectType}" nowhere — the defect would cost the item nothing`,
+      );
+    }
+  }
+});
+
+Deno.test("sports_cards routes nothing to centering, on purpose", () => {
+  // Centering is a factory cut attribute, not handling damage. `off_center`
+  // (the entry this replaces) was never a DefectType, so asserting the absence
+  // stops someone re-adding an invented one to 'fix' the gap.
+  const routed = DEFECT_TYPES.flatMap((d) =>
+    Object.keys(routeDefectToRubricFactors(RUBRICS.sports_cards, d))
+  );
+  assert(
+    !routed.includes("centering"),
+    "a defect type now debits centering — if that is intended, update this test and say why",
+  );
 });
 
 // ---------------------------------------------------------------------------
