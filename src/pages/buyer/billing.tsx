@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Check, Crown, Loader2, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,7 @@ import {
 import { UsageMeter } from "@/components/billing/usage-meter";
 import { useBillingSummary, useBuyerSubscribe, useBuyerCancel, useBuyerUncancel, useBillingPortal } from "@/hooks/use-billing-summary";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
+import { trackBuyerFunnel } from "@/lib/buyer-analytics";
 
 // US-1801: buyer billing surface. Current plan + renewal + Stripe portal, a
 // monthly/yearly plan picker, cancel/resume, and metered-allowance usage. The
@@ -57,6 +58,22 @@ export function BuyerBillingPage() {
 
   const upgradeFlag = params.get("upgrade");
   const highlight = upgradeFlag ? tierForFlag(upgradeFlag) : null;
+
+  // US-1845: the conversion itself. Stripe returns to
+  // /buyer/billing?checkout=success&product=buyer, so the return URL is the one
+  // unambiguous "they paid" moment on this surface — reading the current plan
+  // instead would re-fire on every later visit to the page.
+  const checkoutSucceeded =
+    params.get("checkout") === "success" && params.get("product") === "buyer";
+  const paidPlan = summary?.buyer.plan ?? null;
+  const paidInterval = summary?.buyer.interval ?? null;
+  useEffect(() => {
+    if (!checkoutSucceeded) return;
+    trackBuyerFunnel("subscribed", {
+      buyer_plan: paidPlan ?? undefined,
+      interval: paidInterval ?? undefined,
+    });
+  }, [checkoutSucceeded, paidPlan, paidInterval]);
 
   if (isLoading || !summary) {
     return (
@@ -217,7 +234,15 @@ export function BuyerBillingPage() {
                   ) : (
                     <Button
                       className="w-full"
-                      onClick={() => subscribe.mutate({ plan: key as "guard" | "connoisseur", interval })}
+                      onClick={() => {
+                        trackBuyerFunnel("subscribe_start", {
+                          buyer_plan: key,
+                          interval,
+                          from_plan: effective,
+                          upgrade_flag: upgradeFlag ?? undefined,
+                        });
+                        subscribe.mutate({ plan: key as "guard" | "connoisseur", interval });
+                      }}
                       disabled={subscribe.isPending}
                     >
                       {subscribe.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

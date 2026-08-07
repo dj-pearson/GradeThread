@@ -469,6 +469,19 @@ a learning that only matters to ONE surface, put it in that surface's file.
   engine, not on the insert). Rule + the bound/unbound table: [[buyer-platform]].
 
 ## DB schema ownership gotchas
+- `users.account_type` is NOT a column. 00401 reads `account_type` out of
+  `raw_user_meta_data` at signup and persists it as the boolean flags
+  `is_seller` / `is_buyer`. A migration filtering on `u.account_type` fails
+  `column u.account_type does not exist` — only `verify:db` catches it. Note that
+  a seller whose FlipDesk tier folds in the buyer product (US-1887) never sets
+  `is_buyer`, so "is a buyer" also has to check `buyer_plan`/
+  `buyer_subscription_status`.
+- A migration containing `<alias>.plan <> 'free'` fails
+  `src/test/legacy-user-plan-readers.test.ts` (US-2398 frozen-column guard) even
+  when the underlying column is `buyer_plan` — the scan is a regex over the SQL
+  and only excludes `[_a-z]` before `plan`, so an alias `AS plan` re-arms it.
+  Alias it `AS buyer_plan`. `npm run verify:db` passes either way; the guard is a
+  vitest.
 - `grade_reports` has NO `user_id` column — ownership flows through
   `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A
   migration/backfill that does `grade_reports.user_id` fails with `column

@@ -33,6 +33,7 @@ import {
 import { emitReputationEvent, recomputeTrustScore } from "./buyer-trust-score.ts";
 import { updatePromptVersionAccuracy } from "./accuracy-tracking.ts";
 import { issueConfirmationReward } from "./buyer-rewards.ts";
+import { trackBuyerFeature } from "./buyer-analytics.ts";
 
 /** Buyer's structured mismatch report — same shape as a guarantee claim issue. */
 export interface BuyerConfirmInput {
@@ -627,6 +628,15 @@ export async function recordBuyerGradeOutcome(input: {
   const sellerIntegrity = sellerUserId
     ? await recomputeSellerGradeIntegrity(sellerUserId)
     : null;
+
+  // US-1845: a confirmation is both a feature use and the flywheel's hinge — it
+  // is buyer effort that feeds back into grading accuracy. Outcome shape only,
+  // never the item, the seller or the price.
+  trackBuyerFeature(userId, "confirmations", verdict.matchStatus, {
+    guarantee_eligible: guaranteeEligible,
+    human_review_flagged: humanReviewFlagged,
+    reward_credits: rewardCreditsIssued,
+  });
 
   return {
     matchStatus: verdict.matchStatus,

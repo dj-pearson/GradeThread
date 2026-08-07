@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerWants } from "@/hooks/use-buyer-wants";
+import { trackBuyerFeature } from "@/lib/buyer-analytics";
 
 // US-1831: 'Graded Wanted' — post what you're hunting for and get matched to
 // graded inventory. Locked behind the demandBoard entitlement.
@@ -64,6 +65,14 @@ export function BuyerDemandPage() {
     }
     try {
       const res = await createWant(input);
+      // US-1845: a want is the purest buyer-demand signal on the platform — it
+      // is the seller-facing half of the flywheel, so instant matches are worth
+      // carrying on the event.
+      trackBuyerFeature("wants", "created", {
+        visibility: input.visibility,
+        matched: res.matched,
+        has_grade_floor: input.min_grade != null,
+      });
       toast.success(res.matched > 0 ? `Posted — ${res.matched} match${res.matched === 1 ? "" : "es"} already!` : "Want posted. We'll match as graded items appear.");
       setBrands(""); setCategories(""); setKeywords(""); setMinGrade(""); setMaxPrice("");
     } catch (e) {

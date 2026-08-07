@@ -17,6 +17,7 @@ import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { useSavedSearches } from "@/hooks/use-saved-searches";
 import { alertCapState, countActiveSearches } from "@/lib/watchlist";
+import { trackBuyerFeature } from "@/lib/buyer-analytics";
 import { useWatchlist } from "@/hooks/use-watchlist";
 import { useBuyerAlertMatches } from "@/hooks/use-buyer-alert-matches";
 import { useBuyerTrustSignals } from "@/hooks/use-buyer-trust-signals";
@@ -264,11 +265,15 @@ export function BuyerAlertsPage() {
   async function createSearch() {
     // A new search is created ACTIVE, so it counts against the cap immediately.
     if (alertCap.atCap) {
+      // US-1845: hitting the plan cap is the upgrade moment, so it is measured
+      // as its own action rather than left as a toast nobody counts.
+      trackBuyerFeature("alerts", "cap_reached", { cap: alertCap.cap });
       toast.error(`Your plan runs ${alertCap.cap} active alerts. Pause one, or upgrade for more.`);
       return;
     }
     try {
       await searches.create();
+      trackBuyerFeature("alerts", "created", { active_alerts: alertCap.activeCount + 1 });
       toast.success("Alert created — tune its criteria below");
     } catch {
       toast.error("Couldn't create the alert. Please try again.");

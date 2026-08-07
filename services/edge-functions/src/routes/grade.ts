@@ -27,6 +27,7 @@ import {
   videoPhotoConflict,
 } from "../lib/video-grading-cost.ts";
 import { getBuyerEntitlements } from "../lib/buyer-entitlements.ts";
+import { trackBuyerFeature } from "../lib/buyer-analytics.ts";
 import {
   BUYER_METER_ALLOWANCE,
   type BuyerMeterSource,
@@ -652,6 +653,11 @@ gradeRoutes.post("/submit", async (c) => {
         buyerEnt.allowances[BUYER_METER_ALLOWANCE[VIDEO_GRADE_BUYER_METER]],
       );
       if (!buyerVideoDebit) {
+        // US-1845: the exhausted case is the one worth measuring — it is the
+        // upgrade moment, and it leaves no row behind to count it from later.
+        trackBuyerFeature(ownerId, "video_grade", "quota_exhausted", {
+          buyer_plan: buyerEnt.plan,
+        });
         return c.json({
           error:
             "You've used this month's video-grade credits. Upgrade your plan, or grade this item from photos.",
@@ -662,6 +668,10 @@ gradeRoutes.post("/submit", async (c) => {
           buyerPlan: buyerEnt.plan,
         }, 402);
       }
+      trackBuyerFeature(ownerId, "video_grade", "credit_spent", {
+        buyer_plan: buyerEnt.plan,
+        credit_source: buyerVideoDebit,
+      });
     }
   }
 

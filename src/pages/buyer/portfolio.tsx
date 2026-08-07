@@ -16,6 +16,7 @@ import { useBuyerPortfolioValuation, type ItemValuation } from "@/hooks/use-buye
 import { useBuyerTrustSignals } from "@/hooks/use-buyer-trust-signals";
 import { useBuyerVideoGrades } from "@/hooks/use-buyer-video-grades";
 import { TrustSignalBadges } from "@/components/buyer/trust-signals";
+import { trackBuyerFeature } from "@/lib/buyer-analytics";
 import type { ClosetItemRow } from "@/types/database";
 
 const usd = (c: number) => `$${(c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -152,6 +153,7 @@ export function BuyerPortfolioPage() {
     }
     try {
       await addItem({ source: "certificate", certificate_id: certId.trim() });
+      trackBuyerFeature("portfolio", "item_added", { source: "certificate" });
       toast.success("Added to your closet");
       setCertId("");
     } catch (e) {
@@ -171,6 +173,7 @@ export function BuyerPortfolioPage() {
         garment_type: type.trim() || null,
         size: size.trim() || null,
       });
+      trackBuyerFeature("portfolio", "item_added", { source: "manual" });
       toast.success("Added to your closet");
       setBrand("");
       setType("");

@@ -105,6 +105,17 @@ export function PrivacyPage() {
           referring URLs, session duration, and similar interaction events.
         </li>
         <li>
+          <strong>Buyer feature usage.</strong> When you use a buyer feature
+          &mdash; an extension condition check, a condition alert, a grade
+          confirmation, a guarantee claim, an authenticity or video-grade credit
+          &mdash; we record that the feature ran, its outcome, and your buyer
+          plan. Browser-side events only run if you accept analytics cookies.
+          Server-side records of actions you take in your account (for example
+          spending a credit) are kept on our legitimate interest in measuring and
+          operating the Service; they do not include the item, listing, price, or
+          photos involved.
+        </li>
+        <li>
           <strong>Device and log data.</strong> IP address, browser type and
           version, operating system, device identifiers, language preference,
           and timestamps.

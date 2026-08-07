@@ -16,6 +16,7 @@ import {
   classifyAuthFailure,
 } from "@/lib/auth-error";
 import { track } from "@/lib/analytics";
+import { trackBuyerFunnel } from "@/lib/buyer-analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -138,7 +139,13 @@ export function SignupPage() {
         isBuyer ? "buyer" : undefined,
       );
       setIsConfirmation(true);
-      if (isBuyer) track("signup.buyer", { at: "signup" });
+      if (isBuyer) {
+        track("signup.buyer", { at: "signup" });
+        // US-1845: the same moment as a funnel STEP, carrying acquisition
+        // source, so signup sits on one series with the tool result before it
+        // and the subscription after it.
+        trackBuyerFunnel("signup", { source: signupSource || undefined });
+      }
       if (useCase) track("onboarding.use_case_selected", { use_case: useCase, at: "signup" });
       // US-1670: attribute discovery source (esp. AI assistants) for SEO/GEO.
       if (signupSource) track("signup.source_selected", { source: signupSource });

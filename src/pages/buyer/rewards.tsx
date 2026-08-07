@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPurchases, type PurchaseWithCaptures } from "@/hooks/use-buyer-purchases";
 import { useBuyerRewards } from "@/hooks/use-buyer-rewards";
+import { trackBuyerFeature } from "@/lib/buyer-analytics";
 import type { ArrivalImageType } from "@/types/database";
 
 // US-1811: buyer rewards — link a purchase to its GradeThread grade, then snap
@@ -76,6 +77,7 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
   async function onConfirm() {
     try {
       const outcome = await confirmPurchase(purchase.id, { match_status: "confirmed" });
+      trackBuyerFeature("confirmations", "confirmed");
       const credits = outcome?.rewardCreditsIssued ?? 0;
       toast.success(
         credits > 0
@@ -90,6 +92,11 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
   }
 
   async function onClaim() {
+    // US-1845: the ATTEMPT, from the browser and carrying acquisition source.
+    // The edge records the decision separately (buyer-guarantee-claim.ts) — a
+    // filed claim and an approved claim are different numbers and the funnel
+    // needs both, not one standing in for the other.
+    trackBuyerFeature("guarantee_claims", "filed");
     try {
       const claim = await fileClaim(purchase.id);
       toast.success(
@@ -111,6 +118,9 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
       const outcome = await confirmPurchase(purchase.id, {
         match_status: "disputed",
         dispute_reason: disputeReason.trim(),
+      });
+      trackBuyerFeature("confirmations", "disputed", {
+        guarantee_eligible: outcome?.guaranteeEligible === true,
       });
       setDisputing(false);
       setDisputeReason("");

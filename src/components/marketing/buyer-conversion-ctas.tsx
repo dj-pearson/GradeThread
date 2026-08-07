@@ -1,7 +1,8 @@
+import { useEffect } from "react";
 import { Link } from "react-router";
 import { Bell, Bookmark, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { track } from "@/lib/analytics";
+import { trackBuyerFunnel } from "@/lib/buyer-analytics";
 import { cn } from "@/lib/utils";
 import {
   buyerSignupHref,
@@ -59,12 +60,21 @@ export function BuyerConversionCtas({
   result: Partial<BuyerConversionResult>;
   className?: string;
 }) {
+  // US-1845: the top of the buyer funnel. This block renders exactly when one of
+  // the free tools has produced a result, so mounting it IS "a visitor saw a
+  // result they could convert on" — the step is recorded here rather than in
+  // each tool page, which is what keeps the two tools counting the same thing.
+  const hasValue = result.medianCents != null;
+  useEffect(() => {
+    trackBuyerFunnel("tool_result", { tool, has_value: hasValue });
+  }, [tool, hasValue]);
+
   function onPick(intent: BuyerConversionIntent) {
     const claim = stashBuyerClaim({ intent, tool, result });
     // The funnel event. `ref` is the earned link that brought them here (US-603),
     // so an affiliate conversion is attributable from the anonymous result all
     // the way through to the claim on the other side of signup.
-    track("buyer_funnel_cta", {
+    trackBuyerFunnel("cta", {
       tool,
       intent,
       has_value: claim.result.medianCents != null,

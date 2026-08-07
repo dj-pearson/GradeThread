@@ -14,6 +14,7 @@ import { assessAuthenticity } from "../lib/ai-authenticity.ts";
 import { getEffectiveTellsForBrand } from "../lib/brand-authenticity.ts";
 import { recordAiUsage } from "../lib/ai-usage.ts";
 import { AiCeilingError, reserveGlobalDailyBudget } from "../lib/ai-limiter.ts";
+import { trackBuyerFeature } from "../lib/buyer-analytics.ts";
 
 type BuyerEnv = { Variables: { userId: string } };
 export const buyerAuthenticityRoutes = new Hono<BuyerEnv>();
@@ -81,9 +82,16 @@ buyerAuthenticityRoutes.post("/authenticity", async (c) => {
         };
       },
     );
+    // US-1845: a credit was spent and the check returned. Verdict + plan only —
+    // the brand and the photos stay out of the analytics stream.
+    trackBuyerFeature(userId, "authenticity", "check_completed", {
+      buyer_plan: ent.plan,
+      verdict: projection.verdict,
+    });
     return c.json(projection, 200);
   } catch (err) {
     if (err instanceof BuyerQuotaExhaustedError) {
+      trackBuyerFeature(userId, "authenticity", "quota_exhausted", { buyer_plan: ent.plan });
       return c.json(
         { error: "You've used this month's authenticity checks. Upgrade or buy credits to run more.", code: "quota_exhausted" },
         402,

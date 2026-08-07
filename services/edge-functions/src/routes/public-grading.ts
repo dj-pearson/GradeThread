@@ -52,6 +52,7 @@ import { loadPendingDelists } from "../lib/pending-delists.ts";
 // body validation) lives in lib/listing-ingest.ts; the matching predicate is
 // borrowed WHOLE from the alerts engine so an ingested listing is judged by the
 // same rules as an on-platform certificate.
+import { trackBuyerFeature } from "../lib/buyer-analytics.ts";
 import {
   buildIngestAlertBody,
   INGEST_RETENTION_DAYS,
@@ -1790,6 +1791,17 @@ publicGradingRoutes.post("/ingest-listing", async (c) => {
         );
       if (watchErr) console.error("public-grading /ingest-listing watch:", watchErr.message);
     }
+
+    // US-1845: the extension check is a metered spend the browser never reports
+    // — the extension talks to this endpoint, not to PostHog. Marketplace and
+    // plan only; never the listing URL, title or price.
+    trackBuyerFeature(ownerId, "extension_check", "listing_checked", {
+      marketplace: listing.marketplace,
+      buyer_plan: ent.plan,
+      matches: matches.length,
+      has_discrepancy: discrepancy != null,
+      watched: Boolean(listing.watch && ingestedId),
+    });
 
     return c.json(
       {

@@ -29,6 +29,7 @@ import { buildBroadcastEmailHtml } from "../lib/email.ts";
 import { sendPushToUser } from "../lib/apns.ts";
 import { getReferralRewardConfig, grantReferralReward } from "../lib/referrals.ts";
 import { platformBadgeFunnel } from "../lib/badge-analytics.ts";
+import { type FlywheelPoint, summarizeFlywheel } from "../lib/buyer-analytics.ts";
 import { coordinateMarketingSend } from "../lib/marketing-coordinator.ts";
 import { isMarketingOptedOut } from "../lib/email-consent.ts";
 import { marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
@@ -1127,6 +1128,44 @@ adminGrowthRoutes.get("/timeseries", async (c) => {
 
   const series = [...buckets.entries()].map(([date, v]) => ({ date, ...v }));
   return c.json({ window_days: days, series });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// BUYER GROWTH (US-1845)
+// ════════════════════════════════════════════════════════════════════
+//
+// The whole buyer rollup in ONE round trip, because every panel on the surface
+// shares the same window and splitting it would let the funnel and the
+// attribution table disagree about which days they cover.
+//
+// The heavy lifting is buyer_growth_metrics() (migration 00537) — counts only,
+// never a user identifier. Two things are deliberately NOT in the SQL: the
+// flywheel correlation, which is arithmetic over the series it already returns
+// and belongs somewhere unit-testable; and MRR, which needs the plan prices and
+// those live in the frontend tier matrix (src/lib/constants.ts BUYER_PLANS), not
+// in a third copy here.
+adminGrowthRoutes.get("/buyer", async (c) => {
+  try {
+    const days = Math.min(Math.max(Number(c.req.query("days") ?? 30), 1), 365);
+    const { data, error } = await supabaseAdmin.rpc("buyer_growth_metrics", {
+      p_days: days,
+    });
+    if (error) throw new Error(error.message);
+
+    const metrics = (data ?? {}) as Record<string, unknown>;
+    const flywheel = Array.isArray(metrics.flywheel)
+      ? (metrics.flywheel as FlywheelPoint[])
+      : [];
+    return c.json({ ...metrics, flywheel, flywheel_summary: summarizeFlywheel(flywheel) });
+  } catch (err) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't load the buyer growth metrics.",
+      err,
+      "admin-growth.buyer",
+    );
+  }
 });
 
 // ════════════════════════════════════════════════════════════════════

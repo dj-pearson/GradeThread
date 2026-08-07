@@ -18,8 +18,12 @@ code_refs:
   - services/edge-functions/src/lib/closet-grade-link.ts
   - src/lib/buyer-conversion-claim.ts
   - src/lib/__tests__/buyer-conversion-claim.test.ts
+  - src/lib/buyer-analytics.ts
+  - src/lib/__tests__/buyer-analytics.test.ts
+  - services/edge-functions/src/lib/buyer-analytics.ts
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
+  - supabase/migrations/00537_buyer_growth_metrics.sql
 reviewed: 2026-08-07
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
@@ -284,6 +288,55 @@ so splitting into words widens the alert past the item that was picked), the
 chosen grade → `min_grade`, the median value → `max_price_cents`. Category stays
 empty — neither tool asks for one, and a guessed category narrows the alert to
 nothing while looking like a working feature.
+
+## The measurement layer names the steps, or every surface invents its own
+
+US-1845 instrumented the funnel, and the shape of that instrumentation is the
+contract, not the event list:
+
+**One vocabulary, two halves.** `src/lib/buyer-analytics.ts` owns the ordered
+funnel steps and the feature keys; `services/edge-functions/src/lib/buyer-analytics.ts`
+owns the same feature keys for the actions with no browser in the loop (a metered
+spend, a guarantee decision, an extension check arriving on the extension's own
+token). They are separate declarations across a project boundary, so a parity
+test compares them as text — the same mechanism, and for the same reason, as
+[[#The matrix is written twice, and one test is why that is survivable]].
+
+**Existing names are load-bearing.** `buyer_funnel_cta` / `_claimed` /
+`_claim_dismissed` shipped with US-1843. The name builder preserves them exactly
+rather than tidying them into a new scheme, because a rename orphans a series'
+history and there is no way to notice that has happened.
+
+**Activation is derived, not pressed.** It is the first feature used in a
+session, so it is emitted from inside `trackBuyerFeature` — no surface has to
+remember to report it, and none can report it twice.
+
+**Exits are not steps.** `claim_dismissed` sits outside the ordered list and
+indexes to -1. Put it in the order and every drop-off chart counts a dismissal as
+progress.
+
+**Prices stay out of SQL.** `buyer_growth_metrics()` (00537) returns the plan ×
+interval × status mix; MRR is multiplied out on the frontend from `BUYER_PLANS`.
+A third copy of the tier prices inside a migration would be a copy the parity
+test cannot see, in a file that can never be corrected once applied. Yearly
+subscriptions count at a twelfth, so MRR does not spike on renewal and read as
+growth.
+
+**Acquisition buckets on FIRST touch**, falling back to the earned link and then
+to `direct` — the same order in `buyerAcquisitionProps()` and in the SQL. Last
+touch rides along as its own property. Bucketing on last touch attributes every
+buyer to whatever newsletter they most recently clicked.
+
+**The flywheel is a correlation, reported with its sample size**, and the surface
+says so in words. Two series moving together over a few weeks is a prompt to
+look. A flat series returns `null`, not `0`: "not measurable" and "measured, no
+relationship" are different answers.
+
+Consent: the browser half is a no-op until the analytics cookie category is
+accepted (PostHog is not even downloaded before that), so it is opt-in by
+construction. The server half carries the acting user's id, which feature ran and
+its outcome — never the item, listing, price or photos — and never borrows a
+browser toggle to justify itself ([[extension-telemetry-consent]]).
 
 ## Related
 

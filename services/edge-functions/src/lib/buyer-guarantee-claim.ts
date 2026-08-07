@@ -12,6 +12,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { getSetting } from "./system-settings.ts";
 import { notifyBuyer } from "./buyer-notify.ts";
+import { trackBuyerFeature } from "./buyer-analytics.ts";
 import {
   getGuaranteePoolConfig,
   periodKey,
@@ -539,6 +540,15 @@ export async function fileBuyerGuaranteeClaim(
     link: "/buyer/rewards",
     dedupeKey: `guarantee-claim:${claimId}`,
   }).catch(() => {});
+
+  // US-1845: the claim outcome, which is the feature's whole point. The DECISION
+  // shape only — no purchase, no seller, no claim id — because this stream is
+  // measurement, not the audit trail (buyer_guarantee_claims is that).
+  trackBuyerFeature(userId, "guarantee_claims", finalDecision, {
+    auto: isAuto,
+    remedy_cents: decision.remedyCents,
+    remedy_credits: isAuto ? decision.remedyCredits : 0,
+  });
 
   return {
     ok: true,

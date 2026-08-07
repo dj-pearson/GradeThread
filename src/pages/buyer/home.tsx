@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link, Navigate } from "react-router";
 import { Bell, Chrome, Gift, Leaf, ScanLine, Share2, ShieldCheck, Shirt } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +12,7 @@ import { useBuyerImpact } from "@/hooks/use-buyer-impact";
 import { TrustLevelCard } from "@/components/buyer/trust-level-card";
 import { ClaimedResultCard } from "@/components/buyer/claimed-result-card";
 import { BUYER_PLANS } from "@/lib/constants";
+import { trackBuyerFunnel } from "@/lib/buyer-analytics";
 
 // US-1842: circularity impact receipt — the environmental good of buying
 // secondhand, aggregated across the buyer's confirmed purchases (US-1785
@@ -104,6 +106,18 @@ export function BuyerHomePage() {
   const ent = useBuyerEntitlements();
   const { preferences, isLoading: prefsLoading } = useBuyerPreferences();
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
+
+  // US-1845: retention. A buyer opening the home page on a LATER day than they
+  // signed up is the whole signal — firing on day zero would count the signup
+  // itself as a return and make retention read as 100%.
+  const signedUpAt = profile?.created_at ?? null;
+  const buyerPlan = ent.plan;
+  useEffect(() => {
+    if (!signedUpAt) return;
+    const days = Math.floor((Date.now() - new Date(signedUpAt).getTime()) / 86_400_000);
+    if (days < 1) return;
+    trackBuyerFunnel("retained", { days_since_signup: days, buyer_plan: buyerPlan });
+  }, [signedUpAt, buyerPlan]);
 
   // US-1797/1888: send a first-time BUYER-role account through onboarding once.
   // A seller exploring the buyer app (is_buyer=false) is NOT forced through it —

@@ -4,7 +4,7 @@ import { Bell, Bookmark, Loader2, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { track } from "@/lib/analytics";
+import { trackBuyerFeature, trackBuyerFunnel } from "@/lib/buyer-analytics";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useSavedSearches } from "@/hooks/use-saved-searches";
 import { useBuyerCloset } from "@/hooks/use-buyer-closet";
@@ -62,7 +62,7 @@ function ClaimedResult({
     // earned-link conversion is attributable from the free tool through signup
     // to the thing the buyer actually got (US-603 still does the redeem itself,
     // once, at sign-in — this never touches the stored ref).
-    track("buyer_funnel_claimed", {
+    trackBuyerFunnel("claimed", {
       tool: claim.tool,
       intent: claim.intent,
       action,
@@ -85,6 +85,7 @@ function ClaimedResult({
         max_price_cents: draft.max_price_cents,
       });
       finish("alert");
+      trackBuyerFeature("alerts", "created", { from: "claim" });
       clearBuyerClaim();
       onDone();
       toast.success("Alert created — we'll watch for it.");
@@ -101,6 +102,7 @@ function ClaimedResult({
     try {
       await closet.addItem(closetDraftFromClaim(claim));
       finish("save");
+      trackBuyerFeature("portfolio", "item_added", { from: "claim" });
       clearBuyerClaim();
       onDone();
       toast.success("Saved to your closet.");
@@ -113,7 +115,7 @@ function ClaimedResult({
   }
 
   function dismiss() {
-    track("buyer_funnel_claim_dismissed", { tool: claim.tool, intent: claim.intent });
+    trackBuyerFunnel("claim_dismissed", { tool: claim.tool, intent: claim.intent });
     clearBuyerClaim();
     onDone();
   }

@@ -1,9 +1,35 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Seven migrations are held: 00530, 00531, 00532, 00533, 00534, 00535 and
-00536.** The entries below them were applied to prod and this file did not learn
+**Eight migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536 and
+00537.** The entries below them were applied to prod and this file did not learn
 about it for a day. See the note under 00528 for how that was measured and why
 the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00537_buyer_growth_metrics.sql (US-1845 — buyer analytics surface)
+
+**Apply order.** Last, in numeric order. It reads `submissions.buyer_video_grade`
+and `ingested_listings`, so it needs 00535 and 00536 applied first — which the
+numeric order already gives you.
+
+**Risk: LOW.** One `CREATE OR REPLACE FUNCTION`. No table, no column, no enum, no
+data touched. `buyer_growth_metrics(integer)` is SECURITY DEFINER, revoked from
+public and granted to `service_role` only, and it returns counts — no user id, no
+email, no UTM value tied to a person.
+
+**What it does.** Aggregates the buyer funnel (accounts / activated / paying /
+recently active), the plan × interval × status mix, per-feature adoption, a daily
+buyer-demand vs seller-grading series, and a first-touch acquisition rollup, all
+as one jsonb.
+
+**⚠️ ONE ADMIN PAGE 404s UNTIL THIS APPLIES.** `/admin/growth/buyer` is the only
+caller (via `GET /api/admin/growth/buyer`). If the frontend auto-deploys first,
+that page shows its error card until the SQL lands. Nothing else reads the
+function, no buyer- or seller-facing surface is affected, and no write path
+depends on it — so this one is safe to apply after the push if it comes to that,
+unlike 00536.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — PostgREST caches the RPC
+list, so the endpoint 404s at the API layer until it reloads.
 
 ## ⏳ HELD: 00536_buyer_video_grading.sql (US-1841 — buyer-funded walk-around grades)
 
