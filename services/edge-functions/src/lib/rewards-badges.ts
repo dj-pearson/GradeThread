@@ -27,6 +27,12 @@ export interface BadgeContext {
   level: number;
 }
 
+/** How far along a badge's single counting axis a context sits. */
+export interface BadgeProgressPoint {
+  current: number;
+  target: number;
+}
+
 export interface BadgeDef {
   key: string;
   name: string;
@@ -37,27 +43,54 @@ export interface BadgeDef {
   hidden: boolean;
   /** Earned when this predicate is true for the user's context. */
   criteria: (c: BadgeContext) => boolean;
+  /**
+   * US-1859: the same threshold `criteria` tests, expressed as a distance.
+   *
+   * Every badge in this catalog is a threshold on ONE stat, so the near-miss
+   * nudge ("you're 1 grade from Century") needs the count, not just the boolean.
+   * It lives here rather than in a parallel table because the two would drift —
+   * and a near-miss computed off a stale copy tells someone they are one grade
+   * away from a badge they already hold.
+   *
+   * The invariant `progress.current >= progress.target ⟺ criteria(c)` is
+   * asserted in rewards-badges_test.ts over generated contexts, so a future
+   * badge whose two halves disagree fails the build rather than shipping a lie.
+   */
+  progress: (c: BadgeContext) => BadgeProgressPoint;
 }
 
 // The catalog IS the achievement policy — legible, versioned, testable. Tiers
 // escalate the same axis (10/100/1000 grades) so collectors have a ladder.
+//
+// US-1859 added the `progress` half. `threshold` builds both from one place so a
+// stat and a target cannot be spelled twice and disagree.
+function threshold(
+  read: (c: BadgeContext) => number,
+  target: number,
+): Pick<BadgeDef, "criteria" | "progress"> {
+  return {
+    criteria: (c) => read(c) >= target,
+    progress: (c) => ({ current: read(c), target }),
+  };
+}
+
 export const BADGE_CATALOG: readonly BadgeDef[] = [
-  { key: "first_grade", name: "First Grade", description: "Graded your first item.", tier: "bronze", icon: "Sparkles", hidden: false, criteria: (c) => c.gradeCount >= 1 },
-  { key: "grades_10", name: "Getting Started", description: "Graded 10 items.", tier: "bronze", icon: "Award", hidden: false, criteria: (c) => c.gradeCount >= 10 },
-  { key: "grades_100", name: "Century", description: "Graded 100 items.", tier: "silver", icon: "Medal", hidden: false, criteria: (c) => c.gradeCount >= 100 },
-  { key: "grades_1000", name: "Master Grader", description: "Graded 1,000 items.", tier: "gold", icon: "Trophy", hidden: false, criteria: (c) => c.gradeCount >= 1000 },
-  { key: "perfect_10", name: "Perfect 10", description: "Graded an item a flawless 10.0.", tier: "silver", icon: "Star", hidden: false, criteria: (c) => c.perfect10Count >= 1 },
-  { key: "nwt_find", name: "NWT Find", description: "Graded a new-with-tags item.", tier: "bronze", icon: "Tag", hidden: false, criteria: (c) => c.nwtCount >= 1 },
-  { key: "streak_7", name: "7-Day Streak", description: "Active 7 days in a row.", tier: "silver", icon: "Flame", hidden: false, criteria: (c) => c.longestStreak >= 7 },
-  { key: "connected", name: "Plugged In", description: "Connected a marketplace.", tier: "bronze", icon: "Plug", hidden: false, criteria: (c) => c.marketplaceCount >= 1 },
-  { key: "first_share", name: "First Share", description: "Shared a verified grade.", tier: "bronze", icon: "Share2", hidden: false, criteria: (c) => c.shareCount >= 1 },
+  { key: "first_grade", name: "First Grade", description: "Graded your first item.", tier: "bronze", icon: "Sparkles", hidden: false, ...threshold((c) => c.gradeCount, 1) },
+  { key: "grades_10", name: "Getting Started", description: "Graded 10 items.", tier: "bronze", icon: "Award", hidden: false, ...threshold((c) => c.gradeCount, 10) },
+  { key: "grades_100", name: "Century", description: "Graded 100 items.", tier: "silver", icon: "Medal", hidden: false, ...threshold((c) => c.gradeCount, 100) },
+  { key: "grades_1000", name: "Master Grader", description: "Graded 1,000 items.", tier: "gold", icon: "Trophy", hidden: false, ...threshold((c) => c.gradeCount, 1000) },
+  { key: "perfect_10", name: "Perfect 10", description: "Graded an item a flawless 10.0.", tier: "silver", icon: "Star", hidden: false, ...threshold((c) => c.perfect10Count, 1) },
+  { key: "nwt_find", name: "NWT Find", description: "Graded a new-with-tags item.", tier: "bronze", icon: "Tag", hidden: false, ...threshold((c) => c.nwtCount, 1) },
+  { key: "streak_7", name: "7-Day Streak", description: "Active 7 days in a row.", tier: "silver", icon: "Flame", hidden: false, ...threshold((c) => c.longestStreak, 7) },
+  { key: "connected", name: "Plugged In", description: "Connected a marketplace.", tier: "bronze", icon: "Plug", hidden: false, ...threshold((c) => c.marketplaceCount, 1) },
+  { key: "first_share", name: "First Share", description: "Shared a verified grade.", tier: "bronze", icon: "Share2", hidden: false, ...threshold((c) => c.shareCount, 1) },
   // US-1854: ONE find that travelled — 25 verified click-throughs, or a signup.
   // It used to read `shareCount >= 10`, which is ten DIFFERENT finds clicked
   // once each: a medal named for a viral find that could be earned without ever
   // having one. The medal describes a single item's reach, so its criterion has
   // to be per-item too.
-  { key: "viral_find", name: "Viral Find", description: "One shared grade drove 25 verified click-throughs (or a signup).", tier: "gold", icon: "TrendingUp", hidden: true, criteria: (c) => c.viralFindCount >= 1 },
-  { key: "level_5", name: "Level 5", description: "Reached reward level 5.", tier: "silver", icon: "ChevronsUp", hidden: false, criteria: (c) => c.level >= 5 },
+  { key: "viral_find", name: "Viral Find", description: "One shared grade drove 25 verified click-throughs (or a signup).", tier: "gold", icon: "TrendingUp", hidden: true, ...threshold((c) => c.viralFindCount, 1) },
+  { key: "level_5", name: "Level 5", description: "Reached reward level 5.", tier: "silver", icon: "ChevronsUp", hidden: false, ...threshold((c) => c.level, 5) },
 ];
 
 const BADGE_BY_KEY: Record<string, BadgeDef> = Object.fromEntries(
@@ -140,6 +173,50 @@ export function countViralFinds(referenceIds: readonly string[]): number {
 /** Pure: the catalog keys the context satisfies. Deterministic + DB-free. */
 export function evaluateBadges(ctx: BadgeContext): string[] {
   return BADGE_CATALOG.filter((b) => b.criteria(ctx)).map((b) => b.key);
+}
+
+// ─── Near miss (US-1859) ─────────────────────────────────────────────────────
+
+export interface BadgeNearMiss {
+  badge: BadgeDef;
+  current: number;
+  target: number;
+  /** How many more of the badge's own unit are needed. Always ≥ 1. */
+  remaining: number;
+}
+
+/**
+ * Pure: the UNEARNED badge this context is closest to, when it is within
+ * `maxRemaining` — the "you're 1 grade from Century" signal.
+ *
+ * Three exclusions, each deliberate:
+ *   • already earned — `earnedKeys` wins over the criteria, because a badge is
+ *     kept once earned even if the stat that won it later shrinks;
+ *   • HIDDEN badges — telling someone they are one click from a surprise badge
+ *     is the one thing `hidden` exists to prevent;
+ *   • zero progress — "you're 100 grades from Master Grader" is not a near miss,
+ *     it is a catalog entry, and `maxRemaining` alone would let a target-1 badge
+ *     nag every brand-new account forever.
+ *
+ * Ties break on the SMALLER remaining, then on catalog order, so the choice is
+ * stable between runs rather than whatever the filter happened to yield first.
+ */
+export function nearestBadge(
+  ctx: BadgeContext,
+  earnedKeys: ReadonlySet<string>,
+  maxRemaining: number,
+): BadgeNearMiss | null {
+  const limit = Math.max(1, Math.floor(maxRemaining));
+  let best: BadgeNearMiss | null = null;
+  for (const badge of BADGE_CATALOG) {
+    if (badge.hidden || earnedKeys.has(badge.key) || badge.criteria(ctx)) continue;
+    const { current, target } = badge.progress(ctx);
+    if (current <= 0) continue;
+    const remaining = target - current;
+    if (remaining < 1 || remaining > limit) continue;
+    if (!best || remaining < best.remaining) best = { badge, current, target, remaining };
+  }
+  return best;
 }
 
 // ─── The owner's shelf (US-1857) ─────────────────────────────────────────────

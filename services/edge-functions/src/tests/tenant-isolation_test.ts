@@ -3192,6 +3192,54 @@ Deno.test({
   },
 });
 
+// ── US-1859: nudge click attribution — an id from the PATH, and a write ───────
+//
+// POST /api/rewards/nudges/:id/click takes a send id straight off the URL and
+// UPDATEs a row with it. That is the classic US-268 shape, so the handler pairs
+// the id with `.eq("user_id", userId)` and the response is deliberately the same
+// `{ok:true}` whether or not anything was stamped — a distinguishable 404 would
+// turn the endpoint into an oracle for which sends exist.
+//
+// A stamped foreign row would not leak data, but it would corrupt the very thing
+// the row is for: B could inflate the click rate of a nudge A never opened, and
+// the lift report is what decides whether this feature keeps running.
+Deno.test({
+  name: "US-1859: nudge click attribution requires authentication",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/rewards/nudges/00000000-0000-4000-8000-000000000000/click`,
+      { method: "POST", headers: { "Content-Type": "application/json" } },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST nudge click unauthenticated");
+  },
+});
+
+Deno.test({
+  name: "US-1859: B stamping an arbitrary nudge id never confirms it exists",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // Two ids: a well-formed one B does not own, and a malformed one. Both must
+    // read identically from the outside, and neither may 500.
+    for (
+      const id of ["11111111-1111-4111-8111-111111111111", "not-a-uuid"]
+    ) {
+      const res = await fetch(`${BASE}/api/rewards/nudges/${id}/click`, {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+      });
+      const body = await res.json().catch(() => null);
+      assertEquals(
+        res.status,
+        200,
+        `POST nudge click (${id}) should answer uniformly, not reveal existence`,
+      );
+      assertEquals(body?.ok, true, `POST nudge click (${id}) should answer {ok:true}`);
+    }
+  },
+});
+
 // ── US-1856: rewards leaderboards — self-scoped, and the PUT is the risk ──────
 //
 // GET /api/rewards/leaderboard reports the caller's OWN standing; PUT joins,

@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPurchases, type PurchaseWithCaptures } from "@/hooks/use-buyer-purchases";
 import { useBuyerRewards } from "@/hooks/use-buyer-rewards";
+import { useNudgeAttribution } from "@/hooks/use-nudge-attribution";
 import { trackBuyerFeature } from "@/lib/buyer-analytics";
 import type { ArrivalImageType } from "@/types/database";
 
@@ -459,6 +460,8 @@ function RewardsSummarySection() {
 }
 
 export function BuyerRewardsPage() {
+  // US-1859: the streak-at-risk nudge deep-links here with ?nudge=<sendId>.
+  useNudgeAttribution();
   const ent = useBuyerEntitlements();
   const { purchases, isLoading, isError, linkPurchase, isLinking, rewardCredits } = useBuyerPurchases();
 

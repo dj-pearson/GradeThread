@@ -117,6 +117,10 @@ a learning that only matters to ONE surface, put it in that surface's file.
   churn, so it is a checkout artifact, not your change — confirm by checking that
   the scanned file is untouched (`git status --porcelain <file>` empty) and move
   on. Don't "fix" the test.
+- ...and a FIFTH: `vault/10-ops/deploy.md` states the cron COUNT in prose
+  ("there are **N**"), pinned by its own case in the same test. The generated
+  tables can be perfectly in sync while that sentence is stale, which is the
+  gap a generation guard leaves open. Bump it in the same commit.
 - Adding a cron means FOUR edits or `cron-registry-drift_test.ts` fails: the
   `/api/jobs/*` route in main.ts, a CRON_REGISTRY entry (cron-runs.ts), AND the
   generated tables in COOLIFY.md + vault/10-ops/launch-checklist.md (`cron-registry` markers)

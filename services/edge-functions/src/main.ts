@@ -80,6 +80,7 @@ import { adminGuaranteePoolRoutes } from "./routes/admin-guarantee-pool.ts";
 import { handleGuaranteePoolCron } from "./routes/jobs-guarantee-pool.ts";
 import { handlePortfolioAlertsCron } from "./routes/jobs-portfolio-alerts.ts";
 import { handleDemandMatchesCron } from "./routes/jobs-demand-matches.ts";
+import { handleRewardNudgesCron } from "./routes/jobs-reward-nudges.ts";
 import { adminMeasureCardRoutes } from "./routes/admin-measure-cards.ts";
 import { guaranteePublicRoutes } from "./routes/guarantee-public.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
@@ -1585,6 +1586,10 @@ app.post("/api/jobs/billing-reconciliation", (c) => handleBillingReconciliationC
 app.post("/api/jobs/guarantee-pool", (c) => handleGuaranteePoolCron(c));
 app.post("/api/jobs/portfolio-alerts", (c) => handlePortfolioAlertsCron(c));
 app.post("/api/jobs/demand-matches", (c) => handleDemandMatchesCron(c));
+// US-1859: re-engagement nudge sweep + the attribution pass that scores both
+// arms (sent and holdout). A cron rather than a lazy read because the users it
+// exists for are the ones not opening the app.
+app.post("/api/jobs/reward-nudges", (c) => handleRewardNudgesCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/authors", contentAuthorsRoutes);
 app.route("/api/content/social", contentSocialRoutes);

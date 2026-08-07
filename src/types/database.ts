@@ -154,7 +154,10 @@ export type NotificationType =
   | "buyer_condition_alert"
   | "buyer_reward"
   | "buyer_guarantee"
-  | "buyer_portfolio";
+  | "buyer_portfolio"
+  // US-1859: re-engagement nudges (streak-at-risk, near-miss, quests, expiring
+  // rewards). Gated by its own `reward_nudges` preference category.
+  | "reward_nudge";
 
 // ─── FlipDesk enums ────────────────────────────────────────────────
 export type FlipdeskSourceType =
@@ -288,6 +291,9 @@ export interface NotificationPreferences {
   buyer_rewards: NotificationChannelPrefs;
   buyer_guarantee: NotificationChannelPrefs;
   buyer_portfolio: NotificationChannelPrefs;
+  // US-1859: re-engagement nudges. In-app + push only — a nudge that arrives by
+  // email is a marketing email, and there is already a master switch for those.
+  reward_nudges: NotificationChannelPrefs;
 }
 
 export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";

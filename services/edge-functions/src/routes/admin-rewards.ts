@@ -47,6 +47,11 @@ import {
 } from "../lib/rewards-tangible.ts";
 import type { RewardBudget } from "../lib/rewards-tangible.ts";
 import {
+  NUDGE_CONFIG_KEY,
+  normalizeNudgeConfig,
+  summarizeLift,
+} from "../lib/rewards-nudges.ts";
+import {
   DEFAULT_REWARD_GUARDRAILS,
   guardrailsToSetting,
   normalizeRewardGuardrails,
@@ -810,6 +815,9 @@ const RECONCILE_GRANT_CAP = 500;
 const RECONCILE_COUPON_LOOKUP_CAP = 100;
 const ROI_MAX_DAYS = 365;
 const ROI_DEFAULT_DAYS = 30;
+// US-1859: the nudge lift report reads raw send rows and folds them in memory —
+// bounded so a wide window cannot pull an unbounded scan into one response.
+const NUDGE_ROW_CAP = 20000;
 
 class EconomicsInputError extends Error {}
 
@@ -1252,4 +1260,50 @@ adminRewardsRoutes.get("/economics/reconciliation", async (c) => {
 
 adminRewardsRoutes.get("/economics/roi", async (c) => {
   return c.json(await loadRoi(windowDays(c.req.query("days")), Date.now()));
+});
+
+// GET /api/admin/rewards/nudges — US-1859 re-engagement lift.
+//
+// Reports the two arms side by side, per nudge type: what the NUDGED users did,
+// and what the deterministic HOLDOUT slice did over the same window. `lift_pp`
+// is the difference in percentage points and is deliberately null when either
+// arm is empty — a treated conversion rate reported as "lift" is the exact
+// mistake the holdout exists to prevent, and a plausible number nobody can check
+// is worse than an honest blank.
+adminRewardsRoutes.get("/nudges", async (c) => {
+  const nowMs = Date.now();
+  const days = windowDays(c.req.query("days"));
+  const since = sinceIso(days, nowMs);
+
+  const [{ data, error }, configRaw] = await Promise.all([
+    supabaseAdmin
+      .from("reward_nudge_sends")
+      .select("nudge_type, holdout, clicked_at, converted_at, sent_at")
+      .gte("sent_at", since)
+      .order("sent_at", { ascending: false })
+      .limit(NUDGE_ROW_CAP),
+    getSetting<unknown>(NUDGE_CONFIG_KEY, null),
+  ]);
+  if (error) {
+    return failSafe(c, 500, "Couldn't load the nudge report.", error, "admin.rewards.nudges.load");
+  }
+
+  const rows = (data ?? []) as Array<{
+    nudge_type: string;
+    holdout: boolean;
+    clicked_at: string | null;
+    converted_at: string | null;
+    sent_at: string;
+  }>;
+
+  return c.json({
+    window_days: days,
+    since,
+    // Surfaced rather than silent: a truncated window makes every rate below a
+    // sample of the newest sends, which is a different claim from "the window".
+    truncated: rows.length >= NUDGE_ROW_CAP,
+    config: normalizeNudgeConfig(configRaw),
+    by_type: summarizeLift(rows),
+    total_sends: rows.length,
+  });
 });

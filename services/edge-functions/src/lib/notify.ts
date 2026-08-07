@@ -42,7 +42,11 @@ export type NotificationType =
   | "buyer_condition_alert"
   | "buyer_reward"
   | "buyer_guarantee"
-  | "buyer_portfolio";
+  | "buyer_portfolio"
+  // US-1859: re-engagement nudges (streak-at-risk, near-miss, quests, expiring
+  // rewards). Its own category because it is the only notification that fires
+  // because the user did NOTHING — see lib/rewards-nudges.ts.
+  | "reward_nudge";
 
 // Which notification_preferences category gates each type's in-app delivery.
 // `null` types are always delivered (e.g. system messages the user can't mute).
@@ -81,6 +85,11 @@ export const PREF_KEY: Record<NotificationType, string | null> = {
   buyer_reward: "buyer_rewards",
   buyer_guarantee: "buyer_guarantee",
   buyer_portfolio: "buyer_portfolio",
+  // US-1859: a DEDICATED category, never a reuse. Every other key's settings
+  // copy describes an account event; "we noticed you were quiet" is not one, and
+  // folding it under an existing toggle would make a sentence somebody already
+  // agreed to retroactively false.
+  reward_nudge: "reward_nudges",
 };
 
 export interface NotifyInput {

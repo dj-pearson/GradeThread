@@ -1,9 +1,42 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Sixteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544 and 00545.** The entries below them
+**Seventeen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545 and 00546.** The entries below them
 were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00546_reward_nudges.sql (US-1859 — re-engagement nudges)
+
+**Apply order.** Last, in numeric order. It references `public.users`,
+`public.system_settings` and the `notification_type` enum (00007) — all long
+applied — so it has no dependency on 00530–00545 beyond the numeric sequence.
+
+**Risk: LOW.** One new table, one new enum VALUE, one config row, and a new
+DEFAULT on an existing column. No existing column, row, view or policy is
+modified or dropped, and no notification is sent on apply: the cron has to be
+registered in Coolify separately.
+
+**What it does.**
+- Adds `reward_nudge_sends` — one row per nudge DECISION, including the
+  deterministic holdout slice that is deliberately not sent. Service-role only,
+  deny-all RLS. `UNIQUE (user_id, nudge_type, subject_key, period_key)` is both
+  the idempotency guarantee and the per-subject frequency cap.
+- Adds `'reward_nudge'` to `notification_type`. `ALTER TYPE ... ADD VALUE` is
+  transactional in PG 12+ and the value is not USED in this migration, so it is
+  safe either way. **The edge must not be rolled back past this migration while
+  a `reward_nudge` notification row exists** — an older build's `NotificationType`
+  union does not know the value, and the frontend catalog would render it as a
+  bare slug.
+- Moves `users.notification_preferences`'s DEFAULT onto the set that includes
+  `reward_nudges`. EXISTING rows are untouched, which is correct: the engine
+  reads the category with an opt-OUT default (absence ⇒ enabled), the same model
+  every other category uses, so a pre-existing user needs no backfill.
+- Seeds `system_settings.reward_nudges_config` (kill-switch, per-type switches,
+  frequency cap, holdout share, attribution window).
+
+**After applying,** register the `reward-nudges` cron in Coolify
+(`0 15 * * *` → `POST /api/jobs/reward-nudges`) — see CRON_SETUP.md. Until it is
+registered nothing sends, which is a safe state, not a broken one.
 
 ## ⏳ HELD: 00545_reward_economics_guardrails.sql (US-1858 — reward budget guardrails)
 

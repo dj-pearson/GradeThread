@@ -174,6 +174,12 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "portfolio-alerts", label: "Portfolio value alerts", schedule: "0 7 * * *", category: "buyer", endpoint: "/api/jobs/portfolio-alerts", recorded: true },
   // US-1832: re-match active demand-board wants + notify buyer/seller on new matches.
   { name: "demand-matches", label: "Demand-board match notifications", schedule: "30 */6 * * *", category: "buyer", endpoint: "/api/jobs/demand-matches", recorded: true },
+  // US-1859: re-engagement nudges (streak-at-risk / near-miss / quests /
+  // expiring rewards) + the attribution pass that scores the sent AND holdout
+  // arms. Daily, mid-afternoon UTC — one pass a day is well inside the engine's
+  // own per-user frequency cap, so a busier schedule would only re-derive the
+  // same refusals.
+  { name: "reward-nudges", label: "Reward re-engagement nudges", schedule: "0 15 * * *", category: "growth", endpoint: "/api/jobs/reward-nudges", recorded: true, healthy: "200 with {ok:true, evaluated, sent, holdout, skipped, scanned, converted}; sent can be 0 — most evaluated users are frequency-capped or have no true candidate" },
   // Seals legacy certificates into the integrity chain. ONE-OFF at launch;
   // idempotent, safe to re-run; disable once the backlog reads zero.
   { name: "cert-integrity-backfill", label: "Cert-integrity backfill", schedule: "0 6 * * *", category: "maintenance", endpoint: "/api/jobs/cert-integrity-backfill", recorded: true, oneOff: true },

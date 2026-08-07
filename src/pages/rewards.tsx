@@ -25,6 +25,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import { useRewards, type SeasonRecap } from "@/hooks/use-rewards";
+import { useNudgeAttribution } from "@/hooks/use-nudge-attribution";
 import { QuestsPanel } from "@/components/rewards/quests-panel";
 import { LeaderboardPanel } from "@/components/rewards/leaderboard-panel";
 import { BadgeShelf } from "@/components/rewards/badge-shelf";
@@ -105,6 +106,8 @@ function RecapCard({ recap }: { recap: SeasonRecap }) {
 
 export function RewardsPage() {
   const { rewards, isLoading, isError, refetch } = useRewards();
+  // US-1859: a re-engagement nudge deep-links here with ?nudge=<sendId>.
+  useNudgeAttribution();
 
   if (isLoading) {
     return (

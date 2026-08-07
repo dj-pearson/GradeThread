@@ -13,6 +13,7 @@ code_refs:
   - services/edge-functions/src/lib/rewards-levels.ts
   - services/edge-functions/src/lib/rewards-seasons.ts
   - services/edge-functions/src/lib/rewards-quests.ts
+  - services/edge-functions/src/lib/rewards-nudges.ts
   - services/edge-functions/src/lib/share-to-earn.ts
   - services/edge-functions/src/lib/leaderboards.ts
   - services/edge-functions/src/lib/leaderboards-data.ts
@@ -493,6 +494,57 @@ same share button land as a plain toast. Note that the global
 which for a *falling* animation is a flash at the destination rather than an
 absence — so the confetti layer carries its own `display: none` rule. Any new
 entrance/exit keyframe needs the same treatment.
+
+## A nudge must be true, rare, and measured against a control (US-1859)
+
+`rewards-nudges.ts` + `reward_nudge_sends` (00546) is the only part of the reward
+system that fires because a user did **nothing**, which makes it the only part
+that can become spam. Four rules follow, and a new nudge type inherits all four.
+
+**Every nudge is derived from live state, never from a schedule.** A streak is
+"at risk" only when the chain genuinely breaks this week — an existing run, an
+empty current week, no banked freeze, and inside the last few days. A badge is
+"near" only when the remaining count is small AND non-zero: "you're 100 grades
+from Master Grader" is a catalog entry, not a near miss. A quest is "expiring"
+only when the window really closes soon and the user is part-way. `quest_new`
+fires only inside its window's opening hours. A reminder that turns out to be
+false costs the notification channel permanently, and the opt-out is one-way.
+
+Note what `reward_available` is NOT: tangible milestones are **granted**, never
+claimed, so there is no unclaimed-reward state to announce — announcing one would
+invent a step the user can fail to take. What the nudge says instead is that a
+**time-boxed** grant (a discount, an entitlement) is about to lapse unused.
+
+**Exactly one nudge, and rarely.** `chooseNudge` returns a single candidate,
+ranked by a FIXED urgency order (deadline before open-ended), after three gates:
+the per-subject dedupe key (`UNIQUE (user_id, nudge_type, subject_key,
+period_key)`, which is also the idempotency claim), a minimum gap, and a weekly
+cap. The dedupe filter runs BEFORE the caps on purpose — a candidate we would
+never send must not consume the weekly budget, or one stale repeat would silently
+cap a user out of every other nudge forever.
+
+**Consent is a DEDICATED category, plus the marketing umbrella.** `reward_nudges`
+is a new preference key, never a reuse: every other category's copy describes an
+account event, and "we noticed you were quiet" is not one — the same rule as
+[[extension-telemetry-consent|telemetry consent]]. It is additionally gated by
+the `marketing` umbrella, because a re-engagement message *is* marketing. On the
+suppression list, a **complaint** or a global unsubscribe stops the nudge on
+every channel; a **hard bounce** is a fact about one mailbox and does not silence
+in-app or push, which is all this surface uses (there is no email channel).
+
+**A holdout, or there is no lift.** A deterministic slice of eligible users
+(FNV-1a over the user id, so the same person is always in the same arm) receives
+NOTHING and gets a ledger row saying so, scored by the SAME conversion rule —
+any rewardable act inside the attribution window. `summarizeLift` reports
+`lift_pp` as **null** when either arm is empty rather than falling back to the
+treated conversion rate; a plausible number nobody can check is worse than an
+honest blank, and reporting "62% came back" as lift is exactly the mistake the
+holdout was added to prevent. Holdout rows count toward the frequency caps too,
+or the control group would end the experiment MORE eligible than the treated one.
+
+The calendar is the shared one: streak weeks come from `questWindow`'s
+Monday-anchored week in `rewards_season_timezone`, not a second derivation — the
+same "one calendar" rule the leaderboards follow.
 
 ## Wiring a new source
 

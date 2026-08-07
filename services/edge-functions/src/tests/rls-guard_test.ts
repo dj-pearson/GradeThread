@@ -486,6 +486,16 @@ const SERVICE_ROLE_ONLY = new Set([
   // is the point: telling a farmer which limit stopped them is telling them
   // which limit to work around.
   "reward_budget_breaches",
+  // US-1859: the re-engagement nudge ledger (migration 00546). It DOES carry a
+  // plain `user_id` — the row is about that user — so unlike the tables above it
+  // is auto-discovered and this classification is load-bearing rather than
+  // decorative. Deny-all is the point: the row records whether the user is in
+  // the HOLDOUT arm, and a readable experiment assignment is one that changes
+  // the behaviour it is trying to measure. Written by the nudge cron and read by
+  // /api/admin/rewards/nudges, both service-role; the one user-facing write
+  // (POST /api/rewards/nudges/:id/click) goes through the edge, which resolves
+  // ownership with .eq("user_id", …) before stamping.
+  "reward_nudge_sends",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /

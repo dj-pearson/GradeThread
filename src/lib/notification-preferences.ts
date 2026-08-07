@@ -26,6 +26,10 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   buyer_rewards: { email: true, in_app: true, push: true },
   buyer_guarantee: { email: true, in_app: true, push: true },
   buyer_portfolio: { email: true, in_app: true, push: true },
+  // US-1859: re-engagement nudges. No email channel on purpose — a nudge sent by
+  // email is a marketing email, and the `marketing` umbrella already governs
+  // those (the nudge engine honors it as a second gate).
+  reward_nudges: { in_app: true, push: true },
 };
 
 type PrefKey = keyof NotificationPreferences;
@@ -122,6 +126,15 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     label: "Closet portfolio",
     description: "Value peaks and price-drop alerts on items in your closet.",
     channels: ["email", "in_app", "push"],
+  },
+  {
+    // US-1859: the only category that fires because you were AWAY, which is why
+    // it gets its own toggle instead of riding one of the reward categories.
+    key: "reward_nudges",
+    label: "Reward reminders",
+    description:
+      "Occasional nudges when a streak is about to break, a badge is one step away, a new quest opens, or a reward you were granted is about to expire. Capped to a couple a week.",
+    channels: ["in_app", "push"],
   },
   {
     key: "dispute_updates",
@@ -306,6 +319,12 @@ export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
     label: "Closet portfolio",
     description: "A value or price-drop alert on an item you own.",
     prefKey: "buyer_portfolio",
+  },
+  {
+    type: "reward_nudge",
+    label: "Reward reminder",
+    description: "A streak, badge, quest, or expiring-reward nudge.",
+    prefKey: "reward_nudges",
   },
   {
     type: "system",

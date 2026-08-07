@@ -54,6 +54,8 @@ type RewardsEnv = { Variables: { userId: string } };
 
 export const rewardsRoutes = new Hono<RewardsEnv>();
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // GET /api/rewards/state — everything the rewards screen renders.
 rewardsRoutes.get("/state", async (c) => {
   const userId = c.get("userId");
@@ -182,6 +184,39 @@ rewardsRoutes.post("/share", async (c) => {
     // not_owner and error both read as "not your certificate" to the caller: a
     // distinguishable 404 would let anyone probe which certificate ids exist.
     return c.json({ error: "Certificate not found." }, 404);
+  }
+  return c.json({ ok: true });
+});
+
+// POST /api/rewards/nudges/:id/click — US-1859 nudge attribution.
+//
+// The nudge's deep link carries `?nudge=<sendId>`; the rewards screen posts it
+// back once on arrival. This is the CLICK half of the measurement — the
+// conversion half is scored server-side by the cron, for the holdout arm too, so
+// a user who never clicks but comes back still counts.
+//
+// Tenant-scoped by construction (US-268): the UPDATE carries `.eq("user_id",
+// userId)` beside the id, so a guessed send id belonging to someone else stamps
+// nothing. The response is the same either way — a distinguishable 404 would let
+// anyone probe which sends exist.
+rewardsRoutes.post("/nudges/:id/click", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  if (!UUID_RE.test(id)) return c.json({ ok: true });
+  try {
+    await supabaseAdmin
+      .from("reward_nudge_sends")
+      .update({ clicked_at: new Date().toISOString() } as never)
+      .eq("id", id)
+      .eq("user_id", userId)
+      .is("clicked_at", null);
+  } catch (err) {
+    // Attribution is best-effort: a measurement failure must never surface as a
+    // broken rewards screen.
+    console.error(
+      "[rewards] nudge click stamp failed:",
+      err instanceof Error ? err.message : String(err),
+    );
   }
   return c.json({ ok: true });
 });
