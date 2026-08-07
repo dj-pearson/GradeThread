@@ -340,7 +340,7 @@
         "No change to the free tool's abuse controls"
       ],
       "priority": 1843,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][BINDING][GROWTH] REUSE US-1750 What's-It-Worth epic. Add buyer CTAs (save/alert/verify) -> signup (1797) with anon-session claim handoff. Attribution via affiliate.ts. Depends on foundation (1795) + What's-It-Worth epic (1750) + alerts (1805)."
     },
     {

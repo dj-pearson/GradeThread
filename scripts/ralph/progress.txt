@@ -4329,3 +4329,8 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T10:05:32.944Z
 - Cost: $15.3977 over 133 turns
 ---
+## US-1843: Buyer binding: 'What's It Worth' → buyer signup conversion funnel
+- Status: COMPLETE
+- Timestamp: 2026-08-07T10:21:49.053Z
+- Cost: $6.7384 over 66 turns
+---
