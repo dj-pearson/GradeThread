@@ -52,7 +52,9 @@ import {
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
 import { VideoWalkaround } from "@/components/submission/video-walkaround";
 import {
+  IN_APP_VIDEO_CAPTURE_SOURCE,
   serializeVideoSlotMarks,
+  type VideoCaptureSource,
   type VideoSlotMarks,
 } from "@/lib/video-capture";
 
@@ -211,6 +213,9 @@ export function NewSubmissionPage() {
   const [captureMode, setCaptureMode] = useState<"photos" | "video">("photos");
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoMarks, setVideoMarks] = useState<VideoSlotMarks>({});
+  // US-1766: how the clip entered the app. Sent as provenance; the server
+  // re-normalizes it and it can only ever strengthen an earned badge.
+  const [videoSource, setVideoSource] = useState<VideoCaptureSource | null>(null);
   // 0..100 while a clip is on the wire; null otherwise. Drives the progress bar
   // in VideoWalkaround — a 60 MB upload with no feedback reads as a hang.
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -644,6 +649,7 @@ export function NewSubmissionPage() {
     setCaptureMode("photos");
     setVideoFile(null);
     setVideoMarks({});
+    setVideoSource(null);
   }
 
   function handleUseVideoMode() {
@@ -779,6 +785,9 @@ export function NewSubmissionPage() {
         formData.append("video_grading", "true");
         const marks = serializeVideoSlotMarks(videoMarks);
         if (marks) formData.append("video_slot_marks", marks);
+        // US-1766: clip provenance. Only sent when we actually know it, so an
+        // unknown source stays unknown rather than defaulting to a claim.
+        if (videoSource) formData.append("video_capture_source", videoSource);
       }
 
       // Append images, their types, perceptual hashes, and provenance EXIF as
@@ -1079,7 +1088,11 @@ export function NewSubmissionPage() {
                 <VideoWalkaround
                   file={videoFile}
                   marks={videoMarks}
-                  onFileChange={setVideoFile}
+                  source={videoSource}
+                  onClipChange={(file, source) => {
+                    setVideoFile(file);
+                    setVideoSource(source);
+                  }}
                   onMarksChange={setVideoMarks}
                   uploadProgress={uploadProgress}
                   onUsePhotos={handleUsePhotoMode}
@@ -1235,6 +1248,10 @@ export function NewSubmissionPage() {
                           Object.keys(videoMarks).length === 1 ? "" : "s"
                         } marked`
                       : " · views sampled automatically"}
+                    {/* US-1766: say the provenance out loud at the last screen
+                        before submit, because it is what the certificate will
+                        claim on the seller's behalf. */}
+                    {videoSource === IN_APP_VIDEO_CAPTURE_SOURCE && " · recorded live in the app"}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     We pull the front, back, tag and fabric frames out of this

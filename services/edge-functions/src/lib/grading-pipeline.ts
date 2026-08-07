@@ -1276,7 +1276,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, verified_360_opt_in, capture_360, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id, video_graded, video_duration_seconds")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, verified_360_opt_in, capture_360, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id, video_graded, video_duration_seconds, video_capture_source")
       .eq("id", submissionId)
       .single();
 
@@ -2495,11 +2495,19 @@ export async function processSubmission(submissionId: string) {
           .video_duration_seconds ?? null,
       manipulationSuspected,
       crossUserReuse: reuse.cross_user === true,
+      // US-1766: whether the clip was recorded live in the in-app recorder. A
+      // modifier on the earned badge, never a gate on it — a library clip that
+      // passes every check still earns Video-Verified.
+      captureSource:
+        (submission as { video_capture_source?: string | null })
+          .video_capture_source ?? null,
       nowMs: Date.now(),
     });
     if (videoGraded) {
       detailedNotes["video_capture"] = videoCapture.badge === "video_verified"
-        ? `Video-Verified earned — ${videoCapture.reasons.join("; ")}.`
+        ? `Video-Verified${
+          videoCapture.live_captured ? " (live)" : ""
+        } earned — ${videoCapture.reasons.join("; ")}.`
         : `Video-Verified not earned — ${videoCapture.reasons.join("; ")}.`;
     }
 

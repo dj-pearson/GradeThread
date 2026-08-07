@@ -1,16 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Film, RotateCcw, Video } from "lucide-react";
+import { Check, Film, ImageUp, RotateCcw, ShieldCheck, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import {
+  IN_APP_VIDEO_CAPTURE_SOURCE,
+  LIBRARY_VIDEO_CAPTURE_SOURCE,
   MAX_VIDEO_BYTES,
   MAX_VIDEO_DURATION_SECONDS,
   VIDEO_ACCEPT,
   VIDEO_SLOT_PROMPTS,
+  type VideoCaptureSource,
   type VideoSlotKey,
   type VideoSlotMarks,
 } from "@/lib/video-capture";
+import {
+  isVideoRecordingSupported,
+  VideoRecorder,
+} from "@/components/submission/video-recorder";
 
 // US-1766: guided walk-around capture.
 //
@@ -28,7 +35,9 @@ import {
 export interface VideoWalkaroundProps {
   file: File | null;
   marks: VideoSlotMarks;
-  onFileChange: (file: File | null) => void;
+  /** US-1766: how the attached clip entered the app; null when none is attached. */
+  source: VideoCaptureSource | null;
+  onClipChange: (file: File | null, source: VideoCaptureSource | null) => void;
   onMarksChange: (marks: VideoSlotMarks) => void;
   /** 0..100 while the clip is uploading; null when not uploading. */
   uploadProgress: number | null;
@@ -46,7 +55,8 @@ function formatSeconds(t: number): string {
 export function VideoWalkaround({
   file,
   marks,
-  onFileChange,
+  source,
+  onClipChange,
   onMarksChange,
   uploadProgress,
   onUsePhotos,
@@ -57,6 +67,12 @@ export function VideoWalkaround({
   const [duration, setDuration] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  // Feature-detected once per mount: no camera / no MediaRecorder / no format we
+  // can grade all mean the same thing here — offer the picker and say nothing
+  // about a recorder that isn't there.
+  const [canRecord] = useState(() => isVideoRecordingSupported());
+  const liveCaptured = source === IN_APP_VIDEO_CAPTURE_SOURCE;
 
   // Object URLs are a leak if they outlive the element that reads them.
   useEffect(() => {
@@ -74,7 +90,7 @@ export function VideoWalkaround({
   function handlePick(next: File | null) {
     setError(null);
     if (!next) {
-      onFileChange(null);
+      onClipChange(null, null);
       onMarksChange({});
       return;
     }
@@ -88,7 +104,27 @@ export function VideoWalkaround({
     }
     // Marks belong to the clip they were taken from; a new clip starts clean.
     onMarksChange({});
-    onFileChange(next);
+    onClipChange(next, LIBRARY_VIDEO_CAPTURE_SOURCE);
+  }
+
+  /**
+   * A clip the recorder just produced. It arrives with its views already
+   * timestamped — the seller marked them by following the prompts, so there is
+   * nothing left to scrub for.
+   */
+  function handleRecorded(next: File, recordedMarks: VideoSlotMarks) {
+    setError(null);
+    setRecording(false);
+    if (next.size > MAX_VIDEO_BYTES) {
+      setError(
+        `That recording came out at ${(next.size / 1024 / 1024).toFixed(0)} MB, over the ${
+          MAX_VIDEO_BYTES / 1024 / 1024
+        } MB limit. Record a shorter lap, or switch to photos.`,
+      );
+      return;
+    }
+    onMarksChange(recordedMarks);
+    onClipChange(next, IN_APP_VIDEO_CAPTURE_SOURCE);
   }
 
   function markSlot(slot: VideoSlotKey) {
@@ -136,16 +172,48 @@ export function VideoWalkaround({
         onChange={(e) => handlePick(e.target.files?.[0] ?? null)}
       />
 
-      {!file ? (
-        <Button
-          type="button"
-          size="lg"
-          className="w-full"
-          onClick={() => inputRef.current?.click()}
-        >
-          <Video className="mr-2 h-4 w-4" />
-          Record or choose a clip
-        </Button>
+      {!file && recording ? (
+        <VideoRecorder
+          onRecorded={handleRecorded}
+          onFallback={() => {
+            setRecording(false);
+            inputRef.current?.click();
+          }}
+          onCancel={() => setRecording(false)}
+        />
+      ) : !file ? (
+        <div className="space-y-2">
+          {canRecord && (
+            <Button
+              type="button"
+              size="lg"
+              className="w-full"
+              onClick={() => setRecording(true)}
+            >
+              <Video className="mr-2 h-4 w-4" />
+              Record it here
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="lg"
+            variant={canRecord ? "outline" : "default"}
+            className="w-full"
+            onClick={() => inputRef.current?.click()}
+          >
+            <ImageUp className="mr-2 h-4 w-4" />
+            Choose a clip from this device
+          </Button>
+          {canRecord && (
+            <p className="text-xs text-muted-foreground">
+              Recording here walks you through the four views and timestamps
+              each one as you film it. It also earns the stronger
+              &ldquo;recorded live&rdquo; note on your certificate, because the
+              footage never existed as a file before you sent it. A clip you
+              pick is graded exactly the same way.
+            </p>
+          )}
+        </div>
       ) : (
         <div className="space-y-4">
           <div className="overflow-hidden rounded-lg border bg-black">
@@ -174,12 +242,25 @@ export function VideoWalkaround({
               variant="ghost"
               size="sm"
               disabled={uploading}
-              onClick={() => inputRef.current?.click()}
+              // Clear rather than reopen the picker: it returns the seller to
+              // both options, so a clip picked once doesn't lock them out of
+              // recording.
+              onClick={() => handlePick(null)}
             >
               <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
               Use a different clip
             </Button>
           </div>
+
+          {liveCaptured && (
+            <div className="flex items-start gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p className="text-xs text-muted-foreground">
+                Recorded live in the app. Your certificate will say so — buyers
+                see that this footage was never a file on your phone first.
+              </p>
+            </div>
+          )}
 
           {tooLong && (
             <div className="rounded-md border border-amber-500/30 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">

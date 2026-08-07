@@ -11,7 +11,10 @@ import {
   evaluateVerifiedCapture,
   evaluateVideoCapture,
   IN_APP_CAPTURE_SOURCE,
+  IN_APP_VIDEO_CAPTURE_SOURCE,
+  LIBRARY_VIDEO_CAPTURE_SOURCE,
   MIN_VIDEO_VERIFIED_FRAMES,
+  parseVideoCaptureSource,
   VIDEO_FRAME_CAPTURE_SOURCE,
   type LiveCaptureImage,
   parseExifDate,
@@ -356,4 +359,88 @@ Deno.test("video: suspected manipulation or cross-account reuse withholds the ba
   });
   assertEquals(reused.badge, null);
   assert(reused.reasons[0]!.includes("different account"));
+});
+
+// ── US-1766: live-capture provenance for the clip itself ─────────────────────
+
+Deno.test("US-1766: parseVideoCaptureSource keeps only the two known markers", () => {
+  assertEquals(
+    parseVideoCaptureSource("in_app_recorder"),
+    IN_APP_VIDEO_CAPTURE_SOURCE,
+  );
+  assertEquals(parseVideoCaptureSource("  IN_APP_RECORDER "), IN_APP_VIDEO_CAPTURE_SOURCE);
+  assertEquals(parseVideoCaptureSource("library"), LIBRARY_VIDEO_CAPTURE_SOURCE);
+  // Anything else is UNKNOWN, never "live" — a stale or hostile client must not
+  // be able to assert the stronger claim with a string we don't recognize.
+  assertEquals(parseVideoCaptureSource("in_app_camera"), null);
+  assertEquals(parseVideoCaptureSource("live"), null);
+  assertEquals(parseVideoCaptureSource(""), null);
+  assertEquals(parseVideoCaptureSource(null), null);
+  assertEquals(parseVideoCaptureSource(42), null);
+});
+
+Deno.test("US-1766: a clip recorded in-app earns the badge AND the live reading", () => {
+  const r = evaluateVideoCapture({
+    videoGraded: true,
+    images: FOUR_FRAMES,
+    durationSeconds: 14,
+    manipulationSuspected: false,
+    crossUserReuse: false,
+    captureSource: IN_APP_VIDEO_CAPTURE_SOURCE,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, "video_verified");
+  assertEquals(r.live_captured, true);
+  assertEquals(r.capture_source, IN_APP_VIDEO_CAPTURE_SOURCE);
+  assert(r.reasons.some((x) => x.includes("recorded live")));
+});
+
+Deno.test("US-1766: a library clip still earns the badge, without the live reading", () => {
+  for (const source of [LIBRARY_VIDEO_CAPTURE_SOURCE, null, "something-else"]) {
+    const r = evaluateVideoCapture({
+      videoGraded: true,
+      images: FOUR_FRAMES,
+      durationSeconds: 14,
+      manipulationSuspected: false,
+      crossUserReuse: false,
+      captureSource: source,
+      nowMs: SUBMIT,
+    });
+    // The one-take claim does not depend on where the take came from, so the
+    // badge is unchanged — this signal only ever ADDS.
+    assertEquals(r.badge, "video_verified", `source=${source}`);
+    assertEquals(r.live_captured, false, `source=${source}`);
+  }
+});
+
+Deno.test("US-1766: live_captured is never true without the badge", () => {
+  // Recorded live, but the frames fell short — a live recording of an
+  // ungradeable lap proves nothing, so the modifier must not survive on its own.
+  const r = evaluateVideoCapture({
+    videoGraded: true,
+    images: FOUR_FRAMES.slice(0, MIN_VIDEO_VERIFIED_FRAMES - 1),
+    durationSeconds: 9,
+    manipulationSuspected: false,
+    crossUserReuse: false,
+    captureSource: IN_APP_VIDEO_CAPTURE_SOURCE,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, null);
+  assertEquals(r.live_captured, false);
+  // The source is still RECORDED for admin review — withheld ≠ forgotten.
+  assertEquals(r.capture_source, IN_APP_VIDEO_CAPTURE_SOURCE);
+});
+
+Deno.test("US-1766: an omitted captureSource behaves exactly like an older client", () => {
+  const r = evaluateVideoCapture({
+    videoGraded: true,
+    images: FOUR_FRAMES,
+    durationSeconds: 14,
+    manipulationSuspected: false,
+    crossUserReuse: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, "video_verified");
+  assertEquals(r.live_captured, false);
+  assertEquals(r.capture_source, null);
 });

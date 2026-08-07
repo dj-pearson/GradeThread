@@ -413,6 +413,34 @@ export function evaluateLiveCapture(opts: {
 export const VIDEO_FRAME_CAPTURE_SOURCE = "video_frame";
 
 /**
+ * How the CLIP itself entered the app (US-1766). Distinct from the per-frame
+ * marker above: that says where a graded image came from, this says where the
+ * take came from.
+ *
+ * `in_app_recorder` = recorded live in GradeThread's own recorder, straight off
+ * the camera stream, never a file the seller had lying around. It is asserted by
+ * the client exactly like IN_APP_CAPTURE_SOURCE is for live photos, so it is a
+ * provenance CLAIM, not an attestation — which is why it can only ever ADD to a
+ * badge the server-side checks already earned, never stand in for one.
+ */
+export const IN_APP_VIDEO_CAPTURE_SOURCE = "in_app_recorder";
+
+/** The seller picked an existing clip from the device library / camera roll. */
+export const LIBRARY_VIDEO_CAPTURE_SOURCE = "library";
+
+/**
+ * Normalize the client's `video_capture_source` field. Anything that isn't one
+ * of the two known markers becomes null — an unrecognized string must not read
+ * as "live", and the absent case (an older client) is simply unknown provenance.
+ */
+export function parseVideoCaptureSource(raw: unknown): string | null {
+  const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (s === IN_APP_VIDEO_CAPTURE_SOURCE) return IN_APP_VIDEO_CAPTURE_SOURCE;
+  if (s === LIBRARY_VIDEO_CAPTURE_SOURCE) return LIBRARY_VIDEO_CAPTURE_SOURCE;
+  return null;
+}
+
+/**
  * Fewest server-extracted frames that can earn the badge. Equals the number of
  * REQUIRED_VIDEO_FRAME_SLOTS in video-frames.ts — the two are asserted equal in
  * video-frames_test.ts rather than left to drift, because a lower floor here
@@ -435,6 +463,15 @@ export interface VideoCaptureResult {
   frames_used: number;
   /** Clip length, when the container reported one. */
   duration_seconds: number | null;
+  /** Normalized clip provenance marker, or null when the client sent none. */
+  capture_source: string | null;
+  /**
+   * US-1766: the badge was earned AND the clip was recorded live in the in-app
+   * recorder. A strictly stronger claim than the badge alone — the take itself
+   * never existed as a file before this submission, so it cannot be a clip of a
+   * different garment, or of the same garment months ago.
+   */
+  live_captured: boolean;
   /** Human-readable detail for admin review (server-side only). */
   reasons: string[];
   checked_at: string;
@@ -457,6 +494,8 @@ export function evaluateVideoCapture(opts: {
   durationSeconds: number | null;
   manipulationSuspected: boolean;
   crossUserReuse: boolean;
+  /** US-1766: how the clip entered the app; null on an older client. */
+  captureSource?: string | null;
   nowMs: number;
 }): VideoCaptureResult {
   const checked_at = new Date(opts.nowMs).toISOString();
@@ -464,11 +503,16 @@ export function evaluateVideoCapture(opts: {
   const frames = opts.images.filter(
     (i) => (i.capture_source ?? "").toLowerCase() === VIDEO_FRAME_CAPTURE_SOURCE,
   ).length;
+  const captureSource = parseVideoCaptureSource(opts.captureSource);
   const base: VideoCaptureResult = {
     badge: null,
     video_graded: opts.videoGraded,
     frames_used: frames,
     duration_seconds: opts.durationSeconds,
+    capture_source: captureSource,
+    // Only ever true alongside an earned badge — a live recording of a clip
+    // that fell short of the badge proves nothing on its own.
+    live_captured: false,
     reasons: [],
     checked_at,
   };
@@ -499,13 +543,18 @@ export function evaluateVideoCapture(opts: {
     return { ...base, reasons: ["a frame matched a photo from a different account"] };
   }
 
+  const liveCaptured = captureSource === IN_APP_VIDEO_CAPTURE_SOURCE;
   return {
     ...base,
     badge: "video_verified",
+    live_captured: liveCaptured,
     reasons: [
       `all ${frames} graded views were extracted server-side from one ${
         opts.durationSeconds ? `${opts.durationSeconds.toFixed(1)}s ` : ""
       }clip, no manipulation, no reuse`,
+      liveCaptured
+        ? "clip recorded live in the in-app recorder"
+        : `clip provenance: ${captureSource ?? "not reported by the client"}`,
     ],
   };
 }

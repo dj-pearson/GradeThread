@@ -251,7 +251,8 @@ interface CertReportRow {
   verified_360: { badge?: string } | null;
   // US-1762: structured Video Capture result; only the earned badge tier is
   // exposed publicly (the frame metrics + shortfall reasons stay server-side).
-  video_capture: { badge?: string } | null;
+  // US-1766 adds live_captured — the clip was recorded in the in-app recorder.
+  video_capture: { badge?: string; live_captured?: boolean } | null;
   // US-2400: whether a human reviewer finalized this grade. Passed straight
   // through to the payload (NOT stripped like the structured signals above) —
   // it is the AI-disclosure variant the /cert SSR page and the partner widget
@@ -877,6 +878,10 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       // server extracted from one continuous clip; the frame metrics and the
       // reasons a clip fell short stay server-side.
       video_capture_verified: trust.videoCaptureVerified,
+      // US-1766: positive-only. True iff that clip was ALSO recorded live in
+      // the in-app recorder — a stronger reading of the same badge, so it is
+      // never true without video_capture_verified.
+      video_live_capture_verified: trust.videoLiveCaptureVerified,
       // US-861: positive-only. True iff the photo-reuse scan ran and found no
       // cross-account match. Never leaks hashes/distances.
       original_photos_verified: trust.originalPhotos,

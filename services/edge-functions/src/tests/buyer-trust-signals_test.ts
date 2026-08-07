@@ -15,7 +15,7 @@ Deno.test("projectTrustSignals: earned booleans only, on the exact source shapes
       original_photos: { verified: true },
       live_capture: { badge: "live_verified" },
       verified_360: { badge: "verified_360" },
-      video_capture: { badge: "video_verified" },
+      video_capture: { badge: "video_verified", live_captured: true },
     },
     { verifiedSeller: true, certIntegrityOk: true },
   );
@@ -24,6 +24,7 @@ Deno.test("projectTrustSignals: earned booleans only, on the exact source shapes
     liveCaptureVerified: true,
     verified360: true,
     videoCaptureVerified: true,
+    videoLiveCaptureVerified: true,
     originalPhotos: true,
     verifiedSeller: true,
     certIntegrityOk: true,
@@ -41,6 +42,26 @@ Deno.test("projectTrustSignals: a non-'video_verified' video tier is not a badge
   const earned = projectTrustSignals({ video_capture: { badge: "video_verified" } });
   assertEquals(earned.videoCaptureVerified, true);
   assertEquals(trustSignalBadges(earned).map((b) => b.label), ["Video-Verified"]);
+});
+
+// US-1766: the live reading is a stronger telling of the SAME badge.
+Deno.test("projectTrustSignals: live_captured upgrades the label, never adds a badge", () => {
+  const live = projectTrustSignals({
+    video_capture: { badge: "video_verified", live_captured: true },
+  });
+  assertEquals(live.videoCaptureVerified, true);
+  assertEquals(live.videoLiveCaptureVerified, true);
+  // ONE badge, with the fuller label — two "video" rows would read to a buyer
+  // as two independent checks.
+  assertEquals(trustSignalBadges(live).map((b) => b.label), ["Video-Verified (live)"]);
+
+  // live_captured without the badge (a shape the evaluator never writes) must
+  // not smuggle the stronger claim through this projection.
+  const unearned = projectTrustSignals({
+    video_capture: { badge: "attempted", live_captured: true },
+  });
+  assertEquals(unearned.videoLiveCaptureVerified, false);
+  assertEquals(trustSignalBadges(unearned), []);
 });
 
 Deno.test("projectTrustSignals: a NON-badge tier never counts as verified", () => {

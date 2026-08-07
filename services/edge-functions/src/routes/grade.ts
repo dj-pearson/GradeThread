@@ -6,6 +6,7 @@ import { getSettingSync } from "../lib/system-settings.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import {
   IN_APP_CAPTURE_SOURCE,
+  parseVideoCaptureSource,
   VIDEO_FRAME_CAPTURE_SOURCE,
 } from "../lib/verified-capture.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
@@ -349,6 +350,13 @@ gradeRoutes.post("/submit", async (c) => {
   // Optional guided-capture marks ("I'm showing the front now"). Never trusted:
   // parsed + bounded against the clip's real duration below.
   const videoSlotMarksRaw = formData.get("video_slot_marks") as string | null;
+  // US-1766: how the clip entered the app — 'in_app_recorder' (recorded live in
+  // GradeThread's own recorder) or 'library' (an existing file). Normalized to
+  // one of the two known markers or null; an unrecognized string can never read
+  // as live. Positive-only, exactly like every other provenance signal here.
+  const videoCaptureSource = parseVideoCaptureSource(
+    formData.get("video_capture_source"),
+  );
   // US-601: premium authenticity / counterfeit-confidence add-on opt-in. Only
   // HONORED on a paid Premium/Express tier (the higher per-tier charge covers it)
   // and when the kill-switch flag is on — both enforced just below.
@@ -676,6 +684,9 @@ gradeRoutes.post("/submit", async (c) => {
       // once frames actually landed — the pipeline reads THAT, never this.
       video_grading_opt_in: videoGradingOptIn,
       video_slot_marks: videoGradingOptIn ? videoSlotMarks : null,
+      // US-1766: clip provenance. Stored only for a video-graded submission —
+      // on a photo submission there is no clip for it to describe.
+      video_capture_source: videoGradingOptIn ? videoCaptureSource : null,
       authenticity_addon: authenticityAddon,
       forensic_addon: forensicAddon,
       retake_of_submission_id: retakeTargetId,

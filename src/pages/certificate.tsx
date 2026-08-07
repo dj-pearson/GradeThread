@@ -1107,12 +1107,17 @@ export function CertificatePage() {
               <div className="flex items-start gap-3">
                 <Video className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-brand-red-text" />
                 <div>
-                  <p className="text-sm font-medium">Video-Verified</p>
+                  <p className="text-sm font-medium">
+                    Video-Verified
+                    {gradeReport.video_live_capture_verified && " · recorded live"}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Every view below was pulled by GradeThread out of a single
                     continuous walk-around video of this item. The angles were
                     chosen by us, not staged one at a time, so no single shot
                     could be swapped for a better-looking garment.
+                    {gradeReport.video_live_capture_verified &&
+                      " The seller recorded that video inside the GradeThread app, so the footage never existed as a file beforehand."}
                   </p>
                 </div>
               </div>

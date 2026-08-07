@@ -17,7 +17,7 @@ export interface TrustSignalSource {
   original_photos?: { verified?: boolean } | null;
   live_capture?: { badge?: string } | null;
   verified_360?: { badge?: string } | null;
-  video_capture?: { badge?: string } | null;
+  video_capture?: { badge?: string; live_captured?: boolean } | null;
 }
 
 /** Signals that don't live on the grade_report row (resolved by the caller). */
@@ -35,6 +35,13 @@ export interface TrustSignals {
   verified360: boolean;
   /** US-1762: graded from frames the server extracted from one walk-around clip. */
   videoCaptureVerified: boolean;
+  /**
+   * US-1766: that clip was ALSO recorded live in the in-app recorder. Strictly
+   * implies videoCaptureVerified — it is a stronger reading of the same badge,
+   * not a second one, which is why trustSignalBadges upgrades the label instead
+   * of emitting another row.
+   */
+  videoLiveCaptureVerified: boolean;
   originalPhotos: boolean;
   verifiedSeller: boolean;
   certIntegrityOk: boolean;
@@ -54,6 +61,8 @@ export function projectTrustSignals(
     liveCaptureVerified: rep?.live_capture?.badge === "live_verified",
     verified360: rep?.verified_360?.badge === "verified_360",
     videoCaptureVerified: rep?.video_capture?.badge === "video_verified",
+    videoLiveCaptureVerified: rep?.video_capture?.badge === "video_verified" &&
+      rep?.video_capture?.live_captured === true,
     originalPhotos: rep?.original_photos?.verified === true,
     verifiedSeller: ctx.verifiedSeller === true,
     certIntegrityOk: ctx.certIntegrityOk === true,
@@ -78,9 +87,19 @@ const BADGE_LABELS: Array<{ key: keyof TrustSignals; label: string }> = [
   { key: "originalPhotos", label: "Original Photos" },
 ];
 
-/** The earned badges, strongest first — empty when nothing is verified. */
+/**
+ * The earned badges, strongest first — empty when nothing is verified.
+ *
+ * US-1766: a live-recorded clip UPGRADES the Video-Verified label rather than
+ * adding a badge. Two rows both saying "video" would read to a buyer as two
+ * independent checks, when the live reading is the same check told in full.
+ */
 export function trustSignalBadges(sig: TrustSignals): TrustBadge[] {
-  return BADGE_LABELS.filter((b) => sig[b.key] === true);
+  return BADGE_LABELS.filter((b) => sig[b.key] === true).map((b) =>
+    b.key === "videoCaptureVerified" && sig.videoLiveCaptureVerified
+      ? { key: b.key, label: "Video-Verified (live)" }
+      : b
+  );
 }
 
 /** True iff the item carries any buyer-visible trust signal at all. */

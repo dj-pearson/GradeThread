@@ -43,6 +43,13 @@ migration and its code MUST travel together and reach prod in the right order.
    `vault/20-domain/brands/brand-taxonomy-overview.md` for the split: per-brand
    VALUES go in the table, per-corpus RULES go in a note.
 
+5. **Regenerate the shipped manifest**: `node scripts/gen-migration-manifest.mjs`
+   (writes `services/edge-functions/src/lib/migration-manifest.ts`). The boot
+   guard compares this list against `applied_migrations`, so a stale manifest
+   silently shrinks what it checks. `schema-version_test.ts` fails otherwise —
+   and it fails inside the FULL `deno test` run, long after `deno check` and the
+   web build have both gone green, which is where the minutes go.
+
 ## Numbering
 
 Next number = highest existing NNNNN + 1 — but a CONCURRENT agent may be

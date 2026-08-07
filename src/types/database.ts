@@ -901,6 +901,10 @@ export interface PublicGradeReportRow {
   // reuse) — the "Video-Verified" badge. Positive-only; the frame metrics and
   // the reasons a clip fell short stay server-side.
   video_capture_verified?: boolean;
+  // US-1766: true when that clip was ALSO recorded live in the in-app recorder,
+  // so it never existed as a file before this submission. A stronger reading of
+  // the badge above, never a second badge — it is never true on its own.
+  video_live_capture_verified?: boolean;
   // Non-clothing grading (migration 00231): generic { factor_key: score } map +
   // the rubric that produced it (e.g. "sports_cards"). Null on clothing & legacy
   // certificates — the cert renders the typed factor columns instead.

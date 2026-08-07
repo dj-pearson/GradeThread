@@ -76,7 +76,7 @@ partly pinned, by per-story tests like `certificate-revision-stamp_test.ts`.
 ## Editing the view
 
 The view is recreated **wholesale** by every migration that touches it — 00314,
-00315, 00316, 00318, 00356, 00530 — each reproducing the previous SELECT list
+00315, 00316, 00318, 00356, 00530, 00532, 00534 — each reproducing the previous SELECT list
 verbatim and appending. That is the mechanism by which a column can be dropped by
 accident: copy an older definition and everything added since disappears, with no
 error and no data change. The parity guard is the backstop; run it after any

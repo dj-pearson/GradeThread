@@ -1,9 +1,35 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Four migrations are held: 00530, 00531, 00532 and 00533.** The entries below
-them were applied to prod and this file did not learn about it for a day. See the
-note under 00528 for how that was measured and why the measurement, not the file,
-is the authority.
+**Five migrations are held: 00530, 00531, 00532, 00533 and 00534.** The entries
+below them were applied to prod and this file did not learn about it for a day.
+See the note under 00528 for how that was measured and why the measurement, not
+the file, is the authority.
+
+## ⏳ HELD: 00534_video_live_capture.sql (US-1766 — live-capture provenance for a clip)
+
+**Apply order.** After 00532 — it recreates the view 00532 last defined, so
+applying it first would drop the `video_capture_verified` column 00532 adds.
+
+**Risk: LOW.** One nullable `ADD COLUMN IF NOT EXISTS` on `submissions` and a
+`CREATE OR REPLACE VIEW` that reproduces 00532's column list verbatim and
+appends one boolean. No data is rewritten, no policy or index changes.
+
+**What it does.**
+- `submissions.video_capture_source` — how the walk-around clip entered the app
+  (`in_app_recorder` / `library`), normalized server-side.
+- `public_grade_reports.video_live_capture_verified` — the public boolean: the
+  Video-Verified badge was earned AND the clip was recorded in the in-app
+  recorder.
+
+**⚠️ THE FRONTEND READS THE NEW VIEW COLUMN.** `certificate.tsx` fetches the
+view with `.select("*")` and reads `video_live_capture_verified`. Cloudflare
+Pages auto-deploys on push, so pushing before applying leaves the certificate
+reading `undefined` — which renders the plain Video-Verified copy, i.e. it
+degrades quietly rather than breaking. Still: apply first.
+
+**Apply, then `NOTIFY pgrst, 'reload schema';`, then redeploy the edge** (the
+same commit bumps `EXPECTED_SCHEMA_VERSION` to `00534`, so the boot guard needs
+the row recorded), then push.
 
 ## ⏳ HELD: 00533_video_grading_scenarios.sql (US-1765 — model video grading in the AI scenarios)
 

@@ -59,6 +59,82 @@ export const VIDEO_SLOT_PROMPTS: readonly VideoSlotPrompt[] = [
   },
 ];
 
+// ── Clip provenance (US-1766) ────────────────────────────────────────────────
+//
+// How the clip entered the app. Mirrors IN_APP_VIDEO_CAPTURE_SOURCE /
+// LIBRARY_VIDEO_CAPTURE_SOURCE in services/edge-functions/src/lib/
+// verified-capture.ts, which re-normalizes whatever we send: an unrecognized
+// string becomes null there, so a stale client can never assert "live".
+
+/** Recorded live in the in-app recorder, straight off the camera stream. */
+export const IN_APP_VIDEO_CAPTURE_SOURCE = "in_app_recorder";
+
+/** An existing file the seller picked from the device. */
+export const LIBRARY_VIDEO_CAPTURE_SOURCE = "library";
+
+export type VideoCaptureSource =
+  | typeof IN_APP_VIDEO_CAPTURE_SOURCE
+  | typeof LIBRARY_VIDEO_CAPTURE_SOURCE;
+
+/**
+ * MediaRecorder container candidates, best first. Every entry must be a format
+ * `validateVideoUpload` sniffs (mp4 / quicktime / webm) — a recording the server
+ * then rejects is worse than no recorder at all. Safari records mp4; Chrome and
+ * Firefox record webm.
+ */
+export const RECORDER_MIME_CANDIDATES = [
+  "video/mp4",
+  "video/webm;codecs=vp9",
+  "video/webm;codecs=vp8",
+  "video/webm",
+] as const;
+
+/**
+ * First candidate the browser can actually record, or null when none is
+ * supported (which is the signal to hide the recorder and offer the picker).
+ * `isSupported` is injected so this stays pure and testable.
+ */
+export function pickRecorderMimeType(
+  isSupported: (type: string) => boolean,
+): string | null {
+  for (const type of RECORDER_MIME_CANDIDATES) {
+    try {
+      if (isSupported(type)) return type;
+    } catch {
+      // A browser whose isTypeSupported throws is a browser that can't record it.
+    }
+  }
+  return null;
+}
+
+/**
+ * File extension for a recorded blob's mime type. The edge sniffs magic bytes
+ * and ignores the name, so this is only for the seller's benefit — but a clip
+ * called `.webm` that is really mp4 is a support ticket waiting to happen.
+ */
+export function recordedClipExtension(mimeType: string): "mp4" | "webm" {
+  return mimeType.toLowerCase().includes("mp4") ? "mp4" : "webm";
+}
+
+/** Stable, human-readable name for a clip recorded in-app. */
+export function recordedClipName(mimeType: string): string {
+  return `walk-around.${recordedClipExtension(mimeType)}`;
+}
+
+/**
+ * The mid-point of a recorded segment, in seconds, rounded to 2dp — the frame
+ * most likely to actually show the view, rather than the hand-off blur at
+ * either end. Returns null for a segment too short to sample.
+ */
+export function segmentMarkSeconds(
+  startSeconds: number,
+  endSeconds: number,
+): number | null {
+  if (!Number.isFinite(startSeconds) || !Number.isFinite(endSeconds)) return null;
+  if (endSeconds <= startSeconds) return null;
+  return Number(((startSeconds + endSeconds) / 2).toFixed(2));
+}
+
 /** Drop empty/non-finite marks so an untouched slot is simply absent. */
 export function serializeVideoSlotMarks(marks: VideoSlotMarks): string {
   const clean: Record<string, number> = {};
