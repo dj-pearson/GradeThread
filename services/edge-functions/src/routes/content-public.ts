@@ -48,6 +48,17 @@ import {
   type ShowcaseFindRow,
   showcaseLeaderboard,
 } from "../lib/showcase.ts";
+import {
+  LEADERBOARD_HUB_LIMIT,
+  LEADERBOARD_METRICS,
+  type LeaderboardMetric,
+  type LeaderboardMetricKey,
+  leaderboardPath,
+  parseLeaderboardQuery,
+  rankLeaderboard,
+} from "../lib/leaderboards.ts";
+import { boardWindow, loadBoard, loadCohort } from "../lib/leaderboards-data.ts";
+import { loadSeasonTimezone } from "../lib/rewards-seasons.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
@@ -2187,4 +2198,113 @@ contentPublicRoutes.get("/finds.json", async (c) => {
     // window, and only over sellers who run a public verified profile.
     leaderboard: showcaseLeaderboard(projected),
   });
+});
+
+// ── GET /leaderboards.json ────────────────────────────────────────
+// US-1856: the public REWARD LEADERBOARDS. Anonymous; powers both the SSR Pages
+// Function at /leaderboards and the SPA route (Model B — one payload, two
+// renderers, so neither can rank someone the other doesn't).
+//
+// Two shapes from one path:
+//   • no `metric` → the HUB: a short board for each of the four metrics.
+//   • `metric=<key>` → ONE board, with its brand/category facets.
+//
+// Only opted-in accounts (00544) with a resolvable public alias are ever
+// candidates, and only a nonzero score earns a row — see lib/leaderboards.ts for
+// the identity gates and lib/leaderboards-data.ts for the per-board anti-gaming.
+contentPublicRoutes.get("/leaderboards.json", async (c) => {
+  const query = parseLeaderboardQuery(new URL(c.req.url).searchParams);
+
+  try {
+    const tz = await loadSeasonTimezone();
+    const nowMs = Date.now();
+    const window = boardWindow(query.period, nowMs, tz);
+    const windowJson = {
+      period: window.period,
+      starts_at: window.startMs != null ? new Date(window.startMs).toISOString() : null,
+      ends_at: window.endMs != null ? new Date(window.endMs).toISOString() : null,
+    };
+
+    // The current week's boundary travels with EVERY response, whichever window
+    // was asked for. The sitemap needs a derived date for these pages (US-2100
+    // forbids stamping today()), and this is the only real one they have: the
+    // instant the live ranking window opened. Re-deriving it in the sitemap
+    // would mean a second Monday calendar, which is exactly what boardWindow
+    // exists to prevent.
+    const week = boardWindow("weekly", nowMs, tz);
+    const currentWeek = {
+      starts_at: week.startMs != null ? new Date(week.startMs).toISOString() : null,
+      ends_at: week.endMs != null ? new Date(week.endMs).toISOString() : null,
+    };
+
+    const cohort = await loadCohort();
+
+    // The metric catalog travels with every response. It is what lets the SSR
+    // page, the SPA and the sitemap agree on which boards exist and what each
+    // column is called, without three copies of the same list.
+    const metrics = LEADERBOARD_METRICS as readonly LeaderboardMetric[];
+
+    if (!query.metric) {
+      const boards = [];
+      for (const m of metrics) {
+        const data = await loadBoard(m.key, cohort, window, {
+          brandSlug: null,
+          category: null,
+        });
+        boards.push({
+          metric: m,
+          path: leaderboardPath(m.key),
+          entries: rankLeaderboard(
+            data.candidates,
+            PUBLIC_SITE_URL,
+            Math.min(query.limit, LEADERBOARD_HUB_LIMIT),
+          ),
+        });
+      }
+      return c.json({
+        hub: true,
+        window: windowJson,
+        current_week: currentWeek,
+        metrics,
+        boards,
+        listed: cohort.length,
+      });
+    }
+
+    const metric = metrics.find((m) => m.key === query.metric) as LeaderboardMetric;
+    // A facet on a board whose rows are not garments would be a filter that
+    // silently did nothing. Report it rather than pretending it applied.
+    const facetApplied = metric.facetable && !!(query.brandSlug || query.category);
+    const filters = metric.facetable
+      ? { brandSlug: query.brandSlug, category: query.category }
+      : { brandSlug: null, category: null };
+
+    const data = await loadBoard(query.metric as LeaderboardMetricKey, cohort, window, filters);
+    const entries = rankLeaderboard(data.candidates, PUBLIC_SITE_URL, query.limit);
+
+    return c.json({
+      hub: false,
+      metric,
+      metrics,
+      window: windowJson,
+      current_week: currentWeek,
+      path: leaderboardPath(metric.key, {
+        brandSlug: filters.brandSlug,
+        category: filters.category,
+      }),
+      filters: {
+        brand_slug: filters.brandSlug,
+        category: filters.category,
+      },
+      facet_applied: facetApplied,
+      facet_supported: metric.facetable,
+      truncated: data.truncated,
+      total: data.candidates.filter((x) => x.score > 0).length,
+      entries,
+      facets: data.facets,
+      listed: cohort.length,
+    });
+  } catch (err) {
+    return publicError(c, err, "leaderboards");
+  }
 });

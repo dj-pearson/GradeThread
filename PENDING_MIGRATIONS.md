@@ -1,9 +1,45 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Fourteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542 and 00543.** The entries below them were
-applied to prod and this file did not learn about it for a day. See the note under
+**Fifteen migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543 and 00544.** The entries below them
+were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00544_reward_leaderboards.sql (US-1856 — public reward leaderboards)
+
+**Apply order.** Last, in numeric order. It touches `users` and `referral_events`
+(both long applied) and adds an index on `showcase_reactions`, which arrives in
+**00543** — so 00543 MUST be applied first, or the second `CREATE INDEX` fails on
+a missing table.
+
+**Risk: LOW.** Two nullable-or-defaulted columns on `users` and three indexes. No
+existing column, row, view, policy or enum is modified or dropped, and nothing
+becomes public on apply (the opt-in defaults to false).
+
+**What it does.**
+- Adds `users.leaderboard_opt_in` (NOT NULL DEFAULT false) and
+  `users.leaderboard_alias` — the opt-in and public alias for the reward
+  leaderboards. A THIRD toggle beside the referral board's (00195) and the buyer
+  board's (00423) on purpose: those boards' copy names a referral count and a
+  confirmation count, and these publish XP, graded volume and reactions. The
+  default is false, so nobody appears until they choose to.
+- Adds `idx_users_leaderboard_opt_in` (partial, the small public cohort),
+  `idx_showcase_reactions_report_user` (the finds board excludes a seller's
+  reaction to their own find, so it reads reactions by report AND reactor) and
+  `idx_referral_events_granted_at` (partial, the weekly share-driven-signups
+  board filters on when a referral was granted).
+
+**Deploy order.** Apply BEFORE the edge rolls (the normal order). The edge build
+that ships with it serves `/api/content/public/leaderboards.json` and
+`/api/rewards/leaderboard`, both of which read the new columns; against a DB
+without this migration those routes 500 (and the leaderboards page renders
+empty). Nothing EXISTING breaks either way — the columns are additive and no
+current query reads them.
+
+**Client-side reads?** No. The SPA reads the boards from the edge
+(`/api/content/public/leaderboards.json`) and its own standing from
+`/api/rewards/leaderboard`; it never queries `users.leaderboard_*` directly. The
+new columns are added to the frontend `Database` type for completeness only.
 
 ## ⏳ HELD: 00543_showcase_finds.sql (US-1855 — public Showcase / "Finds" feed)
 

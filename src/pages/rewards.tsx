@@ -26,6 +26,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import { useRewards, type SeasonRecap } from "@/hooks/use-rewards";
 import { QuestsPanel } from "@/components/rewards/quests-panel";
+import { LeaderboardPanel } from "@/components/rewards/leaderboard-panel";
 import { cn } from "@/lib/utils";
 
 // US-1851: the seller's rewards home — level, season track, cosmetic perks and
@@ -173,6 +174,9 @@ export function RewardsPage() {
 
       {/* Quests — the week. Renders nothing when the program is off or empty. */}
       <QuestsPanel />
+
+      {/* US-1856: the public boards. Opt-in, with its own consent copy. */}
+      <LeaderboardPanel />
 
       {/* Season — the clock. Resets clean; takes nothing with it. */}
       <Card>

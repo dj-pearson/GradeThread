@@ -510,6 +510,72 @@ export async function findsUrls(env: PagesEnv): Promise<SitemapUrl[]> {
 }
 
 /**
+ * US-1856: the reward leaderboards — the /leaderboards hub, one page per metric,
+ * and the brand/category facet pages of the two boards that can be faceted.
+ *
+ * A metric page is listed unconditionally: it is a real page that explains its
+ * board and stays live while the board warms up. A FACET page is listed only
+ * when the API reports that facet AND the board has somebody on it, because
+ * `functions/leaderboards/[[path]].ts` 404s an empty facet as a thin page —
+ * listing one from a guess would put a known-dead URL in the sitemap.
+ *
+ * US-2100: the lastmod is DERIVED, never today(). A ranking has no single row
+ * whose timestamp means "this changed", so the honest date is the instant the
+ * live weekly ranking window opened — which the API returns as `current_week`
+ * precisely so this file does not have to own a second Monday calendar. It moves
+ * once a week rather than every day, which under-reports rather than crying wolf.
+ */
+export async function leaderboardUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const hub = await fetchEdgeJson<{
+    metrics?: Array<{ key: string; facetable: boolean }>;
+    boards?: Array<{ metric: { key: string }; entries: unknown[] }>;
+    current_week?: { starts_at?: string | null };
+  }>(env, "/api/content/public/leaderboards.json?period=all_time");
+
+  const windowOpened = hub?.current_week?.starts_at?.slice(0, 10);
+  const urls: SitemapUrl[] = [
+    { loc: `${base}/leaderboards`, lastmod: windowOpened, changefreq: "daily", priority: 0.6 },
+  ];
+  const populated = new Set(
+    (hub?.boards ?? [])
+      .filter((b) => (b.entries?.length ?? 0) > 0)
+      .map((b) => b.metric?.key)
+      .filter(Boolean) as string[],
+  );
+
+  for (const m of hub?.metrics ?? []) {
+    urls.push({
+      loc: `${base}/leaderboards/${m.key}`,
+      lastmod: windowOpened,
+      changefreq: "daily",
+      priority: 0.5,
+    });
+    if (!m.facetable || !populated.has(m.key)) continue;
+    const board = await fetchEdgeJson<{
+      facets?: { brands?: Array<{ slug: string }>; categories?: Array<{ slug: string }> };
+    }>(env, `/api/content/public/leaderboards.json?metric=${m.key}&period=all_time&limit=1`);
+    for (const b of board?.facets?.brands ?? []) {
+      urls.push({
+        loc: `${base}/leaderboards/${m.key}/b/${b.slug}`,
+        lastmod: windowOpened,
+        changefreq: "weekly",
+        priority: 0.4,
+      });
+    }
+    for (const cat of board?.facets?.categories ?? []) {
+      urls.push({
+        loc: `${base}/leaderboards/${m.key}/c/${cat.slug}`,
+        lastmod: windowOpened,
+        changefreq: "weekly",
+        priority: 0.4,
+      });
+    }
+  }
+  return urls;
+}
+
+/**
  * Value Index URLs (US-1747): the hub + one brand/item page per published curve.
  * Bounded to curves with real comp depth — the /api/grading/public/value hub is
  * already MIN_INDEX_TOTAL_SAMPLE-filtered, so no thin page enters the sitemap.

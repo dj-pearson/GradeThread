@@ -65,6 +65,7 @@ const VerifiedSellerPage = lazy(() => import("@/pages/verified-seller").then(m =
 const TrustProfilePage = lazy(() => import("@/pages/trust-profile").then(m => ({ default: m.TrustProfilePage })));
 const VerifiedDirectoryPage = lazy(() => import("@/pages/verified-directory").then(m => ({ default: m.VerifiedDirectoryPage })));
 const FindsPage = lazy(() => import("@/pages/finds").then(m => ({ default: m.FindsPage })));
+const LeaderboardsPage = lazy(() => import("@/pages/leaderboards").then(m => ({ default: m.LeaderboardsPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
 // Public status page (US-500) — live component health probed from the
 // visitor's browser. Dynamic, NOT registered in PUBLIC_ROUTES (no prerender).
@@ -282,6 +283,14 @@ export const router = createBrowserRouter([
       { path: "/finds", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },
       { path: "/finds/b/:brandSlug", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },
       { path: "/finds/c/:categorySlug", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },
+      // US-1856: the public reward leaderboards. Same shape as /finds — rankings
+      // are dynamic, so prod serves the SSR Pages Function
+      // (functions/leaderboards/[[path]].ts) and this SPA route is the dev /
+      // in-app renderer. Facet paths mirror the Function's. NOT in PUBLIC_ROUTES.
+      { path: "/leaderboards", element: <SuspenseWrapper><LeaderboardsPage /></SuspenseWrapper> },
+      { path: "/leaderboards/:metric", element: <SuspenseWrapper><LeaderboardsPage /></SuspenseWrapper> },
+      { path: "/leaderboards/:metric/b/:brandSlug", element: <SuspenseWrapper><LeaderboardsPage /></SuspenseWrapper> },
+      { path: "/leaderboards/:metric/c/:categorySlug", element: <SuspenseWrapper><LeaderboardsPage /></SuspenseWrapper> },
       // US-1818: public opt-in buyer Trust Score profile. Client-rendered + NOINDEX
       // (private-by-default; deliberately NOT in PUBLIC_ROUTES / the sitemap).
       { path: "/trust/:handle", element: <SuspenseWrapper><TrustProfilePage /></SuspenseWrapper> },

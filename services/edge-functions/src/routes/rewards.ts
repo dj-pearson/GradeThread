@@ -36,6 +36,17 @@ import {
   loadSeasonTimezone,
 } from "../lib/rewards-seasons.ts";
 import { loadQuestsState } from "../lib/rewards-quests.ts";
+import {
+  isLeaderboardPeriod,
+  LEADERBOARD_METRICS,
+  leaderboardIdentity,
+  type LeaderboardPeriod,
+  leaderboardPath,
+  normalizeAlias,
+  viewerRank,
+} from "../lib/leaderboards.ts";
+import { boardWindow, loadBoard, loadCohort } from "../lib/leaderboards-data.ts";
+import { supabaseAdmin } from "../lib/supabase.ts";
 
 type RewardsEnv = { Variables: { userId: string } };
 
@@ -180,6 +191,187 @@ rewardsRoutes.get("/share/:targetType/:targetId", async (c) => {
     );
     return c.json({ error: "Couldn't load your share stats." }, 500);
   }
+});
+
+// ── Leaderboards (US-1856) ───────────────────────────────────────────────────
+//
+// The seller's own view of the public boards: whether they joined, the alias
+// they would appear under, and where they currently stand. Personal-scoped like
+// everything else on this route — a rank belongs to the human who earned it.
+//
+// The PUBLIC boards are served anonymously by /api/content/public/leaderboards.json
+// and share the same cohort loader and the same ranking function, so the rank
+// reported here is the rank the page shows. Nothing is recomputed differently
+// for the owner.
+
+const LEADERBOARD_SITE_URL =
+  Deno.env.get("PUBLIC_SITE_URL")?.trim() || "https://gradethread.com";
+
+/** The users columns the leaderboard identity resolver reads. */
+const LEADERBOARD_USER_COLUMNS =
+  "leaderboard_opt_in, leaderboard_alias, verified_enabled, verified_handle, verified_display_name, referral_display_name, rewards_display_name";
+
+interface LeaderboardPrefsRow {
+  leaderboard_opt_in?: boolean | null;
+  leaderboard_alias?: string | null;
+  verified_enabled?: boolean | null;
+  verified_handle?: string | null;
+  verified_display_name?: string | null;
+  referral_display_name?: string | null;
+  rewards_display_name?: string | null;
+}
+
+/**
+ * What the alias WOULD resolve to, ignoring the opt-in flag.
+ *
+ * The settings card has to be able to say "you'd appear as X" BEFORE the user
+ * joins — otherwise the only way to find out what gets published is to publish
+ * it. `leaderboardIdentity` refuses an opted-out row by design, so the preview
+ * asks it the same question with the flag forced on.
+ */
+function previewIdentity(row: LeaderboardPrefsRow | null) {
+  return leaderboardIdentity({ ...(row ?? {}), leaderboard_opt_in: true });
+}
+
+// GET /api/rewards/leaderboard — opt-in state + the caller's standing.
+rewardsRoutes.get("/leaderboard", async (c) => {
+  const userId = c.get("userId");
+  const rawPeriod = c.req.query("period");
+  const period: LeaderboardPeriod = isLeaderboardPeriod(rawPeriod) ? rawPeriod : "all_time";
+
+  try {
+    const { data } = await supabaseAdmin
+      .from("users")
+      .select(LEADERBOARD_USER_COLUMNS)
+      .eq("id", userId)
+      .maybeSingle();
+    const row = data as LeaderboardPrefsRow | null;
+    const preview = previewIdentity(row);
+    const optIn = row?.leaderboard_opt_in === true;
+
+    // Nothing to rank against until they join — and loading the cohort + four
+    // aggregations for someone who cannot appear on any of them is pure waste.
+    if (!optIn || !preview) {
+      return c.json({
+        opt_in: optIn,
+        alias: row?.leaderboard_alias ?? null,
+        resolved_alias: preview?.alias ?? null,
+        handle: preview?.handle ?? null,
+        period,
+        standings: [],
+        board_url: leaderboardPath(),
+      });
+    }
+
+    const tz = await loadSeasonTimezone();
+    const window = boardWindow(period, Date.now(), tz);
+    const cohort = await loadCohort();
+
+    const standings = [];
+    for (const metric of LEADERBOARD_METRICS) {
+      const board = await loadBoard(metric.key, cohort, window, {
+        brandSlug: null,
+        category: null,
+      });
+      const mine = viewerRank(board.candidates, LEADERBOARD_SITE_URL, userId);
+      standings.push({
+        metric: metric.key,
+        name: metric.name,
+        score_label: metric.scoreLabel,
+        secondary_label: metric.secondaryLabel,
+        icon: metric.icon,
+        path: leaderboardPath(metric.key),
+        // null rank = a zero score this window. That is "not on the board yet",
+        // never "last" — the UI must not invent a position that doesn't exist.
+        rank: mine?.rank ?? null,
+        score: mine?.score ?? 0,
+        secondary: mine?.secondary ?? 0,
+        tied: mine?.tied ?? false,
+        of: board.candidates.filter((x) => x.score > 0).length,
+      });
+    }
+
+    return c.json({
+      opt_in: true,
+      alias: row?.leaderboard_alias ?? null,
+      resolved_alias: preview.alias,
+      handle: preview.handle,
+      period,
+      standings,
+      board_url: leaderboardPath(),
+    });
+  } catch (err) {
+    console.error(
+      "[rewards] leaderboard state failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Couldn't load your leaderboard standing." }, 500);
+  }
+});
+
+// PUT /api/rewards/leaderboard — join, leave, or rename.
+//
+// Scoped to the caller's OWN row (`.eq("id", userId)`), never an id from the
+// body — US-268, and the reason this write lives on the edge rather than as a
+// client self-update.
+rewardsRoutes.put("/leaderboard", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => null)) as
+    | { enabled?: unknown; alias?: unknown }
+    | null;
+  if (!body) return c.json({ error: "Invalid JSON body." }, 400);
+
+  const update: Record<string, unknown> = {};
+  let nextAlias: string | null | undefined;
+  if (body.alias !== undefined) {
+    nextAlias = normalizeAlias(body.alias);
+    update.leaderboard_alias = nextAlias;
+  }
+
+  if (body.enabled !== undefined) {
+    const enabled = body.enabled === true;
+    if (enabled) {
+      // Joining with no resolvable alias would publish a row with nothing to
+      // call it, so refuse rather than fall back to anything identifying.
+      const { data } = await supabaseAdmin
+        .from("users")
+        .select(LEADERBOARD_USER_COLUMNS)
+        .eq("id", userId)
+        .maybeSingle();
+      const merged: LeaderboardPrefsRow = { ...((data as LeaderboardPrefsRow | null) ?? {}) };
+      if (nextAlias !== undefined) merged.leaderboard_alias = nextAlias;
+      if (!previewIdentity(merged)) {
+        return c.json(
+          { error: "Add a display name before joining the leaderboards." },
+          400,
+        );
+      }
+    }
+    update.leaderboard_opt_in = enabled;
+  }
+
+  if (Object.keys(update).length === 0) {
+    return c.json({ error: "Nothing to update." }, 400);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("users")
+    .update(update as never)
+    .eq("id", userId)
+    .select(LEADERBOARD_USER_COLUMNS)
+    .maybeSingle();
+  if (error) {
+    console.error("[rewards] leaderboard opt-in update failed:", error.message);
+    return c.json({ error: "Couldn't update your leaderboard settings." }, 500);
+  }
+  const row = data as LeaderboardPrefsRow | null;
+  const preview = previewIdentity(row);
+  return c.json({
+    opt_in: row?.leaderboard_opt_in === true,
+    alias: row?.leaderboard_alias ?? null,
+    resolved_alias: preview?.alias ?? null,
+    handle: preview?.handle ?? null,
+  });
 });
 
 rewardsRoutes.get("/quests", async (c) => {

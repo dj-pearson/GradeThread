@@ -589,6 +589,15 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `QUEST_METRICS` filter (US-1854 did, for `share_milestone`) or widen the CHECK
   in the same commit. No test catches the mismatch.
 
+- A new public surface added to `functions/_shared/sitemap.ts` must derive its
+  `lastmod` from real data — `src/test/sitemap-lastmod.test.ts` (US-2100) scans
+  the SOURCE and fails any generator writing `lastmod: today()` that doesn't
+  route through `withHubLastmod`. For a surface with no content date (a ranking),
+  return the boundary of the window it covers from the API and use that; don't
+  re-derive a calendar in the sitemap. Also note `Object.fromEntries` backs a
+  `x in obj` guard with Object.prototype, so `isFoo("toString")` returns TRUE —
+  use a `Map` for a catalog lookup guard.
+
 ## Tangible rewards (money-moving grants)
 - XP is NEVER debited — milestones GRANT, they never charge (US-1853). The
   catalog is the `reward_milestones` table (00541), not the compiled

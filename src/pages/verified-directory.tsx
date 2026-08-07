@@ -288,6 +288,21 @@ export function VerifiedDirectoryPage() {
               Get GradeThread Verified
             </Link>
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            <Link
+              to="/leaderboards"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              Seller leaderboards
+            </Link>{" "}
+            ·{" "}
+            <Link
+              to="/finds"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              The Finds feed
+            </Link>
+          </p>
         </div>
       </div>
     </MarketingLayout>

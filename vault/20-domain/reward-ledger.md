@@ -13,6 +13,8 @@ code_refs:
   - services/edge-functions/src/lib/rewards-seasons.ts
   - services/edge-functions/src/lib/rewards-quests.ts
   - services/edge-functions/src/lib/share-to-earn.ts
+  - services/edge-functions/src/lib/leaderboards.ts
+  - services/edge-functions/src/lib/leaderboards-data.ts
   - services/edge-functions/src/lib/badge-analytics.ts
   - src/lib/buyer-rewards-summary.ts
 reviewed: 2026-08-07
@@ -356,6 +358,51 @@ click rung or produced a signup. It used to be `shareCount >= 10`, which is ten
 *different* finds clicked once each: a medal named for a viral find that could be
 earned without ever having one. A per-item claim needs a per-item criterion.
 Earned medals are kept, so tightening it takes nothing from anyone.
+
+## Public leaderboards publish only what their own opt-in named (US-1856)
+
+Four public boards — XP, grades, best finds, share-driven signups — each ranked
+over the current week and over all time, and the two garment-backed ones (grades,
+finds) also by brand and category. `lib/leaderboards.ts` is the pure policy,
+`lib/leaderboards-data.ts` the four aggregations,
+`/api/content/public/leaderboards.json` the one payload the SSR page and the SPA
+both render.
+
+**A new disclosure needs a new toggle.** These boards use `users.leaderboard_opt_in`
++ `leaderboard_alias` (00544) — a THIRD opt-in beside the referral board's (00195)
+and the buyer board's (00423), which was the point of contention. Each older
+toggle's copy names exactly what it publishes: a referral count, a confirmation
+count. The reward boards publish XP, graded volume and reaction counts, and XP is
+specifically withheld from the public verified profile (`publicLevelFlair` drops
+it, because how much someone grades is their business metric). Folding a new
+disclosure under an old toggle makes a sentence somebody already agreed to
+retroactively false — the same rule as
+[[extension-telemetry-consent|telemetry consent]]. The alias FALLS BACK through
+aliases the user already made public (verified display name → referral alias →
+buyer alias), so joining is one click; it is never invented, and an opted-in user
+with no resolvable alias is simply not listed.
+
+**A rank is only ever as public as the identity behind it.** A `/verified/<handle>`
+link is emitted only for a seller whose verified profile is enabled. The finds
+board can therefore rank only the verified half of the cohort, because
+`public_showcase_finds` withholds the handle otherwise — an anonymous find was
+published without a name, and a board is a name.
+
+**Anti-gaming is applied at the source, not bolted on.** The XP board reuses
+`xpForEvent`, so an unverified or unpaid grading-spend event scores the same zero
+it scores everywhere else — there is one definition of "this counted". Grades
+count only certified, review-approved reports. The finds board drops a seller's
+reaction to their **own** find. Shares count only `granted` referrals. Then, in
+the pure ranker: a zero score is not a rank (so registering aliases cannot pad a
+board), every board is capped, and ties break on score → secondary → **older
+account first** → alias, with genuinely equal work SHARING a rank.
+
+**One calendar.** The weekly window is `questWindow`'s Monday-anchored week in the
+shared season timezone, not a second derivation — otherwise a seller's quest could
+read 3/5 while their weekly board read 4 on the same morning. Every response also
+carries `current_week`, which is what the sitemap uses for a derived `lastmod`
+(US-2100 forbids stamping `today()`, and a ranking has no row whose timestamp
+means "this changed").
 
 ## Wiring a new source
 

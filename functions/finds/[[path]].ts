@@ -182,7 +182,9 @@ function renderLeaderboard(leaders: Leader[]): string {
   return `<section class="find-leaderboard">
     <h2>This week's most-loved sellers</h2>
     <p>Ranked by the reactions their showcased finds earned. Every seller here
-    runs a public <a href="/verified">GradeThread Verified</a> profile.</p>
+    runs a public <a href="/verified">GradeThread Verified</a> profile. The
+    opt-in <a href="/leaderboards/finds">best-finds leaderboard</a> ranks the
+    same reactions over the week and over all time.</p>
     <table>
       <thead><tr><th>#</th><th>Seller</th><th>Finds</th><th>Reactions</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -319,7 +321,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       <p class="muted">Sellers choose which of their graded items appear here. A grade is an
       independent condition assessment, not a valuation or an authentication.</p>
       <p><a href="/snap">Grade your own find &rarr;</a> &middot;
-      <a href="/verified">Browse verified sellers &rarr;</a></p>
+      <a href="/verified">Browse verified sellers &rarr;</a> &middot;
+      <a href="/leaderboards">See the leaderboards &rarr;</a></p>
     </main>`;
 
   const listName = facetLabel

@@ -227,7 +227,11 @@ export function FindsPage() {
               <Link to="/verified" className="font-medium hover:underline">
                 GradeThread Verified
               </Link>{" "}
-              profile.
+              profile. The opt-in{" "}
+              <Link to="/leaderboards/finds" className="font-medium hover:underline">
+                best-finds leaderboard
+              </Link>{" "}
+              ranks the same reactions weekly and all-time.
             </p>
             <ol className="space-y-2">
               {query.data.leaderboard.map((l, i) => (
@@ -256,6 +260,10 @@ export function FindsPage() {
           condition assessment, not a valuation or an authentication.{" "}
           <Link to="/snap" className="font-medium hover:underline">
             Grade your own find
+          </Link>{" "}
+          ·{" "}
+          <Link to="/leaderboards" className="font-medium hover:underline">
+            See the leaderboards
           </Link>
         </p>
       </div>

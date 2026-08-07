@@ -3192,6 +3192,66 @@ Deno.test({
   },
 });
 
+// ── US-1856: rewards leaderboards — self-scoped, and the PUT is the risk ──────
+//
+// GET /api/rewards/leaderboard reports the caller's OWN standing; PUT joins,
+// leaves or renames them on the public boards. The write takes no id from the
+// body — it is `.eq("id", userId)` — so the vector to close is the workspace
+// header: if A's header could steer it, B could publish A onto a public
+// leaderboard, or pull them off one, from B's session.
+Deno.test({
+  name: "US-1856: rewards leaderboard state requires authentication",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/rewards/leaderboard`, {
+      headers: { "Content-Type": "application/json" },
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET rewards leaderboard unauthenticated");
+  },
+});
+
+Deno.test({
+  name: "US-1856: rewards leaderboard opt-in write requires authentication",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/rewards/leaderboard`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: true, alias: "Intruder" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "PUT rewards leaderboard unauthenticated");
+  },
+});
+
+Deno.test({
+  name: "US-1856: A's workspace header cannot make the leaderboard PUT act on A",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    // Rename-only: it never joins anybody to a public board, so a pass leaves no
+    // residue. If the header steered the write it would rename A, not B.
+    const res = await fetch(`${BASE}/api/rewards/leaderboard`, {
+      method: "PUT",
+      headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": WS_OWNER! },
+      body: JSON.stringify({ alias: "B Only" }),
+    });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      assertDenied(res.status, "PUT rewards leaderboard with A's workspace header");
+      return;
+    }
+    const body = await res.json();
+    // The echoed alias is the CALLER's row. A response carrying anything else
+    // would mean the write landed on the workspace owner.
+    assertEquals(
+      body?.alias,
+      "B Only",
+      "the workspace header must not change whose leaderboard row is written",
+    );
+  },
+});
+
 // ── US-1639: passport tag revoke is tenant-scoped ─────────────────────────────
 //
 // POST /garments/:id/tags/:tagId/revoke scopes by created_by = ownerId, so B

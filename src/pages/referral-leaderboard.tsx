@@ -48,6 +48,19 @@ export function ReferralLeaderboardPage() {
               <Gift className="h-3.5 w-3.5" /> Share your referral link
             </Link>
           </p>
+          {/* US-1856: this board counts referrals only. The reward boards rank
+              XP, grades, finds and share-driven signups over the week and all
+              time, and they are a separate opt-in. */}
+          <p className="mt-2 text-sm text-muted-foreground">
+            Also see the{" "}
+            <Link
+              to="/leaderboards"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              seller leaderboards
+            </Link>{" "}
+            for XP, grades and best finds.
+          </p>
         </div>
       </div>
     </MarketingLayout>

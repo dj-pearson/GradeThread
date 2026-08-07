@@ -43,6 +43,12 @@ const AUTH_OR_FLOW_EXACT = new Set([
   // /cert/:id and /verified/:handle, which escape this guard only because they
   // carry a param.
   "/finds",
+  // US-1856: the public reward leaderboards. Same treatment, same reason as
+  // /finds — the rankings change as people grade, react and refer, so the page
+  // is edge-SSR'd by functions/leaderboards/[[path]].ts and listed in the
+  // sitemap by leaderboardUrls(). Registering it here would bake a stale
+  // snapshot into dist/ that _routes.json never serves and list the path twice.
+  "/leaderboards",
 ]);
 
 /** A router path that should have a static, indexable registry entry. */

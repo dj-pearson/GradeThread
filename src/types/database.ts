@@ -419,6 +419,13 @@ export interface UserRow {
   // US-1814: opt into the buyer confirmer rewards leaderboard + alias (00423).
   rewards_leaderboard_enabled: boolean;
   rewards_display_name: string | null;
+  // US-1856: opt into the public reward leaderboards (XP / grades / finds /
+  // share-driven signups) + the alias shown there (00544). A THIRD toggle on
+  // purpose: those boards publish numbers the referral and buyer boards' copy
+  // never covered. A NULL alias falls back to the verified display name, then
+  // the referral alias, then the buyer alias.
+  leaderboard_opt_in: boolean;
+  leaderboard_alias: string | null;
   // US-1818: opt-in public buyer Trust Score profile (00427; private by default).
   buyer_profile_handle: string | null;
   buyer_profile_enabled: boolean;
