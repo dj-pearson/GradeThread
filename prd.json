@@ -298,7 +298,7 @@
         "This umbrella tracks US-1806…US-1809"
       ],
       "priority": 1805,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][BUYER][ALERTS][EPIC][NEW] BASELINE: no watchlist/saved-search/alert primitive exists anywhere (grep confirmed). Unique angle: filter on OBJECTIVE grade, impossible without the grading engine. DATA: public_grade_reports view + graded listings + grade_outcomes; buyer preferences (1798) as defaults. DELIVERY: notification infra (1803). TIES: extension ingestion (1808) feeds off-platform listings. Load durable-jobs skill for the matching cron. Depends on foundation (1795). Child stories: model (1806), matching engine (1807), extension ingestion (1808), delivery+UI (1809)."
     },
     {

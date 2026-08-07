@@ -4314,3 +4314,8 @@ Branch: ralph/gradethread-build
 - Reason: Add `dependsOn: [US-1805, US-1808, US-1841, US-1843, US-1845, US-1846]` to US-1794 in prd.json so the harness stops selecting the umbrella epic ahead of its own children.
 - Cost: $2.9983 over 39 turns
 ---
+## US-1805: EPIC: Condition-based alerts & watchlist ('snipe on grade, not price')
+- Status: COMPLETE
+- Timestamp: 2026-08-07T09:13:04.021Z
+- Cost: $6.4669 over 74 turns
+---
