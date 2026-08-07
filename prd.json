@@ -256,7 +256,7 @@
         "Clear fallback to photo mode"
       ],
       "priority": 1766,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][VIDEO-GRADE][NEW] Extend verified-capture.ts + certificate badges (verified_capture_passed/live_capture_verified already rendered on certificate.tsx). Capture UI on new-submission/snap flows + iOS/Android parity backlog."
     },
     {

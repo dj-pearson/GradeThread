@@ -4303,3 +4303,8 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T08:17:41.420Z
 - Cost: $6.5336 over 77 turns
 ---
+## US-1766: Video grading: capture UX + verified-capture provenance
+- Status: COMPLETE
+- Timestamp: 2026-08-07T08:42:47.919Z
+- Cost: $10.4958 over 108 turns
+---
