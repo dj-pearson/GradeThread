@@ -12,7 +12,7 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-07
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
@@ -102,6 +102,15 @@ the page.
 Changing any of those three tables is a **public-standard change**, not a
 tuning change. It needs the mirror updated in the same commit, and it deserves
 the same deliberation as changing a published price.
+
+`FACTOR_ROUTING` gained a **second consumer** on 2026-08-07 (US-1997): it is now
+also the clothing rubric's `defectRouting` in
+`services/edge-functions/src/lib/rubric.ts`, which references the exported table
+rather than restating part of it. So that table is simultaneously the live
+engine's routing, a published spec, and the clothing rubric — three readers, one
+definition, which is the intended shape. It had been hand-copied into rubric.ts
+as a three-entry subset of sixteen; see [[shipped-but-unwired]] for why nobody
+noticed.
 
 > [!warning] `deno test` alone will not catch you
 > `src/test/grading-standard-parity.test.ts` is the guard, and it lives in the

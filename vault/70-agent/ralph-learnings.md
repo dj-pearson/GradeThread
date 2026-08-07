@@ -360,6 +360,17 @@ a learning that only matters to ONE surface, put it in that surface's file.
 
 
 
+## Public certificate columns
+- A publicly-visible `grade_reports` column must be added to BOTH read paths in
+  the same commit: the edge allowlist (`CERT_REPORT_COLUMNS`, content-public.ts,
+  read by the SSR cert) AND the `public_grade_reports` VIEW (read by the SPA via
+  `.select("*")`). Extending one and stopping has shipped twice (US-2392's
+  `certified_content_updated_at`, US-1997's `rubric_key`/`factor_scores`) — the
+  view path fails silently because the `as PublicGradeReportRow` cast still
+  compiles and the field just reads `undefined`. Guard:
+  `src/test/public-grade-report-view-parity.test.ts`. Rule:
+  [[public-certificate-read-paths]].
+
 ## Scaffolding modules
 - A module that is "shipped but not yet wired" is NOT thereby correct — nothing
   calls it, so nothing can produce a wrong answer from it, so no test has a

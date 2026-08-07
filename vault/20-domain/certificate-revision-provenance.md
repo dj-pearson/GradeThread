@@ -94,5 +94,9 @@ guard whose fixture omits the field under test cannot fail.**
 
 ## Related
 
+- [[public-certificate-read-paths]] — **read this before trusting that the
+  column is public.** US-2392 extended the edge allowlist and not the
+  `public_grade_reports` view, so the SPA certificate's `dateModified` was null
+  while the SSR one was correct. Fixed by migration 00530.
 - [[grading-scale-and-weights]] — what the scores mean.
 - [[grade-accuracy-guarantee]] — what a revision can be triggered by.

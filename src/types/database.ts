@@ -897,11 +897,20 @@ export interface PublicGradeReportRow {
   // the raw capture metrics stay server-side.
   verified_360_badge?: boolean;
   // Non-clothing grading (migration 00231): generic { factor_key: score } map +
-  // the rubric that produced it (e.g. "sports_cards"). Absent/null on clothing &
-  // legacy certificates — the cert renders the typed factor columns instead. The
-  // public view exposes these only once the grading pipeline writes them
-  // (activation phase), so today they're always absent and the typed-column
-  // fallback runs.
+  // the rubric that produced it (e.g. "sports_cards"). Null on clothing & legacy
+  // certificates — the cert renders the typed factor columns instead.
+  //
+  // The view PROJECTS both as of 00530 (US-1997); until then it did not, so this
+  // comment's older wording — "exposed only once the pipeline writes them" —
+  // named one gap and missed the other. Two independent things had to be true and
+  // only one was tracked: the pipeline must WRITE them (still Phase 2, gated on a
+  // non-clothing golden set) and the view must PROJECT them (done). So they are
+  // still always null today, but for one reason now instead of two.
+  //
+  // factor_scores arrives sanitized: the view keeps only number-valued entries
+  // and returns NULL rather than {} when none survive, precisely so the
+  // `factor_scores && rubric_key` guard below cannot be satisfied by an empty
+  // object ({} is truthy) and fall into an all-zero breakdown.
   factor_scores?: Record<string, number> | null;
   rubric_key?: string | null;
   // US-1287: genuine, localized defects with their normalized bounding boxes,

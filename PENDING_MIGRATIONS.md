@@ -1,8 +1,76 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing is currently held.** The two entries below were applied to prod and
-this file did not learn about it for a day. See the note under 00528 for how
+**One migration is held: 00530.** The two entries below it were applied to prod
+and this file did not learn about it for a day. See the note under 00528 for how
 that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00530_public_cert_rubric_factors.sql (US-1997 — public cert view exposes rubric_key + factor_scores)
+
+**Apply order.** After 00529. Nothing else is queued behind it.
+
+**What it does.** One `CREATE OR REPLACE VIEW public.public_grade_reports`. It
+reproduces 00356's SELECT list and WHERE clause verbatim and appends three output
+columns: `rubric_key`, a sanitized `factor_scores`, and
+`certified_content_updated_at`. No table, column, index, policy or function
+changes. No backfill, no row changes, and the view's ROW SET is byte-identical —
+only the projection widens.
+
+**The third column is a US-2392 bug this migration's new guard caught.**
+`certified_content_updated_at` shipped in 00522, is declared on
+`PublicGradeReportRow`, and is read by `certificate.tsx:588`, which publishes it
+as schema.org `dateModified`. The view never projected it, so the SPA
+certificate's `dateModified` has always been null — while the SSR certificate
+(`functions/cert/[id].ts`) prints the real value, because that path goes through
+the edge endpoint's `CERT_REPORT_EXTRA_COLUMNS`, which US-2392 DID extend. Same
+two-read-paths split as the rubric columns. Not a new disclosure: the edge has
+served this value publicly since 00522. Applying this migration makes the SPA
+certificate's structured data agree with the SSR one.
+
+**Why.** Migration 00231 shipped `grade_reports.rubric_key` + `factor_scores` to
+prod and deferred exposing them to "the activation phase". The owner settled
+that on 2026-07-23: ACTIVATE. There are two public read paths for a certificate
+and only the edge one (`content-public.ts` CERT_REPORT_COLUMNS) had been
+extended. The SPA reads THIS VIEW — `certificate.tsx` and `embed-grade.tsx` both
+`.select("*")` on it — and branches on `factor_scores && rubric_key` to render a
+non-clothing factor breakdown. With the view not projecting either column that
+branch was unreachable no matter what the pipeline wrote, so fixing the writer
+alone would never have made it fire.
+
+**Sanitization, deliberately in the view rather than trusted to the writer.**
+`factor_scores` is free-form jsonb, so the view rebuilds it keeping only
+NUMBER-valued entries, and collapses an empty result to NULL rather than `{}`.
+The NULL matters: the client guard is `factor_scores && rubric_key` and `{}` is
+truthy in JS, so an empty object would take the non-clothing branch and render a
+breakdown in which every factor resolves to 0. NULL keeps the typed-column
+fallback. The writer does not exist yet, which is exactly why the guard is on
+the read side.
+
+**Risk: LOW.** The two rubric columns are NULL on every row in prod today
+(nothing writes them — that is Phase 2, gated on a non-clothing golden set), so
+they come back NULL for every existing certificate and every current cert renders
+from the five typed columns exactly as before. `certified_content_updated_at` is
+already populated on adjusted reports and already public via the edge; surfacing
+it here can only add a `dateModified` where the SPA previously emitted null.
+`CREATE OR REPLACE VIEW` is safe to re-run.
+
+**CLIENT reads.** The SPA already declares both fields on `PublicGradeReportRow`
+and already handles their absence — that is the fallback path every certificate
+takes today and will keep taking until Phase 2. So a frontend deploy AHEAD of
+this SQL is safe: `select("*")` simply returns the old column set, both fields
+come back `undefined`, and the guard falls through. There is no ordering hazard
+in either direction.
+
+**The edge does not read either column from this view** (it uses the base table
+via CERT_REPORT_COLUMNS), so no edge behaviour depends on this migration beyond
+the boot guard's version match.
+
+**iOS / Android are unchanged and need no release.** Neither client reads the
+public certificate view.
+
+**Apply:** run the SQL, then `NOTIFY pgrst, 'reload schema';` — PostgREST caches
+the view's column list, so without the reload `select("*")` keeps returning the
+old projection. Then redeploy the edge (boot guard now expects `00530`), then
+push.
 
 ## ✅ APPLIED: 00529_subscription_status_comp.sql (US-2398 AC4 admin comp grant, applied 2026-08-06 00:57 UTC — measured)
 
