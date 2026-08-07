@@ -23,6 +23,11 @@ code_refs:
   - supabase/migrations/00551_radar_activity_by_day.sql
   - src/components/settings/radar-contribution-card.tsx
   - ios/GradeThread/Prospect/RadarConsent.swift
+  - ios/GradeThread/Prospect/RadarLocationProvider.swift
+  - ios/GradeThread/Prospect/RadarScoring.swift
+  - ios/GradeThread/Prospect/RadarService.swift
+  - ios/GradeThread/Prospect/RadarStore.swift
+  - ios/GradeThread/Prospect/RadarNearbyView.swift
   - src/pages/flipdesk/scout.tsx
   - src/pages/flipdesk/my-stores.tsx
   - src/pages/flipdesk/radar.tsx
@@ -332,6 +337,49 @@ second is what lets the personal layer be DRAWN, and it is not a hole in the
 floor — a centroid is where the shop is, for a shop the caller personally walked
 into, and it carries no counts. The floor governs what the shared NUMBERS say
 about a place, never whether a place has a location.
+
+### US-1866: the phone, and the second use of a sensor
+
+iOS gets the same three layers as a ranked LIST rather than a map
+(`ios/GradeThread/Prospect/RadarNearbyView.swift`, scored by `RadarScoring`, a
+port of `src/lib/radar-map.ts`). Standing in a car park the useful thing is an
+ordering, not a canvas — but both platforms must score identically, or one store
+reads "Busiest near you" on the web and "Quiet" in the app from one dataset.
+
+**A permission string that names one purpose becomes false the moment a second
+surface uses the same sensor, and nothing goes red when it does.** US-1861's
+`NSLocationWhenInUseUsageDescription` said location was used *only if you turn on
+Thrift Radar contributions*; the privacy manifest and `PRIVACY_LABELS.md` said
+the app "never calls CoreLocation" until that switch is on; the privacy policy
+said "until you do, we ask for no location". All three were true, and all three
+were falsified by a *nearby* button — which collects nothing and stores nothing,
+and therefore trips no test, no lint and no reviewer. The rule that follows:
+
+> **A second use of a permission amends its declaration in the SAME commit.**
+> Usage string, `PrivacyInfo.xcprivacy`, `PRIVACY_LABELS.md`, and the policy
+> section. State whether the new use COLLECTS anything, because that is what
+> decides whether a label row must change or only its prose.
+
+Two design consequences on this surface, both of which keep the amendment
+small:
+
+- **Viewing asks for nothing on appear.** The first list is centred on the
+  reseller's own linked stores — places we already know — so Radar opens with no
+  prompt at all. iOS is asked only when the user taps "Use my location", in the
+  flow that needs it, never from a scan. That is the same posture US-1861 took
+  for contributions, applied to the read side.
+- **The fix becomes a quantized bounding box before it leaves the device**
+  (`RadarScoring.quantize`, 0.05° grid). Keeping a coordinate out of the database
+  would mean little if a four-decimal-place one went out in the query string
+  instead, one request per pan. Asserted in `RadarStoreTests` against the
+  captured `bbox`, not against intent.
+
+Viewing still does not enrol anybody: `RadarStore` never writes `RadarConsent`,
+and there is a test that says so. The plan gate is the endpoint's — a 402 is
+routed to the upgrade sheet by `EdgeAPI` (US-1213) and recorded as
+`networkLocked`, which is sticky for the session so a Free seller changing the
+window does not collect a second sheet, with an explicit "Check again" as the way
+back in.
 
 ## Two traps specific to these tables
 

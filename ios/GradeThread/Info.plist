@@ -66,11 +66,12 @@
     <string>GradeThread uses speech recognition so you can dictate notes hands-free while sourcing items.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>GradeThread needs the microphone to capture your voice for dictation.</string>
-    <!-- US-1861 Thrift Radar. Requested only when the user turns on the
-         "Contribute to Thrift Radar" switch (default off). Mirrored from
-         project.yml's info.properties, which is the build's source of truth. -->
+    <!-- Thrift Radar, two separate uses: CONTRIBUTING (US-1861, requested from
+         the Settings switch, default off) and LOOKING (US-1866, requested from
+         the Radar view's "Use my location" button). Mirrored from project.yml's
+         info.properties, which is the build's source of truth. -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>GradeThread uses your location only if you turn on Thrift Radar, to place a scan in a rough area about a kilometre across. Your exact position is discarded and never stored.</string>
+    <string>GradeThread uses your location for Thrift Radar: to show which stores near you are busy, and — only if you switch on contributions — to place a scan in a rough area about a kilometre across. Your exact position is never stored.</string>
     <!-- Camera + photo-library + Face ID usage strings. The build's source of
          truth is project.yml's info.properties (XcodeGen regenerates this file
          from it); these are mirrored here verbatim so a manual archive that

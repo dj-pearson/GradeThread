@@ -454,7 +454,20 @@ export function PrivacyPage() {
         Thrift Radar is a shared map of where secondhand supply turns up, built
         from the scans resellers run in the field. Contributing to it is{" "}
         <strong>off unless you turn it on</strong>, on every device. Until you
-        do, we ask for no location and record none.
+        do, no scan of yours carries a location and none is recorded.
+      </p>
+      {/* US-1866: looking at the map can use a location too, and saying only
+          "we ask for no location until you contribute" stopped being true the
+          day the map got a "near me" button. A policy claim has no compiler, so
+          the second use is stated here rather than left to be discovered. */}
+      <p>
+        <strong>Looking around you is a separate thing, and it records
+        nothing.</strong> If you ask Radar to show what is near you, your
+        device works out a rough rectangle a few kilometres across and asks us
+        which stores fall inside it. We do not keep that rectangle, it is not a
+        contribution, and it never makes you a contributor. You can also use
+        Radar without sharing any location at all &mdash; it will show the
+        stores you have already linked.
       </p>
       <p>
         <strong>What a contribution contains.</strong> While the switch is on,

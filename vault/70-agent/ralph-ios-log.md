@@ -342,6 +342,28 @@ Read this IN ADDITION to LEARNINGS.md when your story touches ios/. Split out of
   they survive.
 
 
+- `CLLocationManager.requestWhenInUseAuthorization()` returns the instant the
+  PROMPT appears, not when it is answered, so a caller that reads
+  `authorizationStatus` on the next line reads the answer the user has not given
+  yet — which renders as "location is off" the first time somebody taps for it
+  and grants it. The only place iOS reports the decision is
+  `locationManagerDidChangeAuthorization`, so an awaitable request needs its own
+  continuation resumed there (US-1866 `RadarLocationProvider.requestAuthorization`),
+  ignoring the `.notDetermined` callback and carrying its own timeout — the
+  system prompt has none, and a user who walks away must not leave the view
+  spinning. The fire-and-forget `requestAuthorizationIfNeeded()` stays for the
+  settings switch, which only needs the prompt to appear.
+- Two Radar surfaces, two decoders, one folder: the scout routes
+  (`/api/flipdesk/scout/*`) emit camelCase and use a PLAIN decoder via the
+  bespoke `ProspectService` transport, while the radar routes
+  (`/api/flipdesk/radar/*`) emit snake_case and must go through
+  `EdgeAPI.shared.getJSON` (`.convertFromSnakeCase`). Picking the wrong one is
+  silent: every field decodes as nil and the list just looks empty. Going through
+  `EdgeAPI` also buys the US-1213 402 → upgrade-sheet interception, but note the
+  402 body maps to `.badRequest(detail: "FEATURE_LOCKED")` — there is no 402
+  case, so read the discriminator back off the detail string (US-806's shape)
+  rather than adding associated values to the shared enum.
+
 ## iOS hermetic UI tests (US-1153)
 - Launch-arg hooks live in `GradeThread/Testing/UITestSupport.swift` — every flag
   is gated behind `-uitest` (no-op in production via `ProcessInfo.arguments`):

@@ -150,8 +150,14 @@ enum ScoutError: LocalizedError, Equatable {
 /// US-1213: classifies an arbitrary thrown error as plan-gated (a 402 already
 /// routed to the upgrade prompt) vs. transient, so a failure UI can hide a
 /// dead-end "Try again" for the former while keeping it for the latter.
+///
+/// US-1866 folds ``RadarError`` in: the Radar network layer is gated on the
+/// same `compPulls` flag, so a caller asking "was that a plan wall?" must get
+/// the same answer whichever surface threw.
 func isPlanGateError(_ error: Error) -> Bool {
-    (error as? ScoutError)?.isPlanGated ?? false
+    if let scout = error as? ScoutError { return scout.isPlanGated }
+    if let radar = error as? RadarError { return radar.isPlanGated }
+    return false
 }
 
 private extension URLRequest {

@@ -77,6 +77,18 @@ struct ProspectView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                 }
+                // US-1866: Thrift Radar lives inside Prospect because it answers
+                // the question one step BEFORE a scan — "is this store worth
+                // walking into?" — off the scans this same screen produces.
+                // Opening it enrols nobody: viewing and contributing are
+                // separate consents.
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink {
+                        RadarNearbyView()
+                    } label: {
+                        Label("Nearby", systemImage: "dot.radiowaves.left.and.right")
+                    }
+                }
             }
             .sheet(isPresented: $showLibrary) {
                 PhotoLibraryPicker(selectionLimit: max(1, ProspectStore.maxPhotos - store.images.count)) { results in

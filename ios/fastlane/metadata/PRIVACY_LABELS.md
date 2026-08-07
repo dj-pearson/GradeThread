@@ -24,10 +24,20 @@ used for "Tracking" in Apple's sense. No IDFA, no `ATTrackingManager`.
 
 **Thrift Radar location (US-1861).** This is the one genuinely *opt-in*
 entry, and the code backs the word: `RadarConsent` defaults to false, the
-app never calls CoreLocation while it is false, and the permission prompt
-is triggered by the "Contribute to Thrift Radar" switch in Settings rather
-than by a scan. That is the US-1214 rule — labels and behavior must agree —
-applied to a second surface.
+app never sends a scan's position while it is false, and the contribution
+prompt is triggered by the "Contribute to Thrift Radar" switch in Settings
+rather than by a scan. That is the US-1214 rule — labels and behavior must
+agree — applied to a second surface.
+
+**Looking is a second use, and it collects nothing (US-1866).** The Radar
+view in Prospect can centre its nearby list on the phone. It asks for the
+permission in that flow, on an explicit tap, never on appear and never from
+a scan — and the position becomes a quantized bounding box on the device
+before any request goes out, so what leaves is a rectangle a few kilometres
+a side that selects which venues to return. Nothing is stored and no
+contribution is created, which is why this adds no row above; viewing does
+not enrol anybody, and the usage string in `project.yml` names both uses.
+If a viewing position is ever retained, a row must be added here first.
 
 What leaves the device is a position; what is *stored* is a geohash cell
 roughly a kilometre across, because the server derives the cell and

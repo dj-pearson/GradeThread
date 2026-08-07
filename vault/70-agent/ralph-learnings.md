@@ -692,6 +692,15 @@ a learning that only matters to ONE surface, put it in that surface's file.
   (`Math.round(lng/15)*60`), never UTC — UTC smears every American evening onto
   the next day, and a real timezone lookup means sending the coordinate somewhere
   to resolve it.
+- A permission's DECLARATIONS are prose, so a second surface using the same
+  sensor falsifies them in total silence — no test, no lint, no reviewer. US-1866
+  added a "stores near me" button to a location whose usage string, privacy
+  manifest, App Store labels and policy section all said "only if you turn on
+  contributions", and none of them went red. Amend all four IN THE SAME COMMIT,
+  and say whether the new use COLLECTS anything (that is what decides label row
+  vs. prose). Keep the amendment small by never prompting on appear and by
+  quantizing the fix into a bbox before it leaves the device — then the honest
+  sentence is short. Rule: [[thrift-radar]].
 - Adding a SECTION to `src/pages/legal/privacy.tsx` means renumbering every later
   `<h2>` AND every `<a href="#anchor">Section N</a>` in the body: two cases in
   `privacy-extension.test.tsx` pin sequential numbering and anchor-to-number

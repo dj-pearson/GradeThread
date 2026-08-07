@@ -109,12 +109,24 @@
                 <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
             </array>
         </dict>
-        <!-- US-1861 Thrift Radar. COARSE location, and genuinely OPT-IN: the
-             "Contribute to Thrift Radar" switch defaults to false, the app does
-             not call CoreLocation at all until it is on, and the permission is
-             requested from that switch rather than from a scan. That is the
-             US-1214 posture applied to a second surface — the label and the code
-             must say the same thing, and here they both say opt-in.
+        <!-- Thrift Radar. COARSE location, and still genuinely OPT-IN — but
+             there are now TWO uses, and only the first one COLLECTS anything:
+
+             1. CONTRIBUTING (US-1861). The "Contribute to Thrift Radar" switch
+                defaults to false, the app does not call CoreLocation for a scan
+                until it is on, and the permission is requested from that switch
+                rather than from a scan. This is the use this row declares.
+             2. LOOKING (US-1866). The Radar view can centre its nearby list on
+                the phone, and asks for the permission in that flow — never on
+                appear, never from a scan. That position never leaves the device
+                as a position: it becomes a quantized bounding box (a few km a
+                side, snapped to a grid) that selects which venues to return.
+                Nothing is stored, and looking never enrols anybody as a
+                contributor — the consents are separate on purpose.
+
+             The row stays as it is because (2) collects nothing; if a viewing
+             position is ever retained, this manifest and PRIVACY_LABELS.md must
+             change before that build ships.
 
              NOT linked to identity: the server replaces the account with a
              weekly-rotating salted digest and stores a ~1 km cell, never the
