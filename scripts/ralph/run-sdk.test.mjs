@@ -113,6 +113,52 @@ describe("selectStory", () => {
     expect(selectStory(prd([story({ passes: true })])).openCount).toBe(0);
   });
 
+  // Operator-gated stories. Selection is stateless, so a story the agent cannot
+  // finish is not a one-iteration loss — it is re-picked every iteration and
+  // eats the entire run. These must be stepped over, and reported so they are
+  // not silently forgotten either.
+  it("steps over an operator-gated story and takes the next one", () => {
+    const r = selectStory(
+      prd([
+        story({ id: "US-2380", priority: 59, title: "[OPERATOR] Apply to eBay for a scope" }),
+        story({ id: "US-2407", priority: 2379, title: "Android: team management" }),
+      ]),
+    );
+    expect(r.story.id).toBe("US-2407");
+    expect(r.operatorGated.map((s) => s.id)).toEqual(["US-2380"]);
+    expect(r.openCount).toBe(2); // still open — skipped, not completed
+  });
+
+  it("recognizes all three operator markers", () => {
+    const titles = [
+      "[OPERATOR] Apply for a scope",
+      "[OPS — USER ACTION REQUIRED, DEFERRED for agent loop] Prod reconciliation",
+      "Something DEFERRED for agent loop",
+    ];
+    for (const title of titles) {
+      const r = selectStory(prd([story({ id: "US-1", title }), story({ id: "US-2", priority: 9 })]));
+      expect(r.story.id, title).toBe("US-2");
+    }
+  });
+
+  it("does NOT gate on the marker appearing in notes", () => {
+    // `notes` is append-only prose that routinely describes OTHER stories'
+    // operator steps. Matching there would gate work that is perfectly runnable.
+    const r = selectStory(
+      prd([story({ id: "US-1", notes: "AC1 is [OPERATOR] work tracked in US-2380" })]),
+    );
+    expect(r.story.id).toBe("US-1");
+  });
+
+  it("returns null when every open story is operator-gated", () => {
+    // Same shape as the dependsOn cycle: open work remains, so the loop must not
+    // report COMPLETE.
+    const r = selectStory(prd([story({ id: "US-1", title: "[OPERATOR] do a thing" })]));
+    expect(r.story).toBeNull();
+    expect(r.openCount).toBe(1);
+    expect(r.operatorGated).toHaveLength(1);
+  });
+
   it("sorts a story with no priority last rather than first", () => {
     const r = selectStory(
       prd([story({ id: "US-1", priority: undefined }), story({ id: "US-2", priority: -500 })]),

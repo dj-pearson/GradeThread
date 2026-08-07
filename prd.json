@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2407",
+  "nextId": "US-2415",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -17,7 +17,19 @@
         "Phases A→I land in order; each child story is independently shippable behind the same auth/sync foundation",
         "No regression to web or iOS; edge/Supabase contracts are reused unchanged except the called-out backend deps"
       ],
-      "notes": "[P1][Android/Epic] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+      "notes": "[P1][Android/Epic] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | 2026-08-06 parity audit (fresh, against the tree): DO NOT CLOSE. All children US-1300..1396 pass, but 'full feature parity' does not hold. AC1 PASSES - every named library is declared in android/gradle/libs.versions.toml AND imported by real code (Retrofit is the only omission and the AC says OkHttp/Retrofit). AC2 PASSES in code: POST /api/payments/google/verify (routes/google-play.ts:109, registered main.ts:1094), FCM branch in the push fan-out (lib/apns.ts:217-225, backed by migration 00320's platform CHECK), /.well-known/assetlinks.json (functions/.well-known/assetlinks.json.ts) - though assetlinks returns 503 until ANDROID_CERT_SHA256 is set on the Pages project, so App Links are not live. AC4 PASSES - no commit touching android/ also touched src/ or ios/. AC3 FAILS. Android calls 39 distinct edge endpoints to iOS's 79. Nine real gaps, now filed and set as dependsOn: US-2407 team management, US-2408 AutoLister sessions (ui/shell/AppShell.kt:521 still renders SectionPlaceholder and the Add sheet navigates there at :638), US-2409 eBay returns/cancellations/disputes, US-2410 Sheets import, US-2411 AI listing-copy + extract-aspects, US-2412 account export, US-2413 aspects write-back, US-2414 payout CSV import, plus the existing US-1576 (photo measurement) and US-2207 (DeleteReconciler has no production caller, so server-side deletes never reach Android). What exists is genuine - zero TODOs and only two placeholder destinations - it is just about half the surface. Close this when those ten pass, or rewrite the title and AC to the surface actually delivered.",
+      "dependsOn": [
+        "US-1576",
+        "US-2207",
+        "US-2407",
+        "US-2408",
+        "US-2409",
+        "US-2410",
+        "US-2411",
+        "US-2412",
+        "US-2413",
+        "US-2414"
+      ]
     },
     {
       "id": "US-2368",
@@ -34,7 +46,7 @@
     },
     {
       "id": "US-1421",
-      "title": "Obtain eBay restricted scopes so Send-Offers-to-Interested-Buyers works in production",
+      "title": "[OPERATOR] Obtain eBay restricted scopes so Send-Offers-to-Interested-Buyers works in production",
       "description": "The Negotiation API (find_eligible_items + send_offer_to_interested_buyers) is fully coded but the sell.negotiation scope is omitted from the prod consent request because our prod keyset isn't granted it — so every call 403s. 'Send offer to watchers' is a top sell-through lever that silently does nothing for real sellers.",
       "acceptanceCriteria": [
         "Apply to eBay for the restricted sell.negotiation (and commerce.identity.readonly) scopes on the prod keyset.",
@@ -1512,7 +1524,7 @@
         "Decide explicitly whether Android is on the launch plan. If it is, the remaining work is essentially the whole app."
       ],
       "priority": 1991,
-      "notes": "[P1][Android/Backlog-integrity] Found 2026-07-18 by the cross-platform parity deep dive. This is the same class as US-1996 (archived stories marked passes:true that were explicitly DEFERRED) but larger and on a platform nobody is looking at. The state is more misleading than a plain stub would be: sophisticated offline-sync infrastructure attached to zero features reads as 'nearly done' to anyone who opens the project and sees the hard parts solved. NOT verified: whether the 50 OPEN Android stories are correctly open — only the passing ones were falsified. | [2026-07-27] AC1 DONE: audited the whole US-1378..1396 block, not just the verified subset — 14 stories re-opened as never-implemented (1378/1379/1380/1381/1382/1384/1385/1386/1387/1388/1389/1390/1392/1393) and 2 re-opened as partial (1391 has no signing config; 1395 has no androidTest/E2E). US-1383 was falsely passing and is now genuinely implemented. AC2 DONE: android/README.md no longer claims iOS parity, the package map lists only packages that contain code, and a Status section names what is and is not built. AC3 DONE: the table in that README is the re-baseline. AC4 (is Android on the launch plan?) is STILL OPEN — that is a product decision, not an engineering one.",
+      "notes": "[P1][Android/Backlog-integrity] Found 2026-07-18 by the cross-platform parity deep dive. This is the same class as US-1996 (archived stories marked passes:true that were explicitly DEFERRED) but larger and on a platform nobody is looking at. The state is more misleading than a plain stub would be: sophisticated offline-sync infrastructure attached to zero features reads as 'nearly done' to anyone who opens the project and sees the hard parts solved. NOT verified: whether the 50 OPEN Android stories are correctly open — only the passing ones were falsified. | [2026-07-27] AC1 DONE: audited the whole US-1378..1396 block, not just the verified subset — 14 stories re-opened as never-implemented (1378/1379/1380/1381/1382/1384/1385/1386/1387/1388/1389/1390/1392/1393) and 2 re-opened as partial (1391 has no signing config; 1395 has no androidTest/E2E). US-1383 was falsely passing and is now genuinely implemented. AC2 DONE: android/README.md no longer claims iOS parity, the package map lists only packages that contain code, and a Status section names what is and is not built. AC3 DONE: the table in that README is the re-baseline. AC4 (is Android on the launch plan?) is STILL OPEN — that is a product decision, not an engineering one. | 2026-08-06: the DESCRIPTION is now stale and must not be re-reported as evidence - re-verified against the tree, every specific claim in it is false today. 2 of ~30 destinations are placeholders (not 'all but one'), and only capture/autolister is user-reachable (US-2408). Android calls 39 edge endpoints, not one. grading/inventory/marketplaces/money/billing hold 22/42/43/18/17 .kt files, not zero. Glance widgets exist (widget/, receiver at AndroidManifest.xml:77-87). FCM exists (platform/push/GradeThreadMessagingService.kt, manifest :62). Localization ships values-es/. README already says 'This client is NOT at iOS parity.' AC1/AC2/AC3 stay done. ONLY AC4 is outstanding - is Android on the launch plan - and that is a product call, so this is now operator-gated in substance even though the title is not tagged.",
       "id": "US-2015",
       "passes": false,
       "dependsOn": []
@@ -1692,7 +1704,7 @@
         "Add an Android equivalent of the iap-catalog-drift test, including blurb/title comparison.",
         "Until the client ships, confirm /verify cannot be exercised by a client that cannot produce a valid purchase token."
       ],
-      "notes": "[P2][Compliance/Android] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). Not a live exposure today (nothing ships), which is exactly why it is worth fixing now — the double-charge path goes live the instant the Android client lands. Google Play's subscription-disclosure policy mirrors Apple's. | AC1 DONE 2026-07-29 (the double-charge guard). Added googleplaySubscriptionActive + appstoreSubscriptionActive to lib/appstore/precedence.ts (appstoreSubscriptionBlocksStripe now delegates to the latter, no drift). Wired Google Play into all three purchase paths: App Store verify (routes/appstore.ts) now 409 ACTIVE_GOOGLEPLAY_SUBSCRIPTION on an active Play sub; Google Play verify (lib/google-play/verify.ts new reason 'blocked_active_appstore' -> routes/google-play.ts 409 ACTIVE_APPSTORE_SUBSCRIPTION) blocks on an active App Store sub; Stripe subscribe (routes/payments.ts, both sites) 409 ACTIVE_GOOGLEPLAY_SUBSCRIPTION on an active Play sub. AC5 CONFIRMED: /verify (routes/google-play.ts:108) requires an authed userId + a Google-validated purchaseToken (info.valid gates entitlement, verify.ts), so no client without a real token can be entitled. Verified: 9 deno tests in appstore-precedence_test.ts (googleplaySubscriptionActive matrix + non-overlap), google-play_test.ts + appstore-verify-config_test.ts green (35 total), deno check + deno lint clean on all touched files. AC2/AC3/AC4 BLOCKED: no Android billing client exists (no BillingClient dep, no paywall, no disclosure copy in android/), so the disclosure set, restore path, and Android iap-catalog-drift test cannot be built until Android billing ships — the precedence guard was the shippable-now half and is in place."
+      "notes": "[P2][Compliance/Android] Found 2026-07-18 by the subscription-compliance deep-dive audit. LEGAL CONTEXT (verified 2026-07-18, not legal advice): the FTC's 2024 'Click-to-Cancel' Negative Option Rule was VACATED by the Eighth Circuit on 2025-07-08 and is not in force. The FTC restarted rulemaking with an ANPRM on 2026-03-11 (comments closed 2026-04-13), so a successor rule is in flux. The binding obligations today are (a) ROSCA 15 U.S.C. 8403 and FTC Act Section 5, both actively enforced, and (b) STATE automatic-renewal laws — most importantly California's ARL as amended by AB 2863, effective 2025-07-01, which is stricter than what we do today and expressly covers free trials. Design to the California standard: it is the binding one, and it closely tracks the vacated federal rule, so building to it also front-runs the successor. Every story in this batch needs counsel sign-off before copy ships (see the review-gate story). Not a live exposure today (nothing ships), which is exactly why it is worth fixing now — the double-charge path goes live the instant the Android client lands. Google Play's subscription-disclosure policy mirrors Apple's. | AC1 DONE 2026-07-29 (the double-charge guard). Added googleplaySubscriptionActive + appstoreSubscriptionActive to lib/appstore/precedence.ts (appstoreSubscriptionBlocksStripe now delegates to the latter, no drift). Wired Google Play into all three purchase paths: App Store verify (routes/appstore.ts) now 409 ACTIVE_GOOGLEPLAY_SUBSCRIPTION on an active Play sub; Google Play verify (lib/google-play/verify.ts new reason 'blocked_active_appstore' -> routes/google-play.ts 409 ACTIVE_APPSTORE_SUBSCRIPTION) blocks on an active App Store sub; Stripe subscribe (routes/payments.ts, both sites) 409 ACTIVE_GOOGLEPLAY_SUBSCRIPTION on an active Play sub. AC5 CONFIRMED: /verify (routes/google-play.ts:108) requires an authed userId + a Google-validated purchaseToken (info.valid gates entitlement, verify.ts), so no client without a real token can be entitled. Verified: 9 deno tests in appstore-precedence_test.ts (googleplaySubscriptionActive matrix + non-overlap), google-play_test.ts + appstore-verify-config_test.ts green (35 total), deno check + deno lint clean on all touched files. AC2/AC3/AC4 BLOCKED: no Android billing client exists (no BillingClient dep, no paywall, no disclosure copy in android/), so the disclosure set, restore path, and Android iap-catalog-drift test cannot be built until Android billing ships — the precedence guard was the shippable-now half and is in place. | 2026-08-06: AC2/AC3/AC4 are NO LONGER BLOCKED. The note above says they cannot be built until an Android billing client exists; it does now. Verified: billing/RealPlayBilling.kt:75-181 (connect, query, launch, consume, acknowledge), bound at platform/di/BillingModule.kt:26, PaywallScreen reachable from ui/shell/AppShell.kt:339, CreditPackSheet used at grading/BulkGradeScreen.kt:241 and grading/GradeRequestScreen.kt:195, PurchaseVerifier.kt:38 calls the verify route. So the remaining work is real and actionable: audit the shipped paywall for the full California-ARL disclosure set modelled on PaywallView.swift:303 (AC2), confirm a restore/entitlement-recovery path and a link to the Play subscription-management screen (AC3), and add the Android iap-catalog-drift test incl. blurb/title comparison (AC4). AC1 and AC5 remain done - the 409 guard is live at routes/google-play.ts:151-157."
     },
     {
       "id": "US-2127",
@@ -2578,6 +2590,117 @@
       "priority": 86,
       "passes": true,
       "notes": "[P2][Admin/Flags] Found 2026-08-05 while fixing US-2398's TypeScript readers. NOT a regression from that work — the gap has been there since US-886 shipped targeting v2. Filed separately rather than folded in because the fix is a design choice about where a plan is resolved, and US-2398's change (sampling flipdesk_plan instead of the frozen users.plan) is correct and complete on its own terms. WHY IT MATTERS MORE THAN IT LOOKS: the failure is fail-OPEN. A flag an operator believes is limited to paying tiers is serving free accounts, so the blast radius of a bad flag is the whole user base rather than the slice that was chosen. Nothing errors and nothing logs, which is why it survived a targeting feature, its admin UI and a unit-test suite: resolveFlagRule is tested WITH a plan supplied (feature-flags_test.ts:93-97) and behaves correctly there — the defect is that production never supplies one. | Done 2026-08-05. ALL FIVE AC MET; the operator audit came back empty, so this ships with no live behaviour change. SHAPE DECIDED (AC1): isFeatureEnabled RESOLVES THE PLAN ITSELF. New dbLoadEffectivePlan() in lib/feature-flags.ts reads users(flipdesk_plan, subscription_status, trial_ends_at, past_due_since) through effectivePlanFor() and caches it on the SAME 30s clock as the rule, bounded at PLAN_CACHE_MAX=5000 (long-lived process, key space is every user who hits a targeted flag; past the cap the map is dropped whole rather than evicted). It is the EFFECTIVE plan deliberately, not the raw column: a canceled Pro targets as Free and a US-2398 comp targets as its granted tier, matching the caps, gates and MRR. An UNTARGETED rule never triggers the lookup at all, which is every flag in the system today, so the common path costs exactly what it did before -- pinned by a test that counts lookups rather than inferring from the answer. BUT THE OTHER HALF WAS REQUIRED TOO, and calling it done without it would have been the half-fix AC1 forbids: a callee that resolves from opts.userId is useless if no call site passes one. userId (the WORKSPACE OWNER -- the billed party, whose plan every other entitlement reads; scoping to the acting member would give two people in one workspace different features off one subscription) now threaded through grade.ts /submit /pay/:id /snap + authenticity_addon + forensic_grade, api-v1.ts /grades and /grades/batch, flipdesk-grading.ts /submit, flipdesk-autolister.ts /batch, jobs-journey-tick.ts content_ai, and featureGate() reads c.get('userId') defensively so the /api/content/* route group is covered without touching seven mounts. AC2 -- FAIL CLOSED, and where the interesting decision is: resolveFlagRule step 5 went from  to , so a rule that names plans is NOT satisfied by a caller who cannot present one. No userId, an unreadable users row and a missing user all resolve OFF and log feature_flag.plan_unresolved with the reason. Fail-closed alone would have been a bad answer for a CRON, though -- plan_targets on 'newsletter' would silently stop every send at 3am -- so the mistake is refused where it is MADE instead: new PLAN_TARGETABLE_FLAGS (grading, autolister, content_ai, authenticity_addon, forensic_grade, passport_forecast) is the set whose EVERY call site can name a user, PUT /:key/rule 400s on plan_targets for anything else naming why, GET / returns plan_targetable per flag, and the editor greys the control out with the reason in place of the usual hint. Membership is a property of the CALL SITES, not the feature -- repricing and inventory_equity are excluded only because handleRepriceScanCron / handleEquitySnapshotCron run them fleet-wide -- so a test scans src/routes, src/lib and src/middleware and FAILS if a listed key is ever checked without a userId. NEGATIVE-VERIFIED by planting a bare isFeatureEnabled('grading') in admin-journeys.ts and watching it fail, then removing it. AC3 -- the preview now runs effectivePlanFor over the same four columns the runtime resolves (it sampled the raw flipdesk_plan, which over-counts a lapsed Pro), and a test walks 60 users asserting preview and runtime agree per user; a disagreement is what hid this for two stories. AC4 -- NEW services/edge-functions/src/tests/feature-flag-plan-targeting_test.ts (12 cases) goes through isFeatureEnabled with injectable FeatureFlagDeps (__testing.setDeps, mirroring lib/plan-gate.ts), because the existing suite tested the PURE resolver and passed the entire time the feature was broken -- the helper was always correct, production just never fed it a plan. The old assertion that encoded the bug ('No plan supplied -> plan targeting is skipped') is flipped in place with a comment saying what it used to claim. AC5 -- NEW section 18 in scripts/prod-diagnostics.sql lists flags with plan_targets set OR rollout_percentage < 100; the operator RAN IT AND IT RETURNED EMPTY, so nothing was ever targeted, nobody needs telling, and the fail-closed change alters no live behaviour. FOUND WHILE DOING IT, unrelated to the feature: scripts/prod-diagnostics-console.sql (generated, and the only copy that works in a SQL editor -- psql meta-commands make the original error with 42601 at the first \\pset) had been STALE since section 17 shipped. The sync test spot-checked four hand-listed section numbers and 'every FROM public.<table>', and section 17 reads users, a table five other sections already read -- so a section adding no NEW table was invisible. The check now derives the section list from the source; negative-verified by reverting the console copy and watching it name section 17. VERIFIED: deno lint + check clean, full edge suite 5439 passed / 0 failed, tsc -b clean, eslint clean, ui:check 0 findings, vault:index + a new vault/10-ops/feature-flag-targeting.md contract note. Two web-suite cases (users-self-update-allowlist, legacy-user-plan-readers) time out at the 5s default under full-suite load on this Windows host and pass in isolation -- whole-tree walkers, pre-existing, unrelated."
+    },
+    {
+      "id": "US-2407",
+      "passes": false,
+      "title": "Android: team management — invite, roles, remove",
+      "description": "As an Android workspace owner, I want to invite teammates, set their role and remove them from the phone, so that I am not forced onto the web or iOS to run my own workspace.",
+      "acceptanceCriteria": [
+        "Android calls POST /api/flipdesk/workspace/invitations and POST /api/flipdesk/workspace/invitations/:id/resend; today android/app/src/main/java/com/gradethread/app/workspace/WorkspaceRepository.kt only switches between workspaces it can already see",
+        "A members screen lists current members with their role, and an owner can change a role and remove a member; a non-owner sees the list read-only and gets no mutate affordance",
+        "Pending invitations are listed with their state and can be resent and revoked; the server response, not local optimism, decides what the list shows",
+        "Every new string goes through stringResource and the file is added to SCOPE in android/scripts/no-bare-strings.py, with the Spanish values-es/strings.xml entry added in the same commit so check-string-formats.py stays green",
+        "Unit tests cover the repository's role-change and remove calls including the server-refusal path; Android CI (assembleDebug + unit tests + lintDebug) is green"
+      ],
+      "priority": 2379
+    },
+    {
+      "id": "US-2408",
+      "passes": false,
+      "title": "Android: AutoLister multi-item session — the Add sheet still lands on a placeholder",
+      "description": "As an Android reseller, I want the AutoLister flow that iOS has, so that tapping Add then AutoLister does something instead of showing 'Coming with its conversion story'.",
+      "acceptanceCriteria": [
+        "android/app/src/main/java/com/gradethread/app/ui/shell/AppShell.kt:521 no longer renders SectionPlaceholder for capture/autolister; the destination the Add sheet navigates to at AppShell.kt:638 is a working screen",
+        "Android calls the four session endpoints it currently never touches: POST/GET /api/flipdesk/autolister/sessions, GET /sessions/:id, POST /sessions/:id/claim, DELETE /sessions/:id (services/edge-functions/src/routes/flipdesk-autolister.ts:1110-1228)",
+        "Group proposal and confirmation work end to end through POST /propose-groups (flipdesk-autolister.ts:1631) and POST /verify-groups (:1530); a user can accept, split and merge a proposed group before confirming",
+        "Per-platform draft fields come from POST /platform-fields (:2899) rather than being hardcoded client-side",
+        "A session survives process death: leaving and reopening the app resumes the same session id instead of starting over",
+        "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "priority": 2380
+    },
+    {
+      "id": "US-2409",
+      "passes": false,
+      "title": "Android: eBay returns, cancellations and payment disputes",
+      "description": "As an Android reseller, I want to see and answer returns, cancellations and payment disputes on my phone, so that an eBay clock does not run out because I was not at a desk.",
+      "acceptanceCriteria": [
+        "android/app/src/main/java/com/gradethread/app/marketplaces/postsale/PostSaleService.kt gains the three surfaces it lacks; today it covers ship and feedback only (PostSaleService.kt:19-20)",
+        "Android calls /api/flipdesk/ebay/returns, /api/flipdesk/ebay/cancellations and /api/flipdesk/ebay/payment-disputes (registered in services/edge-functions/src/main.ts:462-470) for both list and the accept/decline/respond actions the routes expose",
+        "Each open case shows its eBay-imposed deadline, and a case whose deadline has passed is visually separated from one still actionable",
+        "An action that eBay refuses surfaces eBay's own message, and the local row is not left claiming a state the server never accepted",
+        "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "priority": 2381
+    },
+    {
+      "id": "US-2410",
+      "passes": false,
+      "title": "Android: Google Sheets import — the importer reads local CSV only",
+      "description": "As an Android reseller who keeps inventory in a Google Sheet, I want to import straight from the sheet URL, so that I do not have to export a CSV to the phone first.",
+      "acceptanceCriteria": [
+        "android/app/src/main/java/com/gradethread/app/importer/ImportService.kt accepts a Google Sheets URL and imports through POST /api/flipdesk/sheets/fetch-csv (services/edge-functions/src/routes/flipdesk-sheets.ts:59); local file import keeps working unchanged",
+        "A sheet that is not publicly readable produces a specific, actionable message naming the sharing setting to change, not a generic failure",
+        "Column mapping, preview and the duplicate handling the local-file path already implements are reused for the sheet path rather than reimplemented",
+        "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "priority": 2382
+    },
+    {
+      "id": "US-2411",
+      "passes": false,
+      "title": "Android: AI listing copy and aspect extraction are absent",
+      "description": "As an Android reseller, I want the AI to write my listing copy and pull item specifics from photos, so that drafting on the phone is not slower than drafting on the web.",
+      "acceptanceCriteria": [
+        "Android calls POST /api/flipdesk/ai/listing-copy (services/edge-functions/src/routes/flipdesk-ai.ts:1247) from the draft/listing editor; there is currently no caller anywhere under android/",
+        "Android calls POST /api/flipdesk/ai/extract-aspects (flipdesk-ai.ts:631) so item specifics are proposed from photos rather than typed by hand",
+        "Generated copy and extracted aspects are shown as PROPOSALS the user accepts or edits before they are saved; nothing is written to the item without an explicit accept",
+        "Credit cost is shown before the call and the existing paywall/credit-pack path (android/app/src/main/java/com/gradethread/app/billing/) is used when the balance is short — the same treatment BulkGradeScreen.kt:241 already gives grading",
+        "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "priority": 2383
+    },
+    {
+      "id": "US-2412",
+      "passes": false,
+      "title": "Android: no account data export, so the GDPR path is web-only",
+      "description": "As an Android user, I want to export my account data from the app, so that I can exercise a data-access right without being sent to a browser.",
+      "acceptanceCriteria": [
+        "Android calls GET /api/account/export (services/edge-functions/src/routes/account.ts:213) from a settings entry; there is currently no caller under android/",
+        "The export is delivered through the platform share/save sheet so the user picks where it lands, and the app does not silently write it to shared storage",
+        "The request is tied to the signed-in user only — the client never passes a user id the server would trust",
+        "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "priority": 2384
+    },
+    {
+      "id": "US-2413",
+      "passes": false,
+      "title": "Android: eBay aspects write-back never runs, so specifics edits stay local",
+      "description": "As an Android reseller, I want the item specifics I edit on the phone to reach eBay and my item record, so that a live listing does not keep the values I already corrected.",
+      "acceptanceCriteria": [
+        "Android calls POST /api/flipdesk/ebay/aspects/write-back (services/edge-functions/src/routes/flipdesk-ebay.ts:1913) after a specifics edit; there is currently no caller under android/",
+        "The write-back is the same fold-back-into-the-item behavior the route documents at flipdesk-ebay.ts:1902, so a later publish projects the corrected values rather than the stale ones",
+        "A multi-value aspect appends rather than replaces, matching the fix already made server-side",
+        "A failed write-back is retried through the existing sync queue rather than dropped, and the item is not shown as synced until the server confirms",
+        "Unit tests cover the append case and the failure-requeue case; Android CI green"
+      ],
+      "priority": 2385
+    },
+    {
+      "id": "US-2414",
+      "passes": false,
+      "title": "Android: eBay payout CSV import is missing from reconciliation",
+      "description": "As an Android reseller, I want to import an eBay payout CSV on the phone, so that reconciliation is not a task I can only finish at a computer.",
+      "acceptanceCriteria": [
+        "Android calls POST /api/flipdesk/ebay/payouts/import-csv (services/edge-functions/src/routes/flipdesk-ebay.ts:8217) from the reconciliation surface; there is currently no caller under android/",
+        "The existing client-side reconciliation in android/app/src/main/java/com/gradethread/app/money/PayoutReconciliation.kt:74 consumes the imported rows rather than being bypassed or duplicated",
+        "Re-importing the same CSV does not double-count: the shared dedup helper (services/edge-functions/src/lib/ebay-payout-dedup.ts) already governs this server-side and the client reports the skipped count back to the user",
+        "A malformed or wrong-export-type CSV is rejected with a message naming what was expected, before any row is written",
+        "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "priority": 2386
     }
   ]
 }

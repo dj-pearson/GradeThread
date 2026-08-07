@@ -88,6 +88,27 @@ to force every retry to start cold.
 | `"relevantPaths": ["src/…", "…"]` | File/glob hints the agent reads first instead of sweeping the tree. |
 | `"dependsOn": ["US-1276", …]` | Hard prerequisites. The story is **not eligible** for selection until every listed id is `passes:true` (or archived to `prd.archive.json`). Prevents the reverse-order deadlock where a high-priority dependent (e.g. marketing copy) is picked forever while its lower-priority prerequisites never get a turn. Only this field gates selection — the loose `[[US-xxxx]]` links in `notes` prose are NOT parsed. If *every* remaining open story is blocked (a cycle), `ralph.sh` errors out with the offenders instead of falsely emitting `COMPLETE`. |
 
+### Stories the loop refuses to pick
+
+A story whose title carries `[OPERATOR]`, `USER ACTION REQUIRED` or
+`DEFERRED for agent loop` is **skipped**, and the skipped set is listed on the
+first iteration so it does not quietly disappear.
+
+This is not a nicety. Selection is stateless — a killed or failed iteration never
+flips `passes:true`, so the next one re-picks the same story. Give the loop
+something no agent can finish (apply to eBay for a restricted scope, photograph a
+golden set, click through Search Console) and it does not lose one iteration, it
+loses **the entire run**, retrying the same wall until the count is spent. Three
+such stories sat at priorities 58–60 before this existed.
+
+Matched on the **title only**. `notes` is append-only prose where these phrases
+routinely describe *other* stories' operator steps, and matching there would gate
+work that is perfectly runnable. So tag the title when you file operator work.
+
+If every open story ends up gated (operator-gated or `dependsOn`-blocked), the
+runner exits non-zero with the offenders rather than emitting `COMPLETE` — open
+work remaining is never "done".
+
 Model tiering (default **Opus**; a story can pin a cheaper `"model"` or escalate
 via `"hard"`) gives every story the strong model unless told otherwise. Env
 overrides: `RALPH_DEFAULT_MODEL`, `RALPH_HARD_MODEL`, and `RALPH_FORCE_MODEL`

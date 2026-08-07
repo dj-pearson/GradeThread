@@ -70,7 +70,26 @@ const git = (...args) => {
 
 // ── Story selection ─────────────────────────────────────────────────────────
 /**
- * Highest-priority open story whose dependsOn are all satisfied.
+ * Stories no agent can finish, however long it runs: applying to eBay for a
+ * restricted scope, photographing a golden set, clicking through Search Console.
+ * Left in the queue they are worse than a hard failure — selection is stateless,
+ * so the loop re-picks the same one every iteration and burns the whole run
+ * against a wall.
+ *
+ * The three markers are the conventions already in prd.json, not new syntax.
+ * Deliberately matched on TITLE only: `notes` is append-only prose where these
+ * phrases show up describing OTHER stories, which would gate work that is
+ * perfectly runnable.
+ */
+const OPERATOR_GATED = /\[OPERATOR\]|USER ACTION REQUIRED|DEFERRED for agent loop/i;
+
+export function isOperatorGated(story) {
+  return OPERATOR_GATED.test(story.title ?? "");
+}
+
+/**
+ * Highest-priority open story whose dependsOn are all satisfied and which an
+ * agent can actually do.
  *
  * "Highest priority" means the LOWEST number — see comparePriority and
  * vault/70-agent/backlog-priority-contract.md. This file used to sort the other
@@ -84,14 +103,20 @@ const git = (...args) => {
 export function selectStory(prd) {
   const open = prd.userStories.filter((s) => !s.passes);
   const openIds = new Set(open.map((s) => s.id));
+  const operatorGated = open.filter(isOperatorGated);
   const eligible = open.filter(
-    (s) => !(s.dependsOn ?? []).some((d) => openIds.has(d)),
+    (s) => !isOperatorGated(s) && !(s.dependsOn ?? []).some((d) => openIds.has(d)),
   );
   // Ascending priority, missing sorts last, ties broken on id. The direction and
   // the missing-value rule are the backlog contract, not a local choice, so they
   // live in scripts/lib/prd-priority.mjs and every consumer imports them.
   eligible.sort(comparePriority);
-  return { openCount: open.length, story: eligible[0] ?? null, open };
+  return {
+    openCount: open.length,
+    story: eligible[0] ?? null,
+    open,
+    operatorGated,
+  };
 }
 
 /** Which model runs this story: explicit `model` > `hard` > default. */
@@ -241,26 +266,40 @@ for (let i = 1; i <= maxIterations; i++) {
     process.exit(1);
   }
 
-  const { openCount, story, open } = selectStory(prd);
+  const { openCount, story, open, operatorGated } = selectStory(prd);
 
   if (openCount === 0) {
     console.log("\nAll stories pass — nothing left to do.\n<promise>COMPLETE</promise>");
     process.exit(0);
   }
+  // Printed once per iteration rather than only when the loop stalls: an
+  // operator story that nobody is told about is one nobody does, and it stays
+  // at the top of the backlog looking like the next thing to happen.
+  if (operatorGated.length && i === 1) {
+    console.log(
+      `\n${operatorGated.length} open story(ies) need YOU, not the loop — skipping:`,
+    );
+    for (const s of operatorGated) {
+      console.log(`  ${s.id} (prio ${s.priority}) ${s.title}`);
+    }
+  }
   if (!story) {
-    // Open stories remain but every one is gated. That is a dependsOn cycle or
-    // an unsatisfiable dep — an authoring error, NOT completion. Fail loudly and
-    // deliberately do not emit COMPLETE.
+    // Open stories remain but every one is gated. That is a dependsOn cycle, an
+    // unsatisfiable dep, or a backlog with nothing left an agent can do — NOT
+    // completion. Fail loudly and deliberately do not emit COMPLETE.
     const openIds = new Set(open.map((s) => s.id));
     console.error(
-      `\nERROR: ${openCount} open story(ies) remain but ALL are blocked by unmet dependsOn.`,
+      `\nERROR: ${openCount} open story(ies) remain but NONE is runnable by the loop.`,
     );
     for (const s of open) {
       const unmet = (s.dependsOn ?? []).filter((d) => openIds.has(d));
       if (unmet.length)
         console.error(`  ${s.id} (prio ${s.priority}) blocked by: ${unmet.join(", ")}`);
     }
-    console.error("Fix dependsOn in prd.json (or complete a blocking story), then re-run.");
+    console.error(
+      `${operatorGated.length} of them are operator-gated (listed above).` +
+        " Fix dependsOn in prd.json, complete a blocking story, or do the operator work, then re-run.",
+    );
     process.exit(1);
   }
 
