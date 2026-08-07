@@ -26,6 +26,10 @@ import {
   SIZE_ESTIMATE_LOW_CONFIDENCE,
 } from "../lib/ai-size-estimate.ts";
 import {
+  MAX_ALLOWED_VALUES_PER_ASPECT,
+  prioritizeByDemand,
+} from "../lib/aspect-priority.ts";
+import {
   type ItemPhotoUrlRow,
   itemPhotoAiUrls,
 } from "../lib/item-photo-storage.ts";
@@ -553,9 +557,6 @@ flipdeskAiRoutes.post("/extract", async (c) => {
 // for the category, asks Claude to fill values constrained to eBay's allowed
 // values, and returns per-aspect suggestions.
 
-const MAX_AI_ASPECTS = 30; // schema bloats fast above this — see ai-extract.ts.
-const MAX_ALLOWED_VALUES_PER_ASPECT = 200;
-
 interface EbayRawAspect {
   localizedAspectName?: string;
   aspectConstraint?: {
@@ -603,30 +604,15 @@ function toAspectSpecs(rawAspects: unknown): EbayAspectSpec[] {
   return specs;
 }
 
-// Required first, then RECOMMENDED, then drop OPTIONAL — the AI focuses on
-// the aspects that actually matter for an eBay listing.
+// US-2420: required first, then by eBay's own 30-day buyer-search volume, using
+// the SAME ranking and caps as the AutoLister path (lib/aspect-priority.ts).
+// The old sort was required → RECOMMENDED → OPTIONAL, which cut the aspects
+// buyers filter on most (Theme, Accents, Occasion) out of the tool schema.
 function prioritizeAspects(
   specs: EbayAspectSpec[],
   rawAspects: unknown
 ): EbayAspectSpec[] {
-  const list = Array.isArray(rawAspects) ? (rawAspects as EbayRawAspect[]) : [];
-  const usageByName = new Map<string, string>();
-  for (const a of list) {
-    if (a.localizedAspectName) {
-      usageByName.set(
-        a.localizedAspectName,
-        a.aspectConstraint?.aspectUsage ?? "OPTIONAL"
-      );
-    }
-  }
-  const required = specs.filter((s) => s.required);
-  const recommended = specs.filter(
-    (s) => !s.required && usageByName.get(s.name) === "RECOMMENDED"
-  );
-  const optional = specs.filter(
-    (s) => !s.required && usageByName.get(s.name) !== "RECOMMENDED"
-  );
-  return [...required, ...recommended, ...optional].slice(0, MAX_AI_ASPECTS);
+  return prioritizeByDemand(specs, rawAspects);
 }
 
 flipdeskAiRoutes.post("/extract-aspects", async (c) => {

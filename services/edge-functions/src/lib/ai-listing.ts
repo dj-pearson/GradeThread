@@ -28,6 +28,7 @@ import {
   extractEbayAspects,
   getHaikuModel,
   type EbayAspectSpec,
+  type ResearchIdentification,
 } from "./ai-extract.ts";
 import {
   isEasyAspectCategory,
@@ -47,6 +48,10 @@ import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { ensurePassportForGradeReport } from "./passport-write.ts";
 import { sourcesFor } from "./aspect-provenance.ts";
+import {
+  MAX_ALLOWED_VALUES_PER_ASPECT,
+  prioritizeByDemand,
+} from "./aspect-priority.ts";
 import {
   type AspectReviewEntry,
   reconcileGeneratedAspects,
@@ -275,6 +280,36 @@ export function identificationPromptLines(
     );
   }
   return lines;
+}
+
+/**
+ * US-2419: adapt the persisted identification to the shape the ASPECTS pass
+ * takes (ai-extract.ts researchAspectContext).
+ *
+ * The copy pass has had this context since US-1529 — the aspects pass on THIS
+ * path never did, even though the one-item route (flipdesk-ai.ts) has always
+ * passed it. That asymmetry is why AutoLister drafts come back with Model,
+ * Product Line and Fabric Type empty on items the extract pass had already
+ * identified: nothing in the aspects prompt ever named the product, and the
+ * never-guess rule then (correctly) omitted those aspects.
+ *
+ * Only identifiedStyle / productLine / fabricTechnology are read downstream;
+ * the remaining ResearchIdentification fields are carried at their neutral
+ * values purely to satisfy the type. Returns null for an unidentified item, so
+ * researchAspectContext returns "" and the prompt stays byte-identical.
+ */
+export function researchFromIdentification(
+  identification: ListingIdentification | null | undefined,
+): ResearchIdentification | null {
+  if (!identification?.style) return null;
+  return {
+    identifiedStyle: identification.style,
+    productLine: identification.productLine,
+    fabricTechnology: identification.fabricTechnology,
+    msrpEstimateCents: identification.msrpCents,
+    rationale: null,
+    confidence: 1,
+  };
 }
 
 export interface ListingGenResult {
@@ -919,10 +954,11 @@ function buildAspectSpecsForCategory(
     const required = !!c.aspectRequired;
     // Cap to a sensible per-aspect allowed-value count so the tool schema
     // doesn't balloon for categories that ship hundreds of values per aspect.
+    // US-2420: the limit is shared with the one-item path (aspect-priority.ts).
     const allowedValues = (a.aspectValues ?? [])
       .map((v) => (typeof v.localizedValue === "string" ? v.localizedValue : ""))
       .filter((v): v is string => v.length > 0)
-      .slice(0, 80);
+      .slice(0, MAX_ALLOWED_VALUES_PER_ASPECT);
     specs.push({
       name,
       required,
@@ -933,22 +969,10 @@ function buildAspectSpecsForCategory(
     });
   }
 
-  // Prioritize: required → recommended → optional, capped so the AI focuses on
-  // what actually matters for an eBay listing.
-  const usageByName = new Map<string, string>();
-  for (const a of raw as RawAspect[]) {
-    if (a.localizedAspectName) {
-      usageByName.set(a.localizedAspectName, a.aspectConstraint?.aspectUsage ?? "OPTIONAL");
-    }
-  }
-  const required = specs.filter((s) => s.required);
-  const recommended = specs.filter(
-    (s) => !s.required && usageByName.get(s.name) === "RECOMMENDED",
-  );
-  const optional = specs.filter(
-    (s) => !s.required && usageByName.get(s.name) !== "RECOMMENDED",
-  );
-  return [...required, ...recommended, ...optional].slice(0, 35);
+  // US-2420: required first, then by eBay's own 30-day buyer-search volume.
+  // The old sort was required → RECOMMENDED → OPTIONAL, which cut Theme,
+  // Accents and Occasion out of the schema before the model could fill them.
+  return prioritizeByDemand(specs, raw);
 }
 
 // Collapse extractEbayAspects's suggestion map back to the plain name -> values
@@ -1389,6 +1413,12 @@ export async function generateListing(
             aspects: specs,
             categoryPath,
             modelOverride: easyCategory ? getHaikuModel() : undefined,
+            // US-2419: name the identified product so Style/Model/Product Line/
+            // Fabric Type can be filled instead of omitted under the never-guess
+            // rule. No extra AI call — this is the SAME second pass, told what
+            // the first pass already worked out. Null identification → the
+            // prompt is byte-identical to before.
+            research: researchFromIdentification(identification),
           });
           const refinedSpecifics = suggestionsToSpecifics(refined.suggestions);
           // US-541: capture each refined aspect's confidence (0..1) for triage.

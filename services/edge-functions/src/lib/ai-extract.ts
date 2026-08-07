@@ -1482,7 +1482,10 @@ export async function extractEbayAspects(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 2048,
+    // US-2420: the schema now offers up to MAX_AI_ASPECTS (45) aspects, each
+    // answered with values + confidence + source. A truncated tool-call JSON
+    // loses the WHOLE response, so the ceiling is sized for a full fill.
+    max_tokens: 3072,
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [tool],

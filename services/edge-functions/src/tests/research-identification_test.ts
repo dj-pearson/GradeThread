@@ -308,9 +308,11 @@ Deno.test("US-1527: absent research block decodes to null without side effects",
 
 const { buildAspectUserPrompt, researchAspectContext, researchAttributeSuggestions } =
   await import("../lib/ai-extract.ts");
-const { identificationFromAttributes, identificationPromptLines } = await import(
-  "../lib/ai-listing.ts"
-);
+const {
+  identificationFromAttributes,
+  identificationPromptLines,
+  researchFromIdentification,
+} = await import("../lib/ai-listing.ts");
 
 const SAMPLE_RESEARCH = {
   identifiedStyle: "ABC Pant Classic",
@@ -415,4 +417,54 @@ Deno.test("US-1529: listing prompt lines phrase unverified as identification, ve
   }).join("\n");
   assert(withKeywords.includes("MARKET TITLE KEYWORDS"));
   assert(withKeywords.includes("- warpstreme"));
+});
+
+// ── US-2419: the identification reaches the ASPECTS pass, not just the copy ──
+// The AutoLister path (ai-listing.ts) built its aspects prompt with no product
+// context at all, so Style/Model/Product Line/Fabric Type were omitted under the
+// never-guess rule even on items the extract pass had already identified. The
+// one-item route (flipdesk-ai.ts) always passed it. These pin the fix and the
+// unidentified-item regression guarantee.
+
+Deno.test("US-2419: an identified item's aspects prompt names the product", () => {
+  const identification = identificationFromAttributes({
+    identified_style: "ABC Pant Classic",
+    product_line: "ABC",
+    fabric_technology: "Warpstreme",
+    identification_msrp_cents: "12800",
+  })!;
+  const research = researchFromIdentification(identification);
+  assert(research, "an identified item must produce research context");
+  assertEquals(research!.identifiedStyle, "ABC Pant Classic");
+  assertEquals(research!.productLine, "ABC");
+  assertEquals(research!.fabricTechnology, "Warpstreme");
+  assertEquals(research!.msrpEstimateCents, 12800);
+
+  const prompt = buildAspectUserPrompt({
+    aspects: [
+      { name: "Model", required: false, cardinality: "SINGLE", mode: "FREE_TEXT" },
+    ],
+    research,
+  } as Parameters<typeof buildAspectUserPrompt>[0]);
+  assert(prompt.includes("IDENTIFIED PRODUCT"));
+  assert(prompt.includes("ABC Pant Classic"));
+  assert(prompt.includes("Warpstreme"));
+});
+
+Deno.test("US-2419 REGRESSION: an unidentified item's aspects prompt is byte-identical", () => {
+  assertEquals(researchFromIdentification(null), null);
+  assertEquals(researchFromIdentification(undefined), null);
+
+  const base = {
+    aspects: [
+      { name: "Model", required: false, cardinality: "SINGLE", mode: "FREE_TEXT" },
+    ],
+  } as Parameters<typeof buildAspectUserPrompt>[0];
+  assertEquals(
+    buildAspectUserPrompt({
+      ...base,
+      research: researchFromIdentification(identificationFromAttributes({ department: "Men" })),
+    }),
+    buildAspectUserPrompt(base),
+  );
 });

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2419",
+  "nextId": "US-2426",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2769,6 +2769,116 @@
         "US-2416",
         "US-2417"
       ]
+    },
+    {
+      "id": "US-2419",
+      "passes": true,
+      "title": "AutoLister aspect pass never sees the identified product, so Model/Product Line/Fabric Type come back empty",
+      "description": "As a reseller running AutoLister, I want the specifics pass to know which product the extract pass identified, so that Model, Product Line and Fabric Type fill on the first run instead of staying blank.",
+      "acceptanceCriteria": [
+        "generateListingForItem in services/edge-functions/src/lib/ai-listing.ts passes research (the ResearchIdentification from the extract pass) into its extractEbayAspects call at ai-listing.ts:1383, matching what flipdesk-ai.ts:946 already does",
+        "The identification is threaded from the extract result to the aspects call without a second AI invocation - no new Anthropic request is added to the generation path",
+        "A deno test in services/edge-functions/src/tests/ asserts that when the extract pass returns an identifiedStyle, the aspects prompt built by buildAspectUserPrompt contains the IDENTIFIED PRODUCT block, and that it is byte-identical to today when research is null",
+        "npm run verify:edge is green"
+      ],
+      "priority": 2387,
+      "notes": "Done 2026-08-07. ai-listing.ts now passes the persisted identification into the second-pass extractEbayAspects call via new researchFromIdentification() (adapts ListingIdentification -> ResearchIdentification). No extra Anthropic call - same pass, told what the first pass already worked out. Tests in research-identification_test.ts: identified item's aspects prompt contains the IDENTIFIED PRODUCT block; unidentified item's prompt is byte-identical. verify:edge lint/check/lockfile green; deno test 5687 passed with 3 PRE-EXISTING failures on main (condition-alerts_test US-2317, ebay-bulk-revise_test US-2404, shopify-fulfillment_test US-2328) that source-scan files this story never touches."
+    },
+    {
+      "id": "US-2420",
+      "passes": true,
+      "title": "The AI only sees the first 35 aspects by usage tier, so Theme, Accents and Occasion are cut before it can fill them",
+      "description": "As a reseller, I want the specifics pass to see the item specifics buyers actually filter on, so that high-traffic optional aspects get filled instead of being truncated away.",
+      "acceptanceCriteria": [
+        "buildAspectSpecsForCategory in services/edge-functions/src/lib/ai-listing.ts and prioritizeAspects in services/edge-functions/src/routes/flipdesk-ai.ts both rank aspects by required first, then by eBay relevanceIndicator.searchCount descending, instead of the current required/RECOMMENDED/OPTIONAL tier sort",
+        "Every REQUIRED aspect for the category is always included regardless of search count - the cap can never drop a required aspect",
+        "The two paths share ONE cap constant and ONE allowed-values-per-aspect constant, replacing the current mismatch (35 aspects / 80 values in ai-listing.ts:925 and 951 versus 30 aspects / 200 values in flipdesk-ai.ts:556-557)",
+        "A deno test asserts that a category spec where a high-searchCount optional aspect sits past position 35 still reaches the tool schema, and that a required aspect is never dropped by the cap",
+        "npm run verify:edge is green"
+      ],
+      "priority": 2388,
+      "notes": "Done 2026-08-07. New lib/aspect-priority.ts owns the ranking and both caps: prioritizeByDemand() puts every REQUIRED aspect first (never dropped by the cap) then sorts the rest by eBay relevanceIndicator.searchCount desc, RECOMMENDED-before-OPTIONAL then name as tiebreaks for a deterministic schema. Replaces the required/RECOMMENDED/OPTIONAL tier sort in ai-listing.ts buildAspectSpecsForCategory AND flipdesk-ai.ts prioritizeAspects, which is why Theme/Accents/Occasion were sliced off before the model saw them. Caps unified: was 35 aspects/80 values (AutoLister) vs 30/200 (one-item), now MAX_AI_ASPECTS=45 and MAX_ALLOWED_VALUES_PER_ASPECT=150 shared. extractEbayAspects max_tokens 2048 -> 3072 so a full 45-aspect fill cannot truncate. 10 tests in aspect-priority_test.ts. Same 3 pre-existing main failures as US-2419; lint/check/lockfile green."
+    },
+    {
+      "id": "US-2421",
+      "passes": false,
+      "title": "The category-free attribute record holds only 16 keys, so accents, product line, fabric weight and occasion have nowhere to live",
+      "description": "As a reseller, I want one AI pass to capture every listing attribute the photos support, so that changing category later refills specifics with no new AI spend.",
+      "acceptanceCriteria": [
+        "CANONICAL_ATTRIBUTES in services/edge-functions/src/lib/ai-extract.ts:175 grows from 16 keys to cover the fields eBay apparel, shoes, bags and accessories categories actually ask for, including at minimum accents, product_line, fabric_weight, fabric_type, occasion, activity, lining, heel_type, heel_height, toe_shape, strap_type, sleeve_style, rise, leg_style, character, collaboration, season and era",
+        "A free-form observations array captures anything the model saw that has no canonical key, so a future key can be backfilled from stored data without re-running AI",
+        "The wider schema stays in the SAME single extract tool call - no extra Anthropic request - and max_tokens is raised enough that the tool-call JSON does not truncate; a test asserts a full-fill response decodes without loss",
+        "decodeExtraction persists every new key to inventory_items.attributes and services/edge-functions/src/tests/canonical-attributes_test.ts covers each new key",
+        "The web (src/hooks/use-ai-extract.ts) and iOS (ios/GradeThread/AIExtract/AIExtractTypes.swift) attribute types stay generic keyed maps and need no per-key change; a test or a note in the story confirms this was verified",
+        "npm run verify:edge is green"
+      ],
+      "priority": 2389
+    },
+    {
+      "id": "US-2422",
+      "passes": false,
+      "title": "ASPECT_REGISTRY maps only 18 canonical keys, so a widened capture still cannot reach the new eBay aspects",
+      "description": "As a reseller, I want every captured attribute to have a named eBay aspect it fills, so that switching category re-projects my specifics with zero AI.",
+      "acceptanceCriteria": [
+        "ASPECT_REGISTRY in services/edge-functions/src/lib/aspect-registry.ts gains one entry per new canonical key from US-2421, each with its ordered eBay aspect-name candidates including real synonyms (for example accents -> Accents, product_line -> Product Line / Collection, fabric_weight -> Fabric Weight)",
+        "Per-vertical byCategory extras are set where the aspect name differs by vertical (shoes heel_type / toe_shape, bags strap_type)",
+        "ASPECT_REGISTRY.version is bumped and the vendored web copy src/lib/ebay-aspect-registry.json is regenerated via scripts/sync-aspect-registry.mjs in the SAME commit, so the drift guard aspect-registry-drift_test.ts passes",
+        "services/edge-functions/src/tests/aspect-registry_test.ts covers resolveItemAspects filling at least one new key on a SELECTION_ONLY aspect and one on a FREE_TEXT aspect",
+        "npm run verify:edge and npm run verify:web are green"
+      ],
+      "priority": 2390,
+      "dependsOn": [
+        "US-2421"
+      ]
+    },
+    {
+      "id": "US-2423",
+      "passes": false,
+      "title": "Captured attributes are only projected onto eBay specifics at publish time, so AutoLister drafts show them blank",
+      "description": "As a reseller reviewing an AutoLister draft, I want the attributes the AI already read to appear as item specifics on the draft, so that I am not looking at empty fields the system already knows the answer to.",
+      "acceptanceCriteria": [
+        "generateListingForItem in services/edge-functions/src/lib/ai-listing.ts runs resolveItemAspects (aspect-registry.ts:326) over the item's attributes after the refine pass and before reconcileGeneratedAspects at ai-listing.ts:1466, so registry-derived values reach the saved draft",
+        "The projection is FILL-ONLY: an aspect the model or the refiner already set is never overwritten, matching the existing resolveItemAspects contract",
+        "Values filled this way are recorded as inventory_derived in the aspect source map via sourcesFor/mergeSources (services/edge-functions/src/lib/aspect-provenance.ts), so provenance stays correct and a later manual edit still wins",
+        "A deno test asserts a generated draft whose item has attributes.pattern set ends up with the category Pattern aspect filled and marked inventory_derived, and that a model-set Pattern is not overwritten",
+        "npm run verify:edge is green"
+      ],
+      "priority": 2391,
+      "dependsOn": [
+        "US-2422"
+      ]
+    },
+    {
+      "id": "US-2424",
+      "passes": false,
+      "title": "Category is picked by taking the first taxonomy hit with no check, so a wrong leaf silently costs every specific below it",
+      "description": "As a reseller, I want the category chosen to be the one my item can actually fill, so that the first generation run lands the right leaf and its required specifics.",
+      "acceptanceCriteria": [
+        "generateListingForItem in services/edge-functions/src/lib/ai-listing.ts:1334 evaluates the top 3-5 suggestCategories candidates instead of blindly taking suggestions[0]",
+        "Candidates are scored deterministically (no extra AI call) by how many of their REQUIRED aspects the item's canonical attributes plus extracted fields can already fill, using requiredMissingAspects from services/edge-functions/src/lib/aspect-provenance.ts; ties break on eBay's own suggestion order",
+        "The chosen category, the runner-up candidates and the score are persisted on the draft so the composer can offer a one-click switch without a fresh AI run",
+        "A deno test asserts that given two candidates where the second covers strictly more required aspects, the second is chosen, and that a single-candidate result behaves exactly as today",
+        "npm run verify:edge is green"
+      ],
+      "priority": 2392,
+      "dependsOn": [
+        "US-2421"
+      ]
+    },
+    {
+      "id": "US-2425",
+      "passes": false,
+      "title": "There is no number for how complete a generated listing is, so specifics work cannot be proved to help",
+      "description": "As GradeThread, we want every generated draft to record its eBay recommended-aspect coverage, so that changes to the specifics pipeline can be measured instead of guessed at.",
+      "acceptanceCriteria": [
+        "Every AutoLister generation records recommendedAspectCoverage (services/edge-functions/src/lib/aspect-provenance.ts:78) for the draft - filled, total and the ranked missing names - alongside the existing generation telemetry",
+        "Required-aspect coverage is recorded separately from recommended coverage, since a required gap blocks publish and a recommended gap does not",
+        "An admin surface shows median coverage over the last N generated drafts, broken out by eBay leaf category, so a regression in one vertical is visible",
+        "If the metric needs a new column or table, the migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and the self-record footer",
+        "Any new edge route reading this data is tenant-scoped per US-268 and gains a case in services/edge-functions/src/tests/tenant-isolation_test.ts",
+        "npm run verify is green"
+      ],
+      "priority": 2393
     }
   ]
 }
