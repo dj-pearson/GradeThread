@@ -29,6 +29,7 @@
   const FLIP = self.GT_CC_FLIP; // US-2238: pure flip-mode formatting (flip-format.js)
   const SELLER = self.GT_CC_SELLER; // US-2239: pure seller aggregation (seller-memory.js)
   const TRAY = self.GT_CC_TRAY; // US-2240: pure compare-tray logic (compare-tray.js)
+  const ATTR = self.GT_ATTRIBUTION; // US-1753: outbound funnel tagging (attribution.js)
   const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
   // US-2241: the photo ceiling is the ACCOUNT's, not a constant. 4 is the
   // anonymous floor and what we assume until capabilities resolve; a paid tier
@@ -493,7 +494,13 @@
         // tenant-scoped write (US-1806). No automated messaging.
         var watch = el("a", "gt-cc-secondary");
         watch.textContent = "Watch on GradeThread";
-        watch.href = "https://gradethread.com/buyer/alerts?watch=" + encodeURIComponent(location.href);
+        // US-1753 AC3: this is the highest-intent click in the overlay and it
+        // shipped untagged, so every account it created was filed as "direct"
+        // traffic. It goes through the shared tagger now like the rest.
+        watch.href = ATTR.siteUrl("/buyer/alerts", "overlay", {
+          campaign: "watch",
+          params: { watch: location.href },
+        });
         watch.target = "_blank";
         watch.rel = "noopener noreferrer";
         actions.appendChild(watch);
@@ -504,7 +511,10 @@
       // fit surface, which uses the buyer's saved body profile.
       if (data.fit && data.fit.available && data.fit.deepLink) {
         var fitLink = el("a", "gt-cc-link", "Will it fit you? →");
-        fitLink.href = data.fit.deepLink;
+        // Server-built (public-grading.ts) and already carries its own medium;
+        // decorate() fills in only what is missing — the version cohort — and
+        // never overwrites the medium the server chose.
+        fitLink.href = ATTR.decorate(data.fit.deepLink, "overlay");
         fitLink.target = "_blank";
         fitLink.rel = "noopener noreferrer";
         body.appendChild(fitLink);
@@ -514,7 +524,7 @@
       if (data.signupPrompt && data.signupPrompt.url) {
         body.appendChild(el("p", "gt-cc-note", String(data.signupPrompt.message || "")));
         var su = el("a", "gt-cc-link", "Sign in / upgrade →");
-        su.href = data.signupPrompt.url;
+        su.href = ATTR.decorate(data.signupPrompt.url, "overlay");
         su.target = "_blank";
         su.rel = "noopener noreferrer";
         body.appendChild(su);
@@ -524,7 +534,7 @@
 
       if (data.deepLink) {
         const a = el("a", "gt-cc-link", "Grade it properly →");
-        a.href = data.deepLink;
+        a.href = ATTR.decorate(data.deepLink, "overlay");
         a.target = "_blank";
         a.rel = "noopener noreferrer";
         body.appendChild(a);
@@ -651,7 +661,7 @@
       host.appendChild(el("p", "gt-cc-note", message));
       if (opts && opts.upgradeUrl) {
         const up = el("a", "gt-cc-link", "See FlipDesk plans →");
-        up.href = opts.upgradeUrl;
+        up.href = ATTR.decorate(opts.upgradeUrl, "flip");
         up.target = "_blank";
         up.rel = "noopener noreferrer";
         host.appendChild(up);
@@ -729,7 +739,7 @@
     }
     if (res.needsUpgrade) {
       renderFlipMessage(res.error || FLIP.STRINGS.upgrade, {
-        upgradeUrl: "https://gradethread.com/pricing?utm_source=extension&utm_medium=flip",
+        upgradeUrl: ATTR.siteUrl("/pricing", "flip", { campaign: "flip-upgrade" }),
       });
       return;
     }

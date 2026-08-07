@@ -34,6 +34,7 @@
 // `browser`. So: only importScripts when it exists, and alias the API namespace.
 if (typeof importScripts === "function") {
   importScripts(
+    "attribution.js",
     "lister/selectors.js",
     "lister/lister-guard.js",
     "lister/job-store.js",
@@ -45,7 +46,10 @@ if (typeof importScripts === "function") {
 const ext = globalThis.browser || globalThis.chrome;
 
 // ── endpoints / constants ────────────────────────────────────────────────
-const SITE = "https://gradethread.com";
+// The site origin itself lives in attribution.js (self.GT_ATTRIBUTION.SITE) —
+// one place, so every outbound link is built by the tagger and none can ship
+// untagged (US-1753 AC3). The API endpoints below are a different host and are
+// never user-facing links, so they stay here.
 const GRADE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/grade-from-url";
 // US-2237: the search-page triage scan. Separate endpoint AND separate server
 // rate-limit window from grading — a scan spends no Vision call, and charging it
@@ -101,8 +105,22 @@ ext.runtime.onInstalled.addListener((details) => {
   // US-1885 AC4: open a role-aware onboarding page on fresh install so first-run
   // isn't a dead-end via the puzzle-piece menu. Only on install (not on update).
   if (details && details.reason === "install") {
+    // US-1753 AC3: remember the install locally so the onboarding page and the
+    // popup's sign-in link can carry the install campaign. Local only — this is
+    // never sent anywhere, and the join back to the signup funnel happens
+    // through the utm_campaign on a link the user chose to click, not through
+    // an identifier we ship to the server.
     try {
-      ext.tabs.create({ url: ext.runtime.getURL("onboarding.html") });
+      ext.storage.local.set({
+        installedAt: new Date().toISOString(),
+        installVersion: ext.runtime.getManifest().version,
+      });
+    } catch (_e) { /* storage unavailable — the funnel tag degrades, nothing breaks */ }
+    try {
+      // ?first_run=1 marks THIS open as the install-triggered one. Reopening the
+      // page later is a real visit but not an install, and onboarding.js keeps
+      // the two apart rather than inflating the install funnel.
+      ext.tabs.create({ url: ext.runtime.getURL("onboarding.html") + "?first_run=1" });
     } catch (_e) { /* tabs may be unavailable in some contexts */ }
   }
 });
@@ -1362,5 +1380,3 @@ async function setScoreBadge(tabId, score) {
   } catch (_e) { /* action API unavailable — the badge is a nicety */ }
 }
 
-// Exposed for popup/deep links (kept in one place).
-self.GT_SITE = SITE;

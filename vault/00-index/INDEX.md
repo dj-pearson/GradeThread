@@ -43,7 +43,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 40-growth — SEO, content, distribution
 
-14 notes — see [[moc-growth]].
+15 notes — see [[moc-growth]].
 
 ## 50-business — pricing and economics
 

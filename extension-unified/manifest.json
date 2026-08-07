@@ -34,6 +34,7 @@
   "background": {
     "service_worker": "background.js",
     "scripts": [
+      "attribution.js",
       "lister/selectors.js",
       "lister/lister-guard.js",
       "lister/job-store.js",
@@ -117,6 +118,7 @@
         "https://*.vinted.fi/*"
       ],
       "js": [
+        "attribution.js",
         "research/selectors.js",
         "research/image-utils.js",
         "research/condition-format.js",

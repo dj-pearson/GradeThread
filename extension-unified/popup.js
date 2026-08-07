@@ -13,7 +13,11 @@
 // Cross-browser API alias (Firefox: `browser`/promises; Chrome: `chrome`).
 const ext = globalThis.browser || globalThis.chrome;
 
-const SITE = "https://gradethread.com";
+// US-1753 AC3: every link out of this popup is a funnel entry, so it is built by
+// the shared helper (attribution.js) rather than by string concatenation here.
+// The helper is the only place gradethread.com is spelled out, and
+// test/attribution.test.cjs fails the build on any bare one that creeps back in.
+const ATTR = self.GT_ATTRIBUTION;
 
 // US-1885 AC3: versioned Lister consent — bump this when the Lister terms change
 // and every seller is re-prompted (an accepted older version no longer counts).
@@ -79,11 +83,13 @@ function send(msg) {
 function initStaticLinks() {
   const version = document.getElementById("version");
   version.textContent = "v" + ext.runtime.getManifest().version;
-  document.getElementById("privacy").href = SITE + "/privacy?utm_source=extension&utm_medium=popup";
-  document.getElementById("help").href = SITE + "/?utm_source=extension&utm_medium=popup";
-  document.getElementById("termsLink").href = SITE + "/acceptable-use?utm_source=extension&utm_medium=popup";
+  document.getElementById("privacy").href = ATTR.siteUrl("/privacy", "popup");
+  document.getElementById("help").href = ATTR.siteUrl("/", "popup");
+  document.getElementById("termsLink").href = ATTR.siteUrl("/acceptable-use", "popup");
   const upgrade = document.getElementById("upgradeBtn");
-  if (upgrade) upgrade.href = SITE + "/pricing?utm_source=extension&utm_medium=popup&utm_campaign=lister-upgrade";
+  if (upgrade) {
+    upgrade.href = ATTR.siteUrl("/pricing", "popup", { campaign: "lister-upgrade" });
+  }
 }
 
 // ── account section ─────────────────────────────────────────────────────────
@@ -192,7 +198,10 @@ async function renderReads() {
     const li = document.createElement("li");
     li.className = "pop-read";
     const a = document.createElement("a");
-    a.href = r.url || SITE;
+    // r.url is the marketplace listing this read came from — somebody else's
+    // site, so it is never rewritten. Only the fallback is ours, and it is
+    // tagged like every other link out of here.
+    a.href = r.url || ATTR.siteUrl("/", "popup", { campaign: "recent-reads" });
     a.target = "_blank";
     a.rel = "noopener noreferrer";
 
@@ -608,8 +617,10 @@ function wireAccount() {
     // Launches the US-1838 token flow: the connect page mints an extension token
     // (POST /api/buyer/extension-token) and posts it back via GT_SET_TOKEN so this
     // install becomes account-scoped. `ext` lets the page target this extension id.
-    const url = SITE + "/connect-extension?ext=" + encodeURIComponent(ext.runtime.id) +
-      "&utm_source=extension&utm_medium=popup";
+    const url = ATTR.siteUrl("/connect-extension", "popup", {
+      campaign: "connect",
+      params: { ext: ext.runtime.id },
+    });
     try {
       ext.tabs.create({ url });
     } catch (_e) {

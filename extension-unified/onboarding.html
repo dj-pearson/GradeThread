@@ -83,7 +83,11 @@
         </p>
       </div>
 
-      <a class="cta" href="https://gradethread.com/connect-extension?utm_source=extension&utm_medium=onboarding" target="_blank" rel="noopener noreferrer">
+      <!-- Both hrefs are filled in by onboarding.js so they carry the install
+           campaign (US-1753 AC3). They start as "#" rather than as a bare
+           gradethread.com URL on purpose: a hard-coded fallback here would be an
+           untagged link that quietly wins whenever the script is late. -->
+      <a class="cta" id="ctaLink" href="#" target="_blank" rel="noopener noreferrer">
         Sign in to connect your account
       </a>
 
@@ -91,8 +95,10 @@
         Questions? Email
         <a href="mailto:support@gradethread.com">support@gradethread.com</a>
         or see our
-        <a href="https://gradethread.com/privacy" target="_blank" rel="noopener noreferrer">privacy policy</a>.
+        <a id="privacyLink" href="#" target="_blank" rel="noopener noreferrer">privacy policy</a>.
       </p>
     </div>
+    <script src="attribution.js"></script>
+    <script src="onboarding.js"></script>
   </body>
 </html>

@@ -102,6 +102,13 @@ a learning that only matters to ONE surface, put it in that surface's file.
   evaluated once), so a file can pass in CI yet crash run ALONE — e.g.
   `listing-photo-budget_test.ts` does. Smoke a new edge test file BY ITSELF, and
   set env with `??`-defaults so you never clobber a real value.
+- A `*.test.cjs` under `extension*/test/` must NOT `require()` the extension's
+  own `.js` files: the root `package.json` is `"type": "module"`, so Node loads
+  them as ESM and hands back an EMPTY namespace — the UMD `module.exports` shim
+  never runs and every assertion dies on `x is not a function`. Use the
+  `loadIntoSelf` pattern (`new Function("self","module", src)(selfObj, {exports:{}})`,
+  see `extension-unified/test/depth.test.cjs`), which is also the only way to see
+  what the file publishes on `self`.
 - Adding a cron means FOUR edits or `cron-registry-drift_test.ts` fails: the
   `/api/jobs/*` route in main.ts, a CRON_REGISTRY entry (cron-runs.ts), AND the
   generated tables in COOLIFY.md + vault/10-ops/launch-checklist.md (`cron-registry` markers)
