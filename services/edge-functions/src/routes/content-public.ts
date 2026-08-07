@@ -20,6 +20,7 @@ import {
   renderAchievementBadge,
   renderCertImage,
   renderSellerBadge,
+  type CertSlabFrame,
   type SellerBadgeFormat,
   type SlabFormat,
   SLAB_FORMATS,
@@ -34,6 +35,7 @@ import {
   publicAchievements,
 } from "../lib/rewards-badges.ts";
 import { grantReward, isOffPlatformEmbedReferer } from "../lib/rewards-engine.ts";
+import { frameStyleForLevel, tierForLevel } from "../lib/rewards-levels.ts";
 import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 
@@ -992,9 +994,32 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
       );
     }
 
+    // US-1851 AC4: the slab wears the frame the cert OWNER's level unlocked. It
+    // is resolved from the owner's banked level (never-decreasing, so a frame
+    // once earned never disappears from their cards) rather than passed in —
+    // this endpoint is public and unauthenticated, so a caller-supplied frame
+    // would be a free cosmetic for anyone who guessed the parameter.
+    let frame: CertSlabFrame | null = null;
+    if (kind === "slab" && sub?.user_id) {
+      const { data: ownerState } = await supabaseAdmin
+        .from("user_reward_state")
+        .select("level")
+        .eq("user_id", sub.user_id)
+        .maybeSingle();
+      const level = (ownerState as { level?: number } | null)?.level ?? 0;
+      const style = frameStyleForLevel(level);
+      frame = style ? { label: style.label, edge: style.edge, ink: style.ink } : null;
+    }
+
     // Cache: render once, then serve the stored PNG. Path keyed by certificate_id
     // (its stable public identity); invalidated by deleteCertImages on re-grade.
-    const key = kind === "slab" ? `slab-${format}` : kind;
+    // The frame is part of the key because it is not a property of the
+    // certificate — the same cert renders differently after its seller levels up,
+    // and a shared key would serve one of the two at random. Superseded frame
+    // objects are simply never requested again; deleteCertImages clears the whole
+    // certId folder, so they do not accumulate past a re-grade.
+    const frameSuffix = frame ? `-${frame.label.toLowerCase()}` : "";
+    const key = kind === "slab" ? `slab-${format}${frameSuffix}` : kind;
     const path = `${certId}/${key}.png`;
     const { data: cached } = await supabaseAdmin.storage
       .from("cert-assets")
@@ -1033,6 +1058,7 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
       gradeTier: rep.grade_tier,
       heroDataUri,
       certUrl: `${PUBLIC_SITE_URL}/cert/${certId}?s=qr`,
+      frame,
     };
     // A hero photo in a format satori/resvg can't rasterize (HEIC, AVIF, a
     // corrupt/truncated file) makes renderCertImage THROW, which would fall
@@ -1819,12 +1845,39 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
     console.error("[content-public] seller achievements failed:", err);
   }
 
+  // US-1851 AC4: the seller's level TIER, as profile flair. Only the tier's
+  // public vocabulary crosses — the name and its one-line blurb. The XP total
+  // and the raw level stay private: they are a measure of how much someone has
+  // used the product, which is our business and not a visitor's. Best-effort,
+  // like the medals above.
+  let flair: { tier: string; label: string; blurb: string } | null = null;
+  try {
+    const { data: stateRow } = await supabaseAdmin
+      .from("user_reward_state")
+      .select("level")
+      .eq("user_id", seller.id)
+      .maybeSingle();
+    const level = (stateRow as { level?: number } | null)?.level;
+    // No reward state, or still on the entry rung → no flair. A badge everyone
+    // has says nothing, and "Thrifter" on a brand-new profile reads as a
+    // downgrade rather than a start.
+    if (typeof level === "number" && level > 0) {
+      const tier = tierForLevel(level);
+      if (tier.minLevel > 0) {
+        flair = { tier: tier.key, label: tier.flair, blurb: tier.blurb };
+      }
+    }
+  } catch (err) {
+    console.error("[content-public] seller flair failed:", err);
+  }
+
   return c.json({
     seller: {
       handle: seller.verified_handle,
       display_name: seller.verified_display_name ?? seller.verified_handle,
       bio: seller.verified_bio ?? null,
       verified_since: seller.verified_since ?? null,
+      flair,
     },
     achievements,
     stats: {

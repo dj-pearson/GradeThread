@@ -66,6 +66,9 @@ interface SellerResponse {
     display_name: string;
     bio: string | null;
     verified_since: string | null;
+    // US-1851: level-tier flair. Null below the first tier; absent on responses
+    // cached before it shipped.
+    flair?: { tier: string; label: string; blurb: string } | null;
   };
   achievements?: Achievement[];
   stats: {
@@ -161,6 +164,13 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
     ? `<p style="max-width:560px;color:var(--muted)">${escape(seller.bio)}</p>`
     : "";
 
+  // US-1851 AC4: level-tier flair, in the crawled HTML as well as the SPA. The
+  // blurb rides along as the title so the word means something to a visitor who
+  // has never seen the ladder.
+  const flairHtml = seller.flair
+    ? `<span class="vt-flair" title="${escape(seller.flair.blurb)}">${escape(seller.flair.label)}</span>`
+    : "";
+
   // Tier distribution chips, most common first.
   const tierChips = Object.entries(stats.tier_distribution)
     .sort((a, b) => b[1] - a[1])
@@ -246,6 +256,7 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
   const extraStyles = `
     .vt-hero { display:flex; flex-direction:column; gap:8px; padding:24px 0 8px; }
     .vt-badge { display:inline-flex; align-items:center; gap:8px; align-self:flex-start; background:var(--accent); color:#fff; padding:6px 14px; border-radius:999px; font-size:0.85rem; font-weight:600; }
+    .vt-flair { display:inline-flex; align-items:center; align-self:flex-start; background:#eef1f6; color:#0F3460; padding:4px 12px; border-radius:999px; font-size:0.8rem; font-weight:600; }
     .vt-stats { display:flex; gap:40px; flex-wrap:wrap; margin:24px 0 8px; }
     .vt-stat .n { font-size:2.5rem; font-weight:800; color:var(--accent); line-height:1; }
     .vt-stat .l { color:var(--muted); font-size:0.9rem; }
@@ -296,6 +307,7 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
   <div class="vt-hero">
     <span class="vt-badge">✓ GradeThread Verified Seller</span>
     <h1 style="margin:8px 0 0">${escape(seller.display_name)}</h1>
+    ${flairHtml}
     ${sinceHtml}
     ${bioHtml}
   </div>

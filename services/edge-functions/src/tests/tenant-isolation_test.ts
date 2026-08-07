@@ -3354,6 +3354,27 @@ Deno.test({
 //     so a link that somehow survived still updates zero rows. Same shape as the
 //     `regrade_of` / `retake_of` ids alongside it.
 
+// US-1851: the rewards read surface. Both routes are self-scoped and take NO id
+// from the caller — GET /api/rewards/me reads reputation_events and
+// user_reward_state with .eq("user_id", userId), and GET
+// /api/rewards/seasons/:key/recap re-scores that SAME self-scoped event list over
+// a date window, so the `:key` path segment selects a TIME range, never a user.
+// The one door worth pinning is the mount itself: these routes live behind
+// app.use("/api/rewards/*", authMiddleware), and if that line were ever dropped
+// the handler would run with no userId and the service-role client would happily
+// read the whole table. An unauthenticated 401 is what proves the guard is on.
+Deno.test({
+  name: "rewards read surface is not reachable without a token",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const path of ["/api/rewards/me", "/api/rewards/seasons/2026-Q3/recap"]) {
+      const res = await fetch(`${BASE}${path}`);
+      await res.body?.cancel();
+      assert(res.status === 401, `unauthenticated GET ${path} should 401, got ${res.status}`);
+    }
+  },
+});
+
 // US-1904: propose-groups fetches staged images by storage_path. Like its
 // verify-groups sibling, every path must live under the CALLER's own
 // `${ownerId}/_staging/…` prefix, checked before any AI work — so B can't hand

@@ -9,6 +9,8 @@ code_refs:
   - services/edge-functions/src/lib/buyer-trust-score.ts
   - services/edge-functions/src/lib/rewards-badges.ts
   - services/edge-functions/src/lib/rewards-tangible.ts
+  - services/edge-functions/src/lib/rewards-levels.ts
+  - services/edge-functions/src/lib/rewards-seasons.ts
 reviewed: 2026-08-07
 tags: [rewards, gamification, buyer, seller, contract]
 summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award goes through grantReward with a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid.
@@ -117,6 +119,54 @@ happened without paying for it; do not use it as a soft "maybe".
 
 The Cloudflare Pages proxy (`functions/badge/cert/[id].ts`) forwards **only** the
 `Referer` upstream. Nothing else about the visitor crosses that boundary.
+
+## What the XP buys: levels, seasons, and nothing else
+
+Three rules were settled in US-1851, and each one closes off a design the
+category defaults to.
+
+### A level never decreases
+
+XP is append-only, so a total normally only rises — but a voided event, a
+`verified` flip, or a re-weighting of `REWARD_XP_CATALOG` can each pull a
+*recomputed* total down. A status that can be taken away is not status, so
+`monotonicLevel` (rewards-engine.ts, beside the curve) floors every write of
+`user_reward_state.level` at the stored value. `LEVEL_TIERS` names the bands —
+Thrifter → Picker → Curator → Archivist → Legend — placed so each promotion
+lands near a tangible milestone from `rewards-tangible.ts` rather than on a
+second, unrelated clock.
+
+### Seasons, not seller streaks
+
+`computeRewardState` still measures a daily streak, but that number is **internal
+measurement, not seller identity**, and no seller surface renders it. Reselling
+is bursty: a picker who sources hard for three weekends and then takes a month
+off is a good seller, and a streak would tell them otherwise every time they
+opened the app. Sellers get quarterly **seasons** instead
+(`rewards-seasons.ts`) — a 13-week goal track that resets for everybody at once.
+
+Nothing about a season is stored. Progress is a **window over the same log**, so
+it resets by the window moving: no rollover job, no wipe, no state that can be
+half-migrated at a boundary, and a past season stays reconstructable forever
+(which is how an earned season frame outlives its season). Only events that
+actually earned XP tick a goal, so the paid gate above still holds.
+
+The one calendar streak shown to a human is the **buyer** confirmation streak
+(`src/lib/buyer-streak.ts`), because receiving parcels genuinely is weekly. It
+carries an automatic grace week and a small per-quarter freeze allowance —
+granted, never bought.
+
+### No perk is ever plan-gated
+
+Every unlock in `rewards-levels.ts` is a function of level and nothing else:
+profile flair and share-card frames, both cosmetic. Levels are earned by
+contributing, and selling one would make the ladder a price list. A pinned test
+in `rewards-levels_test.ts` fails if a plan or entitlement check ever appears in
+that module.
+
+Only the tier *vocabulary* goes public. The verified seller profile shows the
+flair word and its blurb; XP totals and raw levels stay private, or a
+contribution ladder becomes a scoreboard strangers rank sellers by.
 
 ## Wiring a new source
 

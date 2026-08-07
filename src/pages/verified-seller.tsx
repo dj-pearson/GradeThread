@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   ExternalLink,
   ImageOff,
+  Medal,
   Share2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +61,9 @@ interface SellerProfile {
     display_name: string;
     bio: string | null;
     verified_since: string | null;
+    // US-1851: level-tier flair. Null below the first tier, and absent from
+    // responses cached before this shipped.
+    flair?: { tier: string; label: string; blurb: string } | null;
   };
   stats: {
     total_graded: number;
@@ -309,6 +313,18 @@ export function VerifiedSellerPage() {
             GradeThread Verified Seller
           </span>
           <h1 className="text-2xl font-bold sm:text-3xl">{seller.display_name}</h1>
+          {/* US-1851 AC4: level flair. Earned by contributing, never sold — and
+              the tier's own blurb is the title so a visitor can find out what it
+              means without leaving the page. */}
+          {seller.flair && (
+            <span
+              title={seller.flair.blurb}
+              className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold"
+            >
+              <Medal className="h-3.5 w-3.5" />
+              {seller.flair.label}
+            </span>
+          )}
           {since && <p className="text-sm text-white/70">Verified since {since}</p>}
           {seller.bio && (
             <p className="max-w-xl text-sm text-white/80">{seller.bio}</p>

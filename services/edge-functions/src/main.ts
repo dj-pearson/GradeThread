@@ -206,6 +206,7 @@ import { verifiedRoutes } from "./routes/verified.ts";
 import { buyerPurchasesRoutes } from "./routes/buyer-purchases.ts";
 import { buyerClosetRoutes } from "./routes/buyer-closet.ts";
 import { buyerRewardsRoutes } from "./routes/buyer-rewards.ts";
+import { rewardsRoutes } from "./routes/rewards.ts";
 import { buyerProfileRoutes } from "./routes/buyer-profile.ts";
 import { buyerWantsRoutes } from "./routes/buyer-wants.ts";
 import { buyerAuthenticityRoutes } from "./routes/buyer-authenticity.ts";
@@ -396,6 +397,9 @@ app.use("/api/verified/*", authMiddleware);
 // Buyer surfaces (US-1811+) — personal account, no workspace middleware; every
 // handler scopes by c.get("userId").
 app.use("/api/buyer/*", authMiddleware);
+// Seller progression (US-1851) — level/tier/season. Also personal, not a tenant
+// resource: XP is earned by the account, not by the workspace it belongs to.
+app.use("/api/rewards/*", authMiddleware);
 // Garment Passport (US-1092): the public chain read (GET /api/passport/:slug) is
 // anonymous; only the append path under /garments/* is authed + workspace-scoped.
 app.use("/api/passport/garments/*", authMiddleware);
@@ -1605,6 +1609,7 @@ app.route("/api/buyer", buyerProfileRoutes);
 app.route("/api/buyer", buyerWantsRoutes);
 app.route("/api/buyer", buyerAuthenticityRoutes);
 app.route("/api/buyer", buyerTrustRoutes);
+app.route("/api/rewards", rewardsRoutes);
 
 // 404
 app.notFound((c) => {

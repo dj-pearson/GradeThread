@@ -18,6 +18,9 @@
 //   • A QUIET PERIOD (holiday pause) suppresses dispatch until a date without
 //     touching the cadence clock — skipping a week just means no sends happen.
 
+// Still a pure module: zoned-time.ts imports nothing but Intl.
+import { isValidTimeZone, partsInTz, zonedWallToUtcMs } from "./zoned-time.ts";
+
 export interface ScheduleConfig {
   /** Day of week the weekly issue sends — 0=Sunday … 6=Saturday (matches cron DOW). */
   weekday: number;
@@ -66,72 +69,9 @@ export function clampScheduleConfig(over?: Partial<ScheduleConfig>): ScheduleCon
 }
 
 // ── Timezone helpers ─────────────────────────────────────────────────────────
-
-function isValidTimeZone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const WEEKDAY_INDEX: Record<string, number> = {
-  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
-};
-
-interface ZonedParts {
-  year: number;
-  month: number; // 1–12
-  day: number;
-  hour: number; // 0–23
-  minute: number;
-  second: number;
-  weekday: number; // 0=Sun
-}
-
-/** Wall-clock parts of a UTC instant as observed in `tz`. */
-function partsInTz(utcMs: number, tz: string): ZonedParts {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    hourCycle: "h23",
-    weekday: "short",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const map: Record<string, string> = {};
-  for (const p of dtf.formatToParts(new Date(utcMs))) map[p.type] = p.value;
-  return {
-    year: Number(map.year),
-    month: Number(map.month),
-    day: Number(map.day),
-    hour: Number(map.hour),
-    minute: Number(map.minute),
-    second: Number(map.second),
-    weekday: WEEKDAY_INDEX[map.weekday ?? "Sun"] ?? 0,
-  };
-}
-
-/** Minutes `tz` is offset from UTC at the given instant (positive east of UTC). */
-function tzOffsetMinutes(utcMs: number, tz: string): number {
-  const p = partsInTz(utcMs, tz);
-  const asUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
-  return (asUTC - utcMs) / 60_000;
-}
-
-/** The UTC instant of a wall-clock date/hour in `tz` (DST-aware, two-pass refine). */
-function zonedWallToUtcMs(year: number, month: number, day: number, hour: number, tz: string): number {
-  const guess = Date.UTC(year, month - 1, day, hour, 0, 0);
-  const off1 = tzOffsetMinutes(guess, tz);
-  let utc = guess - off1 * 60_000;
-  const off2 = tzOffsetMinutes(utc, tz);
-  if (off2 !== off1) utc = guess - off2 * 60_000;
-  return utc;
-}
+// These lived here privately until US-1851 needed the same wall-clock→UTC math
+// for reward season boundaries; they now come from lib/zoned-time.ts so the two
+// surfaces cannot disagree about when a boundary falls.
 
 // ── Weekly window ──────────────────────────────────────────────────────────
 

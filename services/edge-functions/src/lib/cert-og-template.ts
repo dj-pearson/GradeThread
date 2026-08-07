@@ -216,6 +216,20 @@ export function buildAchievementBadgeHtml(input: AchievementBadgeInput): string 
 }
 
 // ── Digital slab (PSA-style graded photo) ────────────────────────────────
+/**
+ * US-1851: the cosmetic frame a seller's LEVEL unlocked. Colours and label are
+ * supplied by rewards-levels.ts (`frameStyleForLevel`) — this file paints what
+ * it is handed and owns no part of the ladder's vocabulary.
+ */
+export interface CertSlabFrame {
+  /** The tier's name, shown on the frame's pill (e.g. "Curator"). */
+  label: string;
+  /** The frame edge colour. */
+  edge: string;
+  /** Text colour ON the edge colour — contrast-picked, never a muted gray. */
+  ink: string;
+}
+
 export interface CertSlabInput {
   width: number;
   height: number;
@@ -226,6 +240,8 @@ export interface CertSlabInput {
   heroImageUrl?: string | null; // a data: URI (pre-fetched by the renderer)
   qrDataUri: string;
   certId: string;
+  /** Level-unlocked frame, or null/absent for the plain card. */
+  frame?: CertSlabFrame | null;
 }
 
 export function buildCertSlabHtml(input: CertSlabInput): string {
@@ -233,6 +249,19 @@ export function buildCertSlabHtml(input: CertSlabInput): string {
   const pad = 48;
   const certIdShort = input.certId.slice(0, 8);
   const hasHero = !!input.heroImageUrl;
+  const frame = input.frame ?? null;
+
+  // The frame is an inset ring plus a name pill — no extra chrome, because the
+  // card's job is still to show a grade. A seller with no frame gets exactly the
+  // card they got before this shipped.
+  const frameEdge = frame
+    ? `border:6px solid ${frame.edge};`
+    : "";
+  const framePill = frame
+    ? `<div style="display:flex;align-items:center;background:${frame.edge};color:${frame.ink};padding:9px 18px;border-radius:999px;font-size:19px;font-weight:600;margin-left:12px;">
+      ${escapeHtml(truncate(frame.label, 20))}
+    </div>`
+    : "";
 
   const stageInner = hasHero
     ? `<img src="${input.heroImageUrl as string}" style="width:100%;height:100%;object-fit:cover;" />`
@@ -255,14 +284,17 @@ export function buildCertSlabHtml(input: CertSlabInput): string {
       </div>`
     : "";
 
-  return `<div style="display:flex;flex-direction:column;height:${input.height}px;width:${input.width}px;background:linear-gradient(135deg, ${BRAND_NIGHT} 0%, ${BRAND_NAVY} 100%);color:${TEXT_LIGHT};font-family:${FONT};padding:${pad}px;">
+  return `<div style="display:flex;flex-direction:column;height:${input.height}px;width:${input.width}px;background:linear-gradient(135deg, ${BRAND_NIGHT} 0%, ${BRAND_NAVY} 100%);color:${TEXT_LIGHT};font-family:${FONT};padding:${pad}px;${frameEdge}">
   <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
     <div style="display:flex;align-items:center;gap:14px;">
       <div style="width:48px;height:48px;border-radius:11px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;color:#fff;">G</div>
       <div style="display:flex;font-size:26px;font-weight:600;letter-spacing:0.5px;">GradeThread</div>
     </div>
-    <div style="display:flex;align-items:center;background:rgba(255,255,255,0.08);padding:9px 18px;border-radius:999px;font-size:19px;font-weight:500;">
-      Verified Condition Grade
+    <div style="display:flex;align-items:center;">
+      <div style="display:flex;align-items:center;background:rgba(255,255,255,0.08);padding:9px 18px;border-radius:999px;font-size:19px;font-weight:500;">
+        Verified Condition Grade
+      </div>
+      ${framePill}
     </div>
   </div>
   <div style="display:flex;position:relative;width:100%;flex:1;margin:24px 0;">

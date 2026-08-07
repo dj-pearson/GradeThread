@@ -370,6 +370,28 @@ function RewardsSummarySection() {
               <p className="text-xs text-muted-foreground">over-grades caught</p>
             </div>
           </div>
+          {/* US-1851: say what is protecting the streak. A number with no
+              explanation makes a buyer guess whether a quiet week already cost
+              them the chain — and guessing wrong is what makes streaks feel
+              punishing. */}
+          {summary.currentStreakWeeks > 0 && (
+            <p className="text-xs">
+              {summary.streak.atRisk ? (
+                <span className="text-amber-700 dark:text-amber-400">
+                  Confirm an arrival this week to keep your {summary.currentStreakWeeks}-week streak — no
+                  freezes left this quarter.
+                </span>
+              ) : (
+                <span className="text-muted-foreground">
+                  {summary.streak.freezesUsed > 0
+                    ? `${summary.streak.freezesUsed} quiet week${summary.streak.freezesUsed === 1 ? "" : "s"} covered by a streak freeze · `
+                    : ""}
+                  {summary.streak.freezesRemaining} freeze
+                  {summary.streak.freezesRemaining === 1 ? "" : "s"} left this quarter
+                </span>
+              )}
+            </p>
+          )}
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
               {summary.lifetimeConfirmations} item{summary.lifetimeConfirmations === 1 ? "" : "s"} verified in

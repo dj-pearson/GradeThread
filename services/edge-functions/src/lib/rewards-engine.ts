@@ -84,6 +84,26 @@ export function xpForLevel(level: number): number {
   return level * level * LEVEL_BASE;
 }
 
+/**
+ * US-1851 rule: a level NEVER decreases. XP comes from an append-only log so it
+ * is monotone in the normal case, but a voided event, a `verified` flip, or a
+ * re-weighting of REWARD_XP_CATALOG could each pull a recomputed total down —
+ * and a status that can be taken away is not status. This floor is applied
+ * wherever a fresh level is about to overwrite a stored one. It lives here
+ * beside the curve rather than in rewards-levels.ts because the engine writes
+ * the cache, and importing the other way would close a module cycle.
+ */
+export function monotonicLevel(
+  storedLevel: number | null | undefined,
+  computedLevel: number,
+): number {
+  const stored = Number.isFinite(storedLevel as number)
+    ? Math.max(0, Math.floor(storedLevel as number))
+    : 0;
+  const computed = Number.isFinite(computedLevel) ? Math.max(0, Math.floor(computedLevel)) : 0;
+  return Math.max(stored, computed);
+}
+
 // ─── Coverage gate ───────────────────────────────────────────────────────────
 
 /** The photo slots a submission must carry to earn `coverage_completed`. */
@@ -130,8 +150,18 @@ function dayKey(iso: string): number {
 /**
  * Reduce a user's reward events to XP total, level, and activity streaks. Streaks
  * count consecutive UTC days with ≥1 XP-earning event; currentStreak is the run
- * ending at the most recent active day (a snapshot from the log — US-1851 refines
- * the live "did they act today" decay). Pure + deterministic.
+ * ending at the most recent active day. Pure + deterministic.
+ *
+ * US-1851 RESOLVED what these streaks are for, and the answer is: internal
+ * measurement, not seller identity. A daily streak punishes the gap between
+ * sourcing trips, and reselling is bursty — so no seller surface renders
+ * `currentStreak`; sellers see SEASON progress (rewards-seasons.ts) instead, and
+ * the only streak shown to a human is the buyer confirmation streak, where a
+ * genuinely weekly action exists (src/lib/buyer-streak.ts). `longestStreak`
+ * survives because the `streak_7` badge is a historical fact about what someone
+ * once did, which is a different claim from "keep it up or lose it". The
+ * no-seller-surface half of that decision is pinned by a test in
+ * rewards-levels_test.ts.
  */
 export function computeRewardState(events: RewardEventInput[]): RewardState {
   let xpTotal = 0;
@@ -385,7 +415,18 @@ export async function recomputeRewardState(
     });
   }
 
-  const state = computeRewardState(events);
+  const computed = computeRewardState(events);
+  // US-1851: never write a level below the one already banked. The recompute is
+  // the ONLY writer, so this floor is the whole guarantee — and it also means a
+  // catalog re-weighting can be shipped without demoting anybody.
+  const prior = await readRewardState(userId);
+  const state: RewardState = {
+    ...computed,
+    level: monotonicLevel(prior?.level, computed.level),
+    // Same reasoning for the best-ever streak: it is a historical fact, and a
+    // recompute that loses old events must not erase it.
+    longestStreak: Math.max(prior?.longestStreak ?? 0, computed.longestStreak),
+  };
   const { error: upErr } = await supabaseAdmin
     .from("user_reward_state")
     .upsert(
