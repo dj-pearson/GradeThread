@@ -1,0 +1,112 @@
+import { useQuery } from "@tanstack/react-query";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { useAuth } from "@/hooks/use-auth";
+
+// US-1851: the seller rewards surface — level + season + perks. One edge read
+// (`GET /api/rewards/state`) because the level, the season track and the recaps
+// all derive from the same ledger and would otherwise disagree with each other
+// across three round-trips.
+//
+// Personal, not workspace-scoped: `skipWorkspaceHeader` matches the route, which
+// scopes strictly by the authed user (a workspace member must not read the
+// owner's XP).
+
+export interface RewardTier {
+  key: string;
+  name: string;
+  minLevel: number;
+  blurb: string;
+  icon: string;
+}
+
+export interface RewardLevel {
+  level: number;
+  xp_total: number;
+  xp_peak: number;
+  tier: RewardTier;
+  next_tier: RewardTier | null;
+  xp_into_level: number;
+  xp_level_span: number;
+  xp_to_next_level: number;
+  percent_to_next_level: number;
+  xp_to_next_tier: number | null;
+}
+
+export interface SeasonGoal {
+  key: string;
+  name: string;
+  description: string;
+  target: number;
+  current: number;
+  complete: boolean;
+  percent: number;
+  icon: string;
+}
+
+export interface RewardSeason {
+  key: string;
+  label: string;
+  starts_at: string;
+  ends_at: string;
+  elapsed: number;
+  xp_earned: number;
+  goals: SeasonGoal[];
+  goals_completed: number;
+  goals_total: number;
+}
+
+export interface SeasonRecap {
+  season_key: string;
+  season_label: string;
+  season_started_at: string;
+  season_ended_at: string;
+  xp_earned: number;
+  goals_completed: number;
+  goals_total: number;
+  level_at_end: number;
+  tier_at_end: string;
+  highlights: {
+    goals: Array<{ key: string; name: string; current: number; target: number; complete: boolean }>;
+    honours: string[];
+  };
+}
+
+export interface CosmeticPerk {
+  key: string;
+  kind: "flair" | "frame";
+  name: string;
+  description: string;
+  tier: string;
+  minLevel: number;
+}
+
+export interface RewardsState {
+  level: RewardLevel;
+  season: RewardSeason;
+  recaps: SeasonRecap[];
+  perks: { unlocked: CosmeticPerk[]; locked: CosmeticPerk[] };
+  season_timezone: string;
+}
+
+export function useRewards() {
+  const { user } = useAuth();
+
+  const query = useQuery<RewardsState>({
+    queryKey: ["rewards-state", user?.id],
+    queryFn: async () => {
+      const res = await edgeFetch("/api/rewards/state", { skipWorkspaceHeader: true });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Couldn't load your rewards.");
+      return json as RewardsState;
+    },
+    enabled: !!user?.id,
+    staleTime: 60 * 1000,
+  });
+
+  return {
+    rewards: query.data ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
+  };
+}

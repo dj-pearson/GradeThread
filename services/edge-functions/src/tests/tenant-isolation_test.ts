@@ -3089,6 +3089,57 @@ Deno.test({
   },
 });
 
+// ── US-1851: rewards.ts — self-scoped, and never workspace-scoped ─────────────
+//
+// GET /api/rewards/state reads the caller's XP, level and season progress from
+// c.get("userId") alone. Two properties matter and neither is about a foreign id
+// in a body (the route has no write surface at all):
+//   1. It must not be reachable unauthenticated — XP totals say how much someone
+//      grades and how often they list.
+//   2. Carrying A's X-Workspace-Owner header must NOT return A's rewards. The
+//      route is deliberately outside workspaceMiddleware: a level belongs to the
+//      human who earned it, not to whichever tenant they're acting inside, so B
+//      must get B's own state back regardless of that header.
+Deno.test({
+  name: "US-1851: rewards state requires authentication",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/rewards/state`, {
+      headers: { "Content-Type": "application/json" },
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET rewards state unauthenticated");
+  },
+});
+
+Deno.test({
+  name: "US-1851: B's workspace header cannot make /rewards/state return A's XP",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const mine = await fetch(`${BASE}/api/rewards/state`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const spoofed = await fetch(`${BASE}/api/rewards/state`, {
+      headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": WS_OWNER! },
+    });
+    // Either the header is rejected outright, or it is ignored and B sees B.
+    if (spoofed.status !== 200) {
+      await mine.body?.cancel();
+      await spoofed.body?.cancel();
+      assertDenied(spoofed.status, "GET rewards state with A's workspace header");
+      return;
+    }
+    assertEquals(mine.status, 200, "B should be able to read their own rewards");
+    const a = await mine.json();
+    const b = await spoofed.json();
+    assertEquals(
+      b?.level?.xp_peak,
+      a?.level?.xp_peak,
+      "the workspace header must not change whose rewards are returned",
+    );
+  },
+});
+
 // ── US-1639: passport tag revoke is tenant-scoped ─────────────────────────────
 //
 // POST /garments/:id/tags/:tagId/revoke scopes by created_by = ownerId, so B

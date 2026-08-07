@@ -24,7 +24,7 @@ import {
   type SlabFormat,
   SLAB_FORMATS,
 } from "../lib/cert-image-render.ts";
-import { FALLBACK_PNG_BASE64 } from "../lib/cert-og-template.ts";
+import { FALLBACK_PNG_BASE64, isCardFrameKey } from "../lib/cert-og-template.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
 import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
@@ -34,6 +34,7 @@ import {
   publicAchievements,
 } from "../lib/rewards-badges.ts";
 import { grantReward, isOffPlatformEmbedReferer } from "../lib/rewards-engine.ts";
+import { isFrameUnlocked, publicLevelFlair } from "../lib/rewards-levels.ts";
 import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 
@@ -927,6 +928,24 @@ function certImageHeaders(cache: string): HeadersInit {
   return { "Content-Type": "image/png", "Cache-Control": cache };
 }
 
+/**
+ * A user's reward LEVEL from the state cache (US-1851). Fail-CLOSED: a missing
+ * row or a DB error reads 0, so the plain card renders rather than the fanciest
+ * frame. The cache is authoritative here on purpose — recomputing the ledger on
+ * a public image request would be absurd, and the row is written on every grant.
+ */
+async function rewardLevelFor(userId: string | null | undefined): Promise<number> {
+  if (!userId) return 0;
+  const { data, error } = await supabaseAdmin
+    .from("user_reward_state")
+    .select("level")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) return 0;
+  const level = Number((data as { level?: number }).level ?? 0);
+  return Number.isFinite(level) && level > 0 ? level : 0;
+}
+
 // Marketplace/OG reachability probes HEAD before fetching — always answer 200.
 contentPublicRoutes.on("HEAD", "/cert-image/:id", () =>
   new Response(null, { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) }));
@@ -992,9 +1011,27 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
       );
     }
 
+    // US-1851 AC4: a cosmetic FRAME on the shared slab, unlocked by the level of
+    // the seller who owns the certificate — not the level of whoever requested
+    // the image. Unknown key, locked key, or an unreadable level all resolve to
+    // no frame (isFrameUnlocked fails closed), so `?frame=frame_legend` on a new
+    // seller's card renders exactly the card they already had.
+    let frameKey: string | null = null;
+    if (kind === "slab") {
+      const requested = (c.req.query("frame") ?? "").trim();
+      if (isCardFrameKey(requested)) {
+        const level = await rewardLevelFor(sub?.user_id);
+        if (isFrameUnlocked(requested, level)) frameKey = requested;
+      }
+    }
+
     // Cache: render once, then serve the stored PNG. Path keyed by certificate_id
     // (its stable public identity); invalidated by deleteCertImages on re-grade.
-    const key = kind === "slab" ? `slab-${format}` : kind;
+    // The frame is part of the key — a framed render must never overwrite the
+    // plain one, and vice versa.
+    const key = kind === "slab"
+      ? `slab-${format}${frameKey ? `-${frameKey}` : ""}`
+      : kind;
     const path = `${certId}/${key}.png`;
     const { data: cached } = await supabaseAdmin.storage
       .from("cert-assets")
@@ -1033,6 +1070,7 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
       gradeTier: rep.grade_tier,
       heroDataUri,
       certUrl: `${PUBLIC_SITE_URL}/cert/${certId}?s=qr`,
+      frameKey,
     };
     // A hero photo in a format satori/resvg can't rasterize (HEIC, AVIF, a
     // corrupt/truncated file) makes renderCertImage THROW, which would fall
@@ -1819,6 +1857,13 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
     console.error("[content-public] seller achievements failed:", err);
   }
 
+  // US-1851 AC4: the seller's LEVEL FLAIR — tier name only. Projected through
+  // publicLevelFlair, which deliberately drops XP: a tier is a rank anyone may
+  // see, while an XP total is a business metric (how much they grade, how often
+  // they list) that belongs to the seller. Same rule the achievement projection
+  // follows. Fail-closed to Thrifter (level 0) on any read problem.
+  const flair = publicLevelFlair(await rewardLevelFor(seller.id));
+
   return c.json({
     seller: {
       handle: seller.verified_handle,
@@ -1827,6 +1872,7 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
       verified_since: seller.verified_since ?? null,
     },
     achievements,
+    level: flair,
     stats: {
       total_graded: total,
       // True when we hit the sample ceiling — the page can show "1,000+".

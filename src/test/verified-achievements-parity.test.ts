@@ -44,6 +44,30 @@ describe("verified profile achievements (US-1850 AC3)", () => {
     expect(spa).toContain("<AchievementMedals");
   });
 
+  // US-1851: level flair rides the SAME payload and therefore the same trap.
+  it("the edge seller payload carries the projected level flair", () => {
+    // Projected — publicLevelFlair drops XP, which is a private business metric.
+    expect(edgeRoute).toContain("publicLevelFlair(");
+    expect(edgeRoute).toContain("level: flair");
+  });
+
+  it("both renderers render the level flair", () => {
+    expect(ssr).toContain("data.level");
+    expect(ssr).toContain("${flairHtml}");
+    expect(spa).toContain("data.level");
+    expect(spa).toContain("flair.tier_name");
+  });
+
+  it("neither renderer reads a seller's raw XP", () => {
+    // The flair projection carries tier + level only. If a renderer reached for
+    // XP, it would have to be added back to the public payload first — and a
+    // seller's XP total says how much they grade and how often they list.
+    for (const [name, src] of [["ssr", ssr], ["spa", spa]] as const) {
+      expect(src, `${name} reads a seller's XP`).not.toContain("xp_total");
+      expect(src, `${name} reads a seller's XP peak`).not.toContain("xp_peak");
+    }
+  });
+
   it("neither renderer reads the private context snapshot", () => {
     // The edge projection drops it; if a renderer ever reached for it, the
     // field would have to be added back to the public payload first.

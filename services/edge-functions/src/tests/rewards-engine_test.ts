@@ -104,6 +104,10 @@ Deno.test("a 0-XP event does not create a streak day", () => {
 Deno.test("empty log is a zeroed state", () => {
   assertEquals(computeRewardState([]), {
     xpTotal: 0,
+    // US-1851: the pure reducer reports the fresh total as the peak; the
+    // monotonic floor against the STORED peak is applied in recomputeRewardState,
+    // which is the only place that knows what was there before.
+    xpPeak: 0,
     level: 0,
     currentStreak: 0,
     longestStreak: 0,

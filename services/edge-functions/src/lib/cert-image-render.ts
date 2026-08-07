@@ -185,6 +185,12 @@ export interface CertImageData {
   heroDataUri: string | null;
   /** Absolute cert URL for the slab QR (e.g. https://gradethread.com/cert/:id?s=qr). */
   certUrl: string;
+  /**
+   * US-1851: cosmetic frame key (COSMETIC_PERKS in rewards-levels.ts). Purely
+   * decorative — the caller has ALREADY checked the owner's level unlocked it,
+   * because this renderer has no idea whose certificate it is drawing.
+   */
+  frameKey?: string | null;
 }
 
 /** Render one certificate image kind to PNG bytes. */
@@ -219,6 +225,7 @@ export function renderCertImage(
     heroImageUrl: fmt.labelOnly ? null : d.heroDataUri,
     qrDataUri: qrSvgDataUri(d.certUrl),
     certId: d.certId,
+    frameKey: d.frameKey ?? null,
   });
   return renderPng(markup, fmt.width, fmt.height);
 }

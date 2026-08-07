@@ -54,6 +54,16 @@ interface StorefrontListing {
   listing_url?: string;
 }
 
+// US-1851: the seller's level flair. Tier name only — the edge projection
+// (publicLevelFlair) deliberately drops XP, which is a private business metric.
+interface LevelFlair {
+  level: number;
+  tier_key: string;
+  tier_name: string;
+  tier_blurb: string;
+  tier_icon: string;
+}
+
 interface SellerProfile {
   seller: {
     handle: string;
@@ -61,6 +71,8 @@ interface SellerProfile {
     bio: string | null;
     verified_since: string | null;
   };
+  /** Older cached responses predate the field, so it is optional. */
+  level?: LevelFlair;
   stats: {
     total_graded: number;
     total_is_capped: boolean;
@@ -264,6 +276,9 @@ export function VerifiedSellerPage() {
   const { seller, stats, recent_certificates } = data;
   const listings = data.show_listings ? (data.listings ?? []) : [];
   const achievements = data.achievements ?? [];
+  // Level 0 (Thrifter) is where everyone starts, so a chip every seller carries
+  // says nothing — show the flair only once it has been earned.
+  const flair = data.level && data.level.level > 0 ? data.level : null;
   const avg = stats.average_grade > 0 ? stats.average_grade.toFixed(1) : "—";
   const count = stats.total_is_capped
     ? `${stats.total_graded.toLocaleString()}+`
@@ -309,6 +324,19 @@ export function VerifiedSellerPage() {
             GradeThread Verified Seller
           </span>
           <h1 className="text-2xl font-bold sm:text-3xl">{seller.display_name}</h1>
+          {flair && (
+            <div className="flex flex-col items-center gap-1">
+              <span className="inline-flex items-center gap-2">
+                <span className="rounded-full bg-brand-red px-3 py-1 text-sm font-bold text-white">
+                  {flair.tier_name}
+                </span>
+                <span className="text-sm font-semibold text-white/80">
+                  Level {flair.level}
+                </span>
+              </span>
+              <p className="text-xs text-white/70">{flair.tier_blurb}</p>
+            </div>
+          )}
           {since && <p className="text-sm text-white/70">Verified since {since}</p>}
           {seller.bio && (
             <p className="max-w-xl text-sm text-white/80">{seller.bio}</p>

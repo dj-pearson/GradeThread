@@ -547,6 +547,14 @@ a learning that only matters to ONE surface, put it in that surface's file.
 
 
 
+## Reward levels & seasons
+- A seller's LEVEL derives from `user_reward_state.xp_peak`, never `xp_total`
+  (00539): XP is not debited, but the log CAN shrink (erasure, fraud reversal,
+  cascade), and deriving from the live total silently demotes people. Seller
+  surfaces show SEASON progress and never a streak — streaks exist only on the
+  buyer confirmation flow, with grace + freeze. Level perks are cosmetic and
+  have no paid path. Rules: [[reward-ledger]].
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault

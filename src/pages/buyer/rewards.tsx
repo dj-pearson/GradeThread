@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router";
-import { Camera, Check, Flame, Gift, Loader2, Lock, Plus, Share2, ShieldCheck, Trophy } from "lucide-react";
+import { Camera, Check, Flame, Gift, Loader2, Lock, Plus, Share2, ShieldCheck, Snowflake, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -370,6 +370,23 @@ function RewardsSummarySection() {
               <p className="text-xs text-muted-foreground">over-grades caught</p>
             </div>
           </div>
+          {/* US-1851 AC3: the streak lives HERE, on the one surface with a
+              genuinely weekly rhythm — and it comes with grace + freeze rules so
+              one quiet week can't erase months of honest confirmations. */}
+          {(summary.inGraceWeek || summary.freezesBanked > 0 || summary.freezesUsed > 0) && (
+            <div className="flex items-start gap-2 rounded-lg bg-muted/60 p-3 text-xs">
+              <Snowflake className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-sky-600" />
+              <p className="text-muted-foreground">
+                {summary.inGraceWeek && "Your streak is safe through Sunday. "}
+                {summary.freezesUsed > 0 &&
+                  `${summary.freezesUsed} freeze${summary.freezesUsed === 1 ? "" : "s"} kept it alive through a quiet week. `}
+                {summary.freezesBanked > 0
+                  ? `${summary.freezesBanked} streak freeze${summary.freezesBanked === 1 ? "" : "s"} banked — you earn one every 4 weeks.`
+                  : "Confirm 4 weeks running to bank a streak freeze."}
+              </p>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
               {summary.lifetimeConfirmations} item{summary.lifetimeConfirmations === 1 ? "" : "s"} verified in

@@ -203,6 +203,7 @@ import { accountRoutes } from "./routes/account.ts";
 import { supportTicketRoutes } from "./routes/support-tickets.ts";
 import { legalRoutes } from "./routes/legal.ts";
 import { verifiedRoutes } from "./routes/verified.ts";
+import { rewardsRoutes } from "./routes/rewards.ts";
 import { buyerPurchasesRoutes } from "./routes/buyer-purchases.ts";
 import { buyerClosetRoutes } from "./routes/buyer-closet.ts";
 import { buyerRewardsRoutes } from "./routes/buyer-rewards.ts";
@@ -393,6 +394,10 @@ app.use("/api/affiliate/payouts", authMiddleware);
 // GradeThread Verified — seller manages their OWN public profile. No workspace
 // middleware: the profile is the individual seller's account, not a tenant's.
 app.use("/api/verified/*", authMiddleware);
+// US-1851 rewards (level / season / perks) — PERSONAL, like the verified
+// profile. Deliberately NOT workspace-scoped: XP and a tier belong to the human
+// who earned them, so a workspace member must not read the owner's.
+app.use("/api/rewards/*", authMiddleware);
 // Buyer surfaces (US-1811+) — personal account, no workspace middleware; every
 // handler scopes by c.get("userId").
 app.use("/api/buyer/*", authMiddleware);
@@ -984,6 +989,7 @@ app.use("/api/referrals/*", rateLimiter(30, 60_000, "referrals"));
 // flood; /me rides the same scope but is keyed by user once authed.
 app.use("/api/affiliate/*", rateLimiter(60, 60_000, "affiliate", undefined, { failClosed: true }));
 app.use("/api/verified/*", rateLimiter(30, 60_000, "verified"));
+app.use("/api/rewards/*", rateLimiter(30, 60_000, "rewards"));
 
 // Content AI endpoints — generation, research, image creation. Each
 // call is expensive (multi-thousand-token Claude responses or OpenAI
@@ -1598,6 +1604,7 @@ app.route("/api/account", accountRoutes);
 app.route("/api/support-tickets", supportTicketRoutes);
 app.route("/api/legal", legalRoutes);
 app.route("/api/verified", verifiedRoutes);
+app.route("/api/rewards", rewardsRoutes);
 app.route("/api/buyer", buyerPurchasesRoutes);
 app.route("/api/buyer", buyerClosetRoutes);
 app.route("/api/buyer", buyerRewardsRoutes);

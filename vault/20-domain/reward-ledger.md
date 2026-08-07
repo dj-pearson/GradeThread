@@ -9,6 +9,9 @@ code_refs:
   - services/edge-functions/src/lib/buyer-trust-score.ts
   - services/edge-functions/src/lib/rewards-badges.ts
   - services/edge-functions/src/lib/rewards-tangible.ts
+  - services/edge-functions/src/lib/rewards-levels.ts
+  - services/edge-functions/src/lib/rewards-seasons.ts
+  - src/lib/buyer-rewards-summary.ts
 reviewed: 2026-08-07
 tags: [rewards, gamification, buyer, seller, contract]
 summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award goes through grantReward with a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid.
@@ -117,6 +120,65 @@ happened without paying for it; do not use it as a soft "maybe".
 
 The Cloudflare Pages proxy (`functions/badge/cert/[id].ts`) forwards **only** the
 `Referer` upstream. Nothing else about the visitor crosses that boundary.
+
+## Levels, seasons, and where a streak is allowed (US-1851)
+
+Three standing rules sit on top of the ledger. All three are about the same
+thing: what a seller can LOSE.
+
+### A level derives from the XP peak, and never decreases
+
+`user_reward_state.xp_peak` (00539) is the high-water mark of `xp_total`, and
+`levelForXp` is applied to **the peak**, not the live total. `peakXp` only ever
+moves up.
+
+XP is never debited by design, so this looks redundant — it is not. The recompute
+derives from `reputation_events`, and a log **can** shrink: an erasure request,
+a fraud reversal flipping `verified`, a parent row cascading. Any of those would
+quietly demote a Curator back to Picker. Report `xp_total` honestly on the
+seller's own screen; derive the identity from `xp_peak`.
+
+The named ladder is `LEVEL_TIERS` (rewards-levels.ts): Thrifter → Picker (3) →
+Curator (7) → Archivist (12) → Legend (20).
+
+### Seller surfaces get SEASONS. Streaks are buyer-only.
+
+Reselling is bursty and seasonal — a picker sources for three weeks and lists
+forty items in a weekend. A calendar streak converts that normal working rhythm
+into a status loss, so **no seller surface may show one**. Seller motivation is a
+quarterly season (`rewards-seasons.ts`): a goal track that ends with a frozen
+recap in `user_season_recaps` and resets cleanly, taking no level, medal or XP
+point with it. Recency competition belongs on the weekly leaderboards, not on
+identity.
+
+Calendar streaks survive on exactly one surface — the buyer extension +
+confirmation flow — because that one has a genuinely weekly rhythm. It carries
+grace and freeze rules (`src/lib/buyer-rewards-summary.ts`): the current week
+never breaks a chain by being young, and a chain banks one freeze per 4 active
+weeks (max 2) that bridges a missed week. `computeRewardState` still counts
+day-streaks on the row, because the `streak_7` medal reads `longestStreak` and an
+earned medal is kept — but nothing renders them to a seller.
+
+Season boundaries are real wall-clock quarters in ONE shared zone
+(`system_settings.rewards_season_timezone`), not per-user and not naive UTC, so
+every seller's season is the same window and recaps compare like with like.
+Rollover is **lazy and idempotent** — the recap row is written the next time the
+user opens their rewards screen, guarded by `UNIQUE(user_id, season_key)`. A
+quarterly cron that has to fan out across the whole user base to write one row
+each is a worse failure surface than that.
+
+### A level perk is cosmetic, and there is no paid path to one
+
+`COSMETIC_PERKS` holds flair and share-card frames only. Nothing in
+rewards-levels.ts reads a plan, costs GradeThread money, or gates a capability —
+AC4's "no hard paywall" is enforced by that absence, and a unit test asserts every
+perk is `flair` or `frame`. The frame gate (`isFrameUnlocked`) fails **closed**:
+an unknown key, a locked key, or an unreadable level all render the plain card.
+
+The half that moves real value is the tangible rail (`rewards-tangible.ts`,
+00538) behind its own kill-switch and budget, and it is deliberately unreachable
+from the level code. If a future story wants a paid frame it needs its own catalog — folding one
+into this one makes every existing entry's promise ambiguous.
 
 ## Wiring a new source
 

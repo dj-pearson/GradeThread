@@ -24,6 +24,7 @@ import {
   ShieldAlert,
   Search,
   ShoppingBag,
+  Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -106,6 +107,9 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard", icon: LayoutDashboard, label: "Overview", end: true },
       { to: "/dashboard/snap", icon: Camera, label: "Snap to Value", end: false },
       { to: "/dashboard/submissions", icon: FileText, label: "Submissions", end: false },
+      // US-1851: level + quarterly season track. Sits with Grading because XP
+      // comes from grading acts, not from listing volume.
+      { to: "/dashboard/rewards", icon: Trophy, label: "Rewards", end: false },
       // Inventory consolidated into the FlipDesk section (US-740) — no duplicate
       // here; the single canonical inventory lives under FlipDesk.
       // Finances moved to the FlipDesk group — it reports purely on reseller

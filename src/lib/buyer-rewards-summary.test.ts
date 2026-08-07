@@ -24,6 +24,10 @@ describe("computeBuyerRewardsSummary", () => {
       caughtOverGraded: 0,
       currentStreakWeeks: 0,
       longestStreakWeeks: 0,
+      freezesUsed: 0,
+      freezesBanked: 0,
+      // Nothing to save → not "in grace", which would be noise.
+      inGraceWeek: false,
     });
   });
 
@@ -65,5 +69,59 @@ describe("computeBuyerRewardsSummary", () => {
     const s = computeBuyerRewardsSummary(["not-a-date", weeksAgo(0)], 0, NOW);
     expect(s.lifetimeConfirmations).toBe(2); // count is raw length…
     expect(s.currentStreakWeeks).toBe(1); // …but only the valid date drives the streak
+  });
+
+  // ── US-1851: grace + streak freeze ───────────────────────────────────────
+
+  it("a live chain with no confirmation yet this week is in its grace week", () => {
+    const s = computeBuyerRewardsSummary([weeksAgo(1), weeksAgo(2)], 0, NOW);
+    expect(s.inGraceWeek).toBe(true);
+    expect(s.currentStreakWeeks).toBe(2);
+  });
+
+  it("this week already confirmed → not in grace", () => {
+    const s = computeBuyerRewardsSummary([weeksAgo(0), weeksAgo(1)], 0, NOW);
+    expect(s.inGraceWeek).toBe(false);
+  });
+
+  it("a long chain banks freezes and bridges a missed week", () => {
+    // Active weeks 1–8 (eight of them), nothing this week. The chain has earned
+    // two freezes, so the missed week at -9 does not end it… except there is no
+    // week -9 activity to bridge TO, so this asserts the earn side.
+    const eight = [1, 2, 3, 4, 5, 6, 7, 8].map(weeksAgo);
+    const s = computeBuyerRewardsSummary(eight, 0, NOW);
+    expect(s.currentStreakWeeks).toBe(8);
+    expect(s.freezesUsed).toBe(0);
+    expect(s.freezesBanked).toBe(2);
+  });
+
+  it("one missed week inside a long chain is frozen, not broken", () => {
+    // Weeks 0–3 and 5–8 active; week 4 missed. Nine calendar weeks, eight active.
+    const active = [0, 1, 2, 3, 5, 6, 7, 8].map(weeksAgo);
+    const s = computeBuyerRewardsSummary(active, 0, NOW);
+    expect(s.currentStreakWeeks).toBe(8);
+    expect(s.freezesUsed).toBe(1);
+    expect(s.freezesBanked).toBe(1);
+  });
+
+  it("a short chain has earned no freeze, so one gap ends it", () => {
+    // Weeks 0, 1 and 3 active. Even bridging week 2 the chain holds only three
+    // active weeks — under the 4-week earn threshold — so it cannot pay for the
+    // freeze and stops at the gap.
+    const s = computeBuyerRewardsSummary([0, 1, 3].map(weeksAgo), 0, NOW);
+    expect(s.currentStreakWeeks).toBe(2);
+    expect(s.freezesUsed).toBe(0);
+    expect(s.freezesBanked).toBe(0);
+  });
+
+  it("three missed weeks in a row are past the cap — and no freeze is wasted", () => {
+    // Weeks 0–7 active, then 8, 9 and 10 all missed. Two freezes can never span
+    // three weeks, so the chain ends at the gap and the buyer KEEPS both banked
+    // rather than burning them for nothing.
+    const active = [0, 1, 2, 3, 4, 5, 6, 7, 11, 12].map(weeksAgo);
+    const s = computeBuyerRewardsSummary(active, 0, NOW);
+    expect(s.currentStreakWeeks).toBe(8);
+    expect(s.freezesUsed).toBe(0);
+    expect(s.freezesBanked).toBe(2);
   });
 });

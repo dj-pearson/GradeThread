@@ -215,6 +215,81 @@ export function buildAchievementBadgeHtml(input: AchievementBadgeInput): string 
 </div>`;
 }
 
+// ── Cosmetic share-card frames (US-1851 AC4) ─────────────────────────────
+// A level unlocks a FRAME: an extra overlay template drawn over the slab. It is
+// decoration and nothing else — the grade, the QR and the certificate id are
+// identical with or without one, so a framed card is never a more (or less)
+// credible card. Keys mirror COSMETIC_PERKS in rewards-levels.ts, which owns the
+// level gate; this file only knows how to draw them.
+interface CardFrame {
+  /** Keyline colour drawn just inside the card edge. */
+  keyline: string;
+  /** Keyline thickness at the reference 1080px width. */
+  weight: number;
+  /** Corner plate fill + text, or null for a keyline-only frame. */
+  plateBg: string | null;
+  plateText: string;
+  /** The word on the plate — the tier the frame belongs to. */
+  label: string;
+}
+
+const CARD_FRAMES: Record<string, CardFrame> = {
+  frame_slate: {
+    keyline: "rgba(250,250,252,0.35)",
+    weight: 6,
+    plateBg: null,
+    plateText: TEXT_LIGHT,
+    label: "Picker",
+  },
+  frame_curator: {
+    keyline: BRAND_RED,
+    weight: 8,
+    plateBg: BRAND_RED,
+    plateText: "#ffffff",
+    label: "Curator",
+  },
+  frame_archive: {
+    keyline: "#7a8aa3",
+    weight: 10,
+    plateBg: "#1b2c45",
+    plateText: TEXT_LIGHT,
+    label: "Archivist",
+  },
+  frame_legend: {
+    keyline: "#d4af37",
+    weight: 12,
+    plateBg: "#d4af37",
+    plateText: "#1a1a2e",
+    label: "Legend",
+  },
+};
+
+export function isCardFrameKey(v: unknown): v is string {
+  return typeof v === "string" && Object.hasOwn(CARD_FRAMES, v);
+}
+
+/**
+ * The frame overlay for a card of `width` × `height`, or "" for no/unknown frame.
+ * Absolutely positioned over the whole card, so it composes with any slab format
+ * without touching the layout underneath.
+ */
+export function buildCardFrameHtml(
+  frameKey: string | null | undefined,
+  width: number,
+  height: number,
+): string {
+  if (!frameKey) return "";
+  const f = CARD_FRAMES[frameKey];
+  if (!f) return "";
+  const s = width / 1080;
+  const px = (n: number) => Math.max(1, Math.round(n * s));
+  const w = px(f.weight);
+  const plate = f.plateBg
+    ? `<div style="display:flex;position:absolute;top:${px(28)}px;right:${px(28)}px;align-items:center;background:${f.plateBg};color:${f.plateText};border-radius:999px;padding:${px(8)}px ${px(20)}px;font-size:${px(22)}px;font-weight:700;letter-spacing:${px(1)}px;">${escapeHtml(f.label.toUpperCase())}</div>`
+    : "";
+  return `<div style="display:flex;position:absolute;top:0;left:0;width:${width}px;height:${height}px;border:${w}px solid ${f.keyline};border-radius:${px(24)}px;"></div>${plate}`;
+}
+
 // ── Digital slab (PSA-style graded photo) ────────────────────────────────
 export interface CertSlabInput {
   width: number;
@@ -226,6 +301,8 @@ export interface CertSlabInput {
   heroImageUrl?: string | null; // a data: URI (pre-fetched by the renderer)
   qrDataUri: string;
   certId: string;
+  /** US-1851: cosmetic frame key, already level-gated by the caller. */
+  frameKey?: string | null;
 }
 
 export function buildCertSlabHtml(input: CertSlabInput): string {
@@ -255,7 +332,8 @@ export function buildCertSlabHtml(input: CertSlabInput): string {
       </div>`
     : "";
 
-  return `<div style="display:flex;flex-direction:column;height:${input.height}px;width:${input.width}px;background:linear-gradient(135deg, ${BRAND_NIGHT} 0%, ${BRAND_NAVY} 100%);color:${TEXT_LIGHT};font-family:${FONT};padding:${pad}px;">
+  return `<div style="display:flex;flex-direction:column;position:relative;height:${input.height}px;width:${input.width}px;background:linear-gradient(135deg, ${BRAND_NIGHT} 0%, ${BRAND_NAVY} 100%);color:${TEXT_LIGHT};font-family:${FONT};padding:${pad}px;">
+  ${buildCardFrameHtml(input.frameKey, input.width, input.height)}
   <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
     <div style="display:flex;align-items:center;gap:14px;">
       <div style="width:48px;height:48px;border-radius:11px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;color:#fff;">G</div>

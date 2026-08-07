@@ -60,6 +60,16 @@ interface Achievement {
   earned_at: string;
 }
 
+// US-1851: the seller's level flair. Tier name only — the edge projection
+// (publicLevelFlair in rewards-levels.ts) drops XP on purpose.
+interface LevelFlair {
+  level: number;
+  tier_key: string;
+  tier_name: string;
+  tier_blurb: string;
+  tier_icon: string;
+}
+
 interface SellerResponse {
   seller: {
     handle: string;
@@ -68,6 +78,7 @@ interface SellerResponse {
     verified_since: string | null;
   };
   achievements?: Achievement[];
+  level?: LevelFlair;
   stats: {
     total_graded: number;
     total_is_capped: boolean;
@@ -155,6 +166,15 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
 
   const sinceHtml = seller.verified_since
     ? `<div style="color:var(--muted);font-size:0.9rem">Verified since ${escape(formatDate(seller.verified_since))}</div>`
+    : "";
+
+  // US-1851: level flair chip. Rendered only above Thrifter (level 0), which is
+  // where everyone starts — a chip every seller carries says nothing.
+  const flair = data.level;
+  const flairHtml = flair && flair.level > 0
+    ? `<div class="lv-flair"><span class="lv-tier">${escape(flair.tier_name)}</span>` +
+      `<span class="lv-lvl">Level ${flair.level}</span></div>` +
+      `<div style="color:var(--muted);font-size:0.85rem">${escape(flair.tier_blurb)}</div>`
     : "";
 
   const bioHtml = seller.bio
@@ -281,6 +301,9 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
     .ac-txt { display:flex; flex-direction:column; }
     .ac-name { font-weight:600; font-size:0.9rem; }
     .ac-meta { color:var(--muted); font-size:0.75rem; }
+    .lv-flair { display:flex; align-items:center; gap:8px; }
+    .lv-tier { background:var(--accent); color:#fff; border-radius:999px; padding:4px 14px; font-size:0.85rem; font-weight:700; }
+    .lv-lvl { color:var(--muted); font-size:0.85rem; font-weight:600; }
   `;
 
   // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.
@@ -296,6 +319,7 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
   <div class="vt-hero">
     <span class="vt-badge">✓ GradeThread Verified Seller</span>
     <h1 style="margin:8px 0 0">${escape(seller.display_name)}</h1>
+    ${flairHtml}
     ${sinceHtml}
     ${bioHtml}
   </div>

@@ -1,9 +1,41 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nine migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537 and 00538.** The entries below them were applied to prod and this file did
-not learn about it for a day. See the note under 00528 for how that was measured
-and why the measurement, not the file, is the authority.
+**Ten migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538 and 00539.** The entries below them were applied to prod and this
+file did not learn about it for a day. See the note under 00528 for how that was
+measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00539_reward_levels_seasons.sql (US-1851 — levels & seasons)
+
+**Apply order.** Last, in numeric order. It alters `user_reward_state` (added by
+00443, long applied) and depends on nothing newer.
+
+**Risk: LOW.** One new nullable-with-default column, one idempotent backfill of
+that same column, one new table, one new `system_settings` row. No existing
+column, enum or row is modified.
+
+**What it does.**
+- Adds `user_reward_state.xp_peak` (bigint, default 0) and backfills it to
+  `GREATEST(xp_peak, xp_total)`. Reward LEVELS now derive from this high-water
+  mark, so a level can never decrease — even if the underlying
+  `reputation_events` log shrinks (erasure request, fraud reversal, cascade).
+- Adds `user_season_recaps` — the frozen record of a completed quarterly season.
+  `UNIQUE (user_id, season_key)` is the idempotency guarantee for the lazy
+  rollover (the edge writes the row the next time the user opens their rewards
+  screen; there is no quarterly cron). RLS lets a user read their own recaps;
+  only the service role writes.
+- Seeds `system_settings.rewards_season_timezone` = `America/Chicago`, the ONE
+  shared zone the quarterly boundary is resolved in, so every seller's season is
+  the same window.
+
+**Deploy order matters here, mildly.** The edge writes `xp_peak` on every reward
+grant, so applying this BEFORE the edge rolls (the normal order) is required —
+an edge build that expects the column against a DB without it fails the upsert
+and the reward state stops refreshing. The frontend is safe either way: the new
+`/api/rewards/state` route degrades to level 0 / empty season on any read error.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a new table and a new
+column both need PostgREST to re-read the schema cache.
 
 ## ⏳ HELD: 00538_reward_tangible_grants.sql (US-1848 — tangible reward rail)
 

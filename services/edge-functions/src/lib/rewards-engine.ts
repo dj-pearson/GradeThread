@@ -84,6 +84,25 @@ export function xpForLevel(level: number): number {
   return level * level * LEVEL_BASE;
 }
 
+/**
+ * The XP high-water mark (US-1851, `user_reward_state.xp_peak`). Pure: given the
+ * stored peak and a freshly recomputed total, the peak only ever moves up.
+ *
+ * This is what makes "a level NEVER decreases" structural rather than merely
+ * likely. XP is never debited by design, but the recompute below derives from
+ * the reputation_events log, and a log CAN shrink — an erasure request, a fraud
+ * reversal flipping `verified`, a parent row cascading. Without the peak, any of
+ * those quietly demotes a seller from Curator back to Picker: status lost by not
+ * acting, which is exactly what US-1851 exists to remove.
+ *
+ * Named-tier mapping and progress live in rewards-levels.ts, which reads this.
+ */
+export function peakXp(storedPeak: number | null | undefined, recomputedTotal: number): number {
+  const prev = Number.isFinite(storedPeak as number) ? Math.max(0, Number(storedPeak)) : 0;
+  const next = Number.isFinite(recomputedTotal) ? Math.max(0, recomputedTotal) : 0;
+  return Math.max(prev, next);
+}
+
 // ─── Coverage gate ───────────────────────────────────────────────────────────
 
 /** The photo slots a submission must carry to earn `coverage_completed`. */
@@ -115,6 +134,8 @@ export interface RewardEventInput {
 
 export interface RewardState {
   xpTotal: number;
+  /** High-water XP (US-1851). Levels derive from this, so they never decrease. */
+  xpPeak: number;
   level: number;
   currentStreak: number;
   longestStreak: number;
@@ -128,10 +149,21 @@ function dayKey(iso: string): number {
 }
 
 /**
- * Reduce a user's reward events to XP total, level, and activity streaks. Streaks
- * count consecutive UTC days with ≥1 XP-earning event; currentStreak is the run
- * ending at the most recent active day (a snapshot from the log — US-1851 refines
- * the live "did they act today" decay). Pure + deterministic.
+ * Reduce a user's reward events to XP total, level, and activity streaks. Pure +
+ * deterministic.
+ *
+ * The `currentStreak`/`longestStreak` counts here are a HISTORICAL SNAPSHOT of
+ * the log — consecutive UTC days with ≥1 XP-earning event — and US-1851
+ * deliberately stopped surfacing them on any seller screen. Reselling is bursty:
+ * a picker sources for three weeks and lists in a weekend, and a seller-facing
+ * streak turns that normal rhythm into a status loss. Seller surfaces show
+ * SEASON progress instead (rewards-seasons.ts); calendar streaks live only on
+ * the buyer confirmation flow, which has a genuinely weekly rhythm and its own
+ * grace/freeze rules. The counts stay on the row because the `streak_7`
+ * achievement (US-1850) reads longestStreak and a medal, once earned, is kept.
+ *
+ * `xpPeak` here is just `xpTotal` — the monotonic floor is applied against the
+ * STORED peak in recomputeRewardState, which is the only place that knows it.
  */
 export function computeRewardState(events: RewardEventInput[]): RewardState {
   let xpTotal = 0;
@@ -160,7 +192,13 @@ export function computeRewardState(events: RewardEventInput[]): RewardState {
     else break;
   }
 
-  return { xpTotal, level: levelForXp(xpTotal), currentStreak: current, longestStreak: longest };
+  return {
+    xpTotal,
+    xpPeak: xpTotal,
+    level: levelForXp(xpTotal),
+    currentStreak: current,
+    longestStreak: longest,
+  };
 }
 
 // ─── Off-platform embed gate ─────────────────────────────────────────────────
@@ -295,21 +333,23 @@ async function hasRewardEvent(
 }
 
 /** Read the cached reward state, or null when there is none / on error. */
-async function readRewardState(userId: string): Promise<RewardState | null> {
+export async function readRewardState(userId: string): Promise<RewardState | null> {
   const { data, error } = await supabaseAdmin
     .from("user_reward_state")
-    .select("xp_total, level, current_streak, longest_streak")
+    .select("xp_total, xp_peak, level, current_streak, longest_streak")
     .eq("user_id", userId)
     .maybeSingle();
   if (error || !data) return null;
   const row = data as unknown as {
     xp_total: number;
+    xp_peak: number | null;
     level: number;
     current_streak: number;
     longest_streak: number;
   };
   return {
     xpTotal: row.xp_total,
+    xpPeak: peakXp(row.xp_peak, row.xp_total),
     level: row.level,
     currentStreak: row.current_streak,
     longestStreak: row.longest_streak,
@@ -358,6 +398,17 @@ const REWARD_TYPES = new Set<RewardEventType>(
 export async function recomputeRewardState(
   userId: string,
 ): Promise<RewardState | null> {
+  // US-1851: the stored high-water mark, read BEFORE the recompute. The level we
+  // persist is derived from max(stored peak, fresh total), so a log that shrank
+  // (erasure, fraud reversal, cascade) can lower xp_total but can never demote
+  // the seller's tier. A missing row reads 0 and the fresh total wins.
+  const { data: prior } = await supabaseAdmin
+    .from("user_reward_state")
+    .select("xp_peak")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const storedPeak = (prior as { xp_peak?: number } | null)?.xp_peak ?? 0;
+
   const { data, error } = await supabaseAdmin
     .from("reputation_events")
     .select("event_type, occurred_at, verified, metadata")
@@ -385,13 +436,17 @@ export async function recomputeRewardState(
     });
   }
 
-  const state = computeRewardState(events);
+  const computed = computeRewardState(events);
+  const xpPeak = peakXp(storedPeak, computed.xpTotal);
+  const state: RewardState = { ...computed, xpPeak, level: levelForXp(xpPeak) };
+
   const { error: upErr } = await supabaseAdmin
     .from("user_reward_state")
     .upsert(
       {
         user_id: userId,
         xp_total: state.xpTotal,
+        xp_peak: state.xpPeak,
         level: state.level,
         current_streak: state.currentStreak,
         longest_streak: state.longestStreak,

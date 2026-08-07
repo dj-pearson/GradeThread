@@ -44,6 +44,8 @@ const ResetPasswordPage = lazy(() => import("@/pages/reset-password").then(m => 
 const DashboardPage = lazy(() => import("@/pages/dashboard").then(m => ({ default: m.DashboardPage })));
 const SupportTicketsPage = lazy(() => import("@/pages/support-tickets").then(m => ({ default: m.SupportTicketsPage })));
 const SubmissionsPage = lazy(() => import("@/pages/submissions").then(m => ({ default: m.SubmissionsPage })));
+// US-1851: seller rewards — level, quarterly season track, cosmetic perks.
+const RewardsPage = lazy(() => import("@/pages/rewards").then(m => ({ default: m.RewardsPage })));
 const NewSubmissionPage = lazy(() => import("@/pages/new-submission").then(m => ({ default: m.NewSubmissionPage })));
 const SnapToValuePage = lazy(() => import("@/pages/snap").then(m => ({ default: m.SnapToValuePage })));
 const BulkSubmissionPage = lazy(() => import("@/pages/bulk-submission").then(m => ({ default: m.BulkSubmissionPage })));
@@ -434,6 +436,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard", element: <SuspenseWrapper><DashboardPage /></SuspenseWrapper> },
               { path: "/dashboard/snap", element: <SuspenseWrapper><SnapToValuePage /></SuspenseWrapper> },
               { path: "/dashboard/submissions", element: <SuspenseWrapper><SubmissionsPage /></SuspenseWrapper> },
+              { path: "/dashboard/rewards", element: <SuspenseWrapper><RewardsPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions/new", element: <SuspenseWrapper><NewSubmissionPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions/bulk", element: <SuspenseWrapper><BulkSubmissionPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions/:id", element: <SuspenseWrapper><SubmissionDetailPage /></SuspenseWrapper> },
