@@ -629,6 +629,15 @@ a learning that only matters to ONE surface, put it in that surface's file.
   and the new rows are silently filtered out of the console with nothing going
   red. Also note a rollback past the migration re-arms that silence.
 
+## Thrift Radar (US-1860…US-1867)
+- The Prospect scan endpoint carries NO location today, so Radar's first commit
+  is the one that adds a coordinate to a request that never had one — the toggle,
+  the consent copy and the "coordinates are discarded after venue resolution"
+  promise all have to land in that same change; there is no later point to
+  retrofit them quietly. Contributing and VIEWING are separate consents, the
+  k-floor is enforced server-side (empty response, not a redacted one), and the
+  personal layer is free and works at n=1. Rules: [[thrift-radar]].
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault
