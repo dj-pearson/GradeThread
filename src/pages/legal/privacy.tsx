@@ -7,7 +7,7 @@ export function PrivacyPage() {
       title="Privacy Policy"
       description="How GradeThread collects, uses, and protects your information."
       canonicalPath="/privacy"
-      effectiveDate="June 12, 2026"
+      effectiveDate="August 7, 2026"
     >
       <p>
         This Privacy Policy explains how Pearson Media LLC (&ldquo;Pearson
@@ -154,6 +154,68 @@ export function PrivacyPage() {
           invoice, and refund status with us.
         </li>
       </ul>
+
+      {/* US-1846: the buyer platform stores a class of data the seller-shaped
+          sections above never described — a person's body measurements, what
+          they own, and what they are shopping for. Every table listed here is
+          enumerated in services/edge-functions/src/lib/buyer-pii.ts, which is
+          also what GET /api/account/export iterates, so this section and the
+          export cannot describe different sets of data. */}
+      <h3 id="buyer-data">2.4 Buyer features</h3>
+      <p>
+        If you use the buyer side of GradeThread — condition alerts, your
+        closet, fit predictions, the Purchase Guarantee — we hold the following
+        about you. All of it is private to your account by default, protected by
+        row-level security so no other user can read it, and included in the
+        data export described under <a href="#your-rights">Your rights</a>.
+      </p>
+      <ul>
+        <li>
+          <strong>Body measurements.</strong> The measurements and fit
+          preferences you enter for fit predictions. We treat these as
+          sensitive: they are never shown on a certificate, never shared with
+          sellers, and never part of a public profile.
+        </li>
+        <li>
+          <strong>Listings you asked us to check.</strong> When you use the
+          extension&rsquo;s &ldquo;check this against my alerts&rdquo; action,
+          we store that one listing (its address, title, brand, stated
+          condition, price, one photo link) together with our grade, so your
+          alerts can match against it. This is a record of what you were
+          shopping for, so we treat it as sensitive: it is private to you, you
+          can delete any of it at any time, and we delete it automatically after
+          90 days.
+        </li>
+        <li>
+          <strong>Your closet and purchases.</strong> Items you add to your
+          closet, purchases you link to a certificate, what you paid, arrival
+          photos, our value estimates, and any guarantee coverage or claims on
+          them.
+        </li>
+        <li>
+          <strong>Shopping preferences and alerts.</strong> Brands, categories,
+          sizes, price range, condition floor, alert cadence and quiet hours,
+          your saved searches, watchlist, and want list.
+        </li>
+        <li>
+          <strong>Reputation.</strong> Your Trust Score and level, the grade
+          confirmations behind it, your reward-credit balance and ledger, and
+          how much of each monthly allowance you have used.
+        </li>
+        <li>
+          <strong>Public buyer profile (off by default).</strong> Nothing about
+          you is published unless you turn on a public Trust Score profile,
+          choose a handle, and pick which individual stats appear on it. You can
+          make it private again at any time.
+        </li>
+      </ul>
+      <p>
+        Grade confirmations you submit after an item arrives are also a
+        measurement of our own grading accuracy and of the seller&rsquo;s
+        record. When you delete your account, those measurements are
+        de-identified — your link to them is removed — rather than destroyed;
+        everything else listed above is deleted outright.
+      </p>
 
       <h2 id="how-we-use">3. How we use information</h2>
       <p>We use information to:</p>
@@ -307,9 +369,29 @@ export function PrivacyPage() {
         photo URLs and basic details (title, brand, price, stated condition) to
         our grading service to produce a score. It reads the page you are
         already looking at; it does not browse on your behalf, and it does not
-        run on sites outside the marketplaces it supports. Results are not
-        stored on our servers. Your recent reads and settings stay on your
-        device.
+        run on sites outside the marketplaces it supports. We do not keep the
+        result: your recent reads and settings stay on your device.
+      </p>
+      {/* US-1846: this paragraph is the correction. The one above used to end
+          "Results are not stored on our servers" full stop, which stopped being
+          true when US-1808 added the ingest endpoint — a signed-in buyer's
+          click writes a row keyed to their account and keeps it for 90 days.
+          The extension is a store-submitted product whose disclosed policy is
+          this page, so a stale sentence here is a failed review, not just an
+          inaccuracy. */}
+      <p>
+        <strong>Checking a listing against your alerts.</strong> This one is
+        different, and only happens if you are signed in and press it. It sends
+        the same listing details to your GradeThread account, where we grade the
+        item and compare it against <em>your</em> saved searches so we can alert
+        you. Because the answer belongs to your account, we{" "}
+        <strong>do</strong> keep this one: the listing&rsquo;s address, title,
+        brand, stated condition, price, one photo link and our grade are stored
+        privately against your account. Nobody else can read it, you can delete
+        it, and we delete it automatically after 90 days. It is one listing per
+        press — the extension has no way to hand us a page of results, and we
+        never fetch the listing page itself, only the photos your browser had
+        already loaded.
       </p>
       <p>
         <strong>Diagnostics are off by default.</strong> If you turn on
@@ -474,6 +556,23 @@ export function PrivacyPage() {
           <tr>
             <td>Support &amp; dispute correspondence</td>
             <td>Up to 3 years after resolution.</td>
+          </tr>
+          <tr>
+            <td>Listings you asked the extension to check</td>
+            <td>
+              Deleted automatically 90 days after the check; you can delete any
+              of them sooner.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              Buyer profile data (measurements, closet, preferences, alerts,
+              reputation)
+            </td>
+            <td>
+              Life of the account; deleted when you delete your account or
+              remove the individual entry.
+            </td>
           </tr>
           <tr>
             <td>Server &amp; security logs</td>

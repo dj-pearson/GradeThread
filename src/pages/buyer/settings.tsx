@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { Loader2, SlidersHorizontal } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { ChipInput } from "@/components/buyer/chip-input";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { useBuyerProfile } from "@/hooks/use-buyer-profile";
+import { useConsentRegime } from "@/hooks/use-consent-regime";
+import { openCookiePreferences } from "@/lib/cookie-preferences";
 
 // US-1798: buyer shopping-preferences editor. Reads/writes the single
 // buyer_preferences row via the shared hook (the same row buyer onboarding
@@ -263,7 +266,65 @@ export function BuyerSettingsPage() {
       </div>
 
       <PublicProfileCard />
+
+      <BuyerPrivacyCard />
     </div>
+  );
+}
+
+// US-1846: the buyer's privacy controls, on the page where their buyer data is
+// edited.
+//
+// Every control here already existed — the consent manager, the export, the
+// deletion — and all of them lived on seller-shaped surfaces (the footer, the
+// account settings page). A buyer-first account never passes those, so the
+// person whose measurements, closet and browsing we hold had no route to their
+// own rights from anywhere they actually were.
+//
+// It reuses the existing geo-consent framework rather than adding a second one:
+// useConsentRegime resolves the visitor's regime from /geo.json (opt-in
+// everywhere we are unsure, opt-out only where we positively resolve a US-style
+// jurisdiction), the label follows that resolution, and pressing it reopens the
+// SAME <CookieConsent> manager through the existing event bus. A separate
+// buyer-only consent store would be a second answer to a question that already
+// has one, and the two would drift.
+function BuyerPrivacyCard() {
+  const { regime, isGPC } = useConsentRegime();
+  const optOut = regime === "opt-out";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Your data and privacy</CardTitle>
+        <CardDescription>
+          What we hold for your buyer account, and how to change or remove it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <p className="text-muted-foreground">
+          Your measurements, closet, purchases, saved searches and the listings
+          you check are private to your account. Nothing on this page is shown to
+          sellers or published unless you turn on a public profile above.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" size="sm" onClick={openCookiePreferences}>
+            {optOut ? "Your Privacy Choices" : "Cookie settings"}
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/dashboard/settings">Export or delete your data</Link>
+          </Button>
+          <Link to="/privacy" className="text-sm text-primary underline">
+            Privacy policy
+          </Link>
+        </div>
+        {optOut && isGPC && (
+          <p className="text-muted-foreground">
+            Your browser is sending Global Privacy Control, and we have already
+            honored it as an opt-out. You do not need to do anything else.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

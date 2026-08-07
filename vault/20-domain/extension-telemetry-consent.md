@@ -107,6 +107,9 @@ the client ⇄ server vocabulary lockstep read out of the shipped module).
 
 ## Related
 
+- [[buyer-legal-and-privacy]] — the extension's THIRD outbound flow (the
+  signed-in alerts check) is not telemetry and is retained; the register and the
+  policy guard live there
 - [[service-role-tables]] — both tables are deny-all operator tables and must be
   registered in `SERVICE_ROLE_ONLY`
 - [[ralph-learnings]] — the working log that pointed here

@@ -15,6 +15,7 @@ import {
 } from "../lib/export-stream.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
+import { BUYER_PII_TABLES } from "../lib/buyer-pii.ts";
 
 // Account data portability (US-275 / GDPR + CCPA). Authed user exports a copy
 // of their own data. Mounted behind authMiddleware in main.ts, so c.var.userId
@@ -273,6 +274,24 @@ accountRoutes.get("/export", async (c) => {
           ],
           ["listings", pageOf("listings", (q) => q.eq("user_id", userId))],
           ["sales", pageOf("sales", (q) => q.eq("user_id", userId))],
+          // US-1846: the buyer half of the account. Driven off the register in
+          // lib/buyer-pii.ts rather than listed here, because a hand-written
+          // list is exactly what left every buyer table out of this response
+          // for the whole of the buyer epic — the tables existed, each was
+          // correctly RLS'd, and none of them were reachable by the subject.
+          // Adding a buyer table now means adding a register entry (enforced by
+          // buyer-pii_test.ts), and the export follows for free.
+          //
+          // Paged like the three above even though most are small: one extra
+          // round trip per table is cheaper than deciding, per table, whether a
+          // buyer's row count can ever grow (ingested_listings and the reward
+          // ledger both can).
+          ...BUYER_PII_TABLES.map((t) =>
+            [
+              t.exportKey,
+              pageOf(t.table, (q) => q.eq(t.scopeColumn, userId)),
+            ] as [string, PageFetcher | null]
+          ),
         ];
 
         for (let i = 0; i < streamed.length; i++) {

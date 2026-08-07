@@ -450,6 +450,21 @@ a learning that only matters to ONE surface, put it in that surface's file.
   delete any batch still on the device. Full contract:
   [[extension-telemetry-consent]].
 
+## A hand-written list of tables is a list that goes stale
+- `GET /api/account/export` named seller tables inline, so the ENTIRE buyer
+  platform (measurements, closet, purchases, saved searches, reward ledger,
+  guarantee claims — 19 tables) was absent from every subject-access export for
+  the whole epic, silently: each table was individually RLS'd and cascading, and
+  nothing checks the SET. Fixed by making the export ITERATE a register
+  (`lib/buyer-pii.ts`) whose completeness is asserted by discovering tables out
+  of `supabase/migrations/`. Same shape as the [[public-certificate-read-paths]]
+  two-read-path trap. Rule + the erasure-shape and legal-gate contracts:
+  [[buyer-legal-and-privacy]].
+- Corollary for PROSE: a privacy/policy claim ("results are not stored on our
+  servers") has no compiler, so a later feature falsifies it in silence. Assert
+  the RETIRED sentence cannot return, not just that the new one is present — a
+  test checking only for new wording passes beside a reverted paragraph.
+
 ## Scaffolding modules
 - A module that is "shipped but not yet wired" is NOT thereby correct — nothing
   calls it, so nothing can produce a wrong answer from it, so no test has a

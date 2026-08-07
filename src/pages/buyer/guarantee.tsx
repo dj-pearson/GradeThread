@@ -255,13 +255,51 @@ export function BuyerCoveragePage() {
             </Card>
           )}
 
-          <p className="text-xs text-muted-foreground">
-            Coverage terms, limits and exclusions are on the{" "}
-            <Link to="/buyer-guarantee" className="font-medium text-primary hover:underline">
-              guarantee page
-            </Link>
-            .
-          </p>
+          {/* US-1846: the terms this page is actually bound by, stated on it.
+              It previously said only "coverage terms are on the guarantee
+              page", and /buyer-guarantee is the US-867 MEDIATION policy — it
+              does not describe this paid, snapshotted coverage at all. So a
+              subscriber was told "you're covered" and pointed at a document
+              about something else.
+
+              The two facts a buyer would never guess are here in full: the
+              terms are FROZEN at link time (which is what protects them from a
+              later downgrade, and equally what stops an upgrade from widening
+              an old purchase), and this is a service remedy, not an insurance
+              product. Both are stated as limits on the promise rather than as
+              features of it. */}
+          <div className="space-y-2 rounded-lg bg-muted/40 p-4 text-xs text-muted-foreground">
+            <p>
+              <span className="font-medium text-foreground">
+                What decides a claim.
+              </span>{" "}
+              Each covered purchase is judged against the coverage window,
+              payout cap and grade-difference threshold shown on its row —
+              the terms that applied when you linked the purchase, frozen at
+              that moment. Changing plan later never voids coverage already in
+              force, and never widens it either.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">
+                What it is not.
+              </span>{" "}
+              The Purchase Guarantee is a GradeThread remedy, not insurance,
+              and not a valuation or authenticity warranty. Grades on both
+              sides of the comparison are condition estimates from photos, so a
+              claim turns on a material difference between them — not on
+              disappointment with the item, the seller, or the price.
+            </p>
+            <p>
+              Full policy, eligibility and the mediation route are on the{" "}
+              <Link
+                to="/buyer-guarantee"
+                className="font-medium text-primary hover:underline"
+              >
+                guarantee page
+              </Link>
+              .
+            </p>
+          </div>
         </>
       )}
     </div>

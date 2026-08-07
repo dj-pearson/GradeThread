@@ -341,6 +341,7 @@ browser toggle to justify itself ([[extension-telemetry-consent]]).
 ## Related
 
 - [[buyer-economy]] — credits, claims and buyer-facing visibility, once a buyer is entitled
+- [[buyer-legal-and-privacy]] — what we hold about a buyer, and what we are allowed to say to one
 - [[grade-accuracy-guarantee]] — what the guarantee flag may actually pay
 - [[pricing]] — the seller tier matrix this one folds into
 - [[INDEX]]
