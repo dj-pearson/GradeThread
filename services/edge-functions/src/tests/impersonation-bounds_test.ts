@@ -133,6 +133,7 @@ Deno.test("US-2351 AC3: the destructive routes are guarded, by enumeration", () 
     ["../routes/flipdesk-etsy.ts", "Disconnecting a marketplace"],
     ["../routes/flipdesk-google.ts", "Disconnecting a marketplace"],
     ["../routes/flipdesk-shopify.ts", "Disconnecting a marketplace"],
+    ["../routes/flipdesk-whatnot.ts", "Disconnecting a marketplace"],
   ];
   const missing: string[] = [];
   for (const [file, label] of SITES) {
@@ -142,6 +143,47 @@ Deno.test("US-2351 AC3: the destructive routes are guarded, by enumeration", () 
     }
   }
   assertEquals(missing, [], "these destructive routes lost their guard");
+});
+
+Deno.test("US-2351 AC3: EVERY marketplace disconnect is guarded, derived not listed", () => {
+  // The list above shipped without Whatnot for a month, and the comment on it
+  // says why enumeration was chosen: a middleware "would silently permit
+  // anything it did not know about". The list did exactly that. Whatnot's
+  // /disconnect landed after the list was written (US-1661), so nothing was
+  // wrong at the time and nothing announced it afterwards — an argument from a
+  // fixed set cannot fail when the set grows.
+  //
+  // So this DERIVES the set from the routes directory instead. A seventh
+  // marketplace is covered the day its file exists, not the day someone
+  // remembers this test. That is the same remedy US-1880 used for the
+  // extension's manifest hosts, for the same reason.
+  const dir = new URL("../routes/", import.meta.url);
+  const unguarded: string[] = [];
+  let checked = 0;
+  for (const entry of Deno.readDirSync(dir)) {
+    if (!entry.isFile || !/^flipdesk-.*\.ts$/.test(entry.name)) continue;
+    const src = Deno.readTextFileSync(new URL(entry.name, dir));
+    // Only files that actually expose a disconnect are in scope; most
+    // flipdesk-*.ts modules have nothing destructive in them.
+    if (!/\.post\(\s*"\/disconnect"/.test(src)) continue;
+    checked++;
+    if (!src.includes('refuseWhileImpersonating(c, "Disconnecting a marketplace")')) {
+      unguarded.push(entry.name);
+    }
+  }
+  // A derivation that finds nothing is the failure mode this test replaces, so
+  // it fails loudly rather than passing on an empty set.
+  assert(
+    checked >= 6,
+    `only ${checked} disconnect route(s) discovered — the derivation broke and ` +
+      `this test is now asserting nothing`,
+  );
+  assertEquals(
+    unguarded,
+    [],
+    "a marketplace disconnect has no impersonation guard — an impersonating " +
+      "admin could sever a seller's link and it would read as the seller's own",
+  );
 });
 
 Deno.test("US-2351 AC3: the guard refuses rather than merely reporting", () => {

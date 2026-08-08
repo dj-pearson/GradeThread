@@ -9,7 +9,7 @@ code_refs:
   - src/hooks/use-items-full.ts
   - services/edge-functions/src/routes/admin-dashboard.ts
   - services/edge-functions/src/tests/admin-dashboard-kpi-provenance_test.ts
-reviewed: 2026-08-05
+reviewed: 2026-08-08
 tags: [postgrest, supabase, perf, correctness, flipdesk, admin]
 summary: There is NO row cap in prod (db-max-rows is unset, read from pg_roles) — the bound that actually bites is an 8s statement_timeout, 3s for anonymous; every read must still page until empty, count without rows, or aggregate in SQL.
 ---

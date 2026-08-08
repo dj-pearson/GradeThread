@@ -9,7 +9,7 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-08-07
+reviewed: 2026-08-08
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
@@ -27,7 +27,13 @@ Registration is **not** a single edit. A new page must be wired in lockstep:
 1. The page's data module.
 2. The page component itself.
 3. Marketing JSON-LD, where applicable.
-4. `src/lib/seo/public-routes.ts` — add to `PUBLIC_ROUTES`, including `lastmod`.
+4. `src/lib/seo/public-routes.ts` — **two places, not one.** Add the entry to
+   `PUBLIC_ROUTES`, and add the route's date to `ROUTE_LAST_MODIFIED` beside it.
+   `PublicRoute` has no `lastmod` field: the dates live in a separate map so an
+   unchanged route keeps the same `<lastmod>` every deploy (US-429). Omitting the
+   date is not an error — the route silently falls back to
+   `DEFAULT_LAST_MODIFIED`, which is a 2026-06-01 that will be wrong on the day
+   the page ships.
 5. `src/prerender/entry-server.tsx` — **two maps, not one.** `PAGES` maps the
    path to its component; `ROUTE_PAGE_MODULES` maps it to the page module so the
    right chunk is preloaded. Routes that share a page module (glossary, guides,

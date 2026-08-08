@@ -9,7 +9,7 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
@@ -57,8 +57,8 @@ a tier may open; it is not a count of every channel a seller can list to:
   lets a seller connect both (and Depop once approved) and fan a single draft out
   across them. Free is capped at 1 (eBay only) as the upsell.
 - **Browser extension** (does NOT consume an API connection): Poshmark, Mercari,
-  Grailed — cross-listed from the seller's own logged-in tab via the GradeThread
-  Lister extension (US-716). Available on every paid tier.
+  Grailed, Vinted — cross-listed from the seller's own logged-in tab via the
+  GradeThread Lister extension (US-716). Available on every paid tier.
 - **Pending approval**: Depop — the API connector is built (US-713/714) but stays
   off behind `DEPOP_ENABLED` until the platform approves the app; advertised as
   "coming soon", never as a live API integration.
@@ -171,13 +171,32 @@ The included-grades and AI-actions counters reset on
 The soft threshold is defined SERVER-SIDE, by `SOFT_WARN_PCT` in
 `services/edge-functions/src/lib/plan-gate.ts` — that is the copy that decides
 whether a request comes back carrying `X-Plan-Warning: CAP_80`, so it is the
-authoritative one. Two client meters, `usage-meter.tsx` and
-`sidebar-usage-widget.tsx`, compare against a bare `0.8` literal of their own.
-Nothing guards the three against drifting apart; US-2441 carries that.
+authoritative one. The hard threshold is not a named constant at all: it is the
+402 path itself.
 
-The hard threshold is not a named constant at all — it is the 402 path itself.
-Per-user configurable thresholds (US-209) were never built: no column, no
-setting, no UI.
+> [!warning] Two claims in this section were wrong when they were written
+> Both were added 2026-08-08 by US-2436 and corrected the same day by US-2438's
+> vault re-read. They are recorded rather than quietly replaced, because both
+> failed the same way: an argument from ABSENCE, stated confidently, that nobody
+> could have falsified without going and looking.
+>
+> **"Per-user configurable thresholds (US-209) were never built: no column, no
+> setting, no UI."** All three exist. The column is
+> `users.usage_alert_thresholds jsonb NOT NULL DEFAULT '[80]'` (migration
+> 00071), the setting is `POST /api/payments/usage-alerts` validating against
+> `ALLOWED_THRESHOLDS = {50, 80, 95}`, and the UI is the chooser in
+> `src/pages/settings.tsx`. It is honoured at runtime too, not merely stored —
+> `usage-alert-watcher.tsx` calls `crossedThreshold(capUsage, usage.thresholds)`.
+> The bullet ten lines below had said so correctly the whole time, so the note
+> contradicted itself for one commit.
+>
+> **"Two client meters compare against a bare `0.8` literal of their own …
+> nothing guards the three against drifting apart."** Those literals are not
+> thresholds. In `usage-meter.tsx` and `sidebar-usage-widget.tsx` they are colour
+> stops in a four-step ramp (`>= 1.0`, `>= 0.8`, `>= 0.5`, else) that paints a
+> progress bar red. They fire nothing and gate nothing, so there is no drift risk
+> and no third copy — US-2441 should be read as being about `SOFT_WARN_PCT`
+> alone, not as pointing at these two files.
 
 - **Soft (80% of any cap):** a dismissible toast fires once per cap per month
   ("You've used 80% of your <cap> — upgrade to <next plan> for <new limit>").
@@ -406,7 +425,7 @@ had not drifted.
   `marketplacesCap: -1` are sentinels. Treating them as missing data silently
   downgrades Business-tier accounts.
 - **The "marketplaces" cap counts API connections**, not channels a seller can
-  reach. Browser-extension marketplaces (Poshmark, Mercari, Grailed) consume no
+  reach. Browser-extension marketplaces (Poshmark, Mercari, Grailed, Vinted) consume no
   connection. `MARKETPLACE_TIER` (US-718) is the source of truth for that split.
 
 ## ⚠️ Unresolved: the per-grade AI cost is stated three ways

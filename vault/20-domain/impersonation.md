@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/destructive-guard.ts
   - supabase/migrations/00521_impersonation_sessions.sql
   - services/edge-functions/src/tests/impersonation-bounds_test.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [admin, security, impersonation, audit]
 summary: Impersonation is capped at 30 minutes, recorded server-side, revoked on stop, and refused by every destructive route while it is live.
 ---
@@ -72,12 +72,31 @@ be revoked once minted.
 the destructive action rather than permitting it: being wrong that way costs a
 real user one retry, being wrong the other way is unrecoverable.
 
-### Enumerated, not blanket
+### Enumerated, not blanket — and what that cost
 
 `refuseWhileImpersonating` is called at each destructive site and the sites are
 listed in a test. A blanket middleware would have to enumerate what is
 destructive anyway and would silently permit anything it did not know about —
 the same failure shape US-2354 removed from the scope guard.
+
+**The list then did the thing the list was chosen to prevent.** Found 2026-08-08
+while re-reading this note: Whatnot's `/disconnect` had no guard. It landed in
+US-1661 *after* the enumeration was written, so nothing was wrong at the time and
+nothing announced it afterwards — an argument from a fixed set cannot fail when
+the set grows. Five marketplaces were guarded, one was not, and this page said
+"every marketplace disconnect" throughout. The exposure was bounded only by
+`WHATNOT_ENABLED` being off in prod, which is timing, not a control.
+
+Both are fixed: the route calls the guard, and a second test now **derives** the
+expected set by scanning `routes/flipdesk-*.ts` for a `/disconnect` handler
+rather than restating it, so a seventh marketplace is covered the day its file
+exists. It also fails if the derivation finds fewer than six routes, because a
+guard that silently checks nothing is the failure mode it exists to replace.
+
+The generalisable form, and the reason this is written down rather than just
+fixed: **enumeration is safe against removal and blind to addition.** Prefer it
+where the set is closed by definition, derive it where the set grows — and when
+you keep a hand-written list, say what would make it incomplete.
 
 ## Who cannot be impersonated
 

@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-07
+reviewed: 2026-08-08
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id.
 ---
@@ -64,6 +64,29 @@ For those, register in **both** lists: `SERVICE_ROLE_ONLY` (the justification)
 and `SERVICE_ONLY_FORCED` (which drags the table into the guard so the
 RLS-enabled + zero-policy state is asserted rather than assumed). Being invisible
 to the guard is not the same as being safe.
+
+### The third case: no owner column, but it DOES have a policy
+
+Added 2026-08-08 (US-2438). The pair above assumes deny-all, and the two lists
+answer different questions, so a table can need one without the other.
+
+`ai_prompt_versions` and `ai_prompt_block_versions` hold grading prompt text.
+A prompt belongs to the platform, not to a user, so neither has an owner column
+and neither was ever discovered — but they are not deny-all either: admins keep
+`SELECT`, and only writes are service-role (US-2348, migration 00510, after the
+original admin write grant let the SPA reach around the scope guard, the step-up,
+the audit row and the eval gate).
+
+So they belong in `SERVICE_ONLY_FORCED` **and not** in `SERVICE_ROLE_ONLY`.
+`SERVICE_ROLE_ONLY` is the excuse for having zero policies; claiming it for a
+table that has one would be false, and it would also switch off the very check
+worth having here — that the surviving `SELECT` policy is not `USING(true)`.
+
+The general form: **`SERVICE_ONLY_FORCED` is about COVERAGE, `SERVICE_ROLE_ONLY`
+is about JUSTIFICATION.** Ask "would anything go red if this table's RLS
+vanished?" first, and only then ask whether zero policies is the right shape.
+`ai_prompt_versions` answered no to the first question for months after 00510
+locked it down, because nobody asked it separately.
 
 ## Why discovery-by-regex rather than an explicit list
 

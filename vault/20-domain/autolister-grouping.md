@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - src/lib/autolister-grouping.ts
   - src/lib/reconcile-cluster.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-08
 tags: [flipdesk, autolister, photos, contract]
 summary: A 600-photo dump once became one group; the two causes were independent and neither is a bug in isolation, which is why the bounds are explicit constants rather than a tuned threshold.
 ---

@@ -14,6 +14,7 @@ import {
   upsertWhatnotConnection,
 } from "../lib/whatnot-client.ts";
 import { getWhatnotShop } from "../lib/whatnot-api.ts";
+import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 
 // Whatnot partner API endpoints (US-1661). Mounted at /api/flipdesk/whatnot.
 //
@@ -210,6 +211,19 @@ flipdeskWhatnotRoutes.post("/oauth/refresh", async (c) => {
 
 // ── Disconnect ─────────────────────────────────────────────────────
 flipdeskWhatnotRoutes.post("/disconnect", async (c) => {
+  // US-2351 AC3: an impersonating admin must not sever a seller's
+  // marketplace link — the disconnect would read as the seller's own.
+  //
+  // This was MISSING while the five sibling modules all had it, and the reason
+  // it survived is worth more than the fix. impersonation-bounds_test.ts
+  // enumerates the guarded sites rather than asserting a blanket middleware,
+  // and its own comment argues enumeration is safer because a middleware "would
+  // silently permit anything it did not know about". The enumerated list then
+  // silently permitted Whatnot, which landed after the list was written. A list
+  // has the same blind spot it was chosen to avoid; what closes it is deriving
+  // the expected set from the routes, which the test now does.
+  const blocked = await refuseWhileImpersonating(c, "Disconnecting a marketplace");
+  if (blocked) return blocked;
   if (!isWhatnotEnabled()) return c.json(DISABLED_BODY, 503);
   const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as
     | string
