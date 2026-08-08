@@ -2691,6 +2691,26 @@ Deno.test({
   },
 });
 
+// US-2425: the draft-coverage console aggregates AutoLister specifics coverage
+// across EVERY tenant (the question "is the pipeline improving, and in which
+// vertical?" is meaningless inside one seller's data), so it must be
+// unreachable by a seller. adminAuthMiddleware denies any non-admin caller
+// before a row is read, and requireScope("marketplace:write") gates it again.
+Deno.test({
+  name: "B (non-admin) cannot read the AutoLister draft-coverage console",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const path of [
+      "/api/admin/listing-coverage",
+      "/api/admin/listing-coverage?limit=1000",
+    ]) {
+      const res = await fetch(`${BASE}${path}`, { headers: authHeaders(B_JWT!) });
+      await res.body?.cancel();
+      assertDenied(res.status, `GET ${path}`);
+    }
+  },
+});
+
 // US-1092: appending to a garment's passport is tenant-scoped — B must not
 // append an event to A's garment (the public GET /:slug read is intentionally
 // anonymous + PII-free, so the WRITE path is the isolation surface). Ownership

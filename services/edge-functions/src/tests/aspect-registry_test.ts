@@ -525,3 +525,207 @@ Deno.test("columnBackedAspectNames is empty for a category with none, and dedupe
   assertEquals(columnBackedAspectNames([free("Brand"), free("Brand")]), ["Brand"]);
   assertEquals(columnBackedAspectNames([{ name: "  " } as RegistryAspect]), []);
 });
+
+// ── US-2422: the widened capture reaches real eBay aspects ──────────────────
+
+// Every canonical key the capture pass can fill needs somewhere to land, or
+// US-2421's extra keys are collected and then thrown away at publish.
+//
+// The exceptions are deliberate, and each one is a fact about eBay rather than
+// an oversight:
+//  - observations — the US-2421 catch-all holds facts with no named home, so by
+//    definition there is no aspect to map it to.
+//  - style_code / rn_number — internal identity anchors (comp search, brand
+//    decoders). eBay has no aspect for either; the tag's part number reaches
+//    the listing through `mpn`, which IS mapped.
+//  - upc — eBay takes it as a product IDENTIFIER on the inventory item, not as
+//    an item specific, so it must not be projected into the aspect map.
+const UNMAPPED_BY_DESIGN = ["style_code", "rn_number", "upc", "observations"];
+
+Deno.test("US-2422: every canonical attribute has a registry entry, bar the documented exceptions", async () => {
+  Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+  Deno.env.set(
+    "SUPABASE_SERVICE_ROLE_KEY",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+  );
+  const { CANONICAL_ATTRIBUTES } = await import("../lib/ai-extract.ts");
+  const mapped = new Set(
+    ASPECT_REGISTRY.entries
+      .filter((e) => e.source === "attribute")
+      .map((e) => e.attribute),
+  );
+  const unmapped = CANONICAL_ATTRIBUTES
+    .map((a) => a.key)
+    .filter((k) => !mapped.has(k));
+  assertEquals(unmapped, UNMAPPED_BY_DESIGN);
+});
+
+Deno.test("US-2422: a new key fills a SELECTION_ONLY aspect only with an allowed value", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    attributes: { occasion: "Casual", rise: "High Rise" },
+  };
+  // Both values are on the category's allowed list → both fill.
+  assertEquals(
+    resolveItemAspects(
+      item,
+      [sel("Occasion", ["Casual", "Formal", "Party/Cocktail"]), sel("Rise", ["High Rise", "Mid Rise"])],
+      {},
+    ),
+    { Occasion: ["Casual"], Rise: ["High Rise"] },
+  );
+  // A value the leaf does not offer is dropped, never guessed into place.
+  assertEquals(
+    resolveItemAspects(item, [sel("Occasion", ["Formal", "Wedding"])], {}),
+    {},
+  );
+});
+
+Deno.test("US-2422: new keys fill FREE_TEXT aspects verbatim", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    attributes: {
+      product_line: "Better Sweater",
+      fabric_weight: "Midweight",
+      season: "Winter",
+    },
+  };
+  assertEquals(
+    resolveItemAspects(
+      item,
+      [free("Product Line"), free("Fabric Weight"), free("Season")],
+      {},
+    ),
+    {
+      "Product Line": ["Better Sweater"],
+      "Fabric Weight": ["Midweight"],
+      Season: ["Winter"],
+    },
+  );
+  // product_line's synonym is used when the leaf names it "Collection".
+  assertEquals(
+    resolveItemAspects(item, [free("Collection")], {}),
+    { Collection: ["Better Sweater"] },
+  );
+});
+
+Deno.test("US-2422: accents is multi and honors the aspect's cardinality", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    attributes: { accents: ["Embroidered", "Beaded"] },
+  };
+  assertEquals(
+    resolveItemAspects(item, [{ name: "Accents", mode: "FREE_TEXT", multi: true }], {}),
+    { Accents: ["Embroidered", "Beaded"] },
+  );
+  // A SINGLE-cardinality leaf takes only the first value.
+  assertEquals(
+    resolveItemAspects(item, [{ name: "Accents", mode: "FREE_TEXT", multi: false }], {}),
+    { Accents: ["Embroidered"] },
+  );
+});
+
+Deno.test("US-2422: per-vertical names — shoes heel/toe/width, bags strap/hardware", () => {
+  const shoe: RegistryItem = {
+    item_category: "shoes",
+    attributes: {
+      heel_type: "Block",
+      toe_shape: "Almond Toe",
+      shoe_width: "Wide (E, W)",
+      shoe_shaft_height: "Ankle",
+    },
+  };
+  // The shoes vertical's own spellings win over the generic defaults.
+  assertEquals(
+    resolveItemAspects(
+      shoe,
+      [free("Heel Style"), free("Toe Type"), free("Width"), free("Boot Height")],
+      {},
+    ),
+    {
+      "Heel Style": ["Block"],
+      "Toe Type": ["Almond Toe"],
+      Width: ["Wide (E, W)"],
+      "Boot Height": ["Ankle"],
+    },
+  );
+  // "Width" is offered ONLY inside the shoes vertical — on a bag it is a
+  // numeric dimension, so a non-shoe item must not fill it.
+  assertEquals(
+    resolveItemAspects(
+      { item_category: "bags", attributes: { shoe_width: "Wide (E, W)" } },
+      [free("Width")],
+      {},
+    ),
+    {},
+  );
+  const bag: RegistryItem = {
+    item_category: "bags",
+    attributes: { strap_type: "Crossbody", hardware_color: "Gold-Tone" },
+  };
+  assertEquals(
+    resolveItemAspects(bag, [free("Handle/Strap Type"), free("Metal Color")], {}),
+    { "Handle/Strap Type": ["Crossbody"], "Metal Color": ["Gold-Tone"] },
+  );
+  // NOT "Hardware Material": that aspect wants brass/steel/resin. "Gold-Tone"
+  // is a tone, and eBay would either reject it or, worse, accept it and tell
+  // the buyer the hardware is made of gold.
+  assertEquals(resolveItemAspects(bag, [free("Hardware Material")], {}), {});
+});
+
+Deno.test("US-2422: lining answers whether it is lined, not what the lining is made of", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    attributes: { lining: "Fully Lined" },
+  };
+  assertEquals(resolveItemAspects(item, [free("Lining")], {}), {
+    Lining: ["Fully Lined"],
+  });
+  // "Lining Material" wants a fabric (Sherpa, Faux Fur, Polyester).
+  assertEquals(resolveItemAspects(item, [free("Lining Material")], {}), {});
+});
+
+Deno.test("US-2422: fabric_type takes the second name when the material column owns the first", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    material: "Cotton",
+    attributes: { fabric_type: "Denim" },
+  };
+  // The leaf exposes both: the column keeps "Material", fabric_type gets
+  // "Fabric Type". Neither swallows the other.
+  assertEquals(
+    resolveItemAspects(item, [free("Material"), free("Fabric Type")], {}),
+    { Material: ["Cotton"], "Fabric Type": ["Denim"] },
+  );
+  // With no material column value, fabric_type fills the one name there is.
+  assertEquals(
+    resolveItemAspects(
+      { item_category: "clothing", attributes: { fabric_type: "Denim" } },
+      [free("Material")],
+      {},
+    ),
+    { Material: ["Denim"] },
+  );
+});
+
+Deno.test("US-2422: character sits behind theme on a leaf that exposes both", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    attributes: { theme: "Star Wars", character: "Darth Vader" },
+  };
+  assertEquals(
+    resolveItemAspects(item, [free("Theme"), free("Character")], {}),
+    { Theme: ["Star Wars"], Character: ["Darth Vader"] },
+  );
+});
+
+Deno.test("US-2422: a new key never overwrites a value already on the draft", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    attributes: { occasion: "Casual" },
+  };
+  assertEquals(
+    resolveItemAspects(item, [free("Occasion")], { Occasion: ["Formal"] }),
+    {},
+  );
+});

@@ -17,7 +17,12 @@ interface ShareArgs {
   copiedMessage?: string;
 }
 
-const shareOrCopy = vi.fn(async (_data: ShareArgs) => "copied" as const);
+// The parameter is declared only to TYPE the mock — the payload is asserted
+// through `shareOrCopy.mock.calls`, not read here.
+const shareOrCopy = vi.fn(async (data: ShareArgs) => {
+  void data;
+  return "copied" as const;
+});
 const track = vi.fn();
 vi.mock("@/lib/share", () => ({
   shareOrCopy: (data: ShareArgs) => shareOrCopy(data),

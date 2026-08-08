@@ -19,6 +19,7 @@ import {
   type EbayCategorySuggestion,
 } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
+import type { ListingCategoryCandidate } from "@/types/database";
 import {
   remapAspectsForCategory,
   syncedItemFieldFor,
@@ -85,6 +86,13 @@ interface Props {
   // (a value not in eBay's allowed set, or an invented aspect). The matching
   // rows are highlighted so the seller fixes them before they drop at publish.
   needsReviewAspects?: string[] | null;
+  // US-2426: the leaves AutoLister weighed at generation time (US-2424), ranked
+  // best-first with element 0 the one it chose. Already scored and already on
+  // the draft, so showing them costs no AI and no Taxonomy call. Null/empty on
+  // any draft that never went through the scorer — an item that already had a
+  // category, an eBay-origin mirror, or a draft generated before migration
+  // 00540 — and the block simply doesn't render.
+  categoryCandidates?: ListingCategoryCandidate[] | null;
 }
 
 /**
@@ -123,6 +131,85 @@ export function nextAspectValues(
   return value ? [value] : [];
 }
 
+// ── US-2426: the leaves AutoLister passed over ──────────────────────────────
+
+/** How many runner-ups the block offers. Past three it is a taxonomy browser,
+ *  and the search box below already is one. */
+export const MAX_ALTERNATE_CANDIDATES = 3;
+
+/**
+ * The scored leaves worth offering right now: everything except the one that is
+ * selected. Filtering on the CURRENT selection rather than on "element 0"
+ * matters — after a switch, the list has to offer the way back, not the leaf the
+ * seller is already sitting on.
+ */
+export function alternateCategoryCandidates(
+  candidates: ListingCategoryCandidate[] | null | undefined,
+  selectedCategoryId: string | null,
+): ListingCategoryCandidate[] {
+  return (candidates ?? [])
+    .filter((c) => c.categoryId && c.categoryId !== selectedCategoryId)
+    .slice(0, MAX_ALTERNATE_CANDIDATES);
+}
+
+/**
+ * The runner-up rows. Presentational and exported so the render is testable
+ * without standing up the whole picker (react-query, Taxonomy hooks, the aspect
+ * grid). Renders NOTHING when there is nothing scored to offer — a draft that
+ * never went through the US-2424 scorer must not get an empty block.
+ */
+export function CategoryCandidateList({
+  candidates,
+  onUse,
+}: {
+  candidates: ListingCategoryCandidate[];
+  onUse: (categoryId: string, categoryPath: string | null) => void;
+}) {
+  if (candidates.length === 0) return null;
+  return (
+    <div className="border-t px-3 pb-3 pt-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Also considered
+      </div>
+      <ul className="mt-1 space-y-1">
+        {candidates.map((c) => (
+          <li key={c.categoryId} className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-xs font-medium">
+                {c.categoryPath ?? `Category ${c.categoryId}`}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {c.requiredTotal > 0 ? (
+                  <>
+                    Fills{" "}
+                    <span className="tabular-nums">
+                      {c.requiredFilled} of {c.requiredTotal}
+                    </span>{" "}
+                    required
+                    {c.requiredMissing.length > 0 && (
+                      <> · missing {c.requiredMissing.slice(0, 3).join(", ")}</>
+                    )}
+                  </>
+                ) : (
+                  "No required specifics"
+                )}
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              onClick={() => onUse(c.categoryId, c.categoryPath ?? null)}
+            >
+              Use this
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // 250ms debounce — eBay's Taxonomy quota is generous but not free.
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -148,6 +235,7 @@ export function EbayCategoryPicker({
   onSourcesChange,
   onMissingRequiredChange,
   needsReviewAspects,
+  categoryCandidates,
 }: Props) {
   const [query, setQuery] = useState(seedQuery ?? "");
   const debounced = useDebounced(query.trim(), 250);
@@ -476,18 +564,39 @@ export function EbayCategoryPicker({
   // inline before calling publish. Depend on a stable joined key (the names
   // array gets a fresh identity each render) but lift the real array. Newline
   // is a safe delimiter — eBay aspect names never contain one.
+  // US-2426: the scored leaves AutoLister passed over, minus whichever one is
+  // selected right now.
+  const alternateCandidates = useMemo(
+    () => alternateCategoryCandidates(categoryCandidates, categoryId),
+    [categoryCandidates, categoryId],
+  );
+  // The score for the leaf currently selected, when the scorer saw it. Shown
+  // beside the alternatives so "5 of 6" means something to compare against.
+  const selectedCandidate = useMemo(
+    () => (categoryCandidates ?? []).find((c) => c.categoryId === categoryId) ?? null,
+    [categoryCandidates, categoryId],
+  );
+
   const missingKey = missingRequiredNames.join("\n");
   useEffect(() => {
     onMissingRequiredChange?.(missingRequiredNames);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missingKey, onMissingRequiredChange]);
 
-  function pickCategory(s: EbayCategorySuggestion) {
-    setCategoryId(s.categoryId);
-    setCategoryPath(s.categoryTreePath);
+  // Applying a category NEVER clears the aspect values. The picker prunes them
+  // against the new spec once it loads (appliedCategoryRef), so a specific the
+  // new leaf also has survives the switch — which is the whole point of the
+  // "Change category" flow and, since US-2426, of the runner-up switch too.
+  function applyCategory(id: string, path: string | null) {
+    setCategoryId(id);
+    setCategoryPath(path);
     setQuery("");
     setChanging(false);
-    onCategoryChange?.(s.categoryId, s.categoryTreePath);
+    onCategoryChange?.(id, path);
+  }
+
+  function pickCategory(s: EbayCategorySuggestion) {
+    applyCategory(s.categoryId, s.categoryTreePath);
   }
 
   function clearCategory() {
@@ -647,28 +756,52 @@ export function EbayCategoryPicker({
       <CardContent className="space-y-4">
         {/* Category search / chosen path */}
         {(categoryPath || categoryId) && !changing ? (
-          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3 text-sm">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Selected category
+          // One block, not a card holding cards: the chosen leaf, then the
+          // alternatives AutoLister scored against it, sharing a border.
+          <div className="rounded-md border bg-muted/30 text-sm">
+            <div className="flex items-center justify-between gap-3 p-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Selected category
+                </div>
+                <div className="font-medium">
+                  {displayCategoryPath ?? `Category ${categoryId}`}
+                </div>
+                {selectedCandidate && selectedCandidate.requiredTotal > 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    Your item fills{" "}
+                    <span className="tabular-nums text-foreground">
+                      {selectedCandidate.requiredFilled} of{" "}
+                      {selectedCandidate.requiredTotal}
+                    </span>{" "}
+                    required specifics here
+                  </div>
+                )}
               </div>
-              <div className="font-medium">
-                {displayCategoryPath ?? `Category ${categoryId}`}
+              <div className="flex shrink-0 items-center gap-2">
+                <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setChanging(true);
+                    setQuery("");
+                  }}
+                >
+                  Change category
+                </Button>
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setChanging(true);
-                  setQuery("");
-                }}
-              >
-                Change category
-              </Button>
-            </div>
+
+            {/* US-2426: the runner-ups AutoLister already scored (US-2424).
+                Switching keeps every specific you have filled — applyCategory
+                leaves the aspect state alone and the picker prunes it against
+                the new leaf's spec. No AI and no Taxonomy call: these numbers
+                came off the draft. */}
+            <CategoryCandidateList
+              candidates={alternateCandidates}
+              onUse={applyCategory}
+            />
           </div>
         ) : (
           <div className="space-y-2">

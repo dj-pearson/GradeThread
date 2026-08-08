@@ -2357,6 +2357,9 @@ export function FlipdeskComposerPage({
             needsReviewAspects={(listing?.aspect_review ?? []).map(
               (a) => a.aspect,
             )}
+            // US-2426: US-2424 already scored and stored these at generation
+            // time; the picker renders them as one-click alternatives.
+            categoryCandidates={listing?.category_candidates ?? null}
             initialised={initialised}
             measurements={measurements}
             setMeasurements={setMeasurements}

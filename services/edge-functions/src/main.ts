@@ -70,6 +70,7 @@ import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminPricingRoutes } from "./routes/admin-pricing.ts";
 import { adminConfigRoutes } from "./routes/admin-config.ts";
 import { adminCategoryMapRoutes } from "./routes/admin-category-map.ts";
+import { adminListingCoverageRoutes } from "./routes/admin-listing-coverage.ts";
 import { adminWaitlistRoutes } from "./routes/admin-waitlist.ts";
 import { waitlistRoutes } from "./routes/waitlist.ts";
 import { accessGateMiddleware } from "./lib/access-gate.ts";
@@ -1192,6 +1193,8 @@ app.route("/api/admin/config", adminConfigRoutes);
 // US-722 per-platform category map: extend/override/confirm the no-API taxonomy
 // mappings read by every seller's listing generation (admin JWT via /api/admin/*).
 app.route("/api/admin/category-map", adminCategoryMapRoutes);
+// US-2425: median eBay-aspect coverage of generated drafts, by leaf category.
+app.route("/api/admin/listing-coverage", adminListingCoverageRoutes);
 // US-585 waitlist/beta-gating admin surface (admin JWT + AAL2 via /api/admin/*).
 app.route("/api/admin/waitlist", adminWaitlistRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);

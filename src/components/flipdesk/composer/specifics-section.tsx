@@ -2,7 +2,7 @@ import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { Card, CardContent } from "@/components/ui/card";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
-import type { ItemFullRow } from "@/types/database";
+import type { ItemFullRow, ListingCategoryCandidate } from "@/types/database";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import type { ItemAspectSource } from "@/lib/ebay-prefill";
 import type { useRecommendedCoverage } from "@/hooks/use-ebay";
@@ -22,6 +22,10 @@ export interface SpecificsSectionProps {
   savedSources: AspectSourceMap | null;
   /** US-828: aspects generation reconciliation flagged. */
   needsReviewAspects: string[];
+  /** US-2426: the leaves AutoLister scored at generation time (US-2424), so the
+   *  picker can offer a one-click switch to a runner-up. Null on any draft that
+   *  never went through the scorer. */
+  categoryCandidates: ListingCategoryCandidate[] | null;
   initialised: boolean;
   measurements: Record<string, number | string>;
   setMeasurements: (next: Record<string, number | string>) => void;
@@ -46,6 +50,7 @@ export function SpecificsSection({
   savedAspects,
   savedSources,
   needsReviewAspects,
+  categoryCandidates,
   initialised,
   measurements,
   setMeasurements,
@@ -136,6 +141,9 @@ export function SpecificsSection({
         // US-828: highlight the aspect rows generation reconciliation
         // flagged (a value not in eBay's allowed set / an invented aspect).
         needsReviewAspects={needsReviewAspects}
+        // US-2426: the runner-up leaves and their required-aspect scores, read
+        // straight off the draft — no fresh AI or Taxonomy call.
+        categoryCandidates={categoryCandidates}
       />
     )}
     </div>

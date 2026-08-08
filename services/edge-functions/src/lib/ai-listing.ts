@@ -14,7 +14,12 @@
 // listing_gen seed row in migration 00053.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { ASPECT_REGISTRY } from "./aspect-registry.ts";
+import {
+  ASPECT_REGISTRY,
+  type RegistryAspect,
+  type RegistryItem,
+  resolveItemAspects,
+} from "./aspect-registry.ts";
 import {
   getAiTemperature,
   getAnthropicClient,
@@ -47,7 +52,15 @@ import {
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { ensurePassportForGradeReport } from "./passport-write.ts";
-import { sourcesFor } from "./aspect-provenance.ts";
+import {
+  type AspectSourceMap,
+  mergeSources,
+  type RankedAspectSpec,
+  recommendedAspectCoverage,
+  type RequiredAspectSpec,
+  requiredMissingAspects,
+  sourcesFor,
+} from "./aspect-provenance.ts";
 import {
   MAX_ALLOWED_VALUES_PER_ASPECT,
   prioritizeByDemand,
@@ -1044,7 +1057,7 @@ export function aspectCarryOver(
   item: Pick<
     ItemRow,
     "size" | "color" | "material" | "style" | "attributes"
-  >,
+  > & { item_category?: string | null },
   aspects: Record<string, string[]>,
 ): Record<string, unknown> {
   // Case-insensitive aspect lookup (mirrors reverseProjectAspectColumns).
@@ -1053,30 +1066,51 @@ export function aspectCarryOver(
     const l = key.trim().toLowerCase();
     if (l && !byLower.has(l)) byLower.set(l, values);
   }
-  const valuesFor = (names: string[]): string[] => {
+  // ONE aspect feeds ONE canonical field. Registry entries deliberately share
+  // candidate names — the `material` column and the `fabric_type` attribute both
+  // list "Material"/"Fabric Type", because a leaf exposing both means different
+  // things by them (fiber vs cloth construction). Without this claim set, a
+  // single "Material: Wool" aspect would be copied onto the material column AND
+  // the fabric_type attribute, writing one fact twice. Entry order decides who
+  // wins, exactly as ownedAspectName does in the forward projection.
+  const claimed = new Set<string>();
+  const valuesFor = (names: string[]): { name: string; values: string[] } | null => {
     for (const name of names) {
-      const vals = (byLower.get(name.toLowerCase()) ?? [])
+      const l = name.toLowerCase();
+      if (claimed.has(l)) continue;
+      const vals = (byLower.get(l) ?? [])
         .map((v) => v.trim())
         .filter((v) => v !== "");
-      if (vals.length > 0) return vals;
+      if (vals.length > 0) return { name: l, values: vals };
     }
-    return [];
+    return null;
   };
 
   const update: Record<string, unknown> = {};
   const existingAttrs = (item.attributes ?? {}) as Record<string, unknown>;
   const attrFill: Record<string, string> = {};
 
+  // Per-vertical names apply only to THEIR vertical when we know which one this
+  // item is. Flattening every byCategory list unconditionally is how the
+  // shoes-only "Width" candidate captured a handbag leaf's numeric Width (in
+  // inches) into attributes.shoe_width. When item_category is unknown we still
+  // fall back to the union, because that is all a category-less caller can do —
+  // the same spec-less compromise reverseColumnAspects makes.
+  const vertical = item.item_category ?? null;
+  const verticalExtras = (entry: (typeof ASPECT_REGISTRY.entries)[number]): string[] =>
+    vertical
+      ? entry.byCategory?.[vertical] ?? []
+      : Object.values(entry.byCategory ?? {}).flat();
+
   for (const entry of ASPECT_REGISTRY.entries) {
     if (entry.key === "brand") continue; // normalizedBrand path owns it
-    // All candidate names, category variants included — the aspect map is
-    // keyed by the REAL names the model emitted, so scan every alternate.
-    const candidates = [
-      ...entry.aspects,
-      ...Object.values(entry.byCategory ?? {}).flat(),
-    ];
-    const values = valuesFor(candidates);
-    if (values.length === 0) continue;
+    // All candidate names for this item's vertical — the aspect map is keyed by
+    // the REAL names the model emitted, so scan every alternate that applies.
+    const candidates = [...entry.aspects, ...verticalExtras(entry)];
+    const hit = valuesFor(candidates);
+    if (!hit) continue;
+    claimed.add(hit.name);
+    const values = hit.values;
 
     if (entry.source === "column" && entry.column) {
       const stored = item[entry.column as keyof typeof item];
@@ -1105,6 +1139,240 @@ export function listingNeedsReview(
 ): boolean {
   if (overallConfidence < threshold) return true;
   return Object.values(fieldConfidence).some((c) => c < threshold);
+}
+
+// ── US-2423: captured attributes reach the DRAFT, not just the publish ──────
+
+/**
+ * The category spec in the shape the aspect registry resolver expects.
+ * `EbayAspectSpec` is the extract-pass view of the same eBay payload — same
+ * names, different field names for cardinality — so this is a rename, not a
+ * reinterpretation.
+ */
+export function registryAspectsFromSpecs(specs: EbayAspectSpec[]): RegistryAspect[] {
+  return specs.map((s) => ({
+    name: s.name,
+    mode: s.mode,
+    multi: s.cardinality === "MULTI",
+    allowedValues: s.allowedValues,
+  }));
+}
+
+/**
+ * US-2423: project the item's own captured attributes (US-821/US-2421) onto the
+ * category's aspects at GENERATION time.
+ *
+ * The registry projection already ran at publish, which meant a seller opening a
+ * fresh AutoLister draft saw blank specifics for facts the extract pass had
+ * read off the tag hours earlier — and either retyped them or shipped without
+ * them. Running it here puts the answer on the draft the seller actually looks
+ * at.
+ *
+ * FILL-ONLY by construction: resolveItemAspects returns only names absent from
+ * `existing`, so nothing the model or the refine pass decided is touched.
+ */
+export function deriveInventoryAspects(
+  item: RegistryItem,
+  specs: EbayAspectSpec[],
+  existing: Record<string, string[]>,
+): Record<string, string[]> {
+  if (specs.length === 0) return {};
+  return resolveItemAspects(item, registryAspectsFromSpecs(specs), existing);
+}
+
+// ── US-2425: how complete IS this draft? ────────────────────────────────────
+
+/** One tier of eBay-aspect coverage for a draft. */
+export interface AspectCoverageTier {
+  filled: number;
+  total: number;
+  /** The unfilled aspect names — ranked by buyer search volume for the
+   *  recommended tier, in category-spec order for the required one. */
+  missing: string[];
+}
+
+/** What US-2425 stores on `listings.aspect_coverage`. */
+export interface DraftAspectCoverage {
+  categoryId: string | null;
+  /** A gap here BLOCKS the publish. */
+  required: AspectCoverageTier;
+  /** A gap here only costs search placement. */
+  recommended: AspectCoverageTier;
+  computedAt: string;
+}
+
+/**
+ * The raw eBay Taxonomy aspect array, which carries two fields the flattened
+ * `EbayAspectSpec` drops and the coverage metric needs: `aspectUsage`
+ * (REQUIRED / RECOMMENDED / OPTIONAL) and `relevanceIndicator.searchCount`.
+ */
+export function rankedAspectSpecs(aspectsResponse: unknown): RankedAspectSpec[] {
+  const top = (aspectsResponse as { aspects?: unknown } | null)?.aspects;
+  const raw = (top as { aspects?: unknown } | null)?.aspects;
+  return Array.isArray(raw) ? (raw as RankedAspectSpec[]) : [];
+}
+
+/**
+ * US-2425: score a finished draft against its category's aspect spec.
+ *
+ * The two tiers stay separate because they mean different things to a seller: a
+ * missing REQUIRED aspect is a publish blocker they must clear today, a missing
+ * RECOMMENDED one is search placement they are leaving on the table. Blending
+ * them into one percentage would hide exactly the distinction that decides
+ * whether a draft can ship. Pure and deterministic — the same draft always
+ * scores the same, which is the point of having a number at all.
+ */
+export function buildAspectCoverage(
+  specs: RankedAspectSpec[],
+  aspectMap: Record<string, string[]>,
+  categoryId: string | null,
+  computedAt: string,
+): DraftAspectCoverage {
+  const requiredTotal = specs.filter(
+    (s) => s.aspectConstraint?.aspectRequired && (s.localizedAspectName ?? "").length > 0,
+  ).length;
+  const requiredMissing = requiredMissingAspects(specs, aspectMap);
+  const recommended = recommendedAspectCoverage(specs, aspectMap);
+  return {
+    categoryId,
+    required: {
+      filled: requiredTotal - requiredMissing.length,
+      total: requiredTotal,
+      missing: requiredMissing,
+    },
+    recommended,
+    computedAt,
+  };
+}
+
+// ── US-2424: pick the leaf the item can actually FILL ───────────────────────
+
+/** How many of eBay's own suggestions we score. Each costs one cached Taxonomy
+ *  read and no AI; past ~5 the suggestions stop being plausible leaves. */
+export const CATEGORY_CANDIDATE_LIMIT = 5;
+
+/** What a scored candidate contributes, persisted on the draft so the composer
+ *  can offer a one-click switch without re-running generation. */
+export interface CategoryCandidateScore {
+  categoryId: string;
+  categoryPath: string | null;
+  /** eBay's own position in the suggestion list (0 = its top hit). */
+  rank: number;
+  /** REQUIRED aspects of this leaf the item can already fill. */
+  requiredFilled: number;
+  /** REQUIRED aspects this leaf has in total. */
+  requiredTotal: number;
+  /** The required aspects still unfilled — what the seller would owe. */
+  requiredMissing: string[];
+}
+
+/** EbayAspectSpec → the minimal shape requiredMissingAspects reads, so the
+ *  scorer routes through the ONE canonical required-aspect rule rather than
+ *  re-deciding what "required" means. */
+function toRequiredSpecs(specs: EbayAspectSpec[]): RequiredAspectSpec[] {
+  return specs.map((s) => ({
+    localizedAspectName: s.name,
+    aspectConstraint: { aspectRequired: s.required },
+  }));
+}
+
+/**
+ * The aspect map a candidate leaf would START with: the generated specifics
+ * whose names this leaf actually has, plus everything the registry can derive
+ * from the item's own columns and captured attributes.
+ *
+ * Names are matched case-insensitively and rewritten to the leaf's own casing —
+ * a generated "color" and eBay's "Color" are the same aspect, and counting them
+ * as different is how a leaf looks emptier than it is.
+ */
+export function projectedAspectsForCategory(
+  item: RegistryItem,
+  generated: Record<string, string[]>,
+  specs: EbayAspectSpec[],
+): Record<string, string[]> {
+  const canonical = new Map<string, string>();
+  for (const s of specs) {
+    const l = s.name.trim().toLowerCase();
+    if (l && !canonical.has(l)) canonical.set(l, s.name);
+  }
+  const map: Record<string, string[]> = {};
+  for (const [name, values] of Object.entries(generated)) {
+    const hit = canonical.get(name.trim().toLowerCase());
+    if (hit && values.length > 0) map[hit] = values;
+  }
+  return { ...map, ...deriveInventoryAspects(item, specs, map) };
+}
+
+/**
+ * US-2424: score ONE candidate leaf by how much of its REQUIRED specifics the
+ * item can already satisfy. Pure and deterministic — no AI call, no network.
+ */
+export function scoreCategoryCandidate(
+  candidate: { categoryId: string; categoryPath: string | null; rank: number },
+  item: RegistryItem,
+  generated: Record<string, string[]>,
+  specs: EbayAspectSpec[],
+): CategoryCandidateScore {
+  const projected = projectedAspectsForCategory(item, generated, specs);
+  const required = toRequiredSpecs(specs);
+  const requiredTotal = required.filter(
+    (r) => r.aspectConstraint?.aspectRequired,
+  ).length;
+  const requiredMissing = requiredMissingAspects(required, projected);
+  return {
+    categoryId: candidate.categoryId,
+    categoryPath: candidate.categoryPath,
+    rank: candidate.rank,
+    requiredFilled: requiredTotal - requiredMissing.length,
+    requiredTotal,
+    requiredMissing,
+  };
+}
+
+/**
+ * Rank scored candidates best-first.
+ *
+ * Order, and why:
+ *  1. MORE required aspects filled. A required gap is a hard publish blocker,
+ *     so the leaf that leaves fewest of them is the one the seller can actually
+ *     list today.
+ *  2. Fewer required aspects still missing — separates a 5-of-5 leaf from a
+ *     5-of-9 one when both filled five.
+ *  3. eBay's own suggestion order. Every tie ends here, which is what makes the
+ *     whole thing deterministic: identical inputs always yield the same leaf,
+ *     and a single-candidate result behaves exactly as it did before US-2424.
+ */
+export function rankCategoryCandidates(
+  scores: CategoryCandidateScore[],
+): CategoryCandidateScore[] {
+  return [...scores].sort(
+    (a, b) =>
+      b.requiredFilled - a.requiredFilled ||
+      a.requiredMissing.length - b.requiredMissing.length ||
+      a.rank - b.rank,
+  );
+}
+
+/**
+ * US-2423: the provenance map for a freshly generated draft. Every aspect the
+ * model or refiner produced is `ai_extracted`; the ones the registry filled
+ * from the item's stored attributes are `inventory_derived`.
+ *
+ * The split matters downstream: `reverseColumnAspects` writes an `ai_extracted`
+ * or `manual` aspect back onto the item's columns but deliberately never writes
+ * back an `inventory_derived` one — because that value CAME from the item, and
+ * echoing it back could resurrect data the seller has since changed.
+ */
+export function buildAspectSources(
+  aspects: Record<string, string[]>,
+  inventoryDerived: Set<string>,
+): AspectSourceMap {
+  const aiNames = Object.keys(aspects).filter((n) => !inventoryDerived.has(n));
+  return mergeSources(
+    sourcesFor(aiNames, "ai_extracted"),
+    sourcesFor(inventoryDerived, "inventory_derived"),
+    aspects,
+  );
 }
 
 export interface GenerateListingOptions {
@@ -1142,6 +1410,9 @@ interface ItemRow {
   measurements: Record<string, unknown> | null;
   ebay_category_id: string | null;
   attributes: Record<string, unknown> | null;
+  // US-2423: the vertical drives the registry's per-category aspect names
+  // (shoes "Heel Style", bags "Handle/Strap Type"), so the projection needs it.
+  item_category: string | null;
 }
 
 // The tag-OCR ground-truth pass reads every tag/care-label photo; more than a
@@ -1196,7 +1467,7 @@ export async function generateListing(
   const { data: itemData, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, style, size, color, material, description, condition_notes, measurements, ai_field_sources, ebay_category_id, grade_report_id, attributes",
+      "id, user_id, title, brand, style, size, color, material, description, condition_notes, measurements, ai_field_sources, ebay_category_id, grade_report_id, attributes, item_category",
     )
     .eq("id", itemId)
     .eq("user_id", ownerId)
@@ -1354,13 +1625,86 @@ export async function generateListing(
   });
   const listing = gen.listing;
 
+  // The item as the aspect registry sees it — its columns plus everything the
+  // capture pass stored on `attributes`. Built once here because BOTH the
+  // category choice (step 5, US-2424) and the draft projection (step 6c-bis,
+  // US-2423) score/fill from exactly the same picture of the item.
+  const registryItem: RegistryItem = {
+    item_category: item.item_category,
+    brand: normalizedBrand ?? item.brand,
+    size: item.size,
+    color: item.color,
+    material: item.material,
+    style: item.style,
+    title: item.title,
+    description: item.description,
+    condition_notes: item.condition_notes,
+    attributes:
+      (item.attributes as Record<string, string | string[]> | null) ?? null,
+  };
+
   // 5. Resolve a real eBay leaf category when the item didn't have one.
+  //
+  // US-2424: eBay's Taxonomy suggestions are keyword hits, not judgments about
+  // THIS item. Taking suggestions[0] on faith regularly landed a leaf whose
+  // required specifics the item could not fill — and every one of those is a
+  // publish blocker the seller has to clear by hand. So score the top few
+  // instead: which leaf can the item already satisfy? No extra AI — the score
+  // is a deterministic count over the cached category specs, and eBay's own
+  // order is the tie-break, so one candidate behaves exactly as before.
+  let categoryCandidates: CategoryCandidateScore[] = [];
   if (!categoryId && listing.suggested_category_query) {
     try {
       const suggestions = await suggestCategories(listing.suggested_category_query);
       if (suggestions.length > 0) {
-        categoryId = suggestions[0]!.categoryId;
-        categoryPath = suggestions[0]!.categoryTreePath;
+        const shortlist = suggestions.slice(0, CATEGORY_CANDIDATE_LIMIT);
+        const scored: CategoryCandidateScore[] = [];
+        for (const [rank, s] of shortlist.entries()) {
+          try {
+            const specs = buildAspectSpecsForCategory(
+              await getCategoryAspects(s.categoryId),
+            );
+            scored.push(
+              scoreCategoryCandidate(
+                {
+                  categoryId: s.categoryId,
+                  categoryPath: s.categoryTreePath,
+                  rank,
+                },
+                registryItem,
+                listing.item_specifics,
+                specs,
+              ),
+            );
+          } catch (err) {
+            // A candidate whose spec we can't read is not disqualified — it
+            // just scores zero and falls back to its eBay rank. Dropping it
+            // could leave us with nothing at all.
+            console.error(
+              `[AI Listing] category candidate ${s.categoryId} spec read failed:`,
+              err,
+            );
+            scored.push({
+              categoryId: s.categoryId,
+              categoryPath: s.categoryTreePath,
+              rank,
+              requiredFilled: 0,
+              requiredTotal: 0,
+              requiredMissing: [],
+            });
+          }
+        }
+        categoryCandidates = rankCategoryCandidates(scored);
+        const best = categoryCandidates[0]!;
+        categoryId = best.categoryId;
+        categoryPath = best.categoryPath;
+        if (categoryCandidates.length > 1) {
+          console.log(
+            `[AI Listing] category ${best.categoryId} chosen for item ${itemId}: ` +
+              `${best.requiredFilled}/${best.requiredTotal} required aspects fillable ` +
+              `(eBay rank ${best.rank})`,
+          );
+        }
       }
     } catch (err) {
       console.error("[AI Listing] suggestCategories failed:", err);
@@ -1382,8 +1726,11 @@ export async function generateListing(
   let extractCost = 0;
   let extractTokensIn = 0;
   let extractTokensOut = 0;
+  // US-2425: the RAW category payload, kept because the coverage metric reads
+  // two fields the flattened EbayAspectSpec drops — `aspectUsage` (REQUIRED vs
+  // RECOMMENDED) and `relevanceIndicator.searchCount` (what buyers filter on).
+  let rawAspectsResponse: unknown = null;
   if (categoryId) {
-    let rawAspectsResponse: unknown = null;
     try {
       rawAspectsResponse = await getCategoryAspects(categoryId);
     } catch (err) {
@@ -1483,6 +1830,25 @@ export async function generateListing(
     }
   }
 
+  // 6c-bis. US-2423: fill what the item ALREADY knows. Everything the capture
+  // pass read (pattern, fit, neckline, and the US-2421 widening — accents,
+  // occasion, heel type, strap type …) lives on inventory_items.attributes, but
+  // until now it only reached eBay at PUBLISH. So a fresh draft showed those
+  // specifics blank and the seller retyped facts we had already extracted.
+  //
+  // Fill-only: resolveItemAspects never returns a name that `itemSpecifics`
+  // already holds, so a model- or refiner-set value always wins. The names
+  // filled here are tracked so they land as `inventory_derived` provenance —
+  // which is what lets a later manual edit outrank them (mergeSources).
+  const inventoryDerivedNames = new Set<string>();
+  if (aspectSpecs.length > 0) {
+    const derived = deriveInventoryAspects(registryItem, aspectSpecs, itemSpecifics);
+    for (const name of Object.keys(derived)) inventoryDerivedNames.add(name);
+    if (inventoryDerivedNames.size > 0) {
+      itemSpecifics = { ...itemSpecifics, ...derived };
+    }
+  }
+
   // 6d. US-828: reconcile the assembled specifics against the category spec —
   // validate every aspect NAME and VALUE, normalize SELECTION_ONLY near-misses
   // through the US-823 normalizer, and capture anything still unmatched as
@@ -1506,6 +1872,21 @@ export async function generateListing(
       );
     }
   }
+
+  // 6e. US-2425: score the finished specifics against the category spec. This is
+  // the number that makes every other change in this pipeline measurable — a
+  // wider capture, a better category pick, a new projection either moves it or
+  // it didn't help. Required and recommended stay separate: a required gap
+  // blocks the publish, a recommended one only costs search placement.
+  // Null when no category resolved (nothing to score against).
+  const aspectCoverage: DraftAspectCoverage | null = rawAspectsResponse
+    ? buildAspectCoverage(
+      rankedAspectSpecs(rawAspectsResponse),
+      itemSpecifics,
+      categoryId,
+      new Date().toISOString(),
+    )
+    : null;
 
   // 7. Price (US-542): prefer REALIZED/sold comps; price_is_estimated=false ONLY
   // when the price is backed by sold data. Active Browse comps are ASKING prices
@@ -1737,6 +2118,21 @@ export async function generateListing(
     // reason) so the drafts cockpit + composer can surface exactly which
     // specifics to fix, instead of an opaque "needs review" boolean.
     aspect_review: aspectReview.length > 0 ? aspectReview : null,
+    // US-2424: the ranked leaf candidates and the score behind the pick, so the
+    // composer can offer a one-click switch to the runner-up without a fresh
+    // generation run.
+    //
+    // OMITTED, not nulled, when this run scored nothing. draftFields is also the
+    // UPDATE payload for a re-generation, and a re-generation always skips the
+    // scorer — step 9 of the previous run persisted ebay_category_id onto the
+    // item, so step 5's `if (!categoryId)` is false. Writing null here would
+    // therefore wipe the runner-ups on the second generate, which is exactly
+    // when a seller is most likely to be looking for them.
+    ...(categoryCandidates.length > 0
+      ? { category_candidates: categoryCandidates }
+      : {}),
+    // US-2425: the draft's eBay-aspect coverage at generation time, both tiers.
+    aspect_coverage: aspectCoverage,
     // US-546: A/B title variants (AC3) + the demand terms fed to the prompt (AC2)
     // for transparency/debug. active_title_variant tracks the live label.
     title_variants: titleVariants,
@@ -1801,10 +2197,15 @@ export async function generateListing(
   const itemUpdate: Record<string, unknown> = {
     ebay_category_id: categoryId,
     ebay_aspects: itemSpecifics,
-    // US-825: everything AutoLister generated is AI-extracted provenance. This
+    // US-825: everything the AI produced carries ai_extracted provenance; this
     // is a fresh AI pass, so the source map is rebuilt from the generated keys
-    // (a later deterministic refill / manual edit refines individual entries).
-    ebay_aspect_sources: sourcesFor(Object.keys(itemSpecifics), "ai_extracted"),
+    // (a later manual edit refines individual entries).
+    // US-2423: the aspects the registry filled from the item's own attributes
+    // are NOT model output — they are `inventory_derived`, the lowest rung of
+    // the precedence ladder, so a seller edit (manual) or a later AI pass both
+    // outrank them. Passing itemSpecifics as the value map drops any name the
+    // reconcile pass removed, so the source map can't outlive its values.
+    ebay_aspect_sources: buildAspectSources(itemSpecifics, inventoryDerivedNames),
     ai_generated_aspects_at: new Date().toISOString(),
   };
   if (normalizedBrand && normalizedBrand !== item.brand) {
@@ -1867,6 +2268,21 @@ export async function generateListing(
           tag_ocr_model: tagOcrModel,
           tag_ocr_tokens_in: tagOcrTokensIn,
           tag_ocr_tokens_out: tagOcrTokensOut,
+          // US-2425: coverage travels WITH the generation telemetry, so a run's
+          // cost and its completeness can be read off the same row — otherwise
+          // "we spent more and got more" stays an assertion.
+          aspect_coverage: aspectCoverage,
+          // US-2424: what the category pick cost in required-aspect terms, and
+          // how many leaves were weighed to get there.
+          category_choice: categoryCandidates.length > 0
+            ? {
+              chosen: categoryCandidates[0]!.categoryId,
+              required_filled: categoryCandidates[0]!.requiredFilled,
+              required_total: categoryCandidates[0]!.requiredTotal,
+              ebay_rank: categoryCandidates[0]!.rank,
+              candidates_considered: categoryCandidates.length,
+            }
+            : null,
         },
       },
     });
