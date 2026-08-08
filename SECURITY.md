@@ -41,12 +41,18 @@ branches.
   users access only their own data.
 - The edge service verifies the caller's JWT before any privileged work; admin
   endpoints additionally check the `admin`/`super_admin` role server-side.
-- Marketplace OAuth tokens are encrypted at rest (AES-256-GCM).
+- Marketplace OAuth tokens are encrypted at rest (AES-256-GCM). The full
+  at-rest inventory — which columns, which buckets, which key, and what is
+  **not** encrypted — is
+  [Encryption at rest](vault/10-ops/encryption-at-rest.md). That note is the
+  single source of truth; this summary deliberately does not restate it, so the
+  two cannot drift.
 - Stripe and eBay webhooks verify HMAC signatures and are idempotent.
 - Secrets are scanned in CI (gitleaks) and pre-commit; production debug bypasses
   fail closed.
 
 ## Related internal docs
 
+- [Encryption at rest](vault/10-ops/encryption-at-rest.md)
 - [Incident response runbook](vault/10-ops/incident-response.md)
 - [Key & secret rotation runbook](vault/10-ops/key-rotation.md)

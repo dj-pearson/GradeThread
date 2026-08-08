@@ -2075,7 +2075,7 @@
     },
     {
       "id": "US-2418",
-      "passes": false,
+      "passes": true,
       "title": "No single source of truth for what is encrypted at rest — enterprise security questionnaires cannot be answered without re-auditing the repo",
       "description": "As GradeThread selling to an enterprise reseller, we want one maintained note that states exactly which data is encrypted at rest, how, and with which key, so that a security questionnaire is answered from a document instead of from a fresh code audit that risks overstating the posture.",
       "acceptanceCriteria": [
@@ -2091,7 +2091,8 @@
         "US-2415",
         "US-2416",
         "US-2417"
-      ]
+      ],
+      "notes": "2026-08-08 DONE, all 6 ACs. vault/10-ops/encryption-at-rest.md, type reference (not contract — it is an inventory, not a rule the code must obey, and contract drift is a hard CI error where reference drift is a warning). Audited the repo rather than trusting SECURITY.md: the honest one-line posture is that ONLY OAuth tokens and edge_shared_cache values are encrypted by the application; the Postgres volume, all eight storage buckets and the offsite R2 backups are plaintext on disk. AC2 the store table covers the volume, the storage volume, R2, the encrypted columns and the hashed columns, each with a key REFERENCE (env var name) and never a value. AC3 seven ciphertext columns across five tables — marketplace_connections is shared by all five connectors (eBay/Etsy/Depop/Shopify/Whatnot), and google_photos_import_sessions.access_token_enc is the one column whose AAD is the session id rather than user_id, which is worth knowing before anyone assumes the pattern. Eleven hash-only columns listed SEPARATELY and explicitly not called encryption, because saying encrypted about a one-way digest invites a follow-up you then have to walk back; ai_usage_events.prompt_hash is flagged as NOT a security hash (its own migration says so). AC4 the not-encrypted list is stated plainly with the reasoning: column encryption defends a database-only disclosure, the volume defends physical access, and the volume is the gap — so a reclaimed VPS disk or leaked R2 credentials yield everything in plaintext. AC5 SECURITY.md now LINKS instead of restating, in both the posture bullet and Related. AC6 no SOC 2, no ISO 27001, no BYOK, DPA + subprocessors published. ONE FINDING WORTH ACTING ON, recorded as a warning callout in the note rather than silently: the published DPA claims unqualified encryption in transit/at rest, which is broader than the evidence supports — SECURITY.md and the privacy policy are both correctly narrow, the DPA is not. Either narrow that sentence or close the volume gap. Duplication avoided per CONTRACT.md: key rotation, backups, retention, private-bucket access, env vars and breach response are LINKED to their owning notes, never restated. ⚠ npm run vault:lint --strict currently reports 19 errors across the vault, ALL PRE-EXISTING and none in this note — verified by stashing (19 errors at 150 notes without it, 19 at 151 with it). See the separate note on that."
     },
     {
       "id": "US-2428",
