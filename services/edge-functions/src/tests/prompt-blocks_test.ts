@@ -550,6 +550,129 @@ Deno.test("US-2438: listing-eval reports its own surface as genuinely uncovered"
   );
 });
 
+// ── The eval can hold ONE block variable (AC3) ─────────────────────────────
+//
+// Source scans: reaching the real runEval needs a database and vision calls, and
+// every property below is about what the code DECIDES, not what it computed.
+
+Deno.test("US-2438 AC3: a block candidate pins one block and leaves the rest alone", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
+  assert(
+    /blockCandidate\?:\s*\{\s*blockVersionId:\s*string\s*\}/.test(src),
+    "runEval can no longer take a block candidate — AC3's 'hold ONE block variable'",
+  );
+  // The candidate merges OVER the resolved set in analyzeImage rather than
+  // replacing it. An eval that also reverted the other blocks to code defaults
+  // would score the candidate against a prompt no customer gets.
+  const grading = Deno.readTextFileSync(
+    new URL("../lib/ai-grading.ts", import.meta.url),
+  );
+  assert(
+    /\{\s*\.\.\.resolvedBlocks,\s*\.\.\.blockOverride\s*\}/.test(grading),
+    "the candidate no longer merges over the resolved blocks, so an eval run " +
+      "measures a prompt production would never serve",
+  );
+});
+
+Deno.test("US-2438 AC3: the system prompt is NOT overridden by a block eval", () => {
+  // The whole point of holding one variable. If a block eval also pinned a
+  // system-prompt candidate, a pass would not say which of the two earned it.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
+  // v.prompt_text is forced null on the block path, and the overrides derive
+  // from it, so both stage overrides stay undefined.
+  const at = src.indexOf("if (blockCandidate) {");
+  assert(at > -1, "the block-candidate branch is gone");
+  const branch = src.slice(at, src.indexOf("} else {", at));
+  assert(
+    /prompt_text:\s*null/.test(branch),
+    "a block eval is carrying a system-prompt override, so a pass cannot say " +
+      "which change earned it",
+  );
+});
+
+Deno.test("US-2438 AC3: an empty candidate is refused rather than scored", () => {
+  // Empty block_text means "the code default under this name" — the prompt
+  // already in production. Running anyway would stamp a pass on a row that
+  // changes nothing, which later reads as a qualified change.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
+  assert(
+    /has empty block_text/.test(src),
+    "an empty block candidate is scored instead of refused",
+  );
+});
+
+Deno.test("US-2438 AC3: the case filter follows the block's own scope dimension", () => {
+  // ai_prompt_versions.garment_scope has always been a garment_category, but
+  // garment_type_criteria is scoped by garment_TYPE. Filtering that by category
+  // selects zero cases, and "no active eval cases" reads as a missing golden
+  // set rather than as this bug — a wrong answer wearing a plausible costume.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
+  // Whitespace-flattened: the property is the comparison, not where deno fmt
+  // chose to wrap it. A line-shaped regex here already broke once.
+  const flat = src.replace(/\s+/g, " ");
+  assert(
+    flat.includes('scopeDimension === "garment_type"') &&
+      flat.includes("casesQuery.eq(column, v.garment_scope)"),
+    "the eval filters cases by a hardcoded column, so a garment_type-scoped " +
+      "block silently matches nothing",
+  );
+});
+
+Deno.test("US-2438 AC3: the verdict is written back to the block row, not the prompt row", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
+  // Whitespace-flattened so the assertion survives deno fmt rewrapping the
+  // chain — the property is the call, not its line breaks.
+  const flat = src.replace(/\s+/g, " ");
+  assert(
+    flat.includes(
+      '.from("ai_prompt_block_versions") .update({ eval_passed: passed, eval_run_id: runId })',
+    ),
+    "a block eval no longer records its verdict on the block row, so the gate " +
+      "has nothing to check at activation",
+  );
+  // And the run row must NOT claim a prompt-version id it does not have: v.id is
+  // a block id, and that column is an FK to a different table.
+  assert(
+    /prompt_version_id:\s*blockRow \? null : v\.id/.test(src),
+    "a block eval is writing its own id into prompt_version_id, which points at " +
+      "ai_prompt_versions",
+  );
+});
+
+Deno.test("US-2438 AC3: a candidate naming an unknown block is refused", () => {
+  // Inert is right for SERVING — a typo must not take down grading. It is wrong
+  // for the GATE: scoring a row the resolver would never serve records a pass
+  // for a change that cannot take effect.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/prompt-blocks.ts", import.meta.url),
+  );
+  const at = src.indexOf("export async function loadBlockVersion");
+  assert(at > -1, "loadBlockVersion is gone");
+  const body = src.slice(at, src.indexOf("\n}", at));
+  assert(
+    /if \(!\(row\.block_key in PROMPT_BLOCK_KEYS\)\) return null/.test(body),
+    "loadBlockVersion accepts an unknown block_key, so the gate can qualify a " +
+      "row that will never serve",
+  );
+  // It must also not filter by is_active: the gate exists to score a row BEFORE
+  // it serves, so reading only live rows would blind it to its own subject.
+  assert(
+    !/is_active/.test(body),
+    "loadBlockVersion filters on is_active, so the gate cannot see the candidate " +
+      "it exists to qualify",
+  );
+});
+
 // ── The route still goes through the seam ──────────────────────────────────
 
 Deno.test("US-2438: analyzeImage resolves blocks and passes them to the builder", () => {

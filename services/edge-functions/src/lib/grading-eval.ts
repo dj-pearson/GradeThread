@@ -13,7 +13,12 @@ import {
 import {
   type ActiveBlockVersion,
   activeBlockVersions,
+  type BlockVersionRow,
   COVERED_BLOCK_KEYS,
+  loadBlockVersion,
+  PROMPT_BLOCK_KEYS,
+  type PromptBlockKey,
+  type PromptBlockOverrides,
 } from "./prompt-blocks.ts";
 import { isAllowedGradingModel, servingModelForStage } from "./ai-config.ts";
 import { runListingEval } from "./listing-eval.ts";
@@ -178,23 +183,79 @@ export async function runEval(
   // US-1034: pin a specific (allowlisted) model for both grading stages so the
   // same golden cases can be scored under model A vs B; ignored if not allowed.
   modelOverride?: string,
+  // US-2438 AC3: score a BLOCK candidate instead of a system-prompt candidate.
+  // When set, `promptVersionId` is ignored — the system prompt stays whatever is
+  // active, and exactly one user-message block is pinned to this row.
+  blockCandidate?: { blockVersionId: string },
 ): Promise<EvalRunResult> {
-  // Load the candidate prompt version.
-  const { data: version, error: versionError } = await supabaseAdmin
-    .from("ai_prompt_versions")
-    .select("id, version_name, prompt_text, stage, garment_scope")
-    .eq("id", promptVersionId)
-    .single();
-  if (versionError || !version) {
-    throw new Error(`Prompt version not found: ${promptVersionId}`);
-  }
-  const v = version as {
+  // ── The candidate, from either table ──
+  //
+  // Both drive the same four things: which stage to override, which garment
+  // scope filters the cases, what to call the run, and which row gets the
+  // pass/fail written back. So ONE loop serves both rather than a second copy of
+  // the case runner — a fork here is how the two gates would come to disagree
+  // about what "passed" means.
+  let v: {
     id: string;
     version_name: string;
     prompt_text: string | null;
     stage: "per_image" | "composite" | "listing_gen";
     garment_scope: string | null;
   };
+  let blockOverride: PromptBlockOverrides | undefined;
+  let blockRow: BlockVersionRow | null = null;
+
+  if (blockCandidate) {
+    blockRow = await loadBlockVersion(blockCandidate.blockVersionId);
+    if (!blockRow) {
+      // Also the path for a row naming a block_key the resolver does not know.
+      // Inert is right when SERVING (a typo must not take down grading) and
+      // wrong at the GATE: scoring a row that can never serve records a pass for
+      // a change that cannot take effect.
+      throw new Error(
+        `Prompt block version not found (or names an unknown block): ${blockCandidate.blockVersionId}`,
+      );
+    }
+    const text = (blockRow.block_text ?? "").trim();
+    if (text.length === 0) {
+      // An empty block_text means "the code default, under this version name" —
+      // the prompt already in production. Running anyway stamps a pass on a row
+      // that changes nothing, which later reads as a qualified change.
+      throw new Error(
+        `Block version ${blockRow.version_name} has empty block_text, which means ` +
+          `"use the code default under this name". There is nothing for the gate ` +
+          `to measure; activate it directly if that is the intent.`,
+      );
+    }
+    blockOverride = {
+      [blockRow.block_key as PromptBlockKey]: {
+        text,
+        versionName: blockRow.version_name,
+      },
+    };
+    v = {
+      id: blockRow.id,
+      version_name:
+        `block:${blockRow.block_key}[${blockRow.garment_scope ?? "*"}]=${blockRow.version_name}`,
+      // Left null so BOTH stage overrides stay undefined below: a block eval
+      // must not also pin a system prompt, or a pass cannot say which of the two
+      // earned it.
+      prompt_text: null,
+      stage: blockRow.stage,
+      garment_scope: blockRow.garment_scope,
+    };
+  } else {
+    // Load the candidate prompt version.
+    const { data: version, error: versionError } = await supabaseAdmin
+      .from("ai_prompt_versions")
+      .select("id, version_name, prompt_text, stage, garment_scope")
+      .eq("id", promptVersionId)
+      .single();
+    if (versionError || !version) {
+      throw new Error(`Prompt version not found: ${promptVersionId}`);
+    }
+    v = version as typeof v;
+  }
 
   // US-311: listing_gen prompts have a separate eval path with golden
   // listing cases and listing-specific thresholds (title length, required
@@ -225,7 +286,17 @@ export async function runEval(
     .eq("is_active", true)
     .is("deleted_at", null); // US-2037: retired cases never re-enter the gate.
   if (v.garment_scope) {
-    casesQuery = casesQuery.eq("garment_category", v.garment_scope);
+    // US-2438: which COLUMN a scope filters on is the block's decision, not a
+    // constant. `ai_prompt_versions.garment_scope` has always been a
+    // garment_category, but `garment_type_criteria` is scoped by garment_TYPE —
+    // filtering that by category selects zero cases, and "no active eval cases"
+    // reads as a missing golden set rather than as this bug.
+    const column = blockRow &&
+        PROMPT_BLOCK_KEYS[blockRow.block_key as PromptBlockKey].scopeDimension ===
+          "garment_type"
+      ? "garment_type"
+      : "garment_category";
+    casesQuery = casesQuery.eq(column, v.garment_scope);
   }
   const { data: cases, error: casesError } = await casesQuery;
   if (casesError) throw new Error(`Failed to load eval cases: ${casesError.message}`);
@@ -277,6 +348,11 @@ export async function runEval(
             styleHint,
             perImageOverride,
             modelOverride,
+            // No bucketKey: an eval is not a customer submission, so it must
+            // never take a canary slice — it has to measure the champion.
+            undefined,
+            "",
+            blockOverride,
           ),
         );
       }
@@ -395,7 +471,12 @@ export async function runEval(
   const { data: runRow, error: runError } = await supabaseAdmin
     .from("grading_eval_runs")
     .insert({
-      prompt_version_id: v.id,
+      // NULL for a block eval: v.id is an ai_prompt_block_versions id and this
+      // column is an FK to ai_prompt_versions. The run is identified instead by
+      // prompt_version_name, which carries the full
+      // "block:<key>[<scope>]=<version>" label. No migration is needed — the
+      // column has been nullable since 00050.
+      prompt_version_id: blockRow ? null : v.id,
       prompt_version_name: v.version_name,
       model,
       mean_absolute_error: Number.isFinite(mae) ? Number(mae.toFixed(2)) : 99.99,
@@ -421,10 +502,21 @@ export async function runEval(
   // never earned. qualified_model is cleared on a failing run so a stale pass
   // from an earlier model can't linger on the row.
   const runId = runRow ? (runRow as { id: string }).id : null;
-  await supabaseAdmin
-    .from("ai_prompt_versions")
-    .update({ eval_passed: passed, eval_run_id: runId, qualified_model: passed ? model : null })
-    .eq("id", v.id);
+  if (blockRow) {
+    // The block table carries eval_passed/eval_run_id for exactly this. It has
+    // no qualified_model, and that is not an oversight to paper over: a block
+    // does not choose a model, it rides whichever one its stage serves on, so
+    // US-2036's model stamp belongs on the stage's own prompt version.
+    await supabaseAdmin
+      .from("ai_prompt_block_versions")
+      .update({ eval_passed: passed, eval_run_id: runId })
+      .eq("id", blockRow.id);
+  } else {
+    await supabaseAdmin
+      .from("ai_prompt_versions")
+      .update({ eval_passed: passed, eval_run_id: runId, qualified_model: passed ? model : null })
+      .eq("id", v.id);
+  }
 
   return {
     run_id: runId,

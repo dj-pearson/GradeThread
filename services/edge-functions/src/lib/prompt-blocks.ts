@@ -260,6 +260,40 @@ export function resolveBlocksFromRows(
   return out;
 }
 
+/** A candidate block row, loaded by id for the eval gate. */
+export interface BlockVersionRow {
+  id: string;
+  version_name: string;
+  stage: PromptStage;
+  block_key: string;
+  garment_scope: string | null;
+  block_text: string | null;
+}
+
+/**
+ * Load ONE block version by id, whatever its active/canary state.
+ *
+ * Deliberately NOT cached and deliberately not filtered by is_active: the eval
+ * gate's entire job is to score a row BEFORE it serves, so reading only live
+ * rows here would make the gate unable to see the thing it exists to qualify.
+ */
+export async function loadBlockVersion(
+  id: string,
+): Promise<BlockVersionRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("ai_prompt_block_versions")
+    .select("id, version_name, stage, block_key, garment_scope, block_text")
+    .eq("id", id)
+    .single();
+  if (error || !data) return null;
+  const row = data as BlockVersionRow;
+  // An unknown block_key is inert everywhere else; here it must be a hard
+  // refusal instead. A run that scored a candidate the resolver would never
+  // serve would record a pass for a change that cannot take effect.
+  if (!(row.block_key in PROMPT_BLOCK_KEYS)) return null;
+  return row;
+}
+
 /** One active block override, as reported alongside an eval run. */
 export interface ActiveBlockVersion {
   blockKey: string;

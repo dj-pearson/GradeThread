@@ -311,6 +311,38 @@ The general form worth carrying: **a fingerprint's blind spot grows every time
 you add a way to vary what it fingerprints.** Adding a seam is also a change to
 every guarantee that was resting on the absence of one.
 
+### The gate can now hold ONE block variable
+
+`runEval` takes an optional `blockCandidate`. When set, the SYSTEM prompt stays
+whatever is active and exactly one user-message block is pinned to the candidate
+row — the candidate merges *over* the resolved set, so every other block still
+resolves the production way. An eval that also reverted the others to code
+defaults would score the candidate against a prompt no customer gets.
+
+Four decisions in there are worth not re-deriving:
+
+- **An empty `block_text` is refused, not scored.** Empty means "the code default
+  under this name" — the prompt already in production. Running anyway stamps a
+  pass on a row that changes nothing, which later reads as a qualified change.
+- **An unknown `block_key` is refused too**, which is the *opposite* of the
+  serving rule. Inert is right when serving (a typo must not take down grading)
+  and wrong at the gate (qualifying a row the resolver would never serve).
+- **The case filter follows the block's own scope dimension.**
+  `ai_prompt_versions.garment_scope` has always meant garment_category, but
+  `garment_type_criteria` is scoped by garment_TYPE. Filtering that by category
+  matches zero cases, and "no active eval cases" reads as a missing golden set
+  rather than as a bug — a wrong answer wearing a plausible costume.
+- **`grading_eval_runs.prompt_version_id` is NULL for a block run**, because that
+  column is an FK to `ai_prompt_versions` and the id is from a different table.
+  The run is identified by `prompt_version_name`, which carries the full
+  `block:<key>[<scope>]=<version>` label. No migration was needed: the column has
+  been nullable since 00050.
+
+The verdict is written back to `ai_prompt_block_versions.eval_passed`. That table
+has no `qualified_model`, deliberately: a block does not choose a model, it rides
+whichever one its stage serves on, so US-2036's model-stamp check stays on the
+stage's own prompt version.
+
 `listing-eval.ts` reports `covered: []` and `blocks: []`, and that is not
 boilerplate. The block registry is keyed by grading stage; `LISTING_GEN_TOOL` is
 a tool schema, not a prompt block, so the registry cannot reach it. Now that both

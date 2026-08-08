@@ -1129,6 +1129,12 @@ export async function analyzeImage(
   bucketKey?: string,
   // US-1533: trusted garment baseline block ("" → behavior unchanged).
   baselineBlock = "",
+  // US-2438: the eval gate pinning ONE block to a candidate version while every
+  // other block resolves normally. Merged OVER the resolved set below, so the
+  // rest of the prompt stays exactly what production would serve — an eval that
+  // also reverted the other blocks to code defaults would score the candidate
+  // against a prompt no customer gets.
+  blockOverride?: PromptBlockOverrides,
 ): Promise<PerImageAnalysis> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -1170,7 +1176,7 @@ export async function analyzeImage(
   // pins the SYSTEM prompt, so blocks still resolve normally — the alternative
   // would silently measure a candidate against a different user message than
   // production runs.
-  const blocks = await resolvePromptBlocks(
+  const resolvedBlocks = await resolvePromptBlocks(
     "per_image",
     [
       {
@@ -1189,6 +1195,12 @@ export async function analyzeImage(
     ],
     bucketKey,
   );
+  // The candidate wins over whatever is active for the SAME key, and only for
+  // that key. That is what "hold one block variable and the rest constant" means
+  // (US-2438 AC3): everything not named here still resolves the production way.
+  const blocks: PromptBlockOverrides = blockOverride
+    ? { ...resolvedBlocks, ...blockOverride }
+    : resolvedBlocks;
 
   // Cache the (static) system prompt so repeated per-image calls within a
   // submission — and across submissions inside the 5-min cache window —
