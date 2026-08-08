@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "entries": [
     {
       "key": "brand",
@@ -255,8 +255,7 @@
       "attribute": "lining",
       "multi": false,
       "aspects": [
-        "Lining",
-        "Lining Material"
+        "Lining"
       ]
     },
     {
@@ -458,7 +457,6 @@
       "byCategory": {
         "bags": [
           "Hardware Color",
-          "Hardware Material",
           "Metal Color"
         ],
         "accessories": [

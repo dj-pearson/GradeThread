@@ -208,3 +208,26 @@ Deno.test("carry-over: a leaf exposing BOTH names fills both fields, distinctly"
   assertEquals(update.material, "Cotton");
   assertEquals(update.attributes, { fabric_type: "Denim" });
 });
+
+// A per-vertical aspect name belongs to ITS vertical. "Width" is a shoe size
+// inside the shoes vertical and a numeric dimension in inches on a handbag, so
+// carrying a bag's Width into attributes.shoe_width would store "12" as a shoe
+// width and project it back onto the next listing.
+Deno.test("carry-over: a shoes-only aspect name does not fire on another vertical", () => {
+  const base = {
+    size: null,
+    color: null,
+    material: null,
+    style: null,
+    attributes: null,
+  };
+  assertEquals(
+    aspectCarryOver({ ...base, item_category: "bags" }, { Width: ["12"] }).attributes,
+    undefined,
+  );
+  assertEquals(
+    aspectCarryOver({ ...base, item_category: "shoes" }, { Width: ["Wide (E, W)"] })
+      .attributes,
+    { shoe_width: "Wide (E, W)" },
+  );
+});

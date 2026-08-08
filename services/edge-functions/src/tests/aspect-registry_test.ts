@@ -664,9 +664,25 @@ Deno.test("US-2422: per-vertical names — shoes heel/toe/width, bags strap/hard
     attributes: { strap_type: "Crossbody", hardware_color: "Gold-Tone" },
   };
   assertEquals(
-    resolveItemAspects(bag, [free("Handle/Strap Type"), free("Hardware Material")], {}),
-    { "Handle/Strap Type": ["Crossbody"], "Hardware Material": ["Gold-Tone"] },
+    resolveItemAspects(bag, [free("Handle/Strap Type"), free("Metal Color")], {}),
+    { "Handle/Strap Type": ["Crossbody"], "Metal Color": ["Gold-Tone"] },
   );
+  // NOT "Hardware Material": that aspect wants brass/steel/resin. "Gold-Tone"
+  // is a tone, and eBay would either reject it or, worse, accept it and tell
+  // the buyer the hardware is made of gold.
+  assertEquals(resolveItemAspects(bag, [free("Hardware Material")], {}), {});
+});
+
+Deno.test("US-2422: lining answers whether it is lined, not what the lining is made of", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    attributes: { lining: "Fully Lined" },
+  };
+  assertEquals(resolveItemAspects(item, [free("Lining")], {}), {
+    Lining: ["Fully Lined"],
+  });
+  // "Lining Material" wants a fabric (Sherpa, Faux Fur, Polyester).
+  assertEquals(resolveItemAspects(item, [free("Lining Material")], {}), {});
 });
 
 Deno.test("US-2422: fabric_type takes the second name when the material column owns the first", () => {

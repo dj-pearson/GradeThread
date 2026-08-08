@@ -1057,7 +1057,7 @@ export function aspectCarryOver(
   item: Pick<
     ItemRow,
     "size" | "color" | "material" | "style" | "attributes"
-  >,
+  > & { item_category?: string | null },
   aspects: Record<string, string[]>,
 ): Record<string, unknown> {
   // Case-insensitive aspect lookup (mirrors reverseProjectAspectColumns).
@@ -1090,14 +1090,23 @@ export function aspectCarryOver(
   const existingAttrs = (item.attributes ?? {}) as Record<string, unknown>;
   const attrFill: Record<string, string> = {};
 
+  // Per-vertical names apply only to THEIR vertical when we know which one this
+  // item is. Flattening every byCategory list unconditionally is how the
+  // shoes-only "Width" candidate captured a handbag leaf's numeric Width (in
+  // inches) into attributes.shoe_width. When item_category is unknown we still
+  // fall back to the union, because that is all a category-less caller can do —
+  // the same spec-less compromise reverseColumnAspects makes.
+  const vertical = item.item_category ?? null;
+  const verticalExtras = (entry: (typeof ASPECT_REGISTRY.entries)[number]): string[] =>
+    vertical
+      ? entry.byCategory?.[vertical] ?? []
+      : Object.values(entry.byCategory ?? {}).flat();
+
   for (const entry of ASPECT_REGISTRY.entries) {
     if (entry.key === "brand") continue; // normalizedBrand path owns it
-    // All candidate names, category variants included — the aspect map is
-    // keyed by the REAL names the model emitted, so scan every alternate.
-    const candidates = [
-      ...entry.aspects,
-      ...Object.values(entry.byCategory ?? {}).flat(),
-    ];
+    // All candidate names for this item's vertical — the aspect map is keyed by
+    // the REAL names the model emitted, so scan every alternate that applies.
+    const candidates = [...entry.aspects, ...verticalExtras(entry)];
     const hit = valuesFor(candidates);
     if (!hit) continue;
     claimed.add(hit.name);
@@ -2111,9 +2120,17 @@ export async function generateListing(
     aspect_review: aspectReview.length > 0 ? aspectReview : null,
     // US-2424: the ranked leaf candidates and the score behind the pick, so the
     // composer can offer a one-click switch to the runner-up without a fresh
-    // generation run. Null when the item already had a category (nothing was
-    // chosen) or when eBay returned no suggestions.
-    category_candidates: categoryCandidates.length > 0 ? categoryCandidates : null,
+    // generation run.
+    //
+    // OMITTED, not nulled, when this run scored nothing. draftFields is also the
+    // UPDATE payload for a re-generation, and a re-generation always skips the
+    // scorer — step 9 of the previous run persisted ebay_category_id onto the
+    // item, so step 5's `if (!categoryId)` is false. Writing null here would
+    // therefore wipe the runner-ups on the second generate, which is exactly
+    // when a seller is most likely to be looking for them.
+    ...(categoryCandidates.length > 0
+      ? { category_candidates: categoryCandidates }
+      : {}),
     // US-2425: the draft's eBay-aspect coverage at generation time, both tiers.
     aspect_coverage: aspectCoverage,
     // US-546: A/B title variants (AC3) + the demand terms fed to the prompt (AC2)

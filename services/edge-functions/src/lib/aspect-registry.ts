@@ -64,7 +64,7 @@ export interface AspectRegistry {
 
 // Bump `version` whenever entries change so a served/cached copy is versioned.
 export const ASPECT_REGISTRY: AspectRegistry = {
-  version: 2,
+  version: 3,
   entries: [
     // ── Legacy structured columns ──
     { key: "brand", source: "column", column: "brand", multi: false, aspects: ["Brand"] },
@@ -195,7 +195,9 @@ export const ASPECT_REGISTRY: AspectRegistry = {
       source: "attribute",
       attribute: "lining",
       multi: false,
-      aspects: ["Lining", "Lining Material"],
+      // NOT "Lining Material": that aspect wants a fabric (Sherpa, Faux Fur),
+      // while this key answers whether and how the garment is lined at all.
+      aspects: ["Lining"],
     },
 
     // Fabric. `material` (the column) owns the primary name; these carry the
@@ -312,9 +314,12 @@ export const ASPECT_REGISTRY: AspectRegistry = {
       source: "attribute",
       attribute: "hardware_color",
       multi: false,
+      // NOT "Hardware Material": that aspect wants brass/steel/resin, and a
+      // tone like "Gold-Tone" is not a material — eBay would reject it, or
+      // worse, accept it and mislead the buyer.
       aspects: ["Hardware Color"],
       byCategory: {
-        bags: ["Hardware Color", "Hardware Material", "Metal Color"],
+        bags: ["Hardware Color", "Metal Color"],
         accessories: ["Metal Color", "Hardware Color"],
       },
     },
