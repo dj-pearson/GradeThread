@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2427",
+  "nextId": "US-2429",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2466,6 +2466,22 @@
         "US-2416",
         "US-2417"
       ]
+    },
+    {
+      "id": "US-2428",
+      "passes": false,
+      "title": "The edge's own hono is pinned at v4.3.7, inside the advisory range, and npm audit cannot see it",
+      "description": "As GradeThread, we want the edge service's pinned hono upgraded past the advisory range, so that the framework actually serving production traffic is not carrying known bugs that our dependency scan is structurally blind to.",
+      "acceptanceCriteria": [
+        "services/edge-functions/deno.json pins hono at https://deno.land/x/hono@v4.3.7/mod.ts (plus the middleware/factory/streaming/prefix entries). That version sits inside GHSA-8j4g-w8fx-2239, GHSA-f23p-vx2j-j53r, GHSA-79qm-7rj5-m7r9 and GHSA-54fx-42gc-7vw4 (hono <=4.12.33) and is bumped past them",
+        "This is a DIFFERENT dependency from the npm hono cleared in US-2427: that one is a devDependency of the Claude agent SDK and never ships, this one is the framework serving every /api route on functions.gradethread.com. npm audit reads package-lock.json and therefore cannot see it at all",
+        "Every deno.json hono entry moves together - a mixed pin would load two copies of the framework",
+        "deno.lock is regenerated and deno cache --frozen src/main.ts passes, since verify:edge runs it",
+        "The CORS, language and proxy-helper middleware in services/edge-functions/src/ are re-checked against the new version's API before the bump is called done, and npm run verify:edge is green",
+        "Whatever closes the visibility gap is recorded: npm audit will never cover the deno.json pins, so state how the next such advisory gets noticed"
+      ],
+      "priority": 2396,
+      "notes": "BLOCKED 2026-08-08 on toolchain, with the risky unknown already retired. This sandbox cannot reach deno.land (the agent proxy denies CONNECT to it), so deno.lock cannot be regenerated, 'deno cache --frozen src/main.ts' cannot run, and nothing can be type-checked or tested against the new version. Shipping a deno.json pin bump blind would also leave deno.lock stale, which fails verify:edge's frozen-lockfile check for everyone - worse than not starting. What IS now known, done by reading hono 4.13.1 out of node_modules (the npm and deno.land builds are the same source), so whoever has the toolchain can move fast: the edge's hono surface is SMALL and entirely intact at 4.13.1. Six symbols across 254 import sites - Hono and Context from the root (234 sites), createMiddleware from hono/factory (16, and deno.json already maps that to helper/factory), streamSSE from hono/streaming (2), cors from hono/middleware (1, in main.ts), and type StatusCode from hono/utils/http-status.ts (1, in lib/http-errors.ts). Every one still exists at the same path in 4.13.1: helper/factory/index, helper/streaming/sse, middleware/cors/index, utils/http-status (StatusCode still exported there, alongside the newer ContentlessStatusCode). ONE thing left to check that cannot be checked offline: deno.land/x serves the repo source tree rather than the npm dist, so 'hono/middleware' resolves to a root middleware.ts barrel that has no npm equivalent - confirm it still exists at v4.13.1, and if it does not, the single cors import moves to hono/middleware/cors/index.ts. Note also that GHSA-8j4g-w8fx-2239 (ReDoS in the CORS middleware via Access-Control-Request-Headers) is directly reachable: main.ts uses cors on the public API. The npm-side twin of these advisories was cleared separately in US-2427."
     }
   ]
 }
