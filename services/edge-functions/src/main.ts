@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { cors } from "hono/middleware";
+import { cors } from "hono/cors";
 import { accessLogger } from "./middleware/access-log.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { gradeRoutes } from "./routes/grade.ts";

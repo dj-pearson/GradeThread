@@ -1,0 +1,164 @@
+name: Money & Certificate Integration
+
+# US-2038 AC2: the five money/certificate integration suites, actually run.
+#
+# credit-refund, ledger-consistency, ai-quota-concurrency, public-certificate and
+# passport-claim gate on TEST_* fixture env. Until this workflow existed, no job
+# supplied any of it, so all 11 assertions printed SKIPPED and passed — and in a
+# CI summary a skip and a pass are indistinguishable. ledger-consistency_test.ts
+# asserts SUM(delta) == users.grade_credit_balance, the credit-ledger invariant,
+# and had never run outside a developer's machine.
+#
+# THE STORY'S OWN NOTES CONCLUDED TWICE THAT THIS "needs credentials I do not
+# have". It does not, and the counter-example was already in the repo:
+# tenant-isolation.yml boots a THROWAWAY local Supabase stack and seeds its own
+# fixture. None of these suites needs production — they need a schema and rows
+# they may destroy. Pointing them at production would in fact be the wrong call:
+# every one of them MUTATES its subject (drains a wallet, parks the AI counter on
+# the cap, transfers garment ownership).
+#
+# Separate from tenant-isolation.yml deliberately, despite the near-identical
+# boot. Two independent failure domains: a red tenant-isolation run must not
+# decide whether the money assertions got to speak, and vice versa. The shared
+# setup is ~5 minutes of runner time; a money-path regression hidden behind an
+# unrelated red check costs more than that.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: money-cert-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  money-cert:
+    name: Money/cert suites (seeded local stack)
+    runs-on: ubuntu-latest
+    # config.toml interpolates Google OAuth creds via env(); the CLI rejects an
+    # enabled provider with empty values. The OAuth handshake is never exercised
+    # here, so feed harmless dummies to satisfy the config parser (same as
+    # tenant-isolation.yml and db-migrations.yml).
+    env:
+      SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ci-dummy-client-id.apps.googleusercontent.com
+      SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET: ci-dummy-secret
+      # config.toml enables [auth.captcha] (turnstile). Cloudflare's
+      # ALWAYS-PASSES Turnstile TEST secret — a published test key, not a real
+      # secret. The seed here creates users via the admin API rather than signing
+      # in, but the local GoTrue still parses this at boot.
+      SUPABASE_AUTH_CAPTCHA_SECRET: 1x0000000000000000000000000000000AA
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.8.0"
+
+      # Boot the full local stack (Postgres + GoTrue + PostgREST + Storage) and
+      # apply every migration. PostgREST is what the supabase-js clients in these
+      # suites actually talk to; GoTrue is what creates the fixture users (and
+      # with them, via handle_new_user, their public.users wallet rows).
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Export Supabase env
+        run: |
+          status="$(supabase status -o env)"
+          val() { echo "$status" | grep "^$1=" | cut -d= -f2- | tr -d '"'; }
+          {
+            echo "SUPABASE_URL=$(val API_URL)"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$(val SERVICE_ROLE_KEY)"
+            echo "SUPABASE_ANON_KEY=$(val ANON_KEY)"
+            echo "SUPABASE_DB_URL=$(val DB_URL)"
+          } >> "$GITHUB_ENV"
+
+      # Same local-stack grant tenant-isolation.yml needs, for the same reason:
+      # the standard Supabase default-privilege grants don't reach
+      # migration-created tables here, so a service_role insert 400s with
+      # "permission denied for table …". LOCAL STACK ONLY — never prod.
+      #
+      # NOTE this grants EXECUTE on functions to anon/authenticated too, which
+      # would be wrong in production and is harmless here: the one suite that
+      # reads as anon (public-certificate) asserts on RLS, and grants do not
+      # bypass RLS. Anon still sees zero rows in the base table.
+      - name: Grant API roles on the local stack (fixture setup)
+        run: |
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+          GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+          GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+          GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
+          SQL
+
+      # Seed the money/cert fixture. Emits TEST_* KEY=VALUE lines on stdout; any
+      # failure (including schema drift) exits non-zero and fails the job.
+      # pipefail is REQUIRED — without it the `| tee` pipeline reports tee's exit
+      # code (0) and masks a seed crash, after which the suites run with no TEST_*
+      # env and the real error surfaces as the confusing downstream
+      # "INTEGRATION_TESTS_REQUIRED=1 but the fixtures are missing" guard.
+      - name: Seed money/cert fixture
+        working-directory: services/edge-functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno run --allow-net --allow-env scripts/seed-money-cert-fixture.ts \
+            | tee money-fixture.env
+          cat money-fixture.env >> "$GITHUB_ENV"
+
+      # Only passport-claim needs a running edge service (it POSTs
+      # /api/passport/claim); the other four talk to PostgREST directly.
+      # EDGE_ENV=test keeps boot-time env validation permissive.
+      - name: Start edge service
+        working-directory: services/edge-functions
+        env:
+          EDGE_ENV: test
+          PORT: "8787"
+        run: |
+          deno run --allow-net --allow-env --allow-read src/main.ts &
+          echo "EDGE_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/health >/dev/null 2>&1; then
+              echo "edge service is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "edge service did not become healthy in time" >&2
+          exit 1
+
+      # Run all five for real. INTEGRATION_TESTS_REQUIRED=1 turns a missing
+      # fixture var into a loud module-load failure instead of a green skip —
+      # which is the point of the whole story. Without it, one typo'd TEST_* name
+      # would leave this job reporting success while asserting nothing.
+      - name: Run money/cert integration suites (required)
+        working-directory: services/edge-functions
+        env:
+          TEST_SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+          TEST_SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+          TEST_EDGE_BASE_URL: http://127.0.0.1:8787
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: |
+          deno test --allow-net --allow-env --allow-read \
+            src/tests/credit-refund_test.ts \
+            src/tests/ledger-consistency_test.ts \
+            src/tests/ai-quota-concurrency_test.ts \
+            src/tests/public-certificate_test.ts \
+            src/tests/passport-claim_test.ts
+
+      - name: Stop edge service
+        if: always()
+        run: kill "$EDGE_PID" 2>/dev/null || true
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop || true

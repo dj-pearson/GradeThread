@@ -37,7 +37,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
-import { fetchAllPages } from "@/lib/paged-read";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEbayConnection } from "@/hooks/use-ebay";
 import { usePerformanceSuggestions } from "@/hooks/use-repricing";
@@ -46,10 +45,17 @@ import { CHART_PALETTE } from "@/lib/constants";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Rows per page. Sent to the RPC as p_limit, so the server returns exactly
+// what is rendered rather than a set the client then slices.
+const PAGE_SIZE = 50;
+
 interface PerfRow {
   id: string;
   inventory_item_id: string;
-  listing_title: string | null;
+  // `title` not `listing_title`: the RPC resolves the inventory-item
+  // fallback BEFORE it filters, which is what makes search match what is
+  // actually displayed.
+  title: string;
   listing_url: string | null;
   listing_price: number;
   listed_at: string;
@@ -145,63 +151,72 @@ export function FlipdeskListingPerformancePage(
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
 
-  const { data: listings = [], isLoading } = useQuery({
-    queryKey: ["listing_performance", user?.id],
+  // US-2233 AC3: ONE page, searched and sorted in the database (migration 00560).
+  //
+  // This used to be fetchAllPages over every active eBay listing, plus a second
+  // chunked query to resolve titles, plus a client-side filter/sort/slice. That
+  // was bounded (US-2169) but it still pulled a whole catalog into the browser
+  // to render fifty rows, and its SEARCH WAS WRONG: it matched listing_title
+  // only, so every listing whose displayed title came from the inventory item
+  // was invisible to search. The RPC resolves the title before it filters, so
+  // search now covers what the seller can actually see.
+  //
+  // The query key carries every input. Without search/sort/filter/page in it,
+  // TanStack would serve the first page's cache for the second page — the
+  // classic server-paging cache bug, and one that looks like "paging is broken"
+  // rather than "the key is wrong".
+  const { data: pageData, isLoading } = useQuery({
+    queryKey: [
+      "listing_performance",
+      user?.id,
+      search.trim(),
+      noViewDays,
+      sortKey,
+      sortDir,
+      page,
+    ],
     enabled: !!user,
     staleTime: 60_000,
-    // US-2169: paged rather than capped at a flat 1000. This report ranks every
-    // active eBay listing by views and the seller pages through it here, so a
-    // silent cut at 1000 hid the exact tail — the low-view listings — that the
-    // report exists to surface. fetchAllPages advances by the rows actually
-    // returned, so it is also independent of the server's own row ceiling.
-    queryFn: (): Promise<PerfRow[]> =>
-      fetchAllPages<PerfRow>(async (from, to) => {
-        const { data, error } = await supabase
-          .from("listings")
-          .select(
-            "id, inventory_item_id, listing_title, listing_url, listing_price, listed_at, views_total, watchers_count, impressions_7d, click_through_rate, last_metrics_synced_at, view_trend_7d",
-          )
-          .eq("platform", "ebay")
-          .eq("listing_status", "active")
-          .order("views_total", { ascending: false })
-          .range(from, to);
-        if (error) throw error;
-        return (data ?? []) as PerfRow[];
-      }),
-  });
-
-  // Titles fall back to the inventory item when listing_title is blank.
-  const itemIds = useMemo(
-    () => Array.from(new Set(listings.map((l) => l.inventory_item_id))),
-    [listings],
-  );
-  // Key on the id CONTENTS, not the count: when the set changes but its length
-  // stays equal (one listing sells, another is added), a length-only key would
-  // serve the previous id→title map and titles would resolve to the wrong item.
-  const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
-  const { data: titles = {} } = useQuery<Record<string, string>>({
-    queryKey: ["listing_performance_titles", user?.id, itemIdsKey],
-    enabled: itemIds.length > 0,
-    queryFn: async () => {
-      // Chunk the id list: a single `.in("id", [...])` with hundreds of UUIDs
-      // builds a request URL that overflows the server's URL length limit
-      // (observed ERR_FAILED on large catalogs). 100 ids/request keeps every
-      // URL well under the cap.
-      const map: Record<string, string> = {};
-      const CHUNK = 100;
-      for (let i = 0; i < itemIds.length; i += CHUNK) {
-        const slice = itemIds.slice(i, i + CHUNK);
-        const { data } = await supabase
-          .from("inventory_items")
-          .select("id, title")
-          .in("id", slice);
-        for (const r of (data ?? []) as Array<{ id: string; title: string }>) {
-          map[r.id] = r.title;
-        }
-      }
-      return map;
+    // Keeps the previous page on screen while the next one loads, instead of
+    // flashing the empty state between pages.
+    placeholderData: (prev) => prev,
+    queryFn: async (): Promise<{ rows: PerfRow[]; total: number }> => {
+      const { data, error } = await supabase.rpc(
+        "flipdesk_listing_performance_page",
+        {
+          p_search: search.trim() || null,
+          p_no_view_days: noViewDays ?? 0,
+          // `days_listed` is a derived column the database does not have; it is
+          // listed_at with the direction INVERTED, because more days listed
+          // means an OLDER timestamp. Getting this backwards would silently
+          // reverse the one sort a seller uses to find stale stock.
+          p_sort: sortKey === "days_listed" ? "listed_at" : sortKey,
+          p_desc: sortKey === "days_listed"
+            ? sortDir === "asc"
+            : sortDir === "desc",
+          p_limit: PAGE_SIZE,
+          p_offset: page * PAGE_SIZE,
+        } as never,
+      );
+      if (error) throw error;
+      const rows = (data ?? []) as Array<PerfRow & { total_count: number }>;
+      return {
+        rows,
+        // total_count rides on every row, so an empty page legitimately means
+        // zero matches — not "unknown", which would make pageCount collapse to
+        // 1 and hide the pager on a page the seller navigated to directly.
+        total: Number(rows[0]?.total_count ?? 0),
+      };
     },
   });
+
+  // The chunked titles query that used to live here is GONE (US-2233): the RPC
+  // resolves the fallback title in SQL. It existed because a single .in("id",
+  // [...]) with hundreds of UUIDs overflowed the request URL, so it fetched in
+  // chunks of 100 — meaning a 900-listing catalog cost nine extra round trips
+  // on every load. Doing the LEFT JOIN in the query removes all of them, and it
+  // is also what makes search correct: the client could only search the titles
+  // it had, and it had the wrong ones for any listing borrowing its item title.
 
   // US-2233: on-demand "Sync now" — refresh THIS seller's metrics instead of
   // waiting up to 6h for the cron. Server route is tenant-scoped to the caller.
@@ -232,87 +247,75 @@ export function FlipdeskListingPerformancePage(
     onError: (e) => toast.error(e instanceof Error ? e.message : "Sync failed"),
   });
 
-  const rows = useMemo(() => {
-    const decorated = listings.map((l) => ({
-      ...l,
-      title: l.listing_title || titles[l.inventory_item_id] || "Untitled item",
-      days: daysListed(l.listed_at),
-    }));
+  // Rows arrive already searched, filtered, sorted and paged. The client-side
+  // decorate/filter/sort/slice that used to live here is gone: keeping a copy of
+  // that logic alongside the SQL would be two implementations of one contract,
+  // and they would disagree the first time either changed.
+  const pageRows = useMemo(
+    () =>
+      (pageData?.rows ?? []).map((l) => ({
+        ...l,
+        // The RPC returns the resolved title in `title`; the fallback chain that
+        // used to run here moved into the query (that is what fixed search).
+        title: l.title || "Untitled item",
+        days: daysListed(l.listed_at),
+      })),
+    [pageData],
+  );
 
-    const q = search.trim().toLowerCase();
-    const filtered = decorated.filter((r) => {
-      if (noViewDays && !(r.views_total === 0 && r.days >= noViewDays)) return false;
-      if (q && !r.title.toLowerCase().includes(q)) return false;
-      return true;
-    });
-
-    const sorted = [...filtered].sort((a, b) => {
-      let av: number | string;
-      let bv: number | string;
-      switch (sortKey) {
-        case "title":
-          av = a.title.toLowerCase();
-          bv = b.title.toLowerCase();
-          break;
-        case "days_listed":
-          av = a.days;
-          bv = b.days;
-          break;
-        case "click_through_rate":
-          av = a.click_through_rate ?? -1;
-          bv = b.click_through_rate ?? -1;
-          break;
-        default:
-          av = a[sortKey];
-          bv = b[sortKey];
-      }
-      if (av < bv) return sortDir === "asc" ? -1 : 1;
-      if (av > bv) return sortDir === "asc" ? 1 : -1;
-      return 0;
-    });
-    return sorted;
-  }, [listings, titles, noViewDays, sortKey, sortDir, search]);
-
-  // US-2233: page the (potentially large) table so a big catalog doesn't render
-  // thousands of rows at once.
-  const PAGE_SIZE = 50;
-  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const total = pageData?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // Clamped rather than trusted: a seller on page 9 who then types a search that
+  // matches three listings must not be left staring at an empty page 9.
   const safePage = Math.min(page, pageCount - 1);
-  const pageRows = rows.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
-  // The read is bounded at 1000 rows; if it filled, some listings aren't shown —
-  // say so rather than silently truncate (US-2169).
-  const truncated = listings.length >= 1000;
 
-  // US-2233: at-a-glance KPIs across ALL active listings (not just the page).
+  // Any change to what is being asked for resets to the first page. Without
+  // this, narrowing a search while deep in the pager shows a blank table and
+  // reads as "search found nothing".
+  useEffect(() => {
+    setPage(0);
+  }, [search, noViewDays, sortKey, sortDir]);
+
+  // US-2233: the KPI tiles and "last synced" span EVERY active listing, not the
+  // page on screen — which is exactly why the page used to have to load them
+  // all. One aggregate query replaces that. Its key deliberately excludes
+  // search/sort/page: these figures are about the whole catalog and must not
+  // change when the seller narrows the table.
+  const { data: summary } = useQuery({
+    queryKey: ["listing_performance_summary", user?.id],
+    enabled: !!user,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "flipdesk_listing_performance_summary" as never,
+      );
+      if (error) throw error;
+      const r = (Array.isArray(data) ? data[0] : data) as
+        | {
+          total_listings: number;
+          total_views: number;
+          avg_ctr: number | null;
+          stale_count: number;
+          last_synced_at: string | null;
+        }
+        | undefined;
+      return r ?? null;
+    },
+  });
+
   const kpis = useMemo(() => {
-    let views = 0;
-    let ctrSum = 0;
-    let ctrCount = 0;
-    let stale = 0;
-    for (const l of listings) {
-      views += l.views_total || 0;
-      if (l.click_through_rate != null && Number.isFinite(l.click_through_rate)) {
-        ctrSum += l.click_through_rate;
-        ctrCount += 1;
-      }
-      if (l.views_total === 0 && daysListed(l.listed_at) >= 14) stale += 1;
-    }
+    const listingCount = Number(summary?.total_listings ?? 0);
     return {
-      totalViews: views,
-      avgCtr: ctrCount > 0 ? ctrSum / ctrCount : null,
-      stalePct: listings.length > 0 ? stale / listings.length : 0,
+      totalViews: Number(summary?.total_views ?? 0),
+      // avg() skips NULL rates in SQL, matching the old client rule: a listing
+      // eBay has never reported a CTR for must not be averaged in as a zero.
+      avgCtr: summary?.avg_ctr == null ? null : Number(summary.avg_ctr),
+      stalePct: listingCount > 0 ? Number(summary?.stale_count ?? 0) / listingCount : 0,
     };
-  }, [listings]);
+  }, [summary]);
 
-  const lastSynced = useMemo(() => {
-    let latest: number | null = null;
-    for (const l of listings) {
-      if (!l.last_metrics_synced_at) continue;
-      const t = new Date(l.last_metrics_synced_at).getTime();
-      if (!isNaN(t) && (latest === null || t > latest)) latest = t;
-    }
-    return latest ? new Date(latest).toISOString() : null;
-  }, [listings]);
+  const lastSynced = summary?.last_synced_at ?? null;
+
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -482,7 +485,7 @@ export function FlipdeskListingPerformancePage(
               <CardTitle className="flex items-center gap-2">
                 <Eye className="h-4 w-4" />
                 Active listings
-                <Badge variant="outline">{rows.length}</Badge>
+                <Badge variant="outline">{total}</Badge>
               </CardTitle>
               <CardDescription>
                 Click a column header to sort.
@@ -527,7 +530,7 @@ export function FlipdeskListingPerformancePage(
             <LoadingRegion label="Loading listing performance">
               <TableLoadingSkeleton rows={6} columns={5} />
             </LoadingRegion>
-          ) : rows.length === 0 ? (
+          ) : pageRows.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               {noViewDays
                 ? `No active listings with zero views in ${noViewDays}+ days. Nice.`
@@ -643,8 +646,8 @@ export function FlipdeskListingPerformancePage(
                 <div className="flex items-center justify-between pt-3 text-sm">
                   <span className="text-muted-foreground">
                     {safePage * PAGE_SIZE + 1}–
-                    {Math.min(rows.length, safePage * PAGE_SIZE + PAGE_SIZE)} of{" "}
-                    {rows.length}
+                    {Math.min(total, safePage * PAGE_SIZE + PAGE_SIZE)} of{" "}
+                    {total}
                   </span>
                   <div className="flex gap-2">
                     <Button
@@ -666,12 +669,7 @@ export function FlipdeskListingPerformancePage(
                   </div>
                 </div>
               )}
-              {truncated && (
-                <p className="pt-3 text-xs text-muted-foreground">
-                  Showing the first 1,000 active listings. Use search or the
-                  no-views filters to narrow down the rest.
-                </p>
-              )}
+
             </div>
           )}
         </CardContent>

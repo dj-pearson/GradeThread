@@ -407,7 +407,11 @@ adminClaimsRoutes.post("/:id/under-review", async (c) => {
 // ── POST /:id/approve and /:id/reject ─────────────────────────────
 // Both record a manual decision + resolution note. No payout in v1.
 function decisionHandler(decision: "approved" | "rejected", action: string) {
-  return async (c: Context<AdminEnv>) => {
+  // "/:id" rather than either concrete path, because this one handler is
+  // registered on BOTH /:id/approve and /:id/reject and `:id` is the only
+  // segment it reads. hono carries the param names in that generic, so without
+  // it c.req.param("id") types as string | undefined (4.13 change).
+  return async (c: Context<AdminEnv, "/:id">) => {
     // US-2353 AC2 + AC4: approving a claim REFUNDS the grading fee and grants a
     // free re-grade. Two things were wrong at once and only together do they
     // explain the hole.

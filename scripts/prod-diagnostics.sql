@@ -36,6 +36,7 @@
 --   §16 US-2347 AC4 — does the billing-source check still exclude Play?
 --   §17 US-2398 AC3 — how far off were the admin paid/churn counts?
 --   §18 US-2406 AC5 — has any feature flag been targeted at a plan?
+--   §19 US-2288 AC4 — free-trial exposure: started, converted, and spend.
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -660,6 +661,102 @@ ORDER BY key;
 \echo '-- Empty above = nothing was ever targeted, and the fix changes no live'
 \echo '-- behaviour. That is the expected result; the query exists to prove it'
 \echo '-- rather than assume it.'
+
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§19 US-2288 AC4 — FREE-TRIAL EXPOSURE'
+\echo '════════════════════════════════════════════════════════════════'
+\echo 'handle_new_user (live definition: 00401_buyer_account_roles.sql) grants'
+\echo 'EVERY non-buyer-only signup flipdesk_plan=pro, subscription_status=trialing'
+\echo 'and 14 days, with no prior-trial lookup, no card and no device signal.'
+\echo 'Deleting the account and signing up again resets it, and each trial can'
+\echo 'spend real Claude Vision money.'
+\echo ''
+\echo 'US-2288 says MEASURE FIRST, and it is right to: the correct abuse control'
+\echo 'is different if the answer is "two people did this" than if it is "two'
+\echo 'hundred". These four queries are that measurement. NOTHING below writes.'
+\echo ''
+
+\echo '-- (a) Trials started per month, and how many converted.'
+\echo '-- A trial is counted by trial_ends_at being set at all. Conversion names'
+\echo '-- the PAID statuses positively (active, comp) rather than excluding the'
+\echo '-- unpaid ones: an exclusion list counts any status added LATER as a'
+\echo '-- conversion, and would quietly overstate the number this story turns on.'
+SELECT
+  date_trunc('month', u.created_at)::date AS month,
+  count(*)                                                       AS trials_started,
+  count(*) FILTER (
+    WHERE u.subscription_status IN ('active', 'comp')
+  )                                                              AS converted,
+  count(*) FILTER (WHERE u.subscription_status = 'trialing')      AS still_trialing
+FROM public.users u
+WHERE u.trial_ends_at IS NOT NULL
+GROUP BY 1
+ORDER BY 1 DESC
+LIMIT 24;
+
+\echo ''
+\echo '-- (b) THE ABUSE SIGNAL. Addresses that differ only by a Gmail-style'
+\echo '-- plus-tag or by dots are the cheapest way to take a second trial, and'
+\echo '-- they normalise to one mailbox. Any row here with n > 1 is one person'
+\echo '-- holding several trials. This returns a COUNT and a normalised stem'
+\echo '-- only — the full addresses are deliberately not selected, because this'
+\echo '-- output gets pasted around.'
+SELECT
+  count(*)                     AS distinct_stems_with_repeats,
+  coalesce(sum(n), 0)          AS accounts_involved,
+  coalesce(max(n), 0)          AS worst_single_stem
+FROM (
+  SELECT
+    replace(split_part(split_part(lower(u.email), '@', 1), '+', 1), '.', '')
+      || '@' || split_part(lower(u.email), '@', 2) AS stem,
+    count(*) AS n
+  FROM public.users u
+  WHERE u.trial_ends_at IS NOT NULL
+    AND u.email IS NOT NULL
+  GROUP BY 1
+  HAVING count(*) > 1
+) t;
+
+\echo ''
+\echo '-- (c) What the trials actually COST. Grading submissions made by an'
+\echo '-- account while it was inside its trial window. This is the number that'
+\echo '-- decides whether AC3 (a trial-specific volume cap) is worth building.'
+SELECT
+  count(*)                                   AS submissions_during_trial,
+  count(DISTINCT s.user_id)                  AS trial_accounts_that_graded,
+  round(count(*)::numeric
+        / greatest(count(DISTINCT s.user_id), 1), 1) AS avg_per_trial_account,
+  max(per_user.c)                            AS most_by_one_trial_account
+FROM public.submissions s
+JOIN public.users u ON u.id = s.user_id
+LEFT JOIN LATERAL (
+  SELECT count(*) AS c
+  FROM public.submissions s2
+  WHERE s2.user_id = s.user_id
+    AND s2.created_at <= u.trial_ends_at
+) per_user ON true
+WHERE u.trial_ends_at IS NOT NULL
+  AND s.created_at <= u.trial_ends_at;
+
+\echo ''
+\echo '-- (d) Did any of that spend come from an account that has since been'
+\echo '-- DELETED? The deletion log is what makes the delete-and-resignup loop'
+\echo '-- measurable rather than hypothetical. An empty result means nobody has'
+\echo '-- exercised it yet, which is the good answer and still worth knowing.'
+SELECT
+  count(*) AS deleted_accounts_logged,
+  min(d.requested_at)::date AS first_deletion,
+  max(d.requested_at)::date AS last_deletion
+FROM public.account_deletion_log d;
+
+\echo ''
+\echo '-- READING THIS: (b) at zero and (d) at zero together mean the hole is'
+\echo '-- real but unexploited, and the cheap control (a prior-trial record) is'
+\echo '-- enough. (b) above zero means it is already being used and the control'
+\echo '-- has to survive deletion — which is what AC2 asks for, and why it must'
+\echo '-- be keyed on something that outlives the users row.'
 
 
 \echo ''

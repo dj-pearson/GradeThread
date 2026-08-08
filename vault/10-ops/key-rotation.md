@@ -44,6 +44,8 @@ in-flight scheduler.
 | `SUPABASE_SERVICE_ROLE_KEY` | edge | On leak | Rotate the JWT secret in Supabase; re-issue; update env. High blast radius — coordinate. |
 | `SENTRY_DSN`, `POSTHOG_KEY` | both | As needed | Public-ish; low urgency. |
 | `UNSUBSCRIBE_SECRET` | edge | On leak | Rotating invalidates outstanding unsubscribe links (acceptable). |
+| `BACKUP_AGE_RECIPIENT` / `BACKUP_AGE_IDENTITY` | DB host (public half) / Infisical `prod` (private half) | **Special** — 1y / on leak | Backup encryption (US-2416). Rotating is safe; **losing the identity destroys every backup encrypted under it.** See below. |
+| rclone `crypt` remote password + salt | DB host rclone config | On leak | Storage mirror encryption. Rotating means the existing mirror cannot be read — see below. |
 
 ### EDGE_ENCRYPTION_KEY rotation (token re-encryption)
 
@@ -274,6 +276,54 @@ triggering event. Once a secret lands, every later run is green while the secret
 sits in history. `secret-scan-history.yml` exists to ask the other question —
 "is the repository clean?" rather than "is this change clean?" — and only that
 one finds a leak nobody noticed landing.
+
+## Backup encryption key (`BACKUP_AGE_*`) — US-2416
+
+Backups leave the host encrypted with `age` under a **public** recipient, so the
+DB host can encrypt but never decrypt. Full context in [[backups]].
+
+**The asymmetry that makes this different from every other row in the table:**
+rotating is cheap and nearly instant, but *losing* the identity is unrecoverable
+and silent. Nothing breaks when the identity is lost. Backups keep running,
+`/health` stays green, the bucket keeps filling. You find out at the only moment
+it matters. So the check below is not paperwork.
+
+### Rotation
+
+1. `age-keygen -o new-identity.txt` on a trusted machine (not the DB host).
+2. Store the new identity in Infisical `prod` as `BACKUP_AGE_IDENTITY`, **and**
+   in the second offline home. Keep the OLD identity in both — see the window
+   note below.
+3. Change `BACKUP_AGE_RECIPIENT` in `/etc/cron.d/gradethread-backups` to the new
+   public key. No redeploy, no restart; the next nightly picks it up.
+4. Run one backup by hand and restore it into a scratch container with the NEW
+   identity before walking away. An untested new key is the same failure as a
+   lost one, delayed.
+
+### The window nobody plans for
+
+Offsite retention is **30 days**. For 30 days after a rotation the bucket holds
+ciphertext under **both** keys, and the old objects are the older, more valuable
+half of the recovery range.
+
+> [!danger] Do not delete the old identity for at least 30 days after rotating
+> Deleting it on rotation day silently destroys every backup older than that
+> day's, which is most of the recovery window. Keep both identities until the
+> R2 lifecycle rule has aged out the last object written under the old one, then
+> delete the old identity and record the date here.
+>
+> `restore-postgres.sh` takes whichever identity you point `BACKUP_AGE_IDENTITY`
+> at, so restoring an old object during the window just means using the old key.
+> There is no dual-key read path and none is needed — unlike
+> `EDGE_ENCRYPTION_KEY` above, nothing decrypts these automatically.
+
+### Storage mirror (rclone crypt)
+
+Rotating the crypt password or salt makes the **existing** mirror unreadable —
+rclone will also treat every object as new and re-upload the whole volume. Treat
+it as a re-seed, not a rotation: stand up a second crypt remote, sync fresh,
+verify a sample decrypts, then retire the old prefix once its lifecycle window
+has passed.
 
 ## After any rotation
 

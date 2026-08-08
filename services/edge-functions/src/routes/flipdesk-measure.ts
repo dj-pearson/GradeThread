@@ -19,6 +19,7 @@
 import { Hono } from "hono";
 import { Image } from "imagescript";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { encryptMeasureCardAddress } from "../lib/measure-card-pii.ts";
 import {
   bucketForItemPhoto,
   downloadItemPhoto,
@@ -661,6 +662,8 @@ function requestSummary(row: {
   card_version: number;
   requested_at: string;
   shipped_at: string | null;
+  tracking_number: string | null;
+  tracking_carrier: string | null;
 }) {
   return {
     id: row.id,
@@ -668,6 +671,11 @@ function requestSummary(row: {
     card_version: row.card_version,
     requested_at: row.requested_at,
     shipped_at: row.shipped_at,
+    // US-2231: the seller's own parcel. NULL is the normal case (an
+    // untracked letter) and the page renders nothing rather than an empty
+    // link — see the migration comment for why a placeholder is worse.
+    tracking_number: row.tracking_number,
+    tracking_carrier: row.tracking_carrier,
   };
 }
 
@@ -676,7 +684,7 @@ flipdeskMeasureRoutes.get("/card-request", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const { data, error } = await supabaseAdmin
     .from("measure_card_requests")
-    .select("id, status, card_version, requested_at, shipped_at")
+    .select("id, status, card_version, requested_at, shipped_at, tracking_number, tracking_carrier")
     .eq("owner_user_id", ownerId)
     .order("requested_at", { ascending: false })
     .limit(1)
@@ -748,6 +756,31 @@ flipdeskMeasureRoutes.post("/card-request", async (c) => {
     );
   }
 
+  // US-2417 AC2: the street lines go in as ciphertext, bound to ownerId as the
+  // AES-GCM AAD. `state` and `country` stay readable so the fulfilment export
+  // can still filter by region without decrypting every row.
+  //
+  // Encrypting HERE rather than after the insert is deliberate: an insert that
+  // wrote plaintext and then updated it would leave the address readable in the
+  // WAL and in any replica that saw the first version, which is most of what a
+  // dump-theft scenario actually covers.
+  let encrypted;
+  try {
+    encrypted = await encryptMeasureCardAddress(ownerId, {
+      ship_name: shipName,
+      address_line1: line1,
+      address_line2: line2 || null,
+      city,
+      postal_code: postal,
+    });
+  } catch (err) {
+    // Fail the request rather than falling back to plaintext. A misconfigured
+    // EDGE_ENCRYPTION_KEY must not silently downgrade storage for the one
+    // column set this story exists to protect.
+    console.error("[measure-card] address encryption failed:", err);
+    return c.json({ error: "Could not save your request. Try again shortly." }, 503);
+  }
+
   const { data: inserted, error: insErr } = await supabaseAdmin
     .from("measure_card_requests")
     .insert({
@@ -755,15 +788,11 @@ flipdeskMeasureRoutes.post("/card-request", async (c) => {
       plan_key: plan,
       card_version: MEASURE_CARD_VERSIONS[MEASURE_CARD_VERSIONS.length - 1]
         .version,
-      ship_name: shipName,
-      address_line1: line1,
-      address_line2: line2 || null,
-      city,
+      ...encrypted,
       state,
-      postal_code: postal,
       country,
     } as never)
-    .select("id, status, card_version, requested_at, shipped_at")
+    .select("id, status, card_version, requested_at, shipped_at, tracking_number, tracking_carrier")
     .maybeSingle();
   if (insErr) {
     // 23505 = the partial unique index lost the race — same answer as above.

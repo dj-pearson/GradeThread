@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { decryptMeasureCardAddress } from "../lib/measure-card-pii.ts";
 
 export const adminMeasureCardRoutes = new Hono();
 
@@ -32,6 +33,8 @@ interface RequestRow {
   state: string;
   postal_code: string;
   country: string;
+  tracking_number: string | null;
+  tracking_carrier: string | null;
   requested_at: string;
   exported_at: string | null;
   shipped_at: string | null;
@@ -43,13 +46,40 @@ async function listRequests(status: string): Promise<RequestRow[]> {
   const { data, error } = await supabaseAdmin
     .from("measure_card_requests")
     .select(
-      "id, owner_user_id, status, card_version, plan_key, ship_name, address_line1, address_line2, city, state, postal_code, country, requested_at, exported_at, shipped_at",
+      "id, owner_user_id, status, card_version, plan_key, ship_name, address_line1, address_line2, city, state, postal_code, country, tracking_number, tracking_carrier, requested_at, exported_at, shipped_at",
     )
     .eq("status", status)
     .order("requested_at", { ascending: true })
     .limit(1000);
   if (error) throw new Error(error.message);
-  return (data ?? []) as RequestRow[];
+
+  // US-2417 AC2: the street columns come back as ciphertext. Decrypt with the
+  // ROW's owner_user_id as the AAD, never a caller-supplied one — that binding
+  // is what makes a ciphertext moved between tenants fail instead of silently
+  // rendering one seller's address under another seller's name.
+  //
+  // Per row, not per batch: one un-backfilled or unreadable row must not take
+  // out the operator's whole fulfilment queue. A row that cannot be decrypted
+  // is surfaced with its address blanked and its id logged, because a blank
+  // that says so beats a plausible-looking wrong address on a mailing label.
+  const rows = (data ?? []) as RequestRow[];
+  const out: RequestRow[] = [];
+  for (const row of rows) {
+    try {
+      out.push(await decryptMeasureCardAddress(row.owner_user_id, row));
+    } catch (err) {
+      console.error(`[admin-measure-cards] undecryptable address on ${row.id}:`, err);
+      out.push({
+        ...row,
+        ship_name: "",
+        address_line1: "",
+        address_line2: null,
+        city: "",
+        postal_code: "",
+      });
+    }
+  }
+  return out;
 }
 
 /** One CSV cell: quote + escape. Pure, exported for tests. */
@@ -123,7 +153,7 @@ adminMeasureCardRoutes.get("/requests.csv", async (c) => {
 // Bulk status transition: requested -> exported -> shipped. Shipping stamps
 // each seller's profile record (mail outranks download).
 adminMeasureCardRoutes.post("/requests/bulk", async (c) => {
-  let body: { ids?: unknown; status?: unknown };
+  let body: { ids?: unknown; status?: unknown; tracking_number?: unknown; tracking_carrier?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -141,6 +171,34 @@ adminMeasureCardRoutes.post("/requests/bulk", async (c) => {
   const patch: Record<string, unknown> = { status };
   if (status === "exported") patch.exported_at = new Date().toISOString();
   if (status === "shipped") patch.shipped_at = new Date().toISOString();
+
+  // US-2231: tracking is OPTIONAL and only meaningful on the shipped
+  // transition. Cards go out by hand and many are untracked letters, so an
+  // absent value must stay absent rather than becoming an empty string the
+  // seller's page would then render as a broken link.
+  //
+  // Applied to the whole batch on purpose: the operator marks one parcel
+  // shipped at a time when it has a number, and marks a batch shipped when it
+  // does not. Sending a number with 200 ids would stamp one number on 200
+  // sellers — so the route REFUSES that rather than trusting the caller.
+  const tracking = typeof body.tracking_number === "string"
+    ? body.tracking_number.trim().slice(0, 64)
+    : "";
+  const carrier = typeof body.tracking_carrier === "string"
+    ? body.tracking_carrier.trim().slice(0, 32)
+    : "";
+  if (tracking && status !== "shipped") {
+    return c.json({ error: "Tracking can only be set when marking a card shipped." }, 400);
+  }
+  if (tracking && ids.length !== 1) {
+    return c.json({
+      error: "One tracking number cannot cover several cards — mark them shipped one at a time.",
+    }, 400);
+  }
+  if (tracking) {
+    patch.tracking_number = tracking;
+    if (carrier) patch.tracking_carrier = carrier;
+  }
 
   const { data: updated, error } = await supabaseAdmin
     .from("measure_card_requests")

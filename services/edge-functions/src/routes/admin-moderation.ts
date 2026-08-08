@@ -81,7 +81,7 @@ async function refundGradeCredit(userId: string): Promise<number | null> {
 }
 
 // POST /:id/approve — clear the flag, mark approved.
-adminModerationRoutes.post("/:id/approve", async (c: Context<AdminEnv>) => {
+adminModerationRoutes.post("/:id/approve", async (c: Context<AdminEnv, "/:id/approve">) => {
   const id = c.req.param("id");
   const sub = await loadSubmission(id);
   if (!sub) return c.json({ error: "Submission not found" }, 404);
@@ -104,7 +104,7 @@ adminModerationRoutes.post("/:id/approve", async (c: Context<AdminEnv>) => {
 
 // POST /:id/reject — reject the submission as invalid and refund the user's
 // monthly grade credit.
-adminModerationRoutes.post("/:id/reject", async (c: Context<AdminEnv>) => {
+adminModerationRoutes.post("/:id/reject", async (c: Context<AdminEnv, "/:id/reject">) => {
   const id = c.req.param("id");
   const sub = await loadSubmission(id);
   if (!sub) return c.json({ error: "Submission not found" }, 404);
@@ -144,7 +144,7 @@ adminModerationRoutes.post("/:id/reject", async (c: Context<AdminEnv>) => {
 
 // POST /:id/ban — suspend the submission's owner AND reject the submission.
 // Suspending an account is destructive → require a fresh MFA step-up.
-adminModerationRoutes.post("/:id/ban", async (c: Context<AdminEnv>) => {
+adminModerationRoutes.post("/:id/ban", async (c: Context<AdminEnv, "/:id/ban">) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -475,7 +475,7 @@ adminModerationRoutes.get("/photos", async (c: Context<AdminEnv>) => {
 // POST /listings/:id/takedown — unpublish a listing platform-wide. Destructive
 // (removes public/marketplace content) → fresh MFA step-up. Reversible: restore
 // flips the markers back.
-adminModerationRoutes.post("/listings/:id/takedown", async (c: Context<AdminEnv>) => {
+adminModerationRoutes.post("/listings/:id/takedown", async (c: Context<AdminEnv, "/listings/:id/takedown">) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -510,7 +510,7 @@ adminModerationRoutes.post("/listings/:id/takedown", async (c: Context<AdminEnv>
 });
 
 // POST /listings/:id/restore — reverse a takedown. Non-destructive → no step-up.
-adminModerationRoutes.post("/listings/:id/restore", async (c: Context<AdminEnv>) => {
+adminModerationRoutes.post("/listings/:id/restore", async (c: Context<AdminEnv, "/listings/:id/restore">) => {
   const id = c.req.param("id");
   const ownerUserId = await resolveListingOwner(id);
   if (!ownerUserId) return c.json({ error: "Listing not found" }, 404);
@@ -540,7 +540,7 @@ adminModerationRoutes.post("/listings/:id/restore", async (c: Context<AdminEnv>)
 });
 
 // POST /photos/:id/hide — hide a photo from public surfaces. Destructive → step-up.
-adminModerationRoutes.post("/photos/:id/hide", async (c: Context<AdminEnv>) => {
+adminModerationRoutes.post("/photos/:id/hide", async (c: Context<AdminEnv, "/photos/:id/hide">) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -569,7 +569,7 @@ adminModerationRoutes.post("/photos/:id/hide", async (c: Context<AdminEnv>) => {
 });
 
 // POST /photos/:id/unhide — reverse a hide. Non-destructive → no step-up.
-adminModerationRoutes.post("/photos/:id/unhide", async (c: Context<AdminEnv>) => {
+adminModerationRoutes.post("/photos/:id/unhide", async (c: Context<AdminEnv, "/photos/:id/unhide">) => {
   const id = c.req.param("id");
   const ownerUserId = await resolvePhotoOwner(id);
   if (!ownerUserId) return c.json({ error: "Photo not found" }, 404);

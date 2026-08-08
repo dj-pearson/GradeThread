@@ -383,7 +383,7 @@ export function checkMigrationNotes(migrations, refs, { grandfatheredThrough = M
 // Archived notes are exempt. They are SUPPOSED to describe code as it was;
 // flagging them would flood the review queue with work nobody can ever action.
 
-export function checkDrift(notes, { commitTime, strict = false } = {}) {
+export function checkDrift(notes, { commitTime, strict = false, changesSince } = {}) {
   const errors = [];
   const warnings = [];
   for (const [, n] of notes) {
@@ -396,7 +396,11 @@ export function checkDrift(notes, { commitTime, strict = false } = {}) {
       if (!iso) continue; // untracked or never committed — nothing to compare
       const day = iso.slice(0, 10);
       if (day > reviewed) {
-        const msg = `${n.path}: DRIFT — ${ref} changed ${day}, note last reviewed ${reviewed}. Re-read it and bump 'reviewed'.`;
+        // US-2431: absent changesSince (or a shallow clone) this degrades to
+        // the old message. Never to a WRONG one — that is the same rule the
+        // shallow-clone guard follows for commitTime itself.
+        const hunks = changesSince ? formatHunks(changesSince(ref, reviewed)) : "";
+        const msg = `${n.path}: DRIFT — ${ref} changed ${day}, note last reviewed ${reviewed}. Re-read it and bump 'reviewed'.${hunks}`;
         if (strict && n.fm.type === "contract") errors.push(msg);
         else warnings.push(msg);
       }
@@ -419,6 +423,109 @@ export function isShallowRepo(root, spawn = spawnSync) {
 }
 
 // Last commit date for a path, or null if git has no record of it.
+// US-2431: what CHANGED in a code_ref since the note was reviewed.
+//
+// A DRIFT warning today hands you a filename and a date. Verifying it therefore
+// means re-reading the whole file — and on the 3000-line shared files that
+// produce most of these warnings, that is the entire cost of the guard.
+//
+// Subjects alone are NOT enough, which US-2430 established the hard way: eight
+// notes had a commit whose subject looked relevant and whose hunks were in an
+// unrelated part of the file. So this returns the touched LINE RANGES too, and
+// the re-read starts from what actually moved.
+//
+// This does NOT narrow the trigger. ADR-0004 decided the trigger stays coarse
+// because narrowing it would have suppressed five real corrections whose
+// describing lines had not changed. Everything here is presentational.
+export const HUNK_COMMIT_CAP = 5;
+
+export function gitChangesSince(root, spawn = spawnSync) {
+  const cache = new Map();
+  return (relPath, sinceDay) => {
+    const key = `${relPath}@${sinceDay}`;
+    if (cache.has(key)) return cache.get(key);
+
+    // --after takes the day AFTER the review date: a commit ON the review day is
+    // what the reviewer read, not drift from it. Without this every re-read
+    // would open with the commit the reviewer had just finished checking.
+    const after = nextDay(sinceDay);
+    const r = spawn(
+      "git",
+      [
+        "log",
+        `--after=${after}T00:00:00`,
+        "--format=%x00%h %s",
+        // -U0 keeps the output to hunk HEADERS. Real diff context here would be
+        // the wall-of-hunks failure AC2 names, which is the same problem as a
+        // filename with no hunks wearing the opposite costume.
+        "-U0",
+        "--",
+        relPath,
+      ],
+      { cwd: root, encoding: "utf8", shell: false },
+    );
+    const val = r.status === 0 ? parseHunkLog(String(r.stdout)) : [];
+    cache.set(key, val);
+    return val;
+  };
+}
+
+/** The day after an ISO date, without pulling in a date library. */
+export function nextDay(day) {
+  const d = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return day;
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Turn `git log --format=%x00%h %s -U0` output into [{ sha, subject, ranges }].
+ *
+ * NUL-delimited because a commit SUBJECT can contain anything, including text
+ * that looks like a hunk header. Splitting on a printable delimiter would let a
+ * commit message named after a diff corrupt the parse.
+ */
+export function parseHunkLog(out) {
+  const commits = [];
+  for (const chunk of String(out).split("\0")) {
+    if (!chunk.trim()) continue;
+    const nl = chunk.indexOf("\n");
+    const header = (nl === -1 ? chunk : chunk.slice(0, nl)).trim();
+    const body = nl === -1 ? "" : chunk.slice(nl + 1);
+    const sp = header.indexOf(" ");
+    if (sp === -1) continue;
+    const ranges = [];
+    // @@ -old +newStart[,newCount] @@ — the NEW side is the one to report,
+    // because that is where the current file's lines are.
+    for (const m of body.matchAll(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/gm)) {
+      const start = Number(m[1]);
+      const count = m[2] === undefined ? 1 : Number(m[2]);
+      // count 0 is a pure deletion: there is no new line to point at, so report
+      // the seam rather than an empty range.
+      ranges.push(count === 0 ? `${start}~` : count === 1 ? `${start}` : `${start}-${start + count - 1}`);
+    }
+    commits.push({ sha: header.slice(0, sp), subject: header.slice(sp + 1), ranges });
+  }
+  return commits;
+}
+
+/**
+ * One indented block per DRIFT finding. Capped, and says how many it elided —
+ * AC2: a wall of hunks is the same failure as a filename with no hunks.
+ */
+export function formatHunks(commits, cap = HUNK_COMMIT_CAP) {
+  if (!commits.length) return "";
+  const shown = commits.slice(0, cap);
+  const lines = shown.map((c) => {
+    const where = c.ranges.length ? ` [L${c.ranges.join(", L")}]` : " [no line changes — mode, rename or merge]";
+    return `      ${c.sha} ${c.subject}${where}`;
+  });
+  if (commits.length > cap) {
+    lines.push(`      … and ${commits.length - cap} earlier commit(s) not shown`);
+  }
+  return "\n" + lines.join("\n");
+}
+
 export function gitCommitTime(root) {
   const cache = new Map();
   return (relPath) => {
@@ -625,7 +732,13 @@ export function main(argv = process.argv.slice(2)) {
     if (isShallowRepo(root)) {
       warnings.push("drift check SKIPPED — shallow git clone has no per-file history. Use fetch-depth: 0 in CI.");
     } else {
-      const d = checkDrift(notes, { commitTime: gitCommitTime(root), strict: flags.has("--strict") });
+      const d = checkDrift(notes, {
+        commitTime: gitCommitTime(root),
+        strict: flags.has("--strict"),
+        // Only reachable past the isShallowRepo guard above, so the hunk
+        // lookup inherits the same protection commitTime has (AC4).
+        changesSince: gitChangesSince(root),
+      });
       errors.push(...d.errors);
       warnings.push(...d.warnings);
     }

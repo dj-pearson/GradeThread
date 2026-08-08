@@ -46,6 +46,7 @@ function dockerUp() {
 
 const results = [];
 let skipped = [];
+const warnings = [];
 
 function run(name, cmd, opts = {}) {
   process.stdout.write(`\n\x1b[1m▶ ${name}\x1b[0m\n  $ ${cmd}${opts.cwd ? `   (in ${opts.cwd})` : ""}\n`);
@@ -53,6 +54,15 @@ function run(name, cmd, opts = {}) {
   const r = spawnSync(cmd, { stdio: "inherit", shell: true, cwd: opts.cwd ?? root });
   const ok = r.status === 0;
   results.push({ name, ok, sec: ((Date.now() - started) / 1000).toFixed(1) });
+}
+
+// Runs a check for its REPORT rather than its verdict: a failure is surfaced
+// loudly in the summary but does not fail the lane. For known-broken external
+// state (a vulnerable base image) where a hard gate would be red on arrival.
+function advisory(name, cmd, opts = {}) {
+  process.stdout.write(`\n\x1b[1m▶ ${name}\x1b[0m \x1b[2m(advisory)\x1b[0m\n  $ ${cmd}\n`);
+  const r = spawnSync(cmd, { stdio: "inherit", shell: true, cwd: opts.cwd ?? root });
+  if (r.status !== 0) warnings.push(name);
 }
 
 // ── Web (Node) — mirrors ci.yml "build" job ──────────────────────────────────
@@ -134,6 +144,22 @@ if (on("db")) {
     process.env.SUPABASE_AUTH_CAPTCHA_SECRET ??= "1x0000000000000000000000000000000AA";
     run("db: supabase db start (apply migrations)", "supabase db start");
     run("db: supabase db reset --no-seed (re-apply from zero)", "supabase db reset --no-seed");
+    // US-1927 AC3: rls-guard_test.ts pins the policy SOURCE form; this pins the
+    // PLAN. A policy can read correctly and still be re-evaluated per row, so
+    // the two are different assertions and only this one answers the story.
+    // Green today, so it gates.
+    run("db: RLS auth.uid() InitPlan (US-1927)", "node scripts/db-rls-initplan-check.mjs");
+    // US-2403: a denied function call SEGFAULTs the Supabase Postgres image and
+    // restarts the whole database. ADVISORY, not a gate, and deliberately so:
+    // the stock image is vulnerable today, so gating here would be red on every
+    // migration PR from the moment it lands — and a permanently red check gets
+    // switched off, which is how the guard stops guarding. It flips to `run()`
+    // the moment the image or the supautils.hint_roles config is fixed; that
+    // flip is step one of the mitigation, not a follow-up.
+    advisory(
+      "db: denied-RPC crash (US-2403)",
+      "node scripts/db-denied-rpc-crash-check.mjs",
+    );
   }
 }
 
@@ -164,6 +190,7 @@ for (const r of results) {
   process.stdout.write(`  ${mark} ${r.name} \x1b[2m(${r.sec}s)\x1b[0m\n`);
 }
 for (const s of skipped) process.stdout.write(`  \x1b[33m⚠ skipped\x1b[0m ${s}\n`);
+for (const w of warnings) process.stdout.write(`  \x1b[33m⚠ advisory FAILED (does not block)\x1b[0m ${w}\n`);
 
 if (failed.length) {
   process.stdout.write(`\n\x1b[31m\x1b[1m${failed.length} check(s) failed:\x1b[0m ${failed.map((f) => f.name).join(", ")}\n`);

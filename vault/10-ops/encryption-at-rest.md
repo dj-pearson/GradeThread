@@ -11,7 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/cert-integrity.ts
   - scripts/ops/backup-postgres.sh
   - scripts/ops/backup-storage.sh
-reviewed: 2026-08-07
+reviewed: 2026-08-08
 tags: [security, encryption, compliance, pii]
 summary: Exactly which GradeThread data is encrypted at rest, by what mechanism, and with which key reference — plus the gaps, stated plainly.
 ---
@@ -29,6 +29,10 @@ and the Postgres volume itself sit in plaintext on disk. That is a real posture
 with real limits, and this note states them rather than leaving a reviewer to
 find them.
 
+Offsite backups are the one item mid-change: the encryption is written and
+verified but not yet deployed, so today's answer is still "plaintext". Details
+below — do not upgrade that answer until the key exists on the host.
+
 > [!info] What this note does and does not own
 > It owns the **inventory**: what is encrypted, where, and which key reference
 > covers it. It does not own key rotation ([[key-rotation]]), backup operations
@@ -43,7 +47,7 @@ find them.
 |---|---|---|---|---|
 | Postgres volume (self-hosted Supabase, Contabo VPS via Coolify) | Every table below | **No** | — | — |
 | Supabase Storage volume (`STORAGE_DIR`) | All eight buckets | **No** | — | — |
-| Offsite backups (Cloudflare R2, bucket `gradethread-backups`) | `pg_dump` + a raw storage sync | **No** | gzip only (`pg_dump --compress=6`) | — |
+| Offsite backups (Cloudflare R2, bucket `gradethread-backups`) | `pg_dump` + a raw storage sync | **Mechanism yes, production not yet** | `age` public-key on the dump; rclone `crypt` remote for the storage mirror — both enforced by the scripts, which now refuse to upload plaintext (US-2416) | `BACKUP_AGE_RECIPIENT` / `BACKUP_AGE_IDENTITY` (see [[key-rotation]]) |
 | Selected DB columns | OAuth tokens, cache values | **Yes** | AES-256-GCM, per-row AAD | `EDGE_ENCRYPTION_KEY` (see [[key-rotation]]) |
 | Selected DB columns | Secrets never needed back | Not applicable — **hashed**, not encrypted | SHA-256 / HMAC-SHA256 | `API_KEY_PEPPER`, `CERT_SIGNING_KEY`, two salts |
 
@@ -142,9 +146,19 @@ does not invalidate the eBay tokens themselves).
 
 It does **not** defend against physical or host-level access. That is the
 volume's job, and the volume is unencrypted, so a reclaimed or pulled VPS disk
-yields everything above in plaintext. The same is true of the offsite backups:
-R2 credentials alone yield a full plaintext copy of the database. Both are open,
-both are known, neither should be described to a customer as covered.
+yields everything above in plaintext (US-2415, still open).
+
+The offsite backups were the same gap and are **half closed**. US-2416 built the
+mechanism: `backup-postgres.sh` encrypts the dump to an `age` recipient before
+`rclone copy` and aborts rather than uploading plaintext, `backup-storage.sh`
+refuses a non-`crypt` remote, and `restore-postgres.sh` plus the drill decrypt
+and were verified end to end on 2026-08-08 (drill log in [[backups]]).
+
+Be precise about what that does and does not change for a customer answer:
+**production is still shipping plaintext** until somebody generates the keypair
+and deploys the updated scripts to the DB host. The code cannot regress back to
+plaintext; the running system has not moved yet. Describe it as in progress, not
+as covered.
 
 ## Compliance posture — as it actually is
 

@@ -86,6 +86,11 @@ ios-screenshots/screenshots-appstore.zip
 IMG_5130.PNG
 
 # Supabase CLI local-stack artifacts
+# The WHOLE .temp directory, not one file inside it. `supabase start` writes
+# a generated edge-runtime bundle to supabase/.temp/start-secrets/, and
+# cli-latest was listed three separate times while the directory around it
+# was not listed at all.
+supabase/.temp/
 supabase/.branches/
 supabase/migrations/00122_verified_storefront_listings.sql
 
@@ -101,7 +106,6 @@ scripts/ralph/current-story.json
 # per-machine runtime records, not shared repo state.
 scripts/ralph/sessions.json
 scripts/ralph/costs.jsonl
-supabase/.temp/cli-latest
 
 # Python lint script bytecode
 __pycache__/
@@ -111,13 +115,11 @@ __pycache__/
 listings_rows.csv
 export/
 scripts/seed-demo-account.sql
-supabase/.temp/cli-latest
 
 # Remotion product-guide project (video build artifacts + deps)
 remotion/node_modules/
 remotion/out/
 remotion/qa/
-supabase/.temp/cli-latest
 assets/Natural Emotions.m4a
 
 hf_*
@@ -127,7 +129,6 @@ ds-bundle/
 .design-sync/.cache/
 .design-sync/learnings/
 .design-sync/node_modules
-supabase/.temp/cli-latest
 Flip Tracker - Listings.csv
 Flip Tracker - Thrift Flip Tracker (1).csv
 

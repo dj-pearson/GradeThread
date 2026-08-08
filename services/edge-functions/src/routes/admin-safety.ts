@@ -207,7 +207,7 @@ adminSafetyRoutes.get("/signals", async (c: Context<AdminEnv>) => {
 });
 
 // GET /signals/:id — one signal for the detail drawer.
-adminSafetyRoutes.get("/signals/:id", async (c: Context<AdminEnv>) => {
+adminSafetyRoutes.get("/signals/:id", async (c: Context<AdminEnv, "/signals/:id">) => {
   const id = c.req.param("id");
   const { data, error } = await supabaseAdmin
     .from("abuse_signals")
@@ -235,7 +235,7 @@ interface StatusBody {
 //                                concern, so it carries the same bar as the
 //                                destructive actions it stands in for.
 //   open                       — reopen a resolved signal; super_admin + step-up.
-adminSafetyRoutes.patch("/signals/:id", async (c: Context<AdminEnv>) => {
+adminSafetyRoutes.patch("/signals/:id", async (c: Context<AdminEnv, "/signals/:id">) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as StatusBody;
   const status = body.status;
@@ -461,7 +461,7 @@ adminSafetyRoutes.get("/rate-limits", async (c: Context<AdminEnv>) => {
 
 // GET /rate-limits/:userId — one user's current counters + active override +
 // the registry-driven defaults/bounds the override editor needs.
-adminSafetyRoutes.get("/rate-limits/:userId", async (c: Context<AdminEnv>) => {
+adminSafetyRoutes.get("/rate-limits/:userId", async (c: Context<AdminEnv, "/rate-limits/:userId">) => {
   const userId = c.req.param("userId");
   const url = new URL(c.req.url);
   const windowMinutes = clampInt(
@@ -517,7 +517,7 @@ interface OverrideBody {
 // carries the same bar as the destructive safety actions: super_admin + a fresh
 // MFA step-up, audited. The new override is upserted (one active per user) and the
 // limiter's cache is busted + warmed so it takes effect immediately.
-adminSafetyRoutes.post("/rate-limits/:userId/override", async (c: Context<AdminEnv>) => {
+adminSafetyRoutes.post("/rate-limits/:userId/override", async (c: Context<AdminEnv, "/rate-limits/:userId/override">) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -583,7 +583,7 @@ adminSafetyRoutes.post("/rate-limits/:userId/override", async (c: Context<AdminE
 
 // DELETE /rate-limits/:userId/override — lift an override early. Same super_admin
 // + step-up bar (lifting a throttle/block is itself a sensitive change), audited.
-adminSafetyRoutes.delete("/rate-limits/:userId/override", async (c: Context<AdminEnv>) => {
+adminSafetyRoutes.delete("/rate-limits/:userId/override", async (c: Context<AdminEnv, "/rate-limits/:userId/override">) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 

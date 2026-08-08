@@ -53,3 +53,19 @@ jobs:
       # Belt-and-suspenders: a clean reset re-applies from scratch.
       - name: Reset (re-apply migrations from zero)
         run: supabase db reset --no-seed
+      # US-1927: RLS policies must plan auth.uid() as a hoisted InitPlan, not
+      # re-evaluate it per candidate row. The static rls-guard test pins the
+      # policy TEXT; only EXPLAIN can pin the plan. Gates, because it passes.
+      - name: RLS auth.uid() InitPlan check (US-1927)
+        run: node scripts/db-rls-initplan-check.mjs
+      # US-2403: a permission-denied FUNCTION call SEGFAULTs the Supabase
+      # Postgres image and takes the whole database down with it — reachable by
+      # anyone holding the public anon key. continue-on-error because the stock
+      # image is vulnerable TODAY: gating would turn every migration PR red on
+      # arrival, and a permanently red check is one that gets deleted. This runs
+      # to answer one question on every image bump — "is it still broken?" —
+      # and to catch a regression once it is fixed. Drop continue-on-error the
+      # moment the check goes green.
+      - name: Denied-RPC crash check (advisory, US-2403)
+        continue-on-error: true
+        run: node scripts/db-denied-rpc-crash-check.mjs

@@ -20,6 +20,10 @@ export default tseslint.config(
   {
     ignores: [
       "dist",
+      // Written by `supabase start` — generated, minified, and present on any
+      // machine running the local stack. Linting it failed `npm run verify`
+      // with 189 errors in code nobody wrote.
+      "supabase/.temp/**",
       "services/edge-functions/**",
       "sdk/**",
       "remotion/**",

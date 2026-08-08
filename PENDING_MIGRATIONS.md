@@ -1,8 +1,68 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing is held.** 00542 through 00559 were applied to prod on 2026-08-08 and
-confirmed by the owner. See the note under 00528 for how that is measured and
-why the measurement, not this file, is the authority whenever the two disagree.
+**Two are held: 00560 and 00561.** 00542 through 00559 were applied to prod on 2026-08-08
+and confirmed by the owner. See the note under 00528 for how that is measured
+and why the measurement, not this file, is the authority whenever the two
+disagree.
+
+## ⏸ HELD: 00560_listing_performance_rpcs.sql (US-2233 — server-side KPIs + paged search)
+
+**APPLY BEFORE THE PUSH, and this is the strict direction.** The frontend
+change in the same commit calls both functions through `supabase.rpc()`, and
+Cloudflare Pages auto-deploys the frontend the moment the branch is pushed.
+If the SQL is not in yet, Listing Performance calls an RPC PostgREST has not
+published and gets a 404 that reads as a bug in the page.
+
+(An earlier draft of this entry said DO NOT APPLY YET, on the grounds that the
+caller did not exist. It does now — the page was wired in the same session.
+Left visible rather than rewritten silently, because the two instructions are
+opposites and a reader who saw the first one needs to know it changed.)
+
+**Risk: LOW, and lower than most.** It adds two functions and touches no table,
+no column, no index and no row. Both are `LANGUAGE sql STABLE` and, critically,
+**SECURITY INVOKER** (the default) — they run as the CALLING role, so the
+existing RLS on `listings` and `inventory_items` is what scopes them. There is
+no tenant filter inside them to get wrong.
+
+**Apply order.** Last, after 00559. No dependency on it beyond both being later
+than the tables they read.
+
+**Rollback** is `DROP FUNCTION` on both signatures. Nothing else changes.
+
+**What it does.** `flipdesk_listing_performance_summary()` returns the four
+header/KPI figures (count, total views, average CTR, stale count, last synced)
+across every active eBay listing the caller can see.
+`flipdesk_listing_performance_page(...)` returns ONE searched, sorted, paged
+page, with `total_count` riding on each row so the caller gets the page and the
+page count in a single round trip. Today the page loads every active listing
+into the browser and does all three client-side.
+
+**Why the seller-visible behaviour improves, not just the performance:** the
+title fallback (blank `listing_title` → the inventory item's title) moves into
+the query, so SEARCH now covers it. Client-side search matched `listing_title`
+only, and silently missed every listing whose displayed title came from the
+item. The `ILIKE` pattern is escaped, so searching for a title containing `%`
+or `_` matches literally instead of wildcarding.
+
+**Contains a `DROP FUNCTION IF EXISTS` on the summary, deliberately.**
+`CREATE OR REPLACE` cannot change a function's return type, and this one gained
+`last_synced_at` while it was being written. Dropping by full signature first is
+what keeps the file re-runnable against a database holding either shape — which
+is what rule 1 has to mean here. Verified by applying it twice in a row.
+
+**`NOTIFY pgrst, 'reload schema';` is REQUIRED.** PostgREST will not expose a
+new RPC until it reloads, and the frontend calls both through `supabase.rpc()`.
+Without the notify the page gets a 404 from PostgREST that looks like a bug in
+the page.
+
+**Verified on a throwaway local stack**, not by reading: applied from a clean
+state and then re-applied (idempotent); `prosecdef = false` on both; `anon` has
+no EXECUTE and `authenticated`/`service_role` do; and behaviourally, with two
+seeded sellers, seller A's results never included seller B's listing, the title
+fallback resolved, a search for `50%` matched the literal percent sign,
+the no-view window filtered, `total_count` was right under `limit 1 offset 1`,
+an unknown sort key fell back instead of erroring, and a title sort ordered by
+title rather than by views.
 
 **00542–00557 used to be numbered 00539–00554.** The ADE hub loop ran against
 the same backlog and landed its own 00539, 00540 and 00541, and those went to
@@ -2319,3 +2379,49 @@ the migration HELD now says something false. `prd-lint` catches that (it warns o
 any note claiming a hold for a migration already on `origin/main`), and because
 notes are append-only the fix is to APPEND a `STATUS CORRECTION` line rather than
 edit the original sentence.
+
+## ⏸ HELD: 00561_measure_card_tracking.sql (US-2231 — tracking on a mailed MeasureCard)
+
+**Apply order.** After 00560. No dependency between them; both only need to be
+in before the code that reads them.
+
+**Risk: LOW.** Two nullable `text` columns on `measure_card_requests`, no
+default, no backfill, no constraint, no index. Nothing is rewritten and no
+existing row changes. Old edge code that never mentions them keeps working.
+
+**Apply BEFORE the edge deploy.** The new edge SELECTs `tracking_number` and
+`tracking_carrier` on both the operator queue and the seller's own
+`/card-request` read. If the edge goes first, PostgREST answers 42703 and the
+MeasureCard status panel breaks for every seller — not just those with tracking.
+The frontend does not read these columns directly, so a Cloudflare Pages deploy
+is harmless on its own.
+
+**`NOTIFY pgrst, 'reload schema';`** after applying — the columns are selected
+by name through PostgREST.
+
+**What it does, and what it deliberately does NOT.** US-2231 AC3 asks for an ETA
+*and* a tracking number. Only tracking is here. Quoting "ships in 3–5 days" on a
+page a paying seller reads is a promise the fulfilment process does not make, and
+a date we cannot honour is worse than no date. The ETA needs a real SLA first.
+
+**Both columns are NULLABLE on purpose.** Cards are mailed by hand and many go
+out as untracked letters. NOT NULL would either stop the operator marking those
+shipped or push them to type a placeholder — and a placeholder tracking number is
+worse than an empty one, because the seller clicks it.
+
+**Plaintext, unlike the street address on the same table.** US-2417 encrypts
+ship_name/address_line1/address_line2/city/postal_code because they say where a
+person lives. A tracking number is a carrier's identifier for a parcel, the
+operator has to search and paste it, and it is the one field on the row the
+SELLER is meant to read back — the same reasoning that keeps state and country
+readable there.
+
+**The refusal worth knowing about.** The bulk transition takes up to 500 ids and
+tracking is per-parcel, so sending a number with a batch is REFUSED (400) rather
+than applied. Stamping one carrier reference onto 200 sellers would give each of
+them a link that tracks somebody else's parcel, which is worse than no tracking
+because it looks authoritative.
+
+**Verified on a throwaway local stack:** applied from clean and re-applied
+(idempotent); the US-1108 self-record footer present; schema-version guard green
+at 00561 with the manifest regenerated in the same pass.

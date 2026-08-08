@@ -58,7 +58,7 @@ adminImpersonationRoutes.use("*", requireScope("users:role"));
 const PRIVILEGED_ROLES = new Set(["reviewer", "admin", "super_admin"]);
 
 // POST /start/:id — begin impersonating a user. super_admin only + step-up.
-adminImpersonationRoutes.post("/start/:id", async (c: Context<AdminEnv>) => {
+adminImpersonationRoutes.post("/start/:id", async (c: Context<AdminEnv, "/start/:id">) => {
   if (c.get("adminRole") !== "super_admin") {
     return c.json({ error: "Super-admin access required" }, 403);
   }

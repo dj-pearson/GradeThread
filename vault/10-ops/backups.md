@@ -19,10 +19,10 @@ wires it to a schedule and records the verified restore procedure.
 
 | Script | Purpose |
 |---|---|
-| `scripts/ops/backup-postgres.sh` | nightly `pg_dump` (custom format) → verify → sha256 → offsite via rclone → prune local |
-| `scripts/ops/backup-storage.sh` | daily `rclone sync` of the storage volume offsite, deletions kept in dated `storage-deleted/` prefixes |
-| `scripts/ops/restore-postgres.sh` | restore a dump into a target DB (prod-guarded) + sanity queries |
-| `scripts/ops/restore-drill.sh` | automated end-to-end drill: dump → fresh scratch container → restore → source-vs-restored count comparison |
+| `scripts/ops/backup-postgres.sh` | nightly `pg_dump` (custom format) → verify → **encrypt (age)** → sha256 of the ciphertext → offsite via rclone → prune local |
+| `scripts/ops/backup-storage.sh` | daily `rclone sync` of the storage volume offsite **to a crypt remote**, deletions kept in dated `storage-deleted/` prefixes |
+| `scripts/ops/restore-postgres.sh` | verify sha256 → **decrypt** → restore a dump into a target DB (prod-guarded) + sanity queries |
+| `scripts/ops/restore-drill.sh` | automated end-to-end drill: dump → **encrypt/verify/decrypt round-trip** → fresh scratch container → restore → source-vs-restored count comparison |
 
 ## Targets
 
@@ -47,9 +47,14 @@ wires it to a schedule and records the verified restore procedure.
 >
 > **Confirm before trusting any number here.** On the prod DB host:
 > `crontab -l` should list the backup line from the Setup section below, and the
-> offsite bucket should hold a dump from the last 24h **with its `.sha256`
+> offsite bucket should hold an object from the last 24h **with its checksum
 > beside it** — a dump with no checksum is a backup nobody has proven is
 > readable. Once both are true, replace this callout with the date you checked.
+>
+> Since US-2416 the offsite object names are `gradethread-<ts>.dump.age` and
+> `gradethread-<ts>.dump.age.sha256`. A bare `.dump` in the bucket is not a
+> success — it means an older script version is still deployed and the nightly
+> is shipping **plaintext**.
 >
 > Note the shape of this gap, because it is not a missing feature: it is a
 > runbook step marked MANUAL that nobody performed. Everything needed already
@@ -63,6 +68,72 @@ wires it to a schedule and records the verified restore procedure.
 2. **Supabase Storage** — the `submission-images` (private grading photos) and
    `item-photos` (public listing imagery) buckets on the host volume.
 
+## Encryption (US-2416)
+
+Everything that leaves the host is encrypted with a key GradeThread holds,
+**before** it reaches Cloudflare R2.
+
+The threat is a leaked R2 credential, not a hostile Cloudflare. R2's
+server-side encryption is transparent to exactly that credential, so it does
+not help here: whoever can list the bucket gets a full plaintext dump of every
+user, address, grade and credit-ledger row. Host-disk encryption is a separate
+gap, tracked as US-2415 in the backlog.
+
+| Artifact | Mechanism | Key |
+|---|---|---|
+| Postgres dump | `age`, public-key, applied by `backup-postgres.sh` before `rclone copy` | `BACKUP_AGE_RECIPIENT` (public) on the host; identity (private) off-host |
+| Storage mirror | rclone **crypt remote** (client-side, per object, keeps `sync` diffable) | rclone crypt password + salt |
+
+**Why public-key for the dump.** The DB host holds only the *recipient*
+(public) half, so it can encrypt but cannot decrypt. Rooting the database box
+therefore does not also hand over the offsite archive. `backup-postgres.sh`
+**refuses to upload at all** if `BACKUP_AGE_RECIPIENT` is unset — a backup that
+silently degrades to plaintext is the failure this exists to prevent.
+
+The **local** staging copy in `/backups/pg` stays plaintext on purpose: it never
+crosses the network, and a restore under pressure should not also depend on
+fetching the offsite key.
+
+> [!danger] Lose the key and you lose every backup
+> There is no recovery path, no escrow and no support ticket that undoes this.
+> An age-encrypted dump without its identity file is random bytes forever. This
+> risk is *created* by encrypting backups and is the price of it — so the key
+> needs at least two independent, durable homes, and neither of them may be the
+> machine being backed up.
+>
+> It also must not depend on the platform it protects: if the only copy lived in
+> a system that authenticates through the same host, a total host loss would
+> take the backups with it.
+
+> [!todo] **MANUAL (one-time, before the encrypted cron goes live):** generate
+> the keypair and store it. Nobody has done this yet — the scripts are ready and
+> the key does not exist.
+>
+> ```bash
+> age-keygen -o gradethread-backup-identity.txt   # prints the public recipient
+> ```
+>
+> 1. Put the **identity** (the whole file, private) in Infisical as
+>    `BACKUP_AGE_IDENTITY`. Note it is NOT an application env var and no
+>    deployment surface reads it — it is an operator recovery key, which is why
+>    it does not appear in [[env-reference]]. It is set by hand, only during a
+>    restore.
+> 2. Put a **second copy** somewhere offline and durable that does not depend on
+>    Infisical or the Contabo host.
+> 3. Put the **public recipient** (`age1...`) in the cron line below as
+>    `BACKUP_AGE_RECIPIENT`. It is not secret.
+> 4. Shred the local file. Then tick this box with the date and *where*, never
+>    the value.
+>
+> For the storage mirror, `rclone config` a `crypt` remote wrapping the R2
+> remote and point `RCLONE_REMOTE` at it. `backup-storage.sh` now **refuses** a
+> non-crypt remote unless `STORAGE_BACKUP_ALLOW_PLAINTEXT=1` is set
+> deliberately — that mirror contains grading **label** photos, which carry
+> brand, size and frequently a name or packing slip.
+
+Rotation, including what to do about ciphertext already sitting in the 30-day
+bucket under the old key, is in [[key-rotation]].
+
 ## Schedule (cron on the DB host)
 
 These run on the **host** that carries the Postgres + storage volumes (not in
@@ -71,8 +142,8 @@ the edge container — that container has no volume access and Coolify
 
 ```cron
 # /etc/cron.d/gradethread-backups
-15 2 * * * root SUPABASE_DB_URL=postgres://... RCLONE_REMOTE=r2:gradethread-backups/pg ALERT_WEBHOOK_URL=https://... /opt/gradethread/scripts/ops/backup-postgres.sh >> /var/log/gradethread-backup.log 2>&1
-45 2 * * * root RCLONE_REMOTE=r2:gradethread-backups STORAGE_DIR=/var/lib/supabase/storage ALERT_WEBHOOK_URL=https://... /opt/gradethread/scripts/ops/backup-storage.sh >> /var/log/gradethread-backup.log 2>&1
+15 2 * * * root SUPABASE_DB_URL=postgres://... RCLONE_REMOTE=r2:gradethread-backups/pg BACKUP_AGE_RECIPIENT=age1... ALERT_WEBHOOK_URL=https://... /opt/gradethread/scripts/ops/backup-postgres.sh >> /var/log/gradethread-backup.log 2>&1
+45 2 * * * root RCLONE_REMOTE=r2crypt:gradethread-backups STORAGE_DIR=/var/lib/supabase/storage ALERT_WEBHOOK_URL=https://... /opt/gradethread/scripts/ops/backup-storage.sh >> /var/log/gradethread-backup.log 2>&1
 ```
 
 Both scripts POST to `ALERT_WEBHOOK_URL` on any failure — point it at the same
@@ -159,6 +230,7 @@ bash scripts/ops/restore-drill.sh        # PASS/FAIL + timings
 | Date | What was restored | Result | Timing | Operator |
 |---|---|---|---|---|
 | 2026-06-12 | Full pg dump (schema at migration 00151 + seeded auth user/submission/grade_report/inventory_item/storage.object rows) → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container via `restore-drill.sh` | PASS — latest migration, all row counts, and all 270 RLS policies matched source | dump 1s, restore 11s | Ralph (US-494) |
+| 2026-08-08 | **Encrypted** artifact: local stack at migration 00559 (5 auth users → 5 `public.users`, 20 submissions, 375 RLS policies) → `age` encrypt → sha256 → verify → decrypt → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container. Also run separately through the real `backup-postgres.sh` + `restore-postgres.sh` pair, restoring from a **different directory** than the backup wrote, which is what an offsite fetch actually does. | PASS — migration, all row counts and all 375 policies matched source | dump 1s, restore 5s | US-2416 |
 | _before launch_ | A real **prod** offsite dump → scratch host (LAUNCH_CHECKLIST §5) | | | |
 
 > [!danger] **LAUNCH GATE:** the local drill proves the *procedure*; §5 of

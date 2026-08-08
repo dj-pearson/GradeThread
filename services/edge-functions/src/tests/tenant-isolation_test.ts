@@ -655,7 +655,12 @@ Deno.test({
   name: "equity requires auth (no anonymous aggregate read)",
   ignore: !CONFIGURED,
   fn: async () => {
-    const res = await fetch(`${BASE}/api/flipdesk/equity/`, {
+    // Bare path, no trailing slash — the trailing-slash form 404s (see the
+    // aggregate case below), and 404 is in the DENIED set, so this case would
+    // have reported "authenticated" for a URL that does not exist. Measured:
+    // GET /api/flipdesk/equity unauthenticated returns 401, so the wildcard
+    // authMiddleware does cover the bare path and the property holds.
+    const res = await fetch(`${BASE}/api/flipdesk/equity`, {
       headers: { "Content-Type": "application/json" },
     });
     await res.body?.cancel();
@@ -723,8 +728,16 @@ Deno.test({
   name: "A and B do not receive the same equity aggregate",
   ignore: !CONFIGURED,
   fn: async () => {
+    // NO TRAILING SLASH. `app.route("/api/flipdesk/equity", …)` + `.get("/")`
+    // matches the BARE path in Hono; `/api/flipdesk/equity/` falls through to
+    // app.notFound and answers 404. Measured 2026-08-08 against a live seeded
+    // stack: both tenants got {"error":"Not found"}, so the `if (a.status !==
+    // 200 …) return` below fired on every run and this probe never reached a
+    // single assertion. Same defect as the totalEquityCents field-name bug
+    // recorded above, one layer out — the URL rather than the payload. Auth is
+    // unaffected either way (the bare path measured 401 unauthenticated).
     const read = async (jwt: string) => {
-      const res = await fetch(`${BASE}/api/flipdesk/equity/`, {
+      const res = await fetch(`${BASE}/api/flipdesk/equity`, {
         headers: authHeaders(jwt),
       });
       const text = await res.text();
@@ -3495,7 +3508,53 @@ Deno.test({
       body: JSON.stringify({ status: "fulfilled" }),
     });
     await res.body?.cancel();
-    assertDenied(res.status, "PATCH buyer want owned by another tenant");
+    // 402 is a pass, and it is what CI actually returns. The route runs
+    // requireBuyerFeature(c, "demandBoard") BEFORE it looks at the id, so an
+    // unentitled B is refused one layer earlier than the ownership filter —
+    // same accept-402-with-a-reason pattern the listings/bulk-edit and closet
+    // cases already use. (DELETE on this same route is ungated, which is why
+    // the case above needs no 402.)
+    assert(
+      DENIED_OR_GATED.has(res.status),
+      `PATCH buyer want owned by another tenant: expected 401/402/403/404, ` +
+        `got ${res.status}`,
+    );
+
+    // Widening the accepted set would leave this case asserting only "B was
+    // refused for SOME reason", and a billing refusal is not the property under
+    // test. So read A's want back with the service-role key and prove the row
+    // never moved. This holds whichever gate fired, and it is what actually
+    // fails if the .eq("user_id", userId) on the update is ever dropped.
+    // The support-tools block near line 2200 env-sets SUPABASE_SERVICE_ROLE_KEY
+    // to the literal "test-service-key" when the real one is absent, and that
+    // placeholder is not a JWT — PostgREST answers PGRST301 "Expected 3 parts in
+    // JWT". Skipping on it keeps a developer running without the stack env from
+    // reading a credential error as a tenant leak. CI always has the real key
+    // (tenant-isolation.yml exports it from `supabase status`), so the readback
+    // does run where it counts.
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (supabaseUrl && serviceKey && serviceKey !== "test-service-key") {
+      const check = await fetch(
+        `${supabaseUrl}/rest/v1/buyer_wants?id=eq.${A_WANT_ID}&select=status`,
+        {
+          headers: {
+            Authorization: `Bearer ${serviceKey}`,
+            apikey: serviceKey,
+          },
+        },
+      );
+      const rows = (await check.json().catch(() => [])) as { status?: string }[];
+      assert(
+        check.ok,
+        `readback of A's want failed (${check.status}) — fix the fixture env ` +
+          `rather than deleting this check: ${JSON.stringify(rows)}`,
+      );
+      assert(
+        rows.length === 1 && rows[0].status !== "fulfilled",
+        `A's want must be untouched by B's PATCH, got ${JSON.stringify(rows)}`,
+      );
+    }
   },
 });
 

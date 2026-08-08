@@ -11,7 +11,13 @@
 //     → logs `[repricing.list] <redacted raw error>` server-side and returns
 //       a generic 500 to the client.
 import type { Context } from "hono";
-import type { StatusCode } from "hono/utils/http-status.ts";
+// ContentfulStatusCode, not StatusCode. Both helpers below ALWAYS send a JSON
+// body, and the statuses that cannot carry one — 1xx, 204, 304 — are exactly
+// what ContentfulStatusCode excludes. hono 4.13 split the two types apart and
+// typed c.json() against the narrower one, so this import is what the code has
+// always meant; the older StatusCode let `jsonError(c, 204, "...")` compile
+// into a response whose body the runtime would drop on the floor.
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { redactError } from "./log-redact.ts";
 
 export interface ErrorBody {
@@ -21,7 +27,7 @@ export interface ErrorBody {
 
 export function jsonError(
   c: Context,
-  status: StatusCode,
+  status: ContentfulStatusCode,
   message: string,
   code?: string,
 ): Response {
@@ -33,7 +39,7 @@ export function jsonError(
 // client-safe message. The raw text NEVER reaches the response body.
 export function failSafe(
   c: Context,
-  status: StatusCode,
+  status: ContentfulStatusCode,
   clientMessage: string,
   cause: unknown,
   logTag: string,

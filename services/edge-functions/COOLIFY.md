@@ -32,7 +32,9 @@ metric and `/health` response becomes unattributable to a build. Prod was
 measured serving `release:"dev"` for exactly this reason — you cannot answer
 "did the fix ship?" without it.
 
-`docker-compose.coolify.yml` now declares it, so nothing needs remembering:
+**All three building compose files now declare it** — `docker-compose.yml`,
+`docker-compose.coolify.yml` and `docker-compose.staging.yml` — so it does not
+matter which one the deploy is pointed at:
 
 ```yaml
 build:
@@ -40,12 +42,19 @@ build:
     GIT_SHA: ${SOURCE_COMMIT:-dev}
 ```
 
-⚠️ **If you deploy from `docker-compose.yml` instead** (the default the one-time
-setup above picks), add the same `args` block there, or set
-`GIT_SHA=$SOURCE_COMMIT` in Coolify's **Build Args** field. The Dockerfile has
-carried a comment asking for this since it was written, and that comment did not
-survive contact with the actual deploy — which is why it is declared in compose
-now rather than documented as a step.
+That "all three" is the fix, and it is worth knowing why. Only the `.coolify.yml`
+variant carried the arg from 2026-07-19, and production was still measured
+serving `release:"dev"` on 2026-08-02 — because the one-time setup above
+auto-picks `docker-compose.yml`, which did not have it. The earlier version of
+this section handled that with a ⚠️ telling you to add the block by hand or fill
+in Coolify's **Build Args** field. Asking a person to remember something is the
+failure this story is about; the Dockerfile had been asking, in a comment, since
+it was written. `src/tests/compose-release-arg_test.ts` now fails CI if any
+compose file builds the image without the arg.
+
+If prod still reports `dev` after a rebuild, the remaining cause is that your
+Coolify version does not populate `SOURCE_COMMIT`, in which case `:-dev` wins
+silently — set `GIT_SHA` explicitly in the **Build Args** field to rule it out.
 
 **Verify by measuring, not by reading config:**
 

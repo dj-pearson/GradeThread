@@ -4,6 +4,11 @@
 import { describe, expect, it } from "vitest";
 import {
   checkDrift,
+  formatHunks,
+  gitChangesSince,
+  HUNK_COMMIT_CAP,
+  nextDay,
+  parseHunkLog,
   buildReviewQueue,
   checkMigrationNotes,
   isKnowledgeBearing,
@@ -187,6 +192,148 @@ describe("lintVault", () => {
   });
 });
 
+// ── US-2431: the hunks shown under a DRIFT finding ───────────────────────────
+//
+// A DRIFT warning names a file and a date. Verifying it therefore means
+// re-reading the file, and on the 3000-line shared files that produce most of
+// these warnings that IS the cost of the guard. These add the commit subjects
+// and the touched line ranges so the re-read starts from what moved.
+//
+// Subjects alone are not enough — US-2430 had eight notes whose commit subject
+// looked relevant and whose hunks were in an unrelated part of the file. That
+// is why every case here asserts the RANGES, not just the subject.
+describe("parseHunkLog", () => {
+  const log = [
+    "\u0000abc1234 US-1: touch the top",
+    "@@ -1,3 +1,4 @@",
+    "@@ -80 +81,10 @@",
+    "\u0000def5678 US-2: a rename with no line change",
+    "",
+  ].join("\n");
+
+  it("reads the subject and the NEW-side line ranges", () => {
+    const c = parseHunkLog(log);
+    expect(c).toHaveLength(2);
+    expect(c[0].sha).toBe("abc1234");
+    expect(c[0].subject).toBe("US-1: touch the top");
+    // 1,4 -> L1-4;  81,10 -> L81-90. The NEW side is what matters: it is where
+    // the lines are in the file the reader is about to open.
+    expect(c[0].ranges).toEqual(["1-4", "81-90"]);
+  });
+
+  it("reports a commit that changed no lines rather than dropping it", () => {
+    // A rename or a mode change is still a reason the drift fired. Dropping it
+    // would show a warning with an empty explanation, which reads as a bug.
+    expect(parseHunkLog(log)[1].ranges).toEqual([]);
+  });
+
+  it("renders a single-line hunk as one number, not a range", () => {
+    expect(parseHunkLog("\u000012ab US-3: one line\n@@ -5 +5 @@\n")[0].ranges).toEqual(["5"]);
+  });
+
+  it("marks a pure deletion with a seam rather than an empty range", () => {
+    // +12,0 means nothing exists there now. "L12" would send the reader to a
+    // line that is not the one that changed.
+    expect(parseHunkLog("\u000012ab US-4: delete\n@@ -12,4 +12,0 @@\n")[0].ranges).toEqual(["12~"]);
+  });
+
+  it("is not confused by a commit subject that looks like a hunk header", () => {
+    // The log is NUL-delimited for exactly this reason. A printable delimiter
+    // would let a commit message named after a diff corrupt the parse.
+    const tricky = "\u0000aaa1 fix: @@ -1 +1 @@ in the title\n@@ -9 +9,2 @@\n";
+    const c = parseHunkLog(tricky);
+    expect(c).toHaveLength(1);
+    expect(c[0].subject).toBe("fix: @@ -1 +1 @@ in the title");
+    expect(c[0].ranges).toEqual(["9-10"]);
+  });
+
+  it("returns nothing for empty output", () => {
+    expect(parseHunkLog("")).toEqual([]);
+  });
+});
+
+describe("formatHunks", () => {
+  const many = (n) =>
+    Array.from({ length: n }, (_, i) => ({ sha: `sha${i}`, subject: `s${i}`, ranges: ["1"] }));
+
+  it("is empty when there is nothing to show", () => {
+    expect(formatHunks([])).toBe("");
+  });
+
+  it("caps the listing and SAYS how many it elided", () => {
+    // AC2: a wall of hunks is the same failure as a filename with no hunks.
+    // Silently truncating would be worse than either — it reads as complete.
+    const out = formatHunks(many(HUNK_COMMIT_CAP + 3));
+    expect(out.split("\n").filter((l) => l.includes("sha"))).toHaveLength(HUNK_COMMIT_CAP);
+    expect(out).toContain(`and 3 earlier commit(s) not shown`);
+  });
+
+  it("does not add an elision line when everything fits", () => {
+    expect(formatHunks(many(HUNK_COMMIT_CAP))).not.toContain("not shown");
+  });
+
+  it("explains a commit with no line ranges instead of printing a blank", () => {
+    expect(formatHunks([{ sha: "a1", subject: "rename", ranges: [] }]))
+      .toContain("no line changes");
+  });
+});
+
+describe("nextDay", () => {
+  it("advances one day so a commit ON the review date is excluded", () => {
+    // That commit is what the reviewer READ, not drift from it.
+    expect(nextDay("2026-07-01")).toBe("2026-07-02");
+  });
+  it("crosses a month and a year boundary", () => {
+    expect(nextDay("2026-01-31")).toBe("2026-02-01");
+    expect(nextDay("2026-12-31")).toBe("2027-01-01");
+  });
+  it("returns the input unchanged when it is not a date", () => {
+    expect(nextDay("not-a-date")).toBe("not-a-date");
+  });
+});
+
+describe("gitChangesSince", () => {
+  it("asks git for hunk HEADERS only, after the day following the review", () => {
+    let args = null;
+    const spawn = (_cmd, a) => {
+      args = a;
+      return { status: 0, stdout: "" };
+    };
+    gitChangesSince("/root", spawn)("src/x.ts", "2026-07-01");
+    expect(args).toContain("-U0"); // headers, not context — AC2
+    expect(args).toContain("--after=2026-07-02T00:00:00");
+    expect(args).toContain("src/x.ts");
+  });
+
+  it("degrades to NO hunks when git fails, never to a wrong answer", () => {
+    // AC4. The same rule the shallow-clone guard follows for commitTime: a
+    // missing explanation is recoverable, a confidently wrong one is not.
+    //
+    // stdout is NON-EMPTY on purpose. A first version of this case used
+    // `stdout: ""`, which parses to [] whether or not the status is checked —
+    // so deleting the status check left it GREEN. Sabotage found that; the
+    // stub now emits output that WOULD parse, so the only thing that can make
+    // the result empty is the status check itself.
+    const spawn = () => ({ status: 128, stdout: "\u0000dead123 partial output\n@@ -1 +1,5 @@\n" });
+    expect(gitChangesSince("/root", spawn)("src/x.ts", "2026-07-01")).toEqual([]);
+  });
+
+  it("caches per (path, since) so one ref is not re-shelled per note", () => {
+    let calls = 0;
+    const spawn = () => {
+      calls++;
+      return { status: 0, stdout: "" };
+    };
+    const f = gitChangesSince("/root", spawn);
+    f("src/x.ts", "2026-07-01");
+    f("src/x.ts", "2026-07-01");
+    expect(calls).toBe(1);
+    // A DIFFERENT review date is a different question and must re-run.
+    f("src/x.ts", "2026-06-01");
+    expect(calls).toBe(2);
+  });
+});
+
 describe("checkDrift", () => {
   // commitTime stub: every ref reports the same commit date.
   const at = (day) => () => `${day}T12:00:00+00:00`;
@@ -198,6 +345,23 @@ describe("checkDrift", () => {
     expect(r.warnings.some((w) => w.includes("DRIFT") && w.includes("src/x.ts"))).toBe(true);
     expect(r.errors).toEqual([]);
   });
+  it("appends the commit subjects and line ranges when changesSince is given", () => {
+    const r = checkDrift(codeNote(), {
+      commitTime: at("2026-07-10"),
+      changesSince: () => [{ sha: "abc1234", subject: "US-9: moved the weights", ranges: ["40-52"] }],
+    });
+    expect(r.warnings[0]).toContain("abc1234 US-9: moved the weights");
+    expect(r.warnings[0]).toContain("[L40-52]");
+  });
+
+  it("falls back to the plain message when changesSince is absent", () => {
+    // AC4: CI's shallow clone has no per-file history, so the hunk lookup has
+    // to be optional. Losing the hunks must not lose the WARNING.
+    const r = checkDrift(codeNote(), { commitTime: at("2026-07-10") });
+    expect(r.warnings[0]).toContain("DRIFT");
+    expect(r.warnings[0]).not.toContain("[L");
+  });
+
   it("does not flag a code_ref committed BEFORE the review date", () => {
     const r = checkDrift(codeNote(), { commitTime: at("2026-06-01") });
     expect(r.warnings).toEqual([]);

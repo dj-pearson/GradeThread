@@ -5,6 +5,24 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # US-2001: THIS FILE IS THE LEADING SUSPECT, so it gets the arg too.
+      #
+      # docker-compose.coolify.yml has carried GIT_SHA since 2026-07-19, and
+      # production was STILL measured serving release:"dev" on 2026-08-02. The
+      # previous pass listed "Coolify is deploying from docker-compose.yml
+      # rather than the .coolify.yml variant" as cause (1) — and the very first
+      # line of this file calls itself "Production compose used by Coolify",
+      # which makes that reading entirely reasonable for whoever set the deploy
+      # up. Declaring the arg in both files means the answer to "which compose
+      # file is it actually using?" stops mattering.
+      #
+      # Dockerfile has `ARG GIT_SHA=dev`; without this the default survives into
+      # the image and every Sentry event ships tagged "dev". `:-dev` keeps a
+      # plain local `docker compose build` working, and a dev/unknown value
+      # surfaces as a DEGRADED features.release on /health/ready rather than
+      # passing silently (env-validation.ts isRealReleaseSha).
+      args:
+        GIT_SHA: ${SOURCE_COMMIT:-dev}
     restart: unless-stopped
     expose:
       - "8787"

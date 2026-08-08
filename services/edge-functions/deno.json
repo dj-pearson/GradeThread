@@ -6,11 +6,11 @@
     "eval:agents": "deno run --allow-net --allow-env --allow-read src/lib/agent-eval.ts"
   },
   "imports": {
-    "hono": "https://deno.land/x/hono@v4.3.7/mod.ts",
-    "hono/middleware": "https://deno.land/x/hono@v4.3.7/middleware.ts",
-    "hono/factory": "https://deno.land/x/hono@v4.3.7/helper/factory/index.ts",
-    "hono/streaming": "https://deno.land/x/hono@v4.3.7/helper/streaming/index.ts",
-    "hono/": "https://deno.land/x/hono@v4.3.7/",
+    "hono": "jsr:@hono/hono@4.13.1",
+    "hono/factory": "jsr:@hono/hono@4.13.1/factory",
+    "hono/streaming": "jsr:@hono/hono@4.13.1/streaming",
+    "hono/cors": "jsr:@hono/hono@4.13.1/cors",
+    "hono/": "jsr:/@hono/hono@4.13.1/",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.43.1",
     "@anthropic-ai/sdk": "https://esm.sh/@anthropic-ai/sdk@0.104.1",
     "stripe": "https://esm.sh/stripe@15.5.0",

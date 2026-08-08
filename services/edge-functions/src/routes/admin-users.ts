@@ -211,7 +211,7 @@ const PLAN_LABELS: Record<string, string> = {
   enterprise: "Enterprise",
 };
 
-adminUsersRoutes.get("/:id/timeline", async (c: Context<AdminEnv>) => {
+adminUsersRoutes.get("/:id/timeline", async (c: Context<AdminEnv, "/:id/timeline">) => {
   const targetId = c.req.param("id");
   if (!UUID_RE.test(targetId)) {
     return c.json({ error: "Invalid user id" }, 400);
@@ -492,7 +492,7 @@ adminUsersRoutes.get("/:id/timeline", async (c: Context<AdminEnv>) => {
 // POST /:id/role — change a user's role. super_admin only + fresh step-up.
 // US-908: also requires the users:role scope (held only by super_admin in the
 // seed → no behavior change; a scoped admin could be granted it explicitly).
-adminUsersRoutes.post("/:id/role", requireScope("users:role"), async (c: Context<AdminEnv>) => {
+adminUsersRoutes.post("/:id/role", requireScope("users:role"), async (c: Context<AdminEnv, "/:id/role">) => {
   // Only super-admins manage roles.
   if (c.get("adminRole") !== "super_admin") {
     return c.json({ error: "Super-admin access required" }, 403);
@@ -546,7 +546,7 @@ adminUsersRoutes.post("/:id/role", requireScope("users:role"), async (c: Context
 // unreliable. Removed.) Suspending an account is destructive → require a fresh
 // MFA step-up, and audit the change so it's attributable to the acting admin.
 // US-1560: account suspension is moderation authority (was role-only).
-adminUsersRoutes.post("/:id/suspend", requireScope("moderation:write"), async (c: Context<AdminEnv>) => {
+adminUsersRoutes.post("/:id/suspend", requireScope("moderation:write"), async (c: Context<AdminEnv, "/:id/suspend">) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 
@@ -622,7 +622,7 @@ adminUsersRoutes.post("/:id/suspend", requireScope("moderation:write"), async (c
 // UPDATE policy on public.users, so RLS matched zero rows, PostgREST returned
 // success, and the page toasted "Plan changed" over a change that never
 // happened (writing a false audit row on the way out).
-adminUsersRoutes.post("/:id/plan", requireScope("billing:write"), async (c: Context<AdminEnv>) => {
+adminUsersRoutes.post("/:id/plan", requireScope("billing:write"), async (c: Context<AdminEnv, "/:id/plan">) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
 

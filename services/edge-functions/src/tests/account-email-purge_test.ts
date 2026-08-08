@@ -144,7 +144,12 @@ Deno.test(
         const hasAddress =
           /^\s*(email|recipient|claimant_email)\s+text/im.test(body);
         if (!hasAddress) continue;
-        // Keyed to the user by FK? Then the cascade already covers it.
+        // Keyed to the user by FK? Then the cascade already covers it —
+        // FOR THE ACCOUNT HOLDER. See the US-2433 note under the assertion:
+        // this `continue` is exactly where a third-party subject's data leaves
+        // this guard's field of view, and that is correct for the question this
+        // guard asks. It is not correct as a claim of full coverage, which is
+        // why the failure message now says which question it answered.
         const cascades = /references\s+public\.users\s*\(\s*id\s*\)\s*on delete cascade/i
           .test(body);
         if (cascades) continue;
@@ -161,6 +166,42 @@ Deno.test(
         "\n\nEither purge/anonymize them in account.ts step 3c, or add them to " +
         "EXEMPT here with a reason.",
     );
+  },
+);
+
+// US-2433 AC4: say what this guard does NOT cover, so green is not misread.
+//
+// The guard above skips any table that cascades from public.users, and that is
+// right for the question it asks — "does the ACCOUNT HOLDER's address survive
+// their own deletion?" It is wrong as a claim of full PII coverage, because two
+// tables cascade from the SELLER while holding a THIRD PARTY's identifiers:
+// guarantee_claims (the buyer who filed a claim) and consignors (the person who
+// gave a seller items to sell). Neither of those people has an account, so
+// neither is reached by any account action.
+//
+// A guard whose scope is invisible is read as covering everything it did not
+// fail on. This test makes the boundary an assertion instead of a hope: the
+// third-party tables must be handled SOMEWHERE, and the only place they can be
+// is the US-2433 plan.
+Deno.test(
+  "US-2433: the account-holder guard's blind spot is covered by the third-party plan",
+  async () => {
+    const { THIRD_PARTY_PURGE_PLAN } = await import("../lib/third-party-pii-purge.ts");
+    const covered = new Set(THIRD_PARTY_PURGE_PLAN.map((t) => t.table));
+
+    // Named literally rather than rediscovered from the schema. These two are
+    // the KNOWN blind spot; a scan that re-derived them could drift to zero and
+    // pass while covering nothing.
+    for (const table of ["guarantee_claims", "consignors"]) {
+      assert(
+        covered.has(table),
+        `${table} holds identifying data about someone who is NOT the account ` +
+          "holder, and cascades from the seller — so the inventory guard above " +
+          "skips it and no account deletion by that subject can exist. It must " +
+          "appear in THIRD_PARTY_PURGE_PLAN (US-2433). If it was removed on " +
+          "purpose, say why there, not by deleting this case.",
+      );
+    }
   },
 );
 

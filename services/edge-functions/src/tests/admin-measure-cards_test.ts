@@ -39,6 +39,8 @@ Deno.test("requestsToCsv emits the vendor columns in order", () => {
       state: "TX",
       postal_code: "78701",
       country: "US",
+      tracking_number: null,
+      tracking_carrier: null,
       requested_at: "2026-07-03T00:00:00Z",
       exported_at: null,
       shipped_at: null,

@@ -299,3 +299,107 @@ Deno.test("US-2359: the free tier really does lack what we gate on", () => {
   assertEquals(BUYER_PLAN_ENTITLEMENTS.free.gateFlags.purchaseGuarantee, false);
   assertEquals(BUYER_PLAN_ENTITLEMENTS.guard.gateFlags.purchaseGuarantee, true);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// US-2359, the FLAG side of the same question.
+//
+// Everything above enumerates ROUTES. That answers "is this route gated?" and
+// it cannot answer "is this paid feature enforced anywhere?" — which is the
+// question the story was actually filed on. The two are not the same surface:
+// the buyer route files are seven of them, and five of the thirteen flags are
+// enforced in code no buyer route ever touches.
+//
+// That gap is why this story kept reading as "ten of thirteen flags are still
+// unenforced" long after it stopped being true. Measured 2026-08-08, all
+// thirteen are accounted for: five are true on EVERY tier and so cannot deny
+// anyone, and the other eight are each enforced somewhere — just not all in the
+// same shape, and not all in the buyer routes.
+//
+// The shapes are deliberately different and all of them are correct:
+//   • 402 upgrade-required (requireBuyerFeature) — for a route that IS the
+//     feature, where refusing the call is the whole answer.
+//   • 403 not_entitled inline — buyer-authenticity.ts, kept as-is because
+//     changing its status is a client contract change (see its GATES entry).
+//   • FIELD SUPPRESSION — the extension scan returns the scan and nulls the
+//     paid fields. A 402 there would refuse the free feature to withhold the
+//     paid one.
+//   • SLA / routing — prioritySupport has no runtime path at all, and
+//     lib/plan-gate.ts says so in prose.
+// A test that demanded one shape would push three of these toward the wrong one.
+const FLAG_ENFORCEMENT: Record<BuyerFeature, string | null> = {
+  // null = no enforcement required. ASSERTED below to be true on every tier,
+  // so "we don't gate it" has to stay earned rather than assumed.
+  extensionSecondOpinion: null,
+  conditionAlerts: null,
+  rewards: null,
+  trustScore: null,
+  wardrobePortfolio: null,
+
+  // "GATES" = enforced by a buyer route in the registry above.
+  demandBoard: "GATES",
+  purchaseGuarantee: "GATES",
+
+  // Enforced outside the buyer route files. The path is read and must still
+  // mention the flag, so deleting the enforcement reddens here rather than
+  // leaving this table as a description of code that used to exist.
+  authenticityAddon: "routes/buyer-authenticity.ts",
+  discrepancyScoring: "lib/extension-gates.ts",
+  priceFairness: "lib/extension-gates.ts",
+  fitPrediction: "lib/extension-gates.ts",
+  videoGrading: "routes/grade.ts",
+  prioritySupport: "lib/plan-gate.ts",
+};
+
+Deno.test("US-2359: every declared paid feature is accounted for", async () => {
+  const flags = Object.keys(
+    BUYER_PLAN_ENTITLEMENTS.free.gateFlags,
+  ) as BuyerFeature[];
+
+  // The Record type already forces exhaustiveness at compile time. This catches
+  // the other direction — a flag deleted from the matrix but left in the table,
+  // which would keep asserting against a feature that no longer exists.
+  assertEquals(
+    Object.keys(FLAG_ENFORCEMENT).sort(),
+    [...flags].sort(),
+    "FLAG_ENFORCEMENT and BuyerGateFlags disagree — a paid feature was added " +
+      "or removed and its enforcement was not stated",
+  );
+
+  const tiers = Object.keys(BUYER_PLAN_ENTITLEMENTS) as BuyerPlanKey[];
+
+  for (const flag of flags) {
+    const where = FLAG_ENFORCEMENT[flag];
+
+    if (where === null) {
+      const withheld = tiers.filter(
+        (t) => !BUYER_PLAN_ENTITLEMENTS[t].gateFlags[flag],
+      );
+      assertEquals(
+        withheld,
+        [],
+        `${flag} is declared as needing no enforcement, but ${withheld.join(", ")} ` +
+          `does not have it. It is now a paid feature that nothing withholds — ` +
+          `either enforce it and name where, or put the flag back to true on ` +
+          `every tier.`,
+      );
+      continue;
+    }
+
+    if (where === "GATES") {
+      assert(
+        GATES.some((g) => g.feature === flag),
+        `${flag} is declared as gated by a buyer route, but no GATES entry ` +
+          `claims it`,
+      );
+      continue;
+    }
+
+    const src = await Deno.readTextFile(new URL(`../${where}`, ROUTES_DIR));
+    assert(
+      src.includes(flag),
+      `${flag} is declared as enforced in ${where}, and that file no longer ` +
+        `mentions it. Either the enforcement moved (update this table) or it ` +
+        `was deleted (a paid feature is now free).`,
+    );
+  }
+});

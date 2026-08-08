@@ -20,6 +20,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # US-2001: same build arg as the prod files. Staging is where a deploy
+      # change gets rehearsed, so an unattributable release here would hide the
+      # very regression the rehearsal exists to catch.
+      args:
+        GIT_SHA: ${SOURCE_COMMIT:-dev}
     restart: unless-stopped
     expose:
       - "8787"
