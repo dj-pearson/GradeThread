@@ -255,9 +255,9 @@ fabric criteria, the schema tail — so the seam belongs at the block, keyed by
 `(stage, block_key, garment_scope)`, resolved by the same active/canary logic
 that already serves the system prompt.
 
-**Not built yet.** The decision is recorded here so the build does not have to
-re-derive it; `prompt_surface_hash` is what makes the ungated window *visible*
-in the meantime, not what closes it.
+**Not built yet — that is US-2438.** The decision is recorded here so the build
+does not have to re-derive it; `prompt_surface_hash` is what makes the ungated
+window *visible* in the meantime, not what closes it.
 
 ## Related
 
