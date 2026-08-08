@@ -87,6 +87,44 @@ anything unclear must classify as **retry**.
 > reviewer after the day it was written. If you find yourself writing "every X
 > does Y" in a note, consider whether a source-scan guard can hold it.
 
+## A listingId is not a pulse (2026-08-08)
+
+The same confusion runs the other way too, and this direction is worse because
+it reports **success**.
+
+`publishOrAdoptOffer` (US-464) exists so a publish that succeeded on eBay but
+crashed before the local write cannot be re-published into a duplicate. It asks
+`getPublishedListingId` — which read `offer.listing.listingId` and returned it.
+
+**eBay does not clear `listing.listingId` when a listing ends.** A withdrawn
+offer still carries the id of its dead listing. So after an End, the very next
+publish adopted that id, skipped `publishOffer` entirely, wrote the ended
+listing's id to the local row, and told the seller *"your listing is live."* The
+item was off eBay, the row said active, and the "View on eBay" link pointed at a
+page reading ENDED.
+
+That path is the **escape hatch** — end, fix the thing eBay would not let you
+change in place, relist. It failed in the same place as the problem it exists to
+escape, which is how a seller ends up with an unsellable item and an app
+insisting otherwise.
+
+`livePublishedListingId(offer)` now applies the status rule, and the asymmetry
+in it is deliberate:
+
+- `ENDED`, `INACTIVE`, `COMPLETED`, `CANCELLED`/`CANCELED` → **not live**, republish.
+- Anything else, **including a missing `listingStatus`** → adopt, as before.
+
+Adopting a dead listing costs a silent no-publish, which is recoverable and now
+visible. Refusing to adopt a live one costs a **duplicate live listing**, which
+is not recoverable and is the entire reason the check exists. Unknown statuses
+therefore keep the old behaviour. Pinned by `publish-idempotency_test.ts`.
+
+> [!note] Read this next to the classifier above
+> `isOfferAlreadyEndedError` decides whether an *error* means "already gone".
+> This decides whether a *success payload* means "still live". Both are the
+> question "is this listing alive right now?", and neither can be answered from
+> the presence or absence of a field alone.
+
 ## Why the reason rides on a column, not the enum
 
 The `listing_status` enum has `draft | active | ended | sold | relisted` and no

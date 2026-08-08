@@ -147,6 +147,46 @@ category, the seller has already fixed the title, and eBay's public listing page
 still shows the **old** breadcrumb and the old required specific. Check the live
 page, not the database — the database was never the thing that was wrong.
 
+> [!warning] The bridge existed and the listing still could not be pushed (2026-08-08)
+> A live listing re-categorised Dresses → Tops failed every push with *"The item
+> specific Dress Length is missing"* for three days **after** this bridge
+> shipped. Three separate defects, and the shape of each is worth more than the
+> fix:
+>
+> 1. **The Retry button could not carry a category.** The failed-push banner's
+>    retry (`src/pages/flipdesk/item.tsx`) sent `photos: true` and nothing else.
+>    `photos` re-PUTs the inventory item; the leaf category lives on the
+>    **offer**, and only `resync_ebay_fields` moves it or runs this bridge. So
+>    the one control offered next to the error was structurally incapable of
+>    fixing the error's most common cause, and every click failed identically.
+>    A recovery affordance that cannot reach the failing field is worse than no
+>    affordance — it reads as "we tried, it is unfixable".
+> 2. **The bridge skipped itself when eBay reported no category.** The guard was
+>    `liveCategoryId && liveCategoryId !== reviseCategoryId`, so a `getOffer`
+>    response without `categoryId` fell through to the unchanged path — the same
+>    outcome as not having the bridge, reached silently. It is now
+>    `liveCategoryId !== reviseCategoryId`: *unknown* belongs with *different*,
+>    because the cost of bridging unnecessarily is one superset PUT the normal
+>    re-PUT immediately narrows.
+> 3. **The bridge swallowed its own failure.** "Best-effort, falls through to
+>    the existing error handling" meant the seller was shown the *downstream*
+>    rejection — an aspect their category does not have — with nothing recording
+>    which step actually broke. Neither the seller nor an engineer reading the
+>    row could tell the bridge had even run. The reason is now carried into the
+>    422 (`category_bridge_error`) and into `publish_error`.
+>
+> The through-line: **a fallback that hides why it fell back turns a diagnosable
+> failure into an unfixable one.** Best-effort is about control flow, not about
+> observability.
+
+## The escape hatch was broken in the same place
+
+The seller's instinct when a live listing will not change category is: end it,
+fix it, relist. That path failed too, and reported success while doing it — see
+[[ebay-listing-lifecycle-reconciliation]] § *A listingId is not a pulse*. Worth
+knowing together, because it is what a seller reaches for when this section's
+bridge lets them down.
+
 ## Related
 
 - [[sync-source-of-truth]] — which field owns which specific

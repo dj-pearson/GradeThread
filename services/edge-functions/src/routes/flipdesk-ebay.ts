@@ -6146,6 +6146,14 @@ async function reviseOneListing(
     // normal PUT below drop the leftovers under the new category. Best-effort
     // throughout — if any step fails we fall through to the existing path and
     // its error handling, which is no worse than before this existed.
+    //
+    // The bridge is best-effort, but its failure is NOT invisible: whatever
+    // goes wrong here is what the seller's next error is really about, and
+    // swallowing it left a re-categorised listing that refused every push with
+    // an error naming an aspect its category no longer has, while nothing
+    // anywhere recorded which step actually broke. The reason is carried to
+    // the inventory-PUT failure below and reported with it.
+    let categoryBridgeError: string | null = null;
     if (resyncFields && reviseCategoryId) {
       try {
         const liveOffer = await getOffer(
@@ -6155,7 +6163,14 @@ async function reviseOneListing(
         );
         const liveCategoryId =
           typeof liveOffer.categoryId === "string" ? liveOffer.categoryId : null;
-        if (liveCategoryId && liveCategoryId !== reviseCategoryId) {
+        // Bridge when the live category differs — and ALSO when eBay didn't
+        // report one at all. A missing categoryId used to skip the bridge
+        // entirely, which is the same silent no-op as never having it: we
+        // cannot prove the categories match, and the cost of bridging when
+        // they already do is one superset PUT that the normal re-PUT below
+        // immediately narrows. "Unknown" belongs with "different", not with
+        // "same".
+        if (liveCategoryId !== reviseCategoryId) {
           console.warn(
             `[flipdesk-ebay] listing ${listingId}: eBay category ` +
               `${liveCategoryId} → ${reviseCategoryId}; bridging via a union PUT`,
@@ -6196,6 +6211,7 @@ async function reviseOneListing(
           );
         }
       } catch (err) {
+        categoryBridgeError = err instanceof Error ? err.message : String(err);
         console.error(
           `[flipdesk-ebay] category bridge failed for listing ${listingId} ` +
             `(falling through to the normal re-PUT):`,
@@ -6232,9 +6248,22 @@ async function reviseOneListing(
         row.listing.marketplace_connection_id ?? undefined);
     } catch (err) {
       console.error("[flipdesk-ebay] revise inventory_item failed:", err);
+      // When the category bridge above failed, THIS error is a consequence of
+      // that failure, not an independent fact: eBay is judging the new
+      // specifics against a category we did not manage to move the listing out
+      // of. Reporting only the downstream message is what made this look
+      // unfixable — the seller is told to supply an aspect their category no
+      // longer has, with no hint that a prior step is the reason. Carry the
+      // cause, so the error names the step that actually broke.
+      const reported = categoryBridgeError
+        ? new Error(
+            `${err instanceof Error ? err.message : String(err)} ` +
+              `(the eBay category change did not apply first: ${categoryBridgeError})`,
+          )
+        : err;
       // US-1079: persist the failure on the listing (publish_error/
       // publish_failed_at) so the UI can surface it + offer a retry on reload.
-      await persistReviseFailure(listingId, err);
+      await persistReviseFailure(listingId, reported);
       // 422 (not 502): an eBay business-rule rejection is a data problem, not a
       // gateway failure. A 5xx gets intercepted by the Traefik/Coolify error page
       // (which strips CORS headers — see main.ts), so the browser sees a bare
@@ -6244,7 +6273,17 @@ async function reviseOneListing(
           error: "eBay rejected the revision.",
           // US-1511: mapped/human detail only (mirrors the publish path's
           // US-567 contract) — the raw eBay blob stays in the log above.
-          detail: ebayFailureDetail(err, EBAY_PUBLISH_GENERIC_FIX),
+          detail:
+            ebayFailureDetail(err, EBAY_PUBLISH_GENERIC_FIX) +
+            (categoryBridgeError
+              ? " This listing's eBay category could not be changed first" +
+                ` (${categoryBridgeError}), so eBay checked your item specifics` +
+                " against its OLD category. Fix that and the specifics will" +
+                " follow."
+              : ""),
+          ...(categoryBridgeError
+            ? { category_bridge_error: categoryBridgeError }
+            : {}),
         },
         422
       );

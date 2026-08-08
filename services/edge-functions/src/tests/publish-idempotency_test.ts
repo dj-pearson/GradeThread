@@ -16,6 +16,7 @@ Deno.env.set(
 
 const {
   isOfferAlreadyExistsError,
+  livePublishedListingId,
   OFFER_ALREADY_EXISTS_ERROR_ID,
   publishOrAdoptOffer,
 } = await import("../lib/ebay-client.ts");
@@ -114,4 +115,80 @@ Deno.test("publishOrAdoptOffer: post-publish-crash + retry adopts the same listi
   const a2 = await publishOrAdoptOffer("u", "o1", ops);
   assertEquals(a2, { listingId: "L1", adopted: true });
   assertEquals(publishCalls, 1); // the retry adopts, never re-publishes
+});
+
+// ── An ENDED listing is not something to adopt ──────────────────────────
+//
+// eBay does not clear offer.listing.listingId when a listing ends, so "the
+// offer has a listingId" answers a different question than "the offer is
+// live". Conflating them made end-then-republish a silent no-op: the adopt
+// branch handed back the ENDED listing's id, the seller was told the listing
+// was live, and the item was off eBay. That is the exact sequence a seller
+// follows to escape a bad category, so the escape hatch failed in the same
+// place as the thing it was escaping.
+
+Deno.test("livePublishedListingId: adopts a live listing", () => {
+  assertEquals(
+    livePublishedListingId({ listing: { listingId: "L1", listingStatus: "ACTIVE" } }),
+    "L1",
+  );
+});
+
+Deno.test("livePublishedListingId: refuses an ENDED listing", () => {
+  assertEquals(
+    livePublishedListingId({ listing: { listingId: "L1", listingStatus: "ENDED" } }),
+    null,
+  );
+  // eBay's casing is not something to depend on.
+  assertEquals(
+    livePublishedListingId({ listing: { listingId: "L1", listingStatus: "ended" } }),
+    null,
+  );
+});
+
+Deno.test("livePublishedListingId: refuses the other dead statuses", () => {
+  for (const status of ["INACTIVE", "COMPLETED", "CANCELLED", "CANCELED"]) {
+    assertEquals(
+      livePublishedListingId({ listing: { listingId: "L1", listingStatus: status } }),
+      null,
+      `${status} must not be adopted`,
+    );
+  }
+});
+
+Deno.test("livePublishedListingId: an UNKNOWN or missing status still adopts", () => {
+  // Deliberate asymmetry — see the DEAD_LISTING_STATUSES comment. Adopting a
+  // dead listing costs a visible no-publish; refusing to adopt a live one
+  // costs a DUPLICATE live listing, which is the failure US-464 exists to
+  // prevent. Unknown takes the safe side.
+  assertEquals(livePublishedListingId({ listing: { listingId: "L1" } }), "L1");
+  assertEquals(
+    livePublishedListingId({ listing: { listingId: "L1", listingStatus: "OUT_OF_STOCK" } }),
+    "L1",
+  );
+  assertEquals(
+    livePublishedListingId({ listing: { listingId: "L1", listingStatus: "SOMETHING_NEW" } }),
+    "L1",
+  );
+});
+
+Deno.test("livePublishedListingId: no listing / no id is not live", () => {
+  assertEquals(livePublishedListingId({}), null);
+  assertEquals(livePublishedListingId({ listing: null }), null);
+  assertEquals(livePublishedListingId({ listing: { listingStatus: "ACTIVE" } }), null);
+});
+
+Deno.test("publishOrAdoptOffer: an ended offer republishes instead of adopting", async () => {
+  // The end-then-relist path, end to end through the real status rule.
+  let publishCalls = 0;
+  const endedOffer = { listing: { listingId: "L-ENDED", listingStatus: "ENDED" } };
+  const r = await publishOrAdoptOffer("u", "o1", {
+    getPublishedListingId: () => Promise.resolve(livePublishedListingId(endedOffer)),
+    publishOffer: () => {
+      publishCalls++;
+      return Promise.resolve({ listingId: "L-NEW" });
+    },
+  });
+  assertEquals(r, { listingId: "L-NEW", adopted: false });
+  assertEquals(publishCalls, 1);
 });

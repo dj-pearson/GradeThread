@@ -2636,19 +2636,54 @@ export async function publishOrAdoptOffer(
   return { listingId: published.listingId, adopted: false };
 }
 
+// A listingId eBay still reports on a withdrawn offer names a listing that is
+// DEAD. eBay does not clear offer.listing.listingId when a listing ends — it
+// keeps pointing at the ended listing — so "has a listingId" is not the same
+// question as "is live", and treating them as one is what let an end-then-
+// republish silently do nothing: the adopt branch handed the ended listing's id
+// back as a success, the seller saw "your listing is live", and the item sat
+// off eBay. Only these statuses mean the listing is genuinely dead.
+//
+// Anything else — including a MISSING listingStatus — still adopts, which is
+// the pre-existing behaviour. That asymmetry is deliberate: adopting a dead
+// listing costs a silent no-publish (recoverable, visible), while refusing to
+// adopt a live one costs a DUPLICATE live listing (not recoverable, and the
+// whole reason US-464 added this check). Unknown statuses take the safe side.
+const DEAD_LISTING_STATUSES = new Set([
+  "ENDED",
+  "INACTIVE",
+  "COMPLETED",
+  "CANCELLED",
+  "CANCELED",
+]);
+
+// The listingId of an offer that is live RIGHT NOW, or null. Split out from
+// getPublishedListingId so the status rule is unit-testable without eBay.
+export function livePublishedListingId(offer: {
+  listing?: { listingId?: string; listingStatus?: string } | null;
+}): string | null {
+  const listingId = offer?.listing?.listingId;
+  if (!listingId) return null;
+  const status = offer.listing?.listingStatus;
+  if (typeof status === "string" && DEAD_LISTING_STATUSES.has(status.toUpperCase())) {
+    return null;
+  }
+  return listingId;
+}
+
 // Reads the offer and returns its live listingId if eBay has already published
 // it. Used by publishOffer + publishOrAdoptOffer to avoid double-publishing on
-// a retry. Returns null if the offer is unpublished or the lookup fails
-// (treated as "not live yet").
+// a retry. Returns null if the offer is unpublished, its listing has ENDED, or
+// the lookup fails (all treated as "not live yet").
 export async function getPublishedListingId(
   userId: string,
   offerId: string
 ): Promise<string | null> {
   try {
     const offer = (await getOffer(userId, offerId)) as {
-      listing?: { listingId?: string };
+      listing?: { listingId?: string; listingStatus?: string };
     };
-    return offer.listing?.listingId ?? null;
+    return livePublishedListingId(offer);
   } catch {
     return null;
   }

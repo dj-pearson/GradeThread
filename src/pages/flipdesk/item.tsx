@@ -512,6 +512,17 @@ function GradethreadListingCard({
           // Force the full re-PUT so photos/specifics re-assert too even when
           // no text field changed.
           photos: true,
+          // `photos: true` alone re-PUTs the inventory item but never touches
+          // the OFFER, and the eBay leaf category lives on the offer — so this
+          // button used to be structurally incapable of fixing the one failure
+          // it is most often clicked for. A listing re-categorised in
+          // GradeThread (Dresses → Tops) kept getting its new specifics judged
+          // against the OLD category on eBay, which rejected them for a
+          // specific the new category doesn't even have ("Dress Length is
+          // missing"). Every retry then failed identically, so the banner read
+          // as permanent. resync_ebay_fields is what carries the category (and
+          // condition, and specifics) and runs the category-swap bridge.
+          resync_ebay_fields: true,
         },
       });
       toast.success("Re-pushed your GradeThread values to eBay.");
