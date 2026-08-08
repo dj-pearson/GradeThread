@@ -62,7 +62,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useItemsList, itemsListQueryKey } from "@/hooks/use-items-full";
-import { useUrlParamState } from "@/hooks/use-url-param-state";
+import { useUrlSearchInput } from "@/hooks/use-url-param-state";
 import { useInventorySelection } from "@/stores/inventory-selection";
 import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
 import {
@@ -148,7 +148,13 @@ export function FlipdeskPipelinePage() {
   const wipLimits = useFlipdeskSettings((s) => s.wipLimits);
   // US-958: search lives in the URL (`?q=`) so it carries across view-mode
   // switches (shared with the table + grid views).
-  const [search, setSearch] = useUrlParamState("q", "");
+  // `draft` drives the box (instant), `value` drives the filtering (on a
+  // pause). Swapping the two reintroduces the dropped-characters bug.
+  const {
+    value: search,
+    draft: searchDraft,
+    setDraft: setSearch,
+  } = useUrlSearchInput("q", "");
   const [categoryFilter, setCategoryFilter] = useState<ItemCategory | "all">(
     "all",
   );
@@ -548,7 +554,7 @@ export function FlipdeskPipelinePage() {
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput
           label="Search items"
-          value={search}
+          value={searchDraft}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search title, brand, SKU…"
           className="w-64"

@@ -33,7 +33,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
-import { useUrlParamState } from "@/hooks/use-url-param-state";
+import { useUrlSearchInput } from "@/hooks/use-url-param-state";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import type { ItemFullRow } from "@/types/database";
 
@@ -171,7 +171,13 @@ export function FlipdeskGridPage() {
   const confirm = useConfirm();
   // US-958: search lives in the URL (`?q=`) so it carries across view-mode
   // switches (shared with the table + kanban views).
-  const [search, setSearch] = useUrlParamState("q", "");
+  // `draft` drives the box (instant), `value` drives the filtering (on a
+  // pause). Swapping the two reintroduces the dropped-characters bug.
+  const {
+    value: search,
+    draft: searchDraft,
+    setDraft: setSearch,
+  } = useUrlSearchInput("q", "");
   const [page, setPage] = useState(1);
   const [staged, setStaged] = useState<Staged>(new Map());
   const [history, setHistory] = useState<EditLog[]>([]);
@@ -530,7 +536,7 @@ export function FlipdeskGridPage() {
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput
           label="Search inventory"
-          value={search}
+          value={searchDraft}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search title, brand, SKU…"
           className="w-64"

@@ -71,7 +71,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
-import { useUrlParamState } from "@/hooks/use-url-param-state";
+import { useUrlParamState, useUrlSearchInput } from "@/hooks/use-url-param-state";
 import { useInventorySelection } from "@/stores/inventory-selection";
 import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
@@ -190,7 +190,13 @@ export function FlipdeskListingsPage() {
   const [tab, setTab] = useState<TabId>(initialTab);
   // US-958: search lives in the URL (`?q=`) so it survives switching between
   // the unified Inventory view modes (table/grid/kanban).
-  const [search, setSearch] = useUrlParamState("q", "");
+  // `draft` drives the box (instant), `value` drives the query (on a pause).
+  // Swapping the two reintroduces the dropped-characters bug — see the hook.
+  const {
+    value: search,
+    draft: searchDraft,
+    setDraft: setSearch,
+  } = useUrlSearchInput("q", "");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(100);
   const navigate = useNavigate();
@@ -939,7 +945,7 @@ export function FlipdeskListingsPage() {
       <div className="flex items-center gap-2 md:hidden">
         <SearchInput
           label="Search listings"
-          value={search}
+          value={searchDraft}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search title, brand, SKU…"
           containerClassName="flex-1"
@@ -1044,7 +1050,7 @@ export function FlipdeskListingsPage() {
       <div className="hidden flex-wrap items-center gap-2 md:flex">
         <SearchInput
           label="Search listings"
-          value={search}
+          value={searchDraft}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search title, brand, SKU…"
           className="w-64"
