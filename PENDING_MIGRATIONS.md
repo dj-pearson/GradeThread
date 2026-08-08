@@ -1,6 +1,40 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Nothing is held.** 00542 through 00562 were applied to prod on 2026-08-08 and
+## ⏸ HELD: 00563_prompt_block_versions.sql (US-2438 — a versioned seam for the grading user message)
+
+**Risk: LOW.** One new table, four RLS policies, three indexes. Nothing existing
+is altered, nothing is dropped, no row is rewritten, and no backfill runs. The
+table ships EMPTY and stays empty until somebody inserts a row.
+
+**An empty table is the no-op state, and that is measured.** The edge reads
+`ai_prompt_block_versions` on every per-image grading call; zero live rows
+resolves every prompt block to the code constant it has always used.
+`unversionedPromptSurfaceHash()` is `baf5d4cb` both before and after the change,
+so applying this migration cannot move a single grading prompt.
+
+**Apply order.** Last, after 00562. It depends on nothing but `is_admin()`,
+which has existed since 00003.
+
+**It is safe in BOTH orders, so it is not push-blocking on its own.** If the edge
+deploys before the SQL runs, the table is missing, the query errors, and
+`loadBlockRows` catches it and returns an empty set — i.e. exactly the code
+defaults. That path is deliberate (it also covers a DB blip), so a grading call
+against a missing table degrades to the prompt that shipped rather than failing.
+The reverse order is the normal one and is fine.
+
+**No frontend caller.** Nothing in `src/` reads the table, so a Cloudflare Pages
+auto-deploy landing ahead of the SQL cannot 404 a page.
+
+**Run `NOTIFY pgrst, 'reload schema';` after applying** — a new table means
+PostgREST needs to see it, and until it does the edge takes the degraded path
+above (correct, but it would look like overrides silently not working).
+
+**Rollback** is `DROP TABLE public.ai_prompt_block_versions;`. Nothing else
+references it and the edge falls back to code defaults the moment it is gone.
+
+---
+
+**Everything below is applied.** 00542 through 00562 were applied to prod on 2026-08-08 and
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00562`. See the note under 00528
 for how that is measured and why the measurement, not this file, is the

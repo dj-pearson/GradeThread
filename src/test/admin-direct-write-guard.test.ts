@@ -52,6 +52,14 @@ const DECLARED: Array<DirectWrite & { why: string }> = [
 // A direct write to one of these from the browser is a bypass by construction.
 const EDGE_GUARDED = new Set([
   "ai_prompt_versions",
+  // US-2438: the per-block half of the same artifact, and it belongs here for
+  // the same reason rather than by analogy — block_text is live grading prompt
+  // content, so a browser write to it moves every grade the platform issues
+  // while skipping the scope guard, the step-up, the audit row and the eval
+  // gate. Listed on the day the table shipped, not the day an admin page first
+  // writes it: this guard only fires on a write that already exists, so adding
+  // the name later means the first such write goes unchallenged.
+  "ai_prompt_block_versions",
   "admin_audit_log",
   "users",
   "submissions",

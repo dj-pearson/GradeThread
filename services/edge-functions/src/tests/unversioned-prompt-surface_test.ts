@@ -223,8 +223,13 @@ Deno.test("PerImageAnalysis can carry a prompt version at all", () => {
 Deno.test("analyzeImage stamps the RESOLVED per-image prompt, not the constant", async () => {
   const code = await codeOf("ai-grading.ts");
 
+  // US-2438 widened this from an exact match: the stamp is now a template
+  // literal, `${prompt.versionName}${blockVersionSuffix(blocks)}`, so the grade
+  // also names which USER-message blocks served. The property being pinned is
+  // unchanged — the stamp must START from the RESOLVED prompt — and the
+  // constant-instead-of-resolved assertion below is what actually enforces it.
   assert(
-    /prompt_version:\s*prompt\.versionName/.test(code),
+    /prompt_version:\s*`?\$?\{?prompt\.versionName/.test(code),
     "analyzeImage no longer stamps prompt_version on its returned analysis. " +
       "grade_reports.prompt_version is written by the COMPOSITE stage only, so " +
       "per_image_analysis[].prompt_version is the ONLY place a per-image prompt " +

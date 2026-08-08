@@ -547,6 +547,19 @@ const SERVICE_ONLY_FORCED = [
   "radar_venues",
   "radar_venue_aggregates",
   "radar_scan_history",
+  // US-2438. Neither of these has an owner column — a prompt belongs to the
+  // platform, not to a user — so `hasUserId` never discovers them and the guard
+  // was checking NEITHER. That is the failure mode this file's own header calls
+  // the dangerous one: silence read as safety.
+  //
+  // They are forced in for COVERAGE, not because they are deny-all. Both are
+  // admins-can-SELECT, writes service-role only (00510 for the first, 00563 for
+  // the second, after US-2348 found the original admin write grant let the SPA
+  // reach around the scope guard, the step-up, the audit row and the eval gate).
+  // What the guard then enforces on them is exactly what matters: RLS stays on,
+  // at least one policy survives, and none of them is USING(true).
+  "ai_prompt_versions",
+  "ai_prompt_block_versions",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

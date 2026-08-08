@@ -18,6 +18,12 @@ import {
   type SlotPromptRow,
   type SlotResolution,
 } from "./canary-rollout.ts";
+import {
+  blockVersionSuffix,
+  codeDefaultBlock,
+  type PromptBlockOverrides,
+  resolvePromptBlocks,
+} from "./prompt-blocks.ts";
 import { hashPrompt, toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
 import { getActiveExemplarBlock } from "./few-shot-exemplars.ts";
 import {
@@ -685,12 +691,20 @@ export function buildUserPrompt(
   // garment-baselines.ts baselineReferenceBlock). "" → prompt byte-identical
   // to pre-baseline behavior; strictly additive.
   baselineBlock = "",
+  // US-2438: per-block versioned overrides for the two criteria blocks. `{}` →
+  // both resolve to the code constants below and the prompt is byte-identical,
+  // which is the whole additive guarantee — an empty registry changes nothing.
+  blocks: PromptBlockOverrides = {},
 ): string {
   const imageContext =
     IMAGE_TYPE_CONTEXT[imageType] || `This is a ${imageType} image of the garment.`;
-  const garmentCriteria =
-    GARMENT_TYPE_CRITERIA[garmentType] || "Evaluate using general garment condition criteria.";
-  const categoryCriteria = categoryCriteriaFor(garmentCategory);
+  const garmentCriteria = blocks.garment_type_criteria?.text ??
+    (GARMENT_TYPE_CRITERIA[garmentType] || "Evaluate using general garment condition criteria.");
+  // An override can give a category criteria block to a category that has none
+  // in code — that is a capability, not a bug. It still renders in the same slot
+  // under the same heading, so nothing downstream has to know which won.
+  const categoryCriteria = blocks.category_criteria?.text ??
+    categoryCriteriaFor(garmentCategory);
 
   // US-346: seller-declared features are untrusted — sanitize + fence them so
   // an injection string can't pose as an instruction inside the per-image prompt.
@@ -1145,6 +1159,37 @@ export async function analyzeImage(
       bucketKey,
     ));
 
+  // US-2438: the USER-message blocks, resolved through the same active/canary
+  // path as the system prompt above. An empty registry returns {} and every
+  // block below falls back to its code constant, so this call cannot change a
+  // prompt until someone activates a row. The two code defaults are passed in
+  // rather than re-derived inside prompt-blocks.ts, which has no business
+  // knowing what a garment-type criteria block says.
+  //
+  // A promptOverride means the eval harness is scoring a pinned candidate; it
+  // pins the SYSTEM prompt, so blocks still resolve normally — the alternative
+  // would silently measure a candidate against a different user message than
+  // production runs.
+  const blocks = await resolvePromptBlocks(
+    "per_image",
+    [
+      {
+        key: "garment_type_criteria",
+        scope: garmentType || null,
+        codeDefault: codeDefaultBlock(
+          GARMENT_TYPE_CRITERIA[garmentType] ||
+            "Evaluate using general garment condition criteria.",
+        ),
+      },
+      {
+        key: "category_criteria",
+        scope: garmentCategory || null,
+        codeDefault: codeDefaultBlock(categoryCriteriaFor(garmentCategory) ?? ""),
+      },
+    ],
+    bucketKey,
+  );
+
   // Cache the (static) system prompt so repeated per-image calls within a
   // submission — and across submissions inside the 5-min cache window —
   // don't re-bill the prompt tokens. Mirrors the FlipDesk extractor.
@@ -1180,6 +1225,7 @@ export async function analyzeImage(
                 garmentCategory,
                 styleHint,
                 baselineBlock,
+                blocks,
               ),
             },
           ],
@@ -1317,7 +1363,15 @@ export async function analyzeImage(
       // version_name, or PER_IMAGE_PROMPT_VERSION when the code default won.
       // Taken from `prompt`, not from the constant, so a DB override and a
       // canary slice are attributable and not silently reported as the default.
-      prompt_version: prompt.versionName,
+      //
+      // US-2438 appends which USER-message blocks served. The surface hash can
+      // say two grades ran different user messages; only this can say WHICH
+      // block differed. It is deliberately a suffix on the PER-IMAGE entry and
+      // not on grade_reports.prompt_version — that string already carries an
+      // ordered suffix chain (+baseline/+fabric/+visual/+tag/+cat2) whose order
+      // reinterprets every version string ever recorded if it moves.
+      // Byte-identical when nothing overrode: the suffix is "".
+      prompt_version: `${prompt.versionName}${blockVersionSuffix(blocks)}`,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;

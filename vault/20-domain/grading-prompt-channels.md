@@ -15,6 +15,8 @@ code_refs:
   - services/edge-functions/src/lib/grading-shadow.ts
   - services/edge-functions/src/lib/grading-pipeline.ts
   - supabase/migrations/00562_grade_prompt_surface_hash.sql
+  - services/edge-functions/src/lib/prompt-blocks.ts
+  - supabase/migrations/00563_prompt_block_versions.sql
 reviewed: 2026-08-08
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
@@ -255,9 +257,41 @@ fabric criteria, the schema tail — so the seam belongs at the block, keyed by
 `(stage, block_key, garment_scope)`, resolved by the same active/canary logic
 that already serves the system prompt.
 
-**Not built yet — that is US-2438.** The decision is recorded here so the build
-does not have to re-derive it; `prompt_surface_hash` is what makes the ungated
-window *visible* in the meantime, not what closes it.
+### What was built, and what the seam does NOT yet cover
+
+Built 2026-08-08 (US-2438): `ai_prompt_block_versions` (migration 00563) and
+`prompt-blocks.ts`. Two facts about it are load-bearing.
+
+**It resolves nothing of its own.** `resolveSlotFromRows` and
+`pickPromptForBucket` in `canary-rollout.ts` do the work, unchanged, exactly as
+they do for the system prompt. A second copy of that precedence logic is how the
+two would come to disagree about what a scoped row means, so the block path hands
+the *same* functions a filtered row set and a per-block slot key. It also shares
+the system prompt's cache signal (`"grading-prompt"`), so every existing
+`invalidatePromptCache()` call site is already correct for blocks — two signals
+would be two things to remember, failing silently when one was forgotten.
+
+**An empty registry is byte-identical, and that is measured, not asserted.**
+`unversionedPromptSurfaceHash()` was `baf5d4cb` before the seam and `baf5d4cb`
+after. That is what let this ship without an eval run: it cannot change a prompt
+until somebody activates a row.
+
+**Coverage is PARTIAL and must be read as such.** The registry covers two blocks
+today — `garment_type_criteria` (scoped by `garment_type`) and
+`category_criteria` (scoped by `garment_category`), i.e. the exact case the
+decision above was argued on. The response schema, the Rules block and the
+factor-weights sentence are still compiled into template literals with no
+identity of their own, so they are still ungated; splitting them out is the rest
+of US-2438, along with the eval-gate legs (AC2/AC3) and the flag retirement
+(AC4). Until then `runEval` still reports `unversioned_surface.covered: false`,
+which is the honest answer for the blocks it measures.
+
+**Attribution landed at the per-image entry, deliberately.** A block override
+appends `+blocks(key=version,…)` to `per_image_analysis[].prompt_version`, not to
+`grade_reports.prompt_version`. That column already carries an ordered suffix
+chain (`+baseline`/`+fabric`/`+visual`/`+tag`/`+cat2`) whose order reinterprets
+every version string ever recorded if it moves, so a new suffix went onto the
+carrier that has no ordering contract yet.
 
 ## Related
 
