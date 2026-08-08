@@ -13,7 +13,7 @@
 //   1. TENURE ONLY ASCENDS. The tier is derived from account age + lifetime paid
 //      months, but the DERIVED value is never what is stored: `ascendOnly` takes
 //      the max of the derived rank and the persisted peak, exactly like
-//      user_reward_state.xp_peak (00539). The inputs can move — an operator
+//      user_reward_state.xp_peak (00542). The inputs can move — an operator
 //      raises a threshold, the paid-months read fails, an erased ledger row
 //      shrinks the count — and none of that may demote anybody.
 //   2. THE MULTIPLIER SCALES COST TOO. A tenure multiplier that grew the reward
@@ -98,7 +98,7 @@ export interface TenureTier {
   rank: number;
   minMonths: number;
   minPaidMonths: number;
-  /** Multiplies milestone-granted CREDITS. Always ≥ 1 — see 00554's CHECK. */
+  /** Multiplies milestone-granted CREDITS. Always ≥ 1 — see 00557's CHECK. */
   creditMultiplier: number;
 }
 

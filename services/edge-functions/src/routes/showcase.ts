@@ -21,7 +21,7 @@ type ShowcaseEnv = { Variables: { userId: string } };
 
 export const showcaseRoutes = new Hono<ShowcaseEnv>();
 
-/** Matches the CHECK in migration 00543 ($1,000,000). */
+/** Matches the CHECK in migration 00546 ($1,000,000). */
 const MAX_VALUE_CENTS = 100_000_000;
 
 const UUID_RE =

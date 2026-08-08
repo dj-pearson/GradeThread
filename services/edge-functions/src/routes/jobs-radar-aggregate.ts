@@ -1,9 +1,9 @@
 // US-1863: Thrift Radar aggregation cron.
 //
 // Recomputes every venue x window x brand aggregate from the de-identified scan
-// events (00547) and publishes only the groups that clear the k-anonymity floor,
+// events (00550) and publishes only the groups that clear the k-anonymity floor,
 // then retires raw events past the retention window into the month-resolution
-// archive (00549).
+// archive (00552).
 //
 // Job-secret gated + overlap-locked, the standard shape. Run on a Coolify
 // scheduled task:

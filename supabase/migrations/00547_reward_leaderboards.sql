@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_users_leaderboard_opt_in
 -- The finds board counts reactions per showcased find and must exclude the
 -- owner's own reaction (see lib/leaderboards-data.ts). That scan reads
 -- showcase_reactions by report AND by reactor, so index the reactor side too —
--- 00543 indexed (grade_report_id, created_at) and (user_id, grade_report_id),
+-- 00546 indexed (grade_report_id, created_at) and (user_id, grade_report_id),
 -- neither of which serves "who reacted to this set of reports" cheaply.
 CREATE INDEX IF NOT EXISTS idx_showcase_reactions_report_user
   ON public.showcase_reactions (grade_report_id, user_id);
@@ -53,5 +53,5 @@ CREATE INDEX IF NOT EXISTS idx_referral_events_granted_at
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00544')
+INSERT INTO public.applied_migrations (version) VALUES ('00547')
 ON CONFLICT (version) DO NOTHING;

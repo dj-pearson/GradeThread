@@ -2392,7 +2392,7 @@ contentPublicRoutes.get("/finds.json", async (c) => {
   const rows = (data ?? []) as unknown as ShowcaseFindRow[];
 
   // Reaction counts for the scanned window, in ONE query. Only aggregates leave
-  // this endpoint — who reacted is never public (see the RLS note in 00543).
+  // this endpoint — who reacted is never public (see the RLS note in 00546).
   const counts = new Map<string, number>();
   if (rows.length > 0) {
     const { data: reactionRows, error: reactionErr } = await supabaseAdmin
@@ -2447,7 +2447,7 @@ contentPublicRoutes.get("/finds.json", async (c) => {
 //   • no `metric` → the HUB: a short board for each of the four metrics.
 //   • `metric=<key>` → ONE board, with its brand/category facets.
 //
-// Only opted-in accounts (00544) with a resolvable public alias are ever
+// Only opted-in accounts (00547) with a resolvable public alias are ever
 // candidates, and only a nonzero score earns a row — see lib/leaderboards.ts for
 // the identity gates and lib/leaderboards-data.ts for the per-board anti-gaming.
 contentPublicRoutes.get("/leaderboards.json", async (c) => {

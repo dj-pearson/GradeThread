@@ -70,6 +70,14 @@ a learning that only matters to ONE surface, put it in that surface's file.
 - `src/pages/legal/__tests__/accessibility-axe.test.tsx` similarly times out
   (axe-core is slow, 5s per-test cap) under full-suite load but passes in
   isolation. Same drill: re-run alone before chasing.
+- A REPO-WIDE CORPUS SCAN (walk src/ + edge + functions/ + ios/ + android/,
+  read every file) needs an EXPLICIT vitest timeout — the 5s default is a unit-
+  test budget, and under full-suite load these reliably blow it while passing in
+  isolation. `legacy-user-plan-readers`, `users-self-update-allowlist` and
+  `flipdesk/nav-tabs` already fail this way on clean `main`, and WHICH of them
+  fails changes run to run, so a scanner in your diff looks like your regression
+  when it is contention. Prove it with a control run (move your file aside, run
+  the suite) rather than guessing, and give any new scanner `}, 120_000)`.
 - `npx tsc --noEmit` is NOT enough — the build runs `tsc -b` (project refs),
   which is stricter and catches casts `--noEmit` lets slide (e.g.
   `x as Record<string,unknown>` on a typed interface needs
@@ -599,7 +607,7 @@ a learning that only matters to ONE surface, put it in that surface's file.
 
 ## Reward levels & seasons
 - A seller's LEVEL derives from `user_reward_state.xp_peak`, never `xp_total`
-  (00539): XP is not debited, but the log CAN shrink (erasure, fraud reversal,
+  (00542): XP is not debited, but the log CAN shrink (erasure, fraud reversal,
   cascade), and deriving from the live total silently demotes people. Seller
   surfaces show SEASON progress and never a streak — streaks exist only on the
   buyer confirmation flow, with grace + freeze. Level perks are cosmetic and
@@ -622,12 +630,12 @@ a learning that only matters to ONE surface, put it in that surface's file.
   fails `no-raw-db-error_test.ts` unless a `// safe-raw-error: <reason>` marker
   sits on the SAME LINE (the scanner is line-local, so a comment above it does
   nothing). US-1852 shipped admin-rewards.ts missing both, so those two tests
-  were red on `main` before US-1853; the migration manifest was stale for 00540
+  were red on `main` before US-1853; the migration manifest was stale for 00543
   the same way (`node scripts/gen-migration-manifest.mjs` regenerates it).
 
 - Adding an entry to `REWARD_XP_CATALOG` SILENTLY widens `QUEST_METRICS`, which
   is derived from the catalog's keys — but the allowed quest metrics are ALSO a
-  CHECK in 00540, which the new key is not in. So an admin gets a validator that
+  CHECK in 00543, which the new key is not in. So an admin gets a validator that
   passes and an insert that 23514s. Either exclude the new type in the
   `QUEST_METRICS` filter (US-1854 did, for `share_milestone`) or widen the CHECK
   in the same commit. No test catches the mismatch.
@@ -643,7 +651,7 @@ a learning that only matters to ONE surface, put it in that surface's file.
 
 ## Tangible rewards (money-moving grants)
 - XP is NEVER debited — milestones GRANT, they never charge (US-1853). The
-  catalog is the `reward_milestones` table (00541), not the compiled
+  catalog is the `reward_milestones` table (00544), not the compiled
   `TANGIBLE_MILESTONES` list, which is only the fallback for a failed read; an
   EMPTY read must NOT fall back, or the per-milestone disable switch is a lie. A
   reward type with no entry in `FULFILLERS` can never be granted. Rules:
@@ -856,7 +864,7 @@ a learning that only matters to ONE surface, put it in that surface's file.
 
 - A story's `notes` can say "BLOCKED on US-XXXX" and be STALE — the blocker may
   have shipped in a run since. US-1912 sat three passes on "AC4 blocked on
-  US-1849 (rewards engine not built)"; `rewards-engine.ts` + 00443/00538–00546
+  US-1849 (rewards engine not built)"; `rewards-engine.ts` + 00443/00538–00549
   had all landed. Cost of checking is one `ls`/grep; cost of believing the note
   is a whole iteration that lands nothing. Check the blocker's ARTIFACTS before
   re-deferring, and note the prior pass may even have PRE-WIRED your surface for

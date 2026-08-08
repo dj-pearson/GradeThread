@@ -1,4 +1,4 @@
--- 00553_badge_click_variant.sql
+-- 00556_badge_click_variant.sql
 --
 -- US-1913 AC5: record WHICH FORMAT of embed badge a click came from, so a
 -- seller can tell whether putting their standing on the badge earns more
@@ -35,5 +35,5 @@ COMMENT ON COLUMN public.badge_click_events.badge_variant IS
 -- service-role client through the owner-scoped funnel.
 
 -- US-1108: self-record so the edge schema-version guard stays truthful.
-INSERT INTO public.applied_migrations (version) VALUES ('00553')
+INSERT INTO public.applied_migrations (version) VALUES ('00556')
 ON CONFLICT (version) DO NOTHING;

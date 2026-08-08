@@ -95,7 +95,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.guard_users_protected_columns() IS
-  'US-347 (00331) + US-1799 (00402) + US-2283 (00526) + US-1861 (00547): DENY-BY-DEFAULT guard on public.users self-updates. An authenticated (browser/app) session may change only the self-service columns enumerated in the function body; every other column, present or future, is refused. Service-role and SECURITY DEFINER paths bypass via the auth.role() check.';
+  'US-347 (00331) + US-1799 (00402) + US-2283 (00526) + US-1861 (00550): DENY-BY-DEFAULT guard on public.users self-updates. An authenticated (browser/app) session may change only the self-service columns enumerated in the function body; every other column, present or future, is refused. Service-role and SECURITY DEFINER paths bypass via the auth.role() check.';
 
 -- ── The de-identified event store ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.radar_scan_events (
@@ -187,5 +187,5 @@ ON CONFLICT (key) DO NOTHING;
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00547')
+INSERT INTO public.applied_migrations (version) VALUES ('00550')
 ON CONFLICT (version) DO NOTHING;

@@ -61,7 +61,7 @@ export interface CohortMember {
 }
 
 /**
- * Everyone who opted in (00544) AND has a resolvable public alias.
+ * Everyone who opted in (00547) AND has a resolvable public alias.
  *
  * This is the ONLY place a user row is read for the boards, and it projects
  * nothing but the alias, the public handle and the account age. No email, no
@@ -214,7 +214,7 @@ async function xpBoard(cohort: CohortMember[], window: BoardWindow): Promise<Boa
   const ids = cohort.map((m) => m.userId);
 
   // The LEVEL is the second column on both windows — it is the identity number,
-  // and it is derived from `xp_peak`, never from the live total (00539).
+  // and it is derived from `xp_peak`, never from the live total (00542).
   const { data: stateRows, error: stateErr } = await supabaseAdmin
     .from("user_reward_state")
     .select("user_id, xp_peak, xp_total, level")
@@ -341,7 +341,7 @@ async function findsBoard(
   const byUser = seed(cohort);
 
   // A find only carries a seller handle when that seller runs a PUBLIC verified
-  // profile (00543), so this board can only rank the verified half of the
+  // profile (00546), so this board can only rank the verified half of the
   // cohort. That is the consent model working, not a gap: an anonymous find was
   // published without a name attached, and a board is a name.
   const byHandle = new Map<string, CohortMember>();

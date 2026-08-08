@@ -107,7 +107,7 @@ export function brandKey(brand: string | null | undefined): string | null {
 /**
  * Representative grade for each condition band.
  *
- * `radar_scan_events` stores a BAND, never the numeric grade — that was 00547's
+ * `radar_scan_events` stores a BAND, never the numeric grade — that was 00550's
  * minimization, and it is not being undone here. So "average estimated grade"
  * is computed at band resolution from these midpoints, which is honest about
  * its precision: it is reported to one decimal and can only ever land between

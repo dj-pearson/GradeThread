@@ -8,7 +8,7 @@
 // Two rules constrain everything here, and both are acceptance criteria:
 //
 //   • A LEVEL NEVER DECREASES. It derives from the XP high-water mark
-//     (user_reward_state.xp_peak, 00539), not from the live total. Status you
+//     (user_reward_state.xp_peak, 00542), not from the live total. Status you
 //     earned is status you keep — that is the whole point of putting identity on
 //     levels rather than on a streak.
 //   • PERKS ARE COSMETIC, AND THERE IS NO HARD PAYWALL. Everything unlocked here

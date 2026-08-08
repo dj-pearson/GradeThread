@@ -25,7 +25,7 @@
 -- window forever, and the recent-rows read is what enforces "at most N per week".
 
 -- ── The in-app notification type ────────────────────────────────────────────
--- ALTER TYPE ... ADD VALUE is transactional in PG 12+ (see 00008/00545). The
+-- ALTER TYPE ... ADD VALUE is transactional in PG 12+ (see 00008/00548). The
 -- value is only ADDED here and never referenced later in this migration.
 ALTER TYPE public.notification_type ADD VALUE IF NOT EXISTS 'reward_nudge';
 
@@ -144,5 +144,5 @@ ON CONFLICT (key) DO NOTHING;
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00546')
+INSERT INTO public.applied_migrations (version) VALUES ('00549')
 ON CONFLICT (version) DO NOTHING;

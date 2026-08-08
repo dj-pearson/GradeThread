@@ -121,7 +121,7 @@ const SERVICE_ROLE_ONLY = new Set([
   // endpoint (service-role, owner resolved server-side) writes it and the
   // owner-scoped funnel endpoints read it; the SPA never queries it. No buyer PII.
   "badge_click_events",
-  // US-1854 tracked shares (00542): deny-all by design, same posture as
+  // US-1854 tracked shares (00545): deny-all by design, same posture as
   // badge_click_events above. Written by POST /api/rewards/share after the edge
   // has verified the caller OWNS the certificate, read only by the share-to-earn
   // engine and the owner-scoped stats endpoint. A client-writable share log
@@ -467,32 +467,32 @@ const SERVICE_ROLE_ONLY = new Set([
   // cron paths use the service-role client (bypasses RLS). Forced into the guard
   // via SERVICE_ONLY_FORCED below so a regression that drops the RLS fails CI.
   "job_locks",
-  // US-1852: quest / community-challenge DEFINITIONS (migration 00540). Pure
+  // US-1852: quest / community-challenge DEFINITIONS (migration 00543). Pure
   // operator config with no owner column — the SPA reads it only through
   // /api/rewards/quests and writes it only through /api/admin/rewards/quests.
   // A client-writable quest definition would be a client-writable XP faucet,
   // so deny-all is the point. Forced into the guard via SERVICE_ONLY_FORCED.
   "reward_quests",
-  // US-1853: the TANGIBLE milestone catalog (migration 00541). Same shape as
+  // US-1853: the TANGIBLE milestone catalog (migration 00544). Same shape as
   // reward_quests but a worse blast radius — a quest definition mints XP, and
   // this one mints grade credits and Stripe coupons. No owner column, read only
   // through /api/admin/rewards/milestones and by the service-role engine, so
   // deny-all is the point. Forced into the guard via SERVICE_ONLY_FORCED.
   "reward_milestones",
-  // US-1914: the tenure ladder (migration 00554). Operator config with no owner
+  // US-1914: the tenure ladder (migration 00557). Operator config with no owner
   // column — it says how much LARGER a milestone comes out for a long-standing
   // customer, so a client-writable row is a client-writable multiplier on a money
   // faucet. Read only through /api/admin/rewards/tenure-tiers and by the
   // service-role engine. Forced into the guard via SERVICE_ONLY_FORCED.
   "reward_tenure_tiers",
   // US-1858: the record of which reward ceiling refused a grant (migration
-  // 00545). Its owner column is `subject_user_id` (the abuse_signals naming) so
+  // 00548). Its owner column is `subject_user_id` (the abuse_signals naming) so
   // the tenant guard does not treat an operator table as user-owned data — which
   // also means nothing discovers it, hence SERVICE_ONLY_FORCED below. Deny-all
   // is the point: telling a farmer which limit stopped them is telling them
   // which limit to work around.
   "reward_budget_breaches",
-  // US-1859: the re-engagement nudge ledger (migration 00546). It DOES carry a
+  // US-1859: the re-engagement nudge ledger (migration 00549). It DOES carry a
   // plain `user_id` — the row is about that user — so unlike the tables above it
   // is auto-discovered and this classification is load-bearing rather than
   // decorative. Deny-all is the point: the row records whether the user is in
@@ -502,7 +502,7 @@ const SERVICE_ROLE_ONLY = new Set([
   // (POST /api/rewards/nudges/:id/click) goes through the edge, which resolves
   // ownership with .eq("user_id", …) before stamping.
   "reward_nudge_sends",
-  // US-1861: Thrift Radar contributions (migration 00547). It has NO account
+  // US-1861: Thrift Radar contributions (migration 00550). It has NO account
   // column at all — the analytical path carries a salted, rotating
   // `contributor_key` instead — so nothing discovers it and this classification
   // plus SERVICE_ONLY_FORCED below are the only things holding its RLS in place.
@@ -510,14 +510,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // of pseudonymous people, and a client-writable one is a way to poison every
   // other tenant's view of where supply is.
   "radar_scan_events",
-  // US-1862: the Thrift Radar venue registry (migration 00548). No owner column
+  // US-1862: the Thrift Radar venue registry (migration 00551). No owner column
   // either — a venue belongs to the map, not to a tenant — so the same double
   // registration is the only thing holding its RLS on. Deny-all both ways: a
   // client-writable registry lets one account poison every other tenant's map,
   // and a client-readable one exposes candidate cells that have not cleared the
   // k-anonymity floor, which is the floor's whole point.
   "radar_venues",
-  // US-1863: the served Radar aggregates (00549) and the retention archive.
+  // US-1863: the served Radar aggregates (00552) and the retention archive.
   // No owner column on either — an aggregate belongs to the map — so the same
   // double registration is what holds their RLS on. Deny-all matters MOST here:
   // the aggregates endpoint re-applies the k-anonymity floor on read, and a

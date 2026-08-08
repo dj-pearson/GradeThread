@@ -1,6 +1,6 @@
 -- US-1863: Thrift Radar — the served aggregate table and the retention archive.
 --
--- 00547 stores de-identified scan events; 00548 gives them a named venue. This
+-- 00550 stores de-identified scan events; 00551 gives them a named venue. This
 -- is the layer anyone actually reads: venue x brand x time-window intelligence,
 -- recomputed by a scheduled job, and the archive that lets the raw events be
 -- deleted on schedule without erasing the record that activity happened.
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS public.radar_venue_aggregates (
   contributor_count integer NOT NULL CHECK (contributor_count >= 2),
 
   -- Band-resolution average. The event store holds a BAND, never a numeric
-  -- grade (00547's minimization, not undone here), so this is derived from band
+  -- grade (00550's minimization, not undone here), so this is derived from band
   -- midpoints and can only land between 5.0 and 9.0. The mix columns below are
   -- the honest detail behind it.
   avg_grade         numeric(3,1),
@@ -159,7 +159,7 @@ CREATE TRIGGER set_radar_scan_history_updated_at
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 -- ── Deny-all RLS (service-role only) ────────────────────────────────────────
--- Same reasoning as 00547 and 00548: neither table has an owner column, so
+-- Same reasoning as 00550 and 00551: neither table has an owner column, so
 -- rls-guard's discovery never finds them, so each is registered in BOTH
 -- SERVICE_ROLE_ONLY and SERVICE_ONLY_FORCED in rls-guard_test.ts. A directly
 -- readable aggregates table would let a client bypass the endpoint that applies
@@ -171,7 +171,7 @@ ALTER TABLE public.radar_scan_history ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.radar_scan_history FROM anon, authenticated;
 
 -- ── Aggregation tuning ──────────────────────────────────────────────────────
--- A THIRD radar settings row, and the split is the same one 00548 argued for:
+-- A THIRD radar settings row, and the split is the same one 00551 argued for:
 -- radar_privacy holds the numbers whose change is a POLICY decision (the floor,
 -- retention); radar_venues holds resolution tuning; this holds job tuning. A
 -- knob anyone may turn must not share an edit with the k-anonymity floor.
@@ -197,5 +197,5 @@ ON CONFLICT (key) DO NOTHING;
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00549')
+INSERT INTO public.applied_migrations (version) VALUES ('00552')
 ON CONFLICT (version) DO NOTHING;

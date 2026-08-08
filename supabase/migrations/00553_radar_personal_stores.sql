@@ -17,12 +17,12 @@
 --
 --   2. `radar_personal_scans` — the reseller's OWN scan log. It cannot be
 --      derived from `radar_scan_events`, and that is by design, not an
---      oversight: 00547 deliberately carries no account column, so there is no
+--      oversight: 00550 deliberately carries no account column, so there is no
 --      way to ask "which of these were mine" and there must never be one. The
 --      personal layer therefore needs its own store, and this is it — owner-read,
 --      service-role-write, cascading with the account.
 --
--- The privacy shape is inherited WHOLE from 00547 rather than relaxed because
+-- The privacy shape is inherited WHOLE from 00550 rather than relaxed because
 -- the rows are the user's own:
 --
 --   • NO COORDINATE COLUMN. A visit row keeps a `venue_id` or a coarse
@@ -136,5 +136,5 @@ CREATE POLICY "Users delete own radar visits"
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00550')
+INSERT INTO public.applied_migrations (version) VALUES ('00553')
 ON CONFLICT (version) DO NOTHING;

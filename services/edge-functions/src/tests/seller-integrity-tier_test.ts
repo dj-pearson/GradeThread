@@ -317,7 +317,7 @@ Deno.test("AC3: an unreadable public standing shows NO badge", () => {
 
 Deno.test("the tier is not a quest metric", () => {
   // Adding an entry to REWARD_XP_CATALOG silently widens QUEST_METRICS, and the
-  // allowed metrics are ALSO a CHECK in 00540 that this value is not in — so an
+  // allowed metrics are ALSO a CHECK in 00543 that this value is not in — so an
   // admin would get a validator that passes and an insert that 23514s. Worse,
   // a quest counting a standing is one nobody can work toward: it moves at most
   // four times in a seller's life, and BUYERS decide when.

@@ -67,7 +67,7 @@ rewardsRoutes.get("/state", async (c) => {
     const tz = await loadSeasonTimezone();
 
     // Roll over the season that just ended, if it hasn't been recapped yet.
-    // Lazy + idempotent (UNIQUE(user_id, season_key), 00539) — see
+    // Lazy + idempotent (UNIQUE(user_id, season_key), 00542) — see
     // finalizeCompletedSeason for why this isn't a quarterly cron. Best-effort:
     // a rollover problem must not take down the whole screen.
     await finalizeCompletedSeason(userId, tz, nowMs);

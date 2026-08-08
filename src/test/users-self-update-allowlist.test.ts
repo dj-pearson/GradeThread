@@ -31,7 +31,7 @@ const MIGRATIONS_DIR = "supabase/migrations";
  * This used to be pinned to 00526. That was wrong in a way nothing could show
  * until someone legitimately extended the allowlist: applied migrations are
  * immutable, so a new self-service column arrives as a `CREATE OR REPLACE` in a
- * LATER file (US-1861/00547 was the first), and a guard reading only 00526 would
+ * LATER file (US-1861/00550 was the first), and a guard reading only 00526 would
  * keep asserting against a body the database has already replaced — reporting a
  * refusal that will not happen, and missing one that will.
  *

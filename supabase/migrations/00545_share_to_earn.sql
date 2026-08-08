@@ -15,7 +15,7 @@
 -- the anti-farming contract: vault/20-domain/reward-ledger.md.
 
 -- ── The share_milestone event type ──────────────────────────────────────────
--- Re-stated in full (the 00443 / 00540 precedent) so the allow-list is
+-- Re-stated in full (the 00443 / 00543 precedent) so the allow-list is
 -- authoritative and the statement re-runnable.
 ALTER TABLE public.reputation_events
   DROP CONSTRAINT IF EXISTS reputation_events_event_type_check;
@@ -97,5 +97,5 @@ CREATE INDEX IF NOT EXISTS idx_badge_click_events_target_visitor
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00542')
+INSERT INTO public.applied_migrations (version) VALUES ('00545')
 ON CONFLICT (version) DO NOTHING;

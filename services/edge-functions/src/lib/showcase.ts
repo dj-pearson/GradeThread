@@ -66,7 +66,7 @@ export const FINDS_SCAN_LIMIT = 600;
 
 /**
  * URL-safe brand key. MUST agree with the `brand_slug` expression in migration
- * 00543 (`public_showcase_finds`) — the SQL side is what a facet request filters
+ * 00546 (`public_showcase_finds`) — the SQL side is what a facet request filters
  * on, this side is what builds the link, and a mismatch would render links that
  * return an empty page. A test pins the two rule sets to the same examples.
  */

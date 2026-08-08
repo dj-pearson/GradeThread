@@ -15,14 +15,14 @@
 // profile is not consent to publish it. A leaderboard is different in exactly
 // one way that matters — the seller ticked a box whose copy says their alias,
 // rank and score go on a public page. Consent is what makes the disclosure
-// legitimate, so this file publishes the score and 00544's toggle is a separate
+// legitimate, so this file publishes the score and 00547's toggle is a separate
 // opt-in rather than a reuse of an older one. Do not fold these boards back
 // under the referral or buyer toggle; their copy does not cover these numbers.
 
 /**
  * URL-safe brand key. Re-exported rather than re-implemented: a leaderboard
  * brand facet links straight into `/finds/b/<slug>`, and the `brand_slug`
- * expression in migration 00543 is what that page filters on. A second slug rule
+ * expression in migration 00546 is what that page filters on. A second slug rule
  * here would render links into an empty feed.
  */
 import { brandSlug } from "./showcase.ts";
@@ -196,7 +196,7 @@ export interface LeaderboardIdentity {
  * Resolve what a user would be shown as, or null when they must not be listed.
  *
  * Two independent gates, and BOTH have to pass:
- *   • the 00544 opt-in — the deliberate act of joining the boards;
+ *   • the 00547 opt-in — the deliberate act of joining the boards;
  *   • a resolvable alias — there is no such thing as an anonymous row here, and
  *     falling back to a user id or an email would be the exact leak the boards
  *     exist to avoid.

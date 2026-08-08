@@ -67,7 +67,7 @@ export interface QuestDefinition {
 /**
  * Metrics an admin may point a quest at. `quest_completed` is deliberately
  * ABSENT: a quest counting quest completions would let two cheap quests
- * bootstrap each other into an XP loop. Mirrors the CHECK in migration 00540 —
+ * bootstrap each other into an XP loop. Mirrors the CHECK in migration 00543 —
  * the DB is the real guard, this is the one that gives a readable 400.
  */
 export const QUEST_METRICS: readonly QuestMetric[] = [
@@ -75,12 +75,12 @@ export const QUEST_METRICS: readonly QuestMetric[] = [
     // `quest_completed`: a quest counting quest completions bootstraps an XP
     // loop. `share_milestone` (US-1854): its award is already the escalating
     // reach ladder, so a quest counting it pays a second, uncapped time for the
-    // same viral event — and the 00540 CHECK does not allow it either, so
+    // same viral event — and the 00543 CHECK does not allow it either, so
     // offering it would be a validator that passes and an insert that fails.
     // `integrity_tier_up` (US-1912): a tier is a standing, not an action — it
     // can move at most four times in a seller's life and it is decided by
     // BUYERS, so a quest counting it is a quest nobody can work toward. It is
-    // also absent from the 00540 CHECK, so offering it would be a validator that
+    // also absent from the 00543 CHECK, so offering it would be a validator that
     // passes and an insert that 23514s.
     (t) =>
       t !== "quest_completed" && t !== "share_milestone" &&

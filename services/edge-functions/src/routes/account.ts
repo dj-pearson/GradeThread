@@ -277,7 +277,7 @@ accountRoutes.get("/export", async (c) => {
           // US-1864: the reseller's own Thrift Radar visit log. Paged rather than
           // eager because it grows with field trips, and included because it is
           // the ONE Radar table that is subject data — the shared event store
-          // (00547) deliberately has no account column, so there is nothing in it
+          // (00550) deliberately has no account column, so there is nothing in it
           // to hand back and no way to ask which rows were theirs.
           [
             "radar_personal_scans",

@@ -45,7 +45,7 @@ function find(over: Partial<PublicFind> = {}): PublicFind {
   return { ...projectFind(row(), 0, SITE), ...over };
 }
 
-// The SQL side of this rule lives in migration 00543 as
+// The SQL side of this rule lives in migration 00546 as
 //   trim(BOTH '-' FROM regexp_replace(lower(brand), '[^a-z0-9]+', '-', 'g'))
 // and is what a facet page filters on. These cases are the shared contract: if
 // either side changes, /finds/b/<slug> starts rendering an empty page.

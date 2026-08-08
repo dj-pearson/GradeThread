@@ -508,7 +508,7 @@ export type NudgeDecision =
   | { action: "send"; candidate: NudgeCandidate }
   | { action: "skip"; reason: string };
 
-/** The dedupe identity of a candidate — mirrors the UNIQUE index in 00546. */
+/** The dedupe identity of a candidate — mirrors the UNIQUE index in 00549. */
 export function nudgeKey(c: Pick<NudgeCandidate, "type" | "subjectKey" | "periodKey">): string {
   return `${c.type}|${c.subjectKey}|${c.periodKey}`;
 }

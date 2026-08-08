@@ -25,10 +25,10 @@
 //
 // ── The catalog is data now (US-1853) ───────────────────────────────────────
 // TANGIBLE_MILESTONES below is no longer the ladder — it is the FALLBACK ladder,
-// used only when the reward_milestones table (00541) can't be read. The live
+// used only when the reward_milestones table (00544) can't be read. The live
 // catalog is operator-editable: reward type, trigger (XP threshold | badge |
 // season goal), value, cost and caps. Keep the two in step in spirit, not by
-// hand: the seed in 00541 is exactly this list.
+// hand: the seed in 00544 is exactly this list.
 //
 // ── Every reward type now has a fulfiller ───────────────────────────────────
 // US-1848 shipped credits only and refused the two discount types, because a
@@ -72,7 +72,7 @@ export type TangibleRewardType =
   | "subscription_discount"
   | "per_grade_discount";
 
-/** What unlocks a milestone. Mirrors the `trigger_type` CHECK in 00541/00554. */
+/** What unlocks a milestone. Mirrors the `trigger_type` CHECK in 00544/00557. */
 export type MilestoneTriggerType =
   | "xp_threshold"
   | "badge"
@@ -325,7 +325,7 @@ export interface MilestoneIssueCounts {
 export type MilestoneCapRefusal = "milestone_monthly_cap" | "milestone_lifetime_cap";
 
 /**
- * The per-milestone issue caps (00541). These narrow the USD budget, never widen
+ * The per-milestone issue caps (00544). These narrow the USD budget, never widen
  * it: both are checked, and either one refusing is a refusal. Pure.
  *
  * They are PLATFORM-WIDE rather than per-user because UNIQUE (user_id,
@@ -806,7 +806,7 @@ export function applyLoyaltyToCatalog(
 /**
  * Record a ceiling breach and, for the PLATFORM-wide one, pause the whole rail.
  *
- * Best-effort and suppressed while the breach stays open (00545's partial UNIQUE
+ * Best-effort and suppressed while the breach stays open (00548's partial UNIQUE
  * indexes), which matters more here than it does for the AI budget: this runs
  * off the back of every rewardable action, so an unsuppressed breach would alert
  * thousands of times an hour. Only the global scope can auto-kill — a single
@@ -989,7 +989,7 @@ export async function grantTangibleRewards(
         break;
       }
 
-      // Per-milestone issue caps (00541). A failed count refuses this milestone
+      // Per-milestone issue caps (00544). A failed count refuses this milestone
       // and moves on: an uncounted cap is not a cap.
       if (reward.monthlyGrantCap !== null || reward.lifetimeGrantCap !== null) {
         const counts = await loadMilestoneCounts(reward, nowMs);

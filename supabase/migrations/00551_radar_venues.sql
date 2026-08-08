@@ -1,6 +1,6 @@
 -- US-1862: Thrift Radar — the store venue registry.
 --
--- 00547 gave every contribution a coarse `geohash` cell and left `venue_id`
+-- 00550 gave every contribution a coarse `geohash` cell and left `venue_id`
 -- nullable with nothing to point at. This is the thing it points at: a named,
 -- deduplicated place, so intelligence accrues to "the Goodwill on Main St"
 -- rather than to a soup of cells.
@@ -136,7 +136,7 @@ CREATE TRIGGER set_radar_venues_updated_at
 ALTER TABLE public.radar_venues ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.radar_venues FROM anon, authenticated;
 
--- ── Close the loop 00547 left open ──────────────────────────────────────────
+-- ── Close the loop 00550 left open ──────────────────────────────────────────
 -- radar_scan_events.venue_id existed with nothing to reference. Point it here.
 -- ON DELETE SET NULL rather than CASCADE: deleting a venue must never delete
 -- the observations — they fall back to their geohash cell, which is exactly the
@@ -158,7 +158,7 @@ END $$;
 -- Separate key from `radar_privacy` on purpose. Those are PRIVACY parameters
 -- (lowering k is a policy decision); these are RESOLUTION tuning, and mixing a
 -- knob anyone may turn into the row that holds the k-floor invites turning the
--- wrong one. It also keeps 00547's ON CONFLICT DO NOTHING seed intact.
+-- wrong one. It also keeps 00550's ON CONFLICT DO NOTHING seed intact.
 INSERT INTO public.system_settings (key, value, value_type, default_value, category, description)
 VALUES (
   'radar_venues',
@@ -181,5 +181,5 @@ ON CONFLICT (key) DO NOTHING;
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00548')
+INSERT INTO public.applied_migrations (version) VALUES ('00551')
 ON CONFLICT (version) DO NOTHING;

@@ -16,11 +16,11 @@ code_refs:
   - services/edge-functions/src/lib/radar-personal-history.ts
   - services/edge-functions/src/routes/flipdesk-radar.ts
   - services/edge-functions/src/routes/jobs-radar-aggregate.ts
-  - supabase/migrations/00547_radar_scan_events.sql
-  - supabase/migrations/00548_radar_venues.sql
-  - supabase/migrations/00549_radar_aggregates.sql
-  - supabase/migrations/00550_radar_personal_stores.sql
-  - supabase/migrations/00551_radar_activity_by_day.sql
+  - supabase/migrations/00550_radar_scan_events.sql
+  - supabase/migrations/00551_radar_venues.sql
+  - supabase/migrations/00552_radar_aggregates.sql
+  - supabase/migrations/00553_radar_personal_stores.sql
+  - supabase/migrations/00554_radar_activity_by_day.sql
   - src/components/settings/radar-contribution-card.tsx
   - ios/GradeThread/Prospect/RadarConsent.swift
   - ios/GradeThread/Prospect/RadarLocationProvider.swift
@@ -121,7 +121,7 @@ and the discard, exactly as this note required. The shape that landed:
   kill-switch, `users.radar_contribute`, an unusable fix — lives inside
   `emitRadarScanEvent`, so the call site in `flipdesk-scout.ts` is one unawaited
   line and cannot forget one of them.
-- **The consent is `users.radar_contribute`** (00547), default false, written by
+- **The consent is `users.radar_contribute`** (00550), default false, written by
   the web card and by iOS `RadarConsent`. iOS additionally keeps a local mirror,
   because consent before collection means not calling CoreLocation at all while
   the answer is no — not calling it and discarding the result.
@@ -130,9 +130,9 @@ and the discard, exactly as this note required. The shape that landed:
   the column, so rule 4 survives a config edit by someone who has not read this
   note.
 
-US-1862 filled in the `venue_id` that 00547 left pointing at nothing:
+US-1862 filled in the `venue_id` that 00550 left pointing at nothing:
 
-- **`radar_venues` (00548) is the registry.** Display name, chain tag, centroid,
+- **`radar_venues` (00551) is the registry.** Display name, chain tag, centroid,
   resolution cell, status candidate / confirmed / merged. A partial unique index
   on `(geohash, chain) WHERE status <> 'merged'` is what makes later scans
   converge onto one candidate rather than each minting their own, and what makes
@@ -177,7 +177,7 @@ inherits that and needs its own `tenant-isolation_test.ts` cases.
 
 ### US-1863: the floor, and what it costs to keep
 
-The aggregation layer is `radar_venue_aggregates` (00549) — venue × window ×
+The aggregation layer is `radar_venue_aggregates` (00552) — venue × window ×
 brand, recomputed hourly by `/api/jobs/radar-aggregate` — and it holds **only
 rows that clear the k-anonymity floor**. Four layers, deliberately, because a
 privacy guarantee held in one place is held by whoever last remembered it:
@@ -206,7 +206,7 @@ Three consequences that are easy to get wrong later:
   its row. Without it the endpoint keeps serving an aggregate that no longer
   clears the floor — the same disclosure, a week late.
 - **`avg_grade` is band-resolution.** The event store holds a band, never a
-  numeric grade (00547's minimization, not undone), so the average is derived
+  numeric grade (00550's minimization, not undone), so the average is derived
   from band midpoints and can only land between 5.0 and 9.0.
 
 Retention is the other half of rule 4 over time. `retentionCutoff` snaps to the
@@ -226,7 +226,7 @@ free surface, described next.
 
 ### US-1864: the personal layer, and why it needed its own table
 
-`radar_personal_scans` (00550) exists because rule 5 succeeded. The shared event
+`radar_personal_scans` (00553) exists because rule 5 succeeded. The shared event
 store deliberately carries no account column, so there is no query that answers
 "which of these were mine" — and there must never be one. The personal layer
 therefore cannot be a view over the contribution path; it needs its own store,
@@ -312,7 +312,7 @@ Three shapes from this story worth keeping:
   where none of their brands turn up still scores; hiding it would make the map
   lie about where the supply is.
 - **The weekly pattern rides the aggregate row it belongs to.** `dow_counts`
-  (00551) is a column on `radar_venue_aggregates`, not a table, so it inherits
+  (00554) is a column on `radar_venue_aggregates`, not a table, so it inherits
   the floor, the recompute and the sweep instead of needing a second copy of
   each. There is no code path that publishes a venue's weekly rhythm while
   withholding its counts, which is what would turn it into a timetable for one

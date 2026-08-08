@@ -16,7 +16,7 @@
 --      and a config table with no floor is one where a typo becomes one.
 --
 --   2. user_loyalty_state — the never-decay record. tier_rank_peak is the
---      high-water mark, exactly like user_reward_state.xp_peak (00539): the
+--      high-water mark, exactly like user_reward_state.xp_peak (00542): the
 --      inputs to a tier can move (an operator raises a threshold, the paid-month
 --      read fails, a ledger row is erased) and none of those may demote anyone.
 --      Standing is granted, never rented. anniversary_due_at is what makes the
@@ -70,7 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_reward_tenure_tiers_enabled
   ON public.reward_tenure_tiers(enabled, tier_rank);
 
 ALTER TABLE public.reward_tenure_tiers ENABLE ROW LEVEL SECURITY;
--- Deliberately ZERO policies, same posture as reward_milestones (00541): this is
+-- Deliberately ZERO policies, same posture as reward_milestones (00544): this is
 -- operator config that multiplies real value, so a client-writable row would be
 -- a client-writable money faucet. Read by the engine with the service-role
 -- client and by the SPA only through /api/admin/rewards/tenure-tiers.
@@ -260,5 +260,5 @@ ON CONFLICT (key) DO NOTHING;
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00554')
+INSERT INTO public.applied_migrations (version) VALUES ('00557')
 ON CONFLICT (version) DO NOTHING;

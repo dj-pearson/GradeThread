@@ -49,5 +49,5 @@ COMMENT ON COLUMN public.radar_venue_aggregates.dow_counts IS
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00551')
+INSERT INTO public.applied_migrations (version) VALUES ('00554')
 ON CONFLICT (version) DO NOTHING;

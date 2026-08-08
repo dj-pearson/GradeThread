@@ -154,5 +154,5 @@ GRANT SELECT ON public.public_showcase_finds TO anon, authenticated;
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00543')
+INSERT INTO public.applied_migrations (version) VALUES ('00546')
 ON CONFLICT (version) DO NOTHING;

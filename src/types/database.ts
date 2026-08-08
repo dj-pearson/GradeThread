@@ -377,7 +377,7 @@ export interface UserRow {
   ai_action_limit: number | null;
   // Closed-loop sale-outcome opt-in (US-132)
   share_sale_outcomes: boolean;
-  // Thrift Radar contribution opt-in (US-1861, migration 00547). Its own toggle
+  // Thrift Radar contribution opt-in (US-1861, migration 00550). Its own toggle
   // on purpose — location is a new kind of data, so folding it under
   // share_sale_outcomes would retroactively change what that consent meant.
   // Default false; VIEWING Radar is a separate consent and never gated on this.
@@ -437,7 +437,7 @@ export interface UserRow {
   rewards_leaderboard_enabled: boolean;
   rewards_display_name: string | null;
   // US-1856: opt into the public reward leaderboards (XP / grades / finds /
-  // share-driven signups) + the alias shown there (00544). A THIRD toggle on
+  // share-driven signups) + the alias shown there (00547). A THIRD toggle on
   // purpose: those boards publish numbers the referral and buyer boards' copy
   // never covered. A NULL alias falls back to the verified display name, then
   // the referral alias, then the buyer alias.
@@ -1436,7 +1436,7 @@ export interface SourceRow {
   source_type: FlipdeskSourceType;
   location: string | null;
   notes: string | null;
-  // US-1864 (00550): the shared Thrift Radar venue this source IS, once the owner
+  // US-1864 (00553): the shared Thrift Radar venue this source IS, once the owner
   // has linked them. This column is the JOIN that lets a store's money (items,
   // spend, sales) meet its visits — set through the edge, never written here.
   radar_venue_id: string | null;

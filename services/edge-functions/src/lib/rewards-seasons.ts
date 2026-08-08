@@ -463,7 +463,7 @@ export async function loadSeasonProgress(
  * across the whole user base to write one row each is a worse failure surface
  * than writing that row the next time the user looks at their rewards. It is
  * idempotent either way — UNIQUE (user_id, season_key) on user_season_recaps
- * (00539) means a concurrent second call inserts nothing.
+ * (00542) means a concurrent second call inserts nothing.
  *
  * Returns the recap when this call created it, null otherwise (already recapped,
  * nothing to recap, or a best-effort failure).

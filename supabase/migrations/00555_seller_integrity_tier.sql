@@ -1,4 +1,4 @@
--- 00552_seller_integrity_tier.sql
+-- 00555_seller_integrity_tier.sql
 --
 -- US-1912: persist the seller Grade Integrity TIER and the inputs that produced
 -- it. The score (00421) was already cached; the tier was computed on the fly and
@@ -66,7 +66,7 @@ COMMENT ON COLUMN public.seller_grade_integrity.tier IS
 -- public announcement of a demotion. The seller is told privately instead
 -- (notification_type 'integrity_tier_change' below).
 --
--- Re-stated in full (the 00443 / 00540 / 00542 precedent) so the allow-list is
+-- Re-stated in full (the 00443 / 00543 / 00545 precedent) so the allow-list is
 -- authoritative and the statement re-runnable.
 ALTER TABLE public.reputation_events
   DROP CONSTRAINT IF EXISTS reputation_events_event_type_check;
@@ -90,11 +90,11 @@ ALTER TABLE public.reputation_events
   ));
 
 -- ── notification_type: the private tier-change notice ───────────────────────
--- ALTER TYPE ... ADD VALUE is transactional in PG 12+ (see 00545/00546). The new
+-- ALTER TYPE ... ADD VALUE is transactional in PG 12+ (see 00548/00549). The new
 -- value cannot be USED in the same transaction, which is fine — only the edge
 -- writes it, and the boot guard keeps the edge behind this migration.
 ALTER TYPE public.notification_type ADD VALUE IF NOT EXISTS 'integrity_tier_change';
 
 -- US-1108: self-record so the edge schema-version guard stays truthful.
-INSERT INTO public.applied_migrations (version) VALUES ('00552')
+INSERT INTO public.applied_migrations (version) VALUES ('00555')
 ON CONFLICT (version) DO NOTHING;

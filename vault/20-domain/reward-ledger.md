@@ -9,6 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/buyer-trust-score.ts
   - services/edge-functions/src/lib/rewards-badges.ts
   - services/edge-functions/src/lib/rewards-tangible.ts
+  - services/edge-functions/src/lib/rewards-loyalty.ts
   - services/edge-functions/src/lib/rewards-economics.ts
   - services/edge-functions/src/lib/rewards-levels.ts
   - services/edge-functions/src/lib/rewards-seasons.ts
@@ -124,7 +125,7 @@ the log stays truthful without consulting the config.
 An operator-editable number that mints XP is a faucet, so it is capped in three
 independent places, and a new variable-XP type would need all three:
 
-1. `reward_quests.xp_reward` CHECK, 0–200 (migration 00540);
+1. `reward_quests.xp_reward` CHECK, 0–200 (migration 00543);
 2. the admin route's validator, which returns a sentence rather than a 500;
 3. `clampQuestXp` in the scorer — so even a hand-written event row, or a
    migration that widened the CHECK, cannot out-earn the catalog.
@@ -160,7 +161,7 @@ thing: what a seller can LOSE.
 
 ### A level derives from the XP peak, and never decreases
 
-`user_reward_state.xp_peak` (00539) is the high-water mark of `xp_total`, and
+`user_reward_state.xp_peak` (00542) is the high-water mark of `xp_total`, and
 `levelForXp` is applied to **the peak**, not the live total. `peakXp` only ever
 moves up.
 
@@ -202,7 +203,7 @@ each is a worse failure surface than that.
 ### Quests are the week, and a quest cannot count a quest
 
 Levels are identity, seasons are the quarter, **quests are the week**
-(`rewards-quests.ts`, 00540). Same one-ledger rule: quest progress is derived
+(`rewards-quests.ts`, 00543). Same one-ledger rule: quest progress is derived
 live from `reputation_events`, and `user_quest_progress` holds only the snapshot
 and the completion claim, so it can be dropped and rebuilt.
 
@@ -212,7 +213,7 @@ Four rules constrain a quest:
   unverified, or an unpaid grading-spend act — counts 0 toward a quest. There is
   one definition of "this action counted".
 - **`quest_completed` is not an allowed quest metric.** Two cheap quests counting
-  each other's completions would bootstrap an XP loop. Enforced by the 00540
+  each other's completions would bootstrap an XP loop. Enforced by the 00543
   CHECK, by `QUEST_METRICS`, and by the admin validator.
 - **The period key is a DATE, not a week number.** ISO week numbering puts
   30 Dec 2025 in week 1 of 2026; a key that is wrong once a year pays a quest
@@ -257,7 +258,7 @@ leaderboard the XP feeds, and rewards hoarding over using the product. Because a
 grant reads the XP total and never writes it, "your level can't go backwards for
 taking a reward" is structural rather than merely likely.
 
-The catalog is **data** (`reward_milestones`, 00541), not code: reward type
+The catalog is **data** (`reward_milestones`, 00544), not code: reward type
 (`free_grade_credits` | `subscription_discount` | `per_grade_discount`), trigger
 (XP threshold | badge key | season-goal key), value, marginal cost, and its own
 platform-wide monthly + lifetime issue caps. `TANGIBLE_MILESTONES` in
@@ -296,7 +297,7 @@ cosmetic until an operator says otherwise.
 
 ### The guardrails narrow the budget; they never widen it (US-1858)
 
-`rewards-economics.ts` + `rewards_economics_guardrails` (00545) sit between the
+`rewards-economics.ts` + `rewards_economics_guardrails` (00548) sit between the
 flat ceilings and a payout. Four rules:
 
 1. **A flat cap cannot express a margin.** $15 of free grades is nothing against
@@ -339,7 +340,7 @@ no margin and would let a billing outage break the engagement loop.
 ## The share loop pays on the CLICK, never on the press (US-1854)
 
 `share-to-earn.ts`. Pressing share is **tracked and worth zero**. The `share_events`
-row (00542) records that a seller shared a find; the XP lands later, on
+row (00545) records that a seller shared a find; the XP lands later, on
 click-throughs the sharer does not control:
 
 | Step | Event | Award | Dedupe key |
@@ -415,7 +416,7 @@ finds) also by brand and category. `lib/leaderboards.ts` is the pure policy,
 both render.
 
 **A new disclosure needs a new toggle.** These boards use `users.leaderboard_opt_in`
-+ `leaderboard_alias` (00544) — a THIRD opt-in beside the referral board's (00195)
++ `leaderboard_alias` (00547) — a THIRD opt-in beside the referral board's (00195)
 and the buyer board's (00423), which was the point of contention. Each older
 toggle's copy names exactly what it publishes: a referral count, a confirmation
 count. The reward boards publish XP, graded volume and reaction counts, and XP is
@@ -498,7 +499,7 @@ entrance/exit keyframe needs the same treatment.
 
 ## A nudge must be true, rare, and measured against a control (US-1859)
 
-`rewards-nudges.ts` + `reward_nudge_sends` (00546) is the only part of the reward
+`rewards-nudges.ts` + `reward_nudge_sends` (00549) is the only part of the reward
 system that fires because a user did **nothing**, which makes it the only part
 that can become spam. Four rules follow, and a new nudge type inherits all four.
 
@@ -552,7 +553,7 @@ same "one calendar" rule the leaderboards follow.
 Everything else on this page is a reward for something the seller **did**. Grade
 Integrity is the one standing they cannot perform: it is computed from what
 buyers reported after delivery — did the item match the grade — and cached per
-seller in `seller_grade_integrity` (00421, tiered by 00552). The pure engine is
+seller in `seller_grade_integrity` (00421, tiered by 00555). The pure engine is
 `sellerIntegrityTier` in `lib/buyer-grade-confirmation.ts`; the ladder is
 `building → verified → reliable → trusted → elite`, and the thresholds ARE the
 policy, legible on purpose like `REWARD_XP_CATALOG` above.
@@ -600,10 +601,65 @@ bare `next !== prev` throws confetti at someone who just lost standing.
 
 ### The tier is not a quest metric
 
-`integrity_tier_up` is excluded from `QUEST_METRICS` and absent from the 00540
+`integrity_tier_up` is excluded from `QUEST_METRICS` and absent from the 00543
 CHECK. A standing moves at most four times in a seller's life and buyers decide
 when, so a quest counting it is one nobody can work toward — and it would be a
 validator that passes beside an insert that 23514s.
+
+## Loyalty is not activity, and it never decays (US-1914)
+
+Everything above measures ACTIVITY inside a window: a season is a quarter, a
+quest a week, a nudge a few days. Tenure is the other axis and it is deliberately
+NOT windowed. Being a customer for three years is a fact about the past that a
+quiet month cannot revise, and conflating the two punishes exactly the
+loyal-but-bursty reseller this product is for — the picker who sources for three
+weeks and lists forty items in a weekend looks inactive for most of a month while
+being one of the best accounts on the platform.
+
+**Tenure only ascends.** A tier is DERIVED from account age plus lifetime paid
+months, but the derived value is never what is stored: `ascendOnly` takes the max
+of derived and the persisted `user_loyalty_state.tier_rank_peak`, the same shape
+as `xp_peak` (00542). The inputs can all move down — an operator raises a
+threshold, the paid-month read fails, an erased ledger row shrinks the count —
+and none of that may demote anybody. There is no decay column, no lapse state and
+no pause switch that consumes standing, because the schema is where that promise
+is either kept or quietly broken.
+
+**Both thresholds, or the ladder means nothing.** `min_months` AND
+`min_paid_months` must be met. Three years on a free account is real tenure but
+not paid engagement; a month of heavy spend is not tenure. Paid months are
+counted from `pack_purchase` + `included_grant` rows only — an `admin_grant` is a
+reward WE gave, and counting it would let the loyalty ladder be climbed with the
+rewards the ladder itself hands out.
+
+**The multiplier scales COST with value.** `applyTenureMultiplier` moves `value`
+and `cost_usd` together. A multiplier that grew the gift but not the number the
+budget reads would make every US-1858 ceiling 35% larger than the operator set
+it, invisibly. It touches `free_grade_credits` ONLY: 20% off × 1.35 is a
+different offer, not a bigger one, and it would walk straight past the catalog
+band that says a discount cannot exceed 100%. Floored at 1.00 in the DB CHECK, in
+the resolver and in the admin route — a loyalty multiplier below 1 is a loyalty
+penalty.
+
+**An anniversary is a milestone, instanced per year.** It rides the US-1853
+catalog rail rather than a payout path of its own, so it inherits
+claim-before-pay, the USD ceilings, the velocity limit and the fraud hold. The
+only new mechanic is the instance key (`anniversary_gift:y3`), which turns UNIQUE
+(user_id, milestone_key) from "once ever" into "once per year"; `baseKey` carries
+the catalog identity so the per-milestone issue caps still count the family
+rather than resetting every year. It never back-pays: an eight-year account is
+owed year 8 only. Pausing the programme does NOT consume the year it was paused
+over. The year is marked delivered only AFTER value moved, so a fulfilment
+failure retries rather than burning the anniversary.
+
+**Nobody is shamed for coming back.** No surface may tell a user they lost,
+broke, forfeited or are about to forfeit standing — on the seller side that is
+also simply FALSE, since level, tenure and badges are all monotonic. The refused
+vocabulary is data (`src/lib/loyalty-copy.ts` `REFUSED_LOSS_PHRASES`) and the
+fence is a discovery scan over every client, so a surface that does not exist yet
+is already covered. The `comeback` nudge leads with what is NEW and what is
+PRESERVED, and ranks LAST — anything the user can still act on is a better
+message than "we noticed you were away".
 
 ## Wiring a new source
 

@@ -197,7 +197,7 @@ function parseQuest(body: Record<string, unknown>, existing?: QuestPayload): Que
     out.sort_order = Number.isFinite(n) ? n : 100;
   }
 
-  // ── Cross-field rules (mirrors the CHECKs in 00540) ───────────────────────
+  // ── Cross-field rules (mirrors the CHECKs in 00543) ───────────────────────
   if (out.cadence === "fixed" && (!out.starts_at || !out.ends_at)) {
     throw new QuestInputError("A fixed-window quest needs both a start and an end.");
   }
@@ -545,7 +545,7 @@ function parseMilestone(
     out.sort_order = Number.isFinite(n) ? n : 100;
   }
 
-  // ── Cross-field rules (mirrors the CHECKs in 00541, plus the catalog ones) ──
+  // ── Cross-field rules (mirrors the CHECKs in 00544, plus the catalog ones) ──
   if (out.trigger_type === "xp_threshold") {
     if (out.xp_threshold === null) {
       throw new MilestoneInputError("An XP milestone needs an XP threshold.");

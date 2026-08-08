@@ -162,5 +162,5 @@ ON CONFLICT (key) DO NOTHING;
 
 -- US-1108: self-record this migration's version so the edge schema-version
 -- guard (US-778) stays in sync regardless of apply method.
-INSERT INTO public.applied_migrations (version) VALUES ('00541')
+INSERT INTO public.applied_migrations (version) VALUES ('00544')
 ON CONFLICT (version) DO NOTHING;

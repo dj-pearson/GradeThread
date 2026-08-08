@@ -176,7 +176,7 @@ Deno.test("quest_completed scores its frozen award; every other type ignores one
 
 Deno.test("quest_completed is not itself an allowed quest metric", () => {
   // A quest counting quest completions would let two cheap quests bootstrap
-  // each other into a loop. Mirrors the CHECK in migration 00540.
+  // each other into a loop. Mirrors the CHECK in migration 00543.
   assert(!isQuestMetric("quest_completed"));
   assert(!QUEST_METRICS.includes("quest_completed" as never));
   assert(isQuestMetric("coverage_completed"));

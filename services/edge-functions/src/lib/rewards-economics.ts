@@ -51,7 +51,7 @@ export interface RewardGuardrails {
   fraudHoldEnabled: boolean;
 }
 
-/** Matches the `rewards_economics_guardrails` seed in migration 00545. */
+/** Matches the `rewards_economics_guardrails` seed in migration 00548. */
 export const DEFAULT_REWARD_GUARDRAILS: RewardGuardrails = {
   marginFloorPct: 0.4,
   freeTierMonthlyUsdCap: 2,
@@ -596,7 +596,7 @@ export interface BreachInput {
 /**
  * Record a ceiling breach, ONCE, while it stays open.
  *
- * The insert races against the partial UNIQUE indexes in 00545, and a 23505
+ * The insert races against the partial UNIQUE indexes in 00548, and a 23505
  * means an open breach for this (scope, subject) already exists — which is the
  * suppression working, not a failure. Returns the new row's id, or null when the
  * breach was suppressed or the write failed; the caller uses that to decide
