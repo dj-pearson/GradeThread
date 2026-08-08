@@ -26,6 +26,7 @@ import {
   withEdgeCache,
   type PagesEnv,
 } from "../_shared/blog-render";
+import { INTEGRITY_TIER_BASIS, LEVEL_FLAIR_BASIS } from "../_shared/status-basis";
 
 interface RecentCert {
   id: string;
@@ -174,7 +175,7 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
   // where everyone starts — a chip every seller carries says nothing.
   const flair = data.level;
   const flairHtml = flair && flair.level > 0
-    ? `<div class="lv-flair"><span class="lv-tier">${escape(flair.tier_name)}</span>` +
+    ? `<div class="lv-flair" title="${escape(LEVEL_FLAIR_BASIS)}"><span class="lv-tier">${escape(flair.tier_name)}</span>` +
       `<span class="lv-lvl">Level ${flair.level}</span></div>` +
       `<div style="color:var(--muted);font-size:0.85rem">${escape(flair.tier_blurb)}</div>`
     : "";
@@ -184,7 +185,7 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
   // re-check here, and nothing to render for a seller still building history.
   const integrity = data.integrity;
   const integrityHtml = integrity
-    ? `<div class="gi-chip"><span class="gi-tier">${escape(integrity.label)}</span>` +
+    ? `<div class="gi-chip" title="${escape(INTEGRITY_TIER_BASIS)}"><span class="gi-tier">${escape(integrity.label)}</span>` +
       `<span class="gi-note">Grade Integrity · confirmed by buyers after delivery</span></div>`
     : "";
 

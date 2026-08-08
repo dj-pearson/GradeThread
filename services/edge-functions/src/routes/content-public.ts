@@ -24,7 +24,11 @@ import {
   type SlabFormat,
   SLAB_FORMATS,
 } from "../lib/cert-image-render.ts";
-import { FALLBACK_PNG_BASE64, isCardFrameKey } from "../lib/cert-og-template.ts";
+import {
+  buildBadgeStatusLine,
+  FALLBACK_PNG_BASE64,
+  isCardFrameKey,
+} from "../lib/cert-og-template.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
 import { isBadgeTargetType, recordBadgeClick } from "../lib/badge-analytics.ts";
@@ -37,7 +41,10 @@ import {
 } from "../lib/rewards-badges.ts";
 import { grantReward, isOffPlatformEmbedReferer } from "../lib/rewards-engine.ts";
 import { isFrameUnlocked, publicLevelFlair, tierForLevel } from "../lib/rewards-levels.ts";
-import { loadPublicSellerIntegrity } from "../lib/buyer-grade-confirmation.ts";
+import {
+  loadPublicSellerIntegrity,
+  loadSellerBadgeStanding,
+} from "../lib/buyer-grade-confirmation.ts";
 import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
 import {
   brandFacets,
@@ -824,6 +831,14 @@ interface CertSellerIntegrity {
   label: string;
   /** The verified profile the tier is checkable against. */
   handle: string;
+  /**
+   * US-1913 AC2: the grader's reward LEVEL flair, beside the integrity tier —
+   * the same pair the public profile shows, so a buyer who follows the handle
+   * sees the same two facts rather than a different summary of the seller.
+   * Null below level 1 (level 0 is the un-earned rung, and rendering it would
+   * read as a rank). Same projection as the profile: tier name only, never XP.
+   */
+  level: { level: number; tier_name: string; tier_blurb: string } | null;
 }
 
 /**
@@ -850,7 +865,22 @@ async function loadCertSellerIntegrity(
     if (!seller?.verified_enabled || !seller.verified_handle) return null;
     const standing = await loadPublicSellerIntegrity(sellerUserId);
     if (!standing) return null;
-    return { ...standing, handle: seller.verified_handle };
+    // Level flair rides along only once the integrity gate above has passed —
+    // the certificate says who graded it and how proven they are, and a level on
+    // its own would be activity dressed as accuracy.
+    const levelNumber = await rewardLevelFor(sellerUserId);
+    const flair = levelNumber > 0 ? publicLevelFlair(levelNumber) : null;
+    return {
+      ...standing,
+      handle: seller.verified_handle,
+      level: flair
+        ? {
+          level: flair.level,
+          tier_name: flair.tier_name,
+          tier_blurb: flair.tier_blurb,
+        }
+        : null,
+    };
   } catch (err) {
     console.error("[content-public] cert seller integrity failed:", err);
     return null;
@@ -1031,15 +1061,71 @@ async function rewardLevelFor(userId: string | null | undefined): Promise<number
   return Number.isFinite(level) && level > 0 ? level : 0;
 }
 
+// US-1913 AC3: the cache policy for a STATUS-format badge.
+//
+// The plain badges use CERT_IMG_CACHE, whose `stale-while-revalidate=604800`
+// lets a CDN keep serving a week-old copy while it refreshes. That is right for
+// a grade (it never changes) and wrong for a standing (it does). A seller must
+// never have to re-paste their HTML to fix a badge, so the ONLY thing bounding
+// how long a stale tier can be shown is this header — hence 24h flat, with no
+// stale-while-revalidate window bolted on after it. The Pages Function proxies
+// mirror this exactly; a proxy that re-applied the 7-day SWR would silently undo
+// the bound.
+const BADGE_STATUS_CACHE = "public, max-age=86400, s-maxage=86400";
+
+/** True for `?status=1` / `?status=true` on a badge request. */
+function wantsStatusBadge(raw: string | undefined): boolean {
+  const v = (raw ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "status" || v === "yes";
+}
+
+/**
+ * US-1913 AC1/AC4: the seller's opt-in status strip, composed from what they
+ * have actually EARNED.
+ *
+ * Both halves fail closed independently: `loadSellerBadgeStanding` returns null
+ * below the US-1912 confirmed-outcome floor (so no tier and no percentage), and
+ * `rewardLevelFor` reads 0 on any problem (so no level). When neither survives,
+ * buildBadgeStatusLine returns "" and the caller renders the PLAIN badge — a
+ * status badge never degrades into a badge making a claim we can't stand behind.
+ */
+async function badgeStatusLineFor(
+  sellerUserId: string | null | undefined,
+): Promise<string> {
+  if (!sellerUserId) return "";
+  try {
+    const [standing, level] = await Promise.all([
+      loadSellerBadgeStanding(sellerUserId),
+      rewardLevelFor(sellerUserId),
+    ]);
+    return buildBadgeStatusLine({
+      tierLabel: standing?.label ?? null,
+      accuracyPct: standing?.accuracyPct ?? null,
+      level,
+      levelTierName: level > 0 ? publicLevelFlair(level).tier_name : null,
+    });
+  } catch (err) {
+    captureException(err, { level: "warn", route: "badge-status-line" });
+    return "";
+  }
+}
+
 // Marketplace/OG reachability probes HEAD before fetching — always answer 200.
-contentPublicRoutes.on("HEAD", "/cert-image/:id", () =>
-  new Response(null, { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) }));
+contentPublicRoutes.on("HEAD", "/cert-image/:id", (c) =>
+  new Response(null, {
+    status: 200,
+    headers: certImageHeaders(
+      wantsStatusBadge(c.req.query("status")) ? BADGE_STATUS_CACHE : CERT_IMG_CACHE,
+    ),
+  }));
 
 contentPublicRoutes.get("/cert-image/:id", async (c) => {
   const certId = c.req.param("id");
   if (!isUuid(certId)) return c.json({ error: "Not found" }, 404);
   const kindRaw = (c.req.query("kind") ?? "slab").toLowerCase();
   const kind = kindRaw === "og" || kindRaw === "badge" ? kindRaw : "slab";
+  // US-1913: the opt-in status format of the per-listing cert badge.
+  const wantsStatus = kind === "badge" && wantsStatusBadge(c.req.query("status"));
   const format = (
     kind === "slab" && c.req.query("format") && c.req.query("format")! in SLAB_FORMATS
       ? c.req.query("format")
@@ -1110,22 +1196,37 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
       }
     }
 
+    // US-1913 AC1/AC3/AC4: the status strip for the grader who owns this
+    // certificate — never for whoever requested the image. Resolved per request,
+    // which is what lets a tier change reach a badge already pasted into a live
+    // listing. An empty string (below the floor, level 0, unreadable) renders
+    // the plain badge.
+    const statusLine = wantsStatus ? await badgeStatusLineFor(sub?.user_id) : "";
+
     // Cache: render once, then serve the stored PNG. Path keyed by certificate_id
     // (its stable public identity); invalidated by deleteCertImages on re-grade.
     // The frame is part of the key — a framed render must never overwrite the
     // plain one, and vice versa.
+    //
+    // The STATUS badge is deliberately EXEMPT from this durable cache. A stored
+    // asset is only invalidated on re-grade, and a standing moves for reasons
+    // that have nothing to do with the grade — so a stored status badge would
+    // freeze a tier until the item was graded again, i.e. potentially forever.
+    // It renders per request and leans on the 24h CDN bound instead.
     const key = kind === "slab"
       ? `slab-${format}${frameKey ? `-${frameKey}` : ""}`
       : kind;
     const path = `${certId}/${key}.png`;
-    const { data: cached } = await supabaseAdmin.storage
-      .from("cert-assets")
-      .download(path);
-    if (cached) {
-      return new Response(await cached.arrayBuffer(), {
-        status: 200,
-        headers: certImageHeaders(CERT_IMG_CACHE),
-      });
+    if (!wantsStatus) {
+      const { data: cached } = await supabaseAdmin.storage
+        .from("cert-assets")
+        .download(path);
+      if (cached) {
+        return new Response(await cached.arrayBuffer(), {
+          status: 200,
+          headers: certImageHeaders(CERT_IMG_CACHE),
+        });
+      }
     }
 
     // Miss → render. Only the slab (non-label) needs the hero photo; embed it as
@@ -1156,6 +1257,7 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
       heroDataUri,
       certUrl: `${PUBLIC_SITE_URL}/cert/${certId}?s=qr`,
       frameKey,
+      statusLine,
     };
     // A hero photo in a format satori/resvg can't rasterize (HEIC, AVIF, a
     // corrupt/truncated file) makes renderCertImage THROW, which would fall
@@ -1178,12 +1280,18 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
     }
 
     // Store durably (best-effort — a store failure still serves this render).
-    await supabaseAdmin.storage
-      .from("cert-assets")
-      .upload(path, png, { contentType: "image/png", upsert: true, cacheControl: "31536000" })
-      .catch(() => {});
+    // Never for the status badge: see the exemption above.
+    if (!wantsStatus) {
+      await supabaseAdmin.storage
+        .from("cert-assets")
+        .upload(path, png, { contentType: "image/png", upsert: true, cacheControl: "31536000" })
+        .catch(() => {});
+    }
 
-    return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
+    return new Response(new Uint8Array(png), {
+      status: 200,
+      headers: certImageHeaders(wantsStatus ? BADGE_STATUS_CACHE : CERT_IMG_CACHE),
+    });
   } catch (err) {
     captureException(err, { route: "cert-image", tags: { certId, kind } });
     return serveFallback();
@@ -1295,13 +1403,21 @@ contentPublicRoutes.get("/cert-photo/:id/:n", async (c) => {
 // transparent FALLBACK PNG (never a broken image; never leaks a private profile).
 // NOT bucket-cached: seller stats change over time, so it renders on demand and
 // relies on the shared 24h CDN cache rather than a stale-forever stored asset.
-contentPublicRoutes.on("HEAD", "/seller-badge/:handle", () =>
-  new Response(null, { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) }));
+contentPublicRoutes.on("HEAD", "/seller-badge/:handle", (c) =>
+  new Response(null, {
+    status: 200,
+    headers: certImageHeaders(
+      wantsStatusBadge(c.req.query("status")) ? BADGE_STATUS_CACHE : CERT_IMG_CACHE,
+    ),
+  }));
 
 contentPublicRoutes.get("/seller-badge/:handle", async (c) => {
   const handle = c.req.param("handle").trim();
   const fmtRaw = (c.req.query("format") ?? "wide").toLowerCase();
   const format: SellerBadgeFormat = isSellerBadgeFormat(fmtRaw) ? fmtRaw : "wide";
+  // US-1913: the opt-in status format. Chosen per embed in Badge Studio, so the
+  // same handle serves both the plain and the status badge.
+  const wantsStatus = wantsStatusBadge(c.req.query("status"));
   const serveFallback = () =>
     new Response(fallbackPng(), { status: 200, headers: certImageHeaders("public, max-age=300") });
 
@@ -1328,13 +1444,21 @@ contentPublicRoutes.get("/seller-badge/:handle", async (c) => {
     const sum = rows.reduce((acc, r) => acc + Number(r.overall_score), 0);
     const average = total > 0 ? Math.round((sum / total) * 10) / 10 : 0;
 
+    // US-1913: the status strip is resolved on THIS request, which is what makes
+    // a tier change reach a badge already pasted into somebody's storefront.
+    const statusLine = wantsStatus ? await badgeStatusLineFor(s.id) : "";
+
     const png = await renderSellerBadge(format, {
       displayName: s.verified_display_name ?? s.verified_handle,
       totalGraded: total,
       totalIsCapped: total >= SELLER_STATS_SAMPLE,
       averageGrade: average,
+      statusLine,
     });
-    return new Response(new Uint8Array(png), { status: 200, headers: certImageHeaders(CERT_IMG_CACHE) });
+    return new Response(new Uint8Array(png), {
+      status: 200,
+      headers: certImageHeaders(wantsStatus ? BADGE_STATUS_CACHE : CERT_IMG_CACHE),
+    });
   } catch (err) {
     captureException(err, { route: "seller-badge", tags: { handle, format } });
     return serveFallback();
@@ -1600,7 +1724,7 @@ contentPublicRoutes.post("/certificates/:id/view", async (c) => {
 // error is swallowed so a bad ping never breaks the page. No buyer PII.
 contentPublicRoutes.post("/badge-click", async (c) => {
   const body = (await c.req.json().catch(() => null)) as
-    | { targetType?: unknown; targetId?: unknown; source?: unknown }
+    | { targetType?: unknown; targetId?: unknown; source?: unknown; variant?: unknown }
     | null;
   if (
     !body ||
@@ -1624,6 +1748,11 @@ contentPublicRoutes.post("/badge-click", async (c) => {
     source: body.source,
     visitorHash,
     userAgent,
+    // US-1913 AC5: which badge FORMAT drove the click. Untrusted and unvalidated
+    // on purpose — normalizeBadgeVariant folds anything that isn't "status" to
+    // "plain", so the worst a spoofer can do is mislabel their OWN badge's
+    // clicks, which is not a claim anybody else reads.
+    variant: body.variant,
   });
   return c.json({ ok: recorded });
 });

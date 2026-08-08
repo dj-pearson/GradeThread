@@ -69,9 +69,44 @@ export function parseCertificateRef(raw: string): string | null {
   return CERT_ID_RE.test(token) ? token : null;
 }
 
+// ── Status badges (US-1913) ──────────────────────────────────────────
+// Every embed badge has two formats, chosen by the seller PER EMBED in Badge
+// Studio: `plain` (what has always shipped) and `status`, which adds the
+// seller's Grade Integrity tier, reward level and confirmed-accuracy share.
+//
+// Two params, doing two different jobs, and conflating them was the trap:
+//   • `?status=1` on the IMAGE url tells the edge which artwork to render.
+//   • `?v=status` on the LINK url tells the click funnel which format earned the
+//     click. `?s=embed` is untouched (AC5) — the source still means where the
+//     arrival came from, so status and plain badges stay comparable inside it.
+export type BadgeVariant = "plain" | "status";
+
+/** Append the click-funnel variant marker to an already-`?s=`-tagged share URL. */
+function withVariant(shareUrl: string, variant: BadgeVariant): string {
+  return variant === "status" ? `${shareUrl}&v=status` : shareUrl;
+}
+
+/** Read the click-funnel variant marker off a landing URL. Unknown ⇒ plain. */
+export function parseBadgeVariant(raw: string | null | undefined): BadgeVariant {
+  return raw === "status" ? "status" : "plain";
+}
+
+// The one-sentence explanations behind the two status marks a buyer sees on a
+// certificate and on a verified profile (US-1913 AC2). They are DIFFERENT
+// claims and the tooltips exist so nobody reads one as the other: a level is
+// how much a seller does, a tier is how right they have been proven. Both
+// surfaces have two renderers (SPA + Pages Function SSR); the SSR halves cannot
+// import from src/, so they repeat these sentences verbatim and
+// src/test/badge-status-parity.test.ts holds the four copies together.
+export const INTEGRITY_TIER_BASIS =
+  "Earned from buyers confirming, after delivery, that the grade matched. It only appears once enough buyers have confirmed.";
+export const LEVEL_FLAIR_BASIS =
+  "Earned from grading and selling activity on GradeThread. It measures how much a seller does, not how accurate their grades are.";
+
 /** Per-listing badge image URL for a certificate id. */
-export function certBadgeUrl(certId: string): string {
-  return `${SITE_URL}/badge/cert/${certId}`;
+export function certBadgeUrl(certId: string, variant: BadgeVariant = "plain"): string {
+  const base = `${SITE_URL}/badge/cert/${certId}`;
+  return variant === "status" ? `${base}?status=1` : base;
 }
 
 /**
@@ -80,9 +115,12 @@ export function certBadgeUrl(certId: string): string {
  * it survives marketplace HTML sanitizers. The click carries ?s=embed for
  * share-source attribution (US-769).
  */
-export function certBadgeEmbedHtml(certId: string): string {
-  const href = certificateShareUrl(certId, "embed");
-  const img = certBadgeUrl(certId);
+export function certBadgeEmbedHtml(
+  certId: string,
+  variant: BadgeVariant = "plain",
+): string {
+  const href = withVariant(certificateShareUrl(certId, "embed"), variant);
+  const img = certBadgeUrl(certId, variant);
   return (
     `<a href="${href}" target="_blank" rel="noopener">` +
     `<img src="${img}" alt="GradeThread Verified condition grade" ` +
@@ -92,8 +130,12 @@ export function certBadgeEmbedHtml(certId: string): string {
 }
 
 /** Script src for the injectable badge widget (US-860). */
-export function certBadgeScriptUrl(certId: string): string {
-  return `${SITE_URL}/embed/cert/${certId}`;
+export function certBadgeScriptUrl(
+  certId: string,
+  variant: BadgeVariant = "plain",
+): string {
+  const base = `${SITE_URL}/embed/cert/${certId}`;
+  return variant === "status" ? `${base}?status=1` : base;
 }
 
 /**
@@ -104,11 +146,21 @@ export function certBadgeScriptUrl(certId: string): string {
  * the zone's anti-clickjacking headers (X-Frame-Options/frame-ancestors) block
  * cross-site framing of our own pages.
  */
-export function certBadgeScriptEmbed(certId: string): string {
-  return `<script async src="${certBadgeScriptUrl(certId)}"></script>`;
+export function certBadgeScriptEmbed(
+  certId: string,
+  variant: BadgeVariant = "plain",
+): string {
+  return `<script async src="${certBadgeScriptUrl(certId, variant)}"></script>`;
 }
 
-/** Plain-text fallback (for marketplaces that strip HTML entirely). */
+/**
+ * Plain-text fallback (for marketplaces that strip HTML entirely).
+ *
+ * There is no status variant of this one on purpose: the status format is an
+ * IMAGE the edge redraws on every request, which is what keeps the number on it
+ * current. Baking a tier into text a seller pastes once would be the exact thing
+ * AC3 forbids — a claim frozen at copy time, correctable only by re-pasting.
+ */
 export function certBadgeEmbedText(certId: string): string {
   return `✓ GradeThread Verified condition grade — verify: ${certificateShareUrl(certId, "embed")}`;
 }
@@ -179,8 +231,12 @@ export const SELLER_BADGE_FORMAT_OPTIONS: SellerBadgeFormatOption[] = [
 export function verifiedSellerBadgeUrl(
   handle: string,
   format: SellerBadgeFormat = "wide",
+  variant: BadgeVariant = "plain",
 ): string {
-  return `${SITE_URL}/badge/verified/${handle}?format=${format}`;
+  return (
+    `${SITE_URL}/badge/verified/${handle}?format=${format}` +
+    (variant === "status" ? "&status=1" : "")
+  );
 }
 
 /**
@@ -191,9 +247,10 @@ export function verifiedSellerBadgeUrl(
 export function verifiedSellerBadgeEmbedHtml(
   handle: string,
   format: SellerBadgeFormat = "wide",
+  variant: BadgeVariant = "plain",
 ): string {
-  const href = profileShareUrl(handle, "embed");
-  const img = verifiedSellerBadgeUrl(handle, format);
+  const href = withVariant(profileShareUrl(handle, "embed"), variant);
+  const img = verifiedSellerBadgeUrl(handle, format, variant);
   const opt = SELLER_BADGE_FORMAT_OPTIONS.find((o) => o.id === format) ??
     { id: "wide" as const, label: "Wide", width: 700, height: 180 };
   return (

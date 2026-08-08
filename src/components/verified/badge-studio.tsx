@@ -18,11 +18,13 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { CopyField } from "@/components/verified/copy-field";
 import { useMyCertificates, type BadgeCertificate } from "@/hooks/use-badge-studio";
 import {
   BADGE_FORMATS,
   type BadgeFormatId,
+  type BadgeVariant,
   certBadgeEmbedHtml,
   certBadgeEmbedText,
   certBadgeScriptEmbed,
@@ -55,16 +57,58 @@ function certLabel(c: BadgeCertificate): string {
   return date ? `${grade} · ${date}` : grade;
 }
 
-function snippetFor(format: BadgeFormatId, certId: string): string {
+function snippetFor(
+  format: BadgeFormatId,
+  certId: string,
+  variant: BadgeVariant,
+): string {
   switch (format) {
     case "image":
-      return certBadgeEmbedHtml(certId);
+      return certBadgeEmbedHtml(certId, variant);
     case "script":
-      return certBadgeScriptEmbed(certId);
+      return certBadgeScriptEmbed(certId, variant);
     case "text":
+      // The text badge has no artwork to redraw, so it has no status variant —
+      // a tier typed into a listing description would freeze at paste time.
       return certBadgeEmbedText(certId);
   }
 }
+
+// US-1913 AC1: the plain/status switch, offered once per embed. Opt-in, and
+// off by default — a seller's standing goes on somebody else's storefront only
+// because they chose to put it there.
+function StatusToggle({
+  id,
+  checked,
+  onChange,
+  hint,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  hint: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-lg bg-muted/40 p-3">
+      <div className="space-y-0.5">
+        <Label htmlFor={id} className="text-sm font-medium">
+          Show my status on the badge
+        </Label>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <Switch id={id} checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+// One sentence, used under both toggles, that says what the badge will and will
+// not claim. The "only once you've earned them" half is not marketing softener:
+// below the confirmed-outcome floor the edge renders the plain badge, so a
+// seller who flips this on early sees exactly what they had.
+const STATUS_HINT =
+  "Adds your Grade Integrity tier, level and confirmed-accuracy share — but " +
+  "only once you've earned them. The image is redrawn on every view, so your " +
+  "badge stays current without re-pasting the code.";
 
 export function BadgeStudio({ handle }: { handle?: string | null }) {
   const { data: certs, isLoading } = useMyCertificates();
@@ -72,6 +116,13 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
   const [pasted, setPasted] = useState("");
   const [format, setFormat] = useState<BadgeFormatId>("image");
   const [sellerFormat, setSellerFormat] = useState<SellerBadgeFormat>("wide");
+  // US-1913: plain vs status, chosen per embed. The two badges are independent
+  // — a seller may want their standing on their storefront banner but not on
+  // every listing, or the reverse.
+  const [sellerStatus, setSellerStatus] = useState(false);
+  const [certStatus, setCertStatus] = useState(false);
+  const sellerVariant: BadgeVariant = sellerStatus ? "status" : "plain";
+  const certVariant: BadgeVariant = certStatus ? "status" : "plain";
 
   // A pasted certificate link/id wins over the dropdown, so a seller can badge a
   // certificate that isn't in their recent list (or before it loads).
@@ -121,19 +172,25 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
                 </SelectContent>
               </Select>
             </div>
+            <StatusToggle
+              id="seller-badge-status"
+              checked={sellerStatus}
+              onChange={setSellerStatus}
+              hint={STATUS_HINT}
+            />
             <div className="rounded-lg border bg-muted/30 p-4">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Preview
               </p>
               <img
-                src={verifiedSellerBadgeUrl(handle, sellerFormat)}
+                src={verifiedSellerBadgeUrl(handle, sellerFormat, sellerVariant)}
                 alt="GradeThread Verified Seller badge"
                 className="max-w-full"
               />
             </div>
             <CopyField
               label="HTML (eBay, websites)"
-              value={verifiedSellerBadgeEmbedHtml(handle, sellerFormat)}
+              value={verifiedSellerBadgeEmbedHtml(handle, sellerFormat, sellerVariant)}
               multiline
             />
             <CopyField
@@ -217,17 +274,32 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
                     ))}
                   </div>
 
+                  {/* US-1913: the status variant applies to the rendered badge
+                      image, so it is offered on the image + script formats only. */}
+                  {f.id !== "text" && (
+                    <StatusToggle
+                      id={`cert-badge-status-${f.id}`}
+                      checked={certStatus}
+                      onChange={setCertStatus}
+                      hint={STATUS_HINT}
+                    />
+                  )}
+
                   {/* Live preview */}
                   <div className="rounded-lg border bg-muted/30 p-4">
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Preview
                     </p>
-                    <BadgePreview format={f.id} certId={activeCertId} />
+                    <BadgePreview
+                      format={f.id}
+                      certId={activeCertId}
+                      variant={certVariant}
+                    />
                   </div>
 
                   <CopyField
                     label="Copy this snippet"
-                    value={snippetFor(f.id, activeCertId)}
+                    value={snippetFor(f.id, activeCertId, certVariant)}
                     multiline
                   />
                 </TabsContent>
@@ -270,7 +342,15 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
 // The live preview for each format. The image badge and (representatively) the
 // script embed render the real /badge/cert asset; the text format shows the
 // exact string a marketplace would display.
-function BadgePreview({ format, certId }: { format: BadgeFormatId; certId: string }) {
+function BadgePreview({
+  format,
+  certId,
+  variant,
+}: {
+  format: BadgeFormatId;
+  certId: string;
+  variant: BadgeVariant;
+}) {
   if (format === "text") {
     return (
       <span className="text-sm">
@@ -285,7 +365,7 @@ function BadgePreview({ format, certId }: { format: BadgeFormatId; certId: strin
   return (
     <div className="space-y-1">
       <img
-        src={certBadgeUrl(certId)}
+        src={certBadgeUrl(certId, variant)}
         alt="GradeThread Verified condition grade badge"
         width={350}
         height={90}

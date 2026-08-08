@@ -55,6 +55,8 @@ export interface SellerBadgeData {
   totalGraded: number;
   totalIsCapped: boolean;
   averageGrade: number;
+  /** US-1913: the opt-in status strip (tier · level · accuracy), or null/"". */
+  statusLine?: string | null;
 }
 
 /** Render the verified-seller storefront badge to PNG bytes at the given size. */
@@ -71,6 +73,7 @@ export function renderSellerBadge(
       totalGraded: d.totalGraded,
       totalIsCapped: d.totalIsCapped,
       averageGrade: d.averageGrade,
+      statusLine: d.statusLine ?? null,
     }),
     fmt.width,
     fmt.height,
@@ -198,6 +201,12 @@ export interface CertImageData {
    * because this renderer has no idea whose certificate it is drawing.
    */
   frameKey?: string | null;
+  /**
+   * US-1913: the grader's opt-in status strip on the `badge` kind. Like the
+   * frame above, the caller has already decided this is earned and displayable —
+   * this renderer only draws the line it is handed.
+   */
+  statusLine?: string | null;
 }
 
 /** Render one certificate image kind to PNG bytes. */
@@ -215,7 +224,12 @@ export function renderCertImage(
   }
   if (kind === "badge") {
     return renderPng(
-      buildCertBadgeHtml({ score: d.score, gradeTier: d.gradeTier, title: d.title }),
+      buildCertBadgeHtml({
+        score: d.score,
+        gradeTier: d.gradeTier,
+        title: d.title,
+        statusLine: d.statusLine ?? null,
+      }),
       700,
       180,
     );

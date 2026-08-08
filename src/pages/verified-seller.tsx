@@ -25,7 +25,12 @@ import {
 import { edgeApiUrl } from "@/lib/edge-api";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { profileUrl } from "@/lib/verified";
+import {
+  INTEGRITY_TIER_BASIS,
+  LEVEL_FLAIR_BASIS,
+  parseBadgeVariant,
+  profileUrl,
+} from "@/lib/verified";
 import { shareOrCopy } from "@/lib/share";
 import { track } from "@/lib/analytics";
 import { safeHref } from "@/lib/safe-url";
@@ -226,14 +231,22 @@ export function VerifiedSellerPage() {
     // per session; the owner is resolved server-side from the handle. Only the
     // badge/embed source (a storefront badge always links with ?s=embed).
     try {
-      const src = new URLSearchParams(window.location.search).get("s") ?? "";
+      const params = new URLSearchParams(window.location.search);
+      const src = params.get("s") ?? "";
       const key = `gt_sbadge_${handle}`;
       if ((src === "embed" || src === "badge") && !sessionStorage.getItem(key)) {
         sessionStorage.setItem(key, "1");
         void fetch(`${edgeApiUrl()}/api/content/public/badge-click`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ targetType: "seller", targetId: handle, source: src }),
+          body: JSON.stringify({
+            targetType: "seller",
+            targetId: handle,
+            source: src,
+            // US-1913 AC5: plain vs status format, on its own axis so ?s= keeps
+            // meaning exactly what it always meant.
+            variant: parseBadgeVariant(params.get("v")),
+          }),
         }).catch(() => {});
       }
     } catch {
@@ -330,8 +343,13 @@ export function VerifiedSellerPage() {
             GradeThread Verified Seller
           </span>
           <h1 className="text-2xl font-bold sm:text-3xl">{seller.display_name}</h1>
+          {/* US-1913 AC2: level flair and integrity tier, each with a tooltip
+              saying what it is based on. They read alike and mean opposite
+              things — a level is activity, a tier is proven accuracy — so the
+              explanation travels with the mark rather than sitting in a legend
+              somewhere else on the page. */}
           {flair && (
-            <div className="flex flex-col items-center gap-1">
+            <div className="flex flex-col items-center gap-1" title={LEVEL_FLAIR_BASIS}>
               <span className="inline-flex items-center gap-2">
                 <span className="rounded-full bg-brand-red px-3 py-1 text-sm font-bold text-white">
                   {flair.tier_name}
@@ -344,7 +362,10 @@ export function VerifiedSellerPage() {
             </div>
           )}
           {data.integrity && (
-            <div className="flex flex-col items-center gap-1">
+            <div
+              className="flex flex-col items-center gap-1"
+              title={INTEGRITY_TIER_BASIS}
+            >
               <span className="rounded-full bg-white/15 px-3 py-1 text-sm font-bold text-white">
                 {data.integrity.label}
               </span>

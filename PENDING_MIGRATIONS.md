@@ -1,9 +1,28 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Twenty-three migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547, 00548, 00549, 00550, 00551 and 00552.** The entries below them
+**Twenty-four migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547, 00548, 00549, 00550, 00551, 00552 and 00553.** The entries below them
 were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00553_badge_click_variant.sql (US-1913 — plain vs status badge clicks)
+
+**Apply order.** After 00404, which creates `badge_click_events`. Long applied,
+so in practice: anywhere in the held tail, and it is independent of 00552.
+
+**Risk: LOW.** One additive text column with a default and a CHECK, on an
+append-only analytics table. Nothing is dropped, modified or backfilled beyond
+the column default.
+
+**Apply BEFORE the edge deploy.** `recordBadgeClick` now writes
+`badge_variant` on every insert. Until the column exists that insert fails, and
+badge-click attribution stops recording entirely — silently, because the whole
+path is best-effort and swallows its errors. The seller funnel would just go
+flat.
+
+**What it does.** Adds `badge_click_events.badge_variant` (NOT NULL DEFAULT
+`'plain'`, CHECK over `plain | status`). Every existing row reads `plain`, which
+is accurate: before US-1913 there was no other badge format.
 
 ## ⏳ HELD: 00552_seller_integrity_tier.sql (US-1912 — seller Grade Integrity tier)
 

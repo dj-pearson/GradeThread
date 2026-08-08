@@ -28,6 +28,7 @@ import {
 } from "../_shared/blog-render";
 import { certNotFoundResponse } from "./cert-not-found";
 import { aiDisclosureNoticeHtml } from "../_shared/ai-disclosure";
+import { INTEGRITY_TIER_BASIS, LEVEL_FLAIR_BASIS } from "../_shared/status-basis";
 
 interface PublicCertificate {
   id: string;
@@ -75,7 +76,13 @@ interface PublicCertificate {
   // arrival that a grade of theirs matched. Null unless the seller publishes a
   // verified profile AND their standing clears the anti-gaming display floor;
   // the edge decides both, so "present" means "earned".
-  seller_integrity?: { tier: string; label: string; handle: string } | null;
+  seller_integrity?: {
+    tier: string;
+    label: string;
+    handle: string;
+    // US-1913: the grader's level flair beside the tier. Null below level 1.
+    level?: { level: number; tier_name: string; tier_blurb: string } | null;
+  } | null;
 }
 
 interface CertResponse {
@@ -230,10 +237,20 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   // capture, while this describes the grader's track record across every item a
   // buyer has confirmed after delivery. Linked to the public profile so the
   // claim is checkable rather than decorative.
+  //
+  // US-1913 AC2 adds the grader's LEVEL beside the tier, each carrying its own
+  // tooltip. The two are easy to read as one thing, and they are not: a level
+  // counts activity, a tier counts proven accuracy. Rendered only when the edge
+  // sent it (level 0 is the un-earned rung and never crosses the boundary), so
+  // there is no threshold to re-decide here.
   const graderStanding = cert.seller_integrity;
+  const graderLevel = graderStanding?.level ?? null;
+  const graderLevelHtml = graderLevel
+    ? ` <span class="cert-grader-lvl" title="${escape(LEVEL_FLAIR_BASIS)}">Level ${graderLevel.level} · ${escape(graderLevel.tier_name)}</span>`
+    : "";
   const graderHtml = graderStanding
-    ? `<p class="cert-grader">Graded by a <a href="${base}/verified/${encodeURIComponent(graderStanding.handle)}">` +
-      `${escape(graderStanding.label)}</a> — a Grade Integrity standing earned from buyers confirming, after delivery, that the grade matched.</p>`
+    ? `<p class="cert-grader" title="${escape(INTEGRITY_TIER_BASIS)}">Graded by a <a href="${base}/verified/${encodeURIComponent(graderStanding.handle)}">` +
+      `${escape(graderStanding.label)}</a> — ${escape(INTEGRITY_TIER_BASIS)}${graderLevelHtml}</p>`
     : "";
 
   const gradedOn = formatDate(cert.created_at);

@@ -100,15 +100,65 @@ export function buildCertOgHtml(input: CertOgInput): string {
 </div>`;
 }
 
+// ── Seller status strip (US-1913) ────────────────────────────────────────
+// The opt-in "status" format of an embed badge adds ONE line describing the
+// seller's standing: their Grade Integrity tier, their reward level, and the
+// share of buyer outcomes that confirmed the grade.
+//
+// Every part is omitted unless it is EARNED (AC4). There is no placeholder and
+// no aspirational number: a seller under the US-1912 confirmed-outcome floor
+// gets no tier and no percentage, a seller at level 0 gets no level, and when
+// nothing survives this returns "" and the badge renders exactly as the plain
+// one does. That is the whole defensibility rule, in one pure function, so the
+// two badge templates cannot drift on it.
+export interface BadgeStatusInput {
+  /** Grade Integrity tier label, e.g. "Trusted Grader". Null ⇒ below the floor. */
+  tierLabel?: string | null;
+  /** 0–100 confirmed-accuracy share. Only meaningful alongside a tier. */
+  accuracyPct?: number | null;
+  /** Reward level; 0/absent ⇒ omitted (level 0 is the un-earned rung). */
+  level?: number | null;
+  /** The level's tier name, e.g. "Curator". */
+  levelTierName?: string | null;
+}
+
+export function buildBadgeStatusLine(input: BadgeStatusInput): string {
+  const parts: string[] = [];
+  const tierLabel = input.tierLabel?.trim();
+  if (tierLabel) parts.push(tierLabel);
+
+  const level = Number(input.level ?? 0);
+  if (Number.isFinite(level) && level > 0) {
+    const name = input.levelTierName?.trim();
+    parts.push(name ? `Level ${level} ${name}` : `Level ${level}`);
+  }
+
+  // The percentage is a claim ABOUT the tier, so it never appears without one —
+  // an accuracy number with no standing behind it is exactly the unfloored claim
+  // the display gate exists to prevent.
+  const pct = Number(input.accuracyPct ?? NaN);
+  if (tierLabel && Number.isFinite(pct)) {
+    parts.push(`${Math.round(Math.min(100, Math.max(0, pct)))}% confirmed accurate`);
+  }
+
+  return parts.join(" · ");
+}
+
 // ── Trust badge (700x180) ────────────────────────────────────────────────
 export interface CertBadgeInput {
   score: number;
   gradeTier: string;
   title?: string | null;
+  /** US-1913: the grader's opt-in status strip, or "" for the plain badge. */
+  statusLine?: string | null;
 }
 
 export function buildCertBadgeHtml(input: CertBadgeInput): string {
   const score = input.score.toFixed(1);
+  const status = input.statusLine?.trim();
+  const statusHtml = status
+    ? `<div style="display:flex;font-size:15px;font-weight:600;color:rgba(255,255,255,0.82);margin-top:4px;">${escapeHtml(truncate(status, 62))}</div>`
+    : "";
   return `<div style="display:flex;align-items:center;height:180px;width:700px;background:${BRAND_NAVY};color:${TEXT_LIGHT};font-family:${FONT};border-radius:16px;padding:0 36px;">
   <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:128px;height:128px;border-radius:50%;background:${BRAND_RED};margin-right:32px;">
     <div style="display:flex;font-size:54px;font-weight:700;line-height:1;color:#fff;">${score}</div>
@@ -119,8 +169,9 @@ export function buildCertBadgeHtml(input: CertBadgeInput): string {
       <div style="width:26px;height:26px;border-radius:7px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;">G</div>
       GradeThread Verified
     </div>
-    <div style="display:flex;font-size:36px;font-weight:700;line-height:1.1;">${escapeHtml(input.gradeTier)}</div>
+    <div style="display:flex;font-size:${status ? 30 : 36}px;font-weight:700;line-height:1.1;">${escapeHtml(input.gradeTier)}</div>
     <div style="display:flex;font-size:16px;color:rgba(255,255,255,0.6);margin-top:6px;">AI condition grade · tap to verify</div>
+    ${statusHtml}
   </div>
 </div>`;
 }
@@ -139,6 +190,8 @@ export interface SellerBadgeInput {
   /** True when total hit the stats sample ceiling — render "N+". */
   totalIsCapped: boolean;
   averageGrade: number; // 0..10; 0 ⇒ no grades yet
+  /** US-1913: the seller's opt-in status strip, or "" for the plain badge. */
+  statusLine?: string | null;
 }
 
 export function buildSellerBadgeHtml(input: SellerBadgeInput): string {
@@ -153,6 +206,10 @@ export function buildSellerBadgeHtml(input: SellerBadgeInput): string {
   const statLine = input.averageGrade > 0
     ? `${countLabel} · avg ${avg}`
     : countLabel;
+  const status = input.statusLine?.trim();
+  const statusHtml = status
+    ? `<div style="display:flex;font-size:${px(15)}px;font-weight:600;color:rgba(255,255,255,0.82);margin-top:${px(4)}px;">${escapeHtml(truncate(status, 62))}</div>`
+    : "";
 
   return `<div style="display:flex;align-items:center;height:${input.height}px;width:${input.width}px;background:${BRAND_NAVY};color:${TEXT_LIGHT};font-family:${FONT};border-radius:${px(16)}px;padding:0 ${px(36)}px;">
   <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:${avatar}px;height:${avatar}px;border-radius:50%;background:${BRAND_RED};margin-right:${px(32)}px;">
@@ -164,8 +221,9 @@ export function buildSellerBadgeHtml(input: SellerBadgeInput): string {
       <div style="width:${px(26)}px;height:${px(26)}px;border-radius:${px(7)}px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${px(15)}px;color:#fff;">G</div>
       GradeThread Verified Seller
     </div>
-    <div style="display:flex;font-size:${px(36)}px;font-weight:700;line-height:1.1;">${escapeHtml(truncate(input.displayName, 28))}</div>
+    <div style="display:flex;font-size:${px(status ? 30 : 36)}px;font-weight:700;line-height:1.1;">${escapeHtml(truncate(input.displayName, 28))}</div>
     <div style="display:flex;font-size:${px(16)}px;color:rgba(255,255,255,0.6);margin-top:${px(6)}px;">${escapeHtml(statLine)} · tap to verify</div>
+    ${statusHtml}
   </div>
 </div>`;
 }

@@ -39,6 +39,19 @@ export function isBadgeTargetType(v: unknown): v is BadgeTargetType {
   return v === "cert" || v === "seller";
 }
 
+// US-1913 AC5: which FORMAT of badge the click came from. The ?s= source stays
+// exactly as it was — a status badge is still an `embed` — because the source
+// answers "where did this arrival come from" and must keep meaning that. The
+// variant answers a second, independent question: "does putting my standing on
+// the badge get more clicks than the plain one?". Folding that into ?s= would
+// have made every historical `embed` row retroactively mean "plain", which it
+// does not.
+export type BadgeVariant = "plain" | "status";
+
+export function normalizeBadgeVariant(v: unknown): BadgeVariant {
+  return v === "status" ? "status" : "plain";
+}
+
 /** Resolve the seller who owns a clicked badge target, or null. */
 async function resolveOwner(targetType: BadgeTargetType, targetId: string): Promise<string | null> {
   if (targetType === "cert") {
@@ -77,6 +90,8 @@ export async function recordBadgeClick(input: {
   visitorHash?: string | null;
   /** US-1854: raw User-Agent, used only for the bot gate on share clicks. */
   userAgent?: string | null;
+  /** US-1913: plain vs status badge format. Anything unknown reads as plain. */
+  variant?: unknown;
 }): Promise<{ recorded: boolean }> {
   try {
     const source = input.source.trim().toLowerCase();
@@ -113,6 +128,7 @@ export async function recordBadgeClick(input: {
       source,
       visitor_hash: visitorHash,
       self_click: selfClick,
+      badge_variant: normalizeBadgeVariant(input.variant),
     });
     if (error) return { recorded: false };
 
@@ -160,10 +176,26 @@ export async function recordBadgeClick(input: {
 
 export interface BadgeFunnel {
   clicksBySource: Record<string, number>;
+  /** US-1913 AC5: the same clicks split by badge FORMAT (plain vs status). */
+  clicksByVariant: Record<BadgeVariant, number>;
   totalClicks: number;
   /** Referral signups attributed to this seller (their downstream conversions). */
   conversions: number;
   windowDays: number;
+}
+
+/**
+ * Split raw click rows by badge variant. Pure.
+ *
+ * A row written before the variant column existed reads null → `plain`, which is
+ * true of every badge that predates US-1913: there was no other format to be.
+ */
+export function aggregateClicksByVariant(
+  rows: Array<{ badge_variant?: string | null }>,
+): Record<BadgeVariant, number> {
+  const out: Record<BadgeVariant, number> = { plain: 0, status: 0 };
+  for (const r of rows) out[normalizeBadgeVariant(r.badge_variant)] += 1;
+  return out;
 }
 
 /** Aggregate raw click rows into a by-source count + total. Pure. */
@@ -187,12 +219,12 @@ export async function sellerBadgeFunnel(ownerUserId: string, windowDays = 30): P
   const since = sinceIso(windowDays);
   const { data: clickRows } = await supabaseAdmin
     .from("badge_click_events")
-    .select("source")
+    .select("source, badge_variant")
     .eq("owner_user_id", ownerUserId)
     .gte("created_at", since);
-  const { clicksBySource, totalClicks } = aggregateClicksBySource(
-    (clickRows ?? []) as Array<{ source: string }>,
-  );
+  const rows = (clickRows ?? []) as Array<{ source: string; badge_variant?: string | null }>;
+  const { clicksBySource, totalClicks } = aggregateClicksBySource(rows);
+  const clicksByVariant = aggregateClicksByVariant(rows);
 
   // Conversions = referral signups this seller drove (reuses the referral ledger).
   const { count } = await supabaseAdmin
@@ -201,7 +233,7 @@ export async function sellerBadgeFunnel(ownerUserId: string, windowDays = 30): P
     .eq("referrer_user_id", ownerUserId)
     .gte("created_at", since);
 
-  return { clicksBySource, totalClicks, conversions: count ?? 0, windowDays };
+  return { clicksBySource, clicksByVariant, totalClicks, conversions: count ?? 0, windowDays };
 }
 
 export interface PlatformBadgeFunnel extends BadgeFunnel {
@@ -214,11 +246,14 @@ export async function platformBadgeFunnel(windowDays = 30): Promise<PlatformBadg
   const since = sinceIso(windowDays);
   const { data: clickRows } = await supabaseAdmin
     .from("badge_click_events")
-    .select("source, owner_user_id")
+    .select("source, owner_user_id, badge_variant")
     .gte("created_at", since)
     .limit(50_000);
-  const rows = (clickRows ?? []) as Array<{ source: string; owner_user_id: string }>;
+  const rows = (clickRows ?? []) as Array<
+    { source: string; owner_user_id: string; badge_variant?: string | null }
+  >;
   const { clicksBySource, totalClicks } = aggregateClicksBySource(rows);
+  const clicksByVariant = aggregateClicksByVariant(rows);
   const activeSellers = new Set(rows.map((r) => r.owner_user_id)).size;
 
   const { count } = await supabaseAdmin
@@ -226,5 +261,12 @@ export async function platformBadgeFunnel(windowDays = 30): Promise<PlatformBadg
     .select("referred_user_id", { count: "exact", head: true })
     .gte("created_at", since);
 
-  return { clicksBySource, totalClicks, conversions: count ?? 0, activeSellers, windowDays };
+  return {
+    clicksBySource,
+    clicksByVariant,
+    totalClicks,
+    conversions: count ?? 0,
+    activeSellers,
+    windowDays,
+  };
 }

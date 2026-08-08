@@ -34,7 +34,7 @@ const EMBED_CACHE_CONTROL =
   "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
 
 export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
-  const { params, env } = context;
+  const { params, env, request } = context;
   // Tolerate a trailing ".js" so the snippet's src can read like a script file.
   const id = String(params.id ?? "")
     .trim()
@@ -58,9 +58,18 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   if (!data?.certificate) return noopScript();
 
   const base = siteUrl(env);
+  // US-1913: the seller picks the plain or the STATUS format of the badge in
+  // Badge Studio; the script src carries the choice through to the injected
+  // <img>. `?s=embed` is unchanged (AC5) — `&v=status` is the separate marker
+  // that lets status click-throughs be compared against plain ones.
+  const statusRaw = (new URL(request.url).searchParams.get("status") ?? "")
+    .trim()
+    .toLowerCase();
+  const status = statusRaw === "1" || statusRaw === "true" ||
+    statusRaw === "status" || statusRaw === "yes";
   // ?s=embed lets an embed-sourced view be attributed (US-769) without any PII.
-  const certUrl = `${base}/cert/${encodeURIComponent(id)}?s=embed`;
-  const badgeUrl = `${base}/badge/cert/${encodeURIComponent(id)}`;
+  const certUrl = `${base}/cert/${encodeURIComponent(id)}?s=embed${status ? "&v=status" : ""}`;
+  const badgeUrl = `${base}/badge/cert/${encodeURIComponent(id)}${status ? "?status=1" : ""}`;
 
   return new Response(badgeWidgetJs(id, certUrl, badgeUrl), {
     status: 200,

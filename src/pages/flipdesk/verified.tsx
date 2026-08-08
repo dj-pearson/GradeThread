@@ -416,6 +416,7 @@ function BadgePerformanceCard() {
   if (!data || (data.totalClicks === 0 && data.conversions === 0)) return null;
 
   const sources = Object.entries(data.clicksBySource).sort((a, b) => b[1] - a[1]);
+  const variants = data.clicksByVariant ?? null;
   return (
     <Card>
       <CardHeader>
@@ -451,6 +452,25 @@ function BadgePerformanceCard() {
                 <span className="font-medium tabular-nums">{n}</span>
               </div>
             ))}
+          </div>
+        )}
+        {/* US-1913 AC5: the A/B a seller actually wants — does putting my
+            standing on the badge earn more clicks than the plain one? Shown
+            only once at least one status badge has been clicked, so a seller
+            who never turned it on isn't asked to read a row of zeroes. */}
+        {variants && variants.status > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium text-muted-foreground">
+              Clicks by badge format
+            </p>
+            <div className="flex items-center justify-between text-sm">
+              <span>Plain badge</span>
+              <span className="font-medium tabular-nums">{variants.plain}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span>With your status</span>
+              <span className="font-medium tabular-nums">{variants.status}</span>
+            </div>
           </div>
         )}
       </CardContent>

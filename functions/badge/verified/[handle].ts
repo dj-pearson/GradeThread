@@ -16,34 +16,57 @@ type Ctx = EventContext<PagesEnv, "handle", Record<string, unknown>>;
 const BADGE_CACHE_CONTROL =
   "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
 
+// US-1913 AC3: the STATUS badge carries a standing that changes, so the only
+// thing bounding how long a stale tier can be shown is this header — 24h flat,
+// with NO stale-while-revalidate window after it. Re-applying the 7-day SWR of
+// the plain badge here would silently undo the bound the edge set upstream.
+const BADGE_STATUS_CACHE_CONTROL = "public, max-age=86400, s-maxage=86400";
+
 const ALLOWED_FORMATS = new Set(["wide", "compact", "listing_header"]);
+
+/** `?status=1` selects the opt-in level/integrity-tier variant of the badge. */
+function wantsStatus(url: URL): boolean {
+  const v = (url.searchParams.get("status") ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "status" || v === "yes";
+}
 
 export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const { params, env, request } = context;
   const handle = String(params.handle ?? "").trim();
   if (!handle) return fallbackImage();
 
-  const fmt = new URL(request.url).searchParams.get("format") ?? "wide";
+  const url = new URL(request.url);
+  const fmt = url.searchParams.get("format") ?? "wide";
   const format = ALLOWED_FORMATS.has(fmt) ? fmt : "wide";
+  const status = wantsStatus(url);
 
   const upstreamUrl =
-    `${edgeApi(env)}/api/content/public/seller-badge/${encodeURIComponent(handle)}?format=${format}`;
+    `${edgeApi(env)}/api/content/public/seller-badge/${encodeURIComponent(handle)}?format=${format}` +
+    (status ? "&status=1" : "");
   try {
     const upstream = await fetch(upstreamUrl);
     if (!upstream.ok || !upstream.body) return fallbackImage();
     return new Response(upstream.body, {
       status: 200,
-      headers: { "Content-Type": "image/png", "Cache-Control": BADGE_CACHE_CONTROL },
+      headers: {
+        "Content-Type": "image/png",
+        "Cache-Control": status ? BADGE_STATUS_CACHE_CONTROL : BADGE_CACHE_CONTROL,
+      },
     });
   } catch {
     return fallbackImage();
   }
 };
 
-export const onRequestHead: PagesFunction<PagesEnv> = () =>
+export const onRequestHead: PagesFunction<PagesEnv> = (context: Ctx) =>
   new Response(null, {
     status: 200,
-    headers: { "Content-Type": "image/png", "Cache-Control": BADGE_CACHE_CONTROL },
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": wantsStatus(new URL(context.request.url))
+        ? BADGE_STATUS_CACHE_CONTROL
+        : BADGE_CACHE_CONTROL,
+    },
   });
 
 function fallbackImage(): Response {

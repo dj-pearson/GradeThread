@@ -868,6 +868,81 @@ export async function loadSellerIntegrityStanding(
   }
 }
 
+// ─── The seller's OWN opt-in status badge (US-1913) ────────────────────────
+//
+// Deliberately a SECOND read rather than a widening of loadPublicSellerIntegrity
+// below, because the two answer different questions. That one answers "what may
+// a stranger's page say about this grader" — a tier name, nothing else, because
+// the counts underneath are the seller's business. This one answers "what may
+// this seller choose to publish about themselves", which is a decision they make
+// per embed in Badge Studio, so the accuracy percentage and the confirmed-outcome
+// count are theirs to put on their own badge.
+//
+// What does NOT change between them is the FLOOR: both refuse anything that is
+// not `tier_displayable`, so a seller cannot opt in to advertising a standing
+// they have not earned (US-1913 AC4). Below the floor this returns null and the
+// badge renders in its plain form — never a placeholder, never an aspirational
+// number, never "0% confirmed".
+
+/** A seller's own publishable standing, for a status-format embed badge. */
+export interface SellerBadgeStanding {
+  tier: SellerIntegrityTier;
+  /** e.g. "Trusted Grader". */
+  label: string;
+  /** 0–100, the share of buyer outcomes that were confirmed rather than disputed. */
+  accuracyPct: number;
+  /** Confirmed buyer outcomes behind that percentage (≥ MIN_CONFIRMED_FOR_TIER). */
+  confirmedCount: number;
+}
+
+/**
+ * The seller's own standing for a status badge, or null when they are below the
+ * display floor / unreadable. Fail-closed for the same reason the public read is:
+ * an unverifiable trust claim on somebody else's storefront is worse than none.
+ */
+export async function loadSellerBadgeStanding(
+  sellerUserId: string,
+): Promise<SellerBadgeStanding | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("seller_grade_integrity")
+      .select("tier, tier_displayable, integrity_score, confirmed_count")
+      .eq("seller_user_id", sellerUserId)
+      .eq("tier_displayable", true)
+      .maybeSingle();
+    if (error) throw error;
+    const row = data as
+      | {
+        tier: string | null;
+        integrity_score: number | string | null;
+        confirmed_count: number | null;
+      }
+      | null;
+    const tier = row?.tier as SellerIntegrityTier | undefined;
+    if (!tier || tier === "building") return null;
+    const confirmedCount = Number(row?.confirmed_count ?? 0);
+    // Belt and braces on the floor: the stored flag is the gate, but a row whose
+    // count somehow sits under the minimum must not print a percentage either.
+    if (!Number.isFinite(confirmedCount) || confirmedCount < MIN_CONFIRMED_FOR_TIER) {
+      return null;
+    }
+    const accuracyPct = Math.round(Number(row?.integrity_score ?? 0));
+    if (!Number.isFinite(accuracyPct)) return null;
+    return {
+      tier,
+      label: SELLER_INTEGRITY_TIER_LABELS[tier],
+      accuracyPct: Math.min(100, Math.max(0, accuracyPct)),
+      confirmedCount,
+    };
+  } catch (err) {
+    console.error(
+      "[BuyerGradeConfirm] badge standing load failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
 /** The PUBLIC projection: a tier name and nothing else. */
 export interface PublicSellerIntegrity {
   tier: SellerIntegrityTier;

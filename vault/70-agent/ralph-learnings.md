@@ -469,6 +469,15 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `src/test/public-grade-report-view-parity.test.ts`. Rule:
   [[public-certificate-read-paths]].
 
+- A rendered public asset that goes in the `cert-assets` bucket (`/cert-image/:id`)
+  is invalidated ONLY by `deleteCertImages` on RE-GRADE, so anything you add to it
+  that changes for another reason freezes until the item is graded again — i.e.
+  possibly forever, fixable only by the seller re-pasting their embed HTML.
+  US-1913's status badge therefore opts OUT of the store AND out of the shared
+  `stale-while-revalidate=604800`, which is a second, quieter way to serve a
+  week-old claim. Rule: a badge carrying a MUTABLE claim renders per request and
+  ships `max-age=86400` with no SWR — and the Pages Function proxy has to mirror
+  that header, since it sets its own and would otherwise undo the bound.
 - The VERIFIED SELLER PROFILE has the same two-read-path shape: humans in prod
   get the Pages Function SSR (`functions/verified/[handle].ts`), the SPA route
   (`src/pages/verified-seller.tsx`) serves in-app/dev, and both consume the ONE

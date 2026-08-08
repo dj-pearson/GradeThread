@@ -462,6 +462,7 @@ const BASE_STYLES = `
   .cert-badge--premium { background: #e0e7ff; color: #3730a3; }
   .cert-badge--live { background: #fee2e2; color: #9f1239; }
   .cert-grader { color: var(--muted); font-size: 0.9rem; margin: -12px 0 24px; }
+  .cert-grader-lvl { display: inline-block; color: #0f3460; font-weight: 600; white-space: nowrap; }
   .cert-slab-wrap { text-align: center; margin: 8px 0 4px; }
   .cert-slab { display: block; width: 100%; max-width: 440px; margin: 0 auto 6px; border-radius: 16px; box-shadow: 0 10px 34px rgba(12,30,54,0.16); }
   .cert-slab-note { color: var(--muted); font-size: 0.82rem; margin: 0 0 8px; }

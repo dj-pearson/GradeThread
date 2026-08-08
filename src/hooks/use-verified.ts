@@ -84,6 +84,8 @@ export function useUpdateVerifiedProfile() {
 
 export interface BadgeFunnel {
   clicksBySource: Record<string, number>;
+  /** US-1913: the same clicks split by badge FORMAT — plain vs status. */
+  clicksByVariant?: { plain: number; status: number };
   totalClicks: number;
   conversions: number;
   windowDays: number;

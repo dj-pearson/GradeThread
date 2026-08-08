@@ -59,6 +59,9 @@ import {
   certBadgeEmbedHtml,
   certBadgeEmbedText,
   certBadgeScriptEmbed,
+  INTEGRITY_TIER_BASIS,
+  LEVEL_FLAIR_BASIS,
+  parseBadgeVariant,
 } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
@@ -277,6 +280,8 @@ export function CertificatePage() {
     tier: string;
     label: string;
     handle: string;
+    // US-1913: the grader's level flair, beside the tier. Null below level 1.
+    level?: { level: number; tier_name: string; tier_blurb: string } | null;
   } | null>(null);
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
@@ -349,7 +354,15 @@ export function CertificatePage() {
           void fetch(`${edgeApiUrl()}/api/content/public/badge-click`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ targetType: "cert", targetId: id, source: src }),
+            body: JSON.stringify({
+              targetType: "cert",
+              targetId: id,
+              source: src,
+              // US-1913 AC5: which FORMAT of badge sent them. `?s=` is
+              // untouched — this is the second, independent axis, so a status
+              // badge's click-throughs can be compared against a plain one's.
+              variant: parseBadgeVariant(searchParams.get("v")),
+            }),
           }).catch(() => {});
         }
       }
@@ -441,6 +454,11 @@ export function CertificatePage() {
                 tier: string;
                 label: string;
                 handle: string;
+                level?: {
+                  level: number;
+                  tier_name: string;
+                  tier_blurb: string;
+                } | null;
               } | null;
               images?: Array<{
                 id: string;
@@ -1215,13 +1233,26 @@ export function CertificatePage() {
             {sellerIntegrity && (
               <div className="flex items-start gap-3">
                 <BadgeCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-foreground" />
-                <div>
-                  <p className="text-sm font-medium">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium" title={INTEGRITY_TIER_BASIS}>
                     Graded by a {sellerIntegrity.label}
                   </p>
+                  {/* US-1913 AC2: the level flair beside the tier — the same
+                      pair the seller's public profile shows. Kept visually
+                      secondary, and tooltipped separately, because the two say
+                      different things: a level is how much they do, a tier is
+                      how right they have been proven. */}
+                  {sellerIntegrity.level && (
+                    <p
+                      className="text-xs font-medium text-brand-navy dark:text-foreground"
+                      title={LEVEL_FLAIR_BASIS}
+                    >
+                      Level {sellerIntegrity.level.level} ·{" "}
+                      {sellerIntegrity.level.tier_name}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
-                    A Grade Integrity standing earned from buyers confirming,
-                    after delivery, that the grade matched.{" "}
+                    {INTEGRITY_TIER_BASIS}{" "}
                     <Link
                       to={`/verified/${sellerIntegrity.handle}`}
                       className="underline underline-offset-2"
