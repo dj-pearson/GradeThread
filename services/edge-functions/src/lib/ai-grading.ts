@@ -95,6 +95,22 @@ export interface PerImageAnalysis {
   // fabric-specific criteria (lib/fabric-criteria.ts). Empty/absent for
   // non-label images and unreadable labels.
   fiber_content?: FiberContentEntry[];
+  // US-2432: the per-image prompt version that produced THIS analysis — the
+  // resolved ai_prompt_versions row when one is active, else the code default
+  // PER_IMAGE_PROMPT_VERSION.
+  //
+  // Before this existed, PER_IMAGE_PROMPT_VERSION reached NO grade record:
+  // grade_reports.prompt_version is stamped by the COMPOSITE stage alone, so
+  // bumping the per-image constant changed a display string and nothing else.
+  // That is worse than not tracking it, because the bump reads as compliance
+  // with the prompt lifecycle while leaving every graded row unable to say
+  // which per-image prompt it ran under. The pipeline persists the whole
+  // PerImageAnalysis[] into grade_reports.per_image_analysis, so carrying the
+  // version HERE is what puts it on the record — no column needed.
+  //
+  // Optional because historical rows and eval/shadow traces predate it; absent
+  // must read as "unknown", never as the current constant.
+  prompt_version?: string;
 }
 
 // US-332: per-image quality signals used by the pre-grade gate. blur/lighting/
@@ -268,6 +284,17 @@ export interface CompositeGradeResult {
   // (empty/absent when the pass didn't run or everything checked out).
   verification_discrepancies?: string[];
   prompt_version: string;
+  // US-2432: an 8-hex digest of the assembled USER message — the half of the
+  // prompt no version string covers (see unversionedPromptSurface). The
+  // `+baseline`/`+fabric`/`+cat2` suffixes on prompt_version record which blocks
+  // were PRESENT; this records which CONTENT they held. Editing the text inside
+  // FABRIC_CRITERIA still reports `+fabric`, so before and after read as one era
+  // — the hash is what splits them.
+  //
+  // Stamped on every grade so a regression hunt can partition rows by the prompt
+  // surface that actually produced them. Without it the only honest answer to
+  // "which prompt graded this?" was "the system half of it".
+  prompt_surface_hash: string;
   // Actual model that produced the composite grade. Recorded so the
   // accuracy tracker can attribute error rates per model, not just per
   // prompt version.
@@ -1286,6 +1313,11 @@ export async function analyzeImage(
       ),
       // US-583: token usage for per-grade AI-cost tracking.
       usage: toAiTokenUsage(model, response.usage),
+      // US-2432: stamp the prompt that actually ran — the resolved row's
+      // version_name, or PER_IMAGE_PROMPT_VERSION when the code default won.
+      // Taken from `prompt`, not from the constant, so a DB override and a
+      // canary slice are attributable and not silently reported as the default.
+      prompt_version: prompt.versionName,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -2346,6 +2378,14 @@ export async function compositeGrade(
     categoryV2,
   });
 
+  // US-2432: the other half of the attribution. promptVersion names the SYSTEM
+  // prompt and which blocks were switched on; this names the CONTENT of the
+  // user-message blocks, which no version string reaches. Computed from fixed
+  // probes (not from this submission's text), so two grades sharing a hash ran
+  // the same compiled surface and two that differ did not — which is the only
+  // question a regression hunt can ask of it.
+  const promptSurfaceHash = unversionedPromptSurfaceHash();
+
   // US-1067: when grading a real submission (no explicit override), append the
   // ACTIVE, eval-gated few-shot exemplar block for this category to the composite
   // system prompt. It sharpens design-vs-damage / misread calls from real
@@ -2738,6 +2778,7 @@ export async function compositeGrade(
       image_validity: imageValidity,
       image_authenticity: imageAuthenticity,
       prompt_version: promptVersion,
+      prompt_surface_hash: promptSurfaceHash,
       model: compositeModel,
       // US-1537: cross-photo contradictions from the verification pass —
       // recorded on the report; the pipeline lowers confidence when non-empty.

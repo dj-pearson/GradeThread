@@ -13,6 +13,8 @@ code_refs:
   - services/edge-functions/src/lib/grading-size.ts
   - services/edge-functions/src/lib/grading-eval.ts
   - services/edge-functions/src/lib/grading-shadow.ts
+  - services/edge-functions/src/lib/grading-pipeline.ts
+  - supabase/migrations/00562_grade_prompt_surface_hash.sql
 reviewed: 2026-08-08
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
@@ -192,17 +194,70 @@ safe — it makes two runs **comparable or not**. Runs with different hashes
 measured different prompts, so a promotion decision spanning that boundary is
 reading noise, however close the MAE looks.
 
-> [!warning] Attribution is thinner than it looks
-> `prompt_version` is stamped by the COMPOSITE stage only —
-> `PerImageAnalysis` carries no version field, so `PER_IMAGE_PROMPT_VERSION` is
-> a display constant that never reaches a grade record. And the suffixes record
-> a block's **presence**, not its **content**: editing the text inside
-> `FABRIC_CRITERIA` still reports `+fabric`, so before and after are one era.
->
-> Read that way, the suffix answers "was this block switched on?" and not "which
-> version of it ran?" — which is enough for a rollout and not enough for a
-> regression hunt. Giving the user message a versioned, overridable seam is
-> US-2432.
+### What a grade record can now answer
+
+Attribution used to be thinner than it looked, in two separate ways. Both are
+closed (US-2432, migration 00562), and it is worth keeping WHAT each one fixed
+distinct, because they failed differently.
+
+| Field | Where it lives | Answers |
+|---|---|---|
+| `prompt_version` | `grade_reports` column | which composite SYSTEM prompt, plus which blocks were switched ON (the suffixes) |
+| `prompt_surface_hash` | `grade_reports` column | which CONTENT those user-message blocks held |
+| `prompt_version` | each entry of `per_image_analysis` | which per-image prompt produced that image's analysis |
+
+**The per-image gap had no carrier at all.** `PER_IMAGE_PROMPT_VERSION` was a
+display constant: `grade_reports.prompt_version` is written by the composite
+stage alone, so bumping the per-image constant changed a string and nothing a
+graded row could report — while *reading* as compliance with the prompt
+lifecycle. It is now stamped on each `PerImageAnalysis`, which the pipeline
+already persists wholesale, so it needed no column. It carries the **resolved**
+`versionName`, not the constant, so a DB override or a canary slice is
+attributable rather than reported as the default it did not run.
+
+**The suffixes record presence, not content.** Editing the text inside
+`FABRIC_CRITERIA` still reports `+fabric`, so before and after read as one era.
+`prompt_surface_hash` is what splits them — the same digest the eval gate
+reports, so a grade and an eval run can be compared for whether they ran the
+same surface.
+
+It is NULL on every historical row, and there is no backfill: the surface those
+grades ran under is not recoverable, and stamping today's hash would assert an
+era they never had. **Absent means unknown.**
+
+> [!warning] Attribution is not a gate
+> All three fields answer "what ran?" after the fact. None of them can stop a
+> user-message edit from reaching sellers ungated — that still needs a versioned,
+> overridable seam, which is US-2432's remaining half. The decision on which seam
+> is below.
+
+### The seam decision: a second versioned artifact, per block
+
+Decided 2026-08-08 (US-2432 AC1). The two candidates were folding the
+user-message blocks into the existing versioned `prompt_text`, or giving the user
+message its own versioned artifact. The deciding question is whether a
+category-scoped row can vary ONE block without restating the whole prompt.
+
+**Folding fails that test, and `ai_prompt_versions` already shows why.** The
+table has had a `garment_scope` column since 00050, and `resolveActivePrompt`
+resolves it as a WHOLE-TEXT override: scoped row, else global row, else the code
+default. There is no composition. So a row that wanted to change only
+`CATEGORY CRITERIA` for `jeans` would have to carry a full copy of the ~90-line
+response schema and the Rules block along with it — and with 19 categories
+scoped, 19 copies of an invariant.
+
+That is not a size objection. It is the same shape as the two `title-sync`
+copies (US-1995): duplicate an invariant across N homes and the copies drift,
+with nothing able to tell you which one a given grade ran under. The user message
+is already **composed of blocks with their own identities** —
+`GARMENT_TYPE_CRITERIA[type]`, `categoryCriteriaFor(category)`, the baseline, the
+fabric criteria, the schema tail — so the seam belongs at the block, keyed by
+`(stage, block_key, garment_scope)`, resolved by the same active/canary logic
+that already serves the system prompt.
+
+**Not built yet.** The decision is recorded here so the build does not have to
+re-derive it; `prompt_surface_hash` is what makes the ungated window *visible*
+in the meantime, not what closes it.
 
 ## Related
 

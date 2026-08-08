@@ -2757,6 +2757,18 @@ export async function processSubmission(submissionId: string) {
         // is also stored on its own column for the accuracy join.
         model_version: `${compositeResult.model}|${compositeResult.prompt_version}`,
         prompt_version: compositeResult.prompt_version,
+        // US-2432: the digest of the USER-message surface no version string
+        // covers. prompt_version answers "which system prompt, and which blocks
+        // were on"; this answers "which content did those blocks hold". Both are
+        // needed before a grade record can say what produced it.
+        //
+        // SPREAD, not a plain key, for the same reason as tag_read below: until
+        // 00562 applies, naming the column 42703s the whole insert and takes a
+        // paid grade down with it. Omitting the key is what makes this commit
+        // safe to deploy ahead of the SQL.
+        ...(compositeResult.prompt_surface_hash
+          ? { prompt_surface_hash: compositeResult.prompt_surface_hash }
+          : {}),
         // US-2210: the verbatim label transcription this grade was identified
         // from, with per-field confidences and any seller disagreement. Absent
         // when the feature is off, there was no label photo, or nothing cleared

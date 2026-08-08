@@ -15,9 +15,23 @@
 import "./_env.ts"; // must come first — ai-grading reaches lib/supabase.ts
 import { assert, assertEquals, assertNotEquals } from "@std/assert";
 import {
+  type CompositeGradeResult,
+  type PerImageAnalysis,
   unversionedPromptSurface,
   unversionedPromptSurfaceHash,
 } from "../lib/ai-grading.ts";
+
+/** Source of a lib file, CRLF-normalised and comment-stripped. */
+async function codeOf(file: string): Promise<string> {
+  const src = await Deno.readTextFile(new URL(`../lib/${file}`, import.meta.url));
+  return src
+    .replace(/\r\n/g, "\n")
+    // Comments first: every one of these assertions is explained in a comment
+    // that quotes the identifiers being searched for, so an unstripped scan
+    // passes off the prose alone (US-2125's lesson, re-learned by US-2429).
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+}
 
 const GATE = "GRADING_CATEGORY_CRITERIA_V2";
 
@@ -162,5 +176,111 @@ Deno.test("runEval reports the surface as explicitly NOT covered", async () => {
       "length, aspect coverage, price sanity) all read fields LISTING_GEN_TOOL " +
       "defines, so a schema edit moves every score without touching the version " +
       "under test.",
+  );
+});
+
+// ── AC3: a grade record can say which version of EVERY prompt input made it ──
+//
+// Two halves, and they fail differently. The per-image version had no carrier at
+// all — PER_IMAGE_PROMPT_VERSION was a display constant, so bumping it changed
+// nothing a graded row could report, while READING like compliance with the
+// prompt lifecycle. The user-message surface had no identity, so a content edit
+// inside an already-present block left before and after reporting one era.
+//
+// These are source scans because reaching analyzeImage / compositeGrade needs a
+// live Anthropic client. The property under test is what the code STAMPS, not
+// what the model returned, so the scan is measuring the right thing — but it is
+// weaker than a behavioural test and the assertions below are written to survive
+// only the real wiring, never a comment mentioning it.
+
+Deno.test("PerImageAnalysis can carry a prompt version at all", () => {
+  // The type half. Before US-2432 there was nowhere to put it, so the pipeline
+  // could not have persisted one had it wanted to.
+  const analysis: PerImageAnalysis = {
+    image_type: "front",
+    detected_issues: [],
+    condition_signals: [],
+    style_attributes: [],
+    estimated_scores: {
+      fabric_condition: 8,
+      structural_integrity: 8,
+      cosmetic_appearance: 8,
+      functional_elements: 8,
+      odor_cleanliness: 8,
+    },
+    prompt_version: "per_image_v5",
+  };
+  assertEquals(analysis.prompt_version, "per_image_v5");
+
+  // Optional, deliberately: historical rows and eval/shadow traces predate the
+  // field. Absent must read as "unknown" — defaulting it to the current constant
+  // would assert an era those grades never ran under.
+  const historical: PerImageAnalysis = { ...analysis };
+  delete historical.prompt_version;
+  assertEquals(historical.prompt_version, undefined);
+});
+
+Deno.test("analyzeImage stamps the RESOLVED per-image prompt, not the constant", async () => {
+  const code = await codeOf("ai-grading.ts");
+
+  assert(
+    /prompt_version:\s*prompt\.versionName/.test(code),
+    "analyzeImage no longer stamps prompt_version on its returned analysis. " +
+      "grade_reports.prompt_version is written by the COMPOSITE stage only, so " +
+      "per_image_analysis[].prompt_version is the ONLY place a per-image prompt " +
+      "reaches a grade record. Without it, bumping PER_IMAGE_PROMPT_VERSION is a " +
+      "no-op that reads as compliance with the prompt lifecycle.",
+  );
+
+  // `prompt` is resolveActivePrompt's result — a DB override or a canary slice
+  // wins over the code default. Stamping the constant instead would report
+  // per_image_v5 for a grade that ran a candidate row, which is worse than
+  // reporting nothing: it is a confident wrong answer.
+  assert(
+    !/prompt_version:\s*PER_IMAGE_PROMPT_VERSION/.test(code),
+    "analyzeImage stamps the PER_IMAGE_PROMPT_VERSION constant rather than the " +
+      "resolved prompt.versionName. Every DB-overridden and canary grade would " +
+      "then be attributed to the code default it did not run.",
+  );
+});
+
+Deno.test("compositeGrade returns the surface hash beside the prompt version", async () => {
+  const code = await codeOf("ai-grading.ts");
+  assert(
+    /prompt_surface_hash:\s*promptSurfaceHash/.test(code),
+    "compositeGrade no longer returns prompt_surface_hash, so nothing downstream " +
+      "can persist it and the user-message surface is anonymous again.",
+  );
+  assert(
+    /const\s+promptSurfaceHash\s*=\s*unversionedPromptSurfaceHash\(\)/.test(code),
+    "promptSurfaceHash is no longer computed from unversionedPromptSurfaceHash(). " +
+      "A hash from any other source is not the one the eval gate reports, so the " +
+      "two can disagree about which surface a run measured.",
+  );
+
+  // The type is REQUIRED, not optional. Optional would let a future construction
+  // site omit it silently and produce grades with no surface identity, which is
+  // the state this story exists to end. tsc is the guard; this pins the intent.
+  const result: Pick<CompositeGradeResult, "prompt_version" | "prompt_surface_hash"> = {
+    prompt_version: "composite_v4+fabric",
+    prompt_surface_hash: unversionedPromptSurfaceHash(),
+  };
+  assertEquals(result.prompt_surface_hash.length, 8);
+});
+
+Deno.test("the pipeline persists the surface hash, and omits the KEY when absent", async () => {
+  // Collapse whitespace so the assertion survives reformatting but not rewiring.
+  const code = (await codeOf("grading-pipeline.ts")).replace(/\s+/g, " ");
+
+  assert(
+    code.includes(
+      "...(compositeResult.prompt_surface_hash " +
+        "? { prompt_surface_hash: compositeResult.prompt_surface_hash } : {})",
+    ),
+    "grade_reports no longer receives prompt_surface_hash via a conditional " +
+      "SPREAD. A plain `prompt_surface_hash: x` key NAMES the column in the " +
+      "PostgREST payload even when the value is null — which 42703s the whole " +
+      "insert, and with it a paid grade, on any environment where 00562 has not " +
+      "applied yet. The spread is what makes this deployable ahead of the SQL.",
   );
 });
