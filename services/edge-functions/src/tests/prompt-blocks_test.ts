@@ -27,7 +27,11 @@ import {
   type PromptBlockOverrides,
   resolveBlocksFromRows,
 } from "../lib/prompt-blocks.ts";
-import { buildUserPrompt, categoryCriteriaFor } from "../lib/ai-grading.ts";
+import {
+  buildCompositeUserPrompt,
+  buildUserPrompt,
+  categoryCriteriaFor,
+} from "../lib/ai-grading.ts";
 
 const row = (over: Partial<BlockSlotRow> = {}): BlockSlotRow => ({
   version_name: "v2",
@@ -670,6 +674,110 @@ Deno.test("US-2438 AC3: a candidate naming an unknown block is refused", () => {
     !/is_active/.test(body),
     "loadBlockVersion filters on is_active, so the gate cannot see the candidate " +
       "it exists to qualify",
+  );
+});
+
+// ── AC1: the composite tail now has identity ───────────────────────────────
+
+Deno.test("US-2438 AC1: an empty override map leaves the composite prompt byte-identical", () => {
+  const info = {
+    garment_type: "tops",
+    garment_category: "t-shirt",
+    brand: null,
+    title: "",
+    description: null,
+  };
+  assertEquals(
+    buildCompositeUserPrompt([], info, "", "", "", {}),
+    buildCompositeUserPrompt([], info, "", "", ""),
+  );
+  // And with every optional trusted block present, since those sit between the
+  // analyses and the tail that was extracted.
+  assertEquals(
+    buildCompositeUserPrompt([], info, "BASE", "FAB", "TAG", {}),
+    buildCompositeUserPrompt([], info, "BASE", "FAB", "TAG"),
+  );
+});
+
+Deno.test("US-2438 AC1: each composite block lands in its own slot", () => {
+  const info = {
+    garment_type: "tops",
+    garment_category: "jeans",
+    brand: null,
+    title: "",
+    description: null,
+  };
+  const out = buildCompositeUserPrompt([], info, "", "", "", {
+    composite_factor_weights: { text: "WEIGHTS HERE", versionName: "w_v2" },
+    composite_response_schema: { text: "SCHEMA HERE", versionName: "s_v2" },
+    composite_rules: { text: "RULES HERE", versionName: "r_v2" },
+  });
+  assert(out.includes("WEIGHTS HERE"));
+  assert(out.includes("SCHEMA HERE"));
+  assert(out.includes("RULES HERE"));
+  // Overridden, not appended beside. Shipping both copies of a response schema
+  // is the failure that reads as working right up until the model picks the
+  // wrong one.
+  assert(!out.includes("Fabric 30%"), "the code factor-weights line survived the override");
+  assert(!out.includes("Rules:"), "the code Rules block survived the override");
+  // Order preserved: weights, then schema, then rules.
+  assert(
+    out.indexOf("WEIGHTS HERE") < out.indexOf("SCHEMA HERE") &&
+      out.indexOf("SCHEMA HERE") < out.indexOf("RULES HERE"),
+    "the composite tail was reordered — the schema must follow the instruction " +
+      "to produce it, not precede it",
+  );
+});
+
+Deno.test("US-2438 AC1: the DEFAULT composite tail keeps its order too", () => {
+  // The override test above cannot catch a reorder of the shipped template: swap
+  // two slots and the overridden text swaps with them, so the relative order
+  // still holds and the test stays green. Found by mutating the template and
+  // watching nothing go red.
+  //
+  // The surface hash does not catch it either — it asserts the hash MOVES when
+  // the prompt moves, not that it equals a pinned value, so a reorder just gives
+  // a different-but-equally-valid hash.
+  const out = buildCompositeUserPrompt([], {
+    garment_type: "tops",
+    garment_category: "t-shirt",
+    brand: null,
+    title: "",
+    description: null,
+  }, "", "", "");
+  const weights = out.indexOf("Apply the factor weights (Fabric 30%");
+  const schema = out.indexOf("Respond with a JSON object matching this exact schema:");
+  const rules = out.indexOf("\nRules:");
+  assert(weights > -1 && schema > -1 && rules > -1, "a composite block is missing entirely");
+  assert(
+    weights < schema && schema < rules,
+    "the shipped composite tail was reordered. The model is told to apply the " +
+      "weights, then given the shape to return, then the rules that qualify it — " +
+      "a schema that arrives before the instruction to produce it reads as " +
+      "reference data rather than a demand.",
+  );
+});
+
+Deno.test("US-2438 AC1: the factor-weights line is its OWN block", () => {
+  // Deliberately not folded into the schema. It is the one line in the prompt
+  // that restates the grading contract (Fabric 30% / Structural 25% /
+  // Cosmetic 20% / Functional 15% / Odor 10%), so an override of it changes the
+  // arithmetic the product is sold on and has to be reviewable by itself.
+  assert("composite_factor_weights" in PROMPT_BLOCK_KEYS);
+  const info = {
+    garment_type: "tops",
+    garment_category: "t-shirt",
+    brand: null,
+    title: "",
+    description: null,
+  };
+  const schemaOnly = buildCompositeUserPrompt([], info, "", "", "", {
+    composite_response_schema: { text: "SCHEMA", versionName: "s_v2" },
+  });
+  assert(
+    schemaOnly.includes("Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor 10%"),
+    "overriding the schema also replaced the weights, so the two cannot be " +
+      "reviewed or versioned apart",
   );
 });
 

@@ -1789,6 +1789,23 @@ export function detectGradeDirectiveInjection(results: PerImageAnalysis[]): bool
   return texts.some((t) => GRADE_DIRECTIVE_PATTERNS.some((re) => re.test(t)));
 }
 
+// US-2438 AC1: the composite tail, given identity so the registry can version it.
+//
+// These three were the largest ungated part of the user message: ~48 lines that
+// decide the OUTPUT SHAPE and the scoring arithmetic, reachable by no prompt
+// version, no canary and no eval. They are pulled out verbatim — the surface
+// hash is unchanged, which is the proof — and registered as composite blocks.
+//
+// The factor-weights sentence is deliberately its own block rather than part of
+// the schema. It is the one line in the whole prompt that restates the weights
+// from vault/20-domain/grading-scale-and-weights.md, so an override of it is a
+// change to the grading contract itself and should be reviewable on its own.
+const COMPOSITE_FACTOR_WEIGHTS = "Apply the factor weights (Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor 10%) to produce the final scores. Grade against the AS-MANUFACTURED state — intentional design features never lower the grade.";
+
+const COMPOSITE_RESPONSE_SCHEMA = "Respond with a JSON object matching this exact schema:\n{\n  \"overall_score\": <1.0-10.0, weighted average rounded to nearest 0.1>,\n  \"grade_tier\": \"<NWT|NWOT|Excellent|Very Good|Good|Fair|Poor>\",\n  \"factor_scores\": {\n    \"fabric_condition\": <1.0-10.0>,\n    \"structural_integrity\": <1.0-10.0>,\n    \"cosmetic_appearance\": <1.0-10.0>,\n    \"functional_elements\": <1.0-10.0>,\n    \"odor_cleanliness\": <1.0-10.0>\n  },\n  \"ai_summary\": \"<2-4 sentence professional condition summary; mention intentional design features as styling, not defects>\",\n  \"buyer_writeup\": \"<4-7 sentence buyer-facing condition report for the certificate: what the item is, visible materials/construction, an honest condition narrative, and a plain-language explanation of why it earned this grade. Compose ONLY from what the photos/known fields support — never invent attributes (brand, size, material, year) or upgrade condition. Describe intentional design features as styling, not defects.>\",\n  \"defects_found\": [\n    {\n      \"defect\": \"<description of GENUINE wear/damage only>\",\n      \"defect_type\": \"stain|hole_puncture|rip_tear|seam_failure_unthreading|pilling|abrasion_thinning|fading|discoloration|snag_pull|broken_zipper|broken_button|missing_hardware|stretched_misshapen|odor_indicator|wrinkle_crease|other\",\n      \"severity\": \"minor|moderate|major\",\n      \"repairability\": \"reversible|repairable|permanent\",\n      \"size_bucket\": \"pinhole|small|medium|large|extensive|unknown\",\n      \"area_pct\": <0-100 or null>,\n      \"location\": \"<where on garment>\",\n      \"impact_on_grade\": \"<how this affects the score>\"\n    }\n  ],\n  \"style_attributes\": [\n    {\n      \"attribute\": \"<intentional design feature, e.g. factory distressing, raw hem, acid wash>\",\n      \"location\": \"<where on garment>\",\n      \"confidence\": <0.0-1.0 that this is intentional design vs. genuine damage>\n    }\n  ],\n  \"confidence_score\": <0.0-1.0, your confidence in the accuracy of this grade>,\n  \"image_validity\": {\n    \"is_clothing\": <true if the images clearly show a wearable garment, false otherwise>,\n    \"reason\": \"<brief explanation, especially when is_clothing is false>\"\n  }\n}";
+
+const COMPOSITE_RULES = "Rules:\n- overall_score must be the weighted average of factor scores, rounded to nearest 0.1 (factor scores themselves stay in 0.5 steps)\n- grade_tier must match the overall_score according to the tier definitions\n- factor_scores: synthesize across all images, weighting image types appropriately, grading against as-manufactured state. For each factor, IGNORE any per-image estimated score whose factor key appears in that image's unassessable_factors (it is a neutral placeholder, not evidence) — synthesize the factor only from images that could actually judge it. If NO image could assess a factor, set it to a neutral 7.0 and lower confidence_score, noting it in ai_summary.\n- ai_summary: professional, objective summary suitable for a grade certificate\n- buyer_writeup: a longer, honest, buyer-facing condition report for the certificate. Composed ONLY from supported evidence — never invent attributes or upgrade condition. If you lack enough signal for a full report, keep it brief rather than fabricating\n- defects_found: consolidate all unique GENUINE defects (empty array if none). Do NOT list intentional design features here. For each, carry defect_type, severity, repairability, and size (size_bucket + area_pct) from the per-image analyses, picking the most severe/largest observation when images disagree.\n- style_attributes: consolidate all intentional design features observed (empty array if none). These do not lower the grade.\n- confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, ambiguous design-vs-damage calls, or unusual garment\n- image_validity: set is_clothing to false if the images do not depict an actual item of clothing (e.g. blank, unrelated objects, inappropriate content)";
+
 export function buildCompositeUserPrompt(
   perImageResults: PerImageAnalysis[],
   garmentInfo: GarmentInfo,
@@ -1803,6 +1820,9 @@ export function buildCompositeUserPrompt(
   // a server-side read of the garment's own tag, not a seller claim. See
   // tag-ground-truth.ts for why the two channels must never be merged.
   tagBlock = "",
+  // US-2438 AC1: per-block overrides for the composite tail. `{}` → the three
+  // constants above and a byte-identical prompt.
+  blocks: PromptBlockOverrides = {},
 ): string {
   // US-1921: defang any grade-directive text the vision pass transcribed off the
   // garment before it enters the composite prompt (copy only; stored analysis
@@ -1838,57 +1858,11 @@ ${garmentInfoBlock}
 PER-IMAGE ANALYSES:
 ${analysesJson}
 
-Apply the factor weights (Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor 10%) to produce the final scores. Grade against the AS-MANUFACTURED state — intentional design features never lower the grade.
+${blocks.composite_factor_weights?.text ?? COMPOSITE_FACTOR_WEIGHTS}
 
-Respond with a JSON object matching this exact schema:
-{
-  "overall_score": <1.0-10.0, weighted average rounded to nearest 0.1>,
-  "grade_tier": "<NWT|NWOT|Excellent|Very Good|Good|Fair|Poor>",
-  "factor_scores": {
-    "fabric_condition": <1.0-10.0>,
-    "structural_integrity": <1.0-10.0>,
-    "cosmetic_appearance": <1.0-10.0>,
-    "functional_elements": <1.0-10.0>,
-    "odor_cleanliness": <1.0-10.0>
-  },
-  "ai_summary": "<2-4 sentence professional condition summary; mention intentional design features as styling, not defects>",
-  "buyer_writeup": "<4-7 sentence buyer-facing condition report for the certificate: what the item is, visible materials/construction, an honest condition narrative, and a plain-language explanation of why it earned this grade. Compose ONLY from what the photos/known fields support — never invent attributes (brand, size, material, year) or upgrade condition. Describe intentional design features as styling, not defects.>",
-  "defects_found": [
-    {
-      "defect": "<description of GENUINE wear/damage only>",
-      "defect_type": "stain|hole_puncture|rip_tear|seam_failure_unthreading|pilling|abrasion_thinning|fading|discoloration|snag_pull|broken_zipper|broken_button|missing_hardware|stretched_misshapen|odor_indicator|wrinkle_crease|other",
-      "severity": "minor|moderate|major",
-      "repairability": "reversible|repairable|permanent",
-      "size_bucket": "pinhole|small|medium|large|extensive|unknown",
-      "area_pct": <0-100 or null>,
-      "location": "<where on garment>",
-      "impact_on_grade": "<how this affects the score>"
-    }
-  ],
-  "style_attributes": [
-    {
-      "attribute": "<intentional design feature, e.g. factory distressing, raw hem, acid wash>",
-      "location": "<where on garment>",
-      "confidence": <0.0-1.0 that this is intentional design vs. genuine damage>
-    }
-  ],
-  "confidence_score": <0.0-1.0, your confidence in the accuracy of this grade>,
-  "image_validity": {
-    "is_clothing": <true if the images clearly show a wearable garment, false otherwise>,
-    "reason": "<brief explanation, especially when is_clothing is false>"
-  }
-}
+${blocks.composite_response_schema?.text ?? COMPOSITE_RESPONSE_SCHEMA}
 
-Rules:
-- overall_score must be the weighted average of factor scores, rounded to nearest 0.1 (factor scores themselves stay in 0.5 steps)
-- grade_tier must match the overall_score according to the tier definitions
-- factor_scores: synthesize across all images, weighting image types appropriately, grading against as-manufactured state. For each factor, IGNORE any per-image estimated score whose factor key appears in that image's unassessable_factors (it is a neutral placeholder, not evidence) — synthesize the factor only from images that could actually judge it. If NO image could assess a factor, set it to a neutral 7.0 and lower confidence_score, noting it in ai_summary.
-- ai_summary: professional, objective summary suitable for a grade certificate
-- buyer_writeup: a longer, honest, buyer-facing condition report for the certificate. Composed ONLY from supported evidence — never invent attributes or upgrade condition. If you lack enough signal for a full report, keep it brief rather than fabricating
-- defects_found: consolidate all unique GENUINE defects (empty array if none). Do NOT list intentional design features here. For each, carry defect_type, severity, repairability, and size (size_bucket + area_pct) from the per-image analyses, picking the most severe/largest observation when images disagree.
-- style_attributes: consolidate all intentional design features observed (empty array if none). These do not lower the grade.
-- confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, ambiguous design-vs-damage calls, or unusual garment
-- image_validity: set is_clothing to false if the images do not depict an actual item of clothing (e.g. blank, unrelated objects, inappropriate content)`;
+${blocks.composite_rules?.text ?? COMPOSITE_RULES}`;
 }
 
 // A per-image manipulation flag below this confidence is treated as noise and
@@ -2421,6 +2395,38 @@ export async function compositeGrade(
       },
       bucketKey,
     ));
+
+  // US-2438 AC1: the composite tail — the factor-weights sentence, the response
+  // schema and the Rules block. Same registry, same resolver, same additive
+  // guarantee: an empty registry returns {} and the three constants render.
+  //
+  // A blockOverride is deliberately NOT accepted here yet. The eval gate scores
+  // per-image block candidates today; wiring a composite candidate without a
+  // composite shadow path (US-2438 AC2, which does not exist) would let a
+  // composite block reach the gate through a route the per-image blocks do not
+  // have, and the two would then mean different things by "qualified".
+  const compositeBlocks = await resolvePromptBlocks(
+    "composite",
+    [
+      {
+        key: "composite_factor_weights",
+        scope: garmentInfo.garment_category || null,
+        codeDefault: codeDefaultBlock(COMPOSITE_FACTOR_WEIGHTS),
+      },
+      {
+        key: "composite_response_schema",
+        scope: garmentInfo.garment_category || null,
+        codeDefault: codeDefaultBlock(COMPOSITE_RESPONSE_SCHEMA),
+      },
+      {
+        key: "composite_rules",
+        scope: garmentInfo.garment_category || null,
+        codeDefault: codeDefaultBlock(COMPOSITE_RULES),
+      },
+    ],
+    bucketKey,
+  );
+
   // US-1534: fabric-specific criteria derived from the label's fiber read —
   // computed here (composite stage) so per-image parallelism is untouched.
   const fabricBlock = fabricCriteriaBlock(perImageResults);
@@ -2502,6 +2508,7 @@ export async function compositeGrade(
               baselineBlock,
               fabricBlock,
               tagBlock,
+              compositeBlocks,
             )
             : [
               ...verificationImages.flatMap(
@@ -2518,6 +2525,7 @@ export async function compositeGrade(
                   baselineBlock,
                   fabricBlock,
                   tagBlock,
+                  compositeBlocks,
                 ) + `\n\n${VISUAL_VERIFICATION_ADDENDUM}`,
               },
             ],

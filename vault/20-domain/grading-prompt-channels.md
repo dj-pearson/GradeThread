@@ -192,10 +192,16 @@ flag-gated rollout has the shape of a careful one.
 
 The fingerprint is the partial remedy: `unversionedPromptSurfaceHash()`
 (`ai-grading.ts`) digests the assembled user message, and every eval run reports
-it as `unversioned_surface: { hash, covered: false }`. It cannot make a run
-safe — it makes two runs **comparable or not**. Runs with different hashes
-measured different prompts, so a promotion decision spanning that boundary is
-reading noise, however close the MAE looks.
+it as `unversioned_surface`. It cannot make a run safe — it makes two runs
+**comparable or not**. Runs with different hashes measured different prompts, so
+a promotion decision spanning that boundary is reading noise, however close the
+MAE looks.
+
+> [!note] `covered` is no longer `false` (US-2438, 2026-08-08)
+> This paragraph used to quote the field as a literal `false`. It is now the
+> LIST of block keys the registry versions, and the report carries a `blocks`
+> field naming the active overrides — see "What was built" below for why the
+> second field is load-bearing rather than decorative.
 
 ### What a grade record can now answer
 
@@ -277,14 +283,22 @@ would be two things to remember, failing silently when one was forgotten.
 after. That is what let this ship without an eval run: it cannot change a prompt
 until somebody activates a row.
 
-**Coverage is PARTIAL and must be read as such.** The registry covers two blocks
-today — `garment_type_criteria` (scoped by `garment_type`) and
-`category_criteria` (scoped by `garment_category`), i.e. the exact case the
-decision above was argued on. The response schema, the Rules block and the
-factor-weights sentence are still compiled into template literals with no
-identity of their own, so they are still ungated; splitting them out is the rest
-of US-2438, along with the eval-gate legs (AC2/AC3) and the flag retirement
-(AC4).
+**Coverage.** Five blocks: `garment_type_criteria` and `category_criteria` on the
+per-image stage, and `composite_factor_weights`, `composite_response_schema` and
+`composite_rules` on the composite. The composite three were extracted verbatim
+from the template literal — the surface hash was `baf5d4cb` before and after, and
+that is the proof, not the intent.
+
+The factor-weights sentence is its **own** block rather than part of the schema.
+It is the only line in the prompt that restates the contract in
+[[grading-scale-and-weights]], so an override of it changes the arithmetic the
+product is sold on and has to be reviewable by itself, not buried in a 38-line
+schema diff.
+
+Composite blocks deliberately **do not** accept an eval candidate yet. The gate
+scores per-image block candidates; letting a composite block through without a
+composite shadow path would give it a route to "qualified" the per-image blocks
+do not have, and the two would then mean different things by *passed*.
 
 `runEval`'s `unversioned_surface.covered` is therefore a LIST of block keys, not
 a boolean. It stopped being the literal `false` the moment the registry could

@@ -69,11 +69,19 @@ Deno.test("US-1537 REGRESSION: with no verification images the content is the pl
     src.indexOf("...verificationImages.flatMap("),
   );
   assert(branch.length > 0, "the zero-image branch is gone");
+  // US-2438 widened this from a fixed argument list. It used to name all five
+  // parameters, so adding a SIXTH (the composite block overrides) reddened a
+  // branch that had not changed behaviour at all. The property was never the
+  // arity — it is that this branch is a BARE call with nothing concatenated onto
+  // it, which is what the addendum assertion below actually enforces. A guard
+  // that fails on a new parameter teaches people to edit the guard.
   assert(
-    /\?\s*buildCompositeUserPrompt\(\s*perImageResults,\s*garmentInfo,\s*baselineBlock,\s*fabricBlock,\s*tagBlock,\s*\)/
+    /\?\s*buildCompositeUserPrompt\(\s*perImageResults,\s*garmentInfo,\s*baselineBlock,\s*fabricBlock,\s*tagBlock,/
       .test(branch),
-    "the no-verification-images branch must be the plain composite prompt",
+    "the no-verification-images branch must be the plain composite prompt, " +
+      "built from the same inputs the visual path uses",
   );
+  assert(!/\)\s*\+/.test(branch), "the off path concatenates something onto the prompt");
   assert(!branch.includes("VERIFICATION"), "no addendum may leak into the off path");
 });
 

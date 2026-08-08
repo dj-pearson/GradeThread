@@ -94,6 +94,26 @@ export const PROMPT_BLOCK_KEYS = {
   garment_type_criteria: { stage: "per_image", scopeDimension: "garment_type" },
   /** CATEGORY CRITERIA in the per-image prompt. Scoped by garment_category. */
   category_criteria: { stage: "per_image", scopeDimension: "garment_category" },
+  /**
+   * The one sentence that restates the factor weights.
+   *
+   * Its own block, not part of the schema, because it is the only line in the
+   * prompt that duplicates the grading contract in
+   * vault/20-domain/grading-scale-and-weights.md. An override of it changes the
+   * arithmetic the whole product is sold on, and that should be reviewable by
+   * itself rather than buried in a 38-line schema diff.
+   */
+  composite_factor_weights: {
+    stage: "composite",
+    scopeDimension: "garment_category",
+  },
+  /** The response schema the composite must return. */
+  composite_response_schema: {
+    stage: "composite",
+    scopeDimension: "garment_category",
+  },
+  /** The Rules block that qualifies every field of that schema. */
+  composite_rules: { stage: "composite", scopeDimension: "garment_category" },
 } as const satisfies Record<
   string,
   { stage: PromptStage; scopeDimension: "garment_type" | "garment_category" }
