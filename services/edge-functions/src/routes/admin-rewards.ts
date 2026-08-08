@@ -376,9 +376,19 @@ const MILESTONE_COLUMNS =
   "id, key, label, description, reward_type, trigger_type, xp_threshold, trigger_key, reward_value, cost_usd, discount_duration_months, discount_valid_days, monthly_grant_cap, lifetime_grant_cap, enabled, sort_order, created_at, updated_at";
 
 const REWARD_TYPES = ["free_grade_credits", "subscription_discount", "per_grade_discount"] as const;
-const TRIGGER_TYPES = ["xp_threshold", "badge", "season_goal"] as const;
+const TRIGGER_TYPES = ["xp_threshold", "badge", "season_goal", "anniversary"] as const;
 const BADGE_KEYS = BADGE_CATALOG.map((b) => b.key);
 const SEASON_GOAL_KEYS = SEASON_GOALS.map((g) => g.key);
+/**
+ * US-1914: the only trigger key an anniversary milestone can carry.
+ *
+ * A closed set rather than free text for the same reason the badge and season
+ * keys are closed: a typo here would create a rung nobody can ever reach and it
+ * would look live in the table forever. There is exactly one thing an
+ * anniversary can be about — the account — and the engine keys the GRANT by
+ * year, not by this.
+ */
+const ANNIVERSARY_KEYS = ["account"];
 
 interface MilestonePayload {
   key: string;
@@ -542,15 +552,29 @@ function parseMilestone(
     }
     out.trigger_key = null;
   } else {
-    const known = out.trigger_type === "badge" ? BADGE_KEYS : SEASON_GOAL_KEYS;
+    const known = out.trigger_type === "badge"
+      ? BADGE_KEYS
+      : out.trigger_type === "season_goal"
+      ? SEASON_GOAL_KEYS
+      : ANNIVERSARY_KEYS;
+    const noun = out.trigger_type === "badge"
+      ? "Badge"
+      : out.trigger_type === "season_goal"
+      ? "Season goal"
+      : "Anniversary subject";
     if (!out.trigger_key || !known.includes(out.trigger_key)) {
-      throw new MilestoneInputError(
-        `${out.trigger_type === "badge" ? "Badge" : "Season goal"} must be one of: ${
-          known.join(", ")
-        }.`,
-      );
+      throw new MilestoneInputError(`${noun} must be one of: ${known.join(", ")}.`);
     }
     out.xp_threshold = null;
+  }
+  // US-1914: an anniversary is granted once a YEAR, per user, forever. A discount
+  // that repeats annually is a standing price cut with a calendar in front of it,
+  // and the cost_usd an operator entered for one issue would understate it by
+  // however many years the customer stays. Credits are the only honest shape.
+  if (out.trigger_type === "anniversary" && out.reward_type !== "free_grade_credits") {
+    throw new MilestoneInputError(
+      "An anniversary reward has to be free grade credits — it repeats every year, and a repeating discount is a permanent price cut.",
+    );
   }
   if (out.reward_type === "free_grade_credits") {
     if (!Number.isInteger(out.reward_value)) {
@@ -605,6 +629,7 @@ adminRewardsRoutes.get("/milestones", async (c) => {
     trigger_types: TRIGGER_TYPES,
     badges: BADGE_CATALOG.map((b) => ({ key: b.key, name: b.name })),
     season_goals: SEASON_GOALS.map((g) => ({ key: g.key, name: g.name })),
+    anniversary_keys: ANNIVERSARY_KEYS,
   });
 });
 
@@ -786,6 +811,264 @@ adminRewardsRoutes.delete("/milestones/:id", async (c) => {
     details: { key },
   });
   return c.json({ ok: true });
+});
+
+// ─── US-1914: the tenure ladder ─────────────────────────────────────────────
+//
+// The milestone catalog above decides WHAT a reward is. This decides how much
+// bigger it comes out for a long-standing customer, which is why it lives beside
+// it rather than in a settings page somewhere: an operator reading a milestone's
+// cost_usd needs the multiplier that can grow it in the same screen, or the
+// budget arithmetic on the milestone table is quietly wrong.
+//
+// Two refusals exist only at this layer, and both are about the one promise this
+// feature makes:
+//   • the multiplier is floored at 1.00. The DB CHECK says the same thing; it is
+//     restated here so the operator gets a sentence instead of a constraint name,
+//     because "loyalty multiplier: 0.9" is a penalty someone would have typed by
+//     accident and shipped by not reading the error.
+//   • a tier's RANK is immutable once anyone holds it. Rank is what
+//     user_loyalty_state.tier_rank_peak stores, so renumbering a live ladder
+//     would re-point everybody's standing at a different tier — a demotion
+//     performed by a config edit, which is exactly what "never decays" forbids.
+//
+// Deliberately absent: a delete. Standing that people hold cannot be deleted out
+// from under them; DISABLE a tier instead and it stops being newly reachable
+// while everyone who reached it keeps it.
+
+const TENURE_COLUMNS =
+  "id, key, label, blurb, tier_rank, min_months, min_paid_months, credit_multiplier, enabled, sort_order, created_at, updated_at";
+
+interface TenurePayload {
+  key: string;
+  label: string;
+  blurb: string;
+  tier_rank: number;
+  min_months: number;
+  min_paid_months: number;
+  credit_multiplier: number;
+  enabled: boolean;
+  sort_order: number;
+}
+
+class TenureInputError extends Error {}
+
+function boundedInt(raw: unknown, label: string, min: number, max: number): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < min || n > max) {
+    throw new TenureInputError(`${label} must be a whole number between ${min} and ${max}.`);
+  }
+  return n;
+}
+
+function parseTenureTier(
+  body: Record<string, unknown>,
+  existing?: TenurePayload,
+): TenurePayload {
+  const base: TenurePayload = existing ?? {
+    key: "",
+    label: "",
+    blurb: "",
+    tier_rank: 0,
+    min_months: 0,
+    min_paid_months: 0,
+    credit_multiplier: 1,
+    enabled: false,
+    sort_order: 100,
+  };
+  const out: TenurePayload = { ...base };
+
+  if (body.key !== undefined || !existing) {
+    const key = typeof body.key === "string" ? body.key.trim().toLowerCase() : "";
+    if (!KEY_RE.test(key)) {
+      throw new TenureInputError(
+        "Key must be 3–50 characters of lowercase letters, numbers and underscores.",
+      );
+    }
+    out.key = key;
+  }
+  if (body.label !== undefined || !existing) {
+    const label = typeof body.label === "string" ? body.label.trim() : "";
+    if (!label) throw new TenureInputError("Label is required.");
+    out.label = label.slice(0, 120);
+  }
+  if (body.blurb !== undefined) {
+    out.blurb = typeof body.blurb === "string" ? body.blurb.trim().slice(0, 400) : "";
+  }
+  if (body.tier_rank !== undefined || !existing) {
+    out.tier_rank = boundedInt(body.tier_rank, "Rank", 0, 100);
+  }
+  if (body.min_months !== undefined || !existing) {
+    out.min_months = boundedInt(body.min_months, "Months on the platform", 0, 600);
+  }
+  if (body.min_paid_months !== undefined) {
+    out.min_paid_months = boundedInt(body.min_paid_months, "Paid months", 0, 600);
+  }
+  if (body.credit_multiplier !== undefined || !existing) {
+    const v = Number(body.credit_multiplier);
+    if (!Number.isFinite(v) || v < 1 || v > 5) {
+      throw new TenureInputError(
+        "The credit multiplier has to be between 1.00 and 5.00 — a loyalty multiplier below 1 would be a loyalty penalty.",
+      );
+    }
+    out.credit_multiplier = Math.round(v * 100) / 100;
+  }
+  if (body.enabled !== undefined) {
+    if (typeof body.enabled !== "boolean") {
+      throw new TenureInputError("Enabled must be true/false.");
+    }
+    out.enabled = body.enabled;
+  }
+  if (body.sort_order !== undefined) {
+    const n = Math.floor(Number(body.sort_order));
+    out.sort_order = Number.isFinite(n) ? n : 100;
+  }
+  return out;
+}
+
+/** How many accounts stand at or above a rank. -1 signals a read failure. */
+async function holdersAtRank(rank: number): Promise<number> {
+  const { count, error } = await supabaseAdmin
+    .from("user_loyalty_state")
+    .select("user_id", { count: "exact", head: true })
+    .gte("tier_rank_peak", rank);
+  if (error) return -1;
+  return count ?? 0;
+}
+
+adminRewardsRoutes.get("/tenure-tiers", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("reward_tenure_tiers")
+    .select(TENURE_COLUMNS)
+    .order("tier_rank", { ascending: true });
+  if (error) {
+    return failSafe(c, 500, "Couldn't load the tenure tiers.", error, "admin.rewards.tenure.list");
+  }
+  return c.json({ tiers: data ?? [] });
+});
+
+adminRewardsRoutes.post("/tenure-tiers", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  let payload: TenurePayload;
+  try {
+    payload = parseTenureTier(body);
+  } catch (err) {
+    if (err instanceof TenureInputError) {
+      return c.json({ error: err.message }, 400); // safe-raw-error: typed validation copy
+    }
+    throw err;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("reward_tenure_tiers")
+    .insert(payload as never)
+    .select(TENURE_COLUMNS)
+    .single();
+  if (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return c.json({ error: "A tier with that key or rank already exists." }, 409);
+    }
+    return failSafe(
+      c,
+      500,
+      "Couldn't create the tenure tier.",
+      error,
+      "admin.rewards.tenure.create",
+    );
+  }
+
+  await writeAuditLog(c, {
+    action: "rewards.tenure_tier.create",
+    targetType: "reward_tenure_tier",
+    targetId: (data as { id: string }).id,
+    details: {
+      key: payload.key,
+      tier_rank: payload.tier_rank,
+      credit_multiplier: payload.credit_multiplier,
+      enabled: payload.enabled,
+    },
+  });
+  return c.json({ tier: data });
+});
+
+adminRewardsRoutes.patch("/tenure-tiers/:id", async (c) => {
+  const id = c.req.param("id");
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const { data: current, error: loadErr } = await supabaseAdmin
+    .from("reward_tenure_tiers")
+    .select(TENURE_COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+  if (loadErr) {
+    return failSafe(c, 500, "Couldn't load the tenure tier.", loadErr, "admin.rewards.tenure.load");
+  }
+  if (!current) return c.json({ error: "Tenure tier not found." }, 404);
+
+  const existing = current as unknown as TenurePayload;
+  let payload: TenurePayload;
+  try {
+    payload = parseTenureTier(body, existing);
+  } catch (err) {
+    if (err instanceof TenureInputError) {
+      return c.json({ error: err.message }, 400); // safe-raw-error: typed validation copy
+    }
+    throw err;
+  }
+
+  if (payload.tier_rank !== existing.tier_rank) {
+    const holders = await holdersAtRank(existing.tier_rank);
+    if (holders !== 0) {
+      return c.json({
+        error: holders < 0
+          ? "Couldn't check who holds this tier, so its rank can't be changed right now."
+          : "People already stand at this tier, so its rank is fixed. Rank is what their standing is recorded against — renumbering it would move them.",
+      }, 409);
+    }
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("reward_tenure_tiers")
+    .update(payload as never)
+    .eq("id", id)
+    .select(TENURE_COLUMNS)
+    .single();
+  if (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return c.json({ error: "A tier with that key or rank already exists." }, 409);
+    }
+    return failSafe(
+      c,
+      500,
+      "Couldn't update the tenure tier.",
+      error,
+      "admin.rewards.tenure.update",
+    );
+  }
+
+  await writeAuditLog(c, {
+    action: "rewards.tenure_tier.update",
+    targetType: "reward_tenure_tier",
+    targetId: id,
+    details: {
+      key: payload.key,
+      tier_rank: payload.tier_rank,
+      credit_multiplier: payload.credit_multiplier,
+      enabled: payload.enabled,
+    },
+  });
+  return c.json({ tier: data });
 });
 
 // ─── US-1858: economics guardrails, budget & anti-abuse ─────────────────────

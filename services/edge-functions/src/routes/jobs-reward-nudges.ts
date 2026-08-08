@@ -21,6 +21,14 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { buildRunContext, nudgeUser, runAttributionPass } from "../lib/rewards-nudges.ts";
+import {
+  completedYears,
+  loadAnniversaryDueUsers,
+  loadLoyaltyStanding,
+  markAnniversaryDelivered,
+} from "../lib/rewards-loyalty.ts";
+import { readRewardState } from "../lib/rewards-engine.ts";
+import { grantTangibleRewards } from "../lib/rewards-tangible.ts";
 
 /** Per side. A sweep that tried to reach every account would be a sweep that
  *  times out; the cap is a working set, and the engine re-reads it every run. */
@@ -75,6 +83,73 @@ async function loadCandidateUsers(nowMs: number): Promise<{
   return { sellers, buyers };
 }
 
+/**
+ * US-1914: the anniversary pass.
+ *
+ * It rides THIS cron rather than getting one of its own, for a reason that is
+ * about correctness rather than tidiness: an anniversary is a date, so the sweep
+ * has to run daily, and this is already the daily reward sweep. A second cron
+ * would be a second lock, a second registry entry and a second thing to notice
+ * has stopped.
+ *
+ * The candidate set is the OPPOSITE of the nudge sweep's, and deliberately so:
+ * the nudge sweep takes the recently-warm end of user_reward_state, while this
+ * one is indexed on anniversary_due_at and finds people precisely BECAUSE they
+ * have not been around. A loyalty reward that only reached active users would be
+ * an activity reward with a different name.
+ *
+ * Delivery is grantTangibleRewards — the same rail, the same ceilings, the same
+ * guardrails. Nothing here can pay anyone; it can only tell the rail that a year
+ * has come round.
+ */
+async function runAnniversaryPass(
+  nowMs: number,
+): Promise<{ anniversary_checked: number; anniversary_granted: number }> {
+  let granted = 0;
+  const due = await loadAnniversaryDueUsers(nowMs);
+  for (const row of due) {
+    try {
+      const standing = await loadLoyaltyStanding(row.userId, nowMs);
+      if (!standing?.due) {
+        // No year owed. If the delivery WINDOW lapsed while the sweep was down,
+        // advance the marker so the row stops being due forever — otherwise a
+        // handful of missed accounts sit at the head of the index and crowd out
+        // everyone whose anniversary is actually today.
+        //
+        // A PAUSED programme deliberately does NOT advance. Pausing a reward must
+        // never quietly consume the year it was paused over.
+        const cfg = standing?.config;
+        if (cfg?.enabled && cfg.anniversaryEnabled && standing) {
+          const years = completedYears(Date.parse(standing.memberSince), nowMs);
+          if (years > standing.lastAnniversaryYear) {
+            await markAnniversaryDelivered(
+              row.userId,
+              Date.parse(standing.memberSince),
+              years,
+              nowMs,
+            );
+          }
+        }
+        continue;
+      }
+      const state = await readRewardState(row.userId);
+      const keys = await grantTangibleRewards(
+        row.userId,
+        state?.xpTotal ?? 0,
+        nowMs,
+        standing,
+      );
+      if (keys.some((k) => k.includes(":y"))) granted++;
+    } catch (err) {
+      console.error(
+        `[reward-nudges] anniversary for ${row.userId} failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return { anniversary_checked: due.length, anniversary_granted: granted };
+}
+
 export async function handleRewardNudgesCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) return c.json({ error: "Unauthorized" }, 401);
   const lock = await acquireJobLock("reward-nudges", 600);
@@ -89,8 +164,14 @@ export async function handleRewardNudgesCron(c: Context): Promise<Response> {
     // when the feature is paused is how a paused experiment loses its own data.
     const attribution = await runAttributionPass(ctx.config, nowMs);
 
+    // US-1914: the anniversary pass runs regardless of the NUDGE kill-switch.
+    // They are different programmes — pausing "we noticed you were quiet" must
+    // not also cancel a thank-you somebody has been a customer for a year to
+    // earn. Its own switch is `rewards_loyalty_config.anniversary_enabled`.
+    const anniversary = await runAnniversaryPass(nowMs);
+
     if (!ctx.config.enabled) {
-      return c.json({ ok: true, disabled: true, ...attribution });
+      return c.json({ ok: true, disabled: true, ...attribution, ...anniversary });
     }
 
     const { sellers, buyers } = await loadCandidateUsers(nowMs);
@@ -119,6 +200,7 @@ export async function handleRewardNudgesCron(c: Context): Promise<Response> {
       holdout,
       skipped,
       ...attribution,
+      ...anniversary,
     });
   } catch (err) {
     console.error(

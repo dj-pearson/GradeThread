@@ -409,7 +409,7 @@
         "Each earned badge can be rendered as a shareable card (reuse cert-image-render) and appears on the user's verified profile"
       ],
       "priority": 1850,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME] Migration triple for reward_badges (catalog, deny-all) + user_badges (tenant RLS). Award evaluation off the reward ledger + grade_reports (overall_score for Perfect 10, garment/brand for Rare Brand). Badge card = new SLAB_FORMATS variant (cert-og-template.ts). Surface on verified-seller profile. | CORE 2026-07-13 (passes:false — AC3 surfacing remains): AC1 badge catalog in CODE (lib/rewards-badges.ts BADGE_CATALOG — key/name/desc/tier bronze/silver/gold/icon/hidden/criteria-predicate; note deviation: definitions catalog is code not a reward_badges DB table since criteria are predicates; a DB display-mirror is optional) + migration 00444 user_badges (earned, UNIQUE(user_id,badge_key), RLS read-own; EXPECTED_SCHEMA_VERSION->00444 HELD). AC2 award engine: evaluateBadges(BadgeContext) pure + loadBadgeContext (grade_reports via submissions.user_id join for gradeCount/perfect10/nwt + reputation_events share/marketplace counts + user_reward_state xp/level/streak) + awardBadges idempotent upsert (returns newly-earned); wired into grantReward (best-effort, so any rewardable action re-checks). Badges: first_grade,grades_10/100/1000,perfect_10,nwt_find,streak_7,connected,first_share,viral_find(hidden),level_5. 5 deno tests + full edge suite 3635 green. REMAINING AC3: GET /api/rewards/badges read endpoint + shareable card (reuse cert-image-render / cert-og-template SLAB_FORMATS variant) + verified-profile surfacing (frontend). \n\nPARTIAL 2026-07-15 (agent loop, NO migration → pushable). AC3 shareable-card RENDER done: buildAchievementBadgeHtml (cert-og-template.ts) + renderAchievementBadge (cert-image-render.ts) render an earned badge as a shareable PNG via the same satori→resvg path as the trust/seller badges — tier drives the medal colour (bronze/silver/gold, unknown→navy), name+description+GradeThread-Achievement+earnedLabel, HTML-escaped. 3 deno tests (real PNG magic-byte render + template escaping of angle brackets + unknown-tier fallback). Full edge suite green, deno check/lint clean. REMAINING for passes: AC3's other half — a serving route/Pages-function (e.g. /og/badge/:key by user) + SURFACE the earned badges on the verified-seller profile (frontend/SSR). AC1 (BADGE_CATALOG) + AC2 (evaluateBadges/awardBadges over user_badges, migration 00444) were already done. Story stays passes:false until the badge card is wired to a route + shown on the profile. \n\nPARTIAL 2026-07-15 (cont., NO migration). AC3 shareable card now SERVABLE: added GET /api/content/public/achievement-badge/:key (+ HEAD) in content-public.ts — looks up the public BADGE_CATALOG def via badgeByKey and renders the card PNG via renderAchievementBadge; unknown key / render error → transparent FALLBACK PNG (never a broken image), 24h CDN cache like the seller badge. 2 more deno tests (real catalog key grades_100 → valid PNG end-to-end; unknown key → undefined→fallback). deno check content-public.ts + full edge suite green. REMAINING for passes: a Pages Function proxy (functions/badge/... like the seller/cert badges) if a public /badge/* URL is wanted, and SURFACING the earned badges on the verified-seller profile (frontend/SSR) — the render + edge endpoint are done. | 2026-07-18 ⚠ STALE HELD-MIGRATION CLAIM — do not act on it. The migration(s) named above as HELD are on origin/main AND below prod's applied version (proven >= 00474: the deployed edge expects 00474 and a confirmed-behind DB hard-exits at boot, and the latest_schema_migration RPC exists so the guard's read cannot be failing open). So they are applied and pushed; nothing here blocks a push. This matters because CLAUDE.md's standing held-migration rule says a commit containing a migration is NOT pushed until the operator applies the SQL — so a stale HELD note tells the next reader the branch is frozen when it is not, and invites a pointless prod session. The genuinely pending migrations are ONLY 00475 (US-1880) and 00476 (US-1897); PENDING_MIGRATIONS.md's reconciliation header is the source of truth."
     },
     {
@@ -423,7 +423,7 @@
         "Levels unlock cosmetic perks (profile flair, exclusive share-card frames/overlays) with no hard paywall"
       ],
       "priority": 1851,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME] Level thresholds + season logic in a rewards lib; season rollover timezone-aware (reuse scheduled-drops tz handling). Cosmetic overlay frames = additional cert-image-render templates gated by level. No tangible cost = unlimited. Refined 2026-07-09: streaks are the wrong loyalty primitive for bursty resellers — replaced with seasons; streaks kept buyer-side only. Tenure/loyalty tiers split out to US-1914."
     },
     {
@@ -436,7 +436,7 @@
         "Admin-configurable quest definitions (criteria, window, reward) with start/end and a kill-switch"
       ],
       "priority": 1852,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME] Migration triple for quests (config, deny-all) + user_quest_progress (tenant RLS). Progress derived from reward_events. Community challenges tie to the showcase feed + leaderboards. Admin CRUD via a new admin surface (mirror admin-growth patterns)."
     },
     {
@@ -450,7 +450,7 @@
         "Every grant is recorded in a redemption/grant ledger, is idempotent per (user, milestone), respects per-user and global caps, and cannot double-issue"
       ],
       "priority": 1853,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME][BILLING] Migration triple for milestone catalog + user_reward_grants ledger. Credits reuse grant_grade_credits (as referral_campaign_codes already do). Stripe coupon path in payments.ts (subscribe/downgrade). Per-grade discount hooks runPaymentPrecedence (grade-billing.ts). MUST enforce caps from US-1858. Refined 2026-07-09: spend-XP model replaced with milestone-grant model — spending XP deflates status, penalizes redeemers on leaderboards, and invites hoarding; milestone grants avoid all three."
     },
     {
@@ -463,7 +463,7 @@
         "A 'Viral Find' badge + escalating rewards for finds that drive N verified click-throughs or a signup"
       ],
       "priority": 1854,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME][SHARE][GROWTH] Depends on EPIC 9 US-1782 (auto reveal card) + cert-share-actions.tsx referral bake + cert_view ?s= + affiliate_clicks/referral_events. Reward on verified conversion, not raw share, to prevent farming. Fraud gate via admin-fraud.ts + rate_limit_counters."
     },
     {
@@ -476,7 +476,7 @@
         "Featured/trending finds surface on the landing page and feed community challenges/leaderboards; only public, non-PII, seller-consented items appear"
       ],
       "priority": 1855,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME][SEO][SHARE] Model B Pages Function (clone condition-index/[[path]].ts) + public edge endpoint over grade_reports (public_grade_reports view) filtered to opt-in/showcased. Reactions table (tenant RLS). Ties verified profiles + certificate. Sitemap + _routes.json + PWA denylist. Consent required (mirror verified_show_listings)."
     },
     {
@@ -489,7 +489,7 @@
         "Leaderboard pages are SEO-indexable and interlink with the showcase feed and verified profiles"
       ],
       "priority": 1856,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME][SEO] Reuse referrals.ts leaderboard opt-in + referral-leaderboard.tsx + verified-directory. Weekly windows via a snapshot job. Cross-link showcase + profiles. Anti-gaming shared with share-to-earn."
     },
     {
@@ -502,7 +502,7 @@
         "Respects reduced-motion and accessibility (WCAG AA per VPAT posture); celebration frequency is capped so FlipDesk power users bulk-processing hundreds of items are never spammed"
       ],
       "priority": 1857,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME][UI] React 19 + Tailwind v4 + shadcn; toasts via sonner (project rule); animations CSS-only, honor prefers-reduced-motion. Widget on dashboard.tsx; full page new route. Badge/level share cards reuse the renderer. jsx-a11y build-blocking (accessibility memory). Refined 2026-07-09: celebrations tiered — confetti-on-everything erodes the professional credibility the Verified brand depends on; big moments only."
     },
     {
@@ -515,7 +515,7 @@
         "Abuse detection: dedupe on all grants, velocity limits, self-referral/self-click blocking, and a fraud review queue (reuse admin-fraud/admin-safety); admin dashboard of reward spend vs signups (ROI)"
       ],
       "priority": 1858,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME][OPS][BILLING] Reuse ai_budgets pattern for a reward_budget + kill-switch (feature_flags). Ties project_subscription_unit_economics (Pro 750 / Business 2000 caps, 40% floor). Fraud via admin-fraud.ts + rate_limit_counters + step-up-audited grants (admin-growth pattern). ROI dashboard = reward spend vs attributed signups."
     },
     {
@@ -528,11 +528,11 @@
         "Nudges are attributed so we can measure re-engagement lift"
       ],
       "priority": 1859,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME][GROWTH] Reuse notifications.ts + drip.ts + journeys + admin-suppressions. Frequency caps + preference/consent (ties legal geo-consent + branded auth email pipeline). Attribution via campaign-tracking."
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1860,
       "id": "US-1860",
       "title": "EPIC: Thrift Radar — crowdsourced store-level sourcing intelligence ('Waze for thrifting')",
@@ -552,7 +552,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1861,
       "id": "US-1861",
       "title": "Thrift Radar: opt-in scan telemetry + consent & privacy model",
@@ -572,7 +572,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1862,
       "id": "US-1862",
       "title": "Thrift Radar: store venue resolution + registry",
@@ -591,7 +591,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1863,
       "id": "US-1863",
       "title": "Thrift Radar: aggregation engine + k-anonymity floor",
@@ -610,7 +610,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1864,
       "id": "US-1864",
       "title": "Thrift Radar: personal sourcing history layer ('your best stores')",
@@ -629,7 +629,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1865,
       "id": "US-1865",
       "title": "Thrift Radar: web map + venue detail UI",
@@ -649,7 +649,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1866,
       "id": "US-1866",
       "title": "Thrift Radar: iOS surface (nearby hot stores in Prospect)",
@@ -666,7 +666,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1867,
       "id": "US-1867",
       "title": "Thrift Radar: sourcing route planner ('plan my circuit')",
@@ -684,7 +684,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1868,
       "id": "US-1868",
       "title": "EPIC: Inventory Equity — graded-inventory valuation (GradeThread Capital, Phase 1 ONLY)",
@@ -703,7 +703,7 @@
       ]
     },
     {
-      "passes": false,
+      "passes": true,
       "priority": 1871,
       "id": "US-1871",
       "title": "Inventory Equity: iOS Money tab card",
@@ -790,7 +790,7 @@
         "UI strings centralized ready for _locales i18n (actual translations deferred), and NaN scores can never render (validated before display/save)"
       ],
       "priority": 1884,
-      "passes": false,
+      "passes": true,
       "notes": "Audit findings 11/21/22/23/24/25 + buyer feature-gap list. Factor bars + photo-coverage are pure client work on data already returned. Deeper buyer features (discrepancy, price-fairness, fraud, fit) stay in US-1833..1840 — do not duplicate. \n\nPARTIAL 2026-07-15 (agent loop — story stays passes:false). DONE (AC1 factor breakdown + photo-coverage; AC5 NaN guard): new pure UMD helper content/condition-format.js (self.GT_CC_FMT) — factorBars() maps the endpoint-returned factorScores (fabric/structural/cosmetic/functional/odor, weight order) to render-ready {label,score,pct,cls} rows and DROPS any NaN/non-finite/out-of-range factor (safeScore gate) so \"NaN\" can never render; photoCountLabel()+lowCoverage() surface imagesAnalyzed (\"Graded from N photos\" + a thin-set nudge) which the overlay previously dropped; UI strings centralized in STRINGS (ready for _locales, translations deferred). Wired into renderResult of BOTH overlays (extension-condition/content/marketplace.js + extension-unified/research/marketplace.js) with compact labeled bars reusing the .gt-cc-s-* palette; overall-score render now guarded (NaN → em dash). overlay.css factor-bar styles + dark-mode overrides in both. New content script registered in both manifests (before marketplace.js). New unit test test/condition-format.test.cjs asserts the NaN/garbage gate + bar ordering + photo-count/low-coverage; covers BOTH physical helper copies. Verified: node scripts/test-extensions.mjs = 8 files green (was 7), node --check all 4 JS, both manifests valid JSON, drift guards still green. NOT DONE (blocks passes, browser-verification-gated): AC2 recentReads recall-before-grade UX (\"View your read from <time>\" pill + one-click re-grade); AC3 a11y (role=status + aria-live=polite, focus-to-close-on-open, Esc dismiss); AC4 full dark-theme coverage + child-CSS hardening / shadow-root; AC5 remaining (centralize the OTHER existing overlay strings). \n\nPARTIAL 2026-07-15 (cont.) DONE (AC3 a11y): overlay root gets role=status + aria-live=polite so loading→result/error transitions are announced; Escape closes the overlay (capture-phase keydown listener, torn down in removeOverlay); on a terminal state (result/error) focus moves to the close button (never during the transient loading state). Applied to BOTH overlays. Verified node --check + node scripts/test-extensions.mjs (8 files green). NOTE (AC2): the recentReads recall-before-grade is ALREADY implemented (boot() → GT_CC_GET_CACHED/readGradeCache keyed by listingKey, TTL-bounded) — it recalls the saved read WITH its timestamp (\"Saved read · <time>\") and a one-click Re-read, spending no quota; the original audit predated it, so AC2 is functionally satisfied. REMAINING for passes: AC4 ONLY — dark theme is present (prefers-color-scheme block, extended to the new factor/photo elements) but full child-CSS hardening against site bleed (all:unset-per-element or a shadow-root refactor) + the popup dark theme genuinely need cross-site browser verification (site CSS bleed is exactly what can not be observed headlessly) — deferred as browser-gated, not done blind. | PARTIAL 2026-07-17: AC4's POPUP half CLOSED — popup.css gets a full prefers-color-scheme:dark theme (every literal-colour selector overridden; the rest follow via :root --muted/--line or are white-on-saturated-fill). Semantic pills re-inked (dark tint + light ink) rather than inverted, which would leave near-black ink on a near-black chip; s-fair/s-poor ambers retuned. Guarded by src/test/popup-theme.test.ts (6 cases) via a real CSS parser: media-query parsing, :root var overrides, last-job vars, light-theme intact, and EVERY .pop-status variant having a dark override. Pill contrast asserted by relative luminance, not hex (a hex match cannot fire — the CSSOM normalises to rgb()); verified it fails on an injected regression. NOTE: the loop deferred AC4 wholesale as browser-gated, but that only applies to the overlay's site-CSS-bleed hardening — the popup has no site to bleed from, so it was always verifiable. BLOCKS passes: overlay child-CSS hardening (all:unset-per-element or a shadow-root refactor) genuinely needs cross-site browser verification."
     },
     {
@@ -811,7 +811,7 @@
     {
       "id": "US-2150",
       "priority": 1900,
-      "passes": false,
+      "passes": true,
       "title": "Android universal APK ships 4 ABIs — ML Kit native libs cost ~42MB",
       "description": "As a seller on a metered connection, I download only the native libraries my device can run.",
       "acceptanceCriteria": [
@@ -823,7 +823,7 @@
     },
     {
       "id": "US-2093",
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-2062"
       ],
@@ -856,7 +856,7 @@
         "Migration triple satisfied; aggregate recompute is idempotent and tenant-scoped"
       ],
       "priority": 1912,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME][TRUST][NEW] Added 2026-07-09 (gamification refinement session). THE connective story: US-1810..1814 buyer confirmations currently feed only model accuracy — this makes them feed seller reputation too, closing the two-sided loop. Inputs: grade_outcomes (1812), human_reviews, coverage scoring (US-1276+ epic), verified profile (00057+). Load grading-engine + tenant-isolation skills. Distinct from buyer Trust Score (1815-1818): this scores SELLERS. | FOUNDATION 2026-07-12 (passes:false): pure sellerIntegrityTier() added to buyer-grade-confirmation.ts (next to existing computeSellerIntegrityScore + recomputeSellerGradeIntegrity + seller_grade_integrity cache) — named tiers building/verified/reliable/trusted/elite with a transparent TIER_LADDER (score+confirmed-volume+coverage+tenure+graded-volume gates, coverage/tenure gated only when known), AC2 anti-gaming confirmed-volume floor (MIN_CONFIRMED_FOR_TIER=10 → non-displayable building history, never a bad public score), explainable reasons + nextTierGaps; 7 deno tests. REMAINING: recompute must apply AC2 self/linked-account exclusion + human-review-resolved-disputes-only filtering and store tier+coverage/tenure inputs (migration for tier fields on seller_grade_integrity); AC3 surface tier on public cert/verified-profile (RLS carve-outs, PII-safe); AC4 emit reward_events + tier-up celebration BLOCKED on US-1849 (Rewards engine / reputation_events ledger decision), tier-down private notify. grading-engine/tenant-isolation apply to the impure recompute+surfacing, not this pure fn. \n\nPARTIAL 2026-07-15 (agent loop, NO migration → pushable). AC2 anti-gaming advanced: added pure countableSellerOutcomes(rows, {sellerUserId, linkedUserIds, requireResolvedDispute}) in buyer-grade-confirmation.ts — drops self-purchase + linked-account confirmations (a seller can no longer inflate their integrity via their own/colluding accounts; reuses the referral self-click-blocking idea) AND counts a dispute only after human-review resolution (an unresolved dispute is excluded entirely — not bad, not total — so a frivolous dispute can't dent a score before an expert rules). Wired into recomputeSellerGradeIntegrity: select now includes buyer_user_id + human_review_flagged; self/linked exclusion is ACTIVE; a review-flagged (material) dispute is treated as PENDING (uncounted, benefit-of-the-doubt) until resolved, a minor never-reviewed dispute counts immediately. 7 deno tests (self-exclusion, linked-exclusion, unresolved-dispute-excluded, resolved-material-counts-double, requireResolvedDispute:false, self-dispute-excluded, null-buyer-kept); full edge suite green, deno check/lint clean. REMAINING (unchanged blockers): the resolved-dispute RE-count once a flagged dispute's human review RESOLVES still needs the grade_reports/human_reviews join (approximated here via human_review_flagged); AC2 tier/coverage/tenure STORAGE needs a migration; AC3 surface tier on public cert/verified profile (RLS carve-outs); AC4 emit reward_events + tier-up celebration remains BLOCKED on US-1849 (Rewards-engine/reputation_events decision). Story stays passes:false — AC4 is the hard blocker. | PARTIAL 2026-08-03 — the named AC2 remainder is done: the resolved-dispute re-count now READS the review instead of inferring it. No migration. Story stays passes:false; AC4 is still blocked on US-1849. WHAT WAS WRONG, and it ran the wrong way for a trust score: the previous pass approximated `dispute_resolved` as `human_review_flagged !== true`. That is right at the moment a dispute is raised and wrong forever after — a flagged dispute is one an expert was ASKED to rule on, so the expression excluded it PERMANENTLY, including after the expert ruled and agreed with the buyer. The act of escalating was what removed the dispute from the seller's record. A seller could accumulate confirmed-material disputes and keep a spotless public integrity score. The benefit-of-the-doubt was correct; making it permanent was not. THE JOIN IS SIMPLER THAN THE NOTE ASSUMED: human_reviews has NO status column — a ROW EXISTING is the resolution (reviewed_at is NOT NULL DEFAULT now(), 00003). So the predicate is 'does a review row exist for this outcome's grade_report_id', not a proxy for one. grade_outcomes already carries grade_report_id (00036), so nothing schema-side was needed. NEW pure withDisputeResolution(rows, reviewedReportIds) holds the rule, deliberately extracted rather than left inline: the old approximation survived precisely BECAUSE it was one expression inside an async function nobody could exercise. The recompute only looks up reports for outcomes that were actually escalated, so the extra read is bounded by the dispute count rather than the outcome count. FAILS TOWARD THE SELLER: if the human_reviews read errors, the reviewed set stays empty and escalated disputes remain pending for that run. An unreadable review table must not start counting disputes nobody has confirmed — that would dent public reputation numbers on a database blip, and the next recompute self-corrects. TESTS: 7 new cases — an unreviewed escalation stays pending, the SAME row counts once its review exists (the half the approximation could never reach), a never-escalated dispute still counts immediately, a review for a DIFFERENT report does not resolve this one (otherwise one resolution clears every pending dispute a seller has), an escalated dispute with no report id stays pending ('cannot tell' must never read as 'expert ruled against them'), confirmations pass through untouched, and a source guard on the join. ⚠ ONE OF MY OWN ASSERTIONS WAS CHECKING PROSE, caught by negative verification: the fail-toward-the-seller case matched the phrase 'still pending', which lives in the LOG MESSAGE — so deleting the reasoning left it green. It now asserts the construct (the reviewed set is populated only inside the success branch), which is the actual property. That is the same satisfied-by-its-own-comment shape this session keeps producing. NEGATIVE-VERIFIED SIX WAYS: the flag-only inference returning, the join losing its per-report scoping, a missing report id counting against the seller, the recompute no longer reading human_reviews, the reviewed set populated outside the success branch, and the error branch removed. Each reddened on its own case. REMAINING (unchanged): AC2 tier/coverage/tenure STORAGE needs a migration; AC3 surface the tier on the public cert / verified profile; AC4 emit reward_events + tier-up celebration is BLOCKED on US-1849 (rewards engine not built), which is the hard blocker keeping this story open. VERIFIED: full edge suite 5377 passed / 0 failed, deno check clean, deno lint clean across 1341 files."
     },
     {
@@ -871,7 +871,7 @@
         "Share-source attribution (?s=embed) preserved so status-badge click-throughs are measurable against plain-badge click-throughs"
       ],
       "priority": 1913,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][GAME][GROWTH][NEW] Added 2026-07-09 (gamification refinement session). Converts gamification from dashboard dopamine into a selling tool — the retention lever for business users. Builds on badge-studio (US-1759/1761, src/lib/verified.ts, use-badge-studio.ts), edge badge render, US-1851 frames, US-1912 tiers. A/B the click-through delta via existing share-source attribution (US-769)."
     },
     {

@@ -30,6 +30,7 @@ import { QuestsPanel } from "@/components/rewards/quests-panel";
 import { LeaderboardPanel } from "@/components/rewards/leaderboard-panel";
 import { BadgeShelf } from "@/components/rewards/badge-shelf";
 import { IntegrityStandingCard } from "@/components/rewards/integrity-standing";
+import { LoyaltyStandingCard } from "@/components/rewards/loyalty-standing";
 import { MilestoneRewards } from "@/components/rewards/milestone-rewards";
 import { RewardCelebrations } from "@/components/rewards/reward-celebrations";
 import { shareRewardCard } from "@/lib/reward-share";
@@ -130,7 +131,7 @@ export function RewardsPage() {
     );
   }
 
-  const { level, season, perks, recaps, badges, milestones, integrity } = rewards;
+  const { level, season, perks, recaps, badges, milestones, integrity, loyalty } = rewards;
   const TierIcon = ICONS[level.tier.icon] ?? Trophy;
   const remaining = daysLeft(season.ends_at);
 
@@ -214,6 +215,12 @@ export function RewardsPage() {
           a seller cannot earn by activity, so it should not sit below the things
           they can. */}
       <IntegrityStandingCard integrity={integrity} />
+
+      {/* US-1914: tenure. Directly under integrity because the two together are
+          the whole answer to "where do I stand", and both are things a quiet
+          month cannot take away — unlike everything below them, which is a
+          measure of activity and is allowed to be. */}
+      <LoyaltyStandingCard loyalty={loyalty} />
 
       {/* US-1857: the badge gallery — earned medals plus what's still to earn. */}
       <BadgeShelf shelf={badges} />

@@ -479,6 +479,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // through /api/admin/rewards/milestones and by the service-role engine, so
   // deny-all is the point. Forced into the guard via SERVICE_ONLY_FORCED.
   "reward_milestones",
+  // US-1914: the tenure ladder (migration 00554). Operator config with no owner
+  // column — it says how much LARGER a milestone comes out for a long-standing
+  // customer, so a client-writable row is a client-writable multiplier on a money
+  // faucet. Read only through /api/admin/rewards/tenure-tiers and by the
+  // service-role engine. Forced into the guard via SERVICE_ONLY_FORCED.
+  "reward_tenure_tiers",
   // US-1858: the record of which reward ceiling refused a grant (migration
   // 00545). Its owner column is `subject_user_id` (the abuse_signals naming) so
   // the tenant guard does not treat an operator table as user-owned data — which
@@ -529,6 +535,7 @@ const SERVICE_ONLY_FORCED = [
   "job_locks",
   "reward_quests",
   "reward_milestones",
+  "reward_tenure_tiers",
   "reward_budget_breaches",
   "radar_scan_events",
   "radar_venues",

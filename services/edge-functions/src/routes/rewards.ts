@@ -39,6 +39,7 @@ import {
 import { loadQuestsState } from "../lib/rewards-quests.ts";
 import { loadBadgeShelf } from "../lib/rewards-badges.ts";
 import { loadMilestoneProgress } from "../lib/rewards-tangible.ts";
+import { loadLoyaltyStanding } from "../lib/rewards-loyalty.ts";
 import {
   isLeaderboardPeriod,
   LEADERBOARD_METRICS,
@@ -91,16 +92,51 @@ rewardsRoutes.get("/state", async (c) => {
     // "where do I stand" answer, and it is what the US-1857 celebration diff
     // watches for a tier change. Internally best-effort (it degrades to the
     // pre-floor standing), so it cannot take the screen down.
-    const [badges, milestones, integrity] = await Promise.all([
+    // US-1914 AC1: tenure rides the same read. It is the one standing on this
+    // page that has nothing to do with what the seller did — which is exactly
+    // why it must not be a second request that can fail on its own and leave the
+    // page implying their history is gone.
+    const [badges, milestones, integrity, standing] = await Promise.all([
       loadBadgeShelf(userId),
       loadMilestoneProgress(userId, progress.xpTotal),
       loadSellerIntegrityStanding(userId),
+      loadLoyaltyStanding(userId, nowMs),
     ]);
 
     return c.json({
       badges,
       milestones,
       integrity,
+      loyalty: standing
+        ? {
+          member_since: standing.memberSince,
+          months: standing.months,
+          years: standing.years,
+          paid_months: standing.paidMonths,
+          tier: standing.tier
+            ? {
+              key: standing.tier.key,
+              label: standing.tier.label,
+              blurb: standing.tier.blurb,
+              rank: standing.tier.rank,
+              credit_multiplier: standing.tier.creditMultiplier,
+            }
+            : null,
+          next_tier: standing.nextTier
+            ? {
+              key: standing.nextTier.key,
+              label: standing.nextTier.label,
+              blurb: standing.nextTier.blurb,
+              rank: standing.nextTier.rank,
+              credit_multiplier: standing.nextTier.creditMultiplier,
+            }
+            : null,
+          months_to_next: standing.monthsToNext,
+          paid_months_to_next: standing.paidMonthsToNext,
+          credit_multiplier: standing.creditMultiplier,
+          last_anniversary_year: standing.lastAnniversaryYear,
+        }
+        : null,
       level: {
         level: progress.level,
         xp_total: progress.xpTotal,

@@ -44,6 +44,11 @@ function contextFor(rewards: RewardsState): CelebrationContext {
     badgeName: (key) => byKey.get(key)?.name ?? "New badge",
     badgeTier: (key) => byKey.get(key)?.tier ?? "bronze",
     milestoneLabel: (key) => milestones.get(key) ?? "Your reward",
+    // US-1914. "Your standing" rather than a tier name we don't have: the
+    // celebration fires on a RANK increase, and a rank can rise while the label
+    // read is missing (a mid-deploy edge, a failed tenure query). Naming a tier
+    // we can't see would be inventing one.
+    tenureName: rewards.loyalty?.tier?.label ?? "Your standing",
   };
 }
 

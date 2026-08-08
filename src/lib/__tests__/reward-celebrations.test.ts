@@ -24,6 +24,7 @@ const CTX: CelebrationContext = {
   badgeName: (key) => `Badge ${key}`,
   badgeTier: (key) => (key === "viral_find" ? "gold" : "bronze"),
   milestoneLabel: (key) => `Reward ${key}`,
+  tenureName: "Two years in",
 };
 
 function snap(over: Partial<RewardSnapshot> = {}): RewardSnapshot {
@@ -36,6 +37,8 @@ function snap(over: Partial<RewardSnapshot> = {}): RewardSnapshot {
     seasonGoalsTotal: 4,
     integrityTier: null,
     milestones: [],
+    tenureRank: 0,
+    anniversaryYear: 0,
     ...over,
   };
 }

@@ -57,18 +57,39 @@ import {
   velocityDecision,
 } from "./rewards-economics.ts";
 import type { BreachScope, RewardGuardrails } from "./rewards-economics.ts";
+import {
+  anniversaryBaseKey,
+  anniversaryInstanceKey,
+  applyTenureMultiplier,
+  loadLoyaltyStanding,
+  markAnniversaryDelivered,
+  ordinalYear,
+} from "./rewards-loyalty.ts";
+import type { LoyaltyStanding } from "./rewards-loyalty.ts";
 
 export type TangibleRewardType =
   | "free_grade_credits"
   | "subscription_discount"
   | "per_grade_discount";
 
-/** What unlocks a milestone. Mirrors the `trigger_type` CHECK in 00541. */
-export type MilestoneTriggerType = "xp_threshold" | "badge" | "season_goal";
+/** What unlocks a milestone. Mirrors the `trigger_type` CHECK in 00541/00554. */
+export type MilestoneTriggerType =
+  | "xp_threshold"
+  | "badge"
+  | "season_goal"
+  | "anniversary";
 
 export interface MilestoneReward {
   /** Stable catalog key — also the idempotency key on the grant row. */
   key: string;
+  /**
+   * The CATALOG key behind `key`. Identical for every milestone except an
+   * INSTANCED one (US-1914's anniversary, whose grant key carries the year), and
+   * it exists because two things need the catalog identity rather than the grant
+   * identity: the per-milestone issue caps, which would otherwise count each
+   * year separately and never bind, and the label lookup on the owner's view.
+   */
+  baseKey: string;
   triggerType: MilestoneTriggerType;
   /** XP total at or above which the milestone unlocks (xp_threshold only). */
   xpThreshold: number;
@@ -101,6 +122,7 @@ function xpMilestone(
 ): MilestoneReward {
   return {
     key,
+    baseKey: key,
     triggerType: "xp_threshold",
     xpThreshold,
     triggerKey: null,
@@ -166,6 +188,13 @@ export interface MilestoneTriggerContext {
   xpTotal: number;
   badgeKeys: ReadonlySet<string>;
   seasonGoalKeys: ReadonlySet<string>;
+  /**
+   * US-1914: the account year owed a gift right now, or 0 for none. It is a
+   * WINDOW rather than a date (see anniversaryDue) so a sweep that missed a day
+   * still delivers, and it is 0 rather than "the account's age" so an eight-year
+   * account never back-pays seven anniversaries at once.
+   */
+  anniversaryYear: number;
 }
 
 /** Has this milestone's trigger fired? Pure — the whole policy is testable. */
@@ -180,6 +209,11 @@ export function isMilestoneUnlocked(
       return !!m.triggerKey && ctx.badgeKeys.has(m.triggerKey);
     case "season_goal":
       return !!m.triggerKey && ctx.seasonGoalKeys.has(m.triggerKey);
+    case "anniversary":
+      // Loyalty, not activity: the ONLY input is how long they have been here.
+      // The instance key already carries the year, so an entry that reaches this
+      // branch is by construction the one for the year currently owed.
+      return ctx.anniversaryYear >= 1;
   }
 }
 
@@ -559,7 +593,12 @@ const REWARD_TYPES = new Set<string>([
   "subscription_discount",
   "per_grade_discount",
 ]);
-const TRIGGER_TYPES = new Set<string>(["xp_threshold", "badge", "season_goal"]);
+const TRIGGER_TYPES = new Set<string>([
+  "xp_threshold",
+  "badge",
+  "season_goal",
+  "anniversary",
+]);
 
 /** Map a catalog row onto the engine's shape, or null if it is unusable. Pure. */
 export function milestoneFromRow(row: MilestoneRow): MilestoneReward | null {
@@ -571,6 +610,7 @@ export function milestoneFromRow(row: MilestoneRow): MilestoneReward | null {
   if (triggerType !== "xp_threshold" && !row.trigger_key) return null;
   return {
     key: row.key,
+    baseKey: row.key,
     label: row.label,
     triggerType,
     xpThreshold: row.xp_threshold ?? 0,
@@ -650,22 +690,26 @@ async function loadSpend(userId: string, nowMs: number): Promise<RewardSpend | n
 /** Platform-wide issue counts for one milestone. Null on a read failure, which
  *  the caller treats as "don't grant" — an uncounted cap is not a cap. */
 async function loadMilestoneCounts(
-  milestoneKey: string,
+  reward: MilestoneReward,
   nowMs: number,
 ): Promise<MilestoneIssueCounts | null> {
   const since = monthStartIso(nowMs);
+  // An INSTANCED milestone stores one grant key per year, so its cap has to count
+  // the FAMILY (`anniversary_gift:y%`) rather than this year's key — counting the
+  // instance would reset the operator's lifetime ceiling every anniversary, which
+  // is a cap that has never once bound anything.
+  const instanced = reward.key !== reward.baseKey;
+  const scoped = () => {
+    const q = supabaseAdmin
+      .from("reward_tangible_grants")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "granted");
+    return instanced ? q.like("milestone_key", `${reward.baseKey}:y%`) : q.eq("milestone_key", reward.key);
+  };
+
   const [lifetime, month] = await Promise.all([
-    supabaseAdmin
-      .from("reward_tangible_grants")
-      .select("id", { count: "exact", head: true })
-      .eq("milestone_key", milestoneKey)
-      .eq("status", "granted"),
-    supabaseAdmin
-      .from("reward_tangible_grants")
-      .select("id", { count: "exact", head: true })
-      .eq("milestone_key", milestoneKey)
-      .eq("status", "granted")
-      .gte("granted_at", since),
+    scoped(),
+    scoped().gte("granted_at", since),
   ]);
   if (lifetime.error || month.error) {
     console.error(
@@ -687,6 +731,7 @@ async function loadTriggerContext(
   xpTotal: number,
   catalog: readonly MilestoneReward[],
   nowMs: number,
+  anniversaryYear: number,
 ): Promise<MilestoneTriggerContext> {
   const needsBadges = catalog.some((m) => m.triggerType === "badge");
   const needsSeason = catalog.some((m) => m.triggerType === "season_goal");
@@ -717,7 +762,45 @@ async function loadTriggerContext(
     }
   }
 
-  return { xpTotal, badgeKeys, seasonGoalKeys };
+  return { xpTotal, badgeKeys, seasonGoalKeys, anniversaryYear };
+}
+
+/**
+ * Expand the catalog for one user's loyalty standing (US-1914). Pure.
+ *
+ * Two transforms, and the order matters: INSTANCE the anniversary entries first
+ * (so an entry that is not owed this year disappears rather than being scaled),
+ * then apply the tenure multiplier to what survives — including the anniversary
+ * gift itself, which is the point of a loyalty multiplier.
+ *
+ * An anniversary entry with NO year owed is dropped entirely. Leaving it in with
+ * its bare catalog key would grant it once and never again, quietly turning an
+ * annual gift into a one-off.
+ */
+export function applyLoyaltyToCatalog(
+  catalog: readonly MilestoneReward[],
+  anniversaryYear: number,
+  creditMultiplier: number,
+): MilestoneReward[] {
+  const out: MilestoneReward[] = [];
+  for (const m of catalog) {
+    if (m.triggerType === "anniversary") {
+      if (anniversaryYear < 1) continue;
+      out.push(
+        applyTenureMultiplier(
+          {
+            ...m,
+            key: anniversaryInstanceKey(m.baseKey, anniversaryYear),
+            label: `${m.label} — year ${anniversaryYear}`,
+          },
+          creditMultiplier,
+        ),
+      );
+      continue;
+    }
+    out.push(applyTenureMultiplier(m, creditMultiplier));
+  }
+  return out;
 }
 
 /**
@@ -785,6 +868,9 @@ export async function grantTangibleRewards(
   userId: string,
   xpTotal: number,
   nowMs: number = Date.now(),
+  /** US-1914: pass a standing the caller already loaded (the anniversary sweep
+   *  has one) so a grant pass never resolves the same tenure twice. */
+  loyalty?: LoyaltyStanding | null,
 ): Promise<string[]> {
   try {
     // Fail-CLOSED kill-switch: no flag row, or an unreadable one, pays nobody.
@@ -794,7 +880,19 @@ export async function grantTangibleRewards(
     });
     if (!enabled) return [];
 
-    const catalog = (await loadMilestoneCatalog()).filter((m) => isFulfillable(m.rewardType));
+    // US-1914: loyalty is resolved BEFORE the catalog is evaluated, because it
+    // changes what the catalog contains (which anniversary year, if any, is owed)
+    // as well as what each rung is worth. A null standing — a read failure, or an
+    // account with no users row — degrades to "newcomer": no anniversary, no
+    // multiplier. Loyalty may enlarge a reward; it may never be what stops one.
+    const standing = loyalty ?? await loadLoyaltyStanding(userId, nowMs);
+    const anniversaryYear = standing?.due?.year ?? 0;
+
+    const catalog = applyLoyaltyToCatalog(
+      (await loadMilestoneCatalog()).filter((m) => isFulfillable(m.rewardType)),
+      anniversaryYear,
+      standing?.creditMultiplier ?? 1,
+    );
     if (catalog.length === 0) return [];
 
     // Which milestones already have a row? A 'claimed' row counts as taken — a
@@ -816,7 +914,7 @@ export async function grantTangibleRewards(
     const unclaimed = catalog.filter((m) => !taken.has(m.key));
     if (unclaimed.length === 0) return [];
 
-    const ctx = await loadTriggerContext(userId, xpTotal, unclaimed, nowMs);
+    const ctx = await loadTriggerContext(userId, xpTotal, unclaimed, nowMs, anniversaryYear);
     const pending = unlockedMilestones(unclaimed, ctx);
     if (pending.length === 0) return [];
 
@@ -894,7 +992,7 @@ export async function grantTangibleRewards(
       // Per-milestone issue caps (00541). A failed count refuses this milestone
       // and moves on: an uncounted cap is not a cap.
       if (reward.monthlyGrantCap !== null || reward.lifetimeGrantCap !== null) {
-        const counts = await loadMilestoneCounts(reward.key, nowMs);
+        const counts = await loadMilestoneCounts(reward, nowMs);
         if (!counts) continue;
         const capped = milestoneCapDecision(reward, counts);
         if (!capped.allowed) {
@@ -915,12 +1013,7 @@ export async function grantTangibleRewards(
           reward_value: reward.value,
           cost_usd: reward.costUsd,
           status: "claimed",
-          metadata: {
-            trigger_type: reward.triggerType,
-            trigger_key: reward.triggerKey,
-            xp_total: xpTotal,
-            xp_threshold: reward.xpThreshold,
-          },
+          metadata: grantMetadata(reward, xpTotal, standing),
         } as never);
       if (claimErr) {
         // 23505 = a concurrent pass already claimed it. Anything else is a real
@@ -954,13 +1047,7 @@ export async function grantTangibleRewards(
           status: "granted",
           granted_at: new Date(nowMs).toISOString(),
           expires_at: grantExpiryIso(reward, nowMs),
-          metadata: {
-            trigger_type: reward.triggerType,
-            trigger_key: reward.triggerKey,
-            xp_total: xpTotal,
-            xp_threshold: reward.xpThreshold,
-            ...(extra ?? {}),
-          },
+          metadata: { ...grantMetadata(reward, xpTotal, standing), ...(extra ?? {}) },
         } as never)
         .eq("user_id", userId)
         .eq("milestone_key", reward.key);
@@ -976,11 +1063,30 @@ export async function grantTangibleRewards(
       velocity.usdToday += reward.costUsd;
       delivered.push(reward.key);
 
+      // US-1914: mark the year celebrated only AFTER the value actually moved.
+      // Marking on claim would burn the anniversary on a fulfilment failure —
+      // the claim is released for retry, but the year would already read as
+      // spent, and the retry would find nothing owed.
+      if (reward.triggerType === "anniversary" && standing) {
+        await markAnniversaryDelivered(
+          userId,
+          Date.parse(standing.memberSince),
+          anniversaryYear,
+          nowMs,
+        );
+      }
+
       await notifyUser(userId, {
         type: "billing",
-        title: "Reward unlocked!",
-        message: rewardNotificationMessage(reward),
-        link: "/dashboard/billing",
+        title: reward.triggerType === "anniversary"
+          ? `Happy ${ordinalYear(anniversaryYear)} GradeThread anniversary`
+          : "Reward unlocked!",
+        message: rewardNotificationMessage(reward, anniversaryYear),
+        // An anniversary belongs beside the standing it celebrates, not in
+        // billing: the gift is the smaller half of the moment.
+        link: reward.triggerType === "anniversary"
+          ? "/dashboard/rewards?celebrate=anniversary"
+          : "/dashboard/billing",
       }).catch(() => {});
     }
 
@@ -1113,7 +1219,11 @@ export async function loadMilestoneProgress(
       .filter((r) => r.status === "granted")
       .map((r) => ({
         milestone_key: r.milestone_key,
-        label: labels.get(r.milestone_key) ?? r.milestone_key,
+        // An instanced key (`anniversary_gift:y3`) is not in the catalog under
+        // its own name, so the fallback would print the raw key at the user.
+        label: labels.get(r.milestone_key) ??
+          labels.get(anniversaryBaseKey(r.milestone_key)) ??
+          r.milestone_key,
         reward_type: r.reward_type,
         reward_value: Number(r.reward_value) || 0,
         status: r.status,
@@ -1138,7 +1248,18 @@ export async function loadMilestoneProgress(
 
 /** What the unlock notification says. Pure — the copy has to match the trigger,
  *  or a badge reward reads as an XP one. */
-export function rewardNotificationMessage(reward: MilestoneReward): string {
+export function rewardNotificationMessage(
+  reward: MilestoneReward,
+  anniversaryYear = 0,
+): string {
+  // An anniversary is a thank-you, not an achievement. "You hit a milestone" for
+  // simply still being here reads as a score for something they did not do, and
+  // it is the sentence a returning user is most likely to receive.
+  if (reward.triggerType === "anniversary") {
+    const years = anniversaryYear === 1 ? "a year" : `${anniversaryYear} years`;
+    return `Thanks for ${years} with GradeThread — ${reward.label} is on us. ` +
+      `Your level, badges and standing are all exactly where you left them.`;
+  }
   const earned = reward.triggerType === "xp_threshold"
     ? `You hit ${reward.xpThreshold.toLocaleString()} XP`
     : "You hit a rewards milestone";
@@ -1146,4 +1267,28 @@ export function rewardNotificationMessage(reward: MilestoneReward): string {
     ? `${reward.label} added to your account.`
     : `${reward.label} is ready to use.`;
   return `${earned} — ${perk}`;
+}
+
+/**
+ * What a grant row records about WHY it was issued. Pure.
+ *
+ * The tenure fields are stamped even when the multiplier was 1: a grant that
+ * says nothing about the standing at the time is one an operator reconciling the
+ * budget cannot explain, and "no multiplier" and "we didn't look" are different
+ * facts that would otherwise look identical.
+ */
+export function grantMetadata(
+  reward: MilestoneReward,
+  xpTotal: number,
+  standing: LoyaltyStanding | null,
+): Record<string, unknown> {
+  return {
+    trigger_type: reward.triggerType,
+    trigger_key: reward.triggerKey,
+    xp_total: xpTotal,
+    xp_threshold: reward.xpThreshold,
+    milestone_base_key: reward.baseKey,
+    tenure_tier: standing?.tier?.key ?? null,
+    tenure_multiplier: standing?.creditMultiplier ?? 1,
+  };
 }

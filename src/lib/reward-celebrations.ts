@@ -47,6 +47,13 @@ export interface RewardSnapshot {
   integrityTier: string | null;
   /** Granted tangible-milestone keys. */
   milestones: string[];
+  /**
+   * US-1914. Two loyalty facts, both monotonic: the tenure tier RANK (-1 when
+   * unknown, so a first real value reads as a promotion — the US-1912 lesson)
+   * and the highest anniversary already celebrated.
+   */
+  tenureRank: number;
+  anniversaryYear: number;
 }
 
 /** Project the rewards read into the snapshot the diff compares. */
@@ -63,6 +70,8 @@ export function snapshotFromRewards(
     seasonGoalsTotal: state.season.goals_total,
     integrityTier,
     milestones: state.milestones.granted.map((g) => g.milestone_key).sort(),
+    tenureRank: state.loyalty?.tier?.rank ?? -1,
+    anniversaryYear: state.loyalty?.last_anniversary_year ?? 0,
   };
 }
 
@@ -94,6 +103,8 @@ export type CelebrationKind =
   | "season_complete"
   | "badge_earned"
   | "milestone_granted"
+  | "anniversary"
+  | "tenure_tier"
   | "xp_gain";
 
 export type CelebrationTier = "celebrate" | "quiet";
@@ -124,6 +135,8 @@ export interface CelebrationContext {
   badgeName(key: string): string;
   badgeTier(key: string): string;
   milestoneLabel(key: string): string;
+  /** US-1914: display name of the tenure tier they now hold (e.g. "Veteran"). */
+  tenureName: string;
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -238,6 +251,39 @@ export function detectCelebrations(
       tier: "celebrate",
       title: "Reward unlocked",
       message: `${ctx.milestoneLabel(key)} — it's already on your account.`,
+      share: null,
+    });
+  }
+
+  // US-1914: an anniversary. The only celebration here that is not an
+  // achievement — it fires for staying, which is why the copy thanks rather than
+  // congratulates. Compared as a NUMBER that only grows, so a stale or missing
+  // read can never re-fire a year already celebrated.
+  if (next.anniversaryYear > prev.anniversaryYear && next.anniversaryYear > 0) {
+    const years = next.anniversaryYear;
+    big.push({
+      id: `anniversary:${years}`,
+      kind: "anniversary",
+      tier: "celebrate",
+      title: years === 1 ? "One year with GradeThread" : `${years} years with GradeThread`,
+      message:
+        "Thanks for sticking with us. Your level, badges and standing are all exactly where you left them.",
+      share: null,
+    });
+  }
+
+  // Tenure tier. RANK comparison, not string inequality — the same reason the
+  // integrity branch above uses it: a config edit can change which tier a rank
+  // names, and congratulating somebody on a sideways move (or worse, on a
+  // rename) is a party for nothing. -1 ranks below every real tier, so a first
+  // known value is a promotion rather than a no-op.
+  if (next.tenureRank > prev.tenureRank && next.tenureRank >= 0) {
+    big.push({
+      id: `tenure:${next.tenureRank}`,
+      kind: "tenure_tier",
+      tier: "celebrate",
+      title: ctx.tenureName,
+      message: "Tenure standing. It only ever goes up — a quiet month costs you nothing.",
       share: null,
     });
   }

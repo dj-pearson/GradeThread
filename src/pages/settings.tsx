@@ -38,7 +38,9 @@ import {
   User,
   Shield,
   Bell,
+  CalendarHeart,
 } from "lucide-react";
+import { memberSinceLabel } from "@/lib/loyalty-copy";
 import { toast } from "sonner";
 import { PromotedListingsDefaultCard } from "@/components/flipdesk/promoted-listings-default-card";
 import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
@@ -614,7 +616,21 @@ export function SettingsPage() {
           {/* Profile Section */}
           <Card>
         <CardHeader>
-          <CardTitle>Profile</CardTitle>
+          <CardTitle className="flex flex-wrap items-center gap-2">
+            Profile
+            {/* US-1914 AC1: "member since" flair. Read straight off the profile
+                already in the store rather than from the rewards endpoint — the
+                date is a fact about the account, so it should render on the
+                account screen even if the whole rewards service is down. Tenure
+                only ever grows, so there is nothing here that can go stale in
+                the wrong direction. */}
+            {memberSinceLabel(profile?.created_at) && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium">
+                <CalendarHeart className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                Member since {memberSinceLabel(profile?.created_at)}
+              </span>
+            )}
+          </CardTitle>
           <CardDescription>Update your personal information.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

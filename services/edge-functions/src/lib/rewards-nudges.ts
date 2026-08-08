@@ -39,7 +39,10 @@ import {
   loadBadgeContext,
   nearestBadge,
 } from "./rewards-badges.ts";
-import { loadSeasonTimezone } from "./rewards-seasons.ts";
+import { loadSeasonTimezone, seasonForInstant } from "./rewards-seasons.ts";
+import { loadLoyaltyConfig, loadLoyaltyStanding } from "./rewards-loyalty.ts";
+import type { LoyaltyConfig } from "./rewards-loyalty.ts";
+import { readRewardState } from "./rewards-engine.ts";
 import {
   loadQuestDefinitions,
   type QuestDefinition,
@@ -55,6 +58,11 @@ export const NUDGE_TYPES = [
   "quest_new",
   "quest_expiring",
   "reward_available",
+  // US-1914. The only nudge that fires on ABSENCE with nothing at stake, which
+  // is exactly why its copy is constrained: there is no streak to lose on the
+  // seller side, no standing that decayed while they were away, and nothing here
+  // may imply otherwise. It leads with what is NEW and what is PRESERVED.
+  "comeback",
 ] as const;
 
 export type NudgeType = typeof NUDGE_TYPES[number];
@@ -88,6 +96,7 @@ export const DEFAULT_NUDGE_CONFIG: NudgeConfig = {
     quest_new: true,
     quest_expiring: true,
     reward_available: true,
+    comeback: true,
   },
   maxPerWeek: 2,
   minHoursBetween: 48,
@@ -189,6 +198,10 @@ const NUDGE_PRIORITY: Record<NudgeType, number> = {
   quest_expiring: 2,
   quest_new: 3,
   badge_near_miss: 4,
+  // LAST on purpose. Anything the user can still act on is a better message than
+  // "we noticed you were away", and someone with a live deadline is not lapsed
+  // in any sense worth saying out loud.
+  comeback: 5,
 };
 
 const HOUR_MS = 3_600_000;
@@ -405,6 +418,78 @@ export function expiringRewardCandidate(
     title: `Your ${soonest.grant.label} reward expires soon`,
     body: `It's yours until ${new Date(soonest.expiresMs).toISOString().slice(0, 10)} — ` +
       `${days === 1 ? "1 day" : `${days} days`} left to use it.`,
+    link: "/dashboard/rewards",
+  };
+}
+
+// ── Comeback (US-1914) ──────────────────────────────────────────────────────
+
+export interface ComebackInput {
+  /** ms epoch of the last rewardable act, or null if there has never been one. */
+  lastActivityMs: number | null;
+  /** Days of quiet before this is honest. From LoyaltyConfig.comebackQuietDays. */
+  quietDays: number;
+  /** Their level — preserved, and the first thing the copy says. */
+  level: number;
+  /** Their tenure tier label ("Two years in"), or null. */
+  tenureLabel: string | null;
+  /** Whole months since they joined, for the "member since" half. */
+  tenureMonths: number;
+  /** The season that is running NOW — the "what's new" half. */
+  seasonLabel: string;
+  /** Live quests/challenges they could pick up today. */
+  liveQuestCount: number;
+}
+
+/**
+ * A welcome back, or null. Pure.
+ *
+ * Every clause here is a rule, not a style choice:
+ *   • it is TRUE — it fires only after a real quiet stretch, and only for
+ *     someone who has actually been here (a level, or a tenure tier). Telling a
+ *     brand-new account "welcome back" is the fastest way to prove the message
+ *     was automated;
+ *   • it leads with WHAT'S NEW (the running season, today's quests), because
+ *     that is the only part of it that is a reason to open the app;
+ *   • it states standing as PRESERVED, in the present tense. Never "you lost",
+ *     never "don't lose", never a countdown. Seller standing does not decay, so
+ *     any urgency framing here would be a lie told to a loyal customer — and it
+ *     is the one message a lapsed user is most likely to read. The refused
+ *     vocabulary is pinned by src/lib/loyalty-copy.ts and its guard test.
+ *
+ * Keyed to the calendar MONTH, so an account that stays quiet is welcomed back
+ * at most once a month rather than every sweep — and the weekly cap still sits
+ * on top of that.
+ */
+export function comebackCandidate(
+  input: ComebackInput,
+  config: NudgeConfig,
+  nowMs: number,
+): NudgeCandidate | null {
+  if (!config.types.comeback) return null;
+  const { lastActivityMs, quietDays, level, tenureLabel, tenureMonths } = input;
+  // Never been active at all: that is an onboarding problem, not a comeback.
+  if (lastActivityMs === null) return null;
+  if (nowMs - lastActivityMs < quietDays * DAY_MS) return null;
+  // Nothing preserved means nothing to reassure them about.
+  if (level < 1 && !tenureLabel && tenureMonths < 12) return null;
+
+  const standing = tenureLabel
+    ? `You're still level ${level} and still ${tenureLabel}`
+    : `You're still level ${level}`;
+  const whatsNew = input.liveQuestCount > 0
+    ? `Season ${input.seasonLabel} is running and there ${
+      input.liveQuestCount === 1 ? "'s 1 quest" : `are ${input.liveQuestCount} quests`
+    } open right now.`
+    : `Season ${input.seasonLabel} is running.`;
+
+  return {
+    type: "comeback",
+    subjectKey: "standing",
+    periodKey: new Date(nowMs).toISOString().slice(0, 7),
+    title: `What's new since you were last here`,
+    body: `${whatsNew} ${standing} — your level, badges and member-since standing ` +
+      `are exactly where you left them, and they stay that way.`,
     link: "/dashboard/rewards",
   };
 }
@@ -813,16 +898,50 @@ export interface NudgeRunContext {
   nowMs: number;
   calendar: ReturnType<typeof weekCalendar>;
   liveQuests: Array<{ quest: QuestDefinition; window: QuestWindow }>;
+  /** US-1914. Loaded once per run — the quiet threshold is a platform setting. */
+  loyalty: LoyaltyConfig;
+  /** The season the comeback nudge names as "what's new". */
+  seasonLabel: string;
 }
 
 /** Everything the run shares across users — loaded once, not per user. */
 export async function buildRunContext(nowMs: number = Date.now()): Promise<NudgeRunContext> {
-  const [config, tz] = await Promise.all([loadNudgeConfig(), loadSeasonTimezone()]);
+  const [config, tz, loyalty] = await Promise.all([
+    loadNudgeConfig(),
+    loadSeasonTimezone(),
+    loadLoyaltyConfig(),
+  ]);
   const defs = await loadQuestDefinitions();
   const liveQuests = defs
     .map((quest) => ({ quest, window: questWindow(quest, nowMs, tz) }))
     .filter((x): x is { quest: QuestDefinition; window: QuestWindow } => x.window !== null);
-  return { config, tz, nowMs, calendar: weekCalendar(nowMs, tz), liveQuests };
+  return {
+    config,
+    tz,
+    nowMs,
+    calendar: weekCalendar(nowMs, tz),
+    liveQuests,
+    loyalty,
+    seasonLabel: seasonForInstant(nowMs, tz).label,
+  };
+}
+
+/** The seller's last rewardable act, or null. The comeback nudge's only input
+ *  about absence — read from the ONE ledger, never from a second "last seen". */
+async function loadLastActivityMs(userId: string): Promise<number | null> {
+  const { data, error } = await supabaseAdmin
+    .from("reputation_events")
+    .select("occurred_at")
+    .eq("user_id", userId)
+    .order("occurred_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[rewards-nudges] last-activity load failed:", error.message);
+    return null;
+  }
+  const t = Date.parse((data as { occurred_at?: string } | null)?.occurred_at ?? "");
+  return Number.isFinite(t) ? t : null;
 }
 
 /** Every candidate this user has right now, unranked and uncapped. */
@@ -884,6 +1003,34 @@ export async function collectCandidates(
   if (config.types.reward_available) {
     const candidate = expiringRewardCandidate(await loadExpiringGrants(userId), config, nowMs);
     if (candidate) out.push(candidate);
+  }
+
+  // US-1914. Evaluated LAST and only when nothing else had anything to say: a
+  // user with a live quest or an expiring reward is not lapsed, and spending the
+  // three reads below to build a message that would lose the ranking anyway is
+  // waste on the largest population the sweep touches.
+  if (config.types.comeback && out.length === 0) {
+    const lastActivityMs = await loadLastActivityMs(userId);
+    if (lastActivityMs !== null && nowMs - lastActivityMs >= ctx.loyalty.comebackQuietDays * DAY_MS) {
+      const [state, standing] = await Promise.all([
+        readRewardState(userId),
+        loadLoyaltyStanding(userId, nowMs),
+      ]);
+      const candidate = comebackCandidate(
+        {
+          lastActivityMs,
+          quietDays: ctx.loyalty.comebackQuietDays,
+          level: state?.level ?? 0,
+          tenureLabel: standing?.tier?.label ?? null,
+          tenureMonths: standing?.months ?? 0,
+          seasonLabel: ctx.seasonLabel,
+          liveQuestCount: ctx.liveQuests.length,
+        },
+        config,
+        nowMs,
+      );
+      if (candidate) out.push(candidate);
+    }
   }
 
   return out;

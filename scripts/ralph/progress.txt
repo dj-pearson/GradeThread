@@ -4355,3 +4355,152 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-07T12:05:09.196Z
 - Cost: $6.9204 over 84 turns
 ---
+## US-1850: Rewards: achievements / badges / medals catalog + award engine
+- Status: COMPLETE
+- Timestamp: 2026-08-07T12:46:20.398Z
+- Cost: $1.8147 over 5 turns
+---
+## US-1851: Rewards: levels, seasons & buyer-side streaks
+- Status: COMPLETE
+- Timestamp: 2026-08-07T13:16:00.033Z
+- Cost: $18.2562 over 148 turns
+---
+## US-1852: Rewards: quests & time-boxed challenges (personal + community)
+- Status: COMPLETE
+- Timestamp: 2026-08-07T13:57:38.881Z
+- Cost: $3.0448 over 6 turns
+---
+## US-1853: Rewards: milestone-granted tangible rewards (credits + discounts) — XP is never spent
+- Status: COMPLETE
+- Timestamp: 2026-08-07T14:31:52.907Z
+- Cost: $13.2390 over 110 turns
+---
+## US-1854: Rewards: share-to-earn loop (auto overlay -> verified share -> reward)
+- Status: COMPLETE
+- Timestamp: 2026-08-07T15:08:11.978Z
+- Cost: $16.3923 over 148 turns
+---
+## US-1855: Rewards: public Showcase / 'Finds' feed
+- Status: COMPLETE
+- Timestamp: 2026-08-07T15:50:52.558Z
+- Cost: $3.0705 over 7 turns
+---
+## US-1856: Rewards: leaderboards (weekly / all-time / category)
+- Status: COMPLETE
+- Timestamp: 2026-08-07T16:29:24.831Z
+- Cost: $18.8614 over 139 turns
+---
+## US-1857: Rewards: user-facing UI (progress, badges shelf, celebrations, share)
+- Status: COMPLETE
+- Timestamp: 2026-08-07T16:57:17.617Z
+- Cost: $13.2769 over 114 turns
+---
+## US-1858: Rewards: economics guardrails, budget caps & anti-abuse
+- Status: COMPLETE
+- Timestamp: 2026-08-07T17:25:03.004Z
+- Cost: $15.2458 over 125 turns
+---
+## US-1859: Rewards: re-engagement nudges (streaks, near-miss, quests)
+- Status: COMPLETE
+- Timestamp: 2026-08-07T17:51:38.366Z
+- Cost: $15.5244 over 113 turns
+---
+## US-1860: EPIC: Thrift Radar — crowdsourced store-level sourcing intelligence ('Waze for thrifting')
+- Status: COMPLETE
+- Timestamp: 2026-08-07T18:04:31.633Z
+- Cost: $2.0344 over 24 turns
+---
+## US-1861: Thrift Radar: opt-in scan telemetry + consent & privacy model
+- Status: COMPLETE
+- Timestamp: 2026-08-07T18:38:27.040Z
+- Cost: $18.3259 over 164 turns
+---
+## US-1862: Thrift Radar: store venue resolution + registry
+- Status: COMPLETE
+- Timestamp: 2026-08-07T18:57:54.114Z
+- Cost: $5.9115 over 61 turns
+---
+## US-1863: Thrift Radar: aggregation engine + k-anonymity floor
+- Status: COMPLETE
+- Timestamp: 2026-08-07T19:18:59.890Z
+- Cost: $10.7196 over 108 turns
+---
+## US-1864: Thrift Radar: personal sourcing history layer ('your best stores')
+- Status: COMPLETE
+- Timestamp: 2026-08-07T19:51:37.961Z
+- Cost: $14.8196 over 117 turns
+---
+## US-1865: Thrift Radar: web map + venue detail UI
+- Status: COMPLETE
+- Timestamp: 2026-08-07T20:27:06.260Z
+- Cost: $13.4746 over 118 turns
+---
+## US-1866: Thrift Radar: iOS surface (nearby hot stores in Prospect)
+- Status: COMPLETE
+- Timestamp: 2026-08-07T20:53:44.598Z
+- Cost: $12.6025 over 93 turns
+---
+## US-1867: Thrift Radar: sourcing route planner ('plan my circuit')
+- Status: COMPLETE
+- Timestamp: 2026-08-07T21:13:29.573Z
+- Cost: $6.5596 over 52 turns
+---
+## US-1868: EPIC: Inventory Equity — graded-inventory valuation (GradeThread Capital, Phase 1 ONLY)
+- Status: COMPLETE
+- Timestamp: 2026-08-07T21:30:32.101Z
+- Cost: $3.3173 over 42 turns
+---
+## US-1871: Inventory Equity: iOS Money tab card
+- Status: COMPLETE
+- Timestamp: 2026-08-07T21:47:22.559Z
+- Cost: $7.1921 over 62 turns
+---
+## US-1872: EPIC: Unified GradeThread extension — one install, role- and subscription-aware (buyer research for everyone, seller tools on top)
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-08-07T22:03:17.450Z
+- Reason: An operator must publish `extension-unified/` to the Chrome Web Store and Firefox AMO, unpublish the "GradeThread Lister" and "GradeThread Condition Check" listings, then set `LEGACY_STORE_LISTINGS_RETIRED = true` in `scripts/lib/extension-retirement-gate.cjs` — the guard then requires the two folders to be deleted.
+- Cost: $5.2301 over 58 turns
+---
+## US-1880: Research surface: verify the five unverified adapters, fix the dead Poshmark upgrade rule, close intl host gaps, add selector-failure ping
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-08-07T22:19:33.225Z
+- Reason: A human must open a real listing on Poshmark, Grailed, Mercari, Depop and Vinted, run `node scripts/adapter-verify.mjs snippet <adapter>` in DevTools on each, then `mark` the ones that pass.
+- Cost: $5.3446 over 51 turns
+---
+## US-1881: Cross-browser: Firefox + Edge support for the unified extension
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-08-07T22:36:56.236Z
+- Reason: A human must run TESTING.md §5a on a real Firefox and §5b on a real Edge, against a live listing, and record the result.
+- Cost: $5.9513 over 68 turns
+---
+## US-1882: Web↔extension transport v2: postMessage bridge so seller tools work beyond Chromium
+- Status: BLOCKED (needs a human)
+- Timestamp: 2026-08-07T22:55:04.774Z
+- Reason: A human must run TESTING.md §5c: install the Firefox zip, do a real Poshmark "Send to extension" on a paid FlipDesk account, and paste the tool's result line into the story (then repeat in Chrome for the no-regression half).
+- Cost: $5.7202 over 49 turns
+---
+## US-1884: Overlay feature richness: factor breakdown, photo-coverage hint, repeat-read recall, a11y + dark polish
+- Status: COMPLETE
+- Timestamp: 2026-08-07T23:20:47.359Z
+- Cost: $13.0813 over 106 turns
+---
+## US-2150: Android universal APK ships 4 ABIs — ML Kit native libs cost ~42MB
+- Status: COMPLETE
+- Timestamp: 2026-08-07T23:59:26.264Z
+- Cost: $2.0309 over 4 turns
+---
+## US-2093: Promote the richer Claude memories into vault notes, then reduce them to pointers
+- Status: COMPLETE
+- Timestamp: 2026-08-08T00:09:10.228Z
+- Cost: $3.4972 over 36 turns
+---
+## US-1912: Seller Grade Integrity score — buyer confirmations become seller reputation
+- Status: COMPLETE
+- Timestamp: 2026-08-08T00:44:04.365Z
+- Cost: $18.4918 over 176 turns
+---
+## US-1913: External status: level + integrity tier on embedded badges, certificates & public profile
+- Status: COMPLETE
+- Timestamp: 2026-08-08T01:13:34.175Z
+- Cost: $17.8622 over 158 turns
+---

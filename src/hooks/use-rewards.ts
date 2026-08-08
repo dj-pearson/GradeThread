@@ -175,6 +175,32 @@ const EMPTY_INTEGRITY: IntegrityStanding = {
   tier_changed_at: null,
 };
 
+/**
+ * US-1914: tenure standing. Loyalty, not activity — this is the only block on
+ * the rewards read that measures nothing the seller did this month, and every
+ * field of it only ever moves up.
+ */
+export interface TenureTier {
+  key: string;
+  label: string;
+  blurb: string;
+  rank: number;
+  credit_multiplier: number;
+}
+
+export interface LoyaltyStanding {
+  member_since: string;
+  months: number;
+  years: number;
+  paid_months: number;
+  tier: TenureTier | null;
+  next_tier: TenureTier | null;
+  months_to_next: number | null;
+  paid_months_to_next: number | null;
+  credit_multiplier: number;
+  last_anniversary_year: number;
+}
+
 export interface RewardsState {
   level: RewardLevel;
   season: RewardSeason;
@@ -183,6 +209,8 @@ export interface RewardsState {
   badges: RewardBadgeShelf;
   milestones: MilestoneProgress;
   integrity: IntegrityStanding;
+  /** Null on an edge that predates US-1914, or when the tenure read failed. */
+  loyalty: LoyaltyStanding | null;
   season_timezone: string;
 }
 
@@ -207,6 +235,11 @@ export function useRewards() {
         // the pre-floor standing, never to a tier — mid-deploy, "we don't know"
         // must read as "nothing to show", not as a rank nobody earned.
         integrity: state.integrity ?? EMPTY_INTEGRITY,
+        // US-1914: null, never a fabricated "newcomer". A tenure card that shows
+        // rank 0 to a three-year customer because the read failed is worse than
+        // no card — the whole promise of this block is that standing is never
+        // understated, and an invented default is exactly that.
+        loyalty: state.loyalty ?? null,
       };
     },
     enabled: !!user?.id,
