@@ -75,6 +75,19 @@ interface Props {
   // writes these aspects to both the listing override and the inventory mirror,
   // so picker edits can't vanish by skipping a separate "Save specifics" click.
   onAspectsChange?: (aspects: Record<string, string[]>) => void;
+  // Fired the first time the SELLER changes something in here — a field edit,
+  // a Clear, an AI fill, or picking a different category.
+  //
+  // The unsaved-changes guard needs this because `onAspectsChange` cannot
+  // answer "did a human do that?". The picker rewrites `aspectValues` on its
+  // own twice after mount — the deterministic remap once the category's aspect
+  // spec arrives, and the Measurements → aspect projection — and both land
+  // AFTER the composer has stamped its baseline from the first (unprefilled)
+  // report. Inferring intent from report ORDER therefore marked every freshly
+  // opened item dirty before anyone touched it, so the composer prompted
+  // "Leave without saving?" on the way out of a page the seller had only read.
+  // A guard that fires on every exit is a guard nobody reads.
+  onUserEdit?: () => void;
   // US-825: lift the live provenance map so the single Save persists it
   // alongside the aspect values (parallel jsonb).
   onSourcesChange?: (sources: AspectSourceMap) => void;
@@ -232,6 +245,7 @@ export function EbayCategoryPicker({
   measurementUnit = "in",
   onCategoryChange,
   onAspectsChange,
+  onUserEdit,
   onSourcesChange,
   onMissingRequiredChange,
   needsReviewAspects,
@@ -587,7 +601,11 @@ export function EbayCategoryPicker({
   // against the new spec once it loads (appliedCategoryRef), so a specific the
   // new leaf also has survives the switch — which is the whole point of the
   // "Change category" flow and, since US-2426, of the runner-up switch too.
+  // Every entry point below is reached only by a click or a keystroke, which is
+  // exactly the property the dirty guard needs and the one `aspectValues` alone
+  // cannot supply. Keep it that way: never call onUserEdit from an effect.
   function applyCategory(id: string, path: string | null) {
+    onUserEdit?.();
     setCategoryId(id);
     setCategoryPath(path);
     setQuery("");
@@ -600,6 +618,7 @@ export function EbayCategoryPicker({
   }
 
   function clearCategory() {
+    onUserEdit?.();
     setCategoryId(null);
     setCategoryPath(null);
     setAspectValues({});
@@ -617,6 +636,7 @@ export function EbayCategoryPicker({
     value: string,
     opts: { intent: "toggle" | "set"; multi: boolean },
   ) {
+    onUserEdit?.();
     // Compute the resulting value array so provenance can track whether the
     // aspect is now filled (manual) or cleared (drop the source entry).
     const nextArr = nextAspectValues(aspectValues[name] ?? [], value, opts);
@@ -698,6 +718,7 @@ export function EbayCategoryPicker({
         nextSources[name] = "ai_extracted";
         added += 1;
       }
+      if (added > 0) onUserEdit?.();
       setAspectValues(nextValues);
       setAiFilled(nextAi);
       setAiMeta(nextMeta);

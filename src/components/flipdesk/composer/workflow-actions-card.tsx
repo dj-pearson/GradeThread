@@ -1,4 +1,12 @@
-import { ArrowRight, Copy, Loader2, Rocket, Ruler, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  CircleSlash,
+  Copy,
+  Loader2,
+  Rocket,
+  Ruler,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -28,8 +36,13 @@ export interface WorkflowActionsCardProps {
   onDuplicate: () => void;
   onMarkListed: () => void;
   onRelist: () => void;
+  /** Withdraw the live eBay listing and drop the item back to Drafts. */
+  onEndListing: () => void;
   showMarkListed: boolean;
   showRelist: boolean;
+  /** True only while there is a live eBay listing to end. */
+  showEndListing: boolean;
+  endingListing: boolean;
   busy: boolean;
 }
 
@@ -63,11 +76,59 @@ export function WorkflowActionsCard({
   onDuplicate,
   onMarkListed,
   onRelist,
+  onEndListing,
   showMarkListed,
   showRelist,
+  showEndListing,
+  endingListing,
   busy,
 }: WorkflowActionsCardProps) {
-  const hasOverflow = showMarkListed || showRelist;
+  const hasOverflow = showMarkListed || showRelist || showEndListing;
+  // One menu, rendered in both branches. It used to exist only alongside a
+  // "next action", so an item with nothing left to do fell through to a bare
+  // Duplicate button and lost every other action — including, once End moved
+  // here, the only in-editor way to withdraw a live listing.
+  const overflowMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" disabled={busy}>
+          More
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={onDuplicate}>
+          <Copy className="mr-2 h-4 w-4" />
+          Duplicate this item
+        </DropdownMenuItem>
+        {showMarkListed && (
+          <DropdownMenuItem onClick={onMarkListed}>
+            <Rocket className="mr-2 h-4 w-4" />
+            Mark as listed elsewhere
+          </DropdownMenuItem>
+        )}
+        {showRelist && (
+          <DropdownMenuItem onClick={onRelist}>
+            <Rocket className="mr-2 h-4 w-4" />
+            Relist this item
+          </DropdownMenuItem>
+        )}
+        {showEndListing && (
+          <DropdownMenuItem
+            onClick={onEndListing}
+            disabled={endingListing}
+            className="text-destructive focus:text-destructive"
+          >
+            {endingListing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CircleSlash className="mr-2 h-4 w-4" />
+            )}
+            End listing on eBay
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
   return (
     <div className="space-y-2">
       {action.kind !== "none" && (
@@ -90,43 +151,14 @@ export function WorkflowActionsCard({
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" disabled={busy}>
-                  More
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={onDuplicate}>
-                  <Copy className="mr-2 h-4 w-4" />
-                  Duplicate this item
-                </DropdownMenuItem>
-                {showMarkListed && (
-                  <DropdownMenuItem onClick={onMarkListed}>
-                    <Rocket className="mr-2 h-4 w-4" />
-                    Mark as listed elsewhere
-                  </DropdownMenuItem>
-                )}
-                {showRelist && (
-                  <DropdownMenuItem onClick={onRelist}>
-                    <Rocket className="mr-2 h-4 w-4" />
-                    Relist this item
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {overflowMenu}
           </div>
         </div>
       )}
 
       {/* Nothing to do next, but still worth offering the item-level actions. */}
       {action.kind === "none" && hasOverflow && (
-        <div className="flex justify-end">
-          <Button variant="outline" size="sm" onClick={onDuplicate} disabled={busy}>
-            <Copy className="mr-2 h-4 w-4" />
-            Duplicate this item
-          </Button>
-        </div>
+        <div className="flex justify-end">{overflowMenu}</div>
       )}
 
       {missingCount > 0 && (

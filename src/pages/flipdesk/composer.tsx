@@ -75,6 +75,12 @@ import {
   type AspectWriteBack,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
+import {
+  INITIAL_ASPECT_DIRTY_STATE,
+  reduceAspectReport,
+  stampAspectsSaved,
+  type AspectDirtyState,
+} from "@/lib/composer-dirty";
 import { deriveListingOrigin } from "@/lib/listing-origin";
 import { ebayPathToItemCategory } from "@/lib/ebay-category-map";
 import { previewGradingReadiness } from "@/lib/grading-readiness";
@@ -119,6 +125,8 @@ import {
   useRecommendedCoverage,
 } from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
+import { useEndListing } from "@/hooks/use-listing-lifecycle";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import type {
@@ -264,6 +272,8 @@ export function FlipdeskComposerPage({
   const id = itemId ?? routeId;
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const confirm = useConfirm();
+  const endListing = useEndListing();
   // US-827/US-648: render description measurements in the seller's unit.
   const measurementUnit = useMeasurementPrefs((s) => s.unit);
 
@@ -765,21 +775,28 @@ export function FlipdeskComposerPage({
   useEffect(() => {
     if (initialised && savedSnapshot === null) setSavedSnapshot(formSnapshot);
   }, [initialised, savedSnapshot, formSnapshot]);
-  // The picker reports its aspect map up on mount, AFTER its own prefill — so the
-  // first report is the baseline, not a seller edit (US-2256). Lives here rather
-  // than in SpecificsSection because the dirty state belongs to the form.
+  // Aspect edits are dirty only once the SELLER has made one — the rule and the
+  // reason it is not "the first report wins" live in src/lib/composer-dirty.ts.
   function handleAspectsChange(next: Record<string, string[]> | null) {
     setLivePickedAspects(next);
     const encoded = JSON.stringify(next ?? null);
-    if (aspectBaseline.current === null) {
-      aspectBaseline.current = encoded;
-    } else if (encoded !== aspectBaseline.current) {
-      setAspectsDirty(true);
-    }
+    const prev = aspectDirtyRef.current;
+    const nextState = reduceAspectReport(
+      prev,
+      encoded,
+      sellerEditedAspects.current,
+    );
+    aspectDirtyRef.current = nextState;
+    if (nextState.dirty !== prev.dirty) setAspectsDirty(nextState.dirty);
   }
 
-  // The aspect map as the picker FIRST reported it (post-mount, post-prefill).
-  const aspectBaseline = useRef<string | null>(null);
+  // Baseline + dirty flag together, so the reducer owns both transitions. The
+  // React state below mirrors `dirty` purely to trigger a re-render.
+  const aspectDirtyRef = useRef<AspectDirtyState>(INITIAL_ASPECT_DIRTY_STATE);
+  // Latched by the picker's first genuine seller edit; never unlatched. After a
+  // save `markSaved` re-stamps the baseline, so a latched-but-saved form is
+  // clean without needing to forget that the seller was here.
+  const sellerEditedAspects = useRef(false);
   // US-2381: photo edits persist immediately and PhotoManager pushes the net
   // change to eBay on unmount. This page's resubmit already sends
   // `photos: true`, so it owns the flag and clears it after a successful push —
@@ -802,7 +819,9 @@ export function FlipdeskComposerPage({
         ? JSON.stringify({ ...snapshotValues, ...overrides })
         : formSnapshot,
     );
-    aspectBaseline.current = JSON.stringify(livePickedAspects ?? null);
+    aspectDirtyRef.current = stampAspectsSaved(
+      JSON.stringify(livePickedAspects ?? null),
+    );
     setAspectsDirty(false);
   }
   useEffect(() => {
@@ -1714,6 +1733,38 @@ export function FlipdeskComposerPage({
     }
   }
 
+  // End the live eBay listing from the editor the seller is already in.
+  //
+  // This action existed only in the Inventory row menu, which made "end it,
+  // fix it, relist it" a three-screen detour from the one page that shows what
+  // needs fixing. That matters most for the change eBay refuses to make in
+  // place — a wrong leaf category — where ending IS the fix, and the seller
+  // discovers it here, in the specifics editor, after the push is rejected.
+  //
+  // Ending drops the item back to a draft, so the footer's own button becomes
+  // "Save & publish to eBay" and the relist needs no separate control.
+  async function handleEndListing() {
+    if (!listing) return;
+    const ok = await confirm({
+      title: "End this listing on eBay?",
+      description:
+        `"${listing.listing_title || title.trim() || "This item"}" will be ` +
+        "withdrawn from eBay and moved back to Drafts, where you can fix it " +
+        "and publish it again. Buyers won't be able to see or buy it in the " +
+        "meantime, and it starts over with no listing age or watchers.",
+      confirmLabel: "End listing",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await endListing.mutateAsync({ listingId: listing.id });
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success(res.note ?? "Ended on eBay — this item is back in Drafts.");
+    } catch (err) {
+      toast.error(`Couldn't end this listing: ${errorMessage(err)}`);
+    }
+  }
+
   // Relist: an ended or unsold item goes back to the top of the pipeline with its
   // catalog work intact, so it can be re-priced and pushed again.
   async function handleRelist() {
@@ -2382,8 +2433,13 @@ export function FlipdeskComposerPage({
             onDuplicate={() => void handleDuplicate()}
             onMarkListed={() => setMarkListedOpen(true)}
             onRelist={() => void handleRelist()}
+            onEndListing={() => void handleEndListing()}
             showMarkListed={!item.listing_id && item.status !== "listed"}
             showRelist={item.status === "archived" || item.status === "returned"}
+            // Same gate as "Save & resubmit": if there is something live enough
+            // to push edits to, there is something to end.
+            showEndListing={isLiveListing}
+            endingListing={endListing.isPending}
             busy={saving}
           />
 
@@ -2449,6 +2505,9 @@ export function FlipdeskComposerPage({
               setLivePickedCategoryPath(path ?? null);
             }}
             onAspectsChange={handleAspectsChange}
+            onUserEdit={() => {
+              sellerEditedAspects.current = true;
+            }}
             onSourcesChange={setLivePickedSources}
             onMissingRequiredChange={setMissingRequired}
           />

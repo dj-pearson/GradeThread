@@ -17,6 +17,11 @@ const sheet = readFileSync(
   join(process.cwd(), "src/components/flipdesk/item-detail-dialog.tsx"),
   "utf8",
 );
+// The picker owns the seller-intent signal the dirty rule depends on.
+const picker = readFileSync(
+  join(process.cwd(), "src/components/flipdesk/ebay-category-picker.tsx"),
+  "utf8",
+);
 
 describe("composer unsaved-changes guard (US-2256)", () => {
   it("guards in-app navigation and page unload via the shared hook", () => {
@@ -80,12 +85,52 @@ describe("composer unsaved-changes guard (US-2256)", () => {
     expect(composer.match(/adoptSyncedTitle\(titlePatch\)/g)?.length).toBe(2);
   });
 
-  it("does not count the aspect picker's own mount report as a seller edit", () => {
-    // The eBay category picker reports its aspect map up on mount, after its own
-    // prefill. Folding that into the snapshot would make a freshly-opened
-    // composer look dirty before anyone touched it.
-    expect(composer).toContain("if (aspectBaseline.current === null)");
-    expect(composer).toContain("setAspectsDirty(true)");
+  it("counts an aspect change as dirty only once the SELLER has made one", () => {
+    // This test used to assert `aspectBaseline.current === null` — "the first
+    // report is the baseline, every later one is an edit" — on the belief that
+    // the picker's first report arrived after its own prefill. It does not: the
+    // prefill waits on the category aspect-spec fetch, and the Measurements →
+    // aspect projection lands later still. Both rewrote the map with nobody
+    // touching it, so every graded item with measurements opened dirty and
+    // asked "Leave without saving?" on the way out. The guard was firing on
+    // every exit, which is how a seller learns to click through it.
+    //
+    // Ordering cannot separate a prefill from a keystroke, so intent is
+    // reported instead. The rule and its tests live in src/lib/composer-dirty.ts.
+    expect(composer).toContain('from "@/lib/composer-dirty"');
+    expect(composer).toContain("reduceAspectReport(");
+    expect(composer).toContain("sellerEditedAspects.current");
+    // The latch is set by the picker, from real user actions only.
+    expect(composer).toMatch(
+      /onUserEdit=\{\(\) => \{\s*sellerEditedAspects\.current = true;\s*\}\}/,
+    );
+    // And a save re-stamps through the same module, so the two transitions
+    // cannot drift apart.
+    expect(composer).toContain("stampAspectsSaved(");
+  });
+
+  it("fires onUserEdit only from real user actions, never from an effect", () => {
+    // The whole rule rests on this. One onUserEdit call inside a useEffect and
+    // the latch trips on its own, restoring exactly the always-dirty behaviour
+    // the reporting was introduced to replace — silently, because a form that
+    // is always dirty looks identical to a form with unsaved work.
+    const HANDLERS = [
+      "function applyCategory(",
+      "function clearCategory(",
+      "function setAspect(",
+      "async function handleAiFill(",
+    ];
+    for (const handler of HANDLERS) {
+      const start = picker.indexOf(handler);
+      expect(picker.indexOf(handler), handler).toBeGreaterThan(-1);
+      // Each handler runs to the next top-level function in the component.
+      const rest = picker.slice(start + handler.length);
+      const nextFn = rest.search(/\n {2}(?:async )?function /);
+      const body = nextFn === -1 ? rest : rest.slice(0, nextFn);
+      expect(body, handler).toContain("onUserEdit?.()");
+    }
+    // No other call sites — an effect-fired one would push this past 4.
+    expect(picker.match(/onUserEdit\?\.\(\)/g)?.length).toBe(HANDLERS.length);
   });
 
   it("keeps the aspect map out of the form snapshot", () => {

@@ -34,6 +34,8 @@ export interface SpecificsSectionProps {
   onCategoryChange: (id: string | null, path?: string | null) => void;
   /** Owned by the page: it also maintains the US-2256 aspect dirty baseline. */
   onAspectsChange: (next: Record<string, string[]> | null) => void;
+  /** Seller-intent signal for that same baseline — see the picker's own prop. */
+  onUserEdit: () => void;
   onSourcesChange: (next: AspectSourceMap | null) => void;
   onMissingRequiredChange: (next: string[]) => void;
 }
@@ -58,6 +60,7 @@ export function SpecificsSection({
   itemAspectSource,
   onCategoryChange,
   onAspectsChange,
+  onUserEdit,
   onSourcesChange,
   onMissingRequiredChange,
 }: SpecificsSectionProps) {
@@ -136,6 +139,7 @@ export function SpecificsSection({
         measurementUnit={measurementUnit}
         onCategoryChange={onCategoryChange}
         onAspectsChange={onAspectsChange}
+        onUserEdit={onUserEdit}
         onSourcesChange={onSourcesChange}
         onMissingRequiredChange={onMissingRequiredChange}
         // US-828: highlight the aspect rows generation reconciliation
