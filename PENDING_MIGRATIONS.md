@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Sixteen migrations are held: 00542 through 00557.** Everything below them is
+**Seventeen migrations are held: 00542 through 00558.** Everything below them is
 applied. See the note under 00528 for how that is measured and why the
 measurement, not this file, is the authority whenever the two disagree.
 
@@ -9,6 +9,44 @@ the same backlog and landed its own 00539, 00540 and 00541, and the owner applie
 all three to prod on 2026-08-08. An applied number is immutable, so the three the
 hub burned stay with the hub and the sixteen here moved up by three. Nothing in
 them changed except the number — same SQL, same order, same risk.
+
+## ⏳ HELD: 00558_billing_source_googleplay.sql (US-2287 — Play subscriptions are being rejected)
+
+**Apply order.** Last, after 00557. It only touches a CHECK constraint on
+`public.users` created by 00104, so it is independent of the rest of the held
+tail and could be applied first if Play billing needs unblocking sooner.
+
+**Risk: LOW, and it is a FIX FOR A LIVE OUTAGE rather than a new feature.** One
+constraint dropped and re-added with a third allowed value. No column, no data,
+no backfill. The re-add can only fail if a row already holds a value outside
+the widened set, which is impossible — the old constraint is stricter.
+
+**Apply BEFORE the edge deploy is not the urgent direction here — apply it as
+soon as convenient.** The edge already writes `billing_source='googleplay'`
+today and that write is *already failing* with 23514. Applying this makes the
+existing code start working; it does not create a new dependency. There is no
+window in which the old code breaks against the new schema.
+
+**What it does.** 00104 created `users_billing_source_chk` allowing only
+`('stripe','appstore')` and nothing ever widened it, while
+`lib/google-play/products.ts` stamps `billing_source='googleplay'` on every
+Play subscription grant. So every Play grant UPDATE was rejected: **the customer
+is charged by Google and receives no entitlement**, and the Play expiry sweep
+can never match a row because no row can hold the value it filters on. Three
+sibling constraints WERE widened for Play (00354, 00414, 00486), which is why
+grepping the corpus for `googleplay` looks reassuring.
+
+The migration uses `DROP CONSTRAINT IF EXISTS` then `ADD CONSTRAINT` rather
+than 00104's `IF NOT EXISTS` probe on purpose — the probe is what let the stale
+definition survive every subsequent apply.
+
+**Operator follow-up (AC1/AC4, not shippable from here):** check prod for
+customers who paid Google and were never entitled, and grant retroactively.
+Play purchase tokens are recorded even though the users-row grant failed, so
+the affected set is recoverable rather than lost.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a constraint change, so
+PostgREST should re-read.
 
 ## ⏳ HELD: 00557_loyalty_tenure.sql (US-1914 — tenure tiers & anniversary grants)
 
