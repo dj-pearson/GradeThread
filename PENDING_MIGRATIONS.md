@@ -1,11 +1,11 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Twelve migrations are held: 00530 through 00541.** The entries below them were
-applied to prod and this file did not learn about it for a day. See the note
-under 00528 for how that was measured and why the measurement, not the file, is
-the authority.
+**Nothing is held.** 00530 through 00541 were applied to prod on 2026-08-08 and
+confirmed by the owner. See the note under 00528 for why the measurement, not
+this file, is the authority whenever the two disagree — these entries once sat
+"held" for a day after the SQL had already landed.
 
-## ⏳ HELD: 00541_listing_aspect_coverage.sql (US-2425 — draft coverage metric)
+## ✅ APPLIED: 00541_listing_aspect_coverage.sql (US-2425 — draft coverage metric, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, after 00540. No dependency beyond `public.listings`
 existing.
@@ -26,7 +26,7 @@ specifics were at the moment AutoLister produced it. Required and recommended
 tiers are stored separately on purpose — a required gap blocks the publish, a
 recommended gap only costs search placement.
 
-## ⏳ HELD: 00540_listing_category_candidates.sql (US-2424 — category choice)
+## ✅ APPLIED: 00540_listing_category_candidates.sql (US-2424 — category choice, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Before 00541, after 00539. No dependency beyond
 `public.listings` existing.
@@ -43,7 +43,7 @@ choosing a draft's category, with the required-aspect score behind each. Element
 0 is the chosen leaf. Lets the composer offer a one-click switch to the runner-up
 without a fresh AI run.
 
-## ⏳ HELD: 00539_quest_definitions.sql (US-1852 — quests & challenges)
+## ✅ APPLIED: 00539_quest_definitions.sql (US-1852 — quests & challenges, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It must go AFTER 00443 (which owns the
 current `reputation_events` CHECK it rewrites) — long applied — and has no other
@@ -87,7 +87,7 @@ Coolify deploy as usual.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — a new table AND a changed
 constraint, so PostgREST needs to learn about both.
 
-## ⏳ HELD: 00538_reward_tangible_grants.sql (US-1848 — tangible reward rail)
+## ✅ APPLIED: 00538_reward_tangible_grants.sql (US-1848 — tangible reward rail, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It depends on nothing newer than
 `users`, `feature_flags` and `system_settings`, all of which are long applied.
@@ -119,7 +119,7 @@ before the next Coolify deploy as usual.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — a new table means
 PostgREST needs to learn about it.
 
-## ⏳ HELD: 00537_buyer_growth_metrics.sql (US-1845 — buyer analytics surface)
+## ✅ APPLIED: 00537_buyer_growth_metrics.sql (US-1845 — buyer analytics surface, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It reads `submissions.buyer_video_grade`
 and `ingested_listings`, so it needs 00535 and 00536 applied first — which the
@@ -145,7 +145,7 @@ unlike 00536.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — PostgREST caches the RPC
 list, so the endpoint 404s at the API layer until it reloads.
 
-## ⏳ HELD: 00536_buyer_video_grading.sql (US-1841 — buyer-funded walk-around grades)
+## ✅ APPLIED: 00536_buyer_video_grading.sql (US-1841 — buyer-funded walk-around grades, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00532 (it builds on the clip path) and last in numeric
 order, like the rest.
@@ -185,7 +185,7 @@ degrades quietly. Still: apply first.
 same commit bumps `EXPECTED_SCHEMA_VERSION` to `00536`, so the boot guard needs
 the row recorded), then push.
 
-## ⏳ HELD: 00535_ingested_listings.sql (US-1808 — extension-fed marketplace listing ingestion)
+## ✅ APPLIED: 00535_ingested_listings.sql (US-1808 — extension-fed marketplace listing ingestion, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Independent of 00530–00534; apply it last, in numeric order,
 like the rest.
@@ -215,7 +215,7 @@ a Cloudflare Pages auto-deploy on push is harmless on its own.
 same commit bumps `EXPECTED_SCHEMA_VERSION` to `00535`, so the boot guard needs
 the row recorded), then push.
 
-## ⏳ HELD: 00534_video_live_capture.sql (US-1766 — live-capture provenance for a clip)
+## ✅ APPLIED: 00534_video_live_capture.sql (US-1766 — live-capture provenance for a clip, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00532 — it recreates the view 00532 last defined, so
 applying it first would drop the `video_capture_verified` column 00532 adds.
@@ -241,7 +241,7 @@ degrades quietly rather than breaking. Still: apply first.
 same commit bumps `EXPECTED_SCHEMA_VERSION` to `00534`, so the boot guard needs
 the row recorded), then push.
 
-## ⏳ HELD: 00533_video_grading_scenarios.sql (US-1765 — model video grading in the AI scenarios)
+## ✅ APPLIED: 00533_video_grading_scenarios.sql (US-1765 — model video grading in the AI scenarios, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00532 — it patches a setting 00532 also patches, and its
 guard assumes 00532 ran first.
@@ -272,7 +272,7 @@ commit bumps `EXPECTED_SCHEMA_VERSION` to `00533`, so the edge still needs the
 row recorded before it boots — apply the SQL, `NOTIFY pgrst, 'reload schema';`,
 redeploy the edge, then push, exactly as for 00532.
 
-## ⏳ HELD: 00532_video_grading.sql (US-1762 — grade from a walk-around clip)
+## ✅ APPLIED: 00532_video_grading.sql (US-1762 — grade from a walk-around clip, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00531. Nothing else is queued behind it.
 
@@ -313,7 +313,7 @@ redeploy somehow lands without ffmpeg, video grading does NOT error — the
 extractor probes once, reports unavailable, and every video submission falls back
 to `needs_photos` uncharged.
 
-## ⏳ HELD: 00531_extension_usage_pings.sql (US-1757 AC2 — anonymous opt-in extension usage counters)
+## ✅ APPLIED: 00531_extension_usage_pings.sql (US-1757 AC2 — anonymous opt-in extension usage counters, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00530. Nothing else is queued behind it.
 
@@ -360,7 +360,7 @@ Then, with the extension's new "share anonymous usage counts" toggle ON, do a
 condition read and click a link back to gradethread.com; a row appears after the
 batch window closes (up to 6 hours, or immediately at 50 events).
 
-## ⏳ HELD: 00530_public_cert_rubric_factors.sql (US-1997 — public cert view exposes rubric_key + factor_scores)
+## ✅ APPLIED: 00530_public_cert_rubric_factors.sql (US-1997 — public cert view exposes rubric_key + factor_scores, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00529. Nothing else is queued behind it.
 
