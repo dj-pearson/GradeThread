@@ -2466,22 +2466,6 @@
         "US-2416",
         "US-2417"
       ]
-    },
-    {
-      "id": "US-2426",
-      "passes": true,
-      "title": "AutoLister records the runner-up categories but the composer never shows them, so the seller cannot take the better leaf",
-      "description": "As a reseller reviewing a draft, I want to see the other eBay categories AutoLister considered and how well my item fits each, so that I can switch to a better leaf in one click instead of searching the taxonomy by hand.",
-      "acceptanceCriteria": [
-        "The composer's category block (src/components/flipdesk/ebay-category-picker.tsx) reads listings.category_candidates (US-2424, migration 00540) and lists the runner-up leaves under the chosen one",
-        "Each row names the leaf and its deterministic score - how many of that leaf's REQUIRED specifics the item could already fill - so the seller can see WHY one leaf beats another, and the chosen leaf shows its own score for comparison",
-        "Choosing a runner-up switches the category in one click WITHOUT clearing the specifics already filled, exactly as the existing Change category flow does; the switch is a local edit that the composer's single Save persists",
-        "Nothing renders when the draft has no candidates (an item that already had a category, an eBay-origin mirror, or a pre-00540 draft) - no empty block, no placeholder",
-        "No new AI call and no new eBay Taxonomy call: the scores were computed at generation time and are read straight off the draft",
-        "A vitest case covers the ranked render, the no-candidates case, and that switching does not clear filled aspects; npm run verify:web is green"
-      ],
-      "priority": 2394,
-      "notes": "Done 2026-08-07. src/components/flipdesk/ebay-category-picker.tsx grows an 'Also considered' block under the selected category, fed by a new categoryCandidates prop wired through src/components/flipdesk/composer/specifics-section.tsx from listing.category_candidates (US-2424 / migration 00540; the composer's listing query is select('*') so no query change was needed). Two new exports keep it testable without standing up the picker's react-query and Taxonomy hooks: alternateCategoryCandidates(candidates, selectedCategoryId) filters on the CURRENT selection rather than 'everything after element 0' - so after a switch the list offers the way back instead of the leaf the seller is already on - and caps at MAX_ALTERNATE_CANDIDATES=3; CategoryCandidateList renders the rows and returns null for an empty list, so a draft that never went through the scorer looks exactly as before. Each row names the leaf and its deterministic score ('Fills 5 of 6 required, missing Sleeve Length'), and the chosen leaf now shows its own score above them so the comparison means something. A leaf with no required aspects says 'No required specifics' rather than '0 of 0', and a null breadcrumb falls back to 'Category <id>'. Switching extracted the shared applyCategory(id, path) out of pickCategory: it sets the category and notifies the parent and touches NO aspect state, so the picker's existing prune-against-the-new-spec path keeps every specific the seller had filled - the same behaviour as the existing 'Change category' flow, and the switch is a local edit the composer's single Save persists. No AI call and no Taxonomy call: the scores were computed at generation time and are read off the draft. Verified: new src/components/flipdesk/__tests__/category-candidates.test.tsx, 10 cases - the selection rule incl. filtering on the current leaf and the cap, empty for null/undefined/[]/single-candidate, the ranked render with its score and missing names, renders the empty string when there is nothing to offer, the no-required-specifics wording, the raw-id fallback, missing-name truncation at three, plus two structural cases asserting the button routes through applyCategory and that applyCategory calls none of setAspectValues/setSources/setAiFilled/setAiMeta/setPrefillHints (same source-assertion convention as category-discard-confirm.test.ts). npm run lint 0 errors, npx tsc -b clean, npm run ui:check 0 blocking, full vitest 3497 passed / 0 failed."
     }
   ]
 }
