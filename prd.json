@@ -1883,7 +1883,7 @@
     },
     {
       "id": "US-2397",
-      "passes": false,
+      "passes": true,
       "title": "Grading without a fabric close-up: warn and human-check instead of refusing",
       "description": "As a seller with good front, back and label photos but nothing tagged Detail, I want to submit for grading anyway, so that a garment I already photographed well is not turned away.",
       "acceptanceCriteria": [
@@ -1894,7 +1894,8 @@
         "With a detail_* photo present every path is byte-identical: a deno test asserts applyGradingConfidencePolicy returns the same result whether fabricCloseupMissing is omitted or explicitly false.",
         "The web mirror src/lib/grading-readiness.ts returns the identical warning string, and both suites assert the shared fixture src/test/fixtures/grading-readiness-cases.json, which now carries a warnings array per case.",
         "The Submit for grading card renders warnings in a separate, non-amber block that does not disable the submit button."
-      ]
+      ],
+      "notes": "2026-08-07 VERIFIED COMPLETE — all 7 ACs are implemented and test-covered; the story was simply never flipped, which is why it carried no notes at all. Re-read each AC against the code rather than trusting the skill doc (which already described this behaviour as shipped). AC1 image-quality.ts:122-262 returns fabricCloseupMissing:true with severity warn, abstain false and an empty photo_requests. AC2 flipdesk-grading.ts:183-214 pushes FABRIC_CLOSEUP_WARNING into warnings, and ready at :367 depends only on blockers.length===0. AC3 ai-grading.ts:1830-1912 caps BOTH finalConfidence and confidenceCeiling to NO_FABRIC_CLOSEUP_CONFIDENCE_CAP (0.6) and forces needsHumanReview — the two-part US-2299 mechanism, not just the value. AC4 grading-pipeline.ts:577 recomputes via fabricCloseupMissingFor over the escalations OWN per-image types, so an escalated grade cannot ship uncapped (the US-1642 shape). AC5 grading-confidence_test.ts:324-332 asserts omitted and explicit-false are equal. AC6 the web mirror src/lib/grading-readiness.ts:41 carries the verbatim string and BOTH suites read the same fixture — grading-readiness-parity_test.ts:27-33 reaches across to src/test/fixtures/grading-readiness-cases.json, which the vitest suite imports directly, so the two cannot drift without one of them failing. AC7 grade-this-item-card.tsx:548-556 renders warnings in a neutral muted block with an Info icon, visually distinct from the amber blocker block above it, and :580 disables the button on !ready only. RE-RAN: 41 edge tests (grading-confidence, image-quality, grading-readiness-parity) and 4 web tests, all green."
     },
     {
       "id": "US-2403",
