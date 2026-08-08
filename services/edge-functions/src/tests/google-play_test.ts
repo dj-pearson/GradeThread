@@ -119,6 +119,7 @@ function fakeDeps(opts: {
             autoRenewing: false,
             obfuscatedExternalAccountId: null,
             productIds: [],
+            environment: "production",
           },
       ),
     loadBillingUser: () =>
@@ -239,6 +240,7 @@ Deno.test("orchestration: no Stripe sub → Play subscription proceeds past the 
       autoRenewing: true,
       obfuscatedExternalAccountId: null,
       productIds: [],
+      environment: "production",
     },
   });
   const r = await processGooglePlayPurchase(
@@ -259,6 +261,7 @@ Deno.test("orchestration: invalid purchase → rejected, nothing granted", async
       autoRenewing: false,
       obfuscatedExternalAccountId: null,
       productIds: [],
+      environment: "production",
     },
   });
   const r = await processGooglePlayPurchase(
@@ -280,6 +283,7 @@ Deno.test("orchestration: valid subscription → plan applied + event recorded",
       autoRenewing: true,
       obfuscatedExternalAccountId: null,
       productIds: [],
+      environment: "production",
     },
   });
   const r = await processGooglePlayPurchase(
@@ -323,6 +327,7 @@ Deno.test("binding: obfuscatedExternalAccountId for another user → account_mis
       autoRenewing: true,
       obfuscatedExternalAccountId: "someone-else",
       productIds: [],
+      environment: "production",
     },
   });
   const r = await processGooglePlayPurchase(
@@ -345,6 +350,7 @@ Deno.test("binding: matching obfuscatedExternalAccountId → entitles the caller
       autoRenewing: true,
       obfuscatedExternalAccountId: "u1",
       productIds: [],
+      environment: "production",
     },
   });
   const r = await processGooglePlayPurchase(
@@ -379,6 +385,7 @@ Deno.test("binding: same-user re-verify (owner === caller) → renews normally",
       autoRenewing: true,
       obfuscatedExternalAccountId: null,
       productIds: [],
+      environment: "production",
     },
   });
   const r = await processGooglePlayPurchase(
@@ -439,6 +446,7 @@ Deno.test("orchestration: consumable grant throws once, succeeds on retry → ex
         autoRenewing: false,
         obfuscatedExternalAccountId: null,
         productIds: [],
+        environment: "production",
       }),
     loadBillingUser: () =>
       Promise.resolve({
@@ -547,6 +555,7 @@ Deno.test("US-2285: THE ATTACK — cheap sub token replayed as the business tier
       autoRenewing: true,
       obfuscatedExternalAccountId: "u1", // binding passes: it IS their purchase
       productIds: ["flipdesk_starter_monthly"], // ...of the cheapest plan
+      environment: "production",
     },
   });
   const r = await processGooglePlayPurchase(
@@ -572,6 +581,7 @@ Deno.test("US-2285: the honest purchase still grants", async () => {
       autoRenewing: true,
       obfuscatedExternalAccountId: null,
       productIds: ["flipdesk_business_yearly"],
+      environment: "production",
     },
   });
   const r = await processGooglePlayPurchase(
@@ -596,6 +606,7 @@ Deno.test("US-2285: an empty productIds list is not a mismatch", async () => {
       autoRenewing: false,
       obfuscatedExternalAccountId: null,
       productIds: [],
+      environment: "production",
     },
   });
   const r = await processGooglePlayPurchase(

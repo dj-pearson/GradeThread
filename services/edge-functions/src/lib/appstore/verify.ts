@@ -7,6 +7,7 @@
 import { Buffer } from "node:buffer";
 import { Environment, SignedDataVerifier } from "@apple/app-store-server-library";
 import type { DecodedRenewalLite, DecodedTransactionLite } from "./types.ts";
+import { resolveAppleEnvironment } from "../billing-environment.ts";
 import {
   parseAppleAppId,
   resolveAppstoreEnvironmentName,
@@ -121,7 +122,15 @@ async function withVerifier<T>(
   throw lastErr;
 }
 
-function toLite(p: AppleTransactionPayload): DecodedTransactionLite {
+// US-2286: `verifiedBy` is the environment whose verifier actually decoded the
+// JWS — the loop variable withVerifier already had and used to throw away. It
+// is the trustworthy half of the pair; `p.environment` is Apple describing
+// itself inside the payload. resolveAppleEnvironment cross-checks them and
+// resolves disagreement toward sandbox.
+function toLite(
+  p: AppleTransactionPayload,
+  verifiedBy: Environment | null,
+): DecodedTransactionLite {
   return {
     productId: p.productId,
     originalTransactionId: p.originalTransactionId,
@@ -129,16 +138,26 @@ function toLite(p: AppleTransactionPayload): DecodedTransactionLite {
     expiresDate: p.expiresDate ?? null,
     appAccountToken: p.appAccountToken ?? null,
     environment: p.environment ?? null,
+    verifiedEnvironment: resolveAppleEnvironment({
+      verifiedBy,
+      claimedInPayload: p.environment ?? null,
+    }),
     revocationDate: p.revocationDate ?? null,
   };
 }
 
 /** Verify + decode a single StoreKit 2 signed transaction (from the client). */
 export async function verifyTransaction(jws: string): Promise<DecodedTransactionLite> {
-  const payload = (await withVerifier((v) =>
-    v.verifyAndDecodeTransaction(jws),
-  )) as unknown as AppleTransactionPayload;
-  return toLite(payload);
+  // Capture which environment answered instead of discarding it. Assigned
+  // inside the callback rather than returned alongside the payload because
+  // withVerifier is generic over the callback's return type and every other
+  // caller wants the bare payload.
+  let verifiedBy: Environment | null = null;
+  const payload = (await withVerifier((v, environment) => {
+    verifiedBy = environment;
+    return v.verifyAndDecodeTransaction(jws);
+  })) as unknown as AppleTransactionPayload;
+  return toLite(payload, verifiedBy);
 }
 
 export interface VerifiedNotification {
@@ -154,8 +173,9 @@ export async function verifyNotification(signedPayload: string): Promise<Verifie
   // Decode the notification across environments, then reuse the SAME verifier
   // (the environment that accepted the outer payload) for the nested
   // transaction/renewal so they validate consistently.
-  const { v, body } = await withVerifier(async (verifier) => ({
+  const { v, body, environment } = await withVerifier(async (verifier, env) => ({
     v: verifier,
+    environment: env,
     body: (await verifier.verifyAndDecodeNotification(
       signedPayload,
     )) as unknown as AppleNotificationPayload,
@@ -168,7 +188,10 @@ export async function verifyNotification(signedPayload: string): Promise<Verifie
     const txn = (await v.verifyAndDecodeTransaction(
       body.data.signedTransactionInfo,
     )) as unknown as AppleTransactionPayload;
-    transaction = toLite(txn);
+    // The nested transaction is decoded by the SAME verifier that accepted the
+    // outer notification, so that verifier's environment is this transaction's
+    // environment — the comment above already relies on exactly that.
+    transaction = toLite(txn, environment);
   }
   if (body.data?.signedRenewalInfo) {
     const r = (await v.verifyAndDecodeRenewalInfo(

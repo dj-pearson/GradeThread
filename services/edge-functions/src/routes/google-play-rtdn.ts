@@ -155,6 +155,10 @@ export async function reconcileRtdn(
       expiryMillis: info.expiryMillis,
       autoRenewing: info.autoRenewing,
       now,
+      // US-2286: an RTDN re-verify re-reads the purchase from Google, so it
+      // carries the test-purchase flag too. Omitting it here would silently
+      // "launder" a sandbox grant into production on the first renewal event.
+      environment: info.environment,
     });
     await deps.applySubscriptionUpdate(user.userId, update);
     await deps.recordEvent(

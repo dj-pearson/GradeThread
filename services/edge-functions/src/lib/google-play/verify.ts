@@ -27,6 +27,10 @@ import {
   appstoreSubscriptionActive,
   decideAppstorePrecedence,
 } from "../appstore/precedence.ts";
+import {
+  type BillingEnvironment,
+  resolvePlayEnvironment,
+} from "../billing-environment.ts";
 
 const ANDROIDPUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher";
 
@@ -76,6 +80,17 @@ export interface PlayPurchaseInfo {
    * rather than as a mismatch.
    */
   productIds: string[];
+  /**
+   * US-2286: whether Google says this was a licence-tester purchase.
+   *
+   * Both parsers were dropping the signal at parse time — the structural views
+   * simply did not declare the field, so a test purchase arrived indexed as an
+   * ordinary one and granted a real plan that revenue reporting then counted.
+   * Like the Apple half this MARKS rather than refuses: a Play licence tester
+   * is a legitimate pre-release flow and refusing it would break the same
+   * review cycle Apple's sandbox fallback exists for.
+   */
+  environment: BillingEnvironment;
 }
 
 // ── Response parsing (pure, exported for tests) ─────────────────────
@@ -91,6 +106,10 @@ export function parseSubscriptionV2(json: unknown): PlayPurchaseInfo {
     subscriptionState?: string;
     latestOrderId?: string;
     externalAccountIdentifiers?: { obfuscatedExternalAccountId?: string };
+    // US-2286: present (as an empty object) only when a licence tester made the
+    // purchase. Absent on a real one — so its PRESENCE is the signal and the
+    // field must be declared here or the whole signal is lost at parse.
+    testPurchase?: unknown;
     lineItems?: Array<{
       productId?: string;
       expiryTime?: string;
@@ -113,6 +132,7 @@ export function parseSubscriptionV2(json: unknown): PlayPurchaseInfo {
     productIds: (o.lineItems ?? [])
       .map((l) => l.productId?.trim())
       .filter((p): p is string => Boolean(p)),
+    environment: resolvePlayEnvironment({ testPurchase: o.testPurchase }),
   };
 }
 
@@ -123,6 +143,9 @@ export function parseProductPurchase(json: unknown): PlayPurchaseInfo {
     purchaseState?: number;
     orderId?: string;
     obfuscatedExternalAccountId?: string;
+    // US-2286: 0 = Test, 1 = Promo, 2 = Rewarded. ABSENT on an ordinary paid
+    // purchase, which is why only an explicit 0 classifies as sandbox.
+    purchaseType?: number;
   };
   return {
     valid: o.purchaseState === 0,
@@ -133,6 +156,7 @@ export function parseProductPurchase(json: unknown): PlayPurchaseInfo {
     // Empty by design: this response is fetched from a URL with the productId in
     // the path, so Google has already bound the token to the product.
     productIds: [],
+    environment: resolvePlayEnvironment({ purchaseType: o.purchaseType ?? null }),
   };
 }
 
@@ -249,6 +273,9 @@ export interface GooglePlayDeps {
     purchaseToken: string,
     credits: number,
     orderId: string | null,
+    /** US-2286: credits bought by a licence tester are as unreal as a tester's
+     * subscription, so the ledger row carries the marker too. */
+    environment: BillingEnvironment,
   ): Promise<boolean>;
   grantCredits(userId: string, credits: number, purchaseToken: string): Promise<number | null>;
   recordEvent(
@@ -342,6 +369,9 @@ export async function processGooglePlayPurchase(
       expiryMillis: info.expiryMillis,
       autoRenewing: info.autoRenewing,
       now,
+      // US-2286: carried from the verified response, so a licence-tester
+      // purchase is marked rather than counted as revenue.
+      environment: info.environment,
     });
     await deps.applySubscription(ctx.userId, update);
     await deps.recordEvent(
@@ -381,6 +411,7 @@ export async function processGooglePlayPurchase(
     ctx.purchaseToken,
     mapping.credits,
     info.orderId,
+    info.environment,
   );
   return {
     ok: true,

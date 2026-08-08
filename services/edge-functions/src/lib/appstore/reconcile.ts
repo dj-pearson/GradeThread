@@ -5,6 +5,7 @@
 import type { AppstoreAction } from "./notifications.ts";
 import type { BillingInterval, FlipdeskPlan, ProductMapping } from "./products.ts";
 import type { DecodedRenewalLite, DecodedTransactionLite } from "./types.ts";
+import type { BillingEnvironment } from "../billing-environment.ts";
 
 export interface UsersBillingUpdate {
   flipdesk_plan: FlipdeskPlan | "free";
@@ -13,6 +14,13 @@ export interface UsersBillingUpdate {
   flipdesk_period_end: string | null;
   flipdesk_cancel_at_period_end: boolean;
   billing_source: "appstore";
+  /**
+   * US-2286: which store environment produced this entitlement. Apple's
+   * Production→Sandbox verifier fallback is deliberate (App Review always buys
+   * in the sandbox), so the fix is to MARK the grant, not refuse it — a sandbox
+   * grant was otherwise byte-identical on the users row to a paid one.
+   */
+  billing_environment: BillingEnvironment;
   appstore_original_transaction_id: string;
   appstore_product_id: string;
 }
@@ -57,6 +65,12 @@ export function computeUserUpdate(params: {
     flipdesk_period_end: periodEnd,
     flipdesk_cancel_at_period_end: lapsed ? false : cancelAtPeriodEnd,
     billing_source: "appstore",
+    // Defaults to sandbox, not production, when the verify boundary did not
+    // supply one. An unmarked grant is a grant we cannot vouch for, and the
+    // cost of the two mistakes is not symmetric: wrongly excluding one row from
+    // a revenue report is visible and fixable, wrongly booking a free
+    // entitlement as revenue is neither.
+    billing_environment: txn.verifiedEnvironment ?? "sandbox",
     appstore_original_transaction_id: txn.originalTransactionId,
     appstore_product_id: txn.productId,
   };
@@ -72,6 +86,9 @@ export interface BuyerUsersBillingUpdate {
   buyer_period_end: string | null;
   buyer_cancel_at_period_end: boolean;
   buyer_billing_source: "appstore";
+  /** US-2286, buyer half. The seller and buyer families are separate column
+   * sets and a marker on only one of them leaves the other unaccountable. */
+  buyer_billing_environment: BillingEnvironment;
   buyer_appstore_original_transaction_id: string;
   buyer_appstore_product_id: string;
 }
@@ -104,6 +121,7 @@ export function computeBuyerUserUpdate(params: {
     buyer_period_end: periodEnd,
     buyer_cancel_at_period_end: lapsed ? false : cancelAtPeriodEnd,
     buyer_billing_source: "appstore",
+    buyer_billing_environment: txn.verifiedEnvironment ?? "sandbox",
     buyer_appstore_original_transaction_id: txn.originalTransactionId,
     buyer_appstore_product_id: txn.productId,
   };

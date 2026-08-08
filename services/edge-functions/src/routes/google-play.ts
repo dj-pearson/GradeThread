@@ -57,7 +57,7 @@ const deps: GooglePlayDeps = {
     if (error) throw new Error(`google play subscription update failed: ${error.message}`);
   },
 
-  claimConsumable: async (userId, productId, purchaseToken, credits, orderId) => {
+  claimConsumable: async (userId, productId, purchaseToken, credits, orderId, environment) => {
     // INSERT ... ON CONFLICT (purchase_token) DO NOTHING via PostgREST upsert
     // with ignoreDuplicates: a returned row means WE claimed it (own the grant).
     const { data, error } = await supabaseAdmin
@@ -69,6 +69,7 @@ const deps: GooglePlayDeps = {
           product_id: productId,
           credits,
           order_id: orderId,
+          environment,
         },
         { onConflict: "purchase_token", ignoreDuplicates: true },
       )

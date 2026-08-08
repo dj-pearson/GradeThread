@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Seventeen migrations are held: 00542 through 00558.** Everything below them is
+**Eighteen migrations are held: 00542 through 00559.** Everything below them is
 applied. See the note under 00528 for how that is measured and why the
 measurement, not this file, is the authority whenever the two disagree.
 
@@ -9,6 +9,50 @@ the same backlog and landed its own 00539, 00540 and 00541, and the owner applie
 all three to prod on 2026-08-08. An applied number is immutable, so the three the
 hub burned stay with the hub and the sixteen here moved up by three. Nothing in
 them changed except the number — same SQL, same order, same risk.
+
+## ⏳ HELD: 00559_billing_environment_marker.sql (US-2286 — mark which store environment paid)
+
+**Apply order.** Last, after 00558. It depends on 00558 only in the loose sense
+that both touch `public.users`; there is no ordering hazard between them.
+
+**Risk: LOW.** Three nullable columns with no default and no backfill, two
+CHECK constraints, two partial indexes on the sandbox side only. Nothing is
+rewritten and no existing row changes. The columns are additive, so old edge
+code that never mentions them keeps working unchanged.
+
+**Apply BEFORE the edge deploy.** This is the strict direction. The new edge
+writes `billing_environment` / `buyer_billing_environment` on every Apple and
+Play entitlement grant, and `environment` on the Play consumable ledger. If the
+edge deploys first, every in-app-purchase grant fails with PGRST204 ("column
+does not exist") and paying customers get nothing. The frontend does not read
+these columns, so a Cloudflare Pages auto-deploy is harmless on its own.
+
+**What it does.** Apple's verifier falls back Production → Sandbox, and that
+fallback is correct and stays: App Review always exercises IAP in the sandbox,
+so refusing Sandbox JWS fails review. The defect was that the resulting grant
+carried no marker — a sandbox-granted Business Yearly was byte-identical on the
+users row to one somebody paid for, so it was indistinguishable in revenue
+reporting, plan-distribution metrics, the expiry sweeps and any manual "why is
+this account on Pro" check. Google has the same gap through licence-tester
+purchases, whose signal both Play response parsers were dropping at parse time.
+
+Nullable with three states on purpose: `production`, `sandbox`, and NULL
+meaning "granted before the marker existed". `countsAsRevenue()` treats NULL as
+revenue, because defaulting the past to sandbox would zero out historical MRR
+the first time a revenue query used the column.
+
+**Deliberately NOT included.** `appstore_processed_transactions` is written
+only through the SECURITY DEFINER RPC `grant_appstore_credits`, so stamping it
+needs a signature change and is its own migration. The revenue-query exclusion
+(`revenue_dashboard`, `admin_revenue_metrics`) is also separate — you cannot
+exclude what you have not marked, so the marker ships first.
+
+**Operator follow-up (AC5, not shippable from here):** audit prod for existing
+entitlements granted from a sandbox purchase. They are NULL after this
+migration, so they need the store-side purchase history to identify.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — new columns, so
+PostgREST must re-read or every write to them 404s at the schema cache.
 
 ## ⏳ HELD: 00558_billing_source_googleplay.sql (US-2287 — Play subscriptions are being rejected)
 

@@ -10,6 +10,7 @@
 // subscription id with base plans, so the mapping stays deterministic from the
 // reported product id alone.
 
+import type { BillingEnvironment } from "../billing-environment.ts";
 import type {
   BillingInterval,
   FlipdeskPlan,
@@ -75,6 +76,8 @@ export interface GoogleUsersBillingUpdate {
   flipdesk_period_end: string | null;
   flipdesk_cancel_at_period_end: boolean;
   billing_source: "googleplay";
+  /** US-2286: 'sandbox' when Google flagged a licence-tester purchase. */
+  billing_environment: BillingEnvironment;
   google_purchase_token: string;
   google_product_id: string;
 }
@@ -92,6 +95,9 @@ export function computeGoogleUserUpdate(params: {
   expiryMillis: number | null;
   autoRenewing: boolean;
   now: number;
+  /** Omitted by callers that predate US-2286; absent is treated as sandbox,
+   * matching the App Store half — an unmarked grant is not vouched-for. */
+  environment?: BillingEnvironment;
 }): GoogleUsersBillingUpdate {
   const { mapping, productId, purchaseToken, expiryMillis, autoRenewing, now } = params;
   const expired = expiryMillis != null && expiryMillis <= now;
@@ -102,6 +108,7 @@ export function computeGoogleUserUpdate(params: {
     flipdesk_period_end: expiryMillis != null ? new Date(expiryMillis).toISOString() : null,
     flipdesk_cancel_at_period_end: !autoRenewing,
     billing_source: "googleplay",
+    billing_environment: params.environment ?? "sandbox",
     google_purchase_token: purchaseToken,
     google_product_id: productId,
   };
@@ -117,6 +124,8 @@ export interface GoogleBuyerUsersBillingUpdate {
   buyer_period_end: string | null;
   buyer_cancel_at_period_end: boolean;
   buyer_billing_source: "googleplay";
+  /** US-2286, buyer half — see GoogleUsersBillingUpdate.billing_environment. */
+  buyer_billing_environment: BillingEnvironment;
   buyer_google_purchase_token: string;
   buyer_google_product_id: string;
 }
@@ -128,6 +137,7 @@ export function computeGoogleBuyerUserUpdate(params: {
   expiryMillis: number | null;
   autoRenewing: boolean;
   now: number;
+  environment?: BillingEnvironment;
 }): GoogleBuyerUsersBillingUpdate {
   const { mapping, productId, purchaseToken, expiryMillis, autoRenewing, now } = params;
   const expired = expiryMillis != null && expiryMillis <= now;
@@ -138,6 +148,7 @@ export function computeGoogleBuyerUserUpdate(params: {
     buyer_period_end: expiryMillis != null ? new Date(expiryMillis).toISOString() : null,
     buyer_cancel_at_period_end: !autoRenewing,
     buyer_billing_source: "googleplay",
+    buyer_billing_environment: params.environment ?? "sandbox",
     buyer_google_purchase_token: purchaseToken,
     buyer_google_product_id: productId,
   };
