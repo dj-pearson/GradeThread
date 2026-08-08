@@ -10944,20 +10944,6 @@
       "notes": "[P3][IA/Structural] SHIPPED 2026-06-08. sidebar.tsx already had a NavGroup structure with optional titles but the core and account groups were UNTITLED (reading as one flat list). Titled all three sections now: 'Grading' (Overview, What's it worth?, Submissions, Inventory, Finances, Price Suggestions), the existing 'FlipDesk', and 'Account' (Team, Refer a friend, Billing, API Keys, Settings) — which disambiguates the duplicate 'Inventory' labels by section (Grading>Inventory vs FlipDesk>Inventory) ahead of the US-740 consolidation. Made the titled sections COLLAPSIBLE to tame the 14-item FlipDesk wall: each title is a button (aria-expanded, ChevronDown that rotates) toggling its items; state persists to localStorage ('gt-sidebar-collapsed'). Crucially, a collapsed section is FORCE-OPENED whenever it contains the active route (groupHasActiveRoute via useLocation), so the current page's nav item is never hidden, and active-state highlighting is unchanged. SidebarNav is shared by the desktop <aside> and the mobile <Sheet>, so it works in both. tsc -b + eslint + vitest (287) green. Pairs with [[US-740]]/[[US-741]] (labels will track those routes as they land)."
     },
     {
-      "id": "US-744",
-      "title": "End-to-end mobile/PWA story: snap → grade → list, offline beyond intake",
-      "description": "As a mobile user, I want to capture a garment, grade it, and start a listing from my phone — with the PWA install offered wherever I am and offline support beyond just the intake form — so the mobile experience is a real workflow, not a FlipDesk-only afterthought.",
-      "acceptanceCriteria": [
-        "The PWA install affordance (pwa-install-banner.tsx) is offered outside FlipDesk too (e.g. on snap.tsx / dashboard on mobile) with copy that fits the context",
-        "snap.tsx connects into the pipeline: a captured item can flow snap -> grade -> create FlipDesk item, instead of being an isolated 'what's it worth' page",
-        "Offline support (currently use-offline-intake.ts for intake only) extends to viewing submission status and certificates while offline; the service worker caches those routes",
-        "The mobile capture path reuses the upload validation/EXIF-strip rules (US-276); build + eslint clean"
-      ],
-      "priority": 744,
-      "passes": true,
-      "notes": "[P3][Cohesion/Mobile] DEFERRED 2026-06-08 — needs real device/PWA QA, and the audit was partly stale. AC2 ALREADY EXISTS: snap.tsx already has a 'List it with FlipDesk' CTA (-> /dashboard/flipdesk) alongside 'Get a certified grade' (-> /dashboard/submissions/new), so it's not isolated from the pipeline. The rest is genuinely PWA/service-worker/offline work that can't be verified headless: (AC1) pwa-install-banner.tsx is mounted only in flipdesk/intake.tsx and calls ensureServiceWorker() — the SW is DELIBERATELY scoped to FlipDesk intake (vite.config 'service worker not auto-injected app-wide'; only the banner + use-offline-intake register it), so surfacing the install affordance app-wide changes SW registration scope and offline behavior and must be QA'd on a real device + as an installed PWA; (AC3) caching submission-status/certificate routes for offline is a Workbox/SW change whose correctness (cache invalidation, stale auth) only shows on a device. RECOMMENDATION: do this as a focused mobile/PWA session with an actual phone + installed-PWA testing — generalize the banner copy + mount point with intentional SW-scope changes, add Workbox runtimeCaching for the read-only submission/cert routes, and (optionally) a snap-photo -> FlipDesk-intake handoff that prefills the captured image (reusing US-276 validateImageUpload/stripImageMetadata). NOT shipping blind. Depends on [[US-736]]."
-    },
-    {
       "id": "US-745",
       "title": "iOS cross-marketplace Listing Kit (copy/share for Poshmark, Mercari, Grailed, Depop)",
       "description": "As a reseller on my phone, I want the per-platform listing fields for the no-API marketplaces so I can copy or share them straight into Poshmark/Mercari/Grailed/Depop, instead of being limited to eBay like the app is today.",
