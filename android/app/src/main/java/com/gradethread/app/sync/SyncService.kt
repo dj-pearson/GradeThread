@@ -13,6 +13,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -152,6 +153,128 @@ class SyncService @Inject constructor(
         order("updated_at", Order.ASCENDING)
         range(offset.toLong(), (offset + SyncPull.PAGE_SIZE - 1).toLong())
     }.decodeList<JsonObject>()
+
+    /**
+     * US-2207: the surviving server ids for one table, or null when the set
+     * cannot be TRUSTED as complete.
+     *
+     * Ported from the iOS `fetchServerIds` contract, and the null cases are the
+     * whole design — [DeleteReconciler] PRUNES against whatever this returns,
+     * so an incomplete set does not degrade the feature, it deletes live rows.
+     *
+     * Three ways to be incomplete, all returning null:
+     *
+     *  - **signed out / scope unresolved.** An unscoped id-scan goes out
+     *    unauthenticated, RLS answers with zero rows, and zero rows looks
+     *    exactly like "this account has nothing left" — which would prune the
+     *    entire local mirror. Costing one reconcile interval is the cheap side
+     *    of that trade (iOS learned this as US-2337);
+     *  - **any error.** Offline, a 500, a decode failure — all of them mean we
+     *    did not see the server's set;
+     *  - **the row cap.** PostgREST silently truncates a read at `db-max-rows`
+     *    and reports it only in a `Content-Range` header the client does not
+     *    surface, so pagination has to prove completeness by reading a SHORT
+     *    page. If the scan is still returning full pages at
+     *    [MAX_ROWS_PER_PASS], the set holds only the lowest ids and pruning
+     *    against it would delete every local row above the cap — which the next
+     *    delta pull re-fetches and the next reconcile prunes again. Rows would
+     *    visibly come and go for large accounts.
+     *
+     * Ordered by `id` so successive pages do not overlap or skip; the pull's
+     * `updated_at` ordering is wrong here because a row updated mid-scan would
+     * move between pages.
+     */
+    suspend fun survivingIds(table: DeleteReconciler.Table): Set<String>? =
+        withContext(Dispatchers.IO) {
+            val owner = ownerId() ?: return@withContext null
+            val ids = mutableSetOf<String>()
+            var offset = 0
+            try {
+                while (true) {
+                    val page = client.from(table.remote).select(
+                        // listings / item_photos carry no user_id — RLS scopes
+                        // them through the parent item, so the filter below is
+                        // applied only where the column exists.
+                        Columns.raw("id"),
+                    ) {
+                        filter { if (table.userScoped) eq("user_id", owner) }
+                        order("id", Order.ASCENDING)
+                        range(offset.toLong(), (offset + ID_PAGE_SIZE - 1).toLong())
+                    }.decodeList<RemoteId>()
+
+                    page.forEach { ids.add(it.id) }
+                    offset += page.size
+                    when (idScanStep(received = page.size, scanned = offset)) {
+                        ScanStep.COMPLETE -> return@withContext ids
+                        ScanStep.ABANDON -> return@withContext null
+                        ScanStep.CONTINUE -> Unit
+                    }
+                }
+                @Suppress("UNREACHABLE_CODE")
+                ids
+            } catch (_: Throwable) {
+                null
+            }
+        }
+
+    @Serializable
+    private data class RemoteId(val id: String)
+
+    /** What [survivingIds] does after reading one page of ids. */
+    enum class ScanStep {
+        /** Read another page. */
+        CONTINUE,
+
+        /** Short page — the set is provably complete and safe to prune against. */
+        COMPLETE,
+
+        /** The set cannot be trusted; skip pruning this table entirely. */
+        ABANDON,
+    }
+
+    companion object {
+        /** Ids per id-scan page. Matches the iOS scan and [SyncPull.PAGE_SIZE]. */
+        const val ID_PAGE_SIZE = 500
+
+        /**
+         * Hard ceiling on one reconcile pass. Reaching it means the id set is
+         * truncated, so the pass is ABANDONED rather than trusted — see
+         * [survivingIds].
+         */
+        const val MAX_ROWS_PER_PASS = 50_000
+
+        /**
+         * The pagination decision, pulled out as a pure function because it is
+         * the part that can be catastrophically wrong (US-2207).
+         *
+         * Every branch here is a claim about COMPLETENESS, and the caller
+         * deletes rows on the strength of it:
+         *
+         *  - a SHORT page is the only proof the server has no more ids. Treating
+         *    a full page as the end would silently truncate the set and prune
+         *    every row past it;
+         *  - a full page AT the cap means more rows almost certainly exist, so
+         *    the set holds only the lowest ids. Pruning against it would delete
+         *    every local row above the cap, the next delta pull would re-fetch
+         *    them, and the next reconcile would prune them again — rows visibly
+         *    appearing and disappearing on exactly the largest accounts;
+         *  - **zero rows is COMPLETE, not empty-and-suspicious.** An account
+         *    really can have deleted everything. The dangerous version of an
+         *    empty set — an unscoped, unauthenticated read that RLS answers with
+         *    nothing — is refused earlier, by resolving the owner before the
+         *    first request rather than by second-guessing the count here.
+         */
+        fun idScanStep(
+            received: Int,
+            scanned: Int,
+            pageSize: Int = ID_PAGE_SIZE,
+            cap: Int = MAX_ROWS_PER_PASS,
+        ): ScanStep = when {
+            received < pageSize -> ScanStep.COMPLETE
+            scanned >= cap -> ScanStep.ABANDON
+            else -> ScanStep.CONTINUE
+        }
+    }
 
     private suspend fun photoPage(
         owner: String,

@@ -25,19 +25,33 @@ import javax.inject.Singleton
  *  - flushing first means a locally-created row reaches the server BEFORE the
  *    pull that would otherwise not find it. Pull-then-flush leaves a window in
  *    which the server's view of an item is older than the device's;
- *  - it is also the ordering [DeleteReconciler] will need when it finally gets a
- *    caller (it has none today — see the story filed for that): reconciling
- *    against a half-flushed queue would prune rows the server has simply not
- *    been told about yet.
+ *  - it is also the ordering [DeleteReconciler] needs, and since US-2207 it has
+ *    a caller: reconciling against a half-flushed queue would prune rows the
+ *    server has simply not been told about yet.
  *
  * A flush failure never blocks the pull: queued rows are retried by design, and
  * refusing to refresh because an unrelated edit can't send would be a strictly
  * worse outcome for the seller.
+ *
+ * ## Why reconcile runs LAST (US-2207)
+ *
+ * A delta pull cannot see a delete: it asks for rows changed since a cursor, and
+ * a deleted row has no row to return. So a pull only ever ADDS and UPDATES, and
+ * without the step below an item deleted on the web or on iOS stays on this
+ * device forever — the seller works from an inventory containing things they
+ * already got rid of, and the Money totals count them.
+ *
+ * flush → pull → reconcile is the only safe order. Flush first so nothing is
+ * pruned for the crime of not having been uploaded yet; pull before reconcile so
+ * the local mirror is as current as it is going to get; reconcile last because
+ * it is the only step that DELETES, and a step that deletes should run on the
+ * freshest state available.
  */
 @Singleton
 class SyncTrigger @Inject constructor(
     private val service: SyncService,
     private val replayer: MutationReplayer,
+    private val reconciler: DeleteReconciler,
     @dagger.hilt.android.qualifiers.ApplicationContext
     private val context: android.content.Context,
     private val db: com.gradethread.app.sync.db.GradeThreadDb,
@@ -162,7 +176,41 @@ class SyncTrigger @Inject constructor(
                 nowMs = System.currentTimeMillis(),
             )
         }.onFailure { Telemetry.breadcrumb("widget publish failed: ${it.message}", "widget") }
+        reconcileDeletes()
         return outcome
+    }
+
+    /**
+     * US-2207: prune rows deleted on another client.
+     *
+     * Runs after every pull, but does its own throttling ([DeleteReconciler]
+     * holds a ~15-minute window in memory), so foreground churn does not turn
+     * into five id-scans a minute. The reconciler also declines to advance that
+     * window on a failed pass, so an offline attempt retries on the next pull
+     * rather than waiting the interval out.
+     *
+     * Wrapped, for the same reason the widget publish is: this is a maintenance
+     * step AFTER the pull has already succeeded and been reported. A failure
+     * here must not turn a good refresh into a failed one — the seller's data
+     * is on screen and correct, it merely still contains some rows it should
+     * not. The next pull tries again.
+     *
+     * Deliberately NOT gated on `outcome.hasMore` or `outcome.failures`. Pruning
+     * decides from the SERVER's id set, not from the local mirror, so a pull
+     * that fetched only part of its pages leaves the mirror short of rows —
+     * never holding extra ones that a complete pull would have justified. Adding
+     * a gate would read as caution and would only postpone correct deletions on
+     * exactly the large accounts that paginate.
+     */
+    private suspend fun reconcileDeletes() {
+        val outcome = runCatching { reconciler.reconcileIfDue(service::survivingIds) }
+            .onFailure { Telemetry.breadcrumb("Delete reconcile failed: ${it.message}", "sync") }
+            .getOrNull()
+            ?: return
+        // Only report a pass that ran. A throttled no-op on every foreground
+        // would drown the signal, the same rule flushQueue follows.
+        if (!outcome.ran) return
+        Telemetry.event("android_delete_reconcile", mapOf("pruned" to outcome.pruned))
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.gradethread.app.platform.di
 
 import android.content.Context
+import com.gradethread.app.sync.DeleteReconciler
 import com.gradethread.app.sync.OfflineMutationQueue
 import com.gradethread.app.sync.RealtimeService
 import com.gradethread.app.sync.SyncMerger
@@ -41,6 +42,21 @@ object DatabaseModule {
     @Singleton
     fun provideMutationQueue(db: GradeThreadDb): OfflineMutationQueue =
         OfflineMutationQueue(db)
+
+    /**
+     * US-2207: delete reconciliation, over that same one database.
+     *
+     * Singleton because the ~15-minute throttle lives in the instance. A
+     * per-caller reconciler would carry a fresh `lastReconcileAt`, so every
+     * trigger would run a full five-table id-scan and the throttle would be
+     * decorative — which is a real cost on a large account, not just noise.
+     *
+     * Provided here rather than annotated with `@Inject` on the class so its
+     * injectable clock default stays a plain constructor default for the tests.
+     */
+    @Provides
+    @Singleton
+    fun provideDeleteReconciler(db: GradeThreadDb): DeleteReconciler = DeleteReconciler(db)
 
     /** US-2367: the merge policy realtime events flow through. */
     @Provides
