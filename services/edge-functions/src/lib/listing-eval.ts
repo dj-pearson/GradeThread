@@ -10,7 +10,8 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { getDefaultModel } from "./ai-config.ts";
-import { generateListingFields } from "./ai-listing.ts";
+import { generateListingFields, LISTING_GEN_TOOL } from "./ai-listing.ts";
+import { hashPrompt } from "./ai-usage.ts";
 import type { EvalRunResult, EvalCaseResult, EvalTagResult } from "./grading-eval.ts";
 
 // Activation thresholds for the listing-gen eval. Each one a hard floor:
@@ -309,5 +310,13 @@ export async function runListingEval(
     thresholds,
     per_case: perCase,
     per_tag: {},
+    // US-2432: the listing gate has the same blind spot as the grading one, and
+    // arguably a sharper version of it. A candidate's prompt_text overrides the
+    // SYSTEM prompt; the output shape is decided by LISTING_GEN_TOOL, a
+    // tool-forced schema that is compiled in and identical on both legs. Since
+    // the thresholds this gate scores — title length, required-aspect coverage,
+    // price sanity — all read fields THAT SCHEMA defines, a change to it moves
+    // every score without touching the version being certified.
+    unversioned_surface: { hash: hashPrompt(LISTING_GEN_TOOL), covered: false },
   };
 }

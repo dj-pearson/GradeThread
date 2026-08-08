@@ -11,6 +11,8 @@ code_refs:
   - services/edge-functions/src/lib/tag-ground-truth.ts
   - services/edge-functions/src/lib/tag-era.ts
   - services/edge-functions/src/lib/grading-size.ts
+  - services/edge-functions/src/lib/grading-eval.ts
+  - services/edge-functions/src/lib/grading-shadow.ts
 reviewed: 2026-08-08
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
@@ -165,6 +167,30 @@ So editing a user-message block changes live grading on the next deploy with no
 gate available. That is why every one of them is **env-flag gated and additive**:
 the flag is the only substitute, and byte-identity when off is what makes it a
 real one.
+
+### What a flag carries, and what it does not
+
+Worth stating flatly, because three flags in it is easy to read one as a gate:
+
+| | Flag | Prompt version |
+|---|---|---|
+| Reversible without a deploy | **yes** | yes |
+| Cannot reach sellers unless someone decides | **yes** | yes |
+| Measured against a golden set before it serves | **no** | yes |
+| Compared on live traffic before it serves | **no** | composite only |
+| Identifiable afterwards on a grade record | **no** | yes |
+
+A flag is a **switch**, not a gate. It answers "can we turn this off again?" and
+says nothing about whether turning it on was a good idea. Treating one as
+evidence is the mistake to avoid — and it is a comfortable mistake, because a
+flag-gated rollout has the shape of a careful one.
+
+The fingerprint is the partial remedy: `unversionedPromptSurfaceHash()`
+(`ai-grading.ts`) digests the assembled user message, and every eval run reports
+it as `unversioned_surface: { hash, covered: false }`. It cannot make a run
+safe — it makes two runs **comparable or not**. Runs with different hashes
+measured different prompts, so a promotion decision spanning that boundary is
+reading noise, however close the MAE looks.
 
 > [!warning] Attribution is thinner than it looks
 > `prompt_version` is stamped by the COMPOSITE stage only —

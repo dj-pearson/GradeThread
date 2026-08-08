@@ -18,7 +18,7 @@ import {
   type SlotPromptRow,
   type SlotResolution,
 } from "./canary-rollout.ts";
-import { toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
+import { hashPrompt, toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
 import { getActiveExemplarBlock } from "./few-shot-exemplars.ts";
 import {
   fabricCriteriaBlock,
@@ -2058,6 +2058,62 @@ export function promptVersionSuffix(
     (blocks.visual ? "+visual" : "") +
     (blocks.tag ? "+tag" : "") +
     (blocks.categoryV2 ? "+cat2" : "");
+}
+
+/**
+ * A fingerprint of the prompt surface NO version string covers (US-2432).
+ *
+ * `resolveActivePrompt` versions the SYSTEM prompt. Everything assembled into
+ * the USER message — the garment-type and category criteria, the response
+ * schema and Rules block, the factor-weights line, the fabric criteria — is
+ * outside it. No `ai_prompt_versions` row can override it, no canary can vary
+ * it, and `runEval` supplies the same compiled text to BOTH legs of the
+ * comparison it is meant to be measured by.
+ *
+ * That is the problem this hash exists to make VISIBLE rather than to solve.
+ * Two eval runs whose surface hashes differ are not comparable, however alike
+ * their MAE looks — one measured a different prompt. A promotion decision made
+ * across that boundary is reading noise.
+ *
+ * The probes are FIXED inputs, so the hash moves if and only if the assembled
+ * text moves. `categoryCriteriaV2Enabled()` is read live rather than pinned:
+ * flipping the gate genuinely changes the surface, and a hash that hid that
+ * would defeat the point.
+ */
+export function unversionedPromptSurface(): string {
+  // One probe per garment_type so every GARMENT_TYPE_CRITERIA entry is covered,
+  // and one per category so every criteria entry is — including the gated ones,
+  // whose presence depends on the flag.
+  const types = ["tops", "bottoms", "outerwear", "dresses", "footwear", "accessories"];
+  const categories = [
+    ...Object.keys(GARMENT_CATEGORY_CRITERIA),
+    ...Object.keys(GARMENT_CATEGORY_CRITERIA_V2),
+  ].sort();
+
+  const perImage = [
+    ...types.map((t) => buildUserPrompt("front", t, "", [], "")),
+    ...categories.map((c) => buildUserPrompt("front", "tops", c, [], "")),
+  ];
+
+  // The composite half: the response schema, the Rules block and the
+  // factor-weights sentence all live in this string and are equally unversioned.
+  const composite = buildCompositeUserPrompt(
+    [],
+    {
+      garment_type: "tops",
+      garment_category: "t-shirt",
+      brand: null,
+      title: "",
+      description: null,
+    },
+  );
+
+  return [...perImage, composite].join("\n--\n");
+}
+
+/** Stable 8-hex digest of {@link unversionedPromptSurface}. */
+export function unversionedPromptSurfaceHash(): string {
+  return hashPrompt(unversionedPromptSurface());
 }
 
 export interface SettledImage {

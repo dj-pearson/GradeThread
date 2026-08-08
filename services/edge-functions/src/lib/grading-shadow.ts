@@ -13,6 +13,28 @@
 // The decision math (sampling, agreement, delta, tags, summary) is pure and
 // unit-tested in grading-shadow_test.ts; the orchestrator below is thin and
 // defensive (it must never throw into the pipeline).
+//
+// ⚠ THERE IS NO PER-IMAGE SHADOW PATH, AND THAT IS A DELIBERATE COST DECISION —
+// not an oversight, though it has read as one (US-2432).
+//
+// The candidate query below filters `.eq("stage", "composite")`. A per-image
+// shadow could not reuse anything: it would re-issue a VISION call per image
+// per candidate, so a 6-photo submission with two candidates costs 12 extra
+// vision calls instead of 2 cheap text ones. At that price it stops being
+// something you leave running on live traffic, which is the only property that
+// makes shadow useful — evidence from real garments rather than the golden set.
+//
+// What the absence COSTS is worth naming so nobody rediscovers it the hard way:
+// a per-image prompt change has no live-traffic evidence path at all. It can be
+// eval-gated against the golden set and canaried, but never shadow-compared.
+// And a change to the per-image USER message — the category and type criteria —
+// cannot even be eval-gated, because runEval supplies the same compiled text to
+// both legs; see unversionedPromptSurface() in ai-grading.ts for the
+// fingerprint that at least makes that visible.
+//
+// If per-image shadow is ever built, sample it FAR harder than the composite
+// path (a single-digit percentage of the composite rate) or the vision spend
+// will land before anyone reads the first comparison.
 
 import { supabaseAdmin } from "./supabase.ts";
 import {

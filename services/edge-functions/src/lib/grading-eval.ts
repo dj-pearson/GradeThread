@@ -8,6 +8,7 @@ import {
   invalidatePromptCache,
   type PerImageAnalysis,
   type ResolvedPrompt,
+  unversionedPromptSurfaceHash,
 } from "./ai-grading.ts";
 import { isAllowedGradingModel, servingModelForStage } from "./ai-config.ts";
 import { runListingEval } from "./listing-eval.ts";
@@ -85,6 +86,22 @@ export interface EvalRunResult {
   thresholds: { max_mae: number; min_agreement: number };
   per_case: EvalCaseResult[];
   per_tag: Record<string, EvalTagResult>;
+  /**
+   * US-2432: what this run did NOT test.
+   *
+   * A candidate's `prompt_text` overrides the SYSTEM prompt for its stage. The
+   * USER message — garment-type and category criteria, the response schema, the
+   * Rules block, the factor-weights line, the fabric criteria — is compiled into
+   * the binary and is therefore IDENTICAL on both legs of the comparison. So a
+   * pass certifies the system prompt against a user-message surface it never
+   * varied and cannot report.
+   *
+   * `hash` fingerprints that surface. Two runs with different hashes measured
+   * different prompts and must not be compared, however close their MAE looks.
+   * `covered` is a constant `false` on purpose: it is the honest answer, and it
+   * stops being a constant only when US-2432 gives the user message a real seam.
+   */
+  unversioned_surface: { hash: string; covered: false };
 }
 
 // Chunked base64 (mirrors grading-pipeline.ts uint8ToBase64).
@@ -328,6 +345,19 @@ export async function runEval(
     mae <= thresholds.max_mae &&
     agreementRate >= thresholds.min_agreement;
 
+  // US-2432: state the blind spot out loud, next to the verdict it qualifies.
+  //
+  // Logged unconditionally rather than only on a pass, because the number a
+  // reader most wants to compare is a FAILING run against the passing one that
+  // preceded it — and if the surface moved between them, the delta they are
+  // about to attribute to the prompt is not the prompt.
+  const surfaceHash = unversionedPromptSurfaceHash();
+  console.log(
+    `[grading-eval] run ${v.version_name} (${v.stage}) — unversioned user-message ` +
+      `surface ${surfaceHash}, NOT under test. Compare only against runs sharing ` +
+      `this hash; a different one measured a different prompt.`,
+  );
+
   // Persist the run.
   const { data: runRow, error: runError } = await supabaseAdmin
     .from("grading_eval_runs")
@@ -376,6 +406,7 @@ export async function runEval(
     thresholds,
     per_case: perCase,
     per_tag: perTag,
+    unversioned_surface: { hash: surfaceHash, covered: false },
   };
 }
 

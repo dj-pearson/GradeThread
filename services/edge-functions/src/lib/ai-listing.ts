@@ -478,7 +478,7 @@ const CODE_PROMPT_TEXT: Record<string, string> = {
   [LISTING_GEN_PROMPT_VERSION_V2]: LISTING_GEN_SYSTEM_PROMPT_V2,
 };
 
-const LISTING_GEN_TOOL: Anthropic.Tool = {
+export const LISTING_GEN_TOOL: Anthropic.Tool = {
   name: "create_ebay_listing",
   description: "Return a complete, publish-ready eBay listing for the item.",
   input_schema: {
