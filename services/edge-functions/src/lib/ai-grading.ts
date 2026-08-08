@@ -349,6 +349,115 @@ const GARMENT_CATEGORY_CRITERIA: Record<string, string> = {
     "DRESS-SPECIFIC: Some designs use intentional raw edges or distressing; most do not. Treat tears, broken zippers, and embellishment loss as genuine defects.",
 };
 
+// US-2222: the remaining 11 of the 20 GARMENT_CATEGORIES.
+//
+// ⚠ A SEPARATE MAP, AND THAT IS THE POINT. These entries are gated behind
+// GRADING_CATEGORY_CRITERIA_V2 (default OFF) and live apart from the eight
+// above so the shipped-and-serving text is physically untouched by this change.
+// Byte-identity for the covered eight is then a property of the file, not a
+// claim a reviewer has to diff paragraph by paragraph — and the guard in
+// category-criteria_test.ts pins it either way.
+//
+// WHY GATED AT ALL, when the eight above shipped ungated: because this code
+// path CANNOT be gated the normal way, and that is a finding, not a preference.
+// The prompt lifecycle (shadow -> golden-set eval -> canary) covers the SYSTEM
+// prompt only. GARMENT_CATEGORY_CRITERIA is interpolated into the USER message
+// (buildUserPrompt), which no ai_prompt_versions row can override, no shadow
+// run can vary — grading-shadow.ts is composite-stage only and reuses the
+// per-image results verbatim — and no eval can hold constant, since runEval
+// consumes whatever text is compiled into the binary on BOTH legs of its
+// comparison. Nor is the per-image prompt version stamped on a grade at all:
+// PerImageAnalysis carries no version field, so editing this map is invisible
+// to accuracy attribution even after bumping PER_IMAGE_PROMPT_VERSION.
+//
+// An env flag is therefore the only gate available. It buys the two properties
+// the lifecycle would have: the change cannot reach sellers on a deploy nobody
+// decided to make, and it is reversible without one. The structural fix — give
+// the user message a versioned, overridable, shadowable seam — is US-2432.
+const GARMENT_CATEGORY_CRITERIA_V2: Record<string, string> = {
+  shirt:
+    "SHIRT-SPECIFIC: The collar and cuffs wear out first and are what a buyer inspects. Look for fraying along the collar fold and cuff edge, yellowing or grey soiling on the inside collar band and underarms, missing or mismatched buttons, a stretched or puckered placket, and thinning at the elbows. INTENTIONAL and NOT defects: garment-dyed, enzyme-washed and 'lived-in' finishes, deliberate contrast or mismatched buttons, and unfinished raw-edge hems on a designed-that-way shirt. Underarm discoloration is genuine and belongs to odor_cleanliness as well as cosmetic.",
+  blouse:
+    "BLOUSE-SPECIFIC: These are fine wovens — silk, chiffon, rayon, viscose — where the characteristic failure is SEAM SLIPPAGE (the weave pulling apart alongside a seam, leaving a laddered gap) and snags/pulls that catch the light without breaking a thread. Both are genuine and easy to miss. Also check underarm staining, watermarks and rings from spot-cleaning, and deodorant residue. INTENTIONAL and NOT defects: burnout/devoré patterning, deliberate sheer panels, slubs and irregular texture in raw silk or linen, and unfinished rolled hems. A slub is a yarn characteristic, not a pull.",
+  coat:
+    "COAT-SPECIFIC: Wool and heavy outerwear. Genuine defects: pilling at the collar, cuffs and seat, moth holes (small, clustered, irregular — distinct from a single snag), the SHELL SEPARATING FROM THE LINING at the hem or armhole, a failed or sticking main zipper, missing toggles, matted or crushed pile on faux fur, and compressed or migrated insulation on puffers. Down leaking through the shell is a genuine failure, not shedding. INTENTIONAL and NOT defects: boiled or felted wool texture, deliberately distressed leather and shearling, raw-cut melton edges, and visible slub in tweed and Donegal. A coat is expensive to replace, so structural failures (lining, zipper, insulation) outweigh surface marks more than they would on a tee.",
+  skirt:
+    "SKIRT-SPECIFIC: Check the zipper and hook-and-eye, hem integrity, the lining separately from the shell (a torn lining is a genuine defect even when the shell is perfect), pleat retention on pleated styles, and seat shine or bagging on wool. INTENTIONAL and NOT defects: raw or frayed hems on denim skirts, deliberate asymmetric or unfinished edges, and permanent-pleat texture. A pleat that has lost its press is recoverable — treat it as wrinkle_crease, not as damage.",
+
+  // Footwear. GARMENT_TYPE_CRITERIA.footwear already names soles, uppers and
+  // insoles; these add the design-vs-defect calls that footwear specifically
+  // gets wrong, where normal aging reads as damage or vice versa.
+  sneakers:
+    "SNEAKERS-SPECIFIC: Grade the OUTSOLE TREAD and the MIDSOLE first — they carry most of the remaining value. Genuine defects: tread worn smooth (especially at the outer heel), the midsole separating from the upper, collapsed or creased-through midsole foam, heavy toe-box creasing that has cracked the material, heel-counter collapse, a worn-through insole, and interior odor staining. IMPORTANT AGING CALL: midsole yellowing is OXIDATION from age and UV, not soiling — it does not clean off, it affects value, and some releases are sold pre-yellowed as an 'aged' design. Judge whether the yellowing is uniform and matched to the release, or blotchy and localized (genuine). INTENTIONAL and NOT defects: pre-distressed and deliberately scuffed uppers, factory paint splatter, and asymmetric or 'mismatched' colorways.",
+  boots:
+    "BOOTS-SPECIFIC: Genuine defects: heel and outsole wear (check the heel breast and the outer edge, where a walking pattern shows first), sole or welt separation, cracked or dried-out leather, a broken zipper or damaged pull tab, salt staining, and a worn-through or collapsed footbed. PATINA IS NOT DAMAGE: darkening, softening, and a developed sheen on full-grain leather are desirable aging and must not lower a score. Distinguish patina (even, burnished, follows flex lines) from genuine cracking (breaks the grain surface) or dryness (chalky, pale, stiff). INTENTIONAL and NOT defects: oiled, roughout, distressed and 'crazy horse' finishes, deliberate scuffing, and visible hand-stitched welts.",
+  sandals:
+    "SANDALS-SPECIFIC: The FOOTBED is the condition story. A molded cork or leather footbed takes a permanent impression of the previous wearer's foot — that is genuine use, it does not reverse, and it materially affects resale even when nothing is broken. Record it. Other genuine defects: strap stretch or cracking at the fold, a failed buckle or snap, delaminating cork, sole tread worn smooth, and darkened or stained toe/heel contact areas. INTENTIONAL and NOT defects: contoured or textured footbeds as manufactured, distressed leather straps, and raw-edge cut straps.",
+
+  // Non-garment accessories. GARMENT_TYPE_CRITERIA.accessories covers hardware
+  // and stitching; these add per-category calls. ⚠ These four categories are
+  // still scored on the five CLOTHING factors — a rubric gap that is NOT closed
+  // here; see US-2223 (headwear), US-2224 (neckwear/small accessories) and
+  // US-2225 (bags). Better guidance inside the wrong rubric is still an
+  // improvement, but do not read these entries as the categories being solved.
+  hat:
+    "HAT-SPECIFIC: Genuine defects: sweatband staining, hardening or separation (the single most common defect and the one buyers ask about), crown shape loss, a brim that has lost its stiffener or delaminated, fraying at the brim edge, snapback or strap failure, embroidery pulls, and sun-fading heavier on one side. INTENTIONAL and NOT defects: pre-distressed and washed dad caps, deliberately frayed or raw brim edges, pre-curved and flat brims as sold, and unstructured slouch crowns. A soft, unstructured crown is a style, not a collapsed one.",
+  bag:
+    "BAG-SPECIFIC: Genuine defects: abrasion at the four bottom CORNERS and along the base (where every bag fails first), handle or strap darkening from hand oils, cracking at the strap fold, interior lining stains and pen marks, tarnished or flaking hardware plating, cracked edge paint on the trim, a failed zipper pull, and structural slump on a bag designed to stand up. INTENTIONAL and NOT defects: pebbled, grained, distressed and washed leathers, and vachetta or untreated-leather PATINA — vachetta is SUPPOSED to darken to honey with age and a bag that has not is not therefore better. Distinguish patina (even, warm, follows handling) from soiling (blotchy, grey, sits on the surface).",
+  belt:
+    "BELT-SPECIFIC: The FOLD CREASE at the hole the previous owner used is the defining condition signal — it is permanent, it tells you the fit that belt was worn at, and buyers look for it. Record it rather than treating it as a minor mark. Other genuine defects: elongated or torn holes, keeper-loop loss or stretch, buckle plating wear and prong looseness, cracked or peeling edge paint, and delamination on a bonded-leather belt. INTENTIONAL and NOT defects: distressed, oiled, pull-up and burnished finishes, and deliberately raw-cut edges.",
+  scarf:
+    "SCARF-SPECIFIC: Genuine defects: pulls and snags (very common on cashmere and silk and often the only defect present), MOTH HOLES on wool and cashmere — small, irregular, usually clustered, and distinct from a single snag — thinning at the fold line, watermarks or rings on silk, and fringe loss or matting. INTENTIONAL and NOT defects: deliberately raw, unfinished, or hand-knotted fringe, loose open-weave and boucle textures, and hand-rolled silk hems, which look uneven by design.",
+};
+
+// ⚠ "other" is DELIBERATELY absent, and the absence is the decision (US-2222).
+//
+// Every other value in GARMENT_CATEGORIES now has an entry across the two maps.
+// "other" is not a category — it is the default this codebase assigns when it
+// does not know (GARMENT_TYPE_TO_DEFAULT_CATEGORY in src/lib/garment-mapping.ts
+// maps five of six garment types to it), so an "other" item may be any of the
+// twenty. There is no honest category-specific guidance to give, and generic
+// guidance would only restate DESIGN_VS_DEFECT_PRINCIPLE, which every prompt
+// already carries.
+//
+// So the fallback for "other" is the type-level GARMENT_TYPE_CRITERIA plus the
+// core principle, and that is intended rather than an omission. Adding a
+// plausible-sounding "other" block would spend prompt tokens to say nothing and
+// would make the coverage look complete when the real gap is upstream: items
+// land in "other" because intake never captured a category, not because their
+// category has no rules. That gap is a classification problem, not a prompt one.
+
+/**
+ * US-2222 rollout gate for the eleven newly-covered categories (default OFF).
+ *
+ * Deliberately DEFAULT OFF and deliberately fail-CLOSED on an unparseable
+ * value: with it off the assembled prompt is byte-identical to what production
+ * serves today for all twenty categories, so a deploy of this commit changes no
+ * grade. Turning it on is a decision someone makes, records, and can undo
+ * without a deploy — which is the most the architecture currently allows (see
+ * the note above GARMENT_CATEGORY_CRITERIA_V2).
+ */
+export function categoryCriteriaV2Enabled(): boolean {
+  const v = (Deno.env.get("GRADING_CATEGORY_CRITERIA_V2") ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+/**
+ * The category-criteria block for one garment_category, or undefined when the
+ * category has none and should fall through to the type-level criteria.
+ *
+ * The shipped eight always resolve. The eleven added by US-2222 resolve only
+ * while the gate is on. Exported so the guard test can assert both halves
+ * without reaching into module internals.
+ */
+export function categoryCriteriaFor(
+  garmentCategory: string,
+  enabled: boolean = categoryCriteriaV2Enabled(),
+): string | undefined {
+  return GARMENT_CATEGORY_CRITERIA[garmentCategory] ??
+    (enabled ? GARMENT_CATEGORY_CRITERIA_V2[garmentCategory] : undefined);
+}
+
 // The single most important framing change: condition is measured against the
 // garment's AS-MANUFACTURED state, not against an idealized defect-free
 // garment. This block is shared by both grading stages.
@@ -554,7 +663,7 @@ export function buildUserPrompt(
     IMAGE_TYPE_CONTEXT[imageType] || `This is a ${imageType} image of the garment.`;
   const garmentCriteria =
     GARMENT_TYPE_CRITERIA[garmentType] || "Evaluate using general garment condition criteria.";
-  const categoryCriteria = GARMENT_CATEGORY_CRITERIA[garmentCategory];
+  const categoryCriteria = categoryCriteriaFor(garmentCategory);
 
   // US-346: seller-declared features are untrusted — sanitize + fence them so
   // an injection string can't pose as an instruction inside the per-image prompt.
@@ -1933,12 +2042,22 @@ export const PARTIAL_IMAGE_CONFIDENCE_CAP = 0.6;
  * previously-recorded version string means.
  */
 export function promptVersionSuffix(
-  blocks: { baseline: boolean; fabric: boolean; visual: boolean; tag: boolean },
+  blocks: {
+    baseline: boolean;
+    fabric: boolean;
+    visual: boolean;
+    tag: boolean;
+    // US-2222. Optional so every existing caller and test keeps its exact
+    // current output — an absent key must read as "not present", not as a new
+    // era for grades that predate the block.
+    categoryV2?: boolean;
+  },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
     (blocks.fabric ? "+fabric" : "") +
     (blocks.visual ? "+visual" : "") +
-    (blocks.tag ? "+tag" : "");
+    (blocks.tag ? "+tag" : "") +
+    (blocks.categoryV2 ? "+cat2" : "");
 }
 
 export interface SettledImage {
@@ -2154,11 +2273,21 @@ export async function compositeGrade(
 
   // US-1533/US-1534/US-1537/US-2210: attribute baseline/fabric/visual/tag-era
   // grades distinctly for the accuracy loop.
+  // US-2222: attribute the newly-covered categories too. The block itself is
+  // in the PER-IMAGE user message, which is never stamped on a grade — so the
+  // composite record is the only place this era can be marked at all, and it is
+  // marked from the same inputs (category + gate) that decided it upstream
+  // rather than from anything the per-image call returned.
+  const categoryV2 = categoryCriteriaV2Enabled() &&
+    !!categoryCriteriaFor(garmentInfo.garment_category, true) &&
+    !GARMENT_CATEGORY_CRITERIA[garmentInfo.garment_category];
+
   const promptVersion = prompt.versionName + promptVersionSuffix({
     baseline: !!baselineBlock,
     fabric: !!fabricBlock,
     visual: verificationImages.length > 0,
     tag: !!tagBlock,
+    categoryV2,
   });
 
   // US-1067: when grading a real submission (no explicit override), append the

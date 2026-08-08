@@ -11,7 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/tag-ground-truth.ts
   - services/edge-functions/src/lib/tag-era.ts
   - services/edge-functions/src/lib/grading-size.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
 ---
@@ -39,6 +39,7 @@ seller input can reach. Rendered OUTSIDE the fence, before it opens:
 | Label transcription | vision pass over the label photo alone | US-2210 |
 | Tag generation (era) | matched against curated `tag_eras` on that same pass | US-2212 |
 | Verified size | label read + measurements mapped to the brand's chart | US-2213 |
+| Category criteria | a fixed per-`garment_category` map in code | US-2222 |
 
 ## The test for a new block
 
@@ -134,9 +135,48 @@ the flag-gated rollout meaningful: with `GRADING_BASELINES` or `GRADING_TAG_OCR`
 off, the prompt is the previously-evaluated one, not a near-copy.
 
 Each block also appends its own `prompt_version` suffix — `+baseline`, `+fabric`,
-`+visual`, `+tag`, in that fixed order — so accuracy-tracking can attribute an era
-per block. Suffixes APPEND; reordering them would silently reinterpret every
+`+visual`, `+tag`, `+cat2`, in that fixed order — so accuracy-tracking can attribute
+an era per block. Suffixes APPEND; reordering them would silently reinterpret every
 version string already recorded against past grades.
+
+## A third split, orthogonal to trust: versioned vs not
+
+Trusted/untrusted decides whether a seller can steer the grade. It says nothing
+about whether a change to a block can be **gated**, and those are different
+questions with different answers.
+
+**Only the SYSTEM prompt is versioned.** `resolveActivePrompt` returns
+`{ text, versionName }` and `text` becomes the `system` block. Everything above —
+baselines, fabric criteria, category criteria, the label transcription, the
+response schema, even the factor-weights sentence — is assembled into the **user
+message** by `buildUserPrompt` / `buildCompositeUserPrompt`, which no
+`ai_prompt_versions` row can reach.
+
+The consequences, verified 2026-08-08:
+
+| Mechanism | Covers the system prompt | Covers the user message |
+|---|---|---|
+| `ai_prompt_versions` override | yes | **no** — the row has one `prompt_text` |
+| Canary (`shouldUseCanary`) | yes | **no** — it picks between two system texts |
+| `runEval` golden-set gate | yes | **no** — both legs compile in the same block |
+| `grading-shadow.ts` | composite only | **no**, and there is no per-image shadow at all |
+
+So editing a user-message block changes live grading on the next deploy with no
+gate available. That is why every one of them is **env-flag gated and additive**:
+the flag is the only substitute, and byte-identity when off is what makes it a
+real one.
+
+> [!warning] Attribution is thinner than it looks
+> `prompt_version` is stamped by the COMPOSITE stage only —
+> `PerImageAnalysis` carries no version field, so `PER_IMAGE_PROMPT_VERSION` is
+> a display constant that never reaches a grade record. And the suffixes record
+> a block's **presence**, not its **content**: editing the text inside
+> `FABRIC_CRITERIA` still reports `+fabric`, so before and after are one era.
+>
+> Read that way, the suffix answers "was this block switched on?" and not "which
+> version of it ran?" — which is enough for a rollout and not enough for a
+> regression hunt. Giving the user message a versioned, overridable seam is
+> US-2432.
 
 ## Related
 
