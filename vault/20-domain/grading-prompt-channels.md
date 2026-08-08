@@ -343,6 +343,35 @@ has no `qualified_model`, deliberately: a block does not choose a model, it ride
 whichever one its stage serves on, so US-2036's model-stamp check stays on the
 stage's own prompt version.
 
+### The env flags are KEPT, and the reason is a distinction worth stating
+
+US-2438 AC4 asks whether `GRADING_BASELINES`, `GRADING_TAG_OCR` and
+`GRADING_CATEGORY_CRITERIA_V2` are retired now that a real seam exists. All three
+are kept, because **the registry versions TEXT and two of those flags gate WORK.**
+
+| Flag | What it actually gates | Replaceable by the registry? |
+|---|---|---|
+| `GRADING_BASELINES` | a DB read plus, on a cache miss, an AI **generation** | no |
+| `GRADING_TAG_OCR` | an entire extra **vision call** over the label photo | no |
+| `GRADING_CATEGORY_CRITERIA_V2` | which of two in-code maps is read — pure text | in principle, yes |
+
+A block override supplies a string. By the time a string is wanted, the
+generation and the vision call have already been paid for, so no row can express
+"skip the work". The third flag *could* go, and is still kept: retiring it today
+would turn eleven categories' criteria on with no gate at all, which is the
+opposite of the point. It retires when block rows for those categories exist and
+have cleared the gate.
+
+The general form: **a switch over a side effect and a switch over content are not
+interchangeable, however similar they look at the call site.** Both render as
+`block ? text : ""`. Only one of them saves a vision call.
+
+That is also why every key in the vocabulary is backed by a static in-code
+default, and why a test asserts the request array in `analyzeImage` contains no
+`await`. A block whose default needed IO would be a block whose flag this
+registry had silently failed to replace — while making that flag *look*
+redundant.
+
 `listing-eval.ts` reports `covered: []` and `blocks: []`, and that is not
 boilerplate. The block registry is keyed by grading stage; `LISTING_GEN_TOOL` is
 a tool schema, not a prompt block, so the registry cannot reach it. Now that both

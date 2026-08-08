@@ -673,6 +673,55 @@ Deno.test("US-2438 AC3: a candidate naming an unknown block is refused", () => {
   );
 });
 
+// ── AC4: the env flags, kept and explained ─────────────────────────────────
+
+Deno.test("US-2438 AC4: every covered block's default is free to produce", () => {
+  // THE PROPERTY BEHIND THE FLAG DECISION. Two of the three flags this registry
+  // was supposed to replace — GRADING_BASELINES and GRADING_TAG_OCR — gate WORK,
+  // not text: a database read plus an AI generation, and an extra vision call.
+  // A block override cannot express "skip the generation", because by the time a
+  // string is wanted the cost is already paid.
+  //
+  // So the registry can only ever version blocks whose default costs nothing.
+  // If a request in analyzeImage ever needed an `await` to build its codeDefault,
+  // that would be a block whose flag this registry silently failed to replace —
+  // and the flag would then look redundant while still being the only thing
+  // saving the call.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/ai-grading.ts", import.meta.url),
+  );
+  const at = src.indexOf('resolvePromptBlocks(\n    "per_image"');
+  const start = at > -1 ? at : src.indexOf("resolvePromptBlocks(");
+  assert(start > -1, "analyzeImage no longer resolves blocks");
+  const requests = src.slice(start, src.indexOf("bucketKey,\n  );", start));
+  assert(
+    !/\bawait\b/.test(requests),
+    "a block's code default now needs IO to build. That block's cost cannot be " +
+      "gated by the registry, so whatever flag guards it is still load-bearing " +
+      "and must not be retired",
+  );
+});
+
+Deno.test("US-2438 AC4: the two IO-gating flags are still enforced", () => {
+  // Kept deliberately, not by omission. Each is asserted at its own short-circuit
+  // so retiring one shows up here rather than as a surprise on the AI bill.
+  const baselines = Deno.readTextFileSync(
+    new URL("../lib/garment-baselines.ts", import.meta.url),
+  );
+  assert(
+    /if \(!gradingBaselinesEnabled\(\)\) return null;/.test(baselines),
+    "getGarmentBaseline no longer short-circuits on GRADING_BASELINES, so a " +
+      "brand+category miss now runs an AI generation on every grade",
+  );
+  const tag = Deno.readTextFileSync(
+    new URL("../lib/tag-ground-truth.ts", import.meta.url),
+  );
+  assert(
+    /GRADING_TAG_OCR/.test(tag),
+    "the tag-OCR gate is gone, so the extra label vision call runs unconditionally",
+  );
+});
+
 // ── The route still goes through the seam ──────────────────────────────────
 
 Deno.test("US-2438: analyzeImage resolves blocks and passes them to the builder", () => {

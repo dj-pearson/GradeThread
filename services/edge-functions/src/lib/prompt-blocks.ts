@@ -31,6 +31,37 @@
 // What this module owns is the three things that ARE new: which block keys
 // exist, one DB read per stage instead of one per block, and the guarantee that
 // an empty registry leaves every prompt byte-identical.
+//
+// ── WHY THE ENV FLAGS SURVIVE (US-2438 AC4) ──
+//
+// AC4 asks whether GRADING_BASELINES, GRADING_TAG_OCR and
+// GRADING_CATEGORY_CRITERIA_V2 are retired or explicitly kept. ALL THREE ARE
+// KEPT, and the reason is a distinction it is easy to miss: **this registry
+// versions TEXT, and two of those flags gate WORK.**
+//
+//   • GRADING_BASELINES short-circuits `getGarmentBaseline()`, which does a
+//     database read and, on a cache miss, an AI GENERATION. Off means that never
+//     runs. A block override cannot express "skip the generation" — it supplies
+//     a string, and by the time a string is wanted the cost is already paid.
+//   • GRADING_TAG_OCR short-circuits an entire extra VISION CALL over the label
+//     photo. Same shape, larger bill.
+//   • GRADING_CATEGORY_CRITERIA_V2 is the odd one out: it only picks which of
+//     two in-code MAPS `categoryCriteriaFor` reads. Pure text, zero IO. That one
+//     the registry COULD replace — and it is still kept, because retiring it
+//     today would turn eleven categories' criteria on with no gate at all, which
+//     is the opposite of what this story is for. It retires when block rows
+//     exist for those categories and have cleared the gate, not before.
+//
+// The generalisable form, and the reason this is written down rather than left
+// as three unexplained flags: **a switch over a side effect and a switch over
+// content are not interchangeable, however similar they look at the call site.**
+// Both render as `block ? text : ""`. Only one of them saves a vision call.
+//
+// This is also why every block key in the vocabulary below is backed by a
+// STATIC in-code default that costs nothing to produce, and a test pins that the
+// request array in `analyzeImage` contains no `await`. A block whose default
+// needed IO would be a block whose flag this registry silently failed to
+// replace.
 
 import { supabaseAdmin } from "./supabase.ts";
 import { createVersionedCache } from "./coherent-cache.ts";
