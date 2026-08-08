@@ -2115,20 +2115,6 @@
         "Record the outcome where a regulator-facing answer would be looked up, not only in this story: how many subjects, which tables, and the date the backlog reached zero."
       ],
       "notes": "[P2][Compliance/GDPR][OPERATOR] Filed 2026-08-08 from US-2005, which fixed the path forward and explicitly left this as a prod data task. CANNOT be done from a dev checkout: it needs the production database. The code half already exists — purgeEmailKeyedPii takes an address and an IO seam, so the operator half is a script that enumerates addresses and calls it. Pairs with US-2433; both are operator-run data tasks and would share one runbook."
-    },
-    {
-      "id": "US-2435",
-      "passes": false,
-      "priority": 1978,
-      "title": "Android CI is red on main for reasons unrelated to any commit — 10 unit-test failures and a lintDebug error",
-      "description": "Measured on a clean tree at 3286f009 with the local Android toolchain: `:app:testDebugUnitTest --rerun-tasks` reports 1543 tests, 10 failed, and `:app:lintDebug` fails on one error. Neither is caused by recent work — the same failures appear with every local change stashed. The failing tests are SubscriptionServiceTest (5: already-owned redemption, unattributed renewal, dismissing an error, a subscription Play no longer owns, a Stripe conflict kept on state), WidgetSnapshotTest (2: the freshness stamp, the first publish always redraws), BulkPricingTest (a sub-cent price refused not clamped), DeepLinkTest (everyRoute_mapsToARegisteredNavTarget) and EdgeApiTest (planGate402). The lint error is MissingPermission at PushNotifier.kt:92, where the notify() call is ALREADY wrapped in runCatching with a comment explaining that posting without POST_NOTIFICATIONS throws on API 33+ — lint cannot see through the lambda, so the code is correct and the check is not. Unchanged there since 2026-07-31. CLAUDE.md names Android CI as the gate for Android work, so a gate that is red regardless of the commit is a gate people learn to bypass — the same failure shape as US-2429 and US-2430.",
-      "acceptanceCriteria": [
-        "Establish for each of the 10 failures whether the TEST is wrong or the CODE is wrong, and fix accordingly. Do not delete or @Ignore a case to reach green — five of them are subscription-state tests, which is the area where a wrong answer costs money.",
-        "PushNotifier.kt:92 either carries an explicit permission check or a @SuppressLint(\"MissingPermission\") whose comment names WHY the existing runCatching is the correct handling. A bare suppression with no reason is how the next real MissingPermission gets suppressed too.",
-        "Confirm what the CI workflow actually does with these today: whether the Android lane has been failing on main, or whether something (continue-on-error, a filter, a skipped task) has been hiding it. That answer decides whether this is a regression or a gate nobody has been reading.",
-        "Once green, `:app:testDebugUnitTest` and `:app:lintDebug` both pass on a clean checkout, so a future Android change can trust a red lane to mean its own change broke something."
-      ],
-      "notes": "[P2][Android/CI] Filed 2026-08-08 while verifying US-2207. FINDING WORTH RECORDING SEPARATELY: the Android toolchain DOES work on this Windows checkout — JDK 17 plus the SDK at ~/AppData/Local/Android/Sdk builds, tests and lints offline. CLAUDE.md implies Android work is CI-only; it is not, and treating it as CI-only is part of why a red lane could sit unnoticed. Caveat learned the hard way in the same session: Gradle's incremental build served stale classes after a source file was restored, so use --rerun-tasks when a result actually has to be trusted."
     }
   ]
 }

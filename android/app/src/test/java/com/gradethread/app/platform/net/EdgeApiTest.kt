@@ -166,16 +166,37 @@ class EdgeApiTest {
         assertEquals("aiActions", warnings[0].kind)
     }
 
+    /**
+     * A 402 carrying a decodable plan-gate body is a PlanGated error, not a
+     * generic bad request.
+     *
+     * This test asserted BadRequest until 2026-08-08, and it was right when it
+     * was written (US-1306): 402 genuinely fell through the `in 400..499` arm.
+     * US-1374 added the 402 branch that decodes the body into a typed
+     * `PlanGated`, updated its own tests, and missed this older sibling — so the
+     * assertion has been red on main ever since while the production behaviour
+     * it describes was deliberately changed and is correct.
+     *
+     * The distinction is user-facing: `isUpgradePrompt` routes PlanGated to an
+     * upgrade CTA, where a BadRequest would offer a retry button for a request
+     * that will fail identically every time.
+     */
     @Test
-    fun planGate402_emitsAndThrowsBadRequest() = runTest {
+    fun planGate402_emitsAndThrowsPlanGated() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(402).setBody(
                 """{"error":"CAP_REACHED","cap":"includedGrades","used":5,"limit":5,"requiredPlan":"starter"}""",
             ),
         )
-        assertThrows(EdgeApiError.BadRequest::class.java) {
+        val thrown = assertThrows(EdgeApiError.PlanGated::class.java) {
             kotlinx.coroutines.runBlocking { api().postRaw("/api/grade", "{}") }
         }
+        // Pin the upgrade routing, not just the type — the type alone would
+        // still pass if PlanGated stopped counting as an upgrade prompt.
+        assertEquals("includedGrades", thrown.gate.cap)
+        assertTrue(thrown.isUpgradePrompt)
+        // The emit half: the shell's upgrade dialog collects this flow, and it
+        // is a separate mechanism from the throw. Both have to happen.
         assertEquals(1, gates.size)
         assertEquals("includedGrades", gates[0].cap)
     }

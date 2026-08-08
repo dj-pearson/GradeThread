@@ -147,8 +147,21 @@ class DeepLinkTest {
             DeepLinkRoute.InventoryTab, DeepLinkRoute.NegotiationInbox(null),
             DeepLinkRoute.GradesList, DeepLinkRoute.CaptureItem,
             DeepLinkRoute.AddItem, DeepLinkRoute.SupportTickets(null),
+            // US-1377. Was missing from this list entirely, so the shipping
+            // deep link had no coverage here at all — the same drift as
+            // "support" below, just invisible because an ABSENT route cannot
+            // fail an exhaustiveness check that iterates a hand-written list.
+            DeepLinkRoute.Shipping,
         )
         // The registered graph today (shell roots + capture + add + settings).
+        //
+        // ⚠ This is a HAND-COPIED mirror of AppShell's NavHost, which means
+        // every feature that registers a destination has to remember to edit a
+        // test file it never opened. US-1386 did not, and this test has been red
+        // on main ever since while the support deep link worked perfectly —
+        // AppShell.kt registers both `support` and `support/{ticketId}`.
+        // Deriving this set from a shared route inventory would make the drift
+        // impossible; until then, adding a composable() means adding it here.
         val registered = setOf(
             "home", "inventory", "add", "money", "marketplaces",
             "settings", "search", "tools",
@@ -157,6 +170,10 @@ class DeepLinkTest {
             "snap", "grades",
             // US-1354: the offers + messages inbox.
             "negotiation",
+            // US-1386: the support inbox + thread.
+            "support",
+            // US-1377: shipping / fulfillment.
+            "fulfillment",
         )
         for (route in routes) {
             // Compared on the PATH: an optional query argument (the inbox's

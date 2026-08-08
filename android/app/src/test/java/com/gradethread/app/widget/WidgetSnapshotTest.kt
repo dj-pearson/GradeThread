@@ -320,7 +320,13 @@ class WidgetSnapshotTest {
 
     @Test
     fun `the freshness stamp`() {
-        val now = 10_000_000L
+        // US-2435: must exceed the largest offset subtracted below (2 days =
+        // 172,800,000). The original 10_000_000L is only 2h46m past the epoch,
+        // so `now - 3h` and `now - 2d` went NEGATIVE and tripped
+        // WidgetCopy's "never published" guard (generatedAtMs <= 0 -> null)
+        // instead of reaching the formatter. The two assertions below have
+        // therefore never passed, on any commit.
+        val now = 10_000_000_000L
         assertEquals("Updated just now", WidgetCopy.updatedAgo(now - 30_000, now))
         assertEquals("Updated 5m ago", WidgetCopy.updatedAgo(now - 5 * 60_000, now))
         assertEquals("Updated 3h ago", WidgetCopy.updatedAgo(now - 3 * 3_600_000, now))

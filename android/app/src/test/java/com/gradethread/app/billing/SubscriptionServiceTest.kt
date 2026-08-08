@@ -2,6 +2,7 @@ package com.gradethread.app.billing
 
 import android.app.Activity
 import com.gradethread.app.platform.net.EdgeApiError
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -36,8 +37,33 @@ class SubscriptionServiceTest {
     private fun purchase(productId: String) =
         PlayPurchase(listOf(productId), "token-$productId", PlayPurchaseState.PURCHASED)
 
+    // US-2435: the six tests below drive SubscriptionService through its
+    // LISTENER, and they all need runTest(UnconfinedTestDispatcher()).
+    //
+    // `observe()` is fire-and-forget — `scope.launch { billing.events.collect …
+    // }` — so the SharedFlow subscription only exists once that coroutine
+    // actually runs. `advanceUntilIdle()` does NOT run background-scope work:
+    // it stops at the first non-foreground event, and everything launched in
+    // `backgroundScope` is non-foreground by definition. So the collector was
+    // never subscribed, and FakePlayBilling's flow (replay = 0, tryEmit)
+    // discards a value with no subscribers — silently, returning true.
+    //
+    // Every one of these five assertions was therefore failing on a signal that
+    // was dropped on the floor, not on wrong behaviour. Calling the same code
+    // directly passes, which is why `refresh loads prices and redeems…` below
+    // has always been green.
+    //
+    // `a cancelled dialog changes nothing about the plan` is in this list even
+    // though it PASSED: it asserts that nothing happened, which a dropped signal
+    // satisfies for free. It was a false green, and it is worth strictly more
+    // now than it was.
+    //
+    // Not fixable by raising the fake's replay (the collector still never runs
+    // during the test body), and not by passing the test's own scope to
+    // observe() (a never-ending collect as a child of the test body makes
+    // runTest hang — which is what backgroundScope exists to avoid).
     @Test
-    fun `a renewal we never tapped for still moves the plan forward`() = runTest {
+    fun `a renewal we never tapped for still moves the plan forward`() = runTest(UnconfinedTestDispatcher()) {
         // Play pushes a renewal through the same listener as a fresh purchase,
         // with a token the server has never seen. Nothing on screen is watching.
         verifier.response = GooglePlayVerifyResponse(
@@ -57,7 +83,7 @@ class SubscriptionServiceTest {
     }
 
     @Test
-    fun `a cancelled dialog changes nothing about the plan`() = runTest {
+    fun `a cancelled dialog changes nothing about the plan`() = runTest(UnconfinedTestDispatcher()) {
         service.observe(backgroundScope)
         advanceUntilIdle()
 
@@ -92,7 +118,7 @@ class SubscriptionServiceTest {
     }
 
     @Test
-    fun `a Stripe conflict is kept on state, not flashed and lost`() = runTest {
+    fun `a Stripe conflict is kept on state, not flashed and lost`() = runTest(UnconfinedTestDispatcher()) {
         // The buyer has to go somewhere else to fix this. A message that
         // disappears while they read it is no help.
         verifier.error = EdgeApiError.from(
@@ -145,7 +171,7 @@ class SubscriptionServiceTest {
     }
 
     @Test
-    fun `dismissing an error clears the conflict with it`() = runTest {
+    fun `dismissing an error clears the conflict with it`() = runTest(UnconfinedTestDispatcher()) {
         verifier.error = EdgeApiError.from(403, """{"error":"PURCHASE_NOT_OWNED_BY_ACCOUNT"}""")
         service.observe(backgroundScope)
         advanceUntilIdle()
@@ -160,7 +186,7 @@ class SubscriptionServiceTest {
     }
 
     @Test
-    fun `a subscription Play no longer owns stops showing as a plan`() = runTest {
+    fun `a subscription Play no longer owns stops showing as a plan`() = runTest(UnconfinedTestDispatcher()) {
         verifier.response = GooglePlayVerifyResponse(plan = "pro", status = "active")
         service.observe(backgroundScope)
         advanceUntilIdle()
@@ -178,7 +204,7 @@ class SubscriptionServiceTest {
     }
 
     @Test
-    fun `already-owned redeems the earlier purchase instead of reporting a failure`() = runTest {
+    fun `already-owned redeems the earlier purchase instead of reporting a failure`() = runTest(UnconfinedTestDispatcher()) {
         play.owned[PlayProductType.SUBS] = listOf(purchase("flipdesk_starter_yearly"))
         verifier.response = GooglePlayVerifyResponse(plan = "starter", status = "active")
         service.observe(backgroundScope)

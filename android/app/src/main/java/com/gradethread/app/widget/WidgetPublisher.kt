@@ -32,6 +32,9 @@ object WidgetPublisher {
          * Unlike iOS, which simply drops the reload, Android schedules a
          * catch-up worker for the rest of the window — otherwise a change that
          * lands one second after a reload is stranded until the next sync.
+         *
+         * Only ever applies once something REAL has been drawn — see the
+         * first-publish branch in [decide].
          */
         WRITE_ONLY,
 
@@ -45,7 +48,21 @@ object WidgetPublisher {
         nowMs: Long,
         minIntervalMs: Long = MIN_RELOAD_INTERVAL_MS,
     ): Action {
-        if (previous != null && previous.hasSameRollup(next)) return Action.SKIP
+        // US-2435: nothing stored yet means the widget is showing PLACEHOLDER
+        // figures — 12 listings, 3 sales, $184.00 — that were never this
+        // seller's. Holding that behind the rate limit is not coalescing a
+        // redraw, it is leaving invented numbers on someone's home screen, so
+        // the first real publish always redraws.
+        //
+        // Production mostly hid this: `lastReloadAt` is seeded to
+        // Long.MIN_VALUE / 2, which makes `since` enormous on the first publish
+        // of a PROCESS. But `previous == null` also happens mid-process — most
+        // plausibly when the stored JSON fails to decode after an upgrade
+        // changed its shape (WidgetSnapshotStore.read returns null) — and then
+        // any reload in the last 30s pushed it to WRITE_ONLY. The invariant now
+        // holds in the pure function rather than depending on a sentinel.
+        if (previous == null) return Action.WRITE_AND_RELOAD
+        if (previous.hasSameRollup(next)) return Action.SKIP
         // `nowMs - lastReloadAtMs` rather than a stored deadline: a clock that
         // jumps backwards then yields a negative gap, which fails the test and
         // holds the reload for one window instead of firing forever.

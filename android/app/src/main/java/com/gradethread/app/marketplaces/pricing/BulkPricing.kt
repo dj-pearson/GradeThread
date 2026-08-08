@@ -3,7 +3,8 @@ package com.gradethread.app.marketplaces.pricing
 import com.gradethread.app.capture.CurrencyAmount
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlin.math.roundToLong
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 /** One active eBay listing eligible for a bulk price edit. */
 data class BulkListing(
@@ -83,11 +84,37 @@ object BulkPricing {
      * a cent rather than clamping: a 95% reduction on a $0.15 item rounds to
      * $0.01 legitimately, but a deeper one reaches $0.00, and quietly pushing a
      * clamped price is not what the seller asked for.
+     *
+     * ## Why BigDecimal here (US-2435)
+     *
+     * This did the whole computation in `Double` and rounded with
+     * `(raw * 100).roundToLong()`. `roundToLong` is half-up, but binary doubles
+     * meant the ties never reached it: 90% off $0.15 is exactly $0.015, and the
+     * double product is 0.014999999999999996 — a hair BELOW the tie — so it
+     * rounded down to $0.01.
+     *
+     * The damage was that it was inconsistent, not that it was low. $19.99 at
+     * 50% off gave $9.99 (down) while $3.33 at 50% off gave $1.67 (up). A seller
+     * repricing 200 listings had a cent shaved off an arbitrary subset, with the
+     * preview and the published price agreeing so nothing looked wrong.
+     *
+     * `CurrencyAmount` already states the house rule — "BigDecimal (never
+     * Double) so 0.1 + 0.2 problems can't reach money" — and `inputValue()`
+     * below routes the SET price through that same parser. This function then
+     * threw the result straight back into Double two lines later.
      */
     fun target(base: Double, mode: Mode, value: Double?): Target {
         if (mode == Mode.NONE || value == null) return Target(null)
-        val raw = if (mode == Mode.SET) value else base * (1 - value / 100)
-        val rounded = (raw * 100).roundToLong() / 100.0
+        val raw: BigDecimal = if (mode == Mode.SET) {
+            BigDecimal.valueOf(value)
+        } else {
+            // (100 - value)/100 rather than 1 - value/100: the division happens
+            // last and only once, so the intermediate stays exact.
+            BigDecimal.valueOf(base)
+                .multiply(BigDecimal.valueOf(100.0).subtract(BigDecimal.valueOf(value)))
+                .divide(BigDecimal.valueOf(100.0))
+        }
+        val rounded = raw.setScale(2, RoundingMode.HALF_UP).toDouble()
         if (rounded < MIN_PRICE) {
             return Target(
                 null,

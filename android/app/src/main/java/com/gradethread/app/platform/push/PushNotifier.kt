@@ -57,6 +57,19 @@ object PushNotifier {
     fun notificationId(message: PushMessage): Int =
         (message.tag ?: message.category?.id ?: message.title).hashCode().absoluteValue
 
+    // US-2435: lint's MissingPermission cannot see through the `runCatching`
+    // lambda at the end of this function, so it reports the notify() call as
+    // unhandled. It is handled — SecurityException is exactly what that wrapper
+    // is there to swallow, and the comment at the call site has said so since
+    // the code was written.
+    //
+    // Suppressed rather than "fixed" with a checkSelfPermission call, because a
+    // pre-flight check would be WORSE here: permission can be revoked between
+    // the check and the notify, so the catch would still be required and the
+    // check would only add a race and a second thing to keep in sync. The
+    // annotation is on `show` rather than the file so a genuinely unhandled
+    // permission call added elsewhere in this class still fails the build.
+    @android.annotation.SuppressLint("MissingPermission")
     fun show(context: Context, message: PushMessage) {
         if (!message.renderable) return
         createChannels(context)

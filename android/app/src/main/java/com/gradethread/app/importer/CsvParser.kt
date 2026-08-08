@@ -19,8 +19,13 @@ object CsvParser {
      * whitespace does not remove it — so without this the first header keeps the
      * BOM glued to it and auto-mapping silently fails on exactly the column that
      * matters most.
+     *
+     * US-2435: written as the ESCAPE, not the literal character. A literal BOM
+     * here is invisible in every editor and diff, and Android lint's ByteOrderMark
+     * check — which cannot tell deliberate data from an encoding accident —
+     * failed the build on it. Same bytes matched, one of them readable.
      */
-    fun stripBom(input: String): String = input.removePrefix("﻿")
+    fun stripBom(input: String): String = input.removePrefix("\uFEFF")
 
     /**
      * The delimiter, by frequency in the first line.
