@@ -1,11 +1,64 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Two are held: 00560 and 00561.** 00542 through 00559 were applied to prod on 2026-08-08
-and confirmed by the owner. See the note under 00528 for how that is measured
-and why the measurement, not this file, is the authority whenever the two
-disagree.
+**Nothing is held.** 00542 through 00562 were applied to prod on 2026-08-08 and
+confirmed by the owner, and the measurement agrees: `/health/ready` on
+`functions.gradethread.com` reports `applied: 00562`. See the note under 00528
+for how that is measured and why the measurement, not this file, is the
+authority whenever the two disagree.
 
-## ⏸ HELD: 00560_listing_performance_rpcs.sql (US-2233 — server-side KPIs + paged search)
+The running edge container still reports `expected: 00561` (`status: "ahead"`),
+because the image predates the commit that bumped `EXPECTED_SCHEMA_VERSION` to
+00562. DB-ahead-of-code is the safe direction — the boot guard refuses the
+reverse — so the next Coolify deploy comes up clean with nothing left to apply.
+
+## ✅ APPLIED: 00562_grade_prompt_surface_hash.sql (US-2432 — say which prompt surface graded a row, applied 2026-08-08 — owner-confirmed)
+
+**Risk: LOW, and it is the safest shape in this file.** One nullable `text`
+column added to `grade_reports`, plus a column comment. That is the whole
+migration. No existing column changes type, no row is rewritten, no constraint is
+added, and nothing is dropped. `ADD COLUMN` of a nullable column with no default
+does not rewrite the table, so it takes a brief lock and returns.
+
+**It builds no index, and that is the point.** The draft carried a partial btree
+on the non-null rows. A non-`CONCURRENT` `CREATE INDEX` takes a `SHARE` lock and
+scans the whole table — and a partial `WHERE` limits what gets STORED, not what
+gets SCANNED — so it would block new grade inserts, meaning paid work, for the
+length of a full scan of `grade_reports`. What that buys is a rarely-run operator
+analysis query that already has a `created_at` filter to ride. Removed. If one of
+those queries ever proves slow, add it `CONCURRENTLY`, outside a transaction.
+
+**Apply order.** Last, after 00561. It depends on nothing but `grade_reports`.
+
+**Rollback** is `DROP COLUMN prompt_surface_hash` (the index goes with it).
+Nothing reads it yet outside the write itself.
+
+**No frontend caller — this one is NOT push-order-sensitive.** Unlike 00560,
+nothing in `src/` selects the column, so a push landing ahead of the SQL cannot
+404 a page. Apply it whenever is convenient before the next edge deploy.
+
+**The edge code is deliberately safe in BOTH orders.** `grading-pipeline.ts`
+adds the value by conditional SPREAD, not as a plain key — a null-valued key
+still NAMES the column in the PostgREST payload, which 42703s the whole insert
+and takes a *paid grade* down with it on any environment where the SQL has not
+landed. So the edge can deploy first without risk; it just records nothing until
+the column exists. Pinned by a test in `unversioned-prompt-surface_test.ts`.
+
+**`NOTIFY pgrst, 'reload schema';` IS required** — PostgREST caches the column
+list, and the edge writes through PostgREST. Without the notify the insert keeps
+42703-ing on the new column even after the SQL applies, which is the same
+paid-grade failure the spread is there to avoid.
+
+**What it does.** Stores an 8-hex digest of the assembled grading USER message on
+every new grade. `prompt_version` names the composite system prompt and which
+dynamic blocks were switched on; it says nothing about the CONTENT those blocks
+held, so editing the text inside `FABRIC_CRITERIA` left before and after
+reporting the same era. This column splits them.
+
+**NULL on every historical row, and there is no backfill.** The surface those
+grades ran under is not recoverable from the row, and stamping today's hash on
+them would assert an era they never had. Absent means unknown.
+
+## ✅ APPLIED: 00560_listing_performance_rpcs.sql (US-2233 — server-side KPIs + paged search, applied 2026-08-08 — owner-confirmed)
 
 **APPLY BEFORE THE PUSH, and this is the strict direction.** The frontend
 change in the same commit calls both functions through `supabase.rpc()`, and
@@ -2380,7 +2433,7 @@ any note claiming a hold for a migration already on `origin/main`), and because
 notes are append-only the fix is to APPEND a `STATUS CORRECTION` line rather than
 edit the original sentence.
 
-## ⏸ HELD: 00561_measure_card_tracking.sql (US-2231 — tracking on a mailed MeasureCard)
+## ✅ APPLIED: 00561_measure_card_tracking.sql (US-2231 — tracking on a mailed MeasureCard, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00560. No dependency between them; both only need to be
 in before the code that reads them.
