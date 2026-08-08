@@ -73,6 +73,12 @@ interface SellerProfile {
   };
   /** Older cached responses predate the field, so it is optional. */
   level?: LevelFlair;
+  /**
+   * US-1912: the seller's Grade Integrity tier — how often buyers confirmed the
+   * grade matched on arrival. Null (or absent, on an older cached response) below
+   * the anti-gaming display floor; the edge decides that, never this page.
+   */
+  integrity?: { tier: string; label: string } | null;
   stats: {
     total_graded: number;
     total_is_capped: boolean;
@@ -335,6 +341,16 @@ export function VerifiedSellerPage() {
                 </span>
               </span>
               <p className="text-xs text-white/70">{flair.tier_blurb}</p>
+            </div>
+          )}
+          {data.integrity && (
+            <div className="flex flex-col items-center gap-1">
+              <span className="rounded-full bg-white/15 px-3 py-1 text-sm font-bold text-white">
+                {data.integrity.label}
+              </span>
+              <p className="text-xs text-white/70">
+                Grade Integrity · confirmed by buyers after delivery
+              </p>
             </div>
           )}
           {since && <p className="text-sm text-white/70">Verified since {since}</p>}

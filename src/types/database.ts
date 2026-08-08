@@ -157,7 +157,10 @@ export type NotificationType =
   | "buyer_portfolio"
   // US-1859: re-engagement nudges (streak-at-risk, near-miss, quests, expiring
   // rewards). Gated by its own `reward_nudges` preference category.
-  | "reward_nudge";
+  | "reward_nudge"
+  // US-1912: the seller's Grade Integrity tier moved. Only ever sent to the
+  // seller — a demotion is never announced publicly.
+  | "integrity_tier_change";
 
 // ─── FlipDesk enums ────────────────────────────────────────────────
 export type FlipdeskSourceType =
@@ -294,6 +297,9 @@ export interface NotificationPreferences {
   // US-1859: re-engagement nudges. In-app + push only — a nudge that arrives by
   // email is a marketing email, and there is already a master switch for those.
   reward_nudges: NotificationChannelPrefs;
+  // US-1912: Grade Integrity standing changes. In-app + push only — a standing
+  // change is dashboard news, not something worth an inbox interruption.
+  integrity_updates: NotificationChannelPrefs;
 }
 
 export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";

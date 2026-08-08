@@ -79,6 +79,8 @@ interface SellerResponse {
   };
   achievements?: Achievement[];
   level?: LevelFlair;
+  /** US-1912: the seller's proven-accuracy tier. Null below the display floor. */
+  integrity?: { tier: string; label: string } | null;
   stats: {
     total_graded: number;
     total_is_capped: boolean;
@@ -175,6 +177,15 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
     ? `<div class="lv-flair"><span class="lv-tier">${escape(flair.tier_name)}</span>` +
       `<span class="lv-lvl">Level ${flair.level}</span></div>` +
       `<div style="color:var(--muted);font-size:0.85rem">${escape(flair.tier_blurb)}</div>`
+    : "";
+
+  // US-1912: the Grade Integrity chip. The edge already withheld it below the
+  // anti-gaming floor, so "present" IS "earned" — there is no threshold to
+  // re-check here, and nothing to render for a seller still building history.
+  const integrity = data.integrity;
+  const integrityHtml = integrity
+    ? `<div class="gi-chip"><span class="gi-tier">${escape(integrity.label)}</span>` +
+      `<span class="gi-note">Grade Integrity · confirmed by buyers after delivery</span></div>`
     : "";
 
   const bioHtml = seller.bio
@@ -304,6 +315,9 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
     .lv-flair { display:flex; align-items:center; gap:8px; }
     .lv-tier { background:var(--accent); color:#fff; border-radius:999px; padding:4px 14px; font-size:0.85rem; font-weight:700; }
     .lv-lvl { color:var(--muted); font-size:0.85rem; font-weight:600; }
+    .gi-chip { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px; }
+    .gi-tier { background:#0f3460; color:#fff; border-radius:999px; padding:4px 14px; font-size:0.85rem; font-weight:700; }
+    .gi-note { color:var(--muted); font-size:0.8rem; }
   `;
 
   // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.
@@ -320,6 +334,7 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
     <span class="vt-badge">✓ GradeThread Verified Seller</span>
     <h1 style="margin:8px 0 0">${escape(seller.display_name)}</h1>
     ${flairHtml}
+    ${integrityHtml}
     ${sinceHtml}
     ${bioHtml}
   </div>

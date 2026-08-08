@@ -845,6 +845,26 @@ a learning that only matters to ONE surface, put it in that surface's file.
   node the page can still select — needs its layout as inline `!important`, `all`
   first. Rules: [[extension-injected-ui-isolation]].
 
+- A story's `notes` can say "BLOCKED on US-XXXX" and be STALE — the blocker may
+  have shipped in a run since. US-1912 sat three passes on "AC4 blocked on
+  US-1849 (rewards engine not built)"; `rewards-engine.ts` + 00443/00538–00546
+  had all landed. Cost of checking is one `ls`/grep; cost of believing the note
+  is a whole iteration that lands nothing. Check the blocker's ARTIFACTS before
+  re-deferring, and note the prior pass may even have PRE-WIRED your surface for
+  you (US-1857's celebration snapshot already carried `integrityTier`, waiting).
+- When a status field gains a DIRECTION (a tier, a rank, a level), every consumer
+  that was written as `next !== prev` becomes a bug the moment the value can go
+  DOWN — and it is a bug that reads as working: the string did change, so the
+  branch fires. US-1912's celebration would have thrown confetti at a demotion.
+  Compare RANK, and make "unknown" rank below everything real so a first value is
+  a promotion rather than a no-op. Rules: [[reward-ledger]].
+- The CRLF trap has a second, nastier form than the one above: a needle used to
+  SLICE (`src.indexOf("\n}\n")` to find a function's end) returns -1 on this
+  host, `slice(0, -1)` silently becomes "the rest of the file", and the guard
+  then asserts against code it never meant — passing or failing for reasons
+  unrelated to its subject. Normalize with `.replace(/\r\n/g, "\n")` at the read
+  rather than writing CRLF-tolerant needles one at a time.
+
 ## Related
 
 - [[agent-knowledge-surfaces]] — how this relates to skills, memory and the vault

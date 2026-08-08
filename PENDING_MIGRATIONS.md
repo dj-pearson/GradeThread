@@ -1,9 +1,54 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Twenty-two migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547, 00548, 00549, 00550 and 00551.** The entries below them
+**Twenty-three migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
+00537, 00538, 00539, 00540, 00541, 00542, 00543, 00544, 00545, 00546, 00547, 00548, 00549, 00550, 00551 and 00552.** The entries below them
 were applied to prod and this file did not learn about it for a day. See the note under
 00528 for how that was measured and why the measurement, not the file, is the authority.
+
+## ⏳ HELD: 00552_seller_integrity_tier.sql (US-1912 — seller Grade Integrity tier)
+
+**Apply order.** After 00443 (which owns the `reputation_events` event-type
+allow-list this re-states) and after 00421 (which creates
+`seller_grade_integrity`). Both are long applied, so in practice: anywhere in the
+held tail.
+
+**Risk: LOW.** Additive columns with defaults on a table that is small by
+construction (one row per seller who has a buyer outcome), plus one enum value
+and one re-stated CHECK constraint. Nothing is dropped or backfilled.
+
+**Apply BEFORE the edge deploy AND before the frontend push.** Three reasons, and
+the first is the one that bites:
+
+- The recompute (`recomputeSellerGradeIntegrity`) now writes `tier`,
+  `tier_displayable`, `avg_coverage_pct`, `graded_volume`, `tenure_days`. Until
+  the columns exist that upsert fails, so a buyer confirming an arrival stops
+  refreshing the seller's standing entirely.
+- The edge writes `notification_type = 'integrity_tier_change'` on a demotion
+  and `reputation_events.event_type = 'integrity_tier_up'` on a promotion. Both
+  are rejected by the CHECK/enum until this applies.
+- `GET /api/rewards/state`, the public seller profile and the public certificate
+  all SELECT the new columns. They degrade to no badge rather than erroring, but
+  the seller's own Rewards screen would show "building history" to everyone.
+
+**What it does.**
+- Adds `seller_grade_integrity.tier` (NOT NULL DEFAULT `'building'`, CHECK over
+  the five tiers), `tier_displayable` (NOT NULL DEFAULT false),
+  `avg_coverage_pct` (nullable, 0–100 CHECK), `graded_volume` (NOT NULL DEFAULT
+  0), `tenure_days` (nullable), `previous_tier` (nullable, same CHECK) and
+  `tier_changed_at`.
+- Adds a partial index on the displayable rows (the only ones a public read
+  wants).
+- Re-states `reputation_events_event_type_check` in full, adding
+  `'integrity_tier_up'`. There is deliberately no `'integrity_tier_down'`.
+- `ALTER TYPE public.notification_type ADD VALUE IF NOT EXISTS
+  'integrity_tier_change'`.
+
+**Existing rows read as unranked, which is correct.** Every current
+`seller_grade_integrity` row gets `tier='building'`, `tier_displayable=false`, so
+nobody is granted a public rank by the migration itself. The first recompute
+after a buyer outcome computes their real tier — and because `previous_tier`
+starts effectively at `building`, crossing the floor registers as a promotion and
+pays once.
 
 ## ⏳ HELD: 00551_radar_activity_by_day.sql (US-1865 — Thrift Radar weekly activity pattern)
 

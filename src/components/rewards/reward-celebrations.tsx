@@ -83,7 +83,16 @@ export function RewardCelebrations() {
   useEffect(() => {
     if (!userId || !rewards) return;
 
-    const next = snapshotFromRewards(rewards);
+    // US-1912: the integrity tier now has a real value to diff against. Only a
+    // DISPLAYABLE tier is passed — below the anti-gaming floor the standing is
+    // "building history", which is a state to work toward, not a promotion to
+    // celebrate. A demotion is never celebrated either: detectCelebrations only
+    // fires on a change, and the edge tells the seller about a drop privately,
+    // so the toast this can raise is always good news.
+    const next = snapshotFromRewards(
+      rewards,
+      rewards.integrity?.displayable ? rewards.integrity.tier : null,
+    );
     const previous = readCelebrationState(userId);
     const events = detectCelebrations(previous.snapshot, next, contextFor(rewards));
     const { show, log } = applyCelebrationLimits(events, previous.log, Date.now());

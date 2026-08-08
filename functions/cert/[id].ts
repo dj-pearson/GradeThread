@@ -71,6 +71,11 @@ interface PublicCertificate {
   // degrades to the stricter AI-only wording rather than silently claiming a
   // human reviewed the grade.
   human_reviewed?: boolean | null;
+  // US-1912: the grader's Grade Integrity tier — how often buyers confirmed on
+  // arrival that a grade of theirs matched. Null unless the seller publishes a
+  // verified profile AND their standing clears the anti-gaming display floor;
+  // the edge decides both, so "present" means "earned".
+  seller_integrity?: { tier: string; label: string; handle: string } | null;
 }
 
 interface CertResponse {
@@ -220,6 +225,17 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   }
   const badgesHtml = badges.length > 0 ? `<div class="cert-badges">${badges.join("")}</div>` : "";
 
+  // US-1912: who graded it, and how often they have been proven right. Kept
+  // separate from the provenance badges above on purpose — those describe THIS
+  // capture, while this describes the grader's track record across every item a
+  // buyer has confirmed after delivery. Linked to the public profile so the
+  // claim is checkable rather than decorative.
+  const graderStanding = cert.seller_integrity;
+  const graderHtml = graderStanding
+    ? `<p class="cert-grader">Graded by a <a href="${base}/verified/${encodeURIComponent(graderStanding.handle)}">` +
+      `${escape(graderStanding.label)}</a> — a Grade Integrity standing earned from buyers confirming, after delivery, that the grade matched.</p>`
+    : "";
+
   const gradedOn = formatDate(cert.created_at);
 
   // US-760: "About this item" — the structured facts a buyer wants. Only rows
@@ -269,6 +285,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     </div>
   </div>
   ${badgesHtml}
+  ${graderHtml}
   ${slabHtml}
   ${galleryHtml}
   ${aboutHtml}

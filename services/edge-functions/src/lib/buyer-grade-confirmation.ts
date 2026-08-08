@@ -32,6 +32,7 @@ import {
 } from "./claim-accuracy.ts";
 import { recomputeTrustScore } from "./buyer-trust-score.ts";
 import { grantReward } from "./rewards-engine.ts";
+import { notifyUser } from "./notify.ts";
 import { updatePromptVersionAccuracy } from "./accuracy-tracking.ts";
 import { issueConfirmationReward } from "./buyer-rewards.ts";
 import { trackBuyerFeature } from "./buyer-analytics.ts";
@@ -262,8 +263,8 @@ export interface SellerIntegrityTierInputs {
   avgCoveragePct?: number | null;
   /** Lifetime graded volume. */
   gradedVolume?: number;
-  /** Account tenure in days. */
-  tenureDays?: number;
+  /** Account tenure in days, or null when unknown (then not gated on). */
+  tenureDays?: number | null;
 }
 
 export interface SellerIntegrityTierResult {
@@ -297,6 +298,15 @@ const TIER_LADDER: readonly TierRule[] = [
   { tier: "reliable", label: "Reliable Grader", minScore: 90, minConfirmed: 10 },
   { tier: "verified", label: "Verified Grader", minScore: 0, minConfirmed: 10 },
 ];
+
+/** Display name per tier, so a stored tier can be labelled without re-deriving it. */
+export const SELLER_INTEGRITY_TIER_LABELS: Record<SellerIntegrityTier, string> = {
+  building: "Building history",
+  verified: "Verified Grader",
+  reliable: "Reliable Grader",
+  trusted: "Trusted Grader",
+  elite: "Elite Grader",
+};
 
 /**
  * Map an integrity score + volume/coverage/tenure to a named, explainable tier
@@ -368,18 +378,178 @@ export function sellerIntegrityTier(
   };
 }
 
+// ─── Pure: tier transitions + tier inputs (US-1912 AC2/AC4) ────────────────
+
+/** Ladder order. `building` is rank 0 — earning a first tier IS a promotion. */
+export const INTEGRITY_TIER_RANK: Record<SellerIntegrityTier, number> = {
+  building: 0,
+  verified: 1,
+  reliable: 2,
+  trusted: 3,
+  elite: 4,
+};
+
+export type IntegrityTierDirection = "up" | "down" | "none";
+
+/**
+ * Which way a tier moved. The two directions are treated ASYMMETRICALLY on
+ * purpose (AC4): an "up" is public and rewardable, a "down" is private and
+ * silent. So this has to be a real comparison rather than "did the string
+ * change" — the latter would let a demotion take the celebration path.
+ */
+export function integrityTierDirection(
+  previous: SellerIntegrityTier | null | undefined,
+  next: SellerIntegrityTier,
+): IntegrityTierDirection {
+  const prevRank = previous ? INTEGRITY_TIER_RANK[previous] : INTEGRITY_TIER_RANK.building;
+  const nextRank = INTEGRITY_TIER_RANK[next];
+  if (nextRank > prevRank) return "up";
+  if (nextRank < prevRank) return "down";
+  return "none";
+}
+
+/** One grade report's persisted coverage record (US-1276/00308), as read. */
+export interface CoverageBearingRow {
+  coverage?: { coverage_pct?: unknown } | null;
+}
+
+/**
+ * Average photo-coverage % across a seller's graded reports, or null when NO
+ * report carries a coverage record (reports graded before 00308 have none).
+ *
+ * Null means UNKNOWN, and the tier ladder never gates on an unknown input — so
+ * an old account is not held back by data that did not exist when it graded.
+ * A non-numeric or out-of-range value is dropped rather than clamped: a value we
+ * cannot read is not evidence of good coverage, and averaging it in would let a
+ * malformed blob decide a public tier.
+ */
+export function averageCoveragePct(
+  rows: readonly CoverageBearingRow[],
+): number | null {
+  let sum = 0;
+  let n = 0;
+  for (const r of rows) {
+    const raw = r.coverage?.coverage_pct;
+    const pct = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) continue;
+    sum += pct;
+    n++;
+  }
+  if (n === 0) return null;
+  return Math.round((sum / n) * 10) / 10;
+}
+
+/** Whole days since `createdAt`, or null when it is missing/unparseable. */
+export function tenureDaysFrom(
+  createdAt: string | null | undefined,
+  nowMs: number,
+): number | null {
+  if (!createdAt) return null;
+  const started = Date.parse(createdAt);
+  if (!Number.isFinite(started)) return null;
+  return Math.max(0, Math.floor((nowMs - started) / 86_400_000));
+}
+
+/**
+ * The specific driver of a DEMOTION, in the seller's words (AC4: a tier-down
+ * notice names what moved). Built from the tier result's own gaps so the private
+ * notice and the seller's public explanation can never disagree — they are the
+ * same computation.
+ */
+export function tierDownDriver(
+  previous: SellerIntegrityTier,
+  result: SellerIntegrityTierResult,
+): string {
+  const gaps = result.nextTier === previous && result.nextTierGaps.length > 0
+    ? result.nextTierGaps
+    : [];
+  const base = `Your Grade Integrity standing moved from ${previous} to ${result.tier}.`;
+  if (gaps.length === 0) return `${base} ${result.reasons.join(" ")}`;
+  return `${base} To get back: ${gaps.join(", ")}.`;
+}
+
 // ─── Impure: seller integrity recompute (service-role) ──────────────────────
+
+/**
+ * How many of the seller's most recent grade reports the coverage average is
+ * computed over. Bounds the work for a prolific seller; the graded VOLUME is an
+ * exact count (PostgREST `count: exact`), so only the average is sampled.
+ */
+const INTEGRITY_COVERAGE_SAMPLE = 1000;
+
+/** What a recompute produced, including the tier and how it moved. */
+export interface SellerIntegrityRecomputeResult extends SellerIntegrityCounts {
+  integrity_score: number;
+  tier: SellerIntegrityTier;
+  tier_displayable: boolean;
+  previous_tier: SellerIntegrityTier;
+  direction: IntegrityTierDirection;
+  avg_coverage_pct: number | null;
+  tenure_days: number | null;
+  graded_volume: number;
+}
+
+/**
+ * Read the tier INPUTS that don't come from buyer outcomes: average photo
+ * coverage, lifetime graded volume, account tenure. Scoped to this seller
+ * (US-268) — grade_reports has no user_id, so ownership flows through
+ * submissions.user_id. Best-effort per input: an unreadable one degrades to
+ * "unknown" (null), which the ladder never gates on, rather than to a zero that
+ * would silently demote someone.
+ */
+async function loadSellerTierInputs(sellerUserId: string, nowMs: number): Promise<{
+  avgCoveragePct: number | null;
+  gradedVolume: number;
+  tenureDays: number | null;
+}> {
+  let avgCoveragePct: number | null = null;
+  let gradedVolume = 0;
+  let tenureDays: number | null = null;
+
+  const { data: reports, count, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("coverage, submissions!inner(user_id)", { count: "exact" })
+    .eq("submissions.user_id", sellerUserId)
+    .order("created_at", { ascending: false })
+    .limit(INTEGRITY_COVERAGE_SAMPLE);
+  if (error) {
+    console.error("[BuyerGradeConfirm] tier inputs load failed:", error.message);
+  } else {
+    avgCoveragePct = averageCoveragePct(
+      (reports ?? []) as unknown as CoverageBearingRow[],
+    );
+    gradedVolume = count ?? (reports ?? []).length;
+  }
+
+  const { data: userRow, error: userErr } = await supabaseAdmin
+    .from("users")
+    .select("created_at")
+    .eq("id", sellerUserId)
+    .maybeSingle();
+  if (userErr) {
+    console.error("[BuyerGradeConfirm] tenure load failed:", userErr.message);
+  } else {
+    tenureDays = tenureDaysFrom(
+      (userRow as { created_at?: string | null } | null)?.created_at,
+      nowMs,
+    );
+  }
+
+  return { avgCoveragePct, gradedVolume, tenureDays };
+}
 
 /**
  * Recompute a seller's Grade Integrity from their buyer_arrival outcomes and
  * upsert the cache. Idempotent and reconstructable — running it twice with no
- * new outcomes yields the same row. Best-effort: logs and returns null on a DB
- * error rather than throwing (a cache-refresh failure never blocks the buyer's
- * verdict). Scoped by seller_user_id (US-268).
+ * new outcomes yields the same row AND fires no side effect the second time
+ * (the transition is decided against the STORED tier, so an unchanged tier is
+ * not a change). Best-effort: logs and returns null on a DB error rather than
+ * throwing (a cache-refresh failure never blocks the buyer's verdict). Scoped by
+ * seller_user_id (US-268).
  */
 export async function recomputeSellerGradeIntegrity(
   sellerUserId: string,
-): Promise<SellerIntegrityCounts & { integrity_score: number } | null> {
+): Promise<SellerIntegrityRecomputeResult | null> {
   try {
     const { data, error } = await supabaseAdmin
       .from("grade_outcomes")
@@ -450,6 +620,35 @@ export async function recomputeSellerGradeIntegrity(
     );
     const counts = countableSellerOutcomes(outcomeRows, { sellerUserId });
     const integrity_score = computeSellerIntegrityScore(counts);
+
+    // US-1912 AC1: the tier and the inputs that produced it, computed and
+    // STORED together so the seller's explanation and their public tier are one
+    // snapshot rather than two reads that can disagree.
+    const nowMs = Date.now();
+    const inputs = await loadSellerTierInputs(sellerUserId, nowMs);
+    const tierResult = sellerIntegrityTier({
+      integrityScore: integrity_score,
+      confirmedCount: counts.confirmed_count,
+      avgCoveragePct: inputs.avgCoveragePct,
+      gradedVolume: inputs.gradedVolume,
+      tenureDays: inputs.tenureDays,
+    });
+
+    // The stored tier is the ONLY thing that says whether this recompute is a
+    // change. Reading it before the write is what keeps AC5's idempotence real:
+    // a recompute that lands on the same tier writes the same row and fires
+    // nothing, however many times it runs.
+    const { data: existingRow } = await supabaseAdmin
+      .from("seller_grade_integrity")
+      .select("tier")
+      .eq("seller_user_id", sellerUserId)
+      .maybeSingle();
+    const previousTier =
+      ((existingRow as { tier?: string | null } | null)?.tier as SellerIntegrityTier | undefined) ??
+        "building";
+    const direction = integrityTierDirection(previousTier, tierResult.tier);
+
+    const nowIso = new Date(nowMs).toISOString();
     const { error: upErr } = await supabaseAdmin
       .from("seller_grade_integrity")
       .upsert(
@@ -457,7 +656,18 @@ export async function recomputeSellerGradeIntegrity(
           seller_user_id: sellerUserId,
           ...counts,
           integrity_score,
-          updated_at: new Date().toISOString(),
+          tier: tierResult.tier,
+          tier_displayable: tierResult.displayable,
+          avg_coverage_pct: inputs.avgCoveragePct,
+          graded_volume: inputs.gradedVolume,
+          tenure_days: inputs.tenureDays,
+          // Only a real move rewrites the transition bookkeeping — an unchanged
+          // tier must not keep bumping tier_changed_at, or "when did this last
+          // move" becomes "when did we last recompute".
+          ...(direction === "none"
+            ? {}
+            : { previous_tier: previousTier, tier_changed_at: nowIso }),
+          updated_at: nowIso,
         } as never,
         { onConflict: "seller_user_id" },
       );
@@ -465,10 +675,236 @@ export async function recomputeSellerGradeIntegrity(
       console.error("[BuyerGradeConfirm] seller integrity upsert failed:", upErr.message);
       return null;
     }
-    return { ...counts, integrity_score };
+
+    // AC4 side effects. Best-effort and AFTER the write, so a notification
+    // problem can never lose the recomputed standing itself.
+    if (direction !== "none") {
+      await announceIntegrityTierChange(sellerUserId, previousTier, tierResult, direction);
+    }
+
+    return {
+      ...counts,
+      integrity_score,
+      tier: tierResult.tier,
+      tier_displayable: tierResult.displayable,
+      previous_tier: previousTier,
+      direction,
+      avg_coverage_pct: inputs.avgCoveragePct,
+      tenure_days: inputs.tenureDays,
+      graded_volume: inputs.gradedVolume,
+    };
   } catch (err) {
     console.error(
       "[BuyerGradeConfirm] recomputeSellerGradeIntegrity failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
+/**
+ * US-1912 AC4 — tell the right audience, the right way, about a tier move.
+ *
+ * The asymmetry IS the feature, so it is worth stating plainly: a promotion is
+ * public and rewardable (a reputation event, which the rewards read turns into
+ * the US-1857 celebration); a demotion is private, named, and announced to
+ * nobody but the seller. There is deliberately no `integrity_tier_down` event
+ * type — the reputation ledger feeds public surfaces, so a demotion event would
+ * BE the public announcement this AC forbids, no matter how it were rendered.
+ *
+ * Both halves are best-effort: a failure here must never undo the standing that
+ * was already written, and the next recompute is not a retry (the tier already
+ * matches, so nothing re-fires). That is the safe direction — a missed
+ * congratulation costs nothing, while a lost integrity recompute is real data.
+ */
+async function announceIntegrityTierChange(
+  sellerUserId: string,
+  previousTier: SellerIntegrityTier,
+  result: SellerIntegrityTierResult,
+  direction: IntegrityTierDirection,
+): Promise<void> {
+  try {
+    if (direction === "up") {
+      // Deduped on the tier REACHED, so re-climbing to a tier after a demotion
+      // never pays a second time.
+      await grantReward(sellerUserId, "integrity_tier_up", {
+        referenceId: `integrity_tier:${result.tier}`,
+        metadata: {
+          tier: result.tier,
+          previous_tier: previousTier,
+          label: result.label,
+        },
+        source: "integrity",
+      });
+      return;
+    }
+    // A demotion. Private, and it says WHAT moved — a reputation number that
+    // drops without a reason is the thing sellers cannot act on.
+    await notifyUser(sellerUserId, {
+      type: "integrity_tier_change",
+      title: "Your Grade Integrity standing changed",
+      message: tierDownDriver(previousTier, result),
+      link: "/dashboard/rewards",
+    });
+  } catch (err) {
+    console.error(
+      "[BuyerGradeConfirm] integrity tier announcement failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+// ─── Impure: reading a stored standing (service-role) ──────────────────────
+
+/** The seller's own, fully-explained standing (AC1 — "the seller can view"). */
+export interface SellerIntegrityStanding {
+  tier: SellerIntegrityTier;
+  label: string;
+  displayable: boolean;
+  integrity_score: number;
+  confirmed_count: number;
+  disputed_count: number;
+  avg_coverage_pct: number | null;
+  tenure_days: number | null;
+  graded_volume: number;
+  reasons: string[];
+  next_tier: SellerIntegrityTier | null;
+  next_tier_gaps: string[];
+  tier_changed_at: string | null;
+}
+
+interface StoredIntegrityRow {
+  tier: string | null;
+  tier_displayable: boolean | null;
+  integrity_score: number | string | null;
+  confirmed_count: number | null;
+  disputed_count: number | null;
+  avg_coverage_pct: number | string | null;
+  tenure_days: number | null;
+  graded_volume: number | null;
+  tier_changed_at: string | null;
+}
+
+const STORED_INTEGRITY_COLUMNS =
+  "tier, tier_displayable, integrity_score, confirmed_count, disputed_count, " +
+  "avg_coverage_pct, tenure_days, graded_volume, tier_changed_at";
+
+/** A seller with no outcomes yet still has a standing: the pre-floor one. */
+function emptyStanding(): SellerIntegrityStanding {
+  const derived = sellerIntegrityTier({ integrityScore: 100, confirmedCount: 0 });
+  return {
+    tier: "building",
+    label: SELLER_INTEGRITY_TIER_LABELS.building,
+    displayable: false,
+    integrity_score: 100,
+    confirmed_count: 0,
+    disputed_count: 0,
+    avg_coverage_pct: null,
+    tenure_days: null,
+    graded_volume: 0,
+    reasons: derived.reasons,
+    next_tier: derived.nextTier,
+    next_tier_gaps: derived.nextTierGaps,
+    tier_changed_at: null,
+  };
+}
+
+/**
+ * Load a seller's own standing with the full explanation (AC1). Scoped to the
+ * caller's own user id (US-268).
+ *
+ * The STORED tier is the answer — it is what the public surfaces show, so the
+ * seller's screen must agree with it. The explanation is re-derived from the
+ * stored INPUT snapshot rather than from live reads, so the reasons on screen
+ * describe the same moment the tier came from. (If the ladder is edited between
+ * recomputes the two can briefly disagree on the derived tier; the stored one
+ * still wins, because that is the one buyers are being shown.)
+ */
+export async function loadSellerIntegrityStanding(
+  sellerUserId: string,
+): Promise<SellerIntegrityStanding> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("seller_grade_integrity")
+      .select(STORED_INTEGRITY_COLUMNS)
+      .eq("seller_user_id", sellerUserId)
+      .maybeSingle();
+    if (error) throw error;
+    const row = data as unknown as StoredIntegrityRow | null;
+    if (!row) return emptyStanding();
+
+    const integrityScore = Number(row.integrity_score ?? 100);
+    const confirmed = row.confirmed_count ?? 0;
+    const coverage = row.avg_coverage_pct == null ? null : Number(row.avg_coverage_pct);
+    const derived = sellerIntegrityTier({
+      integrityScore,
+      confirmedCount: confirmed,
+      avgCoveragePct: coverage,
+      gradedVolume: row.graded_volume ?? 0,
+      tenureDays: row.tenure_days,
+    });
+    const tier = (row.tier as SellerIntegrityTier | null) ?? derived.tier;
+    return {
+      tier,
+      label: SELLER_INTEGRITY_TIER_LABELS[tier] ?? derived.label,
+      displayable: row.tier_displayable ?? derived.displayable,
+      integrity_score: integrityScore,
+      confirmed_count: confirmed,
+      disputed_count: row.disputed_count ?? 0,
+      avg_coverage_pct: coverage,
+      tenure_days: row.tenure_days,
+      graded_volume: row.graded_volume ?? 0,
+      reasons: derived.reasons,
+      next_tier: derived.nextTier,
+      next_tier_gaps: derived.nextTierGaps,
+      tier_changed_at: row.tier_changed_at,
+    };
+  } catch (err) {
+    console.error(
+      "[BuyerGradeConfirm] integrity standing load failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return emptyStanding();
+  }
+}
+
+/** The PUBLIC projection: a tier name and nothing else. */
+export interface PublicSellerIntegrity {
+  tier: SellerIntegrityTier;
+  label: string;
+}
+
+/**
+ * US-1912 AC3 — the tier for a PUBLIC surface (verified profile, certificate).
+ *
+ * Returns null unless the stored tier is DISPLAYABLE, which is the anti-gaming
+ * floor from AC2 doing its job at the read: a seller under the floor shows
+ * nothing at all, never "building history" rendered as a low rank and never a
+ * score. Nothing else about the seller — no counts, no dispute numbers, no
+ * coverage, no id — crosses this boundary; a tier name is a rank, while the
+ * counts underneath it are a business metric that belongs to the seller.
+ */
+export async function loadPublicSellerIntegrity(
+  sellerUserId: string,
+): Promise<PublicSellerIntegrity | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("seller_grade_integrity")
+      .select("tier, tier_displayable")
+      .eq("seller_user_id", sellerUserId)
+      .eq("tier_displayable", true)
+      .maybeSingle();
+    if (error) throw error;
+    const row = data as { tier: string | null } | null;
+    const tier = row?.tier as SellerIntegrityTier | undefined;
+    if (!tier || tier === "building") return null;
+    return { tier, label: SELLER_INTEGRITY_TIER_LABELS[tier] };
+  } catch (err) {
+    // Fail CLOSED on a public surface: an unreadable standing shows no badge
+    // rather than a stale or default one. A missing badge is a non-event; a
+    // wrong badge is a trust claim we did not verify.
+    console.error(
+      "[BuyerGradeConfirm] public integrity load failed:",
       err instanceof Error ? err.message : String(err),
     );
     return null;

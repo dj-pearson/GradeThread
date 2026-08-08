@@ -46,7 +46,11 @@ export type NotificationType =
   // US-1859: re-engagement nudges (streak-at-risk, near-miss, quests, expiring
   // rewards). Its own category because it is the only notification that fires
   // because the user did NOTHING — see lib/rewards-nudges.ts.
-  | "reward_nudge";
+  | "reward_nudge"
+  // US-1912: the seller's Grade Integrity tier moved. This is the PRIVATE half
+  // of a deliberately asymmetric pair — a promotion is announced publicly via
+  // the reputation ledger, a demotion is only ever told to the seller, here.
+  | "integrity_tier_change";
 
 // Which notification_preferences category gates each type's in-app delivery.
 // `null` types are always delivered (e.g. system messages the user can't mute).
@@ -90,6 +94,11 @@ export const PREF_KEY: Record<NotificationType, string | null> = {
   // folding it under an existing toggle would make a sentence somebody already
   // agreed to retroactively false.
   reward_nudge: "reward_nudges",
+  // US-1912: same reasoning as reward_nudges — its own category, not a reuse.
+  // No existing toggle's copy covers "your standing with buyers changed", and
+  // the one message it delivers (a demotion, with its driver) is the one a
+  // seller is most entitled to both receive AND be able to turn off.
+  integrity_tier_change: "integrity_updates",
 };
 
 export interface NotifyInput {

@@ -68,6 +68,26 @@ export function snapshotFromRewards(
 
 // ─── Events ─────────────────────────────────────────────────────────────────
 
+/**
+ * Ladder order for the US-1912 integrity tier, mirroring INTEGRITY_TIER_RANK in
+ * services/edge-functions/src/lib/buyer-grade-confirmation.ts. An unknown or
+ * absent tier ranks below every real one, so a first tier reads as a promotion
+ * and a tier we don't recognise never outranks one we do.
+ */
+const INTEGRITY_TIER_ORDER = [
+  "building",
+  "verified",
+  "reliable",
+  "trusted",
+  "elite",
+] as const;
+
+function integrityRank(tier: string | null): number {
+  if (!tier) return -1;
+  const i = INTEGRITY_TIER_ORDER.indexOf(tier as (typeof INTEGRITY_TIER_ORDER)[number]);
+  return i < 0 ? -1 : i;
+}
+
 export type CelebrationKind =
   | "level_up"
   | "integrity_tier"
@@ -143,9 +163,18 @@ export function detectCelebrations(
     });
   }
 
-  // Integrity tier (US-1912). Guarded on a non-null NEW value so "not wired yet"
-  // and "dropped back to unrated" both stay silent.
-  if (next.integrityTier && next.integrityTier !== prev.integrityTier) {
+  // Integrity tier (US-1912). Only a PROMOTION celebrates. A bare
+  // `next !== prev` would throw confetti at a demotion — the tier string does
+  // change — and the seller is told about a drop privately, by the edge, with
+  // its driver. Congratulating someone on losing standing is the one outcome
+  // this branch must never produce, so it compares RANK, not equality. A null
+  // new value ("not wired yet", or dropped back below the display floor) stays
+  // silent on both sides.
+  if (
+    next.integrityTier &&
+    next.integrityTier !== prev.integrityTier &&
+    integrityRank(next.integrityTier) > integrityRank(prev.integrityTier)
+  ) {
     big.push({
       id: `integrity:${next.integrityTier}`,
       kind: "integrity_tier",

@@ -27,6 +27,9 @@ export type RewardEventType =
   // US-1854: a shared find crossed a verified-reach rung. Also variable XP, and
   // bounded by the same ceiling.
   | "share_milestone"
+  // US-1912: the seller's Grade Integrity tier went UP. There is no matching
+  // "down" type on purpose — see announceIntegrityTierChange.
+  | "integrity_tier_up"
   // Shared with the trust track — these ALSO carry XP (a paid grade / confirmed
   // arrival is both a trust signal and a rewardable action).
   | "verified_purchase"
@@ -49,6 +52,10 @@ export const REWARD_XP_CATALOG: Record<RewardEventType, number> = {
   aspects_filled: 10, // listing quality / SEO surface
   quest_completed: 0, // VARIABLE — the real amount rides on the event (US-1852)
   share_milestone: 0, // VARIABLE — the rung's award rides on the event (US-1854)
+  // US-1912: proven post-sale accuracy — the hardest signal on this list to
+  // manufacture (it takes ten real buyers confirming real arrivals), so it
+  // scores above every act a seller can perform alone.
+  integrity_tier_up: 60,
 };
 
 /**

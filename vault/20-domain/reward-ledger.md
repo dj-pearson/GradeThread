@@ -18,6 +18,7 @@ code_refs:
   - services/edge-functions/src/lib/leaderboards.ts
   - services/edge-functions/src/lib/leaderboards-data.ts
   - services/edge-functions/src/lib/badge-analytics.ts
+  - services/edge-functions/src/lib/buyer-grade-confirmation.ts
   - src/lib/buyer-rewards-summary.ts
   - src/lib/reward-celebrations.ts
 reviewed: 2026-08-07
@@ -545,6 +546,64 @@ or the control group would end the experiment MORE eligible than the treated one
 The calendar is the shared one: streak weeks come from `questWindow`'s
 Monday-anchored week in `rewards_season_timezone`, not a second derivation — the
 same "one calendar" rule the leaderboards follow.
+
+## Seller Grade Integrity: the standing buyers decide (US-1912)
+
+Everything else on this page is a reward for something the seller **did**. Grade
+Integrity is the one standing they cannot perform: it is computed from what
+buyers reported after delivery — did the item match the grade — and cached per
+seller in `seller_grade_integrity` (00421, tiered by 00552). The pure engine is
+`sellerIntegrityTier` in `lib/buyer-grade-confirmation.ts`; the ladder is
+`building → verified → reliable → trusted → elite`, and the thresholds ARE the
+policy, legible on purpose like `REWARD_XP_CATALOG` above.
+
+### A tier is withheld, never rendered badly
+
+Below `MIN_CONFIRMED_FOR_TIER` (10 confirmed outcomes) there is **no tier at
+all**: `tier_displayable` is false and every public read returns null. Not a low
+tier, not a score, nothing. This is the anti-gaming floor doing double duty — it
+stops one lucky outcome minting a rank, and it stops a new seller being
+publicly branded before they have a record. Rendering the pre-floor state as a
+rank would produce exactly the early-bad-score the floor exists to prevent.
+
+The floor is enforced at the **read** (`loadPublicSellerIntegrity`), not at each
+renderer. A renderer that re-checks it is a second copy of an anti-gaming rule,
+and a copied rule goes stale on one side. Guards:
+`src/test/cert-seller-integrity-parity.test.ts`,
+`src/test/verified-achievements-parity.test.ts`.
+
+### A confirmation only counts if someone independent gave it
+
+`countableSellerOutcomes` drops self-purchase and linked-account confirmations
+(the referral self-click idea, US-864), and `withDisputeResolution` counts a
+dispute **only once a `human_reviews` row exists for its report** — a row
+existing *is* the resolution, there is no status column. An escalated dispute is
+therefore *pending*, counted in neither column, until an expert rules. If the
+review read fails, the set stays empty and escalated disputes stay pending for
+that run: an unreadable table must not start denting public reputation numbers on
+a database blip.
+
+### A promotion is public. A demotion is private. This asymmetry is load-bearing.
+
+- **Up** → `grantReward(sellerUserId, "integrity_tier_up", …)`, deduped on the
+  tier *reached*, so losing and re-earning a tier never pays twice. The seller's
+  next rewards read turns it into a `celebrate` moment.
+- **Down** → an in-app `integrity_tier_change` notification to the seller alone,
+  naming the specific driver (built from the same `nextTierGaps` their own screen
+  shows, so the two can never disagree).
+
+There is deliberately **no `integrity_tier_down` event type**, and adding one
+would not be a small change: `reputation_events` feeds public surfaces, so a
+demotion event *is* a public announcement of a demotion however it is rendered.
+For the same reason `detectCelebrations` compares tier **rank**, not equality — a
+bare `next !== prev` throws confetti at someone who just lost standing.
+
+### The tier is not a quest metric
+
+`integrity_tier_up` is excluded from `QUEST_METRICS` and absent from the 00540
+CHECK. A standing moves at most four times in a seller's life and buyers decide
+when, so a quest counting it is one nobody can work toward — and it would be a
+validator that passes beside an insert that 23514s.
 
 ## Wiring a new source
 

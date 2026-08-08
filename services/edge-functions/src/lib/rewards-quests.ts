@@ -77,7 +77,14 @@ export const QUEST_METRICS: readonly QuestMetric[] = [
     // reach ladder, so a quest counting it pays a second, uncapped time for the
     // same viral event — and the 00540 CHECK does not allow it either, so
     // offering it would be a validator that passes and an insert that fails.
-    (t) => t !== "quest_completed" && t !== "share_milestone",
+    // `integrity_tier_up` (US-1912): a tier is a standing, not an action — it
+    // can move at most four times in a seller's life and it is decided by
+    // BUYERS, so a quest counting it is a quest nobody can work toward. It is
+    // also absent from the 00540 CHECK, so offering it would be a validator that
+    // passes and an insert that 23514s.
+    (t) =>
+      t !== "quest_completed" && t !== "share_milestone" &&
+      t !== "integrity_tier_up",
   ),
   "xp",
 ];

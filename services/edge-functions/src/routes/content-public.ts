@@ -37,6 +37,7 @@ import {
 } from "../lib/rewards-badges.ts";
 import { grantReward, isOffPlatformEmbedReferer } from "../lib/rewards-engine.ts";
 import { isFrameUnlocked, publicLevelFlair, tierForLevel } from "../lib/rewards-levels.ts";
+import { loadPublicSellerIntegrity } from "../lib/buyer-grade-confirmation.ts";
 import { projectTrustSignals } from "../lib/buyer-trust-signals.ts";
 import {
   brandFacets,
@@ -817,6 +818,45 @@ async function loadPublicCertReport(certId: string) {
 // outlive a single render.
 const CERT_IMAGE_TTL = 15 * 60;
 
+/** The grader's public standing as shown on a certificate (US-1912 AC3). */
+interface CertSellerIntegrity {
+  tier: string;
+  label: string;
+  /** The verified profile the tier is checkable against. */
+  handle: string;
+}
+
+/**
+ * Resolve the certificate's grader to a PUBLIC integrity tier, or null.
+ *
+ * Null on every uncertain path — no seller, no public profile, standing below
+ * the floor, or a read error. A missing badge on a certificate is invisible; a
+ * badge we could not verify is a trust claim, and this surface exists precisely
+ * because buyers act on it.
+ */
+async function loadCertSellerIntegrity(
+  sellerUserId: string | null,
+): Promise<CertSellerIntegrity | null> {
+  if (!sellerUserId) return null;
+  try {
+    const { data } = await supabaseAdmin
+      .from("users")
+      .select("verified_handle, verified_enabled")
+      .eq("id", sellerUserId)
+      .maybeSingle();
+    const seller = data as
+      | { verified_handle: string | null; verified_enabled: boolean | null }
+      | null;
+    if (!seller?.verified_enabled || !seller.verified_handle) return null;
+    const standing = await loadPublicSellerIntegrity(sellerUserId);
+    if (!standing) return null;
+    return { ...standing, handle: seller.verified_handle };
+  } catch (err) {
+    console.error("[content-public] cert seller integrity failed:", err);
+    return null;
+  }
+}
+
 // ── GET /certificates/:id ─────────────────────────────────────────
 // Public certificate by certificate_id. Returns 404 for any id that doesn't
 // map to a certified (public) report — never leaks a private report.
@@ -836,7 +876,10 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   const { data: submission } = await supabaseAdmin
     .from("submissions")
     .select(
-      "title, brand, garment_type, garment_category, description, flagged, moderation_status, status",
+      // user_id is read for the US-1912 seller-integrity lookup below and is
+      // NEVER put on the response — the fields below are picked one by one, so
+      // it cannot ride along by accident the way a spread would let it.
+      "user_id, title, brand, garment_type, garment_category, description, flagged, moderation_status, status",
     )
     .eq("id", rep.submission_id)
     .maybeSingle();
@@ -892,8 +935,27 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   // buyer surface can never diverge from what the public cert page shows.
   const trust = projectTrustSignals(rep);
 
+  // US-1912 AC3: the grader's Grade Integrity tier, on the certificate itself —
+  // the page where a buyer is deciding whether to believe a grade is the page
+  // where "how often has this grader been proven right" belongs.
+  //
+  // Two gates, both of which must hold. The seller must have OPTED IN to a
+  // public profile (verified_enabled): a tier is a public reputation claim, and
+  // a seller who never made their standing public does not acquire one by having
+  // graded something. And the tier must clear the AC2 anti-gaming floor, which
+  // loadPublicSellerIntegrity enforces. Either gate failing yields null and the
+  // section simply does not render — a certificate never shows a bad standing,
+  // only an earned good one. Nothing identifying is added beyond the handle the
+  // seller already published.
+  const sellerIntegrity = await loadCertSellerIntegrity(
+    (submission as { user_id?: string | null } | null)?.user_id ?? null,
+  );
+
   return c.json({
     certificate: {
+      // Null unless the grader publishes a verified profile AND their standing
+      // clears the display floor.
+      seller_integrity: sellerIntegrity,
       ...publicReport,
       // US-340: positive-only device/recency pass; raw reasons stay server-side.
       verified_capture_passed: trust.verifiedCapture,
@@ -1935,6 +1997,14 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
   // follows. Fail-closed to Thrifter (level 0) on any read problem.
   const flair = publicLevelFlair(await rewardLevelFor(seller.id));
 
+  // US-1912 AC3: the Grade Integrity tier. Projected through
+  // loadPublicSellerIntegrity, which sends a tier NAME and nothing else — the
+  // confirmed/disputed counts under it are the seller's business, and the
+  // anti-gaming floor is enforced there, so a seller below it gets null and the
+  // section simply does not render. Distinct from the level flair beside it:
+  // level is how much they DO, integrity is how right they have been PROVEN.
+  const integrity = await loadPublicSellerIntegrity(seller.id);
+
   return c.json({
     seller: {
       handle: seller.verified_handle,
@@ -1944,6 +2014,7 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
     },
     achievements,
     level: flair,
+    integrity,
     stats: {
       total_graded: total,
       // True when we hit the sample ceiling — the page can show "1,000+".

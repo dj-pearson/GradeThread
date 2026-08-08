@@ -117,6 +117,10 @@ const ROUTE_ADDED = new Set([
   // US-1766: same shape again — the live reading of that badge.
   "video_live_capture_verified",
   "original_photos_verified",
+  // US-1912: the grader's Grade Integrity standing. Not a grade_reports column
+  // at all — the route resolves it from the submission's owner, so it belongs
+  // here rather than in the report allowlist.
+  "seller_integrity",
 ]);
 
 /** Top-level field names of `interface PublicCertificate { … }`. */

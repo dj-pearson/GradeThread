@@ -271,6 +271,13 @@ export function CertificatePage() {
   const [searchParams] = useSearchParams();
   const [gradeReport, setGradeReport] = useState<PublicGradeReportRow | null>(null);
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
+  // US-1912: the grader's Grade Integrity standing, or null when they have none
+  // to show. The SSR Pages Function renders the same field from the same payload.
+  const [sellerIntegrity, setSellerIntegrity] = useState<{
+    tier: string;
+    label: string;
+    handle: string;
+  } | null>(null);
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -364,6 +371,9 @@ export function CertificatePage() {
       setError(null);
       setGradeReport(null);
       setPassportSlug(null);
+      // US-1632's A→B navigation guard applies here too: a stale standing from
+      // the previous certificate would attribute one seller's record to another.
+      setSellerIntegrity(null);
 
       // US-348: read the column-restricted public_grade_reports view, not the
       // base table. Anonymous viewers get only public-safe certificate fields.
@@ -424,6 +434,14 @@ export function CertificatePage() {
               garment_type: string | null;
               garment_category: string | null;
               description: string | null;
+              // US-1912: the grader's Grade Integrity standing. Null unless they
+              // publish a verified profile AND clear the display floor — the
+              // edge decides both, so this page just renders what it is given.
+              seller_integrity?: {
+                tier: string;
+                label: string;
+                handle: string;
+              } | null;
               images?: Array<{
                 id: string;
                 image_type: string;
@@ -433,6 +451,7 @@ export function CertificatePage() {
             };
           };
           if (certificate) {
+            setSellerIntegrity(certificate.seller_integrity ?? null);
             setSubmission({
               title: certificate.title,
               brand: certificate.brand,
@@ -1182,6 +1201,33 @@ export function CertificatePage() {
                     These images were checked against our database and don&apos;t
                     match photos from any other seller — they&apos;re the
                     seller&apos;s own, not stock or reused listing photos.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* US-1912: the grader's Grade Integrity standing. Distinct from
+                every badge above it — those describe THIS capture, while this
+                describes how often buyers, after delivery, confirmed that a
+                grade from this seller matched. Positive-only in the same way:
+                a seller below the anti-gaming floor sends null and nothing
+                renders, so its absence is never a negative claim. */}
+            {sellerIntegrity && (
+              <div className="flex items-start gap-3">
+                <BadgeCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-foreground" />
+                <div>
+                  <p className="text-sm font-medium">
+                    Graded by a {sellerIntegrity.label}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    A Grade Integrity standing earned from buyers confirming,
+                    after delivery, that the grade matched.{" "}
+                    <Link
+                      to={`/verified/${sellerIntegrity.handle}`}
+                      className="underline underline-offset-2"
+                    >
+                      See this seller&apos;s record
+                    </Link>
                   </p>
                 </div>
               </div>

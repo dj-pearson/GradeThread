@@ -30,6 +30,10 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   // email is a marketing email, and the `marketing` umbrella already governs
   // those (the nudge engine honors it as a second gate).
   reward_nudges: { in_app: true, push: true },
+  // US-1912: Grade Integrity standing. No email channel — the only message this
+  // category ever sends is a private demotion notice, and a demotion arriving by
+  // email reads as a punishment letter.
+  integrity_updates: { in_app: true, push: true },
 };
 
 type PrefKey = keyof NotificationPreferences;
@@ -134,6 +138,16 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     label: "Reward reminders",
     description:
       "Occasional nudges when a streak is about to break, a badge is one step away, a new quest opens, or a reward you were granted is about to expire. Capped to a couple a week.",
+    channels: ["in_app", "push"],
+  },
+  {
+    // US-1912: its own toggle because no other category's copy covers "your
+    // standing with buyers changed" — and this is the one notice a seller is
+    // most entitled to be able to switch off.
+    key: "integrity_updates",
+    label: "Grade Integrity standing",
+    description:
+      "When your Grade Integrity tier moves, with the specific reason. Only ever sent to you.",
     channels: ["in_app", "push"],
   },
   {
@@ -325,6 +339,12 @@ export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
     label: "Reward reminder",
     description: "A streak, badge, quest, or expiring-reward nudge.",
     prefKey: "reward_nudges",
+  },
+  {
+    type: "integrity_tier_change",
+    label: "Grade Integrity standing",
+    description: "Your Grade Integrity tier moved, and what moved it.",
+    prefKey: "integrity_updates",
   },
   {
     type: "system",

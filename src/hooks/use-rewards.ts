@@ -136,6 +136,45 @@ const EMPTY_BADGES: RewardBadgeShelf = {
 
 const EMPTY_MILESTONES: MilestoneProgress = { enabled: false, granted: [], next: null };
 
+/**
+ * US-1912: the seller's Grade Integrity standing — proven post-sale accuracy,
+ * not activity. Every field is an explanation of the tier, because a reputation
+ * number a seller cannot account for is one they cannot act on: `reasons` says
+ * why they are where they are, `next_tier_gaps` says exactly what would move
+ * them, and `displayable` says whether buyers can see it at all yet.
+ */
+export interface IntegrityStanding {
+  tier: string;
+  label: string;
+  displayable: boolean;
+  integrity_score: number;
+  confirmed_count: number;
+  disputed_count: number;
+  avg_coverage_pct: number | null;
+  tenure_days: number | null;
+  graded_volume: number;
+  reasons: string[];
+  next_tier: string | null;
+  next_tier_gaps: string[];
+  tier_changed_at: string | null;
+}
+
+const EMPTY_INTEGRITY: IntegrityStanding = {
+  tier: "building",
+  label: "Building history",
+  displayable: false,
+  integrity_score: 100,
+  confirmed_count: 0,
+  disputed_count: 0,
+  avg_coverage_pct: null,
+  tenure_days: null,
+  graded_volume: 0,
+  reasons: [],
+  next_tier: null,
+  next_tier_gaps: [],
+  tier_changed_at: null,
+};
+
 export interface RewardsState {
   level: RewardLevel;
   season: RewardSeason;
@@ -143,6 +182,7 @@ export interface RewardsState {
   perks: { unlocked: CosmeticPerk[]; locked: CosmeticPerk[] };
   badges: RewardBadgeShelf;
   milestones: MilestoneProgress;
+  integrity: IntegrityStanding;
   season_timezone: string;
 }
 
@@ -163,6 +203,10 @@ export function useRewards() {
         ...state,
         badges: state.badges ?? EMPTY_BADGES,
         milestones: state.milestones ?? EMPTY_MILESTONES,
+        // US-1912: an edge that predates it sends no integrity block. Default to
+        // the pre-floor standing, never to a tier — mid-deploy, "we don't know"
+        // must read as "nothing to show", not as a rank nobody earned.
+        integrity: state.integrity ?? EMPTY_INTEGRITY,
       };
     },
     enabled: !!user?.id,

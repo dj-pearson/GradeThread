@@ -129,12 +129,43 @@ describe("detectCelebrations", () => {
     expect(events.map((e) => e.kind)).not.toContain("season_complete");
   });
 
-  it("stays silent on the integrity tier until US-1912 actually emits one", () => {
+  it("stays silent on the integrity tier when there is none to show", () => {
     const events = detectCelebrations(snap(), snap({ integrityTier: null }), CTX);
     expect(events.map((e) => e.kind)).not.toContain("integrity_tier");
 
-    const wired = detectCelebrations(snap(), snap({ integrityTier: "gold" }), CTX);
+    const wired = detectCelebrations(snap(), snap({ integrityTier: "reliable" }), CTX);
     expect(wired.map((e) => e.kind)).toContain("integrity_tier");
+  });
+
+  // US-1912: a demotion changes the tier string exactly like a promotion does,
+  // so equality alone would throw confetti at someone who just lost standing.
+  // The seller hears about a drop privately, from the edge, with its driver —
+  // this surface must stay silent.
+  it("never celebrates an integrity tier going DOWN", () => {
+    const down = detectCelebrations(
+      snap({ integrityTier: "trusted" }),
+      snap({ integrityTier: "verified" }),
+      CTX,
+    );
+    expect(down.map((e) => e.kind)).not.toContain("integrity_tier");
+
+    const up = detectCelebrations(
+      snap({ integrityTier: "verified" }),
+      snap({ integrityTier: "trusted" }),
+      CTX,
+    );
+    expect(up.map((e) => e.kind)).toContain("integrity_tier");
+  });
+
+  // Falling below the display floor is a demotion to "building history", which
+  // is not a moment either.
+  it("never celebrates dropping to the pre-floor building state", () => {
+    const events = detectCelebrations(
+      snap({ integrityTier: "elite" }),
+      snap({ integrityTier: "building" }),
+      CTX,
+    );
+    expect(events.map((e) => e.kind)).not.toContain("integrity_tier");
   });
 
   it("celebrates a tangible grant (each one is granted exactly once, ever)", () => {

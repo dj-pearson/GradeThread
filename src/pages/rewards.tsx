@@ -29,6 +29,7 @@ import { useNudgeAttribution } from "@/hooks/use-nudge-attribution";
 import { QuestsPanel } from "@/components/rewards/quests-panel";
 import { LeaderboardPanel } from "@/components/rewards/leaderboard-panel";
 import { BadgeShelf } from "@/components/rewards/badge-shelf";
+import { IntegrityStandingCard } from "@/components/rewards/integrity-standing";
 import { MilestoneRewards } from "@/components/rewards/milestone-rewards";
 import { RewardCelebrations } from "@/components/rewards/reward-celebrations";
 import { shareRewardCard } from "@/lib/reward-share";
@@ -129,7 +130,7 @@ export function RewardsPage() {
     );
   }
 
-  const { level, season, perks, recaps, badges, milestones } = rewards;
+  const { level, season, perks, recaps, badges, milestones, integrity } = rewards;
   const TierIcon = ICONS[level.tier.icon] ?? Trophy;
   const remaining = daysLeft(season.ends_at);
 
@@ -207,6 +208,12 @@ export function RewardsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* US-1912: Grade Integrity. Placed directly under the level card and
+          above everything else on purpose — it is the only standing on this page
+          a seller cannot earn by activity, so it should not sit below the things
+          they can. */}
+      <IntegrityStandingCard integrity={integrity} />
 
       {/* US-1857: the badge gallery — earned medals plus what's still to earn. */}
       <BadgeShelf shelf={badges} />

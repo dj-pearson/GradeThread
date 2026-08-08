@@ -16,6 +16,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { readRewardState } from "../lib/rewards-engine.ts";
+import { loadSellerIntegrityStanding } from "../lib/buyer-grade-confirmation.ts";
 import {
   isShareTargetType,
   normalizeShareChannel,
@@ -85,14 +86,21 @@ rewardsRoutes.get("/state", async (c) => {
     // from the same XP total the level card shows, and splitting them would let
     // the widget render a level the "next reward" bar disagrees with. Both are
     // internally best-effort, so neither can take the screen down.
-    const [badges, milestones] = await Promise.all([
+    // US-1912 AC1/AC4: the seller's Grade Integrity standing rides this read for
+    // the same reason the badge shelf does — it is cheap, it is part of the same
+    // "where do I stand" answer, and it is what the US-1857 celebration diff
+    // watches for a tier change. Internally best-effort (it degrades to the
+    // pre-floor standing), so it cannot take the screen down.
+    const [badges, milestones, integrity] = await Promise.all([
       loadBadgeShelf(userId),
       loadMilestoneProgress(userId, progress.xpTotal),
+      loadSellerIntegrityStanding(userId),
     ]);
 
     return c.json({
       badges,
       milestones,
+      integrity,
       level: {
         level: progress.level,
         xp_total: progress.xpTotal,

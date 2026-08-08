@@ -77,4 +77,35 @@ describe("verified profile achievements (US-1850 AC3)", () => {
       );
     }
   });
+// US-1912: the Grade Integrity tier rides the SAME payload, so it inherits the
+  // same trap — and it is worse here than for a medal, because a tier is a trust
+  // claim. A profile that renders it on one path and not the other tells two
+  // different buyers two different things about the same seller.
+  it("the edge seller payload carries the projected integrity tier", () => {
+    // Projected — loadPublicSellerIntegrity enforces the anti-gaming display
+    // floor and sends a tier NAME only, never the counts underneath it.
+    expect(edgeRoute).toContain("loadPublicSellerIntegrity(seller.id)");
+    expect(edgeRoute).toContain("integrity,");
+  });
+
+  it("both renderers render the integrity tier", () => {
+    expect(ssr).toContain("data.integrity");
+    expect(ssr).toContain("${integrityHtml}");
+    expect(spa).toContain("data.integrity");
+    expect(spa).toContain("data.integrity.label");
+  });
+
+  it("neither renderer re-decides who is worth showing", () => {
+    // The floor lives in ONE place, at the edge read. A renderer that
+    // re-implemented it would be a second copy of a privacy/anti-gaming rule,
+    // and a copied rule goes stale on one side.
+    for (const [name, src] of [['ssr', ssr], ['spa', spa]]) {
+      expect(src, name + ' re-implements the confirmed-outcome floor').not.toContain(
+        'MIN_CONFIRMED_FOR_TIER',
+      );
+      expect(src, name + ' exposes the raw integrity score').not.toContain(
+        'integrity_score',
+      );
+    }
+  });
 });
